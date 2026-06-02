@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electricity proposals — the debated successor to the audit</title>
+<style>
+  :root{
+    --bg:#fafaf7; --panel:#ffffff; --panel2:#f4eefb; --ink:#1a1c20; --dim:#5b6470;
+    --line:#e6e2d6; --accent:#6b4eff; --accent2:#7c4dd4; --good:#1b7a3a; --bad:#a02a2a;
+    --warn:#a96400; --teal:#0e7490; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{ box-sizing:border-box; } html{ scroll-behavior:smooth; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; padding:2.4rem 1.25rem 6rem; }
+  main{ max-width:880px; margin:0 auto; }
+  a{ color:var(--accent); text-decoration:none; } a:hover{ text-decoration:underline; }
+  .crumb{ font-family:var(--mono); font-size:.72rem; color:var(--dim); letter-spacing:.04em; margin:0 0 1.1rem; }
+  .crumb a{ color:var(--dim); } .crumb a:hover{ color:var(--accent); }
+  h1{ font-size:1.7rem; line-height:1.2; margin:0 0 .35rem; letter-spacing:-.01em; }
+  h2{ font-size:1.12rem; margin:2.6rem 0 .7rem; padding-bottom:.35rem; border-bottom:1px solid var(--line); color:#13151b; scroll-margin-top:1rem; }
+  h3{ font-size:1rem; margin:.2rem 0 .35rem; color:var(--accent); }
+  h4{ font-size:.78rem; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:1rem 0 .3rem; }
+  .sub{ color:var(--dim); margin:.1rem 0 1.3rem; font-size:.95rem; }
+  p{ margin:.6rem 0; } ul,ol{ margin:.5rem 0; padding-left:1.3rem; } li{ margin:.32rem 0; }
+  code{ font-family:var(--mono); font-size:.85em; background:#f4f1e8; padding:.08em .35em; border-radius:4px; color:#2a2d33; }
+  pre{ background:#f6f3ea; border:1px solid var(--line); border-radius:8px; padding:.8rem 1rem; overflow-x:auto; font-family:var(--mono); font-size:.78rem; line-height:1.55; }
+  pre code{ background:none; padding:0; white-space:pre; }
+  .cite{ font-family:var(--mono); font-size:.78em; color:var(--teal); }
+  .muted{ color:var(--dim); }
+  .tag{ display:inline-block; font-family:var(--mono); font-size:.64rem; text-transform:uppercase; letter-spacing:.04em; padding:.12em .55em; border-radius:999px; vertical-align:middle; border:1px solid transparent; }
+  .tag.seedling{ background:#f8efd9; color:#8a5200; border-color:#e8d3a3; }
+  .tag.budding{ background:#dcf0f4; color:#0b6478; border-color:#bfe3ea; }
+  .tag.evergreen{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .tag.accent{ background:#efebff; color:#5a3ff0; border-color:#d4cbff; }
+  .tag.good{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .tag.warn{ background:#f8efd9; color:#8a5200; border-color:#e8d3a3; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:1rem 1.2rem; margin:1rem 0; }
+  .panel.accent{ border-left:3px solid var(--accent); }
+  .panel.good{ border-left:3px solid var(--good); }
+  .panel.warn{ border-left:3px solid var(--warn); }
+  .panel.corr{ border-left:3px solid var(--accent2); background:var(--panel2); }
+  .band{ display:grid; grid-template-columns:repeat(4,1fr); gap:.7rem; margin:1.1rem 0 .4rem; }
+  @media (max-width:640px){ .band{ grid-template-columns:repeat(2,1fr); } }
+  .stat{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:.7rem .85rem; text-align:center; }
+  .stat .n{ font-size:1.5rem; font-weight:700; letter-spacing:-.02em; line-height:1.1; }
+  .stat .l{ font-family:var(--mono); font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); margin-top:.2rem; }
+  .stat.propose .n{ color:var(--accent); }
+  .stat.fix .n{ color:var(--teal); }
+  .stat.reject .n{ color:var(--bad); }
+  .stat.ship .n{ color:var(--good); }
+  .pcard h3{ display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap; }
+  .pcard h3 .id{ font-family:var(--mono); }
+  .pcard h3 .kind{ font-family:var(--mono); font-size:.66rem; color:var(--dim); border:1px solid var(--line); border-radius:5px; padding:.05em .45em; text-transform:none; letter-spacing:0; }
+  .lens{ display:grid; grid-template-columns:1fr 1fr; gap:.8rem; margin:.7rem 0; }
+  @media (max-width:640px){ .lens{ grid-template-columns:1fr; } }
+  .lens .col{ background:#f6f3ea; border:1px solid var(--line); border-radius:8px; padding:.6rem .8rem; font-size:.84rem; }
+  .lens .col h4{ margin:0 0 .25rem; color:var(--accent2); }
+  table{ width:100%; border-collapse:collapse; margin:1rem 0; font-size:.85rem; }
+  th,td{ text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ color:var(--dim); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; }
+  .flow{ display:flex; gap:.45rem; flex-wrap:wrap; align-items:center; font-family:var(--mono); font-size:.74rem; margin:.8rem 0; }
+  .flow span{ background:#f4f1e8; border:1px solid var(--line); border-radius:6px; padding:.3rem .55rem; }
+  .flow .arrow{ background:none; border:none; color:var(--dim); padding:0; }
+  .flow .hot{ background:#efebff; color:var(--accent); border-color:#cfc4ff; }
+  hr{ border:none; border-top:1px solid var(--line); margin:2.2rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+<p class="crumb"><a href="./index.html">docs/plans</a> / electricity-proposals</p>
+
+<h1>Electricity proposals — the debated successor</h1>
+<p class="sub">A fresh, blind structural sweep, reconciled by a lowy⇄hickey debate into six actionable receptacle decisions. <span class="tag budding">budding</span> &nbsp;<span class="muted">captured 2026-06-01 · sibling of <a href="../electricity-review.html">electricity-review.html</a></span></p>
+
+<div class="panel accent">
+<p style="margin-top:0">The <a href="../electricity-review.html">electricity review</a> ran a whole-app Hickey/Lowy audit and surfaced 16 candidates. Its <strong>"ship now" tier landed in <a href="https://github.com/juspay/kolu/pull/1089">#1089</a></strong> — <code>persistedPref</code>, the <code>@kolu/log</code> + <code>@kolu/html-escape</code> leaf packages, and the <code>dom/</code> + keybind relocations. This document is its <strong>actionable successor</strong>: a <em>second, independent</em> sweep run <strong>blind</strong> — the scouts and the lowy⇄hickey debate were never shown the prior audit's verdicts, precisely to avoid anchoring on them. The proposals below stand on that fresh consensus, not on the prior doc. We consult the audit only at the end (<a href="#continuity">§ Continuity</a>) to mark where the fresh pass <em>confirms</em>, <em>refines</em>, or <em>updates</em> the earlier plan. Where they differ, this doc updates the plan.</p>
+</div>
+
+<div class="band">
+  <div class="stat propose"><div class="n">5</div><div class="l">consensus proposals</div></div>
+  <div class="stat fix"><div class="n">4</div><div class="l">fix-in-place</div></div>
+  <div class="stat reject"><div class="n">7</div><div class="l">rejected by consensus</div></div>
+  <div class="stat ship"><div class="n">9</div><div class="l">already shipped / exists</div></div>
+</div>
+<p class="muted" style="margin-top:.3rem">Five settled proposals: <strong>1 propose</strong> (extract a genuinely new receptacle) + <strong>4 fix-in-place</strong> (unify a pattern or inline a false boundary). Zero unresolved — every finding reached per-finding agreement across both lenses. <span class="muted">(A sixth, <code>withKeyboardDismiss</code>, was carried into the debate as "propose: codify" — but verification found it already extracted <em>and</em> already consumed at every cited site, so it is recorded under <a href="#shipped">already-exists</a>, not as work.)</span></p>
+
+<h2 id="proposals">The five proposals</h2>
+<p>Each card carries the agreed disposition, the receptacle's shape, the braid it dissolves (with <span class="cite">file:line</span> evidence), and the one-line position of each lens lifted from its final reasoning. <span class="tag accent">propose</span> means extract a real new seam; <span class="tag budding">fix-in-place</span> means the right move is to unify an existing pattern or inline a false boundary — not to build anything.</p>
+
+<!-- ========== 1. createRefcountedSubscription ========== -->
+<div class="panel accent pcard">
+<h3><span class="tag accent">propose</span> <span class="id">createRefcountedSubscription</span> <span class="kind">persistence</span></h3>
+<p class="muted" style="margin:.1rem 0 .6rem"><span class="cite">packages/integrations/io/src/refcounted-dir-watcher.ts:63-151</span> · settled in 1 round</p>
+
+<h4>The braid today</h4>
+<p>The same refcounting frame — <code>Map&lt;K, listeners Set&gt;</code>, install on first subscribe, tear down on last unsubscribe, fault-isolated per-listener error handling, test-only reset hooks — is implemented twice and consumed six times:</p>
+<ul>
+  <li><span class="cite">refcounted-dir-watcher.ts:66-150</span> — <code>Map&lt;dir, SharedFilenameWatcher&gt;</code> with listeners <code>Set</code>; install/cleanup on first/last subscribe; per-listener try-catch at <span class="cite">lines 86-93</span>.</li>
+  <li><span class="cite">packages/shared/src/sqlite/wal-subscription.ts:99-149</span> — identical refcounting via <code>let sharedWalWatcher: { cleanup, listeners: Set }</code>; per-listener try-catch at <span class="cite">lines 115-120</span>; same snapshot-before-iteration (<span class="cite">85</span> / <span class="cite">115</span>).</li>
+  <li>Six module-scope instantiations: git <span class="cite">head-watcher.ts:18</span>, <span class="cite">index-watcher.ts:18</span>, <span class="cite">reflog-watcher.ts:19</span>, <span class="cite">cwd-git-watcher.ts:20</span>; db <span class="cite">opencode/wal-watcher.ts:10</span>, <span class="cite">codex/wal-watcher.ts:10</span>.</li>
+</ul>
+
+<h4>Proposed receptacle — the generic / specialization split</h4>
+<p>Extract a generic refcounting primitive (<strong>L0</strong>) in <code>packages/shared/src/refcounted-subscription.ts</code>, then reimplement the two watchers as thin specializations (<strong>L1</strong>) that supply only the domain-specific <code>install</code> callback:</p>
+<pre><code>// L0 — packages/shared/src/refcounted-subscription.ts
+createRefcountedSubscription&lt;K&gt;(config: {
+  install(key: K, onEvent: () =&gt; void, log?: Logger): (() =&gt; void) | null,
+  onListenerError?(err: unknown, log?: Logger): void,
+}) =&gt; {
+  subscribe(key: K, onChange: () =&gt; void, log?: Logger): () =&gt; void,
+  _count(key?: K): number,
+  _reset(): void,
+}
+
+// L1 — specializations supply install():
+//   dir-watcher  → (dir, onEvent, log) =&gt; { fs.watch + filename filter + debounce }
+//   wal-subscription → the WAL + inode-replacement dance</code></pre>
+
+<h4>What it dissolves</h4>
+<p>The refcounting lifecycle (<em>when</em> to install, <em>when</em> to tear down, error isolation) is completely orthogonal to the domain (fs.watch by name vs. WAL by inode). Extracting the generic unbraids that coupling and leaves domain logic — filename filtering, debounce, inode replacement — in its natural place.</p>
+
+<div class="lens">
+  <div class="col"><h4>lowy says</h4>The repeating "refcounted subscription" shape across six call sites is the missing seam. Volatility = refcounting; stability = what resource you watch. The shared primitive belongs in <code>@kolu/shared</code> for package coherence.</div>
+  <div class="col"><h4>hickey says</h4>Don't extract the domain watcher as-is — extract the generic refcounting shape <em>first</em>. Identical Map/listeners/error-isolation logic in two places; six closure-private singletons follow the same pattern. Unbraid lifecycle from domain.</div>
+</div>
+
+<h4>Risks / alternatives</h4>
+<p class="muted">This is the same server-side "wrote it thrice" smell the prior audit named — it sharpens that finding into a concrete L0/L1 split (see <a href="#continuity">§ Continuity</a>). Risk: over-generalizing <code>K</code> or the <code>install</code> contract; keep it to exactly what the two specializations need. The test-only <code>_count</code>/<code>_reset</code> hooks must be preserved through the move.</p>
+</div>
+
+<!-- ========== 3. abortErrorDetector ========== -->
+<div class="panel accent pcard">
+<h3><span class="tag budding">fix-in-place</span> <span class="id">isAbort</span> <span class="kind">text</span></h3>
+<p class="muted" style="margin:.1rem 0 .6rem"><span class="cite">packages/client/src/recorder/useRecorder.ts:142</span> · settled in 2 rounds</p>
+
+<h4>The braid today</h4>
+<p>An <code>isAbort(err: unknown): boolean</code> check is defined twice in the recorder module — <span class="cite">useRecorder.ts:142</span> and <span class="cite">webcam.ts:46</span> — and called at five user-action sites: <span class="cite">useRecorder.ts</span> <code>openSetup:170</code>, <code>changeMic:181</code>, <code>startRecording:251</code> and <span class="cite">webcam.ts</span> <code>toggleWebcam:81</code>, <code>changeWebcam:91</code>.</p>
+
+<h4>The fix</h4>
+<p>Export <code>isAbort</code> from <span class="cite">useRecorder.ts:142-144</span> and import it into <span class="cite">webcam.ts:46</span>, deleting the duplicate. All five call sites use the shared export. <strong>Leave <code>isExpectedCleanupError()</code> at <span class="cite">rpc/streamCleanup.ts:7-9</span> alone</strong> — it hides a distinct volatility axis (framework-initiated RPC stream cleanup on unmount) used by <code>Terminal.tsx</code> and <code>useTerminals.ts</code>.</p>
+
+<h4>What it dissolves</h4>
+<p>Within-domain triplication of one helper — without merging two genuinely different error checks. Recorder-domain concerns (user cancellation, device switching) are encapsulated once; framework concerns (RPC teardown) stay separate.</p>
+
+<div class="lens">
+  <div class="col"><h4>lowy says</h4>The recorder's axis (user-initiated media cancellation) is orthogonal to the RPC domain's axis (framework iterator cleanup). Dedup within the recorder; keep <code>isExpectedCleanupError</code> separate — they evolve independently.</div>
+  <div class="col"><h4>hickey says</h4>Genuine within-domain triplication: deduplicate per the simplicity principle. But the two checks serve different purposes and are consumed by separate hierarchies — neither lens supports merging them into one utility.</div>
+</div>
+
+<h4>Risks / alternatives</h4>
+<p class="muted">Tempting over-reach: a single app-wide <code>isAbortLike</code>. Both lenses reject it — that would fuse two volatility axes (<em>"user changed their mind"</em> vs. <em>"framework tore down the stream"</em>) behind one name.</p>
+</div>
+
+<!-- ========== 4. stateSlot / useComposer ========== -->
+<div class="panel accent pcard">
+<h3><span class="tag budding">fix-in-place</span> <span class="id">useComposer → createSharedRoot</span> <span class="kind">reactive</span></h3>
+<p class="muted" style="margin:.1rem 0 .6rem"><span class="cite">packages/client/src/comments/composerState.ts:32</span> · settled in 1 round</p>
+
+<h4>The braid today</h4>
+<p>The candidate was a new <code>stateSlot</code> receptacle for guarded modal state — <code>{ get(), open(payload), close(), isActive() }</code> — over four call sites in <code>comments/</code> (<span class="cite">useTextSelection.ts:123</span>, <span class="cite">CommentComposer.tsx:35</span>, <code>CommentIframeSurface.tsx</code>, <code>CodeTab.tsx</code>). But the volatility is <em>already</em> encapsulated behind the <code>useComposer()</code> interface. The real problem is <strong>concept multiplication</strong>: the codebase has one canonical singleton pattern, <code>createSharedRoot</code> (<span class="cite">packages/client/src/createSharedRoot.ts:23-33</span>), used by <code>useThemeManager</code>, <code>useIntentEditor</code>, <code>useTerminalStore</code>, <code>useModHeld</code>, <code>useDockOrder</code>, and <code>getNowTicker</code> — yet <code>useComposer</code> hand-rolls a <em>second</em> way with module-scope <code>createSignal</code>. A <code>stateSlot</code> extraction would be a <em>third</em>.</p>
+
+<h4>The fix</h4>
+<p>Migrate <code>useComposer()</code> to <code>createSharedRoot()</code>: move the module-level <code>createSignal</code> init (<span class="cite">composerState.ts:32</span>) into a factory wrapped by <code>createSharedRoot</code> at the export (<span class="cite">composerState.ts:34-51</span>). Zero interface changes at the four call sites. No new boundary.</p>
+
+<h4>What it dissolves</h4>
+<p>The third singleton variant — by reifying the one pattern the project already declares. The guarded-modal volatility (documented at <span class="cite">composerState.ts:1-12</span>) stays behind the stable <code>useComposer</code> interface; only the implementation style changes.</p>
+
+<div class="lens">
+  <div class="col"><h4>lowy says</h4>The boundary already exists and is stable under its axis; four tightly-coupled call sites are low-reuse but not disqualifying. Unify the implementation style, not the interface — zero new boundaries.</div>
+  <div class="col"><h4>hickey says</h4>Correctly diagnosed concept multiplication. <code>createSharedRoot</code> already solves this exact problem with no added complexity. Reject the extraction; reify the canonical pattern.</div>
+</div>
+
+<h4>Risks / alternatives</h4>
+<p class="muted">Risk: <code>createSharedRoot</code>'s root-disposal semantics must match the modal's current lifecycle (guards preventing stale pills and lost drafts). Verify the guarded transitions survive the migration before declaring done.</p>
+</div>
+
+<!-- ========== 5. debounceAndFanout ========== -->
+<div class="panel accent pcard">
+<h3><span class="tag budding">fix-in-place</span> <span class="id">fanoutListeners</span> <span class="kind">reactive</span></h3>
+<p class="muted" style="margin:.1rem 0 .6rem"><span class="cite">packages/integrations/io/src/refcounted-dir-watcher.ts:73-130</span> · settled in 2 rounds</p>
+
+<h4>The braid today</h4>
+<p>The candidate was a monolithic <code>debounceAndFanout</code> receptacle. The real, narrow duplication is the 5–9 line <strong>error-isolated fanout loop</strong> (snapshot before iteration, try-catch per listener, contextual error logging) copied verbatim at three sites: <span class="cite">refcounted-dir-watcher.ts:85-94</span>, <span class="cite">working-tree-watcher.ts:108-117</span>, and <span class="cite">repo-change.ts:60-69</span>.</p>
+
+<h4>The fix</h4>
+<pre><code>// co-exported micro-utility — packages/integrations/io/src/index.ts
+fanoutListeners(
+  listeners: Set&lt;() =&gt; void&gt; | Array&lt;() =&gt; void&gt;,
+  logLabel: string,
+  logFields: Record&lt;string, unknown&gt;,
+  log?: Logger,
+): void</code></pre>
+<p>Replace the three verbatim copies with calls. Each site <strong>keeps</strong> its own debounce timer, listener collection, upstream lifecycle (<code>fs.watch</code> / <code>parcelSubscribe</code> / composed upstreams), and pending coalescing (site 2's <code>pending</code> set at <span class="cite">working-tree-watcher.ts:106-107</span>).</p>
+
+<h4>What it dissolves</h4>
+<p>The drift risk of three hand-copied error-handling loops — without forcing the three sites' qualitatively different upstream strategies (sync <code>fs.watch</code>; async <code>parcelSubscribe</code> with pending coalescing + filePath matching; composed upstreams) behind one interface that couldn't survive them.</p>
+
+<div class="lens">
+  <div class="col"><h4>lowy says</h4>A monolithic <code>debounceAndFanout</code> would NOT survive unchanged under three different upstream strategies — site 2 would have to abandon its pending optimization. Extract only the fanout loop as a micro-reuse helper, not a receptacle.</div>
+  <div class="col"><h4>hickey says</h4>Real duplication in the verbatim 5–9 line loop — a genuine bug risk if one copy drifts. Un-braid the error-handling concern without restructuring the sites. Micro-utility, same volatility axis (error isolation).</div>
+</div>
+
+<h4>Risks / alternatives</h4>
+<p class="muted">This is the structural twin of proposal 2 at a finer grain: that one extracts the <em>refcounting</em> lifecycle; this one extracts only the <em>fanout loop</em>. Keep them distinct — collapsing both into one mega-helper is exactly the monolith both lenses rejected here.</p>
+</div>
+
+<!-- ========== 6. refcountedSubscription / compose ========== -->
+<div class="panel accent pcard">
+<h3><span class="tag budding">fix-in-place</span> <span class="id">compose → inline</span> <span class="kind">persistence</span></h3>
+<p class="muted" style="margin:.1rem 0 .6rem"><span class="cite">packages/integrations/git/src/repo-change.ts:46-90</span> · settled in 1 round</p>
+
+<h4>The braid today</h4>
+<p>A local <code>compose</code> function (<span class="cite">repo-change.ts:46-90</span>) bundles three concerns — refcount listeners + debounce + upstream teardown — and is called twice, in <code>subscribeRepoChange</code> (<span class="cite">110-125</span>) and <code>subscribeFileChange</code> (<span class="cite">146-157</span>). The same pattern <em>already</em> appears four times across the codebase at different abstraction levels: git <code>compose()</code>, working-tree <code>installSharedWorkingTreeWatcher()</code>, filesystem <code>createDirFilenameWatcher()</code>, and SQLite <code>createWalSubscription()</code>.</p>
+
+<h4>The fix</h4>
+<p><strong>Delete <code>compose</code> and inline it</strong> into the two call sites. Each inline block shows its three stages plainly: (1) listeners <code>Set</code> + debounce timer; (2) install all upstreams calling <code>tick()</code>; (3) a subscribe closure managing the refcount, firing upstream cleanup + <code>onLast</code> on the last unsubscribe. The composed upstreams and debounce window become visible at the call site.</p>
+
+<h4>What it dissolves</h4>
+<p>A false 2-site receptacle that <em>fragments</em> the real 4-instance duplication rather than solving it. Inlining keeps the code short (3–4 lines per site), makes the upstream array domain-visible, and preserves the option for a proper coordinated unification later — across all four instances at the architectural level (which proposal 2 begins).</p>
+
+<div class="lens">
+  <div class="col"><h4>lowy says</h4>Not a cross-module receptacle — and the right action is to inline, not to keep a module-scope utility that hides no volatility and crosses no boundary. Conceding to Hickey: this is concept multiplication, not insufficient refactoring.</div>
+  <div class="col"><h4>hickey says</h4><code>compose</code> is concept duplication; extracting it as a 2-site utility multiplies the concept across a package wall. Inline it; unify all four instances together later, not via a local utility.</div>
+</div>
+
+<h4>Risks / alternatives</h4>
+<p class="muted">Reads as "un-DRY," but is deliberate: the architectural unification belongs in proposal 2's <code>createRefcountedSubscription</code> when all four sites are addressed together. Inlining here is the bridge — it stops the fragmentation without pre-committing to a shape.</p>
+</div>
+
+<h2 id="rejected">Rejected by consensus — don't build</h2>
+<p>These are <strong>fresh-debate rejections</strong>, not inherited from the prior audit. Both lenses independently reached "do not extract."</p>
+<table>
+<thead><tr><th>Candidate</th><th>Location</th><th>Why both lenses said no</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>perTerminalStateStore</code></td>
+  <td class="cite">terminal/useSubPanel.ts:20</td>
+  <td>Three modules share the <code>Record</code>-keyed <code>createStore</code> <em>syntax</em> but three orthogonal volatility axes (server-reporting coupling, seed merge-vs-assign, effect cleanup). <code>createStore</code> is already the receptacle; a wrapper over the wrapper adds indirection without shrinking blast radius. <code>useViewState</code> proves the canonical idiom.</td>
+</tr>
+<tr>
+  <td><code>terminalLifecycleRegistrar</code></td>
+  <td class="cite">terminal/useTerminalDiagnostics.ts:40</td>
+  <td>Would wrap a <code>Map</code> that hides no volatility (3 lines → 6+). <code>terminalRefs</code> (xterm reachability, imperative) and <code>useTerminalDiagnostics</code> (reactive <code>createStore</code>) are already correct receptacles on independent axes — the claimed reuse is false; the diagnostics module never calls <code>terminalRefs</code>.</td>
+</tr>
+<tr>
+  <td><code>errorFormatter</code></td>
+  <td class="cite">recorder/useRecorder.ts:146</td>
+  <td>Appears 6×, but <code>(err: unknown) =&gt; string</code> hides <em>no</em> volatility — no transport, persistence, reconnection, or schema churn. Each site pairs it with domain context (<code>"Microphone: "</code>, <code>"Webcam: "</code>); colocated per <code>toast-conventions.md</code>. Mechanical, not electricity.</td>
+</tr>
+<tr>
+  <td><code>mediaDeviceManager</code></td>
+  <td class="cite">recorder/mic.ts:14</td>
+  <td>Unifying two orthogonal state machines (mic rAF ticker + <code>AnalyserNode</code> vs. webcam loading-state + baked stream) behind one <code>DeviceState</code> would complect them. The real fix is to group <code>useRecorder()</code>'s return by domain (<code>{ mic, webcam }</code>) — not a shared receptacle.</td>
+</tr>
+<tr>
+  <td><code>requestSignalSlot</code></td>
+  <td class="cite">comments/scrollRequest.ts:16</td>
+  <td>Three "request slot" sites differ in domain semantics (consume-once vs. exclusive-access vs. latest-wins). A factory would have to parameterize guards/clear-timing/identity — an unstable interface. The module-level-singleton pattern is already canonical.</td>
+</tr>
+<tr>
+  <td><code>shadowRootWalker</code></td>
+  <td class="cite">dom/shadowWalk.ts:13</td>
+  <td>Three distant modules share DFS-through-shadow-DOM <em>syntax</em>, not a volatility axis; <code>walk</code> hides control-flow, not policy. A <code>@kolu/shadow-dom</code> package for one 17-line function is a synthetic bucket. <span class="muted">(Already centralized as a local helper — see shipped recap.)</span></td>
+</tr>
+<tr>
+  <td><code>kolu-common topic-bundle</code></td>
+  <td class="cite">common/package.json:8-19</td>
+  <td>Eleven exports re-bundled under one entry point is <em>false coherence</em> — 2 genuine receptacles (<code>surface</code>, <code>terminalBackend</code>) mixed with 9 narrow utilities, reading as a dumping ground. Re-exporting <code>@kolu/surface</code> gives consumers two import paths for one library. Stop bundling; give real receptacles their own entry points.</td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="shipped">Already shipped / already exists in master</h2>
+<p>The blind dedup pass also dropped what already exists — these are <strong>not re-proposed</strong>, recorded here so the actionable set is honest.</p>
+<table>
+<thead><tr><th>Name</th><th>Where it already lives</th></tr></thead>
+<tbody>
+<tr><td><code>toError</code></td><td><span class="cite">solid-pierre/src/toError.ts</span> (exported); still hand-rolled identically at 4 sites — <span class="cite">surface/src/solid/useCell.ts:128</span>, <span class="cite">createSubscription.ts:96</span>, <span class="cite">createReactiveSubscription.ts:42</span>.</td></tr>
+<tr><td><code>isExpectedCleanupError</code></td><td><span class="cite">rpc/streamCleanup.ts:7-9</span> — DOMException AbortError for async-iterator cleanup; used by <code>Terminal.tsx</code>, <code>useTerminals.ts</code>. <span class="muted">(The "leave it alone" half of proposal 3.)</span></td></tr>
+<tr><td><code>shadowRootWalker</code></td><td><span class="cite">dom/shadowWalk.ts:13-30</span> — centralized, consumed by <code>useTextSelection</code> + <code>highlightOverlay</code>. <span class="muted">(The #1089 relocation.)</span></td></tr>
+<tr><td><code>createDirFilenameWatcher</code></td><td><span class="cite">io/src/refcounted-dir-watcher.ts:63-151</span> — shared service for git head/index/cwd/reflog watchers. <span class="muted">(The L1 in proposal 2.)</span></td></tr>
+<tr><td><code>activityWindowVocabulary</code></td><td><span class="cite">terminal/activityWindow.ts:37-170</span> — <code>WINDOWS</code> thresholds + <code>IDLE_BUCKETS</code>; <code>staleness.ts</code> uses the public API.</td></tr>
+<tr><td><code>notificationOutputChannels</code></td><td><span class="cite">terminal/useActivityAlerts.ts:14-51</span> — audio + notification APIs; <code>useTerminalAlerts</code> delegates output.</td></tr>
+<tr><td><code>anchoredPopoverLifecycle</code></td><td><span class="cite">ui/useAnchoredPopover.ts:58-143</span> — single consumer (<code>SettingsPopover</code>), stable hook.</td></tr>
+<tr><td><code>withKeyboardDismiss</code></td><td><span class="cite">ui/dismissSoftKeyboard.ts:50</span> — the canonical keyboard-on-overlay-close receptacle: already exported, documented, and consumed at every cited site (<span class="cite">ModalDialog.tsx:78</span>, <span class="cite">MobileTileView.tsx:75-76</span>, <span class="cite">RightPanelDrawer.tsx:46</span>). Reach for it for any new overlay. <span class="muted">(Surfaced as a candidate; verification found it already built and wired — no action.)</span></td></tr>
+<tr><td><code>createSubscription</code></td><td><span class="cite">surface/src/solid/createSubscription.ts:57-146</span> — full error + pending handling; the streaming-RPC primitive used throughout.</td></tr>
+</tbody>
+</table>
+
+<h2 id="continuity">Continuity with the prior audit</h2>
+<p>Read <em>after</em> the fresh consensus settled. Where the two passes meet:</p>
+<table>
+<thead><tr><th>Fresh proposal</th><th>vs. prior audit</th><th>Relation</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>createRefcountedSubscription</code> (L0/L1)</td>
+  <td>Prior "next ▸ decompose" tier: <em>fs-watch → two layers</em> (<code>refcountedWatcher</code> L0 + <code>gatedReader</code> L1), "the clearest server-side 'wrote it thrice' smell."</td>
+  <td><span class="tag good">refines</span> Same diagnosis, now with concrete <span class="cite">file:line</span> evidence and a precise L0 signature + the two L1 specializations (dir-watcher, wal-subscription).</td>
+</tr>
+<tr>
+  <td><code>compose → inline</code></td>
+  <td>Prior audit folded <code>installOnceFanOut</code> into the fs-watch decomposition but did not isolate the git <code>compose</code> helper.</td>
+  <td><span class="tag warn">updates</span> Fresh pass says: <em>don't</em> keep <code>compose</code> as a utility — inline it now, unify all four instances later via the L0 primitive. A finer call the prior pass didn't make.</td>
+</tr>
+<tr>
+  <td><code>fanoutListeners</code></td>
+  <td>Prior audit named <code>installOnceFanOut</code> inside the fs-watch fold.</td>
+  <td><span class="tag good">refines</span> Splits the fan-out into a standalone micro-utility distinct from the refcounting primitive, with the three verbatim sites cited.</td>
+</tr>
+<tr>
+  <td><code>shadowRootWalker</code> (rejected)</td>
+  <td>Prior audit <em>shipped</em> the <code>walkShadowRoots → dom/</code> relocation in #1089.</td>
+  <td><span class="tag good">confirms</span> Fresh pass independently rejects re-extraction into a package and records it as already-centralized — agreeing with the shipped state.</td>
+</tr>
+<tr>
+  <td><code>isAbort</code>, <code>useComposer→createSharedRoot</code>, the 5 client rejections</td>
+  <td>Not enumerated in the prior audit.</td>
+  <td><span class="tag accent">new</span> Surfaced only by the fresh client-side sweep (recorder error handling, comments modal state, per-terminal stores).</td>
+</tr>
+<tr>
+  <td><code>withKeyboardDismiss</code></td>
+  <td>Not enumerated in the prior audit.</td>
+  <td><span class="tag good">confirms</span> Surfaced fresh as a candidate; verification found it <em>already</em> the extracted, wired receptacle — recorded under already-exists, not proposed.</td>
+</tr>
+</tbody>
+</table>
+<p class="muted">No fresh proposal <em>contradicts</em> a prior verdict. The one place the plan changes is the git <code>compose</code> helper: the fresh debate adds an explicit "inline, don't keep" call that the prior pass left implicit inside its fs-watch fold.</p>
+
+<h2 id="unresolved">Unresolved</h2>
+<p class="muted">None. Every finding reached per-finding agreement across both lenses before this doc was written.</p>
+
+<hr>
+<h2 id="method">Methodology</h2>
+<div class="flow">
+  <span>10 independent scouts</span><span class="arrow">→</span>
+  <span class="hot">blind dedup + drop-what-exists</span><span class="arrow">→</span>
+  <span>lowy ⇄ hickey debate</span><span class="arrow">→</span>
+  <span class="hot">per-finding consensus</span><span class="arrow">→</span>
+  <span>prior audit consulted (continuity only)</span>
+</div>
+<p>A <strong>fresh blind sweep</strong>: ten independent scouts hunted duplicated structure across the codebase <strong>without being shown the prior audit's verdicts</strong>. Their findings were de-duplicated and intersected against master to drop everything that already exists (the shipped table). Each survivor was then debated by the two lenses — <a href="https://informit.com/articles/article.aspx?p=2995357">Lowy's volatility-based decomposition</a> (does this hide a real axis of change behind a stable interface?) and <a href="https://www.youtube.com/watch?v=SxdOUGdseq4">Hickey's structural simplicity</a> (does this complect, or dissolve a braid?) — cross-examining every finding until they agreed per-finding. The agreed dispositions are the five proposals above.</p>
+<p class="muted">The <strong>no-preseeding design is deliberate</strong>: had the scouts seen the audit, they'd have rediscovered its conclusions rather than tested them. The audit was opened only at the very end, to write <a href="#continuity">§ Continuity</a> — so where the two passes agree, that agreement is genuine independent corroboration, and where they differ, the fresh consensus is the one that updates the plan. Grounded against Juval Lowy, <em>Righting Software</em> (the electricity receptacle metaphor) and Rich Hickey, <em>Simple Made Easy</em>.</p>
+
+<hr>
+<p class="muted">Sibling: <a href="../electricity-review.html">electricity-review.html</a> (the original whole-app audit; "ship now" tier in <a href="https://github.com/juspay/kolu/pull/1089">#1089</a>). Index: <a href="./index.html">docs/plans</a>. See <a href="./second-brain.html">second-brain.html</a> for how this doc is filed.</p>
+
+</main>
+</body>
+</html>
