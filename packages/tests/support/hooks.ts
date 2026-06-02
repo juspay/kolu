@@ -450,7 +450,16 @@ Before(async function (this: KoluWorld, scenario) {
     await this.page.addInitScript(`
       document.addEventListener("DOMContentLoaded", function() {
         var style = document.createElement("style");
-        style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
+        // Zero out transitions so Corvu dialogs settle instantly — but EXEMPT
+        // the bottom-drawer content element (not its descendants). Corvu's
+        // drawer reads that element's *computed* transition-duration to run its
+        // open/close state machine; forcing it to 0s breaks a programmatic open
+        // (the mobile right panel never settles open after openInCodeTab). The
+        // exemption lets the component's own \`transition-transform duration-200\`
+        // apply, so this test exercises — and guards — the real production fix
+        // rather than a harness-injected duration.
+        style.textContent =
+          "*:not([data-corvu-drawer-content]), *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
         document.head.appendChild(style);
       });
     `);

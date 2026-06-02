@@ -15,9 +15,12 @@ type RefClickPoint = { x: number; y: number } | null;
 type DrawerWatchWindow = Window & {
   __rpDrawerOpened?: boolean;
   __rpDrawerObs?: MutationObserver;
+  __previewIframeAppeared?: boolean;
+  __previewIframeObs?: MutationObserver;
 };
 
 const RIGHT_PANEL_MARKER = '[data-testid="right-panel-tab-inspector"]';
+const PREVIEW_IFRAME_MARKER = '[data-testid="browse-preview-iframe"]';
 
 /** Locate a clickable file-ref in the active terminal and compute
  *  pixel coordinates from the **public** xterm API
@@ -172,6 +175,62 @@ Then(
           const w = window as DrawerWatchWindow;
           w.__rpDrawerObs?.disconnect();
           w.__rpDrawerObs = undefined;
+        }),
+      );
+  },
+);
+
+// Dismiss the mobile right-panel drawer the way a user does — a tap on the
+// backdrop above the 85vh bottom sheet. The in-panel collapse chevron sits
+// under the content wrapper's pointer-event layer on mobile, so we tap the
+// exposed top strip of the backdrop instead (Corvu's onOpenChange(false)).
+When("I dismiss the right-panel drawer", async function (this: KoluWorld) {
+  const backdrop = this.page.locator(
+    '[data-testid="right-panel-drawer-backdrop"]',
+  );
+  await backdrop.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const box = await backdrop.boundingBox();
+  if (!box) throw new Error("drawer backdrop had no bounding box");
+  // Tap near the top of the viewport — the sheet occupies the bottom 85vh,
+  // so this strip is backdrop-only and not covered by the content.
+  await this.page.touchscreen.tap(box.x + box.width / 2, box.y + 24);
+  await this.waitForFrame();
+});
+
+// Same transient-latch shape as the drawer watcher above, but keyed on the
+// `.html`/`.svg`/`.pdf` preview iframe. The user-reported mobile bug is that
+// tapping a terminal `.html` file-ref does NOT bring up the code-browser
+// preview at all — so this records whether the iframe ever mounted, surviving
+// the test-env's instant-transition drawer flicker (see DrawerWatchWindow).
+When(
+  "I watch for the file preview iframe to appear",
+  async function (this: KoluWorld) {
+    await this.page.evaluate((marker) => {
+      const w = window as DrawerWatchWindow;
+      w.__previewIframeObs?.disconnect();
+      w.__previewIframeAppeared = !!document.querySelector(marker);
+      const obs = new MutationObserver(() => {
+        if (document.querySelector(marker)) w.__previewIframeAppeared = true;
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+      w.__previewIframeObs = obs;
+    }, PREVIEW_IFRAME_MARKER);
+  },
+);
+
+Then(
+  "the file preview iframe should have appeared",
+  async function (this: KoluWorld) {
+    await this.page
+      .waitForFunction(
+        () => (window as DrawerWatchWindow).__previewIframeAppeared === true,
+        { timeout: POLL_TIMEOUT },
+      )
+      .finally(() =>
+        this.page.evaluate(() => {
+          const w = window as DrawerWatchWindow;
+          w.__previewIframeObs?.disconnect();
+          w.__previewIframeObs = undefined;
         }),
       );
   },
