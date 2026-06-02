@@ -1,7 +1,7 @@
 ---
 name: codex-debate
-description: Run an automated code-review debate between the codex CLI (reviewer) and a Claude subagent (author) on the current diff, looping until they reach consensus, deadlock, or a round cap. Use when the user types `/codex-debate`, or asks to "have codex review this", "run the codex debate", "review this PR with codex", or "argue this with codex until you agree".
-argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-comment]"
+description: Run an automated code-review debate between the codex CLI (reviewer) and a Claude subagent (author) on the current diff, looping until they reach consensus — no round cap, no deadlock exit. Use when the user types `/codex-debate`, or asks to "have codex review this", "run the codex debate", "review this PR with codex", or "argue this with codex until you agree".
+argument-hint: "[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]"
 ---
 
 # Codex ⇄ Claude review debate
@@ -9,8 +9,10 @@ argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit]
 Automate the back-and-forth you'd otherwise courier by hand: **codex** (the
 reviewer) critiques the current change, a **Claude subagent** (the author)
 fixes what it agrees with and disputes what it doesn't, codex re-reviews, and so
-on — until they reach **consensus**, hit a **deadlock**, or burn the **round
-cap**. You stay out of the middle: each round lands as its own commit whose
+on — round after round, **until they reach consensus**. There is no round cap and
+no "deadlock" surrender: a debate that quits without agreement defeats the
+purpose, so the two sides keep arguing until one concedes. You stay out of the
+middle: each round lands as its own commit whose
 message carries the debate context (codex's findings + Claude's dispositions) so
 the PR history reads as the debate, and the summary is **posted to the PR** as a
 comment at the end.
@@ -35,7 +37,7 @@ codex/opencode runtimes the skill is inert.
 
 ## Arguments
 
-Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-comment]`:
+Parse `[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]`:
 
 - **`<pr-number>`** (optional): a PR to debate. If given, `gh pr checkout <n>`
   first and default the base to that PR's base branch. If omitted, debate the
@@ -46,7 +48,6 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-co
   (e.g. `origin/master`) — used **as-is**, NOT stripped to local `master` (which
   can lag the remote). Fallback `origin/master`. Step 1 runs `git fetch origin`
   first so the ref is current.
-- **`--max-rounds <n>`**: hard cap on codex review rounds. Default **5**.
 - **`--no-commit`**: don't commit per round — leave all agreed changes
   uncommitted in the working tree for you to commit yourself. Default is to
   **commit each round** (see below).
@@ -79,7 +80,6 @@ Workflow({
   args: {
     repoPath: "<worktree root>",        // also the per-worktree scratch dir root
     base: "<base branch>",
-    maxRounds: <n, default 5>,
     commit: <false only if --no-commit>,
     skillDir: ".claude/skills/codex-debate"
   }
@@ -98,23 +98,24 @@ Ephemeral scratch (verdicts, rebuttals) lives under the gitignored, per-worktree
 collide** and the scratch never shows up in the diff codex reviews. It returns:
 
 ```
-{ status: "consensus" | "deadlock" | "max-rounds",
+{ status: "consensus",   // the only terminal state
   rounds, base, finalVerdict, filesChanged, transcript }
 ```
 
 (each `transcript[]` round also carries a `commit` SHA when that round committed.)
 
-- **consensus** — codex approved with no blocking/major findings open.
-- **deadlock** — codex kept raising the same blocking findings while Claude
-  disputed them all; the script stopped rather than burn rounds. Needs you.
-- **max-rounds** — the cap was hit with findings still open.
+- **consensus** — codex approved with no blocking/major findings open. This is
+  the *only* way the loop ends: it keeps running rounds until codex and Claude
+  agree. (The harness's own per-workflow agent backstop is the sole hard ceiling;
+  if you ever need to stop a debate by hand, interrupt it via `/workflows` or
+  `TaskStop`.)
 
 ### 3. Present the result
 
 Report in chat (do **not** push or merge — the per-round commits sit on the
 local branch for the human to review):
 
-- The outcome (`status`) and round count.
+- The outcome — always **consensus** — and how many rounds it took to get there.
 - **The reviewer's reasoning effort: codex runs at `xhigh`** (scoped to the
   debate via `-c model_reasoning_effort=xhigh` in `codex-review.sh`, regardless
   of the user's global codex default). State this so the depth of the review is
@@ -123,19 +124,16 @@ local branch for the human to review):
   `git diff --stat <base>` so the user sees what the debate changed.
 - A compact per-round table from `transcript` — each round's codex verdict
   (approved? open blocking/major count), Claude's dispositions, and the
-  round's `commit` SHA.
-- On **deadlock**, surface both positions plainly (codex's held-firm findings +
-  Claude's disputes with reasons) so the human can adjudicate — do not pick a
-  winner yourself.
+  round's `commit` SHA — so the convergence reads round by round.
 - The agreed changes are committed per round on the local branch (or, under
   `--no-commit`, uncommitted in the working tree). The user reviews, then pushes
   / merges (or runs `/do --from post-implement`) when satisfied.
 - **Post the debate summary to the PR (default).** When a PR exists and
   `--no-comment` was NOT passed, post a `## Codex ⇄ Claude debate` comment via
-  `gh pr comment`. Include: the outcome badge (consensus/deadlock/max-rounds) and
-  round count; a note that **codex reviewed at `xhigh` reasoning effort**; a
-  per-round table (codex approved? open blocking/major findings; Claude's
-  dispositions; the round's commit SHA); and, on deadlock, both positions. Use a
+  `gh pr comment`. Include: the **consensus** outcome badge and the round count;
+  a note that **codex reviewed at `xhigh` reasoning effort**; and a per-round
+  table (codex approved? open blocking/major findings; Claude's dispositions; the
+  round's commit SHA) showing how the two sides converged. Use a
   single-quoted heredoc so backticks/`$` survive. This is an
   outward-facing write — it's on by default because the whole point is to leave
   the review trail on the PR; `--no-comment` suppresses it.
@@ -159,12 +157,16 @@ local branch for the human to review):
 - **Posts to the PR by default.** When a PR exists, the debate summary is posted
   as a PR comment (outward-facing write) unless `--no-comment` is passed — the
   point is to leave the review trail on the PR.
-- **Bounded.** The loop always terminates — consensus, deadlock detection, or the
-  round cap. It cannot run forever.
+- **Runs to consensus — no cap, no deadlock exit.** The loop ends only when codex
+  and Claude agree; it does not bail out at a round cap or declare a "deadlock," because
+  a debate that quits without agreement is pointless. The two sides keep arguing
+  until one concedes. The harness's own per-workflow agent backstop is the sole
+  hard ceiling; interrupt via `/workflows` or `TaskStop` if you ever need to stop
+  one by hand.
 
 ## Files
 
-- `debate.workflow.js` — the Workflow script (the loop + consensus/deadlock logic).
+- `debate.workflow.js` — the Workflow script (the loop + consensus logic).
 - `scripts/codex-review.sh` — the canonical, deterministic `codex exec` invocation.
 - `scripts/codex-verdict.schema.json` — the JSON Schema codex's verdict is constrained to.
 
