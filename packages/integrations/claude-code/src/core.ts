@@ -700,13 +700,19 @@ function liveAgentCount(runDir: string): number | null {
  *  stream, so a genuinely-running workflow never ages out; once the orchestrator
  *  dies (no more writes) it goes stale and the gate demotes (the #1109 phantom
  *  guard). `terminal` is true only on a positively-read terminal snapshot. */
-interface WorkflowObservation {
+export interface WorkflowObservation {
   workflow: ClaudeWorkflow | null;
   anchorMs: number | null;
   terminal: boolean;
 }
 
-function observeWorkflowRun(
+/** Lookup that yields the observation for a run, shared across the three
+ *  projections so one running_background check pass observes each run once.
+ *  Defaults to a live `observeWorkflowRun(session, runId)` when callers (e.g.
+ *  standalone unit tests) don't pre-compute a Map. */
+export type ObserveWorkflowRun = (runId: string) => WorkflowObservation;
+
+export function observeWorkflowRun(
   session: SessionFile,
   runId: string,
 ): WorkflowObservation {
@@ -764,11 +770,12 @@ function observeWorkflowRun(
 export function deriveWorkflowProgress(
   session: SessionFile,
   outstanding: BackgroundTask[],
+  observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
 ): ClaudeWorkflow | null {
   let fallback: ClaudeWorkflow | null = null;
   for (const task of outstanding) {
     if (!task.runId) continue;
-    const { workflow } = observeWorkflowRun(session, task.runId);
+    const { workflow } = observe(task.runId);
     if (!workflow) continue;
     if (workflow.status === "running") return workflow;
     fallback ??= workflow;
@@ -792,10 +799,11 @@ export function liveOutstandingTasks(
   session: SessionFile,
   outstanding: BackgroundTask[],
   now: number = Date.now(),
+  observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
 ): BackgroundTask[] {
   return outstanding.filter((task) => {
     if (!task.runId) return true; // not a workflow — deriveState's narrowing decides
-    const obs = observeWorkflowRun(session, task.runId);
+    const obs = observe(task.runId);
     if (obs.terminal) return false; // positively finished → drop
     if (obs.anchorMs === null) return false; // unobservable → demote (phantom guard)
     return now - obs.anchorMs <= WORKFLOW_JOURNAL_STALE_MS; // live iff recently written
@@ -813,11 +821,12 @@ export function nextWorkflowStaleDeadline(
   session: SessionFile,
   tasks: BackgroundTask[],
   now: number = Date.now(),
+  observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
 ): number | null {
   let earliest: number | null = null;
   for (const task of tasks) {
     if (!task.runId) continue;
-    const { anchorMs } = observeWorkflowRun(session, task.runId);
+    const { anchorMs } = observe(task.runId);
     if (anchorMs === null) continue; // no observable anchor → gate already demoted it
     const deadline = Math.max(anchorMs + WORKFLOW_JOURNAL_STALE_MS, now);
     if (earliest === null || deadline < earliest) earliest = deadline;

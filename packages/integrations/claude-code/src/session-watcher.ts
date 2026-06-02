@@ -25,9 +25,11 @@ import {
   liveOutstandingTasks,
   liveWorkflowsRootFor,
   nextWorkflowStaleDeadline,
+  observeWorkflowRun,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
   type SessionFile,
+  type WorkflowObservation,
   TAIL_BYTES,
   tailJsonlLines,
   watchOrWaitForDir,
@@ -290,6 +292,22 @@ export function createSessionWatcher(
     if (transcriptWatching.kind !== "watching") return;
 
     const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
+    // observeWorkflowRun is the single source of truth; the three projections
+    // below (liveOutstandingTasks / nextWorkflowStaleDeadline /
+    // deriveWorkflowProgress) all read its result. Observe each distinct runId
+    // ONCE per check pass and memoize into this Map — each observation is now a
+    // readdir + N stats over the live streaming dir (#1123), so re-observing the
+    // same run three times would walk disk 3× per pass, scaling with sub-agent
+    // count. The `observe` lookup hands the same observation to every projection.
+    const obs = new Map<string, WorkflowObservation>();
+    const observe = (runId: string): WorkflowObservation => {
+      let o = obs.get(runId);
+      if (o === undefined) {
+        o = observeWorkflowRun(session, runId);
+        obs.set(runId, o);
+      }
+      return o;
+    };
     // Drop tasks that can't keep the session "working": a `Workflow` whose
     // journal has gone terminal/stale (orphaned by a restart). `deriveState`
     // further narrows to runId-bearing `Workflow` runs, so a bare backgrounded
@@ -298,6 +316,8 @@ export function createSessionWatcher(
     const outstanding = liveOutstandingTasks(
       session,
       outstandingBackgroundTasks(lines),
+      Date.now(),
+      observe,
     );
     const derived = deriveState(lines, outstanding);
     if (!derived) {
@@ -328,7 +348,12 @@ export function createSessionWatcher(
     let publishedState = derived.state;
     let staleDeadline: number | null = null;
     if (derived.state === "running_background") {
-      staleDeadline = nextWorkflowStaleDeadline(session, outstanding);
+      staleDeadline = nextWorkflowStaleDeadline(
+        session,
+        outstanding,
+        Date.now(),
+        observe,
+      );
     } else {
       const now = Date.now();
       const quietMs = transcriptQuietMs(transcriptWatching.path, now);
@@ -360,7 +385,7 @@ export function createSessionWatcher(
     // fan-out count refreshes via the workflows-dir watcher below.
     const workflow =
       publishedState === "running_background"
-        ? deriveWorkflowProgress(session, outstanding)
+        ? deriveWorkflowProgress(session, outstanding, observe)
         : null;
 
     const info: ClaudeCodeInfo = {
