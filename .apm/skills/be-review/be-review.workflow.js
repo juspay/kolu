@@ -130,7 +130,7 @@ const IMPL_SCHEMA = {
 const CONSOLIDATE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['picks', 'conflicts'],
+  required: ['picks'],
   properties: {
     finalHead: { type: 'string', description: 'branch HEAD SHA after all picks' },
     picks: {
@@ -145,23 +145,8 @@ const CONSOLIDATE_SCHEMA = {
           sourceCommit: { type: 'string', description: 'the short SHA from the track worktree' },
           newCommit: { type: 'string', description: 'the resulting SHA on the branch' },
           outcome: { type: 'string', enum: ['clean', 'reconciled', 'dropped'] },
+          files: { type: 'array', items: { type: 'string' }, description: 'for reconciled/dropped: the overlapping files' },
           note: { type: 'string', description: 'for reconciled/dropped: how you resolved it and why' },
-        },
-      },
-    },
-    conflicts: {
-      type: 'array',
-      description: 'the overlaps you had to reconcile (subset of picks); empty in the common no-overlap case',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['track', 'sourceCommit', 'files', 'resolution'],
-        properties: {
-          track: { type: 'string' },
-          sourceCommit: { type: 'string' },
-          files: { type: 'array', items: { type: 'string' } },
-          resolution: { type: 'string', enum: ['merged', 'dropped'] },
-          note: { type: 'string' },
         },
       },
     },
@@ -383,12 +368,12 @@ Then, from the MAIN worktree \`${repoPath}\`, cherry-pick each of those commits 
   \`git -C ${repoPath} cherry-pick <sha>\`
 
 - **Clean pick** → record outcome \`clean\` with the new SHA (\`git -C ${repoPath} rev-parse HEAD\`).
-- **Conflict** (\`git -C ${repoPath} status\` shows unmerged paths) → this is an OVERLAP: an earlier track already changed the same lines. Resolve by Reading both sides and producing a result that HONORS BOTH fixes (they each came from a review debate — neither is noise). Edit the conflicted files to the merged result, \`git -C ${repoPath} add\` them, then \`git -C ${repoPath} cherry-pick --continue\` (keep the original commit message). Record outcome \`reconciled\`, list the conflicted files, and explain the merge in \`note\`. Only \`drop\` a commit (\`git -C ${repoPath} cherry-pick --abort\`) if the earlier track's change already FULLY subsumes this one — say so in \`note\`; never drop to avoid the work of merging.
+- **Conflict** (\`git -C ${repoPath} status\` shows unmerged paths) → this is an OVERLAP: an earlier track already changed the same lines. Resolve by Reading both sides and producing a result that HONORS BOTH fixes (they each came from a review debate — neither is noise). Edit the conflicted files to the merged result, \`git -C ${repoPath} add\` them, then \`git -C ${repoPath} cherry-pick --continue\` (keep the original commit message). Record outcome \`reconciled\`, list the conflicted files in \`files\`, and explain the merge in \`note\`. Only \`drop\` a commit (\`git -C ${repoPath} cherry-pick --abort\`) if the earlier track's change already FULLY subsumes this one — record outcome \`dropped\` with the overlapping \`files\` and say so in \`note\`; never drop to avoid the work of merging.
 
-Do NOT push and do NOT merge — leave the consolidated commits on the local branch for the human. Return the final branch HEAD, the per-commit \`picks\` ledger (in processing order), and the \`conflicts\` subset you had to reconcile.`
+Do NOT push and do NOT merge — leave the consolidated commits on the local branch for the human. Return the final branch HEAD and the per-commit \`picks\` ledger (in processing order); the overlaps you reconciled are just the picks whose outcome isn't \`clean\`.`
 
 const consolidation = await agent(consolidatePrompt, { label: 'consolidate:cherry-pick', phase: 'Consolidate', model, schema: CONSOLIDATE_SCHEMA })
-const conflicts = consolidation?.conflicts ?? []
+const conflicts = (consolidation?.picks ?? []).filter((p) => p.outcome !== 'clean')
 log(`Consolidate: ${(consolidation?.picks ?? []).length} commit(s) replayed, ${conflicts.length} overlap(s) reconciled. HEAD ${(consolidation?.finalHead || '').slice(0, 9)}`)
 
 // ---------------------------------------------------------------------------
