@@ -394,11 +394,19 @@ describe("deriveState", () => {
     });
   });
 
-  it("promotes end_turn to running_background for a backgrounded Bash command", () => {
-    // Regression: a session waiting on a backgrounded Bash (e.g. a long CI
-    // run) must read as working, not as a needs-user `waiting`.
+  it("does not promote a backgrounded Bash command (no observable journal)", () => {
+    // A detached Bash command (runId null) leaves only a permanent launch
+    // marker — its completion notification can be lost forever to a restart, so
+    // promoting on it spins the pill indefinitely. Only an observable
+    // `Workflow` run (with a journal) is enough to read as working.
     expect(deriveState([bashLaunch("b9ezdjva9"), endTurn])).toMatchObject({
-      state: "running_background",
+      state: "waiting",
+    });
+  });
+
+  it("does not promote a plain background Task/Agent (runId null)", () => {
+    expect(deriveState([bgLaunch("t1"), endTurn])).toMatchObject({
+      state: "waiting",
     });
   });
 
@@ -428,6 +436,12 @@ describe("deriveState", () => {
     expect(
       deriveState([endTurn], [{ taskId: "t1", runId: "wf_1" }]),
     ).toMatchObject({ state: "running_background" });
+  });
+
+  it("does not promote a precomputed set whose only task lacks a runId", () => {
+    expect(
+      deriveState([endTurn], [{ taskId: "t1", runId: null }]),
+    ).toMatchObject({ state: "waiting" });
   });
 
   it("ignores unknown/new entry types and reads state from the assistant turn", () => {
@@ -575,6 +589,165 @@ describe("outstandingBackgroundTasks", () => {
     expect(outstandingBackgroundTasks([line])).toEqual([
       { taskId: "t9", runId: "wf_9" },
     ]);
+  });
+});
+
+describe("liveOutstandingTasks", () => {
+  let tmpDir: string;
+  let live: typeof import("./index.ts").liveOutstandingTasks;
+  let nextDeadline: typeof import("./index.ts").nextWorkflowStaleDeadline;
+  let staleMs: number;
+  const sessionId = "live-test-session";
+  const cwd = "/home/user/live-project";
+  const session = { pid: 1, sessionId, cwd };
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-live-test-"));
+    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    vi.resetModules();
+    const mod = await import("./index.ts");
+    live = mod.liveOutstandingTasks;
+    nextDeadline = mod.nextWorkflowStaleDeadline;
+    staleMs = mod.WORKFLOW_JOURNAL_STALE_MS;
+  });
+
+  afterAll(() => {
+    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const wfDir = () =>
+    path.join(tmpDir, encodeProjectPath(cwd), sessionId, "workflows");
+
+  /** Write a workflow journal; `ageMs > 0` back-dates its mtime. */
+  function writeJournal(runId: string, status: string, ageMs = 0): void {
+    fs.mkdirSync(wfDir(), { recursive: true });
+    const p = path.join(wfDir(), `${runId}.json`);
+    fs.writeFileSync(
+      p,
+      JSON.stringify({ workflowName: "wf", status, agentCount: 3 }),
+    );
+    if (ageMs > 0) {
+      const t = new Date(Date.now() - ageMs);
+      fs.utimesSync(p, t, t);
+    }
+  }
+
+  const wf = (runId: string) => ({ taskId: `t-${runId}`, runId });
+
+  it("keeps a workflow with a fresh, running journal", () => {
+    writeJournal("wf_live", "running");
+    expect(live(session, [wf("wf_live")])).toEqual([wf("wf_live")]);
+  });
+
+  it("drops a workflow whose journal reports a terminal status", () => {
+    writeJournal("wf_done", "completed");
+    expect(live(session, [wf("wf_done")])).toEqual([]);
+  });
+
+  it("drops a workflow whose journal has gone stale (orphaned by a restart)", () => {
+    writeJournal("wf_stale", "running", staleMs + 60_000);
+    expect(live(session, [wf("wf_stale")])).toEqual([]);
+  });
+
+  it("keeps a journal-less workflow while the workflows dir is still fresh (grace against format churn)", () => {
+    // A future runtime that moves the snapshot path leaves the run's own journal
+    // unreadable. The gate must not *instantly* drop such a (possibly live) run,
+    // so it grants a grace window anchored on the workflows-directory mtime — the
+    // launch/last-write timestamp that survives a journal-path churn. `wf_grace`
+    // has no journal, but the dir exists and is fresh (prior writes), so it stays.
+    fs.mkdirSync(wfDir(), { recursive: true });
+    expect(live(session, [wf("wf_grace")])).toEqual([wf("wf_grace")]);
+  });
+
+  it("drops a journal-less workflow once the workflows dir itself goes stale (phantom guard)", () => {
+    // The phantom `running_background` bug: a launch marker carrying a `Run ID`
+    // whose journal kolu can never read must NOT promote forever. Once even the
+    // directory anchor ages past the stale window, the gate demotes it.
+    fs.mkdirSync(wfDir(), { recursive: true });
+    const dirMtime = fs.statSync(wfDir()).mtimeMs;
+    expect(live(session, [wf("wf_phantom")], dirMtime + staleMs + 1)).toEqual(
+      [],
+    );
+  });
+
+  it("drops a journal-less workflow when the workflows dir is absent (no anchor at all)", () => {
+    // A fresh module with no projects dir written yet: neither the journal nor
+    // its directory is stat-able, so there is no observable liveness anchor and
+    // nothing can justify an indefinite spinner — demote.
+    const fresh = {
+      pid: 9,
+      sessionId: "no-dir-session",
+      cwd: "/home/user/no-dir-project",
+    };
+    expect(live(fresh, [wf("wf_nodir")])).toEqual([]);
+  });
+
+  it("passes non-workflow tasks (runId null) through unchanged", () => {
+    const bash = { taskId: "b1", runId: null };
+    expect(live(session, [bash])).toEqual([bash]);
+  });
+
+  it("filters a mixed set to live workflows plus all non-workflows", () => {
+    writeJournal("wf_a", "running");
+    writeJournal("wf_b", "completed");
+    const bash = { taskId: "b1", runId: null };
+    expect(live(session, [wf("wf_a"), wf("wf_b"), bash])).toEqual([
+      wf("wf_a"),
+      bash,
+    ]);
+  });
+
+  it("uses the injected `now` for the staleness boundary", () => {
+    writeJournal("wf_now", "running");
+    const { mtimeMs } = fs.statSync(path.join(wfDir(), "wf_now.json"));
+    expect(live(session, [wf("wf_now")], mtimeMs + staleMs - 1)).toEqual([
+      wf("wf_now"),
+    ]);
+    expect(live(session, [wf("wf_now")], mtimeMs + staleMs + 1)).toEqual([]);
+  });
+
+  describe("nextWorkflowStaleDeadline", () => {
+    it("returns the journal mtime plus the stale window for a live workflow", () => {
+      writeJournal("wf_d1", "running");
+      const { mtimeMs } = fs.statSync(path.join(wfDir(), "wf_d1.json"));
+      expect(nextDeadline(session, [wf("wf_d1")])).toBe(mtimeMs + staleMs);
+    });
+
+    it("clamps an already-stale journal's deadline to `now` (fire immediately)", () => {
+      writeJournal("wf_d2", "running", staleMs + 60_000);
+      const now = Date.now();
+      expect(nextDeadline(session, [wf("wf_d2")], now)).toBe(now);
+    });
+
+    it("returns the earliest deadline across multiple workflows", () => {
+      writeJournal("wf_old", "running", 90_000); // ages out sooner
+      writeJournal("wf_new", "running");
+      const oldMtime = fs.statSync(path.join(wfDir(), "wf_old.json")).mtimeMs;
+      expect(nextDeadline(session, [wf("wf_old"), wf("wf_new")])).toBe(
+        oldMtime + staleMs,
+      );
+    });
+
+    it("falls back to the workflows-dir mtime for a journal-less workflow (a timer still clears the phantom)", () => {
+      // A run kept on the directory grace anchor must still get a deadline, or
+      // the watcher would arm no timer and the spinner could never self-clear.
+      fs.mkdirSync(wfDir(), { recursive: true });
+      const dirMtime = fs.statSync(wfDir()).mtimeMs;
+      expect(nextDeadline(session, [wf("wf_absent")])).toBe(dirMtime + staleMs);
+    });
+
+    it("returns null when nothing observable anchors the run (gate has already demoted it)", () => {
+      // No workflows dir at all → no anchor → no deadline; the gate drops the
+      // task in the same pass, so there is nothing left to age out.
+      const fresh = {
+        pid: 9,
+        sessionId: "no-dir-deadline-session",
+        cwd: "/home/user/no-dir-deadline-project",
+      };
+      expect(nextDeadline(fresh, [wf("wf_absent")])).toBeNull();
+      expect(nextDeadline(session, [{ taskId: "b1", runId: null }])).toBeNull();
+    });
   });
 });
 

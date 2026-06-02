@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-01T23:04:50.752792+00:00'
+generated_at: '2026-06-02T01:51:57.471954+00:00'
 apm_version: 0.16.1
 dependencies:
 - repo_url: anthropics/skills
@@ -116,6 +116,7 @@ local_deployed_files:
 - .agents/skills/codex-debate
 - .agents/skills/evidence
 - .agents/skills/hk
+- .agents/skills/lens-debate
 - .agents/skills/parcel
 - .agents/skills/perf-diagnose
 - .agents/skills/pierre
@@ -136,6 +137,7 @@ local_deployed_files:
 - .claude/skills/codex-debate
 - .claude/skills/evidence
 - .claude/skills/hk
+- .claude/skills/lens-debate
 - .claude/skills/parcel
 - .claude/skills/perf-diagnose
 - .claude/skills/pierre

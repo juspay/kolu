@@ -30,6 +30,9 @@ type MockState =
   | "tool_use"
   | "waiting"
   | "running_background"
+  | "orphaned_workflow"
+  | "journalless_workflow"
+  | "background_bash"
   | "interrupted"
   | "interrupted_tool_use";
 // Read these lazily rather than at module load — `hooks.ts` sets per-worker
@@ -112,10 +115,21 @@ function buildTranscript(state: MockState): string {
   const lines = [userMsg];
   if (state === "tool_use") lines.push(assistantMsg("tool_use"));
   if (state === "waiting") lines.push(assistantMsg("end_turn"));
-  // "running_background": a launched-but-uncompleted background task followed
-  // by an end-of-turn — deriveState promotes the bare `waiting` to
-  // `running_background`. The matching journal is written by the mock step.
-  if (state === "running_background") {
+  // "running_background": a launched-but-uncompleted `Workflow` task (carries a
+  // Run ID → has a journal) followed by an end-of-turn — deriveState promotes
+  // the bare `waiting` to `running_background`. "orphaned_workflow" uses the
+  // same transcript, but the mock step back-dates its journal so the run reads
+  // as dead (a restart orphaned it) and the promotion is vetoed.
+  // "journalless_workflow" uses the same Workflow-launch transcript but the mock
+  // step writes NO journal and no `workflows/` dir, so the run carries a Run ID
+  // kolu can never observe. Pre-fix that promoted to `running_background` forever
+  // (the phantom bug F3 flagged); post-fix the gate has no liveness anchor and
+  // demotes to `waiting` rather than spinning indefinitely.
+  if (
+    state === "running_background" ||
+    state === "orphaned_workflow" ||
+    state === "journalless_workflow"
+  ) {
     lines.push(
       JSON.stringify({
         type: "user",
@@ -128,6 +142,32 @@ function buildTranscript(state: MockState): string {
               type: "tool_result",
               tool_use_id: "tu-bg",
               content: `Workflow launched in background. Task ID: ${WORKFLOW_TASK_ID}\nRun ID: ${WORKFLOW_RUN_ID}`,
+            },
+          ],
+        },
+      }),
+    );
+    lines.push(assistantMsg("end_turn"));
+  }
+  // "background_bash": a backgrounded Bash command (no Run ID → runId null, no
+  // journal) with no completion. The launch marker is permanent in the
+  // transcript, so pre-fix the bare end_turn was promoted to
+  // `running_background` forever; post-fix a detached command kolu can't
+  // observe is not "working" — it reads as `waiting`.
+  if (state === "background_bash") {
+    lines.push(
+      JSON.stringify({
+        type: "user",
+        uuid: "u2",
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tu-bash",
+              content:
+                "Command running in background with ID: bg-bash-0000. Output is being written to: /tmp/bg-bash-0000.output.",
             },
           ],
         },
@@ -168,18 +208,30 @@ function buildTranscript(state: MockState): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** Write the run journal a `running_background` mock reads its fan-out from. */
-function writeWorkflowJournal(projectDir: string): void {
+/** Write the run journal a `running_background` mock reads its fan-out from.
+ *  `stale: true` back-dates its mtime well past the orphaned-journal window so
+ *  the run reads as dead (the "orphaned_workflow" case). */
+function writeWorkflowJournal(
+  projectDir: string,
+  opts: { stale?: boolean } = {},
+): void {
   const wfDir = path.join(projectDir, SESSION_ID, "workflows");
   fs.mkdirSync(wfDir, { recursive: true });
+  const journalPath = path.join(wfDir, `${WORKFLOW_RUN_ID}.json`);
   fs.writeFileSync(
-    path.join(wfDir, `${WORKFLOW_RUN_ID}.json`),
+    journalPath,
     JSON.stringify({
       workflowName: WORKFLOW_NAME,
       status: "running",
       agentCount: WORKFLOW_AGENTS,
     }),
   );
+  if (opts.stale) {
+    // 10 min ago — comfortably past WORKFLOW_JOURNAL_STALE_MS (2 min), so the
+    // still-"running" journal reads as orphaned regardless of poll duration.
+    const old = new Date(Date.now() - 10 * 60 * 1000);
+    fs.utimesSync(journalPath, old, old);
+  }
 }
 
 /** Unique CWD per scenario to avoid collisions in parallel workers. */
@@ -242,6 +294,8 @@ When(
     mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
     fs.writeFileSync(mockTranscriptPath, buildTranscript(state as MockState));
     if (state === "running_background") writeWorkflowJournal(mockProjectDir);
+    if (state === "orphaned_workflow")
+      writeWorkflowJournal(mockProjectDir, { stale: true });
 
     // Now the trigger — session file last.
     fs.mkdirSync(sessionsDir, { recursive: true });

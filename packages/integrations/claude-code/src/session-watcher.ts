@@ -13,6 +13,7 @@ import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
 import { match } from "ts-pattern";
 import {
+  decayTransientState,
   deriveState,
   deriveTaskProgress,
   deriveWorkflowProgress,
@@ -20,6 +21,9 @@ import {
   extractTasks,
   fetchSessionSummary,
   findTranscriptPath,
+  isClaudeSubtreeIdle,
+  liveOutstandingTasks,
+  nextWorkflowStaleDeadline,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
   type SessionFile,
@@ -139,6 +143,12 @@ export function createSessionWatcher(
   // Trailing-edge debounce timer for transcript fs.watch events.
   // Null when idle. Cleared on destroy.
   let transcriptDebounceTimer: NodeJS.Timeout | null = null;
+  // One-shot timer armed at the next workflow-journal stale deadline while
+  // `running_background` is published. A journal going stale produces no
+  // fs.watch event (it's the *absence* of writes), so without this the phantom
+  // spinner would never self-clear if the agent dies on a still-fresh journal.
+  // Re-armed on every check, cleared on destroy.
+  let staleDeadlineTimer: NodeJS.Timeout | null = null;
   // Watcher over the per-session `workflows/` dir (dynamic-workflow journals).
   // Journals update while the agent is busy-waiting and the transcript is
   // otherwise quiet, so this keeps the fan-out count live. Null until set up.
@@ -173,6 +183,27 @@ export function createSessionWatcher(
       transcriptDebounceTimer = null;
       onTranscriptMaybeChanged();
     }, TRANSCRIPT_DEBOUNCE_MS);
+  }
+
+  /** Arm (or clear) the one-shot timer that re-runs the derivation when a
+   *  workflow journal crosses its stale threshold. Called on every check: while
+   *  `running_background`, point it at the soonest live-journal deadline so the
+   *  spinner self-clears even if the agent dies and no further fs event fires;
+   *  otherwise leave it disarmed. A fresh `setTimeout` per check replaces any
+   *  prior one, so the deadline always tracks the latest journal mtime. */
+  function scheduleStaleRecheck(deadline: number | null) {
+    if (staleDeadlineTimer) {
+      clearTimeout(staleDeadlineTimer);
+      staleDeadlineTimer = null;
+    }
+    if (destroyed || deadline === null) return;
+    // +1ms so the timer fires strictly past the threshold the recheck tests
+    // with `>` (a fire exactly at the deadline would still read as fresh).
+    const delay = Math.max(0, deadline - Date.now()) + 1;
+    staleDeadlineTimer = setTimeout(() => {
+      staleDeadlineTimer = null;
+      onTranscriptMaybeChanged();
+    }, delay);
   }
 
   function attachTranscriptWatcher(tp: string) {
@@ -221,12 +252,33 @@ export function createSessionWatcher(
     onTranscriptMaybeChanged();
   }
 
+  /** Milliseconds since the transcript was last written, measured against the
+   *  caller's `now` clock sample, or null when it can't be stat-ed — treated as
+   *  "unknown", so no transient de-escalation fires (never clear a pill on a
+   *  stat failure). Sharing `now` with `decayTransientState` keeps the quiet
+   *  window and the re-derived recheck instant on a single clock read. */
+  function transcriptQuietMs(filePath: string, now: number): number | null {
+    try {
+      return now - fs.statSync(filePath).mtimeMs;
+    } catch {
+      return null;
+    }
+  }
+
   function onTranscriptMaybeChanged() {
     if (destroyed) return;
     if (transcriptWatching.kind !== "watching") return;
 
     const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
-    const outstanding = outstandingBackgroundTasks(lines);
+    // Drop tasks that can't keep the session "working": a `Workflow` whose
+    // journal has gone terminal/stale (orphaned by a restart). `deriveState`
+    // further narrows to runId-bearing `Workflow` runs, so a bare backgrounded
+    // Bash/Agent never promotes. Together: only a live, observable workflow
+    // keeps `running_background`.
+    const outstanding = liveOutstandingTasks(
+      session,
+      outstandingBackgroundTasks(lines),
+    );
     const derived = deriveState(lines, outstanding);
     if (!derived) {
       plog.debug(
@@ -236,6 +288,40 @@ export function createSessionWatcher(
       return;
     }
 
+    // Resolve the state to publish and when (if ever) to re-probe. Two
+    // staleness-driven de-escalations live here, on disjoint states — a quiet
+    // transcript / journal fires no fs event, so each arms the reused one-shot
+    // recheck timer that re-derives without an external trigger:
+    //   - running_background (#1109): demote once the workflow journal goes
+    //     stale; the deadline tracks the soonest live-journal stale time.
+    //   - dangling tool_use (#1017): demote to `waiting` once the transcript is
+    //     quiet past the window AND claude's subtree is idle (no descendant
+    //     process). A genuine long tool keeps a child, so it is never wrongly
+    //     cleared; the probe runs only past the window. `thinking` is left
+    //     untouched — a turn awaiting the model's first token also has no
+    //     descendant and writes nothing, so that signal can't distinguish a
+    //     slow model request from abandonment (see decayTransientState).
+    let publishedState = derived.state;
+    let staleDeadline: number | null = null;
+    if (derived.state === "running_background") {
+      staleDeadline = nextWorkflowStaleDeadline(session, outstanding);
+    } else {
+      const now = Date.now();
+      const quietMs = transcriptQuietMs(transcriptWatching.path, now);
+      if (quietMs !== null) {
+        const decayed = decayTransientState(
+          derived.state,
+          quietMs,
+          () => isClaudeSubtreeIdle(session.pid),
+          undefined,
+          now,
+        );
+        publishedState = decayed.state;
+        staleDeadline = decayed.recheckAt;
+      }
+    }
+    scheduleStaleRecheck(staleDeadline);
+
     scanTasksIncremental(transcriptWatching.path);
 
     // Only read journals when the agent is actually busy-waiting on a
@@ -243,13 +329,13 @@ export function createSessionWatcher(
     // journal files. Recomputed here (not change-gated) so a climbing
     // fan-out count refreshes via the workflows-dir watcher below.
     const workflow =
-      derived.state === "running_background"
+      publishedState === "running_background"
         ? deriveWorkflowProgress(session, outstanding)
         : null;
 
     const info: ClaudeCodeInfo = {
       kind: "claude-code",
-      state: derived.state,
+      state: publishedState,
       sessionId: session.sessionId,
       model: derived.model,
       summary: lastSummary,
@@ -381,6 +467,10 @@ export function createSessionWatcher(
       if (transcriptDebounceTimer) {
         clearTimeout(transcriptDebounceTimer);
         transcriptDebounceTimer = null;
+      }
+      if (staleDeadlineTimer) {
+        clearTimeout(staleDeadlineTimer);
+        staleDeadlineTimer = null;
       }
       teardownTranscriptWatching();
       workflowsDirWatcher?.();

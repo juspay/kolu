@@ -1,6 +1,6 @@
 ---
 name: be
-description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with an AI review gauntlet (codex debate → hickey/lowy/code-police → CI → evidence). ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
+description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with an AI review gauntlet (codex debate → lens debate (lowy ⇄ hickey) → code-police → CI → evidence). ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
 argument-hint: "<issue-url | prompt>"
 ---
 
@@ -45,13 +45,8 @@ Run **check** and **fmt**, then commit (conventional message) and push the featu
 Run **in order** — each surfaces different defects, each posts its findings to the PR:
 
 1. **`/codex-debate`** (Skill tool) on the diff. It loops codex⇄claude to consensus, commits per round, and posts its summary as a PR comment by default. Let it finish before moving on.
-2. **`/hickey` + `/lowy` + `/code-police`** as parallel subagents on the diff (`git diff origin/HEAD...HEAD`), briefed with the change rationale only — do **not** seed findings. Under ultracode, orchestrate them with the **`Workflow` tool** (fan-out + adversarial verify of each finding); otherwise emit the three `Agent` calls in a single turn.
-
-   **Run `/hickey` and `/lowy` on the main agent's model (Opus) — critical.** Their skill frontmatter declares `model: sonnet`; **override it**, passing `model: opus` on the `Agent`/`Workflow` call so both lenses run at full strength. `/code-police` runs on its default.
-
-**Each finding is its own commit** — never batch. For every finding in turn: apply the narrow fix, re-run **check** and **fmt**, `git add` only the touched files, commit (`refactor(hickey):` / `refactor(lowy):` / `fix(police):` …) with the finding restated in one line, and `git push`. No deferrals — hickey/lowy emit only *Fix in this PR* / *No-op*; `/code-police` runs its rules → fact-check → elegance passes until clean.
-
-**Post the findings to the PR.** After the lenses finish, post the hickey/lowy/code-police findings as PR comment(s) — a ledger table (one row per finding with its disposition) plus each lens's rationale — so reviewers see the structural analysis alongside codex-debate's own comment.
+2. **`/lens-debate`** (Skill tool) on the diff, briefed with the change rationale only — do **not** seed findings. One call does the whole `/lowy` ⇄ `/hickey` structural pass: it reviews with both lenses **independently in parallel** (forcing both onto Opus, overriding their `model: sonnet` frontmatter), debates **every** finding to consensus, and applies each agreed `fix` as its own commit. **It MUST post the per-finding debate ledger (origin, finding, disposition, applied commit) to the PR as a comment — this is mandatory; confirm the comment landed** (it is `/lens-debate`'s default, so don't pass `--no-comment`). Pass the change rationale via its `rationale` arg so the lenses don't flag deliberate decisions. Deadlock is not possible; on the rare **unresolved** finding, adjudicate it yourself before moving on. Let it finish.
+3. **`/code-police`** (Skill tool) on the resulting diff — its rules → fact-check → elegance passes until clean. **Each finding is its own commit** — never batch: apply the narrow fix, re-run **check** and **fmt**, `git add` only the touched files, commit (`fix(police):` …) with the finding restated in one line, and `git push`. Then post its findings to the PR as a comment.
 
 ## 5. Ship
 
@@ -60,6 +55,6 @@ Run **in order** — each surfaces different defects, each posts its findings to
 
 ## Done
 
-Report the PR URL, the outcome of each review (codex consensus/deadlock, findings actioned), and CI status. Never merge — the human reviews the per-step commits and merges when satisfied.
+Report the PR URL, the outcome of each review (codex consensus or reviewer-error, lens-debate consensus, findings actioned), and CI status. Never merge — the human reviews the per-step commits and merges when satisfied.
 
 ARGUMENTS: $ARGUMENTS

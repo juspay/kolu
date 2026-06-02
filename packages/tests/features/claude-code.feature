@@ -75,6 +75,21 @@ Feature: Claude Code status detection
     And the tile chrome should show workflow badge "deep-research"
     And there should be no page errors
 
+  Scenario: A backgrounded Bash command is not a running-in-background state
+    When a Claude Code session is mocked with state "background_bash"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
+  Scenario: An orphaned workflow (stale journal) settles to idle, not running
+    When a Claude Code session is mocked with state "orphaned_workflow"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
+  Scenario: A workflow launch with a Run ID but no journal does not spin forever
+    When a Claude Code session is mocked with state "journalless_workflow"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the tile chrome should show an agent indicator with state "thinking"

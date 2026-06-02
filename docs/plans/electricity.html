@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electricity — identified, and their progress</title>
+<style>
+  :root{
+    --bg:#fafaf7; --panel:#ffffff; --panel2:#f4eefb; --ink:#1a1c20; --dim:#5b6470;
+    --line:#e6e2d6; --accent:#6b4eff; --accent2:#7c4dd4; --good:#1b7a3a; --bad:#a02a2a;
+    --warn:#a96400; --teal:#0e7490; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{ box-sizing:border-box; } html{ scroll-behavior:smooth; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; padding:2.4rem 1.25rem 6rem; }
+  main{ max-width:880px; margin:0 auto; }
+  a{ color:var(--accent); text-decoration:none; } a:hover{ text-decoration:underline; }
+  .crumb{ font-family:var(--mono); font-size:.72rem; color:var(--dim); letter-spacing:.04em; margin:0 0 1.1rem; }
+  .crumb a{ color:var(--dim); } .crumb a:hover{ color:var(--accent); }
+  h1{ font-size:1.7rem; line-height:1.2; margin:0 0 .35rem; letter-spacing:-.01em; }
+  h2{ font-size:1.12rem; margin:2.4rem 0 .6rem; padding-bottom:.35rem; border-bottom:1px solid var(--line); color:#13151b; }
+  .sub{ color:var(--dim); margin:.1rem 0 1.3rem; font-size:.95rem; }
+  p{ margin:.6rem 0; }
+  code{ font-family:var(--mono); font-size:.85em; background:#f4f1e8; padding:.08em .35em; border-radius:4px; color:#2a2d33; }
+  pre{ background:#f6f3ea; border:1px solid var(--line); border-radius:8px; padding:.7rem .9rem; overflow-x:auto; font-family:var(--mono); font-size:.78rem; line-height:1.5; margin:.5rem 0; }
+  pre code{ background:none; padding:0; white-space:pre; }
+  .cite{ font-family:var(--mono); font-size:.78em; color:var(--teal); }
+  .muted{ color:var(--dim); }
+  .tag{ display:inline-block; font-family:var(--mono); font-size:.62rem; text-transform:uppercase; letter-spacing:.03em; padding:.1em .5em; border-radius:999px; vertical-align:middle; border:1px solid transparent; white-space:nowrap; }
+  .tag.done{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .tag.ship{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .tag.todo{ background:#efebff; color:#5a3ff0; border-color:#d4cbff; }
+  .tag.maybe{ background:#dcf0f4; color:#0b6478; border-color:#bfe3ea; }
+  .tag.no{ background:#f7e3e0; color:#992018; border-color:#ecc4bd; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:.9rem 1.1rem; margin:1rem 0; }
+  .panel.accent{ border-left:3px solid var(--accent); }
+  .panel.good{ border-left:3px solid var(--good); }
+  blockquote.q{ margin:1rem 0; padding:.65rem 1rem; border-left:3px solid var(--accent2); background:var(--panel2); border-radius:0 8px 8px 0; font-size:.92rem; }
+  blockquote.q p{ margin:0; }
+  table{ width:100%; border-collapse:collapse; margin:.8rem 0; font-size:.86rem; }
+  th,td{ text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ color:var(--dim); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; }
+  td b{ font-family:var(--mono); font-size:.86em; }
+  hr{ border:none; border-top:1px solid var(--line); margin:2rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+<p class="crumb"><a href="./index.html">docs/plans</a> / electricity</p>
+
+<h1>Electricity — identified, and their progress</h1>
+<p class="sub">A tracker for kolu's <em>electricities</em>: infrastructure pulled out from beneath the app into its own thing. <span class="tag done">evergreen</span></p>
+
+<div class="panel good">
+<p style="margin:0"><strong>What counts as electricity</strong> (Löwy's receptacle — hide the volatility behind a socket you plug into). Three tests at once: ① <strong>domain-agnostic</strong> — no terminal/canvas/git/xterm leaks into the interface; ② <strong>hides a hard volatility</strong> — transport, reconnect, GPU-context loss, persistence — not a 3-line <code>===</code>; ③ <strong>graduates</strong> — ships as <code>@kolu/*</code> and a <em>different</em> app plugs in. The proof of ③ is real, not aspirational. <a href="https://kolu.dev/blog/surface-framework/"><code>@kolu/surface</code></a> is <strong>kolu's own</strong> client↔server transport first — and it has since picked up a <strong>second consumer</strong> in <a href="https://github.com/srid/drishti">srid/drishti</a> (a fleet process-monitor; browser ↔ Bun ↔ ssh-agent) that vendors it from this repo and declares its own per-host schema with none of kolu's domain. The second consumer isn't the <em>point</em> of the extraction — it's the <em>proof</em> it was real electricity: surface never noticed the domain changed.</p>
+</div>
+
+<blockquote class="q">
+<p>“Decompose based on volatility.” Functional decomposition splits a system by what it <em>does</em>; volatility-based decomposition isolates each area likely to <em>change</em> behind a stable interface — the way a body keeps blood-pressure, pulse, and salinity volatility “encapsulated behind the service called the heart.” An <em>electricity</em>, here, is one such volatility pulled out into its own package. <span class="muted">— Juval Löwy, <a href="https://www.informit.com/articles/article.aspx?p=2995357&amp;seqNum=2">Volatility-Based Decomposition</a> (excerpt from <em>Righting Software</em>).</span></p>
+</blockquote>
+
+<h2 id="list">The electricities</h2>
+<table>
+<thead><tr><th>Electricity</th><th>Owns (volatility)</th><th>PR</th><th>Progress</th></tr></thead>
+<tbody>
+<tr><td><b>@kolu/surface</b></td><td>Live client↔server state — <code>Cell</code>/<code>Collection</code>/<code>Stream</code>/<code>Event</code> over oRPC, reconnect, fine-grained reconcile.</td><td><a href="https://github.com/juspay/kolu/pull/805">#805</a></td><td><span class="tag done">done</span> in kolu · 2nd consumer: <a href="https://github.com/srid/drishti">drishti</a></td></tr>
+<tr><td><b>@kolu/surface-nix-host</b></td><td><code>HostSession</code> — <code>nix copy</code> a closure to a host, realise, run <code>--stdio</code> over ssh.</td><td><a href="https://github.com/juspay/kolu/pull/984">#984</a></td><td><span class="tag done">done</span> in kolu · also in <a href="https://github.com/srid/drishti">drishti</a></td></tr>
+<tr><td><b>@kolu/artifact-sdk</b></td><td>Anchoring — core speaks only <code>Range</code>/<code>Document</code>/<code>ShadowRoot</code>.</td><td><a href="https://github.com/juspay/kolu/pull/922">#922</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>@kolu/transcript-core</b> + <b>transcript-html</b></td><td>Transcript model + rendering.</td><td><a href="https://github.com/juspay/kolu/pull/744">#744</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>@kolu/solid-pierre</b></td><td>SolidJS adapters for Pierre tree/diff.</td><td><a href="https://github.com/juspay/kolu/pull/823">#823</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>persistedPref</b></td><td>Validated localStorage (validate-on-read; closed the zoom-<code>NaN</code> + maximize bugs).</td><td><a href="https://github.com/juspay/kolu/pull/1089">#1089</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>@kolu/log</b> · <b>@kolu/html-escape</b></td><td>Zero-dep leaf types every package can import without dragging the domain tree.</td><td><a href="https://github.com/juspay/kolu/pull/1089">#1089</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>dom/</b> + injectable <code>isMac</code></td><td><code>walkShadowRoots</code> relocated to a neutral wall; keybind core no longer reads the UA singleton.</td><td><a href="https://github.com/juspay/kolu/pull/1089">#1089</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>createSharedRoot</b></td><td>Lazy app-scoped reactive singleton (7 consumers). 100% agnostic SolidJS.</td><td><a href="https://github.com/juspay/kolu/pull/974">#974</a></td><td><span class="tag done">done</span> <span class="tag maybe">publish?</span></td></tr>
+<tr><td><b>@kolu/solid-xterm</b> <span class="muted">(createSolidXterm)</span></td><td>xterm.js lifecycle — 8-addon orchestration, WebGL single-owner + context-loss recovery, FitAddon resize, owner-correct async dispose across <code>await</code>.</td><td><a href="https://github.com/juspay/kolu/pull/1116">#1116</a> <span class="muted">(plan)</span></td><td><span class="tag todo">to build</span></td></tr>
+</tbody>
+</table>
+<p class="muted">Plus external electricity correctly leaned on instead of hand-rolled: <strong>Corvu</strong> (dialog/drawer/focus-trap/scroll-lock), <strong>@solid-primitives/*</strong> (resize-observer, media). Origin: a 41-agent Hickey/Lowy audit (16 candidates) → its "ship now" tier landed in <a href="https://github.com/juspay/kolu/pull/1089">#1089</a>; a framework-scale re-test + adversarial skeptic surfaced the missed <code>solid-xterm</code>.</p>
+
+<h2 id="next">Next: extract @kolu/solid-xterm</h2>
+<div class="panel accent">
+<p style="margin-top:0">The one genuine not-yet-built electricity — mis-filed at first as "terminal domain," but a SolidJS adapter for xterm.js is agnostic (the <code>.agency/lowy.md</code> §6.5 <em>"what library is this?"</em> test). It owns two declared volatility rows — async-init cleanup (the <code>#598</code>/<code>#600</code> ~900 KB leaks) and canvas/WebGL lifecycle (the <code>#591</code> zombie-context hunt, <code>#575</code>/<code>#239</code>/<code>#595</code>).</p>
+<p><strong>Inline today</strong> in one <code>Terminal.tsx</code> <code>onMount</code> (972 lines): <code>new XTerm</code> <span class="cite">:472</span>, 8× <code>loadAddon</code> <span class="cite">:489-509</span>, the WebGL single-owner dance <span class="cite">:222-285</span>, owner-correct async init <span class="cite">:463-471</span>, fit/resize <span class="cite">:179</span>/<span class="cite">:750</span>, touch-scroll <span class="cite">:549-596</span>.</p>
+<pre><code>// one primitive (not a topic-bundle, per §6.5):
+createSolidXterm({ container, theme, fontSize, canUseWebgl?, enabledAddons?,
+  onData?, onResize?, onLinkActivate?, onCustomKeyEvent?, plugins? })
+  -> { terminal, searchAddon, hasWebgl, renderer, dispose }</code></pre>
+<p style="margin-bottom:0">Owns the agnostic core; kolu bits (link provider, soft-keyboard, diagnostics probes, the PTY <code>terminal.attach</code> stream) stay consumer-injected via callbacks. <strong>Dissolves ~240–314 lines</strong> of <code>Terminal.tsx</code>. Survived the skeptic ("the domain braid runs too deep") on the interface — those are orchestration concerns, not xterm-lifecycle concerns. Graduates the way surface did: any SolidJS app embedding xterm can plug in.</p>
+</div>
+
+<h2 id="not">Considered — not electricity</h2>
+<p class="muted">Looked framework-sized (the audit's biggest braids), but fail the bar — recorded so they don't get re-proposed.</p>
+<table>
+<thead><tr><th>Candidate</th><th>Verdict</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><b>defineMutation</b> <span class="muted">(optimisticOverlay)</span></td><td><span class="tag no">helper</span></td><td>One module, one domain (canvas layouts); the write echo is already owned by <code>surface</code>'s metadata subscription. Pending is a UI cache, not a transport axis.</td></tr>
+<tr><td><b>@kolu/fs-watch</b></td><td><span class="tag no">helper</span></td><td>Owns a refcount/debounce <em>lifecycle</em>, not a streaming transport — no wire contract, Node-bound. A <code>@kolu/shared</code> helper, not a socket.</td></tr>
+<tr><td><b>@kolu/geometry</b></td><td><span class="tag no">domain-coupled</span></td><td><code>TileLayout</code> binds it to a server-persisted domain type; a <code>Rect</code> package re-adapts at every boundary — moves the braid, doesn't dissolve it.</td></tr>
+<tr><td><b>@kolu/surface-publish</b></td><td><span class="tag no">already-covered</span></td><td>Surface's <code>cellHandlers</code>/<code>collectionHandlers</code>/<code>pollOnEvent</code> already own server snapshot+delta. Only <code>terminal.attach</code> is a raw escape hatch.</td></tr>
+<tr><td><b>@kolu/commands</b> <span class="muted">(palette)</span></td><td><span class="tag no">domain-coupled</span></td><td>Palette engine is already agnostic; all coupling is isolated in <code>createCommands</code>, which must stay in the app. Extracting deletes ~0 kolu lines.</td></tr>
+<tr><td>God-procedure split</td><td><span class="tag maybe">refactor</span></td><td>Its biggest dissolvable chunk <em>is</em> <code>solid-xterm</code> (above); the rest is kolu orchestration — a refactor, not a receptacle.</td></tr>
+</tbody>
+</table>
+
+<hr>
+<p class="muted">Bar from Juval Löwy, <em>Righting Software</em> (receptacle/volatility) + Rich Hickey, <em>Simple Made Easy</em> (complecting); one-socket-not-a-topic-bundle is <code>.agency/lowy.md</code> §6.5. <code>file:line</code> verified against the codebase; ③ demonstrated by <a href="https://github.com/srid/drishti">drishti</a> — a <em>second</em> consumer (kolu is the first) that vendors <code>@kolu/surface</code> via npins. Index: <a href="./index.html">docs/plans</a> · filing: <a href="./second-brain.html">second-brain.html</a>.</p>
+
+</main>
+</body>
+</html>

@@ -143,6 +143,52 @@ describe("parseLineRefs", () => {
     expect(parseLineRefs("git init")).toEqual([]);
     expect(parseLineRefs("run Makefile")).toEqual([]);
   });
+
+  it("does not absorb a trailing sentence period into a slash-path", () => {
+    // The reported bug: `…a single docs/plans/electricity.html.` — the
+    // sentence period sat in the path char class, so the greedy match
+    // swallowed it and the link pointed at `…electricity.html.`, which
+    // never resolved. The reference must stop at the real filename.
+    const refs = parseLineRefs(
+      "There is now a single docs/plans/electricity.html.",
+    );
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({
+      path: "docs/plans/electricity.html",
+      text: "docs/plans/electricity.html",
+      startLine: null,
+      endLine: null,
+    });
+  });
+
+  it("drops a run of trailing periods (ellipsis after a path)", () => {
+    expect(parseLineRefs("opened src/notes.txt...")[0]).toMatchObject({
+      path: "src/notes.txt",
+      text: "src/notes.txt",
+    });
+  });
+
+  it("keeps a trailing `+` so C++-style extensions still link", () => {
+    // Only `.` is stripped from the end — `+`/`@`/`-` are legitimate path
+    // tails (`foo.c++`, `bin/g++`), so the dot-only rule must leave them.
+    expect(parseLineRefs("see src/foo.c++ now")[0]?.path).toBe("src/foo.c++");
+  });
+
+  it("keeps a :line suffix intact when a sentence period follows", () => {
+    // The end-anchored `(?<!\.)` lookbehind is placed after the whole
+    // regex rather than inside the slash-path branch — safe only because
+    // a `:line` suffix ends in a digit, so the lookbehind never trims it.
+    // This pins that invariant: moving the lookbehind into the path branch
+    // would change `:line` immunity, and this test would catch it.
+    const refs = parseLineRefs("see a/b.c:42.");
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({
+      path: "a/b.c",
+      startLine: 42,
+      endLine: 42,
+      text: "a/b.c:42",
+    });
+  });
 });
 
 describe("resolveLineRefPath", () => {
