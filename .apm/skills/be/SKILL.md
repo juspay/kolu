@@ -1,6 +1,6 @@
 ---
 name: be
-description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with an AI review gauntlet (codex debate → lens debate (lowy ⇄ hickey) → code-police → CI → evidence). ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
+description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a PARALLEL AI review gauntlet (codex debate ∥ lens debate (lowy ⇄ hickey) ∥ code-police, each in its own worktree, consolidated by cherry-pick → CI → evidence). ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
 argument-hint: "<issue-url | prompt>"
 ---
 
@@ -40,13 +40,32 @@ Run **check** and **fmt**, then commit (conventional message) and push the featu
 
 **If there's a plan of record, finalize it now.** Once the PR URL exists, update `docs/plans/<slug>.html` to read as it will *after merge* — flip its status to implemented/done and **link the PR** (e.g. a header line `Implemented in #<n>`) — then commit (`docs(plan): link PR #<n>`) and push so the finalized plan is part of this PR. This applies equally to a freshly-written plan and one the user brought in.
 
-## 4. Review gauntlet
+## 4. Review gauntlet — parallel
 
-Run **in order** — each surfaces different defects, each posts its findings to the PR:
+Run all three reviewers **at once** via **`/be-review`** (Skill tool), which fans
+each out into its own detached git worktree off the branch HEAD, runs every
+reviewer's **full multi-round debate to consensus concurrently** (codex⇄claude,
+lowy⇄hickey, and code-police's rules→fact-check→elegance — no depth is dropped),
+then **consolidates** their per-track commits onto the branch with `git
+cherry-pick`. The common case is no overlap (clean picks); the rare overlap — two
+debates editing the same lines — is reconciled to honor both fixes.
 
-1. **`/codex-debate`** (Skill tool) on the diff. It loops codex⇄claude to consensus, commits per round, and posts its summary as a PR comment by default. Let it finish before moving on.
-2. **`/lens-debate`** (Skill tool) on the diff, briefed with the change rationale only — do **not** seed findings. One call does the whole `/lowy` ⇄ `/hickey` structural pass: it reviews with both lenses **independently in parallel** (forcing both onto Opus, overriding their `model: sonnet` frontmatter), debates **every** finding to consensus, and applies each agreed `fix` as its own commit. **It MUST post the per-finding debate ledger (origin, finding, disposition, applied commit) to the PR as a comment — this is mandatory; confirm the comment landed** (it is `/lens-debate`'s default, so don't pass `--no-comment`). Pass the change rationale via its `rationale` arg so the lenses don't flag deliberate decisions. Deadlock is not possible; on the rare **unresolved** finding, adjudicate it yourself before moving on. Let it finish.
-3. **`/code-police`** (Skill tool) on the resulting diff — its rules → fact-check → elegance passes until clean. **Each finding is its own commit** — never batch: apply the narrow fix, re-run **check** and **fmt**, `git add` only the touched files, commit (`fix(police):` …) with the finding restated in one line, and `git push`. Then post its findings to the PR as a comment.
+- Preflight: a non-empty diff and (since codex runs) `codex login status`.
+- Invoke `/be-review` with `base`, the change **`rationale`** (so the lenses
+  don't flag deliberate decisions — same brief the old `/lens-debate` step got),
+  and the default `tracks: [codex, lens, police]` (also the consolidation order).
+- It posts **one** consolidated `## Review gauntlet (parallel)` PR comment
+  covering all three tracks plus the consolidation ledger — confirm it landed.
+  This replaces the three separate per-reviewer comments.
+- On the rare **unresolved** lens finding or a **dropped** overlap you disagree
+  with, adjudicate it yourself before moving on. On `setup-failed` or a per-track
+  `track-error`, fall back to the serial path below for the affected track.
+
+The serial path (`/codex-debate` → `/lens-debate` → `/code-police`, each seeing
+the prior's fixes fresh) remains available and is the right call for a small,
+correctness-critical change where cross-track staleness matters — and is the
+automatic fallback under codex/opencode runtimes, which lack the `Workflow`
+engine `/be-review` needs.
 
 ## 5. Ship
 
@@ -55,6 +74,6 @@ Run **in order** — each surfaces different defects, each posts its findings to
 
 ## Done
 
-Report the PR URL, the outcome of each review (codex consensus or reviewer-error, lens-debate consensus, findings actioned), and CI status. Never merge — the human reviews the per-step commits and merges when satisfied.
+Report the PR URL, the parallel gauntlet outcome (per-track: codex consensus or reviewer-error, lens-debate consensus, police findings actioned) and the consolidation ledger (clean picks vs reconciled overlaps), and CI status. Never merge — the human reviews the per-track commits and merges when satisfied.
 
 ARGUMENTS: $ARGUMENTS
