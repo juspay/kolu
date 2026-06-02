@@ -1,110 +1,98 @@
 ---
 name: evidence
 description: >-
-  Capture production-like PR evidence (screenshots and video) by running the app
-  on an ephemeral pu box and driving headless Chrome with Playwright — entirely
-  off the user's machine, the way CI builds. Use when a change has visible UI
-  impact and you want to post a `## Evidence` PR comment. Project-agnostic: it
-  parameterizes on a `nix run`-style serve command, so it reuses across any
-  project whose app boots that way. Covers the self-contained Playwright capture,
-  video recording, ffmpeg transcode, GitHub-release hosting, and posting.
-  Triggers on "post evidence", "screenshot the change", "PR evidence", "record a
-  video of this", "capture the UI".
+  Capture production-like PR evidence (screenshots and video) on an ephemeral pu
+  box by recording the project's own Cucumber + Playwright e2e harness — pick the
+  scenario that exercises the change, run it by name with `KOLU_EVIDENCE=1`, and
+  the harness records the clip while reusing every step definition. No feature-file
+  edit. Entirely off the user's machine, the way CI runs e2e. Then transcode
+  (ffmpeg), host on a GitHub release, and post a `## Evidence` comment. Use when a
+  change has visible or behavioral impact worth proving. Triggers on "post
+  evidence", "screenshot the change", "PR evidence", "record a video of this",
+  "capture the UI".
 ---
 
-# evidence — PR screenshots & video, captured on a pu box
+# evidence — PR screenshots & video, recorded via the e2e harness on a pu box
 
-Capture runs on an ephemeral `pu` box (see the **pu** skill), not locally. `nix run`,
-Chrome, Playwright, and ffmpeg all execute on the box — so evidence reflects a clean,
-CI-like build of the PR's own commit and nothing touches the user's machine. The box
-has its own loopback, so the app binds a plain port there with zero risk to anything
-the user is running; no random-port dance, no `pkill`, no worktree juggling.
+Capture runs on an ephemeral `pu` box (see the **pu** skill), not locally — so evidence
+reflects a clean, CI-like build of the PR's own commit and nothing touches the user's
+machine. The box has its own loopback, so the harness binds plain ports there with zero
+risk to anything the user is running.
 
-**Delegate to a subagent** (`Agent(subagent_type="general-purpose", model="sonnet")`)
-so the main context stays clear of capture noise. Brief it with the box name, the
-serve command, what to capture, a `<slug>`, and the PR number; have it return only the
-markdown body it posted.
+**Capture is the project's existing Cucumber + Playwright e2e harness — you record an
+existing scenario by name, never a hand-rolled one-off script and never a tag edit to the
+feature file.** The harness already drives every UI surface through a maintained step
+library, so the clip is produced by the same code CI exercises, there is no parallel
+capture script to keep in sync, and the `.feature` files stay pristine. (If a surface
+isn't reachable by a scenario, write the scenario — there is no `capture.mjs` fallback.)
 
-## Inputs the calling project supplies
+**Delegate to a subagent** (`Agent(subagent_type="general-purpose", model="sonnet")`) so
+the main context stays clear of capture noise. Brief it with the box name, the branch, the
+scenario to record (feature file + exact scenario name), a `<slug>`, and the PR number;
+have it return only the markdown body it posted.
 
-- **Serve command** — a `nix run`-style line that boots the app on the box's loopback
-  (e.g. `nix run --refresh 'github:owner/app?ref=$branch' -- --host 127.0.0.1 --port 8080`).
-- **Health URL** and **app URL** (e.g. `http://127.0.0.1:8080/health`, `…/`).
-- **Release name** for hosting binaries (e.g. `evidence-assets`).
-- Any **app-specific scenario** steps (selectors to click, states to reproduce).
+## How the harness records (wired in `packages/tests/support/hooks.ts`, gated on `KOLU_EVIDENCE`)
 
-## 1. Provision & serve
+Off by default — normal runs pay nothing. With `KOLU_EVIDENCE=1` the e2e harness:
 
-```sh
-host="<descriptive-name>"
-pu create "$host"                                       # see the pu skill (incl. egress check)
-pu connect "$host" -- "nohup <SERVE COMMAND> >/tmp/app.log 2>&1 &"
-pu connect "$host" -- 'until curl -sf <HEALTH URL>; do sleep 2; done'
-```
+- sets Playwright `recordVideo` on the browser context (`size` = the evidence viewport, so
+  the capture is 1:1 with no downscaling);
+- records at a **denser 1280×720 viewport** (the normal 1920×1080 desktop floats the UI
+  small in empty canvas — see Legibility);
+- adds `slowMo` so the lead-up is watchable;
+- **skips the animations-off init script** (motion is the point of a video);
+- saves the page's `.webm` scenario-named to `packages/tests/reports/videos/` in the
+  `After` hook (grabs `page.video()` before `context.close()`, `saveAs` after).
 
-For a **"before"** shot, serve a second box from the base ref (e.g. `master`) — no
-worktree, no stash.
+To capture a surface, pick the scenario that exercises it (or author a tiny one reusing
+existing steps) and select it by name. One scenario per clip.
 
-## 2. Capture (Playwright on the box)
-
-A self-contained `capture.mjs` drives headless Chromium with the **version-matched**
-pair Nix provides — `nixpkgs#playwright-driver` (the `playwright-core` lib) +
-`nixpkgs#playwright-driver.browsers` (Chrome-for-Testing). No MCP server, no npm
-install. One run yields a PNG **and**, if you pass a video dir, a `.webm`.
+## 1. Provision & get the repo on the box
 
 ```sh
-pu connect "$host" -- "cat > /tmp/cap/capture.mjs" <<'MJS'
-// argv: <url> <pngPath> [webmDir]   — runs entirely on the box.
-import { chromium } from 'playwright-core';
-const [url, pngPath, webmDir] = process.argv.slice(2);
-const viewport = { width: 1366, height: 768 };               // landscape, DPR 1
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-const context = await browser.newContext({
-  viewport, deviceScaleFactor: 1,
-  ...(webmDir ? { recordVideo: { dir: webmDir, size: viewport } } : {}),
-});
-const page = await context.newPage();
-await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
-
-// === reproduce the relevant state here ===
-// e.g. page.keyboard.press('Control+Enter'), page.click(sel), page.keyboard.type(cmd)
-await page.waitForTimeout(2500);                             // let it settle
-
-await page.screenshot({ path: pngPath });
-await context.close();                                       // flushes the .webm
-await browser.close();
-MJS
-
-pu connect "$host" -- 'bash -lc "
-  mkdir -p /tmp/cap/node_modules /tmp/cap/vid
-  DRV=\$(nix build --no-link --print-out-paths nixpkgs#playwright-driver)
-  BR=\$(nix build --no-link --print-out-paths nixpkgs#playwright-driver.browsers)
-  ln -sfn \$DRV /tmp/cap/node_modules/playwright-core
-  PLAYWRIGHT_BROWSERS_PATH=\$BR NODE_PATH=/tmp/cap/node_modules \
-    nix shell nixpkgs#nodejs -c node /tmp/cap/capture.mjs \
-      <APP URL> /tmp/cap/<slug>.png /tmp/cap/vid
-"'
+host="<descriptive-name>"                 # e.g. kolu-pr-<N>
+branch="$(git rev-parse --abbrev-ref HEAD)"
+pu create "$host"                          # see the pu skill (incl. egress check)
+pu connect "$host" -- "git clone --depth 1 -b $branch https://github.com/juspay/kolu ~/kolu"
 ```
 
-## 3. Video (only when the change is about motion)
+## 2. Capture — run the scenario by name (the harness records it)
 
-Pass a `webmDir` and **script real interaction** — a video that just sits still proves
-nothing. Open the relevant surface, drive the steps back-to-back, let output stream.
-Make it legible (the #1 quality issue):
+Run it on the box exactly the way CI runs e2e (`ci::e2e`): inside the Nix dev shell, with
+`KOLU_EVIDENCE=1`. Select the scenario **by name** (`--name`, a regex over the scenario
+title) — no feature-file edit. `just test-quick` builds the client and spawns the server
+from source, so there is no separate serve step. Send a one-line runner script to dodge the
+nested ssh/devshell quoting (`$scenario` expands locally into the script):
 
-- **Landscape viewport** — the script sets `1366×768` at DPR 1. The default headless
-  window can be portrait and 2×-DPI, leaving content tiny in a tall empty frame.
-- **Fill the frame** — maximize/expand the surface under test so it isn't a small tile
-  floating in empty space.
-- **High-contrast theme** so text reads.
-- **Move briskly, then speed up** in transcode (`setpts=PTS/2`–`/3`) so agent-latency
-  dead time doesn't make the clip drag.
+```sh
+scenario="Editing an HTML file refreshes the iframe preview live"   # the scenario to record
+pu connect "$host" -- "cat > ~/run-evidence.sh" <<SH
+cd ~/kolu && nix develop -c bash -lc "KOLU_EVIDENCE=1 just test-quick features/<file>.feature --name '$scenario'"
+SH
+pu connect "$host" -- "bash ~/run-evidence.sh"
+# → ~/kolu/packages/tests/reports/videos/<scenario-slug>.webm
+```
 
-Transcode on the box with `nix shell nixpkgs#ffmpeg`:
+For a **"before"** clip, run the same scenario on a second box cloned at the base ref
+(e.g. `master`).
+
+## 3. Legibility (the #1 quality issue)
+
+- **Dense viewport.** The harness records at 1280×720, matched to `recordVideo.size`. The
+  full 1920×1080 desktop leaves the terminal tile + side panel tiny in a sea of canvas — if
+  a surface still reads small, tighten the viewport further (in `hooks.ts`'s
+  `EVIDENCE_VIEWPORT`) or use a scenario step that maximizes the tile, rather than recording
+  at full width.
+- **Motion stays on** under `KOLU_EVIDENCE` (the determinism init script is skipped), so
+  transitions actually show.
+- **Brisk, then speed up** in transcode (`setpts=PTS/2`–`/3`) so agent-latency dead time
+  doesn't drag; add a brief dwell step at the payoff if a beat gets lost.
+
+Transcode on the box with `nix shell nixpkgs#ffmpeg` (GIF for inline, MP4 for HD):
 
 ```sh
 pu connect "$host" -- 'bash -lc "
-  WEBM=\$(ls /tmp/cap/vid/*.webm | head -1)
+  WEBM=\$(ls ~/kolu/packages/tests/reports/videos/*.webm | head -1)
   nix shell nixpkgs#ffmpeg -c ffmpeg -y -i \$WEBM \
     -vf \"setpts=PTS/2,fps=12,scale=1100:-1:flags=lanczos\" -loop 0 /tmp/cap/<slug>.gif
   nix shell nixpkgs#ffmpeg -c ffmpeg -y -i \$WEBM -filter:v setpts=PTS/2 -an /tmp/cap/<slug>.mp4
@@ -113,40 +101,40 @@ pu connect "$host" -- 'bash -lc "
 
 ## 4. Host & post
 
-`gh pr comment` can't attach binaries, so copy artifacts back and upload to a
-long-lived GitHub release:
+`gh pr comment` can't attach binaries, so copy artifacts back and upload to a long-lived
+GitHub release:
 
 ```sh
-scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.png /tmp/evidence-<slug>.png
+scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.gif /tmp/evidence-<slug>.gif
+scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.mp4 /tmp/evidence-<slug>.mp4
 gh release view <RELEASE> >/dev/null 2>&1 || \
   gh release create <RELEASE> --prerelease --title "Evidence assets" --notes "Do not delete."
-gh release upload <RELEASE> /tmp/evidence-<slug>.png --clobber
+gh release upload <RELEASE> /tmp/evidence-<slug>.gif /tmp/evidence-<slug>.mp4 --clobber
 ```
 
 Embed inline (GitHub renders PNG **and** animated GIF from any release URL):
 
 ```
-![](https://github.com/<OWNER>/<REPO>/releases/download/<RELEASE>/<slug>.png)
 ![](https://github.com/<OWNER>/<REPO>/releases/download/<RELEASE>/<slug>.gif)
 ```
 
-A `<video>` tag in a comment is stripped, and GitHub only mints an inline player for
-files dragged into the web composer — so the GIF is the at-a-glance proof. For an HD
-clip, upload the `.mp4` to the same release and link the shared player
-[`juspay/video-evidence`](https://github.com/juspay/video-evidence) (org-allowlisted
-`repo` param, reused across projects):
+A `<video>` tag in a comment is stripped, and GitHub only mints an inline player for files
+dragged into the web composer — so the GIF is the at-a-glance proof. For an HD clip, upload
+the `.mp4` to the same release and link the shared player
+[`juspay/video-evidence`](https://github.com/juspay/video-evidence) (org-allowlisted `repo`
+param, reused across projects):
 
 ```
 ▶ HD: https://juspay.github.io/video-evidence/evidence.html?repo=<OWNER>/<REPO>&v=<slug>.mp4
 ```
 
-Use a single-quoted heredoc (`<<'EOF'`) when posting so backticks and `$` survive.
-Keep the GIF under GitHub's ~10 MB inline limit (the speed-up + palette pass usually
-do). **Tear the box down** when finished: `pu destroy "$host"`.
+Use a single-quoted heredoc (`<<'EOF'`) when posting so backticks and `$` survive. Keep the
+GIF under GitHub's ~10 MB inline limit (the speed-up + palette pass usually do). **Tear the
+box down** when finished: `pu destroy "$host"`.
 
 ## Terminal / TUI evidence (vhs)
 
-For a **terminal app** (CLI / TUI) the Playwright path above doesn't apply — record the
+For a **terminal app** (CLI / TUI) the e2e-harness path above doesn't apply — record the
 terminal itself with [`vhs`](https://github.com/charmbracelet/vhs) (`nix run nixpkgs#vhs`;
 bundles chromium on Linux). vhs runs a `.tape` script that types into a real pty and emits
 **GIF + MP4** from one file (one `Output` line per format).

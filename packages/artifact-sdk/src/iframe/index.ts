@@ -150,7 +150,13 @@ function boot(): void {
   ensureHighlightStyle();
   document.addEventListener("selectionchange", onSelectionChange);
   window.addEventListener("message", onMessage);
-  postToParent({ type: "kolu-artifact-sdk:ready" });
+  // `location.pathname` lets the parent follow same-frame link navigation:
+  // it can't read this frame's URL across the opaque-origin sandbox, so the
+  // frame reports its own on every boot (initial load + each post-link load).
+  postToParent({
+    type: "kolu-artifact-sdk:ready",
+    pathname: window.location.pathname,
+  });
 }
 
 if (document.readyState === "loading") {

@@ -7,16 +7,17 @@
  *  plugged in as appliances:
  *
  *    - `kind: "text"`   → a `FileData` with `content`; FileView renders the
- *      injected pierre source renderer (`BrowseFileView`). Source-only — no
- *      toggle, since there's no rendered form.
+ *      injected pierre source renderer (`BrowseFileView`). Markdown (`.md`)
+ *      additionally gets a rendered appliance, so FileView shows a Source ⇄
+ *      Rendered toggle (defaulting to rendered); other text stays source-only.
  *    - `kind: "binary"` → a `FileData` with `url`; FileView picks a rendered
  *      appliance by extension (image `<img>` or sandboxed iframe). Rendered-
  *      only — no source on the wire to toggle to.
  *
- *  No file yet carries *both* forms, so the Source ⇄ Rendered toggle stays
- *  hidden — this is a behaviour-preserving extraction (plan phase 2). Later
- *  phases add a `markdown` appliance and a `renderable` wire kind, and the
- *  toggle lights up with zero changes here beyond the renderer list. */
+ *  The Source ⇄ Rendered toggle lights up wherever a file carries *both*
+ *  forms — Markdown today (plan phase 3); a `renderable` wire kind for
+ *  HTML/SVG follows (phase 4) with zero changes here beyond the renderer
+ *  list. */
 
 import {
   type FileData,
@@ -25,9 +26,10 @@ import {
   type SourceRenderer,
 } from "@kolu/solid-fileview";
 import { ImageRenderer } from "@kolu/solid-fileview/renderers/image";
+import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
+import { isMarkdown, isRasterImage } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
-import { isRasterImage } from "kolu-git/previewable";
 import { type Component, createMemo, Match, Switch } from "solid-js";
 import { toast } from "solid-sonner";
 import { app } from "../wire";
@@ -40,6 +42,9 @@ export type BrowseFileDispatcherProps = {
   filePath: string;
   theme: "light" | "dark";
   initialSelectedLines?: SelectedLineRange | null;
+  /** Forwarded to the iframe renderer so an in-iframe link click moves the
+   *  tree selection to the linked file (HTML-preview navigation). */
+  onNavigate?: (path: string) => void;
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
@@ -93,6 +98,28 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           terminalId={props.terminalId}
           path={file.path}
           url={file.url ?? ""}
+          onNavigate={props.onNavigate}
+        />
+      ),
+    },
+  ];
+
+  // Kolu's rendered appliances for *text* files — just Markdown today. A
+  // `.md` file carries source (the text on the wire) AND a rendered form (the
+  // same text as a document), so FileView offers a Source ⇄ Rendered toggle,
+  // defaulting to rendered. Non-markdown text matches nothing here and stays
+  // source-only (no toggle). Markdown renders from `content`, not a URL — so
+  // these never appear in the binary `renderedRenderers` list above.
+  const textRenderers: RenderedRenderer[] = [
+    {
+      match: isMarkdown,
+      // A `kind:"text"` FileData always carries `source` (see textFile()
+      // below), so the `?.`/`?? ""` is type-defensive narrowing of the
+      // optional field — never a real blank-document path.
+      render: (file) => (
+        <MarkdownRenderer
+          markdown={file.source?.content ?? ""}
+          truncated={file.source?.truncated ?? false}
         />
       ),
     },
@@ -123,7 +150,13 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         )}
       </Match>
       <Match when={textFile()}>
-        {(file) => <FileView file={file()} source={sourceRenderer} />}
+        {(file) => (
+          <FileView
+            file={file()}
+            source={sourceRenderer}
+            rendered={textRenderers}
+          />
+        )}
       </Match>
       <Match when={binaryFile()}>
         {(file) => <FileView file={file()} rendered={renderedRenderers} />}

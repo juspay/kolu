@@ -29,6 +29,28 @@ let
     pname = "kolu-website";
     version = "0.1.0";
     inherit src;
+    # Determinism guard (juspay/kolu#1097). The fetcher runs `pnpm install
+    # --force`, which pulls every platform's optional binaries (so Darwin and
+    # Linux share one hash) — but `--force` treats those cross-platform
+    # packages as *best-effort*: a slow or timed-out download of a heavy blob
+    # (@img/sharp's libvips ~8MB each, canvaskit-wasm) is silently dropped, so
+    # a network-pressured box ends up with fewer packages and a different store
+    # hash. That flaked `ci::pnpm-hash-fresh@x86_64-linux` at random, ~1/3 of
+    # linux runs. Declaring the full os/cpu/libc matrix in supportedArchitectures
+    # makes those binaries *required*: pnpm must fetch all of them (erroring or
+    # retrying, never silently skipping) under --frozen-lockfile, so every box
+    # converges on the same store. We inject it via prePnpmInstall (here, in the
+    # Nix sandbox) rather than committing it to package.json so a local
+    # `pnpm install` in website/ still fetches only the host's binaries.
+    # The matrix is a superset of every platform in pnpm-lock.yaml, so the
+    # fetched set — and this hash — is identical to the pre-fix `--force` set.
+    prePnpmInstall = ''
+      jq '.pnpm.supportedArchitectures = {
+        os: ["linux", "darwin", "win32", "freebsd", "openbsd", "netbsd", "sunos", "android", "openharmony", "aix"],
+        cpu: ["x64", "ia32", "arm64", "arm", "ppc64", "ppc", "s390x", "riscv64", "loong64", "mips64el", "wasm32"],
+        libc: ["glibc", "musl"]
+      }' package.json | sponge package.json
+    '';
     hash = "sha256-EgCvlKgSv86ecZR7aL1J2uGFWnaCMyQjkvUlpqXjaTo=";
     fetcherVersion = 3;
   };

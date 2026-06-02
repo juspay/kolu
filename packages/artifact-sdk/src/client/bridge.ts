@@ -19,7 +19,7 @@
  *    onCleanup(dispose);
  */
 
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import type {
   IframeToParent,
   Locator,
@@ -85,6 +85,42 @@ export function bindArtifactSdk(
     window.removeEventListener("message", onMessage);
     iframe.removeEventListener("load", onLoad);
   };
+}
+
+/** Observe in-iframe navigation. The in-iframe SDK reports its document's own
+ *  `location.pathname` on every boot via the `ready` message — the initial
+ *  load AND every load after a same-frame link click. The parent can't read
+ *  `contentWindow.location` under the opaque-origin sandbox, so this report is
+ *  the only way to learn where an in-iframe link took the user. Fires
+ *  `onNavigate(pathname)` on each report; the caller maps the pathname to its
+ *  own notion of identity (e.g. a repo-relative file path) and follows it.
+ *
+ *  A focused listener rather than another `bindArtifactSdk` option: navigation
+ *  following and comments are independent concerns with independent owners, so
+ *  each binds its own slice of the protocol. The `event.source` identity check
+ *  is the same network-grade boundary `bindArtifactSdk` applies. Returns a
+ *  disposer. */
+export function observeIframeNavigation(
+  iframe: HTMLIFrameElement,
+  onNavigate: (pathname: string) => void,
+): () => void {
+  const onMessage = (event: MessageEvent<IframeToParent>): void => {
+    if (event.source !== iframe.contentWindow) return;
+    const msg = event.data;
+    if (!msg || typeof msg !== "object") return;
+    // Match the payload shape, not just the `type`: previewed HTML runs
+    // scripts under the same opaque origin and can post a `ready` message
+    // with a missing or non-string `pathname`. `P.string` keeps that off
+    // `onNavigate` (and out of `repoPathFromPreviewPathname`, which calls
+    // string methods on it) instead of throwing from this handler.
+    match(msg)
+      .with({ type: "kolu-artifact-sdk:ready", pathname: P.string }, (m) => {
+        onNavigate(m.pathname);
+      })
+      .otherwise(() => undefined);
+  };
+  window.addEventListener("message", onMessage);
+  return () => window.removeEventListener("message", onMessage);
 }
 
 /** Imperative push — call when the comments set or current path changes

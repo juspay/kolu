@@ -59,10 +59,9 @@ export function createOpenCodeWatcher(
   function refresh(db: DatabaseSync): OpenCodeInfo | null {
     const derived = deriveSessionState(session.id, log, db);
     if (!derived) {
-      log?.debug(
-        { session: session.id },
-        "no messages yet for opencode session",
-      );
+      // deriveSessionState already logged the precise cause — a debug
+      // "no messages yet" for an empty session, or an error for a malformed
+      // latest row. Don't flatten both back into one ambiguous line here.
       return null;
     }
 

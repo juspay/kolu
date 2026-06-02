@@ -101,4 +101,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-comments-on-files",
     text: "Select any text in the Code tab (file browse, branch diff, or HTML artifact) to drop a `+ Comment` — your queue copies to the clipboard as Markdown for the agent",
   },
+  {
+    id: "amb-markdown-preview",
+    text: "Open a `.md` file in the Code tab's browse mode to read it rendered — flip the Source ⇄ Rendered toggle in the file header to see the raw Markdown",
+  },
 ];

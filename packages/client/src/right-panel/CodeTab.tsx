@@ -749,6 +749,10 @@ const CodeTab: Component<{
                           filePath={path}
                           theme={diffTheme()}
                           initialSelectedLines={selectedRange()}
+                          // Following a link inside an HTML preview is the
+                          // same intent as a tree click: move selection to the
+                          // new file and drop any line-range highlight.
+                          onNavigate={handleSelect}
                         />
                       );
                     })()}

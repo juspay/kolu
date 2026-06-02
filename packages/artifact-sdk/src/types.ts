@@ -28,9 +28,14 @@ export type SelectMsg = {
   rect: SelectionRect;
 };
 
-/** Iframe → parent: SDK booted and is ready to receive messages. */
+/** Iframe → parent: SDK booted and is ready to receive messages. Carries the
+ *  document's own `location.pathname` — read from inside the frame because the
+ *  opaque-origin sandbox blocks the parent from reading `contentWindow.location`.
+ *  Reposted on every document boot, so the parent learns where a same-frame
+ *  link click navigated (the host maps it back to a repo-relative path). */
 export type ReadyMsg = {
   type: "kolu-artifact-sdk:ready";
+  pathname: string;
 };
 
 /** Parent → iframe: tell the SDK which repo-relative path this artifact is. */

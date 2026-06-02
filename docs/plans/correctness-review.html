@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kolu whole-codebase correctness review</title>
+<style>
+  :root {
+    --bg: #f7f8f4;
+    --panel: #ffffff;
+    --ink: #171b20;
+    --muted: #606975;
+    --line: #dfe3dc;
+    --accent: #0b6f6a;
+    --accent-soft: #e4f3ef;
+    --danger: #b42318;
+    --warn: #a15c07;
+    --ok: #1d6f42;
+    --code: #f0f2ed;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15.5px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 2.2rem 1.2rem 5rem;
+  }
+  main { max-width: 980px; margin: 0 auto; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 1.4rem; margin-bottom: 2rem; }
+  .crumb, .meta, .source { font-family: var(--mono); color: var(--muted); font-size: .78rem; }
+  h1 { font-size: clamp(1.8rem, 3vw, 2.5rem); line-height: 1.12; margin: .45rem 0 .45rem; letter-spacing: 0; }
+  h2 { margin: 2.2rem 0 .7rem; font-size: 1.15rem; padding-bottom: .35rem; border-bottom: 1px solid var(--line); }
+  h3 { margin: 1.1rem 0 .35rem; font-size: 1rem; }
+  p { margin: .55rem 0; max-width: 82ch; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: var(--mono);
+    font-size: .86em;
+    background: var(--code);
+    padding: .08em .35em;
+    border-radius: 4px;
+  }
+  ul { margin: .45rem 0 .8rem; padding-left: 1.25rem; }
+  li { margin: .28rem 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .9rem; }
+  th, td { text-align: left; vertical-align: top; padding: .65rem .7rem; border-bottom: 1px solid var(--line); }
+  th { font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-size: .72rem; }
+  .lead { color: var(--muted); font-size: 1rem; max-width: 78ch; }
+  .toc { display: flex; flex-wrap: wrap; gap: .45rem .8rem; margin-top: 1rem; font-family: var(--mono); font-size: .78rem; }
+  .toc a { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: .22rem .55rem; }
+  .callout {
+    background: var(--accent-soft);
+    border: 1px solid #bfddd6;
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    padding: .9rem 1rem;
+    margin: 1rem 0;
+  }
+  .finding {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 1rem 1.1rem;
+    margin: .95rem 0;
+  }
+  .finding.high { border-left: 4px solid var(--danger); }
+  .finding.medium { border-left: 4px solid var(--warn); }
+  .finding h3 { display: flex; align-items: baseline; gap: .55rem; }
+  .severity {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: .1rem .5rem;
+    white-space: nowrap;
+  }
+  .severity.high { color: var(--danger); border-color: #efb3ad; background: #fff0ee; }
+  .severity.medium { color: var(--warn); border-color: #e8c28a; background: #fff7e8; }
+  .status {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .68rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: .1rem .5rem;
+    white-space: nowrap;
+  }
+  .status.open { color: var(--warn); border-color: #e8c28a; background: #fff7e8; }
+  .status.fixed { color: var(--ok); border-color: #a7d7b8; background: #eef9f1; }
+  .refs {
+    margin: .7rem 0;
+    padding: .55rem .7rem;
+    background: #fafbf8;
+    border: 1px dashed var(--line);
+    border-radius: 7px;
+    font-family: var(--mono);
+    font-size: .78rem;
+    color: var(--muted);
+  }
+  .refs div { margin: .18rem 0; }
+  .label {
+    font-family: var(--mono);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-size: .72rem;
+    margin-top: .8rem;
+  }
+  .risk { color: var(--danger); font-weight: 600; }
+  .fix { color: var(--ok); font-weight: 600; }
+  .muted { color: var(--muted); }
+  footer { margin-top: 2.5rem; border-top: 1px solid var(--line); padding-top: 1rem; color: var(--muted); font-family: var(--mono); font-size: .78rem; }
+  @media (max-width: 700px) {
+    body { padding: 1.4rem .9rem 4rem; }
+    th:nth-child(3), td:nth-child(3) { display: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <p class="crumb">docs / plans / correctness-review.html</p>
+  <h1>Kolu whole-codebase correctness review</h1>
+  <p class="lead">A static correctness audit of the current codebase, focused on logic errors, false safety boundaries, lifecycle leaks, silent failure handling, and restore fidelity. This is not a style review.</p>
+  <p class="meta">Date: 2026-06-01 - Commit reviewed: 1a62eeeb - Method: repo map, targeted static scans, source verification against line anchors</p>
+  <nav class="toc">
+    <a href="#summary">Summary</a>
+    <a href="#scope">Scope</a>
+    <a href="#findings">Findings</a>
+    <a href="#triage">Triage order</a>
+  </nav>
+</header>
+
+<section id="summary">
+  <h2>Summary</h2>
+  <div class="callout">
+    <p><strong>Verdict:</strong> I found six correctness issues worth fixing. The high-severity terminal lifecycle leak is fixed by <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a>, and the OpenCode silent-parse issue by <a href="https://github.com/juspay/kolu/pull/1108">PR #1108</a>. The remaining open set is one high-severity path-authority bug and three medium-severity issues.</p>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Severity</th>
+        <th>Finding</th>
+        <th>Primary surface</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="severity high">High</span></td>
+        <td>Repo-root guard is lexical only; symlinks can escape the repo for reads, previews, and local diffs.</td>
+        <td><code>kolu-git</code>, iframe preview</td>
+        <td><span class="status open">Open</span></td>
+      </tr>
+      <tr>
+        <td><span class="severity high">High</span></td>
+        <td>Terminal exit subscriptions leak forever for explicitly killed terminals.</td>
+        <td>client terminal lifecycle, server events</td>
+        <td><span class="status fixed">Fixed</span> <a href="https://github.com/juspay/kolu/pull/1105">#1105</a></td>
+      </tr>
+      <tr>
+        <td><span class="severity medium">Medium</span></td>
+        <td>PTY channel aborts leak subscribers when the abort fires between pulls.</td>
+        <td><code>@kolu/pty-host</code></td>
+        <td><span class="status open">Open</span></td>
+      </tr>
+      <tr>
+        <td><span class="severity medium">Medium</span></td>
+        <td>Session restore drops persisted metadata and active selection for sub-terminals.</td>
+        <td>client session restore</td>
+        <td><span class="status open">Open</span></td>
+      </tr>
+      <tr>
+        <td><span class="severity medium">Medium</span></td>
+        <td>OpenCode message JSON parse failure is silently treated as "no messages yet".</td>
+        <td>OpenCode integration watcher</td>
+        <td><span class="status fixed">Fixed</span> <a href="https://github.com/juspay/kolu/pull/1108">#1108</a></td>
+      </tr>
+      <tr>
+        <td><span class="severity medium">Medium</span></td>
+        <td>Terminal kill unregisters local state even when pty-host kill fails; the client then removes the UI anyway.</td>
+        <td>server terminal backend, client terminal CRUD</td>
+        <td><span class="status open">Open</span></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="scope">
+  <h2>Scope</h2>
+  <p>I reviewed the major correctness-bearing paths across <code>packages/common</code>, <code>packages/server</code>, <code>packages/client</code>, <code>packages/integrations</code>, <code>packages/pty-host</code>, <code>packages/shared</code>, and <code>packages/surface</code>. The search emphasized file authority, streaming and event lifetimes, session persistence, terminal lifecycle, integration parsers, SQLite/watchers, and error fallbacks.</p>
+  <p class="muted">I did not run the product end-to-end for this audit. These findings are source-derived and should be paired with focused tests as each fix lands.</p>
+</section>
+
+<section id="findings">
+  <h2>Findings</h2>
+
+  <article class="finding high" id="symlink-escape">
+    <h3><span class="severity high">High</span> Repo-root guard can be bypassed by symlinks</h3>
+    <p><code>resolveUnder</code> prevents lexical traversal like <code>../../etc/passwd</code>, but it does not resolve symlinks. A repo path such as <code>leak -&gt; /etc/passwd</code> passes the string check because the path still appears to live under the repo. The later filesystem calls follow the symlink.</p>
+    <div class="refs">
+      <div><a href="../../packages/integrations/git/src/safe-path.ts">packages/integrations/git/src/safe-path.ts</a>:24-36 - <code>path.resolve</code> plus <code>path.relative</code>, no <code>realpath</code></div>
+      <div><a href="../../packages/integrations/git/src/browse.ts">packages/integrations/git/src/browse.ts</a>:49-68 - Code-tab file reads use the resolved absolute path</div>
+      <div><a href="../../packages/server/src/iframePreviewRoute.ts">packages/server/src/iframePreviewRoute.ts</a>:88-125, 150-171 - preview resolution then <code>stat</code>/<code>readFile</code></div>
+      <div><a href="../../packages/integrations/git/src/review.ts">packages/integrations/git/src/review.ts</a>:219-267 - local untracked fallback diffs <code>/dev/null</code> against the resolved absolute path</div>
+    </div>
+    <p><span class="risk">Risk:</span> the Code tab, binary preview route, and local diff fallback can read or render files outside the repository root. That is both a correctness bug and a security boundary failure for any untrusted workspace.</p>
+    <p><span class="fix">Fix:</span> split lexical path normalization from filesystem authority checks. For any operation that reads, stats, or diffs an existing file, compare <code>fs.realpath</code> of the root and target before use. Reject targets whose real path is outside the real repo root. Keep the current lexical helper only for paths that may not exist yet.</p>
+    <p><span class="fix">Tests:</span> add symlink-to-outside fixtures for <code>readFile</code>, preview serving, and local untracked diff. The expected result should be a rejected path, not the external file content.</p>
+  </article>
+
+  <article class="finding high" id="terminal-exit-subscriptions">
+    <h3><span class="severity high">High</span> Explicit terminal kills leak exit subscriptions</h3>
+    <p>Every terminal gets a per-terminal exit subscription rooted with <code>createRoot</code>, but the disposer is discarded. The server stream yields once only when <code>terminalExit</code> is published. Natural exits publish that event; explicit kills intentionally do not. The result is a root and event stream that wait forever after every explicit kill.</p>
+    <div class="refs">
+      <div><a href="../../packages/client/src/terminal/useTerminals.ts">packages/client/src/terminal/useTerminals.ts</a>:56-79 - <code>subscribeExit</code> creates a root and drops the disposer</div>
+      <div><a href="../../packages/server/src/surface.ts">packages/server/src/surface.ts</a>:249-254 - event source yields only after a bus value</div>
+      <div><a href="../../packages/server/src/terminalBackend/local.ts">packages/server/src/terminalBackend/local.ts</a>:539-550 - natural exit publishes <code>terminalExit</code></div>
+      <div><a href="../../packages/server/src/terminalBackend/local.ts">packages/server/src/terminalBackend/local.ts</a>:553-573 - explicit kill unregisters without publishing <code>terminalExit</code></div>
+      <div><a href="../../packages/client/src/terminal/useTerminalCrud.ts">packages/client/src/terminal/useTerminalCrud.ts</a>:163-170 - client removes UI after kill and swallows errors</div>
+    </div>
+    <p><span class="risk">Risk:</span> terminal churn accumulates client roots and server event subscribers for terminals that are already gone. Over time, this can create memory growth and stale event channels.</p>
+    <p><span class="fix">Fix:</span> make <code>subscribeExit</code> return a disposer and store it by terminal id. Dispose it after a natural exit, after an explicit kill, and whenever the terminal list removes the terminal. An alternative is to derive exit subscriptions from the terminal list with keyed cleanup.</p>
+    <p><span class="fix">Tests:</span> cover explicit kill lifecycle with a mocked event stream or observable subscriber count: create terminal, subscribe, kill, then assert the per-terminal exit subscription is aborted.</p>
+    <p class="label">Status - fixed</p>
+    <p><span class="fix">Implemented</span> in <a href="https://github.com/juspay/kolu/pull/1105">PR #1105, "Fix exit-subscription leak on explicit terminal kills"</a>. The fix uses the finding's keyed-cleanup alternative: exit subscriptions are now derived from the live terminal list with <code>mapArray</code> in <a href="../../packages/client/src/terminal/useTerminalExits.ts">packages/client/src/terminal/useTerminalExits.ts</a> - the same list-keyed lifecycle <code>useTerminalMetadata</code> already uses. Each terminal id owns a reactive owner that SolidJS disposes the instant the id leaves the list, so explicit kills, <code>killAll</code>, and natural exits all release the subscription with no per-call-site disposer map. The leaky <code>createRoot</code> in <code>useTerminals.ts</code> and the <code>subscribeExit</code> threading through <code>useTerminalCrud</code> / <code>useSessionRestore</code> are gone. Covered by <code>useTerminalExits.test.ts</code> (asserts the subscription is released the moment a terminal leaves the list, including <code>killAll</code> to empty).</p>
+  </article>
+
+  <article class="finding medium" id="channel-abort">
+    <h3><span class="severity medium">Medium</span> PTY channel abort can leak when no pull is pending</h3>
+    <p><code>Channel.subscribe</code> cleans up immediately when <code>CLOSE</code> is pushed into a pending <code>next()</code>. But an abort that fires between pulls only queues <code>CLOSE</code>. If the consumer never pulls again after cancellation, the subscriber remains in <code>subs</code> and the abort listener remains attached.</p>
+    <div class="refs">
+      <div><a href="../../packages/pty-host/src/channel.ts">packages/pty-host/src/channel.ts</a>:88-138 - abort handler calls <code>sub.push(CLOSE)</code></div>
+      <div><a href="../../packages/pty-host/src/channel.ts">packages/pty-host/src/channel.ts</a>:95-99, 107-114 - cleanup happens only on the pending-next close path</div>
+      <div><a href="../../packages/pty-host/src/channel.test.ts">packages/pty-host/src/channel.test.ts</a>:75-95 - current abort leak coverage only tests a pending <code>next()</code></div>
+    </div>
+    <p><span class="risk">Risk:</span> cancelled attach/tap streams can leave dead subscribers behind if cancellation happens while the consumer is not actively awaiting the next value.</p>
+    <p><span class="fix">Fix:</span> introduce a single <code>finish()</code> path for abort/close that removes the subscriber and listener immediately, resolves any pending <code>next()</code> as done, and prevents future buffered delivery.</p>
+    <p><span class="fix">Tests:</span> add cases for "subscribe then abort before first pull" and "publish buffered value then abort before next pull"; both should reduce <code>subscriberCount</code> to zero immediately.</p>
+  </article>
+
+  <article class="finding medium" id="subterminal-restore">
+    <h3><span class="severity medium">Medium</span> Sub-terminal restore loses saved metadata and active selection</h3>
+    <p>Top-level terminals are restored with their saved metadata, and the old id is mapped to the new id. Sub-terminals are recreated with only <code>cwd</code>. Their saved <code>themeName</code>, <code>canvasLayout</code>, panel state, intent, last activity, and agent command are ignored, and their old id is never mapped. A saved active terminal that points to a sub-terminal therefore cannot be restored.</p>
+    <div class="refs">
+      <div><a href="../../packages/client/src/terminal/useSessionRestore.ts">packages/client/src/terminal/useSessionRestore.ts</a>:247-290 - top-level terminals pass saved metadata and populate <code>oldToNew</code></div>
+      <div><a href="../../packages/client/src/terminal/useSessionRestore.ts">packages/client/src/terminal/useSessionRestore.ts</a>:291-294 - sub-terminals pass only <code>cwd</code></div>
+      <div><a href="../../packages/client/src/terminal/useTerminalCrud.ts">packages/client/src/terminal/useTerminalCrud.ts</a>:151-160 - <code>handleCreateSubTerminal</code> accepts no initial metadata and returns no id</div>
+      <div><a href="../../packages/common/src/surface.ts">packages/common/src/surface.ts</a>:318-327 - saved sessions persist metadata for every saved terminal</div>
+    </div>
+    <p><span class="risk">Risk:</span> restoring a workspace with sub-terminals silently changes the saved UI and agent state. If the active terminal was a sub-terminal, the restore path falls back instead of reselecting it.</p>
+    <p><span class="fix">Fix:</span> change <code>handleCreateSubTerminal</code> to accept <code>InitialTerminalMetadata</code> and return the new id. During restore, pass the same persisted fields used for top-level terminals, seed sub/right-panel state, populate <code>oldToNew</code>, and reselect the mapped active sub-terminal.</p>
+    <p><span class="fix">Tests:</span> add restore coverage for a sub-terminal with a non-default theme/panel state and for <code>activeTerminalId</code> pointing at the sub-terminal.</p>
+  </article>
+
+  <article class="finding medium" id="opencode-parse">
+    <h3><span class="severity medium">Medium</span> OpenCode message parse failures are silently treated as empty state</h3>
+    <p>The OpenCode integration reads OpenCode-owned JSON from SQLite. If the latest <code>message.data</code> is malformed, <code>parseMessageState</code> catches the parse error and returns <code>null</code>. The watcher then logs the same debug message used for a legitimate empty session: "no messages yet".</p>
+    <div class="refs">
+      <div><a href="../../packages/integrations/opencode/src/core.ts">packages/integrations/opencode/src/core.ts</a>:299-320 - <code>deriveSessionState</code> returns <code>null</code> when parsing returns <code>null</code></div>
+      <div><a href="../../packages/integrations/opencode/src/core.ts">packages/integrations/opencode/src/core.ts</a>:325-331 - JSON parse failure is swallowed</div>
+      <div><a href="../../packages/integrations/opencode/src/session-watcher.ts">packages/integrations/opencode/src/session-watcher.ts</a>:59-67 - <code>null</code> is logged as "no messages yet"</div>
+    </div>
+    <p><span class="risk">Risk:</span> upstream schema drift or database corruption hides behind a normal empty-state log. The terminal badge can disappear or stale out without an actionable error.</p>
+    <p><span class="fix">Fix:</span> return a discriminated parse result or pass logging context into <code>parseMessageState</code>. Treat malformed latest-row JSON as a warn/error condition distinct from "no row". Prefer preserving the last known state or publishing an explicit degraded state.</p>
+    <p><span class="fix">Tests:</span> assert that malformed <code>message.data</code> logs a parse failure and is not reported as "no messages yet".</p>
+    <p class="label">Status - fixed</p>
+    <p><span class="fix">Implemented</span> in <a href="https://github.com/juspay/kolu/pull/1108">PR #1108, "Surface malformed OpenCode message.data instead of empty-state"</a>. The fix takes the finding's lighter alternative - pass logging context into <code>parseMessageState</code> rather than thread a discriminated result through the watcher - because the sibling <code>getLatestAssistantContextTokens</code> already logs the same blob's parse failure as an <code>error</code>, so consistency beat a new return type. The two <code>null</code> causes are now logged where each is actually known: <code>parseMessageState</code> logs malformed JSON as <code>error</code> ("opencode message.data parse failed", tagged with the session), and the genuine no-row "no messages yet" <code>debug</code> moved into <code>deriveSessionState</code> at the <code>!row</code> branch. <code>session-watcher.ts</code> no longer flattens both back into one ambiguous line. Covered by unit tests at the <code>parseMessageState</code> and <code>deriveSessionState</code> layers in <a href="../../packages/integrations/opencode/src/index.test.ts">index.test.ts</a> - malformed data logs the parse error and never the empty-state line, an empty session still logs only the debug, and a valid-but-unmodelled role stays silent.</p>
+  </article>
+
+  <article class="finding medium" id="kill-confirmation">
+    <h3><span class="severity medium">Medium</span> Kill failures are hidden while local terminal state is removed</h3>
+    <p>The server comment says kill awaits daemon confirmation so a failed kill cannot orphan the PTY. The implementation catches pty-host kill failure, logs it, and unregisters anyway. <code>killAll</code> drains every terminal after a failed killAll as well. The client then swallows kill errors and removes the local UI regardless.</p>
+    <div class="refs">
+      <div><a href="../../packages/server/src/terminals.ts">packages/server/src/terminals.ts</a>:97-100 - documented invariant says failed kill cannot orphan the PTY</div>
+      <div><a href="../../packages/server/src/terminalBackend/local.ts">packages/server/src/terminalBackend/local.ts</a>:553-573 - single kill unregisters after catch</div>
+      <div><a href="../../packages/server/src/terminalBackend/local.ts">packages/server/src/terminalBackend/local.ts</a>:576-588 - killAll drains after catch</div>
+      <div><a href="../../packages/client/src/terminal/useTerminalCrud.ts">packages/client/src/terminal/useTerminalCrud.ts</a>:163-170 - client catches and removes terminal anyway</div>
+    </div>
+    <p><span class="risk">Risk:</span> if the pty-host kill RPC or transport fails, Kolu can forget a still-running PTY and remove the user's UI handle to it. The current in-process host makes this less common, but the backend is already written around a daemon/socket confirmation model.</p>
+    <p><span class="fix">Fix:</span> do not unregister on kill RPC failure. Either propagate the error and leave the terminal visible, mark the terminal as kill-failed while retrying, or unregister only after a natural exit/tombstone confirmation. For <code>killAll</code>, only drain terminals confirmed killed.</p>
+    <p><span class="fix">Tests:</span> mock <code>ptyHostClient.surface.terminal.kill</code> and <code>killAll</code> to throw; assert registry entries remain and the client does not remove UI on a failed kill.</p>
+  </article>
+</section>
+
+<section id="triage">
+  <h2>Triage order</h2>
+  <ol>
+    <li><strong>Fix path authority first.</strong> It is the only issue that crosses from correctness into a direct workspace boundary violation.</li>
+    <li><strong>Terminal subscription lifecycle is fixed.</strong> <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a> landed the list-keyed cleanup and regression coverage.</li>
+    <li><strong>Fix channel abort cleanup before daemon work expands.</strong> It is a small primitive with a large downstream blast radius.</li>
+    <li><strong>Fix sub-terminal restore and kill-confirmation behavior together with tests.</strong> Both are terminal lifecycle fidelity issues and should be covered by restore/CRUD scenarios.</li>
+    <li><strong>OpenCode parser errors are hardened.</strong> <a href="https://github.com/juspay/kolu/pull/1108">PR #1108</a> landed the malformed-JSON error path and the empty-vs-malformed log split, so future upstream schema drift surfaces instead of failing silently.</li>
+  </ol>
+</section>
+
+<footer>
+  Source artifact created for the 2026-06-01 correctness review. Add follow-up implementation notes next to each finding as fixes land.
+</footer>
+
+</main>
+</body>
+</html>
