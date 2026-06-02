@@ -114,7 +114,7 @@
 </tbody>
 </table>
 <p>This is the <code>retro</code> mode of the one <code>/garden</code> skill (so capture, release notes, etc. share a namespace instead of sprawling into many skills). It runs as a fresh subagent (same-context self-eval is overconfident, like <code>/hickey</code> and <code>/lowy</code>): reads the <strong>raw JSONL</strong> (deleted after ~30 days), preserves verbatim vocabulary (error strings, <code>file:line</code>) while paraphrasing decisions, writes one note linked by <code>#N</code> to the plan it touched, and is offered as an optional final <code>/do</code> step.</p>
-<p class="muted"><strong>Promotion to a rule is judgment, not a counter.</strong> "Auto-promote after N backlinks" is circular — a backlink only exists once a human spotted the recurrence. Promote during the release ritual, or have <code>/retro</code> search existing notes by error string and auto-link. Keep the always-loaded rule layer lean (~150–200 instruction ceiling): point to docs, don't inline.</p>
+<p class="muted"><strong>Promotion to a rule is judgment, not a counter.</strong> "Auto-promote after N backlinks" is circular — a backlink only exists once a human spotted the recurrence. Promote during the release ritual, or have <code>/garden retro</code> search existing notes by error string and auto-link. Keep the always-loaded rule layer lean (~150–200 instruction ceiling): point to docs, don't inline.</p>
 
 <h2 id="format">6 · HTML all the way</h2>
 <p>Garden artifacts are <strong>HTML</strong> (diagrams may be SVG) — they render <em>and</em> accept text-anchored comments in kolu's own Code tab (the dogfooding payoff), and render anywhere via <a href="https://htmlpreview.github.io/">htmlpreview.github.io</a>; the comment tray flushes back into a prompt. The LLM-parsing worry about big HTML is real, but the fix is <strong>atomicity</strong> (§4) — small, single-concept files — not switching to markdown. (<code>&lt;details&gt;</code> folds the view, not the token cost; small files do.)</p>
@@ -133,7 +133,7 @@
 
 <h2 id="defer">8 · Deliberately not building</h2>
 <p><span class="tag bad">cut</span> a separate <code>docs/decisions/</code> or <code>docs/devlog/</code> (Issues + proposals already cover them — two homes = double writes) · the seven-kind taxonomy (collapses into one garden) · a <code>docs::index</code> generator (flat slugs + a hand MOC need none) · two-way Issue↔docs sync (a drifting invariant — link <code>docs → #N</code> only) · auto rule-promotion by backlink count (circular; promote by judgment).</p>
-<p class="panel good" style="display:block">MVP: maturity tags + one hand-written MOC + a <code>/retro</code> skill + the one-direction link rule. Ship it after the first release.</p>
+<p class="panel good" style="display:block">MVP: maturity tags + one hand-written MOC + the <code>/garden</code> skill + the one-direction link rule. Ship it after the first release.</p>
 
 <h2 id="rollout">9 · Rollout</h2>
 <p><strong>Phase 0 shipped in <a href="https://github.com/juspay/kolu/pull/1095">#1095</a></strong> (these docs, the MOC, the house style, the <code>docs/**</code> agent rule). Existing-plan migration — flat-slug renames, breadcrumb trails (parent chain → root), splitting monoliths — is <strong>incremental, on next touch</strong>, not a bulk pass; new docs carry these already.</p>
@@ -151,7 +151,13 @@
 
 <h2 id="open">10 · Open</h2>
 <ul>
-<li><strong>Name</strong> — the system + its skill (working: <strong>EPM</strong> / <code>/garden</code>). Alternatives under discussion, since other projects may adopt it.</li>
+<li><strong>Name — undecided</strong>; placeholder <strong>EPM</strong> / <code>/garden</code>. Other projects may adopt this, so it matters — candidates parked here until chosen:
+  <ul>
+  <li><em>Sanskrit / pan-Indic:</em> <strong>Smriti</strong> (memory; the remembered corpus) · <strong>Kosha</strong> (treasury/lexicon; cf. <em>Amarakosha</em>, the "evergreen treasury") · <strong>Vatika</strong> (garden, grove) · <strong>Akshaya</strong> (imperishable, evergreen)</li>
+  <li><em>Tamil (echoing கோலு / kolu):</em> <strong>Ninaivu</strong> (memory) · <strong>Solai</strong> (grove) · <strong>Suvadi</strong> (palm-leaf manuscript / record)</li>
+  <li><em>English:</em> <strong>Garden</strong> · <strong>Trellis</strong> (the scaffolding) · <strong>Almanac</strong> (evergreen reference, periodic editions) · <strong>Tend</strong> (verb)</li>
+  </ul>
+ </li>
 <li><strong>Top maturity tier</strong> — keep <span class="tag evergreen">evergreen</span> or rename to <strong>perennial</strong>?</li>
 <li><strong>Transcript durability</strong> — commit exported transcripts (diffable, but bloats git) or host out-of-band? The ~30-day JSONL deletion argues for committing something durable.</li>
 <li><strong>Public learnings</strong> — link raw issues in the blog footer, or a curated subset? Some postmortems carry internal detail.</li>
