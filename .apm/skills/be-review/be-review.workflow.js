@@ -228,19 +228,31 @@ if (!branchHead || liveTracks.length === 0) {
 // ---------------------------------------------------------------------------
 phase('Tracks')
 
-// The police track. /code-police is a skill, not a workflow, so its three cold
-// passes (rules / fact-check / elegance) are reproduced here as parallel agents,
-// then each agreed fix is applied as its own commit — matching /be §4.3's
-// "each finding is its own commit". Per-finding `just check` is deferred to the
-// post-consolidation check + §5 CI rather than run 3× concurrently across the
-// parallel worktrees (it would thrash the toolchain); fmt-on-touched-files still
-// runs in each apply.
+// The police track. /code-police is a skill, not a workflow, so its cold passes
+// (rules / fact-check / elegance) are fanned out here as parallel agents — but
+// each pass's *definition* stays single-sourced to code-police's SKILL.md (the
+// agents Read it; the briefs only name which section/pass to apply), and the
+// elegance pass honors the skill's tiny-diff skip. Each agreed fix is then
+// applied as its own commit — matching /be §4.3's "each finding is its own
+// commit". Per-finding `just check` is deferred to the post-consolidation check
+// + §5 CI rather than run 3× concurrently across the parallel worktrees (it
+// would thrash the toolchain); fmt-on-touched-files still runs in each apply.
 async function policeTrack(wt) {
+  // Pass *definitions* are single-sourced to code-police's SKILL.md: each brief
+  // names that pass's section so the agent (which Reads the skill below) reviews
+  // it exactly as written there — no inline checklist to drift. The elegance pass
+  // is gated on the tiny-diff heuristic the skill mandates (SKILL.md:141 — skip
+  // when the worktree diff against base is <10 lines).
+  const tinyDiff = await agent(
+    `Run \`git -C ${wt} diff ${base} --shortstat\` and report whether the changed-line total (insertions + deletions) is **under 10**. Return only that boolean.`,
+    { label: 'police:diff-size', phase: 'Tracks', model, schema: { type: 'object', properties: { tiny: { type: 'boolean' } }, required: ['tiny'] } },
+  )
   const passes = [
-    { key: 'rules', brief: 'the built-in code-police rule checklist (dry-rule-of-three, prefer-focused-library, invalid-states-unrepresentable, no-dead-code, no-silent-error-swallowing, and the rest) PLUS any project rules' },
-    { key: 'fact-check', brief: 'a CORRECTNESS audit: logic errors, silently swallowed errors, wishful thinking, unjustified fallbacks — not style' },
-    { key: 'elegance', brief: 'simplicity and idiom: hand-rolled code that a focused library or a simpler shape would replace' },
-  ]
+    { key: 'rules', brief: 'the **Rule checklist** pass exactly as defined in that skill\'s "Running the passes" section (Pass 1) — every built-in rule plus any project rules' },
+    { key: 'fact-check', brief: 'the **Fact-check** correctness audit exactly as defined in that skill\'s "Running the passes" section (Pass 2)' },
+    { key: 'elegance', brief: 'the **Elegance** pass exactly as defined in that skill\'s "Running the passes" section (Pass 3) — simplicity and idiom' },
+  ].filter((p) => p.key !== 'elegance' || !tinyDiff?.tiny)
+  if (tinyDiff?.tiny) log('police: skipping elegance pass (tiny diff <10 lines, per code-police SKILL.md)')
   const reviews = await parallel(
     passes.map((p) => () =>
       agent(
