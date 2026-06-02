@@ -22,7 +22,8 @@
  *  (`__KOLU_COMMIT__`, baked in at build time). Surfacing it next to `srv`
  *  makes a stale client — an old bundle served from browser cache against a
  *  freshly deployed server — visible at a glance: when both refs are clean and
- *  disagree the column flags `stale`. */
+ *  disagree the column flags `≠ srv` (a mismatch; the two hashes prove
+ *  difference, not which is newer). */
 
 import { type Component, Show } from "solid-js";
 import { serverInfo, type WsStatus } from "../rpc/rpc";
@@ -101,9 +102,9 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           <Commit sha={__KOLU_COMMIT__} />
         </Tip>
         <Show when={stale()}>
-          <Tip label="This client build is older than the server — reload to pick up the latest.">
+          <Tip label="This client build doesn't match the server — reload to pick up the server's version.">
             <span class="self-center rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning">
-              stale
+              ≠ srv
             </span>
           </Tip>
         </Show>
