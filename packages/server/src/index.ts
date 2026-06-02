@@ -26,6 +26,7 @@ import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
+import { attachServeErrorHandler } from "./serveError.ts";
 import { initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import { snapshotSession } from "./terminals.ts";
@@ -267,6 +268,12 @@ const server = serve(
     startDiagnostics();
   },
 );
+
+// A failed listen (port in use, privileged port, unresolvable host) emits
+// 'error' on the returned http.Server. Without this listener Node rethrows,
+// and the global uncaughtException handler reports it like an internal crash
+// rather than the actionable "port already in use" message it deserves.
+attachServeErrorHandler(server, { host, port, log });
 
 // --- oRPC WebSocket handler (streaming) ---
 const wss = new WebSocketServer({ noServer: true });
