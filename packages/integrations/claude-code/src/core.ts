@@ -533,6 +533,56 @@ const WorkflowJournalSchema = z
     }),
   );
 
+/** Directory mtime, or null when the dir can't be stat-ed — the weakest
+ *  liveness anchor (see `workflowStaleAnchorMs`). */
+function dirMtimeMs(wfDir: string): number | null {
+  try {
+    return fs.statSync(wfDir).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/** One observation of a workflow run's on-disk journal — the single owner of the
+ *  `workflows/<runId>.json` join + stat + read. Every consumer projects from this
+ *  discriminated result and keeps its OWN policy: the liveness gate keeps on
+ *  `unparseable` (transient mid-write), `deriveWorkflowProgress` layers
+ *  `WorkflowJournalSchema` on `ok`. Deliberately a *status-only* parse, NOT
+ *  `WorkflowJournalSchema`: the gate must tolerate a journal missing
+ *  `workflowName` — a `{status:"completed"}` snapshot is a positive terminal read
+ *  that must DROP the run, yet it would fail the strict schema and be mis-kept,
+ *  re-opening the phantom-spinner bug. */
+type WorkflowJournalRead =
+  | { kind: "ok"; json: unknown; status: unknown; mtimeMs: number }
+  | { kind: "unparseable"; mtimeMs: number }
+  | { kind: "unreadable" };
+
+function readWorkflowJournal(
+  wfDir: string,
+  runId: string,
+): WorkflowJournalRead {
+  let mtimeMs: number;
+  let raw: string;
+  try {
+    const journalPath = path.join(wfDir, `${runId}.json`);
+    mtimeMs = fs.statSync(journalPath).mtimeMs;
+    raw = fs.readFileSync(journalPath, "utf8");
+  } catch {
+    return { kind: "unreadable" };
+  }
+  try {
+    const json: unknown = JSON.parse(raw);
+    return {
+      kind: "ok",
+      json,
+      status: (json as { status?: unknown }).status,
+      mtimeMs,
+    };
+  } catch {
+    return { kind: "unparseable", mtimeMs };
+  }
+}
+
 /** Read fan-out progress for outstanding background workflows from their
  *  on-disk journals (`workflows/<runId>.json`). Only `Workflow` launches have
  *  a `runId`/journal; plain background `Task`/`Agent` launches are skipped.
@@ -547,14 +597,9 @@ export function deriveWorkflowProgress(
   let fallback: ClaudeWorkflow | null = null;
   for (const task of outstanding) {
     if (!task.runId) continue;
-    const journalPath = path.join(wfDir, `${task.runId}.json`);
-    let json: unknown;
-    try {
-      json = JSON.parse(fs.readFileSync(journalPath, "utf8"));
-    } catch {
-      continue;
-    }
-    const parsed = WorkflowJournalSchema.safeParse(json);
+    const read = readWorkflowJournal(wfDir, task.runId);
+    if (read.kind !== "ok") continue; // unreadable / unparseable → skip
+    const parsed = WorkflowJournalSchema.safeParse(read.json);
     if (!parsed.success) continue;
     const info = parsed.data;
     if (info.status === "running") return info;
@@ -602,16 +647,10 @@ export const WORKFLOW_JOURNAL_STALE_MS = 2 * 60 * 1000;
  *  genuinely-live workflow promoting (its dir mtime advances as journals appear),
  *  while still guaranteeing termination for a truly unobservable run. */
 function workflowStaleAnchorMs(wfDir: string, runId: string): number | null {
-  try {
-    return fs.statSync(path.join(wfDir, `${runId}.json`)).mtimeMs;
-  } catch {
-    // No readable journal — fall back to the directory's launch/last-write mtime.
-  }
-  try {
-    return fs.statSync(wfDir).mtimeMs;
-  } catch {
-    return null; // nothing observable to age out against
-  }
+  const read = readWorkflowJournal(wfDir, runId);
+  // A present journal (parseable or not) anchors on its own mtime; an
+  // unreadable one falls back to the directory's launch/last-write mtime.
+  return read.kind === "unreadable" ? dirMtimeMs(wfDir) : read.mtimeMs;
 }
 
 /** Filter `outstanding` to the tasks that may drive the `running_background`
@@ -647,30 +686,22 @@ export function liveOutstandingTasks(
   const wfDir = workflowsDirFor(session);
   return outstanding.filter((task) => {
     if (!task.runId) return true; // not a workflow — deriveState's narrowing decides
-    const journalPath = path.join(wfDir, `${task.runId}.json`);
-    let raw: string;
-    try {
-      raw = fs.readFileSync(journalPath, "utf8");
-    } catch {
+    const read = readWorkflowJournal(wfDir, task.runId);
+    if (read.kind === "unreadable") {
       // No readable journal: keep only while the directory anchor is still
       // fresh; a missing/stale anchor (or none) demotes so the spinner can't
       // promote indefinitely on an unobservable run.
-      const anchor = workflowStaleAnchorMs(wfDir, task.runId);
-      return anchor !== null && now - anchor <= WORKFLOW_JOURNAL_STALE_MS;
+      const dir = dirMtimeMs(wfDir);
+      return dir !== null && now - dir <= WORKFLOW_JOURNAL_STALE_MS;
     }
-    // Journal read OK: age it out against its own mtime (the live signal).
-    const anchor = workflowStaleAnchorMs(wfDir, task.runId);
-    if (anchor !== null && now - anchor > WORKFLOW_JOURNAL_STALE_MS) {
+    // Journal present: age it out against its own mtime (the live signal).
+    if (now - read.mtimeMs > WORKFLOW_JOURNAL_STALE_MS) {
       return false; // orphaned — fresh enough to read, but no longer being written
     }
-    let status: unknown;
-    try {
-      status = (JSON.parse(raw) as { status?: unknown }).status;
-    } catch {
-      return true; // present + fresh but unparseable (transient mid-write) → keep
-    }
+    if (read.kind === "unparseable") return true; // transient mid-write → keep
     return !(
-      typeof status === "string" && TERMINAL_JOURNAL_STATUSES.has(status)
+      typeof read.status === "string" &&
+      TERMINAL_JOURNAL_STATUSES.has(read.status)
     );
   });
 }
