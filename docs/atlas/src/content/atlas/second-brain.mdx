@@ -92,7 +92,9 @@ Because this note is `.mdx`, every component below is a **live import** from
 `docs/atlas/src/components/` — rendered here, not screenshotted. Props are
 typechecked at build. The kit is tuned to what `docs/plans` actually uses.
 
-**Inline chips** — small typed references for the prose:
+### Inline chips
+
+Small typed references for the prose:
 
 | Component | Live | Usage |
 | --- | --- | --- |
@@ -101,6 +103,8 @@ typechecked at build. The kit is tuned to what `docs/plans` actually uses.
 | **`<Commit>`** — short sha → commit | <Commit sha="7ec2566a" /> | `<Commit sha="7ec2566a" />` |
 | **`<Cite>`** — a linked `file:line` (replaces `docs/plans`' 110× `cite`) | <Cite file="docs/atlas/astro.config.mjs" lines="14-19" /> | `<Cite file="…" lines="14-19" />` |
 | **`<Kbd>`** — a keyboard chord | <Kbd keys="Ctrl+B" /> | `<Kbd keys="Ctrl+B" />` |
+
+### Block components
 
 **`<Callout>`** — a typed box with markdown inside; replaces the old
 `panel`/`card` divs. `kind`: `note · accent · good · warn · danger`. Usage:
@@ -125,9 +129,10 @@ when a note needs something markdown can't draw:
 
 <AtlasMockup />
 
-**`<Toc>`** — a table of contents built from the note's headings. The page route
-renders it (the **Contents** box at the top of this note), so notes never import
-it.
+**`<Toc>`** — a **nested**, auto-inserted table of contents built from the note's
+headings (h3s nest under their h2). The page route renders it (the **Contents**
+box at the top — note how *Inline chips* and *Block components* sit under this
+section), so notes never import it.
 
 **`<Roadmap>` + `<Milestone>`** — a status-marked roadmap (done ✓ · now ▸ ·
 next ○) with rich children. Usage:
@@ -139,7 +144,7 @@ below for the live one.
 - **Index built from frontmatter** → a note can never be unfiled (retires the hand MOC + its `docs-moc` link-gate, kept only while legacy `docs/plans/*.html` exist).
 - **Flat, ancestry-free slugs** — the filename is a handle, not a path.
 - **Index groups by `kind`, shows `maturity`, hides drafts.**
-- **A ToC** (`<Toc>`) is generated from each note's headings — the box above.
+- **A nested ToC** (`<Toc>`) is auto-inserted from each note's headings — the box above.
 - **Dead-link checking stays a generic linter**, not a bespoke gate.
 
 ## Proposals & decisions — keep the numbered log

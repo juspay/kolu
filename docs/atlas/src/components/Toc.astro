@@ -1,11 +1,17 @@
 ---
-// Table of contents — built from the note's headings (Astro auto-assigns each
-// heading an `id`, so the anchors resolve). Fed by the page route, which gets
-// `headings` from `render(note)`. Renders nothing for a note with <2 headings.
+// Auto-inserted table of contents — built from the note's headings (Astro
+// auto-assigns each heading an `id`, so the anchors resolve). The page route
+// passes `headings` from `render(note)`. Builds a nested tree (h3 under h2, …)
+// and renders it recursively via <TocList>. Renders nothing for <2 headings.
+import TocList from "./TocList.astro";
+
 interface Heading {
   depth: number;
   slug: string;
   text: string;
+}
+interface TocNode extends Heading {
+  children: TocNode[];
 }
 interface Props {
   headings: Heading[];
@@ -13,19 +19,25 @@ interface Props {
   maxDepth?: number;
 }
 const { headings, minDepth = 2, maxDepth = 3 } = Astro.props as Props;
-const items = headings.filter((h) => h.depth >= minDepth && h.depth <= maxDepth);
+
+const flat = headings.filter((h) => h.depth >= minDepth && h.depth <= maxDepth);
+
+// Nest by depth using a stack: each heading attaches under the nearest
+// preceding heading of smaller depth.
+const tree: TocNode[] = [];
+const stack: TocNode[] = [];
+for (const h of flat) {
+  const node: TocNode = { ...h, children: [] };
+  while (stack.length > 0 && stack[stack.length - 1].depth >= h.depth) stack.pop();
+  (stack.length > 0 ? stack[stack.length - 1].children : tree).push(node);
+  stack.push(node);
+}
 ---
 {
-  items.length > 1 && (
+  flat.length > 1 && (
     <nav class="toc" aria-label="Table of contents">
       <p class="toc-title">Contents</p>
-      <ul class="toc-list">
-        {items.map((h) => (
-          <li class={`toc-item toc-d${h.depth}`}>
-            <a href={`#${h.slug}`}>{h.text}</a>
-          </li>
-        ))}
-      </ul>
+      <TocList items={tree} />
     </nav>
   )
 }
@@ -44,14 +56,5 @@ const items = headings.filter((h) => h.depth >= minDepth && h.depth <= maxDepth)
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--ink-muted);
-  }
-  .toc-list { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 2rem; }
-  .toc-item { margin: 0.18rem 0; break-inside: avoid; }
-  .toc-item a { color: var(--ink-dim); text-decoration: none; font-size: 0.9rem; }
-  .toc-item a:hover { color: var(--amber); }
-  .toc-d3 { padding-left: 1rem; }
-  .toc-d3 a { font-size: 0.82rem; color: var(--ink-muted); }
-  @media (max-width: 34rem) {
-    .toc-list { columns: 1; }
   }
 </style>
