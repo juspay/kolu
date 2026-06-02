@@ -77,15 +77,15 @@
 </table>
 <p class="muted">A settled decision doesn't need a new dir: a closed/locked issue, or a garden note with <code>status: accepted</code> (cf. Rust's frozen RFC + live tracking issue, Oxide's Committed RFD + follow-up issues). Do <strong>not</strong> add a <code>docs/decisions/</code> dir.</p>
 
-<h2 id="map">3 · The map — public / garden / history</h2>
+<h2 id="map">3 · The map — public &amp; garden</h2>
 <table>
 <thead><tr><th>Mode</th><th>Surface</th><th>Role</th></tr></thead>
 <tbody>
 <tr><td><strong>Public</strong></td><td>Blog (<a href="https://kolu.dev">kolu.dev</a>)</td><td>Outward-facing. One post per release.</td></tr>
 <tr><td><strong>Garden</strong></td><td><code>docs/</code> (HTML)</td><td>The working brain — living &amp; frozen artifacts, linked by MOCs.</td></tr>
-<tr><td><strong>History</strong></td><td>Frozen garden notes + the changelog <span class="muted">(proposals fold in here)</span></td><td>"Why we committed to X / what shipped." Immutable.</td></tr>
 </tbody>
 </table>
+<p><strong>History isn't a third place — it's the garden over time.</strong> A settled note becomes <em>frozen</em> (a maturity tag / <code>status: accepted</code>); a superseded one is marked and kept, not moved. No <code>history/</code> dir — git is already the history, and the per-release <strong>changelog</strong> (a release artifact, not a garden mode) records "what shipped." So the brain is <strong>two surfaces — public &amp; garden</strong> — with GitHub Issues alongside for lightweight tracking (§2).</p>
 <p>Maturity is a property of a note, not a folder — tag it: <span class="tag seedling">seedling</span> raw · <span class="tag budding">budding</span> developing · <span class="tag evergreen">evergreen</span> durable.</p>
 
 <h2 id="gnarly">4 · Fix the gnarliness</h2>
@@ -151,8 +151,9 @@
 
 <h2 id="open">10 · Open</h2>
 <ul>
-<li><strong>Name — undecided</strong>; placeholder <strong>EPM</strong> / <code>/garden</code>. Other projects may adopt this, so it matters — candidates parked here (Tamil-forward, echoing கோலு / kolu; no Hindi):
+<li><strong>Name — undecided</strong>; placeholder <strong>EPM</strong> / <code>/garden</code>. Other projects may adopt this, so it matters — candidates parked here (abstract "surface"-style + Tamil-forward; echoing கோலு / kolu; no Hindi):
   <ul>
+  <li><em>Abstract / "surface"-style (kolu-ecosystem vibe, cf. <code>@kolu/surface</code>):</em> <strong>Atlas</strong> (a bound book of maps — the MOC <em>is</em> exactly that) · <strong>Substrate</strong> / <strong>Strata</strong> (the layered ground knowledge grows in) · <strong>Cortex</strong> (the second brain, literally) · <strong>Ledger</strong> (the running record of decisions &amp; releases)</li>
   <li><em>Tamil:</em> <strong>Suvadi</strong> (சுவடி — palm-leaf manuscript / record) · <strong>Kalanjiyam</strong> (களஞ்சியம் — storehouse, archive) · <strong>Solai</strong> (சோலை — grove, garden) · <strong>Thottam</strong> (தோட்டம் — garden) · <strong>Ninaivu</strong> (நினைவு — memory) · <strong>Kovai</strong> (கோவை — a curated collection) · <strong>Aavanam</strong> (ஆவணம் — document, archive)</li>
   <li><em>English:</em> <strong>Garden</strong> · <strong>Almanac</strong> (evergreen reference, periodic editions) · <strong>Tend</strong> (verb)</li>
   <li><em>Garden-structure / hierarchy (the "hierarchical HTML garden" idea):</em> <strong>Trellis</strong> (the scaffold a garden climbs) · <strong>Lattice</strong> (a garden lattice — and a hierarchical node lattice) · <strong>Arbor</strong> (a garden bower — and <em>arborescence</em>, the DOM/MOC tree) · <strong>Topiary</strong> (clipped, structured garden forms) · <strong>Herbarium</strong> (a curated, taxonomic, preserved collection)</li>
