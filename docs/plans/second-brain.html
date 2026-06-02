@@ -55,35 +55,35 @@
 <p class="sub"><strong>EPM — Evergreen Project Management.</strong> Capture not just plans but the history and learnings of LLM sessions, without building a second system on top of the one you already have. <span class="tag budding">budding</span> <span class="muted">· design · 2026-06-01</span></p>
 
 <div class="panel accent">
-<p class="verdict">You already have a second brain. Name the roles and govern it by one axis: mutability.</p>
+<p class="verdict">You already have a second brain. Name the roles: the garden (<code>docs/</code>) holds the substance; Issues track; the blog is public.</p>
 <ul style="margin-bottom:0">
-<li><strong>One axis — mutability.</strong> Living &amp; cross-linked → <strong>GitHub Issues</strong> (free <code>#N</code> backlinks). Frozen &amp; rich → <strong><code>docs/</code></strong> (the garden).</li>
+<li><strong>The garden is <code>docs/</code>.</strong> Rich, structured artifacts — plans (living <em>or</em> frozen), designs, retros, history — live here as HTML. <strong>GitHub Issues</strong> stays for lightweight tracking (bugs, tasks) and <code>#N</code> cross-links.</li>
 <li><strong>Kill the gnarliness cheaply.</strong> Flat slugs, atomic notes, a hand-written Maps-of-Content index. No generator.</li>
-<li><strong>Capture once.</strong> A <code>/retro</code> skill distills a finished session into a note; only the rich ones become annotatable garden docs.</li>
+<li><strong>Capture once.</strong> One <code>/garden</code> skill (name TBD) with modes — <code>/garden retro</code> distills a finished session, <code>/garden whatchanged</code> drafts release notes.</li>
 <li><strong>Link one direction.</strong> <code>docs → #N</code>. Never a two-way sync — that's what rots.</li>
 </ul>
 </div>
 
 <h2 id="problem">1 · The problem — two systems, not zero</h2>
-<p>kolu already has two overlapping stores: <strong>GitHub Issues</strong> (roadmaps, bugs, decisions, TILs — <code>#N</code> links with free backlinks) and <strong><code>docs/</code></strong> (plans, specs, reviews, proposals). The risk isn't a missing system — it's writing the same thing twice. The first design made this worse with new <code>docs/decisions/</code> + <code>docs/devlog/</code> dirs and a seven-kind taxonomy; a Hickey (complecting) and a Lowy (volatility) review both rejected it. The kinds collapse onto one real axis: <em>mutability</em>.</p>
+<p>kolu already has two overlapping stores: <strong>GitHub Issues</strong> (roadmaps, bugs, decisions, TILs — <code>#N</code> links with free backlinks) and <strong><code>docs/</code></strong> (plans, specs, reviews, proposals). The risk isn't a missing system — it's writing the same thing twice. The first design made this worse with new <code>docs/decisions/</code> + <code>docs/devlog/</code> dirs and a seven-kind taxonomy; a Hickey (complecting) and a Lowy (volatility) review both rejected it. The kinds collapse: they're all rich artifacts for one garden, separated by a maturity tag — not by new directories.</p>
 
-<h2 id="axis">2 · The rule: one axis = mutability</h2>
-<p>Route any artifact by one question: <em>will it keep changing (and want cheap links), or is it settled and rich?</em></p>
+<h2 id="axis">2 · The rule: rich artifacts in the garden, tracking in Issues</h2>
+<p>Route by one question: <em>is this a substantial, structured artifact — or a lightweight node?</em> Living-vs-frozen is <strong>not</strong> the divider: a plan tree like <code>remote-terminals.*</code> lives and evolves in the garden for months. Mutability is a per-note <em>maturity</em>, not a location.</p>
 <table>
-<thead><tr><th>Living → GitHub Issues</th><th>Frozen &amp; rich → docs/ (garden)</th></tr></thead>
+<thead><tr><th>Garden → docs/ (HTML)</th><th>Tracking → GitHub Issues</th></tr></thead>
 <tbody>
-<tr><td>Roadmaps, open questions, bugs; a settled decision (a locked issue); TILs &amp; session learnings before they harden; anything that wants <code>#N</code> backlinks.</td><td>Hardened design &amp; research (<code>plans/*</code>); proposals; retros worth re-reading &amp; annotating in the Code tab.</td></tr>
+<tr><td>Plans (living trees <em>and</em> settled), designs, research, reviews, retros, history — anything substantial worth reading &amp; annotating in the Code tab.</td><td>Bugs, tasks, roadmap items, quick questions; <code>#N</code> cross-links with free backlinks. Lightweight, not long-form.</td></tr>
 </tbody>
 </table>
-<p class="muted">Why mutability and not linkability? Both give cheap links, so linkability can't decide. This is the Rust pattern (frozen RFC + live tracking issue) and Oxide's (Committed RFD + follow-up issues). A settled decision is a closed/locked issue — or, if it needs ceremony, a proposal with <code>status: accepted</code>. Do <strong>not</strong> add a <code>docs/decisions/</code> dir.</p>
+<p class="muted">A settled decision doesn't need a new dir: a closed/locked issue, or a garden note with <code>status: accepted</code> (cf. Rust's frozen RFC + live tracking issue, Oxide's Committed RFD + follow-up issues). Do <strong>not</strong> add a <code>docs/decisions/</code> dir.</p>
 
-<h2 id="map">3 · The map — stream / garden / frozen log</h2>
+<h2 id="map">3 · The map — public / garden / history</h2>
 <table>
 <thead><tr><th>Mode</th><th>Surface</th><th>Role</th></tr></thead>
 <tbody>
-<tr><td><strong>Stream</strong></td><td>Blog (<a href="https://kolu.dev">kolu.dev</a>)</td><td>Dated, public. One post per release.</td></tr>
-<tr><td><strong>Garden</strong></td><td><code>docs/</code> + GitHub Issues</td><td>Evergreen, tended; linked by MOCs and <code>#N</code>.</td></tr>
-<tr><td><strong>Frozen log</strong></td><td>Proposals <span class="muted">(to be supplanted by the garden)</span></td><td>"Why we committed to X." Immutable post-merge.</td></tr>
+<tr><td><strong>Public</strong></td><td>Blog (<a href="https://kolu.dev">kolu.dev</a>)</td><td>Outward-facing. One post per release.</td></tr>
+<tr><td><strong>Garden</strong></td><td><code>docs/</code> (HTML)</td><td>The working brain — living &amp; frozen artifacts, linked by MOCs.</td></tr>
+<tr><td><strong>History</strong></td><td>Frozen garden notes + the changelog <span class="muted">(proposals fold in here)</span></td><td>"Why we committed to X / what shipped." Immutable.</td></tr>
 </tbody>
 </table>
 <p>Maturity is a property of a note, not a folder — tag it: <span class="tag seedling">seedling</span> raw · <span class="tag budding">budding</span> developing · <span class="tag evergreen">evergreen</span> durable.</p>
@@ -100,7 +100,7 @@
 <p>Three tiers, each in a different home so the durable layer stays lean:</p>
 <div class="flow">
   <span>① transcript</span><span class="arrow">→</span>
-  <span class="hot">/retro distills</span><span class="arrow">→</span>
+  <span class="hot">/garden retro</span><span class="arrow">→</span>
   <span>② learning note (issue)</span><span class="arrow">→</span>
   <span class="muted">recurs?</span><span class="arrow">→</span>
   <span class="hot">③ durable rule (.apm/)</span>
@@ -113,51 +113,45 @@
 <tr><td>③ Durable rule</td><td>A behaviour-changing instruction — <code>.apm/</code> sources, regenerated into <code>AGENTS.md</code> by <code>just ai::apm</code>.</td></tr>
 </tbody>
 </table>
-<p>The <code>/retro</code> skill runs as a fresh subagent (same-context self-eval is overconfident, like <code>/hickey</code> and <code>/lowy</code>): it reads the <strong>raw JSONL</strong> (deleted after ~30 days), preserves verbatim vocabulary (error strings, <code>file:line</code>) while paraphrasing decisions, writes one learning note linked by <code>#N</code> to the plan it touched, and is offered as an optional final <code>/do</code> step.</p>
+<p>This is the <code>retro</code> mode of the one <code>/garden</code> skill (so capture, release notes, etc. share a namespace instead of sprawling into many skills). It runs as a fresh subagent (same-context self-eval is overconfident, like <code>/hickey</code> and <code>/lowy</code>): reads the <strong>raw JSONL</strong> (deleted after ~30 days), preserves verbatim vocabulary (error strings, <code>file:line</code>) while paraphrasing decisions, writes one note linked by <code>#N</code> to the plan it touched, and is offered as an optional final <code>/do</code> step.</p>
 <p class="muted"><strong>Promotion to a rule is judgment, not a counter.</strong> "Auto-promote after N backlinks" is circular — a backlink only exists once a human spotted the recurrence. Promote during the release ritual, or have <code>/retro</code> search existing notes by error string and auto-link. Keep the always-loaded rule layer lean (~150–200 instruction ceiling): point to docs, don't inline.</p>
 
-<h2 id="format">6 · Markdown-first; HTML for visual artifacts</h2>
-<p>Notes are markdown by default — atomic, LLM-cheap, diffable, rendered natively on GitHub and in the Code tab (<a href="https://github.com/juspay/kolu/pull/1093">#1093</a>). Reserve HTML for layout-heavy visual artifacts (design docs like this one, mockups, diagrams), viewable via <a href="https://htmlpreview.github.io/">htmlpreview.github.io</a> or the Code tab. Text-anchored comments work on any source file, so a note renders <em>and</em> annotates in-app, then the comment tray flushes back into a prompt.</p>
-<table>
-<thead><tr><th>Note kind</th><th>Format</th></tr></thead>
-<tbody>
-<tr><td>Retro · learning · decision · devlog</td><td><strong>Markdown</strong></td></tr>
-<tr><td>Design doc · spec · review · mockup</td><td><strong>HTML / SVG</strong></td></tr>
-</tbody>
-</table>
+<h2 id="format">6 · HTML all the way</h2>
+<p>Garden artifacts are <strong>HTML</strong> (diagrams may be SVG) — they render <em>and</em> accept text-anchored comments in kolu's own Code tab (the dogfooding payoff), and render anywhere via <a href="https://htmlpreview.github.io/">htmlpreview.github.io</a>; the comment tray flushes back into a prompt. The LLM-parsing worry about big HTML is real, but the fix is <strong>atomicity</strong> (§4) — small, single-concept files — not switching to markdown. (<code>&lt;details&gt;</code> folds the view, not the token cost; small files do.)</p>
 
 <h2 id="feed">7 · How the brain feeds releases</h2>
 <p>A changelog and blog post are the <strong>downstream</strong> of captured history, not a separate chore:</p>
 <div class="flow">
   <span>/talk · /do</span><span class="arrow">→</span>
-  <span class="hot">/retro → issue</span><span class="arrow">→</span>
+  <span class="hot">/garden retro → note</span><span class="arrow">→</span>
   <span>commit + PR <code>(#N)</code></span><span class="arrow">→</span>
   <span>git-cliff CHANGELOG</span><span class="arrow">→</span>
-  <span class="hot">whatchanged → blog</span><span class="arrow">→</span>
+  <span class="hot">/garden whatchanged → blog</span><span class="arrow">→</span>
   <span>release</span>
 </div>
 <p>CHANGELOG sections and posts carry <code>#N</code> links back to the issues/proposals that shipped (free backlinks) — traceability without a two-way sync. Surface learnings as a "What we learned" footer on the release post, not a feature-burying intro. See <a href="./release-workflow.html">release-workflow.html</a>.</p>
 
 <h2 id="defer">8 · Deliberately not building</h2>
-<p><span class="tag bad">cut</span> a separate <code>docs/decisions/</code> or <code>docs/devlog/</code> (Issues + proposals already cover them — two homes = double writes) · the seven-kind taxonomy (collapses to one axis) · a <code>docs::index</code> generator (flat slugs + a hand MOC need none) · two-way Issue↔docs sync (a drifting invariant — link <code>docs → #N</code> only) · auto rule-promotion by backlink count (circular; promote by judgment).</p>
+<p><span class="tag bad">cut</span> a separate <code>docs/decisions/</code> or <code>docs/devlog/</code> (Issues + proposals already cover them — two homes = double writes) · the seven-kind taxonomy (collapses into one garden) · a <code>docs::index</code> generator (flat slugs + a hand MOC need none) · two-way Issue↔docs sync (a drifting invariant — link <code>docs → #N</code> only) · auto rule-promotion by backlink count (circular; promote by judgment).</p>
 <p class="panel good" style="display:block">MVP: maturity tags + one hand-written MOC + a <code>/retro</code> skill + the one-direction link rule. Ship it after the first release.</p>
 
 <h2 id="rollout">9 · Rollout</h2>
-<p><strong>Phase 0 shipped in <a href="https://github.com/juspay/kolu/pull/1095">#1095</a></strong> (these docs, the MOC, the house style, the <code>docs/**</code> agent rule, markdown-first). Existing-plan migration — flat-slug renames, breadcrumb trails (parent chain → root), splitting monoliths — is <strong>incremental, on next touch</strong>, not a bulk pass; new docs carry these already.</p>
+<p><strong>Phase 0 shipped in <a href="https://github.com/juspay/kolu/pull/1095">#1095</a></strong> (these docs, the MOC, the house style, the <code>docs/**</code> agent rule). Existing-plan migration — flat-slug renames, breadcrumb trails (parent chain → root), splitting monoliths — is <strong>incremental, on next touch</strong>, not a bulk pass; new docs carry these already.</p>
 <table>
 <thead><tr><th>Phase</th><th>What</th></tr></thead>
 <tbody>
 <tr><td>0 ✅ <a href="https://github.com/juspay/kolu/pull/1095">#1095</a></td><td>Plans + MOC + house style + the <code>docs/**</code> agent rule.</td></tr>
 <tr><td>1</td><td>Garden restructure: rename <code>docs/plans</code> → <code>docs/garden</code>; fold proposals in as <code>status:</code> notes (supplanting <code>docs/proposals</code>); thread EPM. <span class="muted">(<code>/talk</code> is a dependency hardcoding <code>docs/plans/</code> — parameterize upstream.)</span></td></tr>
 <tr><td>2</td><td>First public release — <code>v0.1.0</code> (<a href="./release-workflow.html">release-workflow.html</a>).</td></tr>
-<tr><td>3</td><td><code>/retro</code> capture skill.</td></tr>
-<tr><td>4</td><td><code>/release</code> skill — split deterministic tag job + skippable announce.</td></tr>
+<tr><td>3</td><td>The <code>/garden</code> skill — <code>retro</code> (capture) + <code>whatchanged</code> (release-notes) modes.</td></tr>
+<tr><td>4</td><td>Release automation — a <code>/garden</code> announce mode + a deterministic tag-triggered CI job.</td></tr>
 <tr><td>5</td><td>Upstream EPM as a reusable, parameterized APM skill set.</td></tr>
 </tbody>
 </table>
 
 <h2 id="open">10 · Open</h2>
 <ul>
+<li><strong>Name</strong> — the system + its skill (working: <strong>EPM</strong> / <code>/garden</code>). Alternatives under discussion, since other projects may adopt it.</li>
 <li><strong>Top maturity tier</strong> — keep <span class="tag evergreen">evergreen</span> or rename to <strong>perennial</strong>?</li>
 <li><strong>Transcript durability</strong> — commit exported transcripts (diffable, but bloats git) or host out-of-band? The ~30-day JSONL deletion argues for committing something durable.</li>
 <li><strong>Public learnings</strong> — link raw issues in the blog footer, or a curated subset? Some postmortems carry internal detail.</li>
