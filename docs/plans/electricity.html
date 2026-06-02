@@ -34,6 +34,8 @@
   .panel{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:.9rem 1.1rem; margin:1rem 0; }
   .panel.accent{ border-left:3px solid var(--accent); }
   .panel.good{ border-left:3px solid var(--good); }
+  blockquote.q{ margin:1rem 0; padding:.65rem 1rem; border-left:3px solid var(--accent2); background:var(--panel2); border-radius:0 8px 8px 0; font-size:.92rem; }
+  blockquote.q p{ margin:0; }
   table{ width:100%; border-collapse:collapse; margin:.8rem 0; font-size:.86rem; }
   th,td{ text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
   th{ color:var(--dim); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; }
@@ -50,15 +52,19 @@
 <p class="sub">A tracker for kolu's <em>electricities</em>: infrastructure pulled out from beneath the app into its own thing. <span class="tag done">evergreen</span></p>
 
 <div class="panel good">
-<p style="margin:0"><strong>What counts as electricity</strong> (Löwy's receptacle — hide the volatility behind a socket you plug into). Three tests at once: ① <strong>domain-agnostic</strong> — no terminal/canvas/git/xterm leaks into the interface; ② <strong>hides a hard volatility</strong> — transport, reconnect, GPU-context loss, persistence — not a 3-line <code>===</code>; ③ <strong>graduates</strong> — ships as <code>@kolu/*</code> and a <em>different</em> app plugs in. The proof ③ is real, not aspirational: <code>@kolu/surface</code> is the reactive transport of <a href="https://github.com/srid/drishti">srid/drishti</a> (a fleet process-monitor — browser ↔ Bun ↔ ssh-agent), which vendors it from this repo and declares its own per-host schema with none of kolu's domain.</p>
+<p style="margin:0"><strong>What counts as electricity</strong> (Löwy's receptacle — hide the volatility behind a socket you plug into). Three tests at once: ① <strong>domain-agnostic</strong> — no terminal/canvas/git/xterm leaks into the interface; ② <strong>hides a hard volatility</strong> — transport, reconnect, GPU-context loss, persistence — not a 3-line <code>===</code>; ③ <strong>graduates</strong> — ships as <code>@kolu/*</code> and a <em>different</em> app plugs in. the proof of ③ is real, not aspirational. <a href="https://kolu.dev/blog/surface-framework/"><code>@kolu/surface</code></a> is <strong>kolu's own</strong> client↔server transport first — and it has since picked up a <strong>second consumer</strong> in <a href="https://github.com/srid/drishti">srid/drishti</a> (a fleet process-monitor; browser ↔ Bun ↔ ssh-agent) that vendors it from this repo and declares its own per-host schema with none of kolu's domain. The second consumer isn't the <em>point</em> of the extraction — it's the <em>proof</em> it was real electricity: surface never noticed the domain changed.</p>
 </div>
+
+<blockquote class="q">
+<p>“Decompose based on volatility.” Functional decomposition splits a system by what it <em>does</em>; volatility-based decomposition isolates each area likely to <em>change</em> behind a stable interface — the way a body keeps blood-pressure, pulse, and salinity volatility “encapsulated behind the service called the heart.” An <em>electricity</em>, here, is one such volatility pulled out into its own package. <span class="muted">— Juval Löwy, <a href="https://www.informit.com/articles/article.aspx?p=2995357&amp;seqNum=2">Volatility-Based Decomposition</a> (excerpt from <em>Righting Software</em>).</span></p>
+</blockquote>
 
 <h2 id="list">The electricities</h2>
 <table>
 <thead><tr><th>Electricity</th><th>Owns (volatility)</th><th>PR</th><th>Progress</th></tr></thead>
 <tbody>
-<tr><td><b>@kolu/surface</b></td><td>Live client↔server state — <code>Cell</code>/<code>Collection</code>/<code>Stream</code>/<code>Event</code> over oRPC, reconnect, fine-grained reconcile.</td><td><a href="https://github.com/juspay/kolu/pull/805">#805</a></td><td><span class="tag done">done</span> graduated → <a href="https://github.com/srid/drishti">drishti</a></td></tr>
-<tr><td><b>@kolu/surface-nix-host</b></td><td><code>HostSession</code> — <code>nix copy</code> a closure to a host, realise, run <code>--stdio</code> over ssh.</td><td><a href="https://github.com/juspay/kolu/pull/984">#984</a></td><td><span class="tag done">done</span> used by drishti</td></tr>
+<tr><td><b>@kolu/surface</b></td><td>Live client↔server state — <code>Cell</code>/<code>Collection</code>/<code>Stream</code>/<code>Event</code> over oRPC, reconnect, fine-grained reconcile.</td><td><a href="https://github.com/juspay/kolu/pull/805">#805</a></td><td><span class="tag done">done</span> in kolu · 2nd consumer: <a href="https://github.com/srid/drishti">drishti</a></td></tr>
+<tr><td><b>@kolu/surface-nix-host</b></td><td><code>HostSession</code> — <code>nix copy</code> a closure to a host, realise, run <code>--stdio</code> over ssh.</td><td><a href="https://github.com/juspay/kolu/pull/984">#984</a></td><td><span class="tag done">done</span> in kolu · also in <a href="https://github.com/srid/drishti">drishti</a></td></tr>
 <tr><td><b>@kolu/artifact-sdk</b></td><td>Anchoring — core speaks only <code>Range</code>/<code>Document</code>/<code>ShadowRoot</code>.</td><td><a href="https://github.com/juspay/kolu/pull/922">#922</a></td><td><span class="tag done">done</span></td></tr>
 <tr><td><b>@kolu/transcript-core</b> + <b>transcript-html</b></td><td>Transcript model + rendering.</td><td><a href="https://github.com/juspay/kolu/pull/744">#744</a></td><td><span class="tag done">done</span></td></tr>
 <tr><td><b>@kolu/solid-pierre</b></td><td>SolidJS adapters for Pierre tree/diff.</td><td><a href="https://github.com/juspay/kolu/pull/823">#823</a></td><td><span class="tag done">done</span></td></tr>
@@ -97,7 +103,7 @@ createSolidXterm({ container, theme, fontSize, canUseWebgl?, enabledAddons?,
 </table>
 
 <hr>
-<p class="muted">Bar from Juval Löwy, <em>Righting Software</em> (receptacle/volatility) + Rich Hickey, <em>Simple Made Easy</em> (complecting); one-socket-not-a-topic-bundle is <code>.agency/lowy.md</code> §6.5. <code>file:line</code> verified against the codebase; graduation verified against <a href="https://github.com/srid/drishti">drishti</a> (vendors <code>@kolu/surface</code> via npins). Index: <a href="./index.html">docs/plans</a> · filing: <a href="./second-brain.html">second-brain.html</a>.</p>
+<p class="muted">Bar from Juval Löwy, <em>Righting Software</em> (receptacle/volatility) + Rich Hickey, <em>Simple Made Easy</em> (complecting); one-socket-not-a-topic-bundle is <code>.agency/lowy.md</code> §6.5. <code>file:line</code> verified against the codebase; ③ demonstrated by <a href="https://github.com/srid/drishti">drishti</a> — a <em>second</em> consumer (kolu is the first) that vendors <code>@kolu/surface</code> via npins. Index: <a href="./index.html">docs/plans</a> · filing: <a href="./second-brain.html">second-brain.html</a>.</p>
 
 </main>
 </body>
