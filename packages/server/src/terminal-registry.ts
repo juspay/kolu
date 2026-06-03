@@ -10,6 +10,7 @@
  * `TerminalProcess`.
  */
 
+import { ORPCError } from "@orpc/server";
 import type {
   TerminalId,
   TerminalInfo,
@@ -88,4 +89,13 @@ export function countActiveClaudeSessions(): number {
 
 export function getTerminal(id: TerminalId): TerminalProcess | undefined {
   return terminals.get(id);
+}
+
+/** The terminal-not-found fault as a typed oRPC error. One definition of
+ *  the code + message shared by every per-terminal handler (router,
+ *  surface) so the wire shape can't drift between call sites. Typed
+ *  (not a bare Error) because oRPC scrubs bare errors to an opaque
+ *  "Internal server error". */
+export function terminalNotFound(id: string): ORPCError<"NOT_FOUND", undefined> {
+  return new ORPCError("NOT_FOUND", { message: `Terminal ${id} not found` });
 }

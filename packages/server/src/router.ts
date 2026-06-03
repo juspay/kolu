@@ -23,7 +23,11 @@ import { serverCommit, serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
-import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
+import {
+  getTerminal,
+  terminalNotFound,
+  type TerminalProcess,
+} from "./terminal-registry.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { ptyHostIdentity } from "./terminalBackend/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
@@ -44,8 +48,7 @@ import {
 /** Get terminal or throw — shared by all per-terminal handlers. */
 function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
-  if (!entry)
-    throw new ORPCError("NOT_FOUND", { message: `Terminal ${id} not found` });
+  if (!entry) throw terminalNotFound(id);
   return entry;
 }
 
@@ -187,10 +190,7 @@ export const appRouter = t.router({
 
     kill: t.terminal.kill.handler(async ({ input }) => {
       const info = await killTerminal(input.id);
-      if (!info)
-        throw new ORPCError("NOT_FOUND", {
-          message: `Terminal ${input.id} not found`,
-        });
+      if (!info) throw terminalNotFound(input.id);
       return info;
     }),
 

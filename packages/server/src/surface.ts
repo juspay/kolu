@@ -32,7 +32,7 @@ import {
   implementSurface,
   publisherChannel,
 } from "@kolu/surface/server";
-import { implement, ORPCError } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
   ActivityFeed,
@@ -55,7 +55,11 @@ import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
-import { getTerminal, listTerminals } from "./terminal-registry.ts";
+import {
+  getTerminal,
+  listTerminals,
+  terminalNotFound,
+} from "./terminal-registry.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
@@ -240,18 +244,16 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     events: {
       terminalExit: {
         // Single-yield-then-close: validate the terminal exists at subscribe
-        // time. Throw a typed `ORPCError("NOT_FOUND")` — not a bare Error, which
-        // oRPC would scrub to an opaque "Internal server error" — so the client's
+        // time. `terminalNotFound` throws a typed `ORPCError("NOT_FOUND")` — not
+        // a bare Error, which oRPC would scrub to an opaque "Internal server
+        // error" — so the client's
         // exit subscription recognizes a stale-session re-subscribe and swallows
         // it instead of logging a fault; `STREAM_RETRY` does not retry an
         // `ORPCError`. Then forward the first exit-channel yield and return. The
         // `bus` helper is the framework's per-input channel — the same one
         // `surfaceCtx.events.terminalExit.publish` writes to.
         source: async function* (input, signal, { bus }) {
-          if (!getTerminal(input.id))
-            throw new ORPCError("NOT_FOUND", {
-              message: `Terminal ${input.id} not found`,
-            });
+          if (!getTerminal(input.id)) throw terminalNotFound(input.id);
           for await (const exitCode of bus.subscribe(signal)) {
             yield exitCode;
             return;
