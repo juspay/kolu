@@ -6,7 +6,7 @@
  *  Used by both the parent-side `useTextSelection` and the in-iframe SDK
  *  (bundled by esbuild at server startup, served from the same source). */
 
-import type { Locator } from "../types";
+import type { Locator, QuoteRoot } from "../types";
 import { extractOffsets } from "./extractOffsets";
 
 const CONTEXT_WINDOW = 32;
@@ -18,17 +18,14 @@ const CONTEXT_WINDOW = 32;
  *
  *  Exported so `applyHighlights` and the parent-side highlight overlay
  *  can reuse the same extraction rather than inlining the same ternary. */
-export function rootTextContent(doc: Document | ShadowRoot): string {
+export function rootTextContent(doc: QuoteRoot): string {
   // `textContent` on a Document returns null; use body instead.
   if (doc instanceof Document) return doc.body?.textContent ?? "";
   return doc.textContent ?? "";
 }
 
 /** Build a Locator from a non-collapsed Range. Caller guarantees non-empty. */
-export function extractQuote(
-  range: Range,
-  doc: Document | ShadowRoot,
-): Locator {
+export function extractQuote(range: Range, doc: QuoteRoot): Locator {
   const quote = range.toString();
   const offsets = extractOffsets(doc, range);
   if (!offsets) {

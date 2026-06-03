@@ -1023,6 +1023,28 @@ Feature: Code tab (review + browse)
     And the comments tray should contain "agent should reword this"
     And the comments tray should have 1 comments
 
+  # The rendered Markdown preview is commentable too (#1162) — not just the
+  # source toggle. Selection there is plain light DOM, so the quote anchors
+  # against the preview's own host subtree (NOT the whole app page), and the
+  # same select → pill → composer → tray flow works straight on the document.
+  Scenario: Commenting on the rendered Markdown preview
+    When I run "rm -rf /tmp/kolu-comments-md && git init /tmp/kolu-comments-md && cd /tmp/kolu-comments-md"
+    And I run "printf '# Doc Title\n\nmd-preview-marker in the body.\n' > README.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "md-preview-marker"
+    When I select text "md-preview-marker" in the markdown preview
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "rendered-preview comment" into the comment composer
+    And I click the composer "Save" button
+    Then the comment composer should not be visible
+    And the comments tray should be visible
+    And the comments tray should contain "rendered-preview comment"
+    And the comments tray should have 1 comments
+
   Scenario: Cancel button dismisses the composer without saving
     When I run "rm -rf /tmp/kolu-comments-cancel && git init /tmp/kolu-comments-cancel && cd /tmp/kolu-comments-cancel"
     And I run "printf 'cancel-flow-marker\n' > a.txt && git add . && git commit -m init"

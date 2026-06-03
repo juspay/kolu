@@ -12,8 +12,10 @@
  *  guessed offset, which would produce misleading prefix/suffix
  *  context. */
 
+import type { QuoteRoot } from "../types";
+
 export function extractOffsets(
-  root: Document | ShadowRoot,
+  root: QuoteRoot,
   range: Range,
 ): { start: number; end: number } | undefined {
   const rootEl =

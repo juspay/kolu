@@ -1185,80 +1185,104 @@ Then(
 //   3. Drive `page.mouse.move/down/move/up` across those rect
 //      coordinates so the browser fires the same pointer + selection
 //      events it does for a real drag.
+// Drive a REAL mouse drag to select `target` inside the container matched by
+// `containerSelector`. Walks shadow trees (Pierre's `CodeView` nests one); the
+// Markdown preview is plain light DOM and the same DFS handles it unchanged.
+async function dragSelectText(
+  world: KoluWorld,
+  containerSelector: string,
+  target: string,
+): Promise<void> {
+  // (1) Wait for the target to be present in the rendered DOM.
+  await world.page.waitForFunction(
+    `(() => {
+      ${SHADOW_DFS_FN_SRC}
+      const view = document.querySelector(${JSON.stringify(containerSelector)});
+      if (!view) return false;
+      const target = ${JSON.stringify(target)};
+      let found = false;
+      shadowDfs(view, (n) => {
+        if (n.nodeType === 3 && (n.nodeValue || "").indexOf(target) !== -1) {
+          found = true;
+          return true;
+        }
+      });
+      return found;
+    })()`,
+    undefined,
+    { timeout: POLL_TIMEOUT },
+  );
+
+  // (2) Get the bounding rect of the target's range in viewport coords.
+  //     The Range itself is throwaway — used only to compute pixel
+  //     coordinates for the mouse drag.
+  const rect = (await world.page.evaluate(
+    `(() => {
+      ${SHADOW_DFS_FN_SRC}
+      const view = document.querySelector(${JSON.stringify(containerSelector)});
+      if (!view) return null;
+      const target = ${JSON.stringify(target)};
+      let foundNode = null;
+      let foundOffset = -1;
+      shadowDfs(view, (n) => {
+        if (n.nodeType === 3) {
+          const txt = n.nodeValue || "";
+          const idx = txt.indexOf(target);
+          if (idx !== -1) { foundNode = n; foundOffset = idx; return true; }
+        }
+      });
+      if (!foundNode || foundOffset < 0) return null;
+      const range = document.createRange();
+      range.setStart(foundNode, foundOffset);
+      range.setEnd(foundNode, foundOffset + target.length);
+      const rects = range.getClientRects();
+      const first = rects[0];
+      const last = rects[rects.length - 1];
+      if (!first || !last) return null;
+      return {
+        startX: first.left,
+        startY: first.top + first.height / 2,
+        endX: last.right,
+        endY: last.top + last.height / 2,
+      };
+    })()`,
+  )) as { startX: number; startY: number; endX: number; endY: number } | null;
+  if (!rect) {
+    throw new Error(
+      `Could not locate "${target}" in ${containerSelector}'s rendered DOM`,
+    );
+  }
+
+  // (3) Drag from the start of the target to the end. Three move steps
+  //     keep the browser's selection model awake for short ranges;
+  //     a single `move + down + up` sometimes collapses on Chromium.
+  await world.page.mouse.move(rect.startX, rect.startY);
+  await world.page.mouse.down();
+  await world.page.mouse.move(
+    (rect.startX + rect.endX) / 2,
+    (rect.startY + rect.endY) / 2,
+    { steps: 3 },
+  );
+  await world.page.mouse.move(rect.endX, rect.endY, { steps: 3 });
+  await world.page.mouse.up();
+  await world.waitForFrame();
+}
+
 When(
   "I select text {string} in the file content",
   async function (this: KoluWorld, target: string) {
-    // (1) Wait for the target to be present in the rendered shadow DOM.
-    await this.page.waitForFunction(
-      `(() => {
-        ${SHADOW_DFS_FN_SRC}
-        const view = document.querySelector('[data-testid="pierre-file-view"]');
-        if (!view) return false;
-        const target = ${JSON.stringify(target)};
-        let found = false;
-        shadowDfs(view, (n) => {
-          if (n.nodeType === 3 && (n.nodeValue || "").indexOf(target) !== -1) {
-            found = true;
-            return true;
-          }
-        });
-        return found;
-      })()`,
-      undefined,
-      { timeout: POLL_TIMEOUT },
-    );
+    await dragSelectText(this, '[data-testid="pierre-file-view"]', target);
+  },
+);
 
-    // (2) Get the bounding rect of the target's range in viewport coords.
-    //     The Range itself is throwaway — used only to compute pixel
-    //     coordinates for the mouse drag.
-    const rect = (await this.page.evaluate(
-      `(() => {
-        ${SHADOW_DFS_FN_SRC}
-        const view = document.querySelector('[data-testid="pierre-file-view"]');
-        if (!view) return null;
-        const target = ${JSON.stringify(target)};
-        let foundNode = null;
-        let foundOffset = -1;
-        shadowDfs(view, (n) => {
-          if (n.nodeType === 3) {
-            const txt = n.nodeValue || "";
-            const idx = txt.indexOf(target);
-            if (idx !== -1) { foundNode = n; foundOffset = idx; return true; }
-          }
-        });
-        if (!foundNode || foundOffset < 0) return null;
-        const range = document.createRange();
-        range.setStart(foundNode, foundOffset);
-        range.setEnd(foundNode, foundOffset + target.length);
-        const rects = range.getClientRects();
-        const first = rects[0];
-        const last = rects[rects.length - 1];
-        if (!first || !last) return null;
-        return {
-          startX: first.left,
-          startY: first.top + first.height / 2,
-          endX: last.right,
-          endY: last.top + last.height / 2,
-        };
-      })()`,
-    )) as { startX: number; startY: number; endX: number; endY: number } | null;
-    if (!rect) {
-      throw new Error(`Could not locate "${target}" in Pierre's rendered DOM`);
-    }
-
-    // (3) Drag from the start of the target to the end. Three move steps
-    //     keep the browser's selection model awake for short ranges;
-    //     a single `move + down + up` sometimes collapses on Chromium.
-    await this.page.mouse.move(rect.startX, rect.startY);
-    await this.page.mouse.down();
-    await this.page.mouse.move(
-      (rect.startX + rect.endX) / 2,
-      (rect.startY + rect.endY) / 2,
-      { steps: 3 },
+When(
+  "I select text {string} in the markdown preview",
+  async function (this: KoluWorld, target: string) {
+    await dragSelectText(
+      this,
+      '[data-testid="browse-preview-markdown"]',
+      target,
     );
-    await this.page.mouse.move(rect.endX, rect.endY, { steps: 3 });
-    await this.page.mouse.up();
-    await this.waitForFrame();
   },
 );
 

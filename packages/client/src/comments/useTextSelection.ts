@@ -4,8 +4,9 @@
  *
  *  Mounted via `CommentTextSurface` at the comment seam:
  *    - `withComments("text", …)` in `BrowseFileDispatcher.tsx`
- *      (the source view via `BrowseFileView`; rendered Markdown is
- *      `"none"`-captured, so it never mounts this hook)
+ *      (the source view via `BrowseFileView`) and `withComments("prose", …)`
+ *      (the rendered Markdown preview — light DOM, anchored to the host
+ *      element, no source `lineRange`)
  *    - The diff branch in `CodeTab.tsx` (Pierre's `CodeView` diff item)
  *
  *  The HTML-iframe surface uses the in-iframe SDK instead (this hook
@@ -41,6 +42,11 @@ export interface UseTextSelectionOptions {
   /** Path the captured comment will be anchored to. Reactive — the
    *  composer captures the value at activation time, not at mount. */
   path: Accessor<string | null>;
+  /** When false, the captured comment carries no `lineRange` — for
+   *  rendered (non-source) surfaces like the Markdown preview, where a
+   *  rendered-DOM line number is meaningless as a source-file line.
+   *  Defaults to true (source / diff are line-addressable). */
+  lineAnchored?: Accessor<boolean>;
 }
 
 const DEBOUNCE_MS = 80;
@@ -76,7 +82,7 @@ function nodeInside(host: HTMLElement, node: Node | null): boolean {
  *  be resolved (e.g. cross-root range) — the offset walk is shared with
  *  `extractQuote` via `extractOffsets`. */
 function lineRangeForSelection(
-  root: Document | ShadowRoot,
+  root: Document | ShadowRoot | Element,
   range: Range,
 ): { start: number; end: number } | undefined {
   const offsets = extractOffsets(root, range);
@@ -192,15 +198,23 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     if (!host || !lastRange || composer.isComposing()) return;
     const path = opts.path();
     if (path === null) return;
-    const ownerDoc = host.ownerDocument ?? document;
-    // Prefer the shadow root containing the range — Pierre's content
-    // lives there, and walking from the document root won't see the
-    // shadow's text nodes for prefix/suffix extraction.
+    // Anchor against the NARROWEST root that contains the selection:
+    // Pierre's content lives in a shadow root; a light-DOM surface (the
+    // rendered Markdown preview) anchors against the host element itself.
+    // Falling back to the whole document — as this once did — makes the
+    // quote's prefix/suffix haystack (and the highlight re-find) the
+    // entire app page, which is garbage for an inline-rendered surface.
     const rootNode = lastRange.commonAncestorContainer.getRootNode();
-    const resolvedRoot: Document | ShadowRoot =
-      rootNode instanceof ShadowRoot ? rootNode : ownerDoc;
+    const resolvedRoot: ShadowRoot | HTMLElement =
+      rootNode instanceof ShadowRoot ? rootNode : host;
     const locator = extractQuote(lastRange, resolvedRoot);
-    const lineRange = lineRangeForSelection(resolvedRoot, lastRange);
+    // Rendered surfaces (Markdown preview) opt out of line anchoring — a
+    // rendered-DOM line isn't a source line, so persisting one would jump
+    // the tray click to the wrong place.
+    const lineRange =
+      (opts.lineAnchored?.() ?? true)
+        ? lineRangeForSelection(resolvedRoot, lastRange)
+        : undefined;
     const rects = lastRange.getClientRects();
     const last =
       rects.length > 0

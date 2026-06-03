@@ -33,13 +33,14 @@ function ensureStyle(): void {
 }
 
 /** Resolve the root the highlight overlay should walk for re-find +
- *  Range construction. Pierre's vanilla file path renders directly into
- *  the wrapper; the virtualized path nests a `<diffs-container>` custom
- *  element with its own shadow root, so we descend through any shadow
- *  trees and return the first one found. Otherwise, fall back to the
- *  host's ownerDocument. */
-function findHostRoot(host: HTMLElement): Document | ShadowRoot {
-  return walkShadowRoots(host, (sr) => sr) ?? host.ownerDocument ?? document;
+ *  Range construction. Pierre's virtualized path nests a `<diffs-container>`
+ *  custom element with its own shadow root, so we descend through any shadow
+ *  trees and return the first one found. Otherwise — a light-DOM surface like
+ *  the rendered Markdown preview — fall back to the host element itself, so
+ *  the re-find haystack is the view's subtree, not the whole app page (which
+ *  must match the root `useTextSelection` anchored the quote against). */
+function findHostRoot(host: HTMLElement): Document | ShadowRoot | Element {
+  return walkShadowRoots(host, (sr) => sr) ?? host;
 }
 
 export interface OverlayOptions {

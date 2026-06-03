@@ -1,13 +1,13 @@
-/** Wrap a Pierre text viewer (`CodeView`, file or diff item) with the
- *  comments capture + overlay wiring. Both surfaces share identical wiring
- *  — one host div, one selection adapter, one highlight overlay, one pill
- *  — the only thing that differs is the inner Pierre component, which the
- *  caller supplies via `children`.
+/** Wrap a text viewer with the comments capture + overlay wiring: one host
+ *  div, one selection adapter, one highlight overlay, one pill. The inner
+ *  view is supplied via `children` — Pierre's `CodeView` (source / diff,
+ *  shadow DOM) or the rendered Markdown preview (light DOM). The selection
+ *  adapter anchors the quote against whichever root actually contains the
+ *  selection (shadow root or this host element), so both work unchanged.
  *
- *  Iframe-rendered HTML artifacts use `BrowsePreviewView` directly with
- *  the artifact-sdk bridge instead; selection capture happens inside
- *  the opaque-origin iframe and arrives via postMessage, not native
- *  selectionchange on this side. */
+ *  Iframe-rendered HTML artifacts use the artifact-sdk bridge instead;
+ *  selection capture happens inside the opaque-origin iframe and arrives
+ *  via postMessage, not native selectionchange on this side. */
 
 import {
   type Component,
@@ -32,6 +32,10 @@ export type CommentTextSurfaceProps = {
   contentTick?: unknown;
   /** Forwarded to the host `<div>` — usually `"h-full w-full"`. */
   class?: string;
+  /** When false, captured comments carry no source `lineRange` — set by
+   *  rendered surfaces (the Markdown preview) where a rendered-DOM line
+   *  isn't a source line. Defaults to true (source / diff). */
+  lineAnchored?: boolean;
   children: JSX.Element;
 };
 
@@ -42,6 +46,7 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
   const selection = useTextSelection({
     host,
     path: () => props.path,
+    lineAnchored: () => props.lineAnchored ?? true,
   });
   // `createMemo` re-derives the store when `props.terminalId` changes,
   // so switching terminals re-reads the per-terminal queue.

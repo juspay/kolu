@@ -9,7 +9,7 @@
  *    4. If zero → null (anchor rot; caller surfaces the comment without
  *       a highlight). */
 
-import type { Locator } from "../types";
+import type { Locator, QuoteRoot } from "../types";
 
 export type QuoteMatch = { start: number; end: number };
 
@@ -93,7 +93,7 @@ export function findQuote(
  *  Document or shadow root. Returns null if the offsets can't be resolved
  *  to text-node boundaries (caller treats this as "anchor rotted"). */
 export function rangeFromOffsets(
-  doc: Document | ShadowRoot,
+  doc: QuoteRoot,
   start: number,
   end: number,
 ): Range | null {

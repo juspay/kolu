@@ -8,12 +8,12 @@
  *
  *  Commentability is decided *here*, once: every renderer is built through
  *  `withComments(capture, …)`, which declares how that view exposes itself for
- *  comments — `"text"` (selectable source DOM → `CommentTextSurface`),
- *  `"iframe"` (the sandboxed preview owns its own postMessage bridge), or
- *  `"none"` (nothing to anchor to: a raster image, or a *rendered* form whose
- *  selection doesn't map back to source — see the Markdown note below). The
- *  renderers stay pure presenters; a new one can't silently ship without a
- *  comment decision because it has to pick a capture mode at this seam:
+ *  comments — `"text"` (selectable source DOM, line-addressable), `"prose"`
+ *  (rendered text like the Markdown preview — anchored to its host subtree,
+ *  no source line), `"iframe"` (the sandboxed preview owns its own postMessage
+ *  bridge), or `"none"` (nothing to anchor to: a raster image). The renderers
+ *  stay pure presenters; a new one can't silently ship without a comment
+ *  decision because it has to pick a capture mode at this seam:
  *
  *    - `kind: "text"`   → a `FileData` with `content`; FileView renders the
  *      injected pierre source renderer (`BrowseFileView`). Markdown (`.md`)
@@ -79,11 +79,40 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   );
 
   // The comment address space a view exposes — the single axis this seam
-  // decides on (see the header). `"iframe"` views own their own bridge surface
-  // (it must bind to the element the renderer creates), and `"none"` views
-  // have nothing to anchor to, so `withComments` leaves both untouched; only
-  // `"text"` (selectable DOM) gets the `CommentTextSurface` wrapper.
-  type Capture = "text" | "iframe" | "none";
+  // decides on (see the header):
+  //   - "text"   selectable source DOM (Pierre's shadow-rooted CodeView),
+  //              line-addressable → CommentTextSurface, lineRange kept
+  //   - "prose"  rendered text (the Markdown preview, light DOM) — anchored
+  //              against its host subtree, but a rendered line isn't a source
+  //              line, so no lineRange → CommentTextSurface, lineAnchored false
+  //   - "iframe" the sandboxed preview owns its own postMessage bridge (it
+  //              must bind to the element the renderer creates)
+  //   - "none"   nothing to anchor to (a raster image)
+  // `"iframe"` and `"none"` are left untouched; the two text-bearing modes get
+  // the `CommentTextSurface` wrapper.
+  type Capture = "text" | "prose" | "iframe" | "none";
+
+  // Both text-bearing modes mount the same surface and anchor against whatever
+  // root actually holds the selection; they differ only in host sizing and
+  // line addressability. "text" sits below the truncation banner (`flex-1`);
+  // "prose" owns the whole pane (`h-full`).
+  const textSurface = (
+    file: FileData,
+    view: JSX.Element,
+    opts: { class: string; lineAnchored: boolean },
+  ): JSX.Element => (
+    <CommentTextSurface
+      terminalId={props.terminalId}
+      path={file.path}
+      // The host's text is the file source, so the highlight overlay
+      // re-anchors when the server bumps content on save.
+      contentTick={file.source?.content ?? ""}
+      class={opts.class}
+      lineAnchored={opts.lineAnchored}
+    >
+      {view}
+    </CommentTextSurface>
+  );
 
   const withComments = (
     capture: Capture,
@@ -91,20 +120,18 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     view: JSX.Element,
   ): JSX.Element =>
     match(capture)
-      .with("text", () => (
-        <CommentTextSurface
-          terminalId={props.terminalId}
-          path={file.path}
-          // The host's text is the file source, so the highlight overlay
-          // re-anchors when the server bumps content on save.
-          contentTick={file.source?.content ?? ""}
-          // `flex-1 min-h-0` so the host fills the space left under the
-          // (optional) truncation banner sibling without overflowing it.
-          class="min-h-0 w-full flex-1"
-        >
-          {view}
-        </CommentTextSurface>
-      ))
+      .with("text", () =>
+        textSurface(file, view, {
+          class: "min-h-0 w-full flex-1",
+          lineAnchored: true,
+        }),
+      )
+      .with("prose", () =>
+        textSurface(file, view, {
+          class: "h-full w-full",
+          lineAnchored: false,
+        }),
+      )
       .with(P.union("iframe", "none"), () => view)
       .exhaustive();
 
@@ -177,18 +204,15 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // Kolu's rendered appliances for *text* files — just Markdown today. A
   // `.md` file carries source (the text on the wire) AND a rendered form (the
   // same text as a document), so FileView offers a Source ⇄ Rendered toggle,
-  // defaulting to rendered. The rendered document is `"none"`: it IS selectable
-  // DOM, but it's a *different representation* of the file (Markdown → reading
-  // document), so a selection there doesn't map cleanly onto source. The quote
-  // ("Hello Doc") may not even exist verbatim in source ("# Hello Doc"), and a
-  // rendered-DOM line number isn't a source line — `lineRange` would jump the
-  // tray to the wrong place, and the highlight overlay would re-find against
-  // the wrong haystack. Comments on Markdown stay in the Source view (which
-  // anchors against Pierre's shadow-rooted source DOM); rendered annotation is
-  // its own feature (plan phase-3 v1: rendered Markdown is read-only). Non-
-  // markdown text matches nothing here and stays source-only (no toggle).
-  // Markdown renders from `content`, not a URL — so these never appear in the
-  // binary `renderedRenderers` list above.
+  // defaulting to rendered. The rendered document is `"prose"`: selectable
+  // light DOM, so it's commentable — anchored against its own host subtree
+  // (not the whole page) and with no source `lineRange` (a rendered line isn't
+  // a source line). A comment made here re-finds within the preview; flipping
+  // to Source may not re-highlight it — the rendered quote ("Hello Doc") needn't
+  // appear verbatim in source ("# Hello Doc") — acceptable drift; the comment
+  // still lives in the tray. Non-markdown text matches nothing here and stays
+  // source-only (no toggle). Markdown renders from `content`, not a URL — so
+  // these never appear in the binary `renderedRenderers` list above.
   const textRenderers: RenderedRenderer[] = [
     {
       match: isMarkdown,
@@ -197,7 +221,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       // optional field — never a real blank-document path.
       render: (file) =>
         withComments(
-          "none",
+          "prose",
           file,
           <MarkdownRenderer
             markdown={file.source?.content ?? ""}
