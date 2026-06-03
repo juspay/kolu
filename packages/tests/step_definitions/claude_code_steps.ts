@@ -417,6 +417,8 @@ When(
     // screen* server-side. Paint the prompt's measured signature into the real
     // PTY so the screen-scrape poll (which reads `getScreenText` off the live
     // buffer) sees exactly what Claude paints — no transcript change.
+    // Real v2.1.162 signatures (captured live): ExitPlanMode is keyed by the
+    // `Ready to code?` header; AskUserQuestion by the `↑/↓ to navigate` footer.
     const lines =
       kind === "plan-approval"
         ? [
@@ -424,17 +426,17 @@ When(
             "",
             "❯ 1. Yes, and auto-accept edits",
             "  2. Yes, and manually approve edits",
-            "  3. No, keep planning",
+            "  3. Tell Claude what to change",
             "",
-            " ↑/↓ to select · Enter to confirm",
+            " shift+tab to approve with this feedback",
           ]
         : [
-            " Which database should we target for the first cut?",
+            " Which database do you prefer?",
             "",
             "❯ 1. Postgres",
             "  2. SQLite",
             "",
-            " ↑/↓ to select · Enter to confirm",
+            " Enter to select · ↑/↓ to navigate · Esc to cancel",
           ];
     const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
     await this.page.keyboard.type(printf);
