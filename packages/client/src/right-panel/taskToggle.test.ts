@@ -55,6 +55,22 @@ describe("toggleTaskInSource", () => {
     );
   });
 
+  it("toggles task items inside blockquotes in renderer order", () => {
+    // `marked` renders `> - [ ] x` as a real checkbox, so the blockquoted task
+    // is index 0 — the scan must see it too, or the count drifts.
+    const src = ["> - [ ] inside quote", "", "- [ ] outside"].join("\n");
+    expect(toggleTaskInSource(src, 0)).toBe(
+      ["> - [x] inside quote", "", "- [ ] outside"].join("\n"),
+    );
+    expect(toggleTaskInSource(src, 1)).toBe(
+      ["> - [ ] inside quote", "", "- [x] outside"].join("\n"),
+    );
+  });
+
+  it("toggles a task inside a nested blockquote", () => {
+    expect(toggleTaskInSource(">> - [ ] deep", 0)).toBe(">> - [x] deep");
+  });
+
   it("toggles a CRLF-encoded task line and preserves the line ending", () => {
     const src = ["- [ ] one\r", "- [ ] two\r", "- [ ] three"].join("\n");
     expect(toggleTaskInSource(src, 1)).toBe(
