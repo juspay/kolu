@@ -233,14 +233,15 @@ function basename(src: string): string {
  *  marked's default `<a href=…>` and applies no policy, so markdown `[]()` and
  *  raw inline `<a>` both pick the policy up here, uniformly, exactly once. */
 function applyLinkPolicy(anchor: Element, links: boolean): void {
+  const unwrap = () => anchor.replaceWith(...Array.from(anchor.childNodes));
   if (!links) {
-    anchor.replaceWith(...Array.from(anchor.childNodes));
+    unwrap();
     return;
   }
   const href = anchor.getAttribute("href");
   const safe = href ? safeHref(href) : undefined;
   if (safe === undefined) {
-    anchor.replaceWith(...Array.from(anchor.childNodes));
+    unwrap();
     return;
   }
   // In-page anchors (TOC jumps, footnote refs/back-refs) must stay in the
