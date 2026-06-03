@@ -34,4 +34,14 @@ export const surface = defineSurface({
       default: EMPTY_STATS,
     },
   },
+  procedures: {
+    // app-specific probe — surface-app reads `processId` on each (re)connect to
+    // tell a transient drop from a server restart (drives the connection status).
+    server: {
+      info: {
+        input: z.object({}),
+        output: z.object({ processId: z.string() }),
+      },
+    },
+  },
 });

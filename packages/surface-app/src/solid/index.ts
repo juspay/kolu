@@ -15,6 +15,7 @@ import {
   type Accessor,
   createComponent,
   createContext,
+  createSignal,
   type JSX,
   useContext,
 } from "solid-js";
@@ -54,6 +55,96 @@ export function reloadForUpdate(): void {
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";
 
+/** The full lifecycle of that relationship — connecting, connected, a transient
+ *  drop (`disconnected` → `reconnected`), or a server restart (a new `processId`
+ *  after a drop). This is kolu's `rpc.ts` lifecycle, encapsulated so every
+ *  surface app derives it instead of re-deriving it. */
+export type ServerLifecycleEvent =
+  | { kind: "connecting" }
+  | { kind: "connected"; processId: string }
+  | { kind: "disconnected" }
+  | { kind: "reconnected"; processId: string }
+  | { kind: "restarted"; processId: string };
+
+/** What an identity probe reports: the server process id — a value that changes
+ *  when the server restarts (so a reconnect to a *different* process is a restart,
+ *  not a transient drop). Kept distinct from build identity (`commit`). */
+export interface ServerProbe {
+  processId: string;
+}
+
+/** The transport surface-app observes — `WebSocket` / `PartySocket` both fit. */
+export interface WsLike {
+  addEventListener(type: "open" | "close", listener: () => void): void;
+}
+
+function statusOf(kind: ServerLifecycleEvent["kind"]): ConnectionStatus {
+  switch (kind) {
+    case "connecting":
+      return "reconnecting";
+    case "disconnected":
+      return "down";
+    case "restarted":
+      return "restarted";
+    default:
+      return "live"; // connected | reconnected
+  }
+}
+
+/** Derive the server lifecycle from a transport + an identity probe — the generic
+ *  form of kolu's `rpc.ts`. On each `open` the probe reads the server's
+ *  `processId`: the first connect is `connected`; a later one is `reconnected`
+ *  (same id) or `restarted` (changed). A `close` after the first connect is
+ *  `disconnected`. Run inside a reactive owner (e.g. `<SurfaceAppProvider>`). */
+export function createServerLifecycle(opts: {
+  ws: WsLike;
+  probe: () => Promise<ServerProbe>;
+}): {
+  lifecycle: Accessor<ServerLifecycleEvent>;
+  status: Accessor<ConnectionStatus>;
+  serverProcessId: Accessor<string | undefined>;
+} {
+  const [lifecycle, setLifecycle] = createSignal<ServerLifecycleEvent>({
+    kind: "connecting",
+  });
+  let connectCount = 0;
+  let knownProcessId: string | null = null;
+  opts.ws.addEventListener("open", () => {
+    connectCount++;
+    const isFirst = connectCount === 1;
+    opts
+      .probe()
+      .then(({ processId }) => {
+        if (isFirst) {
+          knownProcessId = processId;
+          setLifecycle({ kind: "connected", processId });
+          return;
+        }
+        const restarted =
+          knownProcessId !== null && processId !== knownProcessId;
+        knownProcessId = processId;
+        setLifecycle({
+          kind: restarted ? "restarted" : "reconnected",
+          processId,
+        });
+      })
+      .catch(() => {
+        // The next `open` retries; don't transition on a failed probe.
+      });
+  });
+  opts.ws.addEventListener("close", () => {
+    if (connectCount > 0) setLifecycle({ kind: "disconnected" });
+  });
+  return {
+    lifecycle,
+    status: () => statusOf(lifecycle().kind),
+    serverProcessId: () => {
+      const e = lifecycle();
+      return "processId" in e ? e.processId : undefined;
+    },
+  };
+}
+
 /** The headless model `useSurfaceApp()` returns. */
 export interface SurfaceAppModel<
   T extends { commit: string } = { commit: string },
@@ -88,9 +179,13 @@ export interface SurfaceAppProviderProps<T extends { commit: string }> {
   /** The build-identity fragment — defaults to `{ commit }`. Pass your extended
    *  one (e.g. kolu's pty-host axis) to drive `stale` off it. */
   buildInfo?: BuildInfoDef<T>;
-  /** Optional live connection status, if your transport exposes one; defaults
-   *  to `"live"`. */
-  status?: Accessor<ConnectionStatus>;
+  /** The WebSocket transport. surface-app derives the connection lifecycle from
+   *  its open/close; pair with `probe` to tell a transient drop from a restart.
+   *  Omit both and `status()` stays `"live"`. */
+  ws?: WsLike;
+  /** Reads the server's `processId` on each (re)connect — distinguishes
+   *  `reconnected` from `restarted`. Pair with `ws`. */
+  probe?: () => Promise<ServerProbe>;
   children: JSX.Element;
 }
 
@@ -121,7 +216,12 @@ export function SurfaceAppProvider<T extends { commit: string }>(
     initial: def.cells.buildInfo.default,
   });
   const server = () => cell.value() as T | undefined;
-  const status: Accessor<ConnectionStatus> = props.status ?? (() => "live");
+  // Derive the connection lifecycle in-library (kolu's rpc.ts, encapsulated):
+  // open/close from the transport + a processId probe for reconnected-vs-restarted.
+  const status: Accessor<ConnectionStatus> =
+    props.ws && props.probe
+      ? createServerLifecycle({ ws: props.ws, probe: props.probe }).status
+      : () => "live";
   const model: SurfaceAppModel<T> = {
     status,
     stale: () =>

@@ -54,7 +54,7 @@ Workspace-private. Wire it into the server and client packages:
 | `@kolu/surface-app` | `cacheControlFor`, `isImmutableAssetPath`, `clientIsStale`, `isCleanRef`, `SW_SOURCE` — the pure, framework-free kernels | core |
 | `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer` (Hono) | server |
 | `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo` — the build-identity fragment | common |
-| `@kolu/surface-app/solid` | `retireServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider`, `useSurfaceApp` | client |
+| `@kolu/surface-app/solid` | `retireServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider`, `useSurfaceApp`, `createServerLifecycle` | client |
 | `@kolu/surface-app/vite` | `surfaceApp()` plugin, `resolveCommit()` | build |
 | `@kolu/surface-app/client` | the `__SURFACE_APP_COMMIT__` type, via `/// <reference>` | client types |
 
@@ -122,8 +122,13 @@ import { retireServiceWorker, SurfaceAppProvider, useSurfaceApp } from "@kolu/su
 
 retireServiceWorker();   // unregister any worker an earlier build left + drop its caches
 
-// at the root — pass your control-plane surface client:
-<SurfaceAppProvider controlPlane={app} clientCommit={__SURFACE_APP_COMMIT__} status={connectionStatus}>
+// at the root — surface-app derives the connection lifecycle from the transport:
+<SurfaceAppProvider
+  controlPlane={app}
+  clientCommit={__SURFACE_APP_COMMIT__}
+  ws={ws}                                          // open/close → connecting/live/down
+  probe={() => app.rpc.surface.server.info({})}    // { processId } → reconnected vs restarted
+>
   …your app…
 </SurfaceAppProvider>
 
@@ -209,6 +214,7 @@ To see the skew rail, give the server a different commit: `SURFACE_APP_COMMIT=de
 ## Design notes
 
 - **A read-only server cell is read with `app.cells.X.use({ authority: "server" })`** — `{ initial }` is the *local-authority* shape and won't typecheck for it. (`buildInfo` is a server cell.)
+- **The connection lifecycle is derived in-library.** `createServerLifecycle({ ws, probe })` (used by the provider) turns transport open/close + a `processId` probe into `connecting → connected → disconnected → reconnected / restarted` — kolu's `rpc.ts`, encapsulated, so the WS indicator drops into drishti unchanged. `useSurfaceApp().status()` maps it to `live / reconnecting / restarted / down`. Commit (skew) and processId (restart) stay distinct axes.
 - **`SurfaceAppProvider`'s `controlPlane` is typed `any` today.** Typing it against surface's exported `SurfaceClient` — and switching the internal `buildInfo` read to `{ authority: "server" }` — is the planned ship-time hardening.
 - **Composition is by cell-spread** (`...buildInfo.cells`) for now. If `@kolu/surface` grows a `composeSurfaces` primitive, the seam becomes "compose whole surfaces" instead of merging cell maps.
 - **No second-consumer speculation.** The boundary is shaped by kolu's and drishti's actual edges; it graduates to drishti as the app-agnosticism test.

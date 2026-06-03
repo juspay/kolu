@@ -8,6 +8,7 @@
  * `SURFACE_APP_COMMIT=<other>` — a real deploy-simulating override.
  */
 
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
@@ -31,6 +32,11 @@ const DIST_DIR =
 // biome-ignore lint/suspicious/noExplicitAny: MemoryPublisher's generic is too strict for our payloads; type safety lives on the typed channels.
 const publisher = new MemoryPublisher<Record<string, any>>();
 
+// A fresh id per process — surface-app's probe compares it across reconnects to
+// tell a transient drop from a server restart. Restart the server → new id → the
+// client's status() flips to "restarted".
+const PROCESS_ID = randomUUID();
+
 // App-specific live state — the example's OWN cell, composed alongside
 // surface-app's buildInfo. The server pushes updates via ctx.cells.serverStats.set.
 let stats: ServerStats = {
@@ -50,6 +56,9 @@ const { router: surfaceRouter, ctx } = implementSurface(surface, {
   cells: {
     ...buildInfoServer(), // surface-app-specific: build identity (commit auto-resolved)
     serverStats: { store: statsStore }, // app-specific: live server stats
+  },
+  procedures: {
+    server: { info: async () => ({ processId: PROCESS_ID }) },
   },
 });
 

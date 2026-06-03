@@ -8,7 +8,7 @@
 
 import { createSignal, Show } from "solid-js";
 import { SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
-import { app, connectionStatus } from "./wire";
+import { app, ws } from "./wire";
 
 const STATUS_LABEL: Record<string, string> = {
   live: "live",
@@ -123,7 +123,8 @@ export default function App() {
     <SurfaceAppProvider
       controlPlane={app}
       clientCommit={__SURFACE_APP_COMMIT__}
-      status={connectionStatus}
+      ws={ws}
+      probe={() => app.rpc.surface.server.info({})}
     >
       <Shell />
     </SurfaceAppProvider>
