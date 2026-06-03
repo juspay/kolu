@@ -312,8 +312,9 @@ async function policeTrack(wt) {
       ),
     ),
   )
-  const findings = []
-  passes.forEach((p, i) => (reviews[i]?.findings ?? []).forEach((f, j) => findings.push({ id: `police-${p.key}-${j + 1}`, pass: p.key, ...f })))
+  const findings = passes.flatMap((p, i) =>
+    (reviews[i]?.findings ?? []).map((f, j) => ({ id: `police-${p.key}-${j + 1}`, pass: p.key, ...f })),
+  )
   log(`police: ${findings.length} finding(s) across ${passes.length} passes`)
 
   // Apply each finding as its own commit, sequentially (same-file edits can't be
