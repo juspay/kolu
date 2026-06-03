@@ -120,7 +120,7 @@ const FINDINGS_SCHEMA = {
   properties: {
     findings: {
       type: 'array',
-      description: 'your INDEPENDENT findings (≤4, high-confidence; an empty list is a fine verdict for a clean diff)',
+      description: 'ALL your independent structural findings — every issue worth raising through your lens, no cap. An empty list is fine only for a genuinely clean diff.',
       items: {
         type: 'object',
         additionalProperties: false,
@@ -184,7 +184,7 @@ function reviewBrief(lens, framework, probe) {
 
 Review the change through the **${framework}** lens, INDEPENDENTLY — you are NOT seeing any other reviewer's findings. That independence is the whole point: being handed someone else's curated finding biases the verdict.
 ${rationaleBlock}${probeBlock}
-Emit your own findings (≤4, high-confidence). Each: a title, a file:line location, the problem in your lens's terms, a concrete suggestion, and a disposition — \`fix\` (worth changing in THIS PR) or \`drop\` (observation only). Do not invent issues to look thorough: an empty list, or all-drop, is a fine verdict for a clean diff.`
+Give ALL your findings — every structural issue you see through your lens, no cap, at every level (boundary, complecting, naming, duplication, …). Each: a title, a file:line location, the problem in your lens's terms, a concrete suggestion, and a disposition — \`fix\` (worth changing in THIS PR) or \`drop\` (observation only). Don't fabricate issues, but don't hold any back either; an empty list is fine only for a genuinely clean diff.`
 }
 
 function findingLine(f) {
