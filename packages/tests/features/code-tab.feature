@@ -461,11 +461,11 @@ Feature: Code tab (review + browse)
   # Regression: a >1 MB .md file is read back truncated (first 1 MB only). It
   # still defaults to the rendered view, so the rendered appliance must carry
   # the same "File truncated" banner the source view shows — otherwise a partial
-  # document renders silently with no warning. The marker sits in the first
-  # bytes so it survives the 1 MB cut and proves content rendered.
-  Scenario: Truncated Markdown still warns in the rendered view
+  # document renders silently with no warning. The marker + task item sit in the
+  # first bytes so they survive the 1 MB cut and prove content rendered.
+  Scenario: Truncated Markdown warns and renders task checkboxes read-only
     When I run "rm -rf /tmp/kolu-md-trunc && git init /tmp/kolu-md-trunc && cd /tmp/kolu-md-trunc"
-    And I run "printf '# Truncated Doc\n\nbody marker\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
+    And I run "printf '# Truncated Doc\n\nbody marker\n\n- [ ] guard me\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
@@ -473,6 +473,10 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     And the markdown preview should contain "Truncated Doc"
     And the markdown preview should show the truncation warning
+    # The preview is read-only: the task checkbox renders presentational
+    # (disabled, never interactive).
+    And the markdown preview should render a "input[type=checkbox][disabled]" element
+    And the markdown preview should not render a "input[data-md-task]" element
 
   Scenario: Markdown source toggle reveals the raw markdown
     When I run "rm -rf /tmp/kolu-md-src && git init /tmp/kolu-md-src && cd /tmp/kolu-md-src"
@@ -485,6 +489,138 @@ Feature: Code tab (review + browse)
     When I switch the file view to "source"
     Then the file content should contain "# Heading One"
     And the markdown preview should not be visible
+
+  # ── Rendered Markdown: GFM + inline HTML + sanitization ──
+  # The rendered view is a marked(GFM) → DOMPurify pipeline
+  # (@kolu/solid-markdown), so it must produce real GitHub-Flavored structure —
+  # headings, tables, task lists — plus the inline HTML a README leans on
+  # (<kbd>, alignment wrappers), while stripping anything script-capable. The
+  # `printf` fixtures avoid inner single quotes (the `I run` step has no escape
+  # for them); `<script>`/`align=center`/`javascript:` carry none.
+
+  Scenario: Markdown preview renders GFM tables, task lists, and inline HTML
+    When I run "rm -rf /tmp/kolu-md-gfm && git init /tmp/kolu-md-gfm && cd /tmp/kolu-md-gfm"
+    And I run "printf '# Doc Title\n\n| Col A | Col B |\n|:------|------:|\n| 1 | 2 |\n\n- [x] shipped\n- [ ] pending\n\nPress <kbd>Ctrl</kbd> to go.\n\n<p align=center>centered note</p>\n\n<img src=docs/logo.png alt=brand-logo />\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "h1" element
+    And the markdown preview should contain "Doc Title"
+    And the markdown preview should render a "table" element
+    And the markdown preview should contain "Col A"
+    And the markdown preview should render a "input[type=checkbox]" element
+    And the markdown preview should render a "kbd" element
+    And the markdown preview should render a "[align=center]" element
+    And the markdown preview should contain "centered note"
+    # A repo-relative inline `<img>` resolves against the doc's directory to the
+    # per-terminal file route — a real <img>, not raw text or a broken icon.
+    # Load-vs-fallback coverage is in the "lists, footnotes, alerts, and
+    # resolves repo images" scenario below.
+    And the markdown preview should render a "img[src*='/api/terminals/']" element
+
+  Scenario: Markdown preview strips script-capable HTML and links
+    When I run "rm -rf /tmp/kolu-md-xss && git init /tmp/kolu-md-xss && cd /tmp/kolu-md-xss"
+    And I run "printf '# Safe Render\n\nintro paragraph here\n\n<script>window.__xss=1</script>\n\n[evil link](javascript:window.__xss=2)\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Safe Render"
+    And the markdown preview should contain "evil link"
+    And the markdown preview should not render a "script" element
+    And the markdown preview should not render a "a[href^=javascript]" element
+
+  # The sanitizer is a tight allowlist, not DOMPurify's broad defaults: inline
+  # `style`/`class`, SVG, and non-checkbox form controls must all be dropped so
+  # an untrusted README can't restyle, frame, or plant focusable controls in
+  # the app. (`printf` fixtures avoid inner single quotes — see note above.)
+  Scenario: Markdown preview drops style, class, SVG, and form controls
+    When I run "rm -rf /tmp/kolu-md-tight && git init /tmp/kolu-md-tight && cd /tmp/kolu-md-tight"
+    And I run "printf '# Tight Allowlist\n\n<p style=color:red class=takeover>styled para</p>\n\n<svg width=10 height=10><rect width=10 height=10 /></svg>\n\n<button>press me</button>\n\n<input type=text value=injected />\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "styled para"
+    # The text survives but its presentational + structural escape hatches don't.
+    And the markdown preview should not render a "[style]" element
+    And the markdown preview should not render a ".takeover" element
+    And the markdown preview should not render a "svg" element
+    And the markdown preview should not render a "button" element
+    And the markdown preview should not render a "input[type=text]" element
+
+  # The renderer only stamps the anchors it mints; a raw inline `<a>` from the
+  # README must still pick up the link policy in the sanitize pass — a safe
+  # relative href survives but is forced to open in a new tab (so it can't
+  # navigate the Kolu tab itself), and an unsafe scheme is unwrapped to text.
+  Scenario: Markdown preview applies the link policy to raw inline anchors
+    When I run "rm -rf /tmp/kolu-md-rawa && git init /tmp/kolu-md-rawa && cd /tmp/kolu-md-rawa"
+    And I run "printf '# Raw Anchors\n\n<a href=docs/guide.md>relative doc</a>\n\n<a href=javascript:1>raw evil</a>\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "relative doc"
+    And the markdown preview should contain "raw evil"
+    # Safe relative anchor kept, but forced to a new tab with a severed opener.
+    And the markdown preview should render a "a[target=_blank]" element
+    And the markdown preview should render a "a[rel~=noopener]" element
+    # The unsafe-scheme anchor is gone; its text remains.
+    And the markdown preview should not render a "a[href^=javascript]" element
+
+  # Regression guard for a feature audit's findings: Tailwind v4 preflight
+  # blanking list markers, footnotes + GitHub alerts being unsupported, and
+  # repo-relative images degrading to a chip instead of loading from the
+  # per-terminal file route. The SVG asset gives the relative image something
+  # real to resolve to.
+  Scenario: Markdown preview renders lists, footnotes, alerts, and resolves repo images
+    When I run "rm -rf /tmp/kolu-md-rich && git init /tmp/kolu-md-rich && cd /tmp/kolu-md-rich"
+    And I run "printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"><rect width=\"8\" height=\"8\"/></svg>' > logo.svg"
+    And I run "printf '# Rich Doc\n\n![logo](logo.svg)\n\n- one\n- two\n\n1. a\n2. b\n\nclaim[^x]\n\n[^x]: the footnote\n\n> [!WARNING]\n> heads up\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Rich Doc"
+    # Lists show real markers (Tailwind preflight would otherwise blank them).
+    And the markdown preview list markers should be visible
+    # Footnotes render as a section + superscript ref, not literal [^x] text.
+    And the markdown preview should render a "section" element
+    And the markdown preview should render a "sup a" element
+    And the markdown preview should not contain "[^x]"
+    # The GitHub alert renders with its type carried on a data attribute.
+    And the markdown preview should render a "[data-md-alert=warning]" element
+    # The repo-relative image resolves to the per-terminal file route and is a
+    # real <img>, not a fallback chip.
+    And the markdown preview should render a "img[src*='/api/terminals/']" element
+    And the markdown preview should not render a "span.kolu-md-img-fallback" element
+
+  # Syntax highlighting (Shiki), GitHub-faithful soft breaks (document folds a
+  # single newline to a space), and read-only task-list checkboxes (the preview
+  # never writes back to the file).
+  Scenario: Markdown preview highlights code, folds soft breaks, and renders task checkboxes
+    When I run "rm -rf /tmp/kolu-md-rich2 && git init /tmp/kolu-md-rich2 && cd /tmp/kolu-md-rich2"
+    And I run "printf '# Doc\n\nline one\nline two\n\n```js\nconst x = 1;\n```\n\n- [ ] todo item\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    # Fenced code gets a copy-button wrapper and is syntax-highlighted (Shiki
+    # loads async; the steps poll).
+    And the markdown preview should render a "div.kolu-md-code" element
+    And the markdown preview should render a "button.kolu-md-copy" element
+    And the markdown preview should render a "pre.shiki" element
+    # GitHub-faithful soft breaks: the two source lines fold into one paragraph.
+    And the markdown preview should not render a "p br" element
+    # The task checkbox renders read-only (presentational, disabled).
+    And the markdown preview should render a "input[type=checkbox][disabled]" element
 
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable

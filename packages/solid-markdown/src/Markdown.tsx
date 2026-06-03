@@ -1,350 +1,175 @@
-/** Safe Markdown → SolidJS renderer, extracted from kolu's intent surface
- *  into a standalone, app-agnostic package — the first "appliance" in the
- *  code-browser-preview grid plan (`docs/plans/code-browser-preview.solid-fileview.html`).
+/** Markdown → sanitized HTML, rendered into a themed container.
  *
- *  Built on `marked` (GFM) with a `safeHref` allowlist and no raw-HTML
- *  injection: `html` tokens render as escaped *text*, never as markup, so
- *  the renderer is safe to point at untrusted file contents.
+ *  The renderer is a two-stage pipeline: `marked` (GFM) parses to raw HTML
+ *  (./render), then DOMPurify sanitizes it (./sanitize). This replaces the
+ *  former hand-rolled token walk and gains full GitHub-Flavored Markdown —
+ *  tables, task lists, strikethrough, autolinks — plus the inline HTML a
+ *  README leans on, all behind a sanitizer.
  *
- *  `variant` bundles a parse mode with a styling scale:
- *    - "inline"   — inline-only lexing; for single-line annotation slots.
- *    - "compact"  — block lexing at chat/dock scale (kolu's intent body).
- *    - "document" — block lexing at reading scale (full-pane previews).
+ *  Styling lives in ./markdown.css, scoped to `.kolu-md`. It paints with
+ *  `currentColor` and `color-mix` derivations so it adapts to any host
+ *  surface, and reads the app's `--color-accent` for links — so the preview
+ *  follows the app's light/dark preference automatically, with no theme prop.
  *
- *  Note: every scale currently renders headings as flat bold paragraphs —
- *  exactly as the intent surface always has — so the extraction stays
- *  behaviour-preserving for today's only consumer. The parsed heading
- *  depth is threaded through `Styles.headingFor(depth)` rather than
- *  discarded, so giving "document" real per-level sizes later is a
- *  values-only change at one seam, not an API break. */
+ *  `variant` selects the parse mode + the styling scale:
+ *    - "inline"   — inline-only parse, no block wrapper (annotation slots).
+ *    - "compact"  — block parse at chat/dock scale (kolu's intent body).
+ *    - "document" — full-pane preview: GitHub-faithful soft breaks, Shiki code
+ *      highlighting + copy buttons, and read-only (presentational) task-list
+ *      checkboxes. The preview never writes back to the file. */
 
-import { Lexer, marked, type Token, type Tokens } from "marked";
 import {
-  type Accessor,
   type Component,
   createMemo,
-  For,
-  type JSX,
-  Show,
+  createResource,
+  onCleanup,
 } from "solid-js";
-
-const MARKED_OPTIONS = { breaks: true, gfm: true } as const;
+import { Dynamic } from "solid-js/web";
+import { highlightCode, loadHighlighter } from "./highlight";
+import { renderMarkdownToRawHtml } from "./render";
+import { sanitizeHtml } from "./sanitize";
 
 export type MarkdownVariant = "inline" | "compact" | "document";
 
-type Styles = {
-  block: string;
-  /** Keyed by heading depth (1–6). Flat today, but the parsed depth is
-   *  threaded in so a scale can give real per-level sizes without an API
-   *  break — see the `document` note in the file header. */
-  headingFor: (depth: number) => string;
-  code: string;
-  codespan: string;
-  blockquote: string;
-  list: string;
-  hr: string;
-  tableWrap: string;
-  table: string;
-};
+/** Copy a code block's text to the clipboard and flash the button. */
+function copyCodeBlock(button: HTMLElement): void {
+  const pre = button.closest(".kolu-md-code")?.querySelector("pre");
+  const text = pre?.textContent ?? "";
+  if (!text) return;
+  void navigator.clipboard
+    ?.writeText(text)
+    .then(() => {
+      button.setAttribute("data-copied", "");
+      setTimeout(() => button.removeAttribute("data-copied"), 1500);
+    })
+    // A rejected write (permission denied, unfocused document, API throw) would
+    // otherwise surface as an unhandled rejection — and the "Copied" flash never
+    // fires, so a failed copy is silently indistinguishable from a successful one.
+    // Warn so the failure is diagnosable rather than swallowed.
+    .catch((err) => console.warn("markdown: copy to clipboard failed", err));
+}
 
-/** Per-scale class sets — Kolu-tuned built-in defaults, not an app-neutral
- *  design system. The renderer and its API are app-agnostic; these specific
- *  sizes are the scales a consumer accepts or replaces. "compact" reproduces
- *  kolu's intent-surface chat scale byte-for-byte; "document" is the
- *  reading scale for full-pane previews. */
-const STYLES: Record<"compact" | "document", Styles> = {
-  compact: {
-    block: "min-w-0 flex-1 space-y-1 break-words",
-    headingFor: () => "m-0 text-[0.78rem] font-semibold leading-snug",
-    code: "my-1 max-w-full overflow-x-auto rounded px-2 py-1 font-mono text-[0.67rem] leading-snug",
-    codespan: "rounded px-1 py-0.5 font-mono text-[0.68rem]",
-    blockquote: "my-1 border-l-2 border-current/30 pl-2 opacity-90",
-    list: "my-1 space-y-0.5 pl-4",
-    hr: "my-1 h-px bg-current/25",
-    tableWrap: "my-1 max-w-full overflow-x-auto",
-    table: "w-full border-collapse text-[0.68rem]",
-  },
-  document: {
-    block: "min-w-0 space-y-3 break-words text-sm leading-relaxed",
-    headingFor: () =>
-      "m-0 mt-4 mb-1 text-base font-semibold leading-snug first:mt-0",
-    code: "my-2 max-w-full overflow-x-auto rounded px-3 py-2 font-mono text-[0.8rem] leading-normal",
-    codespan: "rounded px-1 py-0.5 font-mono text-[0.85em]",
-    blockquote: "my-2 border-l-2 border-current/30 pl-3 opacity-90",
-    list: "my-2 space-y-1 pl-5",
-    hr: "my-3 h-px bg-current/25",
-    tableWrap: "my-2 max-w-full overflow-x-auto",
-    table: "w-full border-collapse text-[0.85rem]",
-  },
-};
-
-/** Passed as an *accessor* through the render functions so the link branch
- *  can react to `links` toggling in place (see renderInline's "link" case).
- *  Styles are read once at build — a variant change re-lexes and rebuilds the
- *  whole tree anyway — so only `links` needs the live read. */
-type Ctx = { links: boolean; styles: Styles };
-
-const subtleBoxStyle = {
-  "background-color": "color-mix(in oklch, currentColor 14%, transparent)",
-};
-
-function safeHref(href: string): string | undefined {
-  const trimmed = href.trim();
-  if (trimmed.startsWith("#")) return trimmed;
-  try {
-    const url = new URL(trimmed, window.location.origin);
-    if (url.protocol === "http:" || url.protocol === "https:") {
-      return trimmed;
+/** Handle interactive bits inside the rendered Markdown — code-copy buttons and
+ *  in-page anchors. (The preview is read-only; task-list checkboxes render as
+ *  presentational state.) Bound imperatively (not via JSX `onClick`) because
+ *  these are delegated handlers over sanitizer-minted DOM, not declarative
+ *  element interactions the a11y lint would expect a role for.
+ *
+ *  Each also stops the bubble so a nested control in a clickable host slot
+ *  (dock card, switcher card) doesn't double-fire that slot's handler. */
+function bindInteractions(el: HTMLElement): void {
+  const onPointerDown = (e: Event) => {
+    const target = e.target as Element | null;
+    if (target?.closest?.("a, [data-md-copy]")) {
+      e.stopPropagation();
     }
-    if (url.protocol === "mailto:") return trimmed;
-  } catch {
-    // Invalid markdown links are shown as plain text.
-    return undefined;
-  }
-  return undefined;
-}
+  };
+  const onClick = (e: MouseEvent) => {
+    const target = e.target as Element | null;
+    if (!target) return;
 
-/** Render a sequence of parsed inline markdown tokens as Solid nodes. */
-const InlineTokens: Component<{ tokens: Token[]; ctx: Accessor<Ctx> }> = (
-  props,
-) => <For each={props.tokens}>{(token) => renderInline(token, props.ctx)}</For>;
-
-/** Render a sequence of parsed block markdown tokens as Solid nodes. */
-const BlockTokens: Component<{ tokens: Token[]; ctx: Accessor<Ctx> }> = (
-  props,
-) => <For each={props.tokens}>{(token) => renderBlock(token, props.ctx)}</For>;
-
-function renderBlock(token: Token, ctx: Accessor<Ctx>): JSX.Element {
-  switch (token.type) {
-    case "space":
-    case "def":
-      return null;
-    case "html":
-      return (
-        <p class="m-0 whitespace-pre-wrap break-words opacity-80">
-          {(token as Tokens.HTML).text}
-        </p>
-      );
-    case "heading":
-      return (
-        <p class={ctx().styles.headingFor(token.depth)}>
-          <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
-        </p>
-      );
-    case "paragraph":
-      return (
-        <p class="m-0">
-          <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
-        </p>
-      );
-    case "blockquote":
-      return (
-        <blockquote class={ctx().styles.blockquote}>
-          <BlockTokens tokens={token.tokens ?? []} ctx={ctx} />
-        </blockquote>
-      );
-    case "code":
-      return (
-        <pre class={ctx().styles.code} style={subtleBoxStyle}>
-          <code>{token.text}</code>
-        </pre>
-      );
-    case "hr":
-      return <div class={ctx().styles.hr} />;
-    case "list":
-      return token.ordered ? (
-        <ol
-          class={`list-decimal ${ctx().styles.list}`}
-          start={typeof token.start === "number" ? token.start : undefined}
-        >
-          <For each={token.items}>{(item) => renderListItem(item, ctx)}</For>
-        </ol>
-      ) : (
-        <ul class={`list-disc ${ctx().styles.list}`}>
-          <For each={token.items}>{(item) => renderListItem(item, ctx)}</For>
-        </ul>
-      );
-    case "table":
-      return (
-        <div class={ctx().styles.tableWrap}>
-          <table class={ctx().styles.table}>
-            <thead>
-              <tr>
-                <For each={token.header}>
-                  {(cell) => (
-                    <th
-                      class="border-b border-current/25 px-1.5 py-0.5 text-left font-semibold"
-                      style={{ "text-align": cell.align ?? "left" }}
-                    >
-                      <InlineTokens tokens={cell.tokens} ctx={ctx} />
-                    </th>
-                  )}
-                </For>
-              </tr>
-            </thead>
-            <tbody>
-              <For each={token.rows}>
-                {(row) => (
-                  <tr>
-                    <For each={row}>
-                      {(cell) => (
-                        <td
-                          class="border-b border-current/10 px-1.5 py-0.5"
-                          style={{ "text-align": cell.align ?? "left" }}
-                        >
-                          <InlineTokens tokens={cell.tokens} ctx={ctx} />
-                        </td>
-                      )}
-                    </For>
-                  </tr>
-                )}
-              </For>
-            </tbody>
-          </table>
-        </div>
-      );
-    case "text":
-      return (
-        <p class="m-0">
-          <InlineTokens tokens={token.tokens ?? [token]} ctx={ctx} />
-        </p>
-      );
-    default:
-      return null;
-  }
-}
-
-function renderListItem(
-  item: Tokens.ListItem,
-  ctx: Accessor<Ctx>,
-): JSX.Element {
-  return (
-    <li>
-      <Show when={item.task}>
-        <span class="mr-1 font-mono opacity-70">
-          {item.checked ? "[x]" : "[ ]"}
-        </span>
-      </Show>
-      <BlockTokens tokens={item.tokens} ctx={ctx} />
-    </li>
-  );
-}
-
-function renderInline(token: Token, ctx: Accessor<Ctx>): JSX.Element {
-  switch (token.type) {
-    case "escape":
-      return token.text;
-    case "text":
-      return token.tokens ? (
-        <InlineTokens tokens={token.tokens} ctx={ctx} />
-      ) : (
-        token.text
-      );
-    case "strong":
-      return (
-        <strong class="font-semibold">
-          <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
-        </strong>
-      );
-    case "em":
-      return (
-        <em>
-          <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
-        </em>
-      );
-    case "del":
-      return (
-        <del class="opacity-75">
-          <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
-        </del>
-      );
-    case "codespan":
-      return (
-        <code class={ctx().styles.codespan} style={subtleBoxStyle}>
-          {token.text}
-        </code>
-      );
-    case "br":
-      return <br />;
-    case "link": {
-      const href = safeHref(token.href);
-      // `links` is read reactively (via the ctx accessor inside Show) so
-      // toggling the prop after mount swaps anchor↔span in place — without
-      // re-lexing, since the token memo is keyed on markdown + variant only.
-      return (
-        <Show
-          when={href && ctx().links}
-          fallback={
-            <span>
-              <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
-            </span>
-          }
-        >
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="pointer-events-auto underline decoration-current/40 underline-offset-2 hover:decoration-current"
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
-          </a>
-        </Show>
-      );
+    const copyButton = target.closest<HTMLElement>("[data-md-copy]");
+    if (copyButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      copyCodeBlock(copyButton);
+      return;
     }
-    case "image":
-      return <span class="font-mono opacity-75">{token.text}</span>;
-    case "html":
-      return <span class="opacity-80">{(token as Tokens.HTML).text}</span>;
-    case "checkbox":
-      return (
-        <span class="font-mono opacity-70">
-          {token.checked ? "[x]" : "[ ]"}
-        </span>
-      );
-    default:
-      return null;
-  }
+
+    const anchor = target.closest("a");
+    if (anchor) {
+      e.stopPropagation();
+      const href = anchor.getAttribute("href");
+      // In-page anchors (TOC, footnotes — namespaced `#md-…`) scroll within
+      // the preview without navigating or writing the app's URL hash.
+      if (href?.startsWith("#") && href.length > 1) {
+        const landing = el.querySelector(`#${CSS.escape(href.slice(1))}`);
+        if (landing) {
+          e.preventDefault();
+          landing.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+    }
+  };
+  el.addEventListener("click", onClick);
+  el.addEventListener("pointerdown", onPointerDown);
+  onCleanup(() => {
+    el.removeEventListener("click", onClick);
+    el.removeEventListener("pointerdown", onPointerDown);
+  });
 }
 
-/** Render Markdown as safe SolidJS nodes. `variant` picks parse mode +
- *  styling scale; `links` enables anchor rendering (off → links render as
- *  plain text, so a host slot's click handler isn't preempted by a nested
- *  anchor). `links` defaults on for block variants, off for inline. */
 export const Markdown: Component<{
   markdown: string;
   variant?: MarkdownVariant;
   links?: boolean;
+  /** Resolve a repo-relative image `src` to a loadable URL (see
+   *  `SanitizeOptions.resolveImageSrc`). Document variant only. */
+  resolveImageSrc?: (src: string) => string | undefined;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
-  // ctx is a memo passed down as an accessor. `links` defaults on for block
-  // variants, off for inline. A `links`-only change recomputes this memo but
-  // does NOT re-lex (the token walk below is keyed on markdown + variant); the
-  // link branch in renderInline reads ctx() inside a <Show>, so anchors/spans
-  // swap in place reactively without rebuilding the token tree.
-  const ctx = createMemo<Ctx>(() => {
-    const v = variant();
-    return {
-      links: props.links ?? v !== "inline",
-      // "inline" renders no block wrapper so it borrows compact token styles.
-      styles: STYLES[v === "inline" ? "compact" : v],
-    };
-  });
-  const tokens = createMemo<Token[]>(() =>
-    variant() === "inline"
-      ? Lexer.lexInline(props.markdown, MARKED_OPTIONS)
-      : marked.lexer(props.markdown, MARKED_OPTIONS),
+  const isDocument = () => variant() === "document";
+  // Links default on for block variants, off for inline — an inline slot's own
+  // click handler (open editor / open palette) must win over a nested anchor.
+  const links = () => props.links ?? variant() !== "inline";
+
+  // Lazily load the Shiki highlighter for the document preview; `highlighter()`
+  // flips from undefined → ready, re-running the html memo so code re-paints.
+  // Swallow a load failure (e.g. the lazy `shiki` chunk fails on a flaky
+  // network — the very case this lazy-load tolerates) and resolve to null:
+  // reading an *errored* resource inside the `html` memo would re-throw and,
+  // with no ErrorBoundary in the preview path, blank the whole preview. Null
+  // keeps `highlighter() != null` false so code renders plain, matching
+  // highlight.ts's per-block fallback.
+  // Only pay for Shiki when the document actually has a fenced code block — a
+  // code-less README never triggers the dynamic `shiki` chunk + grammar load.
+  // The predicate can't false-negative (every real fence opens a line with
+  // ``` / ~~~); a rare false positive just warms an unused highlighter.
+  const hasCodeFence = () => /^[ \t]{0,3}(?:```|~~~)/m.test(props.markdown);
+  const [highlighter] = createResource(
+    () => (isDocument() && hasCodeFence()) || undefined,
+    () =>
+      loadHighlighter().catch((err) => {
+        console.warn(
+          "markdown: shiki highlighter failed to load; code renders plain",
+          err,
+        );
+        return null;
+      }),
+  );
+
+  const html = createMemo(() =>
+    sanitizeHtml(
+      renderMarkdownToRawHtml(props.markdown, {
+        inline: variant() === "inline",
+        // GitHub folds a single newline to a space; chat/dock want it as a
+        // break. Document → faithful (false); compact/inline → break (true).
+        breaks: !isDocument(),
+        // Only the document preview admits a README's raw HTML; the compact/
+        // inline intent slots (user/agent strings) escape it to literal text.
+        rawHtml: isDocument(),
+      }),
+      {
+        links: links(),
+        // Only the full-pane document preview is a *document*: it gets the
+        // README inline-HTML + image surface, GitHub-faithful soft breaks, and
+        // code highlighting. The compact/inline intent slots keep the stricter
+        // scope.
+        richHtml: isDocument(),
+        resolveImageSrc: props.resolveImageSrc,
+        highlightCode:
+          isDocument() && highlighter() != null ? highlightCode : undefined,
+      },
+    ),
   );
 
   return (
-    <Show
-      when={variant() !== "inline"}
-      fallback={<InlineTokens tokens={tokens()} ctx={ctx} />}
-    >
-      <div class={ctx().styles.block}>
-        <BlockTokens tokens={tokens()} ctx={ctx} />
-      </div>
-    </Show>
+    <Dynamic
+      component={variant() === "inline" ? "span" : "div"}
+      ref={bindInteractions}
+      class="kolu-md"
+      data-md-variant={variant()}
+      innerHTML={html()}
+    />
   );
 };

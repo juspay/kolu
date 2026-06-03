@@ -13,6 +13,7 @@ import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
 import { match } from "ts-pattern";
 import {
+  completedBackgroundTaskIds,
   decayTransientState,
   deriveState,
   deriveTaskProgress,
@@ -23,12 +24,15 @@ import {
   findTranscriptPath,
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
-  nextWorkflowStaleDeadline,
+  liveWorkflowRuns,
+  nextStaleDeadline,
   observeWorkflowRun,
   outstandingBackgroundTasks,
+  outstandingForkRuns,
   PROJECTS_DIR,
   type SessionFile,
   type WorkflowObservation,
+  subagentsDirFor,
   TAIL_BYTES,
   tailJsonlLines,
   watchOrWaitForDir,
@@ -155,6 +159,15 @@ export function createSessionWatcher(
   // Snapshots land while the agent is busy-waiting and the transcript is
   // otherwise quiet, so this keeps the fan-out count live. Null until set up.
   let workflowsDirWatcher: (() => void) | null = null;
+  // Watcher over the per-session `subagents/` dir, where a `/fork` lands its
+  // `agent-<id>.meta.json` + streaming `agent-<id>.jsonl`. A fork's launch only
+  // echoes a local-command into the MAIN transcript, and its artifacts may
+  // appear AFTER the transcript event that idled the main has already been
+  // processed — at which point nothing else would re-trigger the fork scan. This
+  // watcher closes that race: the moment the fork's files land (create or
+  // append), it reschedules the check so the now-`waiting` main promotes to
+  // `running_background`. Null until set up.
+  let subagentsDirWatcher: (() => void) | null = null;
 
   let destroyed = false;
 
@@ -286,8 +299,13 @@ export function createSessionWatcher(
     if (transcriptWatching.kind !== "watching") return;
 
     const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
+    // One clock read for the whole pass: the workflow-staleness filter
+    // (`liveOutstandingTasks`), the fork scan, both stale deadlines, and the
+    // transient-decay quiet window all compare against this single `now`, so no
+    // two staleness checks in one pass can disagree about the current time.
+    const now = Date.now();
     // observeWorkflowRun is the single source of truth; the three projections
-    // below (liveOutstandingTasks / nextWorkflowStaleDeadline /
+    // below (liveOutstandingTasks / liveWorkflowRuns /
     // deriveWorkflowProgress) all read its result. Observe each distinct runId
     // ONCE per check pass and memoize into this Map — each observation is now a
     // readdir + N stats over the live streaming dir (#1123), so re-observing the
@@ -302,6 +320,12 @@ export function createSessionWatcher(
       }
       return o;
     };
+    // The shared "which runs finished" projection (core.ts:545), scanned over
+    // the tail ONCE per pass and threaded into both consumers below —
+    // `outstandingBackgroundTasks` (launched − completed) and
+    // `outstandingForkRuns` (fast positive-finish signal). Mirrors the `obs`
+    // memoization above: read the projection once, hand it to every reader.
+    const completed = completedBackgroundTaskIds(lines);
     // Drop tasks that can't keep the session "working": a `Workflow` whose
     // journal has gone terminal/stale (orphaned by a restart). `deriveState`
     // further narrows to runId-bearing `Workflow` runs, so a bare backgrounded
@@ -309,8 +333,8 @@ export function createSessionWatcher(
     // keeps `running_background`.
     const outstanding = liveOutstandingTasks(
       session,
-      outstandingBackgroundTasks(lines),
-      Date.now(),
+      outstandingBackgroundTasks(lines, completed),
+      now,
       observe,
     );
     const derived = deriveState(lines, outstanding);
@@ -322,12 +346,27 @@ export function createSessionWatcher(
       return;
     }
 
-    // Resolve the state to publish and when (if ever) to re-probe. Two
-    // staleness-driven de-escalations live here, on disjoint states — a quiet
-    // transcript / journal fires no fs event, so each arms the reused one-shot
-    // recheck timer that re-derives without an external trigger:
-    //   - running_background (#1109): demote once the workflow journal goes
-    //     stale; the deadline tracks the soonest live-journal stale time.
+    // `/fork` promotion: a fork is a background sub-agent the main session
+    // launched, but its launch is a local-command (not a `tool_result`), so it
+    // never enters `outstanding` and `deriveState` can't see it. Detect it from
+    // its on-disk subagent transcript — but only for an otherwise-idle
+    // (`waiting`) main, where a live fork means it's busy-waiting on the fork,
+    // not awaiting the human. When a live `Workflow` already promoted to
+    // `running_background`, the row is busy regardless, so the fork scan (a
+    // `subagents/` readdir) is skipped.
+    const forks =
+      derived.state === "waiting"
+        ? outstandingForkRuns(session, completed, now)
+        : [];
+
+    // Resolve the state to publish and when (if ever) to re-probe. One
+    // escalation and two staleness-driven de-escalations live here, on disjoint
+    // states — a quiet transcript / journal fires no fs event, so each arms the
+    // reused one-shot recheck timer that re-derives without an external trigger:
+    //   - running_background: a busy-wait on an observable background run — a
+    //     `Workflow` (journal, #1109) or a live `/fork` (subagent transcript).
+    //     Promoted from `waiting` for a fork; demoted once every run's anchor
+    //     goes stale, the deadline tracking the soonest across both.
     //   - dangling tool_use (#1017): demote to `waiting` once the transcript is
     //     quiet past the window AND claude's subtree is idle (no descendant
     //     process). A genuine long tool keeps a child, so it is never cleared.
@@ -341,15 +380,18 @@ export function createSessionWatcher(
     //     read as "busy" — orphaned + stale is already definitive.
     let publishedState = derived.state;
     let staleDeadline: number | null = null;
-    if (derived.state === "running_background") {
-      staleDeadline = nextWorkflowStaleDeadline(
-        session,
-        outstanding,
-        Date.now(),
-        observe,
-      );
+    // The live background runs keeping this main busy-waiting, both kinds folded
+    // to one `LiveRun` set: workflows (journal-anchored) and `/fork`s (subagent-
+    // transcript-anchored). Each producer keeps its own anchor-reading IO private;
+    // the watcher just plugs into the single set and its one deadline fold.
+    const live = [...liveWorkflowRuns(session, outstanding, observe), ...forks];
+    if (live.length > 0) {
+      publishedState = "running_background";
+      // Soonest stale deadline across every live run, on each run's own window —
+      // so a fork-only or workflow-only promotion still arms a recheck, and a
+      // mixed set fires on whichever ages out first.
+      staleDeadline = nextStaleDeadline(live, now);
     } else {
-      const now = Date.now();
       const quietMs = transcriptQuietMs(transcriptWatching.path, now);
       if (quietMs !== null) {
         const decayed = decayTransientState(
@@ -495,9 +537,10 @@ export function createSessionWatcher(
    *  snapshot (`<runId>.json`) re-derives progress even when the transcript is
    *  quiet. Live progress under `subagents/workflows/<runId>/` is NOT watched
    *  (a recursive watch there proved unreliable on macOS, #1123); the reused
-   *  stale-recheck timer (`nextWorkflowStaleDeadline`, anchored on the live run
-   *  dir's newest file) drives live re-derivation instead, so the fan-out count
-   *  refreshes each window rather than on every append. */
+   *  stale-recheck timer (`nextStaleDeadline` over the live workflow runs,
+   *  anchored on the live run dir's newest file) drives live re-derivation
+   *  instead, so the fan-out count refreshes each window rather than on every
+   *  append. */
   function setupWorkflowsWatching() {
     workflowsDirWatcher = watchOrWaitForDir(
       workflowsDirFor(session),
@@ -506,9 +549,30 @@ export function createSessionWatcher(
     );
   }
 
+  /** Watch the per-session `subagents/` dir so a `/fork`'s artifacts
+   *  (`agent-<id>.meta.json` + streaming `agent-<id>.jsonl`) re-run the fork
+   *  scan the moment they land — even when the main transcript has already gone
+   *  quiet. A fork's launch echoes only into the MAIN transcript, but the scan
+   *  it triggers can run BEFORE the sub-agent's files exist; without this watch
+   *  nothing would re-trigger and the now-idle main would stay `waiting` for the
+   *  full stale window. A non-recursive watch suffices: the fork's files land
+   *  directly in `subagents/` (the `subagents/workflows/` live tree is a direct
+   *  child dir, separately handled). `watchOrWaitForDir` tolerates the dir not
+   *  existing yet — `subagents/` AND its `<session>/` parent are both created
+   *  lazily on the first sub-agent, and the helper walks up to the nearest
+   *  existing ancestor, re-attaching down the chain as each level appears. */
+  function setupSubagentsWatching() {
+    subagentsDirWatcher = watchOrWaitForDir(
+      subagentsDirFor(session),
+      () => scheduleTranscriptCheck(),
+      plog,
+    );
+  }
+
   // --- Start watching ---
   setupTranscriptWatching();
   setupWorkflowsWatching();
+  setupSubagentsWatching();
 
   return {
     session,
@@ -526,6 +590,8 @@ export function createSessionWatcher(
       teardownTranscriptWatching();
       workflowsDirWatcher?.();
       workflowsDirWatcher = null;
+      subagentsDirWatcher?.();
+      subagentsDirWatcher = null;
     },
   };
 }

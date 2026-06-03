@@ -100,3 +100,21 @@ export function encodePreviewPath(repoRelPath: string): string {
 export function decodePreviewPath(encoded: string): string {
   return encoded.split("/").map(decodeURIComponent).join("/");
 }
+
+/** Base of the per-terminal file route + its `file` segment. Shared so the
+ *  server route registration, the server URL builder, and the client (which
+ *  resolves repo-relative Markdown image srcs) all agree on one shape —
+ *  `${BASE}/{terminalId}/${FILE}/{encoded/path}`. */
+export const TERMINAL_FILE_ROUTE_BASE = "/api/terminals";
+export const TERMINAL_FILE_ROUTE_FILE_SEGMENT = "file";
+
+/** Build the per-terminal file-route URL for a repo-relative path (no cache
+ *  key). The server's `buildIframePreviewUrl` appends `?v=<mtime>` for the
+ *  iframe surface; the client uses the bare URL to point a rendered-Markdown
+ *  image at the actual repo file it references. */
+export function buildTerminalFileUrl(
+  terminalId: string,
+  repoRelPath: string,
+): string {
+  return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodePreviewPath(repoRelPath)}`;
+}
