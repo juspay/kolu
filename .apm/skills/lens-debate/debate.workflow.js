@@ -1,7 +1,8 @@
 // The Workflow runtime requires `export const meta` to be the FIRST statement
-// and a PURE LITERAL (no variable interpolation), so the model is inlined as
-// 'opus' in each phase below. The single `const MODEL` socket lives just after
-// meta — every other model reference in this script reads it lazily at
+// and a PURE LITERAL (no variable interpolation), so the primary model is
+// inlined as 'opus' in the phase entries below; commit agents within Apply run
+// on mechModel (haiku). The single `const MODEL` socket lives just after meta —
+// every other model reference in this script reads it lazily at
 // input-resolution time, well after meta is evaluated.
 export const meta = {
   name: 'lens-debate',
