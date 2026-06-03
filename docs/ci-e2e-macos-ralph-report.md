@@ -58,17 +58,76 @@ The `.#e2e` devshell adds the Playwright browsers (`PLAYWRIGHT_BROWSERS_PATH`).
 
 ---
 
-## Baseline (HEAD = `<pending>`)
+## Baseline (HEAD = `a1407591`, PAR=4, RETRY=1)
 
-_Measuring — 5 serial runs at the current CI settings (PAR=4, RETRY=1)._
+Hot store (steady-state CI condition: `koluBin` + deps + browsers cached).
 
-| Run | build_s | install_s | cuke_s | total_s | pass/total | retried | failed |
-| --- | ------- | --------- | ------ | ------- | ---------- | ------- | ------ |
-| _pending_ | | | | | | | |
+| Run | build_s | install_s | cuke_s | total_s | pass/total | failed |
+| --- | ------- | --------- | ------ | ------- | ---------- | ------ |
+| warm0 (cold) | ~200 | ~10 | ~360 | ~563 | 398/398 | 0 |
+| b1 | 1 | 1 | 450 | **452** | 397/398 | 1 |
+| b2 | 0 | 2 | 570 | 572 | 398/398 | 0 |
+| b3 | 0 | 2 | 418 | **420** | 397/398 | 1 |
 
-Cold `koluBin`: _pending_. Hot steady-state median: _pending_.
+**Baseline median total ≈ 452s (7.5 min)** at PAR=4. High run-to-run variance
+(420–572s). Flakiness: 2 of 3 runs hard-failed one scenario (code-tab
+branch-filter) — the same flake b1 surfaced; see Cycle "code-tab barrier".
+
+**Key baseline facts:**
+
+- **The cucumber suite IS the cost.** `build_s`/`install_s` are ~1s each on the
+  warm rasam store — `koluBin` is cached (test-harness edits don't rebuild it)
+  and pnpm deps are already present. So the "triple pnpm install" overhead the
+  static profile flagged is **sub-noise on a warm store** (the realistic
+  steady-state for this long-lived host); its duration win is < 3%. Documented as
+  a near-dead-end for duration (its flakiness benefit — closing the concurrent
+  `pnpm` corruption window — still stands but is rare).
+- **`cuke_s ≈ 450s` (7.5 min) at PAR=4** is the number to beat. The suite is the
+  long pole; **parallelism is the lever** (host is idle 24-core).
+- **Flakiness is real at PAR=4**: b1 hard-failed (both attempts)
+  `code-tab.feature` "Filter survives clicking a filtered result [branch]".
+- **Slowest scenarios** (b1, final-attempt seconds): mobile-soft-keyboard
+  "does-not-summon-keyboard" ~34s & ~33s, file-ref-link touch ~33s,
+  mobile-dock-drawer ~31s, code-tab in-iframe-edit ~26s. These are heavy by
+  nature (mobile viewport + scrollback render + hydration), not a cheap cut; they
+  set the per-worker tail that bounds wall-clock at high parallelism.
 
 ---
+
+## The parallelism wall (key discovery)
+
+CI runs `CUCUMBER_PARALLEL=4`; rasam has 24 idle cores, so the static profile's
+top candidate was "raise workers → ~halve the suite." A 4/6/8/12 sweep (3 runs
+each) showed this is **not** a free win:
+
+| PAR | total_s (3 runs) | failed (3 runs) |
+| --- | ---------------- | --------------- |
+| 4 | 452 / 572 / 420 | 1 / 0 / 1 |
+| 6 | **209 / 206** / 318 | **251 / 286** / 1 |
+| 8 | 333 / … | 2 / … |
+
+The suite is **bimodal** at PAR≥6: when it stays healthy it's ~30% faster
+(318–333s vs ~452s), but ~half the runs **catastrophically fail** (251–286 of
+398) *and finish fast* (~207s). Root cause, traced from the logs:
+
+1. **A worker's kolu server becomes unreachable mid-run** — no crash, no stderr
+   (the only server output is the benign SQLite experimental warning). Every
+   subsequent scenario on that worker fails at the Before-hook
+   `terminal/killAll` reset (`POST …:<port>/rpc/terminal/killAll failed after
+   retries`), all on one port.
+2. **Queue-drain amplification** — cucumber's parallel workers pull from a shared
+   queue. A worker whose server died fails each scenario it pulls in ~0 ms, so it
+   *greedily drains the queue*, stealing and failing scenarios that healthy
+   workers would have passed. One dead server → hundreds of failures + a fast
+   finish. This is why the catastrophic runs are also the fastest.
+
+**Suspected mechanism:** `ulimit -n` on rasam is **256** (macOS default; hard
+limit is `unlimited`). The soft limit is inherited by each spawned server. Under
+higher total concurrency the server's `accept()` hits **EMFILE** and stops
+accepting connections without crashing or logging — exactly the silent
+unreachability observed. Fix under test: `ulimit -n 65536` before the suite (a
+one-line recipe change). If it makes PAR=8/12 stable, raising parallelism becomes
+a real Pareto win; if not, the lever is unsafe and stays at 4.
 
 ## Optimization log
 
