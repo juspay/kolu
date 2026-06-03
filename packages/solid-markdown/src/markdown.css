@@ -1,0 +1,325 @@
+/* Rendered-Markdown stylesheet for `@kolu/solid-markdown`, scoped to the
+ * `.kolu-md` container the component emits. A GitHub-Flavored reading style
+ * that is theme-agnostic by construction: every surface is derived from
+ * `currentColor` via `color-mix`, so the block inherits the host's foreground
+ * and adapts to any background in either light or dark mode with no theme
+ * prop. The single app hook is `--color-accent` (links), read with a sane
+ * fallback so the package still renders standalone.
+ *
+ * Wired into the bundle by an `@import` in `packages/client/src/index.css`
+ * (mirroring how the package's Tailwind sources are made explicit there),
+ * rather than a component-level CSS import that the package's
+ * `sideEffects:false` could tree-shake away.
+ *
+ * Three scales share these rules and diverge only in the size tokens:
+ *   - default (`[data-md-variant="document"]`) — full-pane reading scale.
+ *   - `[data-md-variant="compact"]`            — chat/dock intent scale.
+ *   - `.kolu-md-inline`                        — inline-only, no block layout. */
+
+.kolu-md {
+  /* Scale tokens — overridden per variant below. */
+  --md-fs: 0.9375rem;
+  --md-lh: 1.65;
+  --md-gap: 1rem;
+  --md-heading-gap: 1.5rem;
+
+  /* Theme-adaptive surfaces, all relative to the inherited text color. */
+  --md-muted: color-mix(in oklch, currentColor 62%, transparent);
+  --md-border: color-mix(in oklch, currentColor 18%, transparent);
+  --md-border-strong: color-mix(in oklch, currentColor 28%, transparent);
+  --md-box: color-mix(in oklch, currentColor 7%, transparent);
+  --md-box-faint: color-mix(in oklch, currentColor 4%, transparent);
+  --md-link: var(--color-accent, #3b82f6);
+
+  font-size: var(--md-fs);
+  line-height: var(--md-lh);
+  color: inherit;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ── Vertical rhythm ─────────────────────────────────────────── */
+.kolu-md p,
+.kolu-md blockquote,
+.kolu-md ul,
+.kolu-md ol,
+.kolu-md dl,
+.kolu-md pre,
+.kolu-md table,
+.kolu-md hr,
+.kolu-md details {
+  margin: 0 0 var(--md-gap);
+}
+.kolu-md > :first-child {
+  margin-top: 0;
+}
+.kolu-md > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── Headings ────────────────────────────────────────────────── */
+.kolu-md h1,
+.kolu-md h2,
+.kolu-md h3,
+.kolu-md h4,
+.kolu-md h5,
+.kolu-md h6 {
+  margin: var(--md-heading-gap) 0 var(--md-gap);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.kolu-md > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+.kolu-md h1 {
+  font-size: 1.7em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--md-border);
+}
+.kolu-md h2 {
+  font-size: 1.4em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--md-border);
+}
+.kolu-md h3 {
+  font-size: 1.2em;
+}
+.kolu-md h4 {
+  font-size: 1em;
+}
+.kolu-md h5 {
+  font-size: 0.9em;
+}
+.kolu-md h6 {
+  font-size: 0.85em;
+  color: var(--md-muted);
+}
+
+/* ── Inline text ─────────────────────────────────────────────── */
+.kolu-md a {
+  color: var(--md-link);
+  text-decoration: none;
+}
+.kolu-md a:hover {
+  text-decoration: underline;
+}
+.kolu-md strong {
+  font-weight: 600;
+}
+.kolu-md em {
+  font-style: italic;
+}
+.kolu-md del {
+  color: var(--md-muted);
+}
+.kolu-md mark {
+  background: color-mix(
+    in oklch,
+    var(--color-warning, #facc15) 35%,
+    transparent
+  );
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 0.15em;
+}
+.kolu-md sub,
+.kolu-md sup {
+  font-size: 0.75em;
+  line-height: 0;
+}
+.kolu-md kbd {
+  display: inline-block;
+  padding: 0.15em 0.45em;
+  font:
+    0.85em / 1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  vertical-align: middle;
+  background: var(--md-box);
+  border: 1px solid var(--md-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+
+/* ── Code ────────────────────────────────────────────────────── */
+.kolu-md code {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875em;
+}
+.kolu-md :not(pre) > code {
+  padding: 0.15em 0.4em;
+  background: var(--md-box);
+  border-radius: 4px;
+  white-space: break-spaces;
+}
+.kolu-md pre {
+  padding: 0.85em 1em;
+  overflow-x: auto;
+  background: var(--md-box);
+  border: 1px solid var(--md-border);
+  border-radius: 8px;
+  line-height: 1.5;
+}
+.kolu-md pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+  white-space: pre;
+  font-size: 0.875em;
+}
+
+/* ── Blockquote ──────────────────────────────────────────────── */
+.kolu-md blockquote {
+  padding: 0 0 0 1em;
+  color: var(--md-muted);
+  border-left: 0.25em solid var(--md-border-strong);
+}
+.kolu-md blockquote > :first-child {
+  margin-top: 0;
+}
+.kolu-md blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── Lists ───────────────────────────────────────────────────── */
+.kolu-md ul,
+.kolu-md ol {
+  padding-left: 1.6em;
+}
+.kolu-md li + li {
+  margin-top: 0.25em;
+}
+.kolu-md li > ul,
+.kolu-md li > ol {
+  margin: 0.25em 0 0;
+}
+/* GFM task lists: drop the bullet and pull the row back so the checkbox sits
+ * at the list margin, the way GitHub renders them. `:has()` is supported in
+ * the app's Chromium runtime. */
+.kolu-md li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.4em;
+}
+.kolu-md input[type="checkbox"] {
+  margin: 0 0.5em 0 0;
+  vertical-align: middle;
+}
+
+/* ── Tables ──────────────────────────────────────────────────── */
+/* `display:block` + `width:max-content` lets a wide table scroll horizontally
+ * inside the reading column instead of forcing the whole page wide — the
+ * anonymous table box the rows generate keeps the columns aligned. */
+.kolu-md table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.kolu-md th,
+.kolu-md td {
+  padding: 0.4em 0.85em;
+  border: 1px solid var(--md-border);
+}
+.kolu-md th {
+  font-weight: 600;
+  background: var(--md-box);
+}
+.kolu-md tbody tr:nth-child(even) {
+  background: var(--md-box-faint);
+}
+
+/* ── Rule ────────────────────────────────────────────────────── */
+.kolu-md hr {
+  height: 1px;
+  border: 0;
+  background: var(--md-border);
+}
+
+/* ── Images ──────────────────────────────────────────────────── */
+.kolu-md img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+/* A repo-relative image that can't load here renders as a labelled chip
+ * instead of a broken-image icon (see render.ts). */
+.kolu-md .kolu-md-img-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.1em 0.5em;
+  font:
+    0.85em / 1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  color: var(--md-muted);
+  background: var(--md-box);
+  border: 1px dashed var(--md-border-strong);
+  border-radius: 4px;
+}
+.kolu-md .kolu-md-img-fallback::before {
+  content: "🖼";
+  font-size: 0.9em;
+}
+
+/* ── Details / Summary ───────────────────────────────────────── */
+.kolu-md details {
+  padding: 0.5em 1em;
+  background: var(--md-box-faint);
+  border: 1px solid var(--md-border);
+  border-radius: 8px;
+}
+.kolu-md summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.kolu-md details[open] summary {
+  margin-bottom: 0.5em;
+}
+
+/* ── Alignment wrappers (e.g. <p align="center">) ────────────── */
+.kolu-md [align="center"] {
+  text-align: center;
+}
+.kolu-md [align="right"] {
+  text-align: right;
+}
+.kolu-md [align="left"] {
+  text-align: left;
+}
+
+/* ── Compact scale (chat / dock intent body) ─────────────────── */
+.kolu-md[data-md-variant="compact"] {
+  --md-fs: 0.8rem;
+  --md-lh: 1.5;
+  --md-gap: 0.5rem;
+  --md-heading-gap: 0.75rem;
+}
+/* No heading rules / borders at chat scale — headings read as bold lines. */
+.kolu-md[data-md-variant="compact"] :is(h1, h2, h3, h4, h5, h6) {
+  font-size: 1em;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.kolu-md[data-md-variant="compact"] pre {
+  padding: 0.5em 0.65em;
+  border-radius: 6px;
+}
+
+/* ── Inline variant (single-line annotation slots) ───────────── */
+.kolu-md-inline {
+  font-size: inherit;
+  line-height: inherit;
+}
+.kolu-md-inline :not(pre) > code {
+  padding: 0.1em 0.3em;
+  background: color-mix(in oklch, currentColor 12%, transparent);
+  border-radius: 3px;
+}

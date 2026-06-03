@@ -729,6 +729,43 @@ Then(
   },
 );
 
+// Structural assertions for the rebuilt marked → DOMPurify pipeline
+// (@kolu/solid-markdown). The rendered preview must emit real GFM / inline-HTML
+// elements — tables, task checkboxes, <kbd>, alignment wrappers — and must NOT
+// emit script-capable markup. `selector` is a semantic element/attribute query
+// scoped under the preview testid (e.g. "table", "input[type=checkbox]"),
+// never a styling class.
+Then(
+  "the markdown preview should render a {string} element",
+  async function (this: KoluWorld, selector: string) {
+    await this.page.waitForFunction(
+      (sel) =>
+        !!document.querySelector(
+          `[data-testid="browse-preview-markdown"] ${sel}`,
+        ),
+      selector,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+// Negative form, for sanitization. Scenarios assert a positive text match
+// first so the preview has demonstrably rendered before we check that a
+// dangerous element is absent (rather than merely not yet painted).
+Then(
+  "the markdown preview should not render a {string} element",
+  async function (this: KoluWorld, selector: string) {
+    await this.page.waitForFunction(
+      (sel) =>
+        document.querySelectorAll(
+          `[data-testid="browse-preview-markdown"] ${sel}`,
+        ).length === 0,
+      selector,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Right-panel tab switching + filter input ──
 
 When(

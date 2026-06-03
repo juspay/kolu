@@ -31,7 +31,7 @@ export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
         File truncated (exceeds 1 MB)
       </div>
     </Show>
-    <div class="mx-auto max-w-3xl p-6">
+    <div class="mx-auto max-w-3xl p-6 text-fg sm:p-8">
       <Markdown markdown={props.markdown} variant="document" />
     </div>
   </div>
