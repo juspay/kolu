@@ -886,14 +886,6 @@ const reporters = {
   },
 };
 
-// Strip a wrapping ``` / ```markdown fence if the agent wrapped the whole body.
-function stripFences(s) {
-  const m = String(s || "")
-    .trim()
-    .match(/^```(?:markdown|md)?\n([\s\S]*?)\n```$/);
-  return (m ? m[1] : s || "").trim();
-}
-
 // Is there enough substance to be worth an authoring agent? A track-error, a
 // clean/empty result, or a no-pick consolidation just posts its deterministic
 // baseline — no agent spent on a one-liner. The per-track 'where do findings live'
@@ -906,8 +898,8 @@ function hasRichContent(slug, data) {
 
 // Author a rich comment body for one slug from its structured result. This is the
 // SOLE enforcement site for the 'never blank' contract: it never rejects and never
-// returns blank — a thrown agent error AND an empty/short body both fall back to the
-// deterministic `baseline` (both mean 'authoring didn't yield a usable body').
+// returns blank — a thrown agent error AND an empty/whitespace `body` both fall back to
+// the deterministic `baseline` (both mean 'authoring didn't yield a usable body').
 // `baseline` carries the canonical top-level header (the agent is told to keep it),
 // so PR anchors stay stable whether the body is agent- or builder-authored.
 async function reporterBody(slug, data, baseline, guidance) {
@@ -933,10 +925,9 @@ HARD RULES:
   // never rejects and never returns blank (lens lowy-2). The agent returns its body
   // via a SCHEMA (lens) instead of free-form text, but the schema only guarantees a
   // string — prompt instructions aren't enforcement — so VALIDATE the returned body
-  // (codex F2): (1) non-trivial length; (2) the baseline's exact first header line is
-  // present, so the anchor the deterministic builder owns is preserved; (3) under
-  // GitHub's 65 536-char body cap (60 KB budget with headroom). stripFences already
-  // removed any whole-body ``` wrapper.
+  // (codex F2): the baseline's exact first header line must be present, so the anchor
+  // the deterministic builder owns is preserved, and the body must stay under GitHub's
+  // 65 536-char body cap (60 KB budget with headroom).
   try {
     const out = await agent(prompt, {
       label: `report:${slug}`,
@@ -955,11 +946,17 @@ HARD RULES:
         },
       },
     });
-    const body = stripFences(out.body);
+    // The structured call reports authoring success by returning a `body`, so
+    // emptiness is the failure signal — no `> 40` length heuristic guessing whether a
+    // short-but-valid body is "real", and no stripFences (the schema asks for a fenced-
+    // free body) (lens hickey-3). The two remaining checks are NOT length heuristics —
+    // they guard hard invariants (codex F2): the baseline's exact first header line must
+    // survive so the deterministic PR anchor stays stable, and the body must stay under
+    // GitHub's 65 536-char cap (60 KB budget with headroom). Either failure falls back.
+    const body = String(out.body || "").trim();
     const header = String(baseline).split("\n")[0];
     const bad =
       !body ||
-      body.length <= 40 ||
       (header.trim() && !body.includes(header.trim())) ||
       body.length > 60000;
     if (bad) {
@@ -977,7 +974,7 @@ HARD RULES:
 // Author one comment body, owning the WHOLE generator choice behind a single
 // socket: deterministic baseline for an off/trivial track, else the rich reporter
 // agent. `reporterBody` owns the complete fallback (it never rejects and never
-// returns blank — a throw or an empty/short body both yield `baseline`), so the
+// returns blank — a throw or an empty/whitespace body both yield `baseline`), so the
 // Report loop never reaches past this receptacle to wire the strategies together itself.
 async function authorBody(slug, data, baseline, guidance) {
   if (!richComment || !hasRichContent(slug, data)) return baseline;
