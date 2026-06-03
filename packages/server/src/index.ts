@@ -264,7 +264,7 @@ if (clientDist) {
   // normal reload can never replay a stale shell.
   app.get(
     "/*",
-    async (c, next) => {
+    (c, next) => {
       if (isImmutableAssetPath(c.req.path)) {
         c.header("Cache-Control", ASSET_MISS_CACHE_CONTROL);
         return c.notFound();
