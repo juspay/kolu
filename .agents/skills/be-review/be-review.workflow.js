@@ -1,7 +1,8 @@
 // The Workflow runtime requires `export const meta` to be the FIRST statement
-// and a PURE LITERAL (no interpolation), so 'opus' is inlined per phase. The
-// single MODEL socket lives just after meta; every other model reference reads
-// it lazily, well after meta is evaluated.
+// and a PURE LITERAL (no interpolation). meta.phases no longer assert a phase
+// model: each phase now spans mixed tiers, so the authoritative model is the
+// per-agent `model:` carried by each spawned agent. The MODEL socket lives just
+// after meta; every other model reference reads it lazily, after meta evaluates.
 export const meta = {
   name: "be-review",
   description:
@@ -11,30 +12,25 @@ export const meta = {
       title: "Setup",
       detail:
         "fan out one detached worktree per review track off the branch HEAD",
-      model: "haiku",
     },
     {
       title: "Tracks",
       detail:
         "codex, lens, and police gauntlets each run to consensus, concurrently and isolated",
-      model: "opus",
     },
     {
       title: "Consolidate",
       detail:
         "cherry-pick each track’s commits onto the branch in order; reconcile the rare overlap",
-      model: "sonnet",
     },
     {
       title: "Report",
       detail:
         "post a detailed PR comment for each track plus the consolidation ledger",
-      model: "sonnet",
     },
     {
       title: "Cleanup",
       detail: "tear down the per-track worktrees",
-      model: "haiku",
     },
   ],
 };
@@ -46,7 +42,7 @@ export const meta = {
 // quality loss on the parts that matter:
 //   MODEL (opus)   — deep reasoning: the lens lenses + claude-author rounds (the
 //                    lens debate FORCES Opus; that's load-bearing) and lens apply.
-//   AUTHOR (sonnet)— competent-but-not-deep work: the reporter agents, the
+//   SYNTH (sonnet) — competent-but-not-deep synthesis work: the reporter agents, the
 //                    consolidation cherry-pick/reconcile, and the police review +
 //                    apply passes (code-police is natively `model: sonnet` anyway).
 //   MECH (haiku)   — deterministic shell work: setup, every commit, cleanup, the
@@ -99,19 +95,26 @@ const postComments = a.comment !== false;
 // (richComment: false) forces the deterministic comments.
 const richComment = a.richComment !== false;
 // The three cost tiers (see the MODEL comment above). `model` = deep reasoning;
-// `authorModel` = synthesis/review (Sonnet); `mechModel` = mechanical (Haiku).
+// `synthModel` = synthesis (Sonnet); `mechModel` = mechanical (Haiku).
 const model = a.model || MODEL;
-const authorModel = a.authorModel || "sonnet";
+const synthModel = a.synthModel || "sonnet";
 const mechModel = a.mechModel || "haiku";
 
 // ---------------------------------------------------------------------------
 // Token instrumentation. `budget.spent()` is the turn's running OUTPUT-token
 // counter (shared across the main loop + all workflows). Snapshotting it at each
-// phase boundary gives a per-phase token breakdown so the cost distribution is
-// visible (Tracks dominates; Report is the reporters; the mechanical phases are
+// phase boundary gives a cost-distribution breakdown so you can see where the
+// tokens go (Tracks dominates; Report is the reporters; the mechanical phases are
 // cheap) — exactly what you need to know where to spend the next optimization.
-// Output-only and approximate when other work runs concurrently, but for a solo
-// run it maps cleanly to phases. Guarded: `budget` may be absent in some runtimes.
+// CAVEAT: each bucket is the OUTPUT tokens emitted on the shared turn counter
+// during that phase's wall-clock window — NOT isolated to that phase's agents.
+// Phase boundaries are plain marks on one shared monotonic number, not
+// synchronization points: the Tracks phase dispatches all tracks concurrently
+// (parallel(...)), and those child workflows (codex/lens) draw on the same
+// `budget`, so any concurrent track and child-workflow output lands in whichever
+// window happens to be open. Treat the numbers as per-mark-interval spend, not
+// per-phase cost — don't read Tracks vs Report as an isolated comparison.
+// Guarded: `budget` may be absent in some runtimes.
 // ---------------------------------------------------------------------------
 const spentTokens = () => {
   try {
@@ -544,7 +547,7 @@ async function policeTrack(wt) {
             {
               label: `police:${p.key}:r${policeRound + 1}`,
               phase: "Tracks",
-              model: authorModel,
+              model: synthModel,
               schema: POLICE_FINDINGS_SCHEMA,
             },
           ),
@@ -571,7 +574,7 @@ async function policeTrack(wt) {
         {
           label: `police-apply:${f.id}`,
           phase: "Tracks",
-          model: authorModel,
+          model: synthModel,
           schema: IMPL_SCHEMA,
         },
       );
@@ -1009,7 +1012,7 @@ HARD RULES:
     const out = await agent(prompt, {
       label: `report:${slug}`,
       phase: "Report",
-      model: authorModel,
+      model: synthModel,
       schema: {
         type: "object",
         additionalProperties: false,
@@ -1221,6 +1224,8 @@ if (branchMoved || branchDirty) {
       note: `NOT consolidated — ${why}, so the consolidator's "branch is at ${branchHead.slice(0, 9)}" assumption no longer holds. The track's worktree was PRESERVED at ${wtDir(t)}; after resolving the drift, replay its commits with \`git -C ${repoPath} cherry-pick $(git -C ${wtDir(t)} rev-list --reverse ${branchHead}..HEAD)\`.`,
     };
   }
+  markPhaseTokens("Consolidate");
+  log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
   return {
     status: "consolidation-aborted",
     branchHead,
@@ -1234,6 +1239,7 @@ if (branchMoved || branchDirty) {
     preservedTracks: liveTracks,
     note: `consolidation aborted: ${why}. Cherry-picking onto the changed base would review against an untrustworthy scope, so nothing was consolidated and every track worktree was PRESERVED (see each track's note for the recovery cherry-pick).${dirty ? `\nOffending entries:\n${dirty}` : ""}`,
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
+    tokensByPhase,
   };
 }
 
@@ -1387,6 +1393,8 @@ if (currentHead !== branchHead) {
   log(
     `Consolidate: ABORTING — branch HEAD is ${sha9(currentHead) || "(unknown)"} but the tracks forked from ${sha9(branchHead)}. The branch has drifted (likely an already-consolidated re-run); cherry-picking now would double-apply every fix. Worktrees PRESERVED.`,
   );
+  markPhaseTokens("Consolidate");
+  log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
   return {
     status: "consolidation-precondition-failed",
     branchHead,
@@ -1399,6 +1407,7 @@ if (currentHead !== branchHead) {
     dropped: [],
     note: `consolidation precondition failed: the branch in \`${repoPath}\` is at \`${currentHead || "(unknown)"}\` but the review tracks forked from \`${branchHead}\`. The HEAD has advanced past the shared fork point — likely a re-run in an already-consolidated worktree — so cherry-picking the track commits would stack them a SECOND time and double-apply every fix. Nothing was consolidated and the per-track worktrees are PRESERVED. Reset the branch to \`${branchHead}\` (\`git -C ${repoPath} reset --hard ${branchHead}\`) or start from a clean worktree, then re-run.`,
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
+    tokensByPhase,
   };
 }
 
@@ -1423,7 +1432,7 @@ Do NOT push and do NOT merge — leave the consolidated commits on the local bra
 const consolidation = await agent(consolidatePrompt, {
   label: "consolidate:cherry-pick",
   phase: "Consolidate",
-  model: authorModel,
+  model: synthModel,
   schema: CONSOLIDATE_SCHEMA,
 });
 const picks = consolidation?.picks ?? [];
@@ -1567,10 +1576,12 @@ return {
   consolidation,
   reconciled,
   dropped,
-  // Per-phase OUTPUT-token cost (from budget.spent()), so a run reports where its
-  // tokens went — Tracks dominates; Report is the reporter agents; the mechanical
-  // phases are cheap. Approximate (output-only; shared turn counter), useful for
-  // tuning the model tiers and spotting where to trim next.
+  // OUTPUT tokens (from budget.spent()) emitted on the shared turn counter during
+  // each phase's wall-clock window — NOT isolated to that phase's agents. Concurrent
+  // track and child-workflow output lands in whichever window is open, so this is
+  // per-mark-interval spend, not isolated per-phase cost; don't read Tracks vs Report
+  // as a clean comparison. Still useful for tuning the model tiers and spotting where
+  // the bulk of the tokens go.
   tokensByPhase,
   // Tracks whose fixes were NOT consolidated onto the branch (preserved worktrees);
   // empty in the common case. Non-empty ⇒ status is 'consolidation-incomplete'.
