@@ -738,7 +738,8 @@ describe("outstandingBackgroundTasks", () => {
 describe("liveOutstandingTasks", () => {
   let tmpDir: string;
   let live: typeof import("./index.ts").liveOutstandingTasks;
-  let nextDeadline: typeof import("./index.ts").nextWorkflowStaleDeadline;
+  let liveWorkflowRuns: typeof import("./index.ts").liveWorkflowRuns;
+  let nextStaleDeadline: typeof import("./index.ts").nextStaleDeadline;
   let staleMs: number;
   const sessionId = "live-test-session";
   const cwd = "/home/user/live-project";
@@ -750,9 +751,20 @@ describe("liveOutstandingTasks", () => {
     vi.resetModules();
     const mod = await import("./index.ts");
     live = mod.liveOutstandingTasks;
-    nextDeadline = mod.nextWorkflowStaleDeadline;
+    liveWorkflowRuns = mod.liveWorkflowRuns;
+    nextStaleDeadline = mod.nextStaleDeadline;
     staleMs = mod.WORKFLOW_JOURNAL_STALE_MS;
   });
+
+  // The workflow stale deadline now folds through the shared `nextStaleDeadline`
+  // receptacle: `liveWorkflowRuns` projects each kept workflow task to a
+  // `LiveRun` carrying `WORKFLOW_JOURNAL_STALE_MS`, and the watcher feeds that
+  // set (plus the fork runs) to one fold.
+  const nextDeadline = (
+    s: typeof session,
+    tasks: Parameters<typeof liveWorkflowRuns>[1],
+    now?: number,
+  ) => nextStaleDeadline(liveWorkflowRuns(s, tasks), now);
 
   afterAll(() => {
     delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
@@ -905,7 +917,7 @@ describe("liveOutstandingTasks", () => {
     expect(live(session, [wf("wf_now")], mtimeMs + staleMs + 1)).toEqual([]);
   });
 
-  describe("nextWorkflowStaleDeadline", () => {
+  describe("nextStaleDeadline (workflow runs via liveWorkflowRuns)", () => {
     it("returns the journal mtime plus the stale window for a live workflow", () => {
       writeJournal("wf_d1", "running");
       const { mtimeMs } = fs.statSync(path.join(wfDir(), "wf_d1.json"));

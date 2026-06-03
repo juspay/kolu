@@ -46,14 +46,18 @@ export const ClaudeCodeInfoSchema = z.object({
    *    answers and the transcript catches up. So this state fires from the
    *    screen source even though it stays absent from the transcript tail.
    *  - `running_background`: the agent ended its turn (`end_turn`) while an
-   *    outstanding dynamic `Workflow` run it launched — one with an observable
-   *    run journal (`<session>/workflows/<runId>.json`) — is still live.
-   *    Without this the end-of-turn would read as `waiting` (needs-user); the
-   *    agent is actually busy-waiting on that workflow. A backgrounded `Bash`
-   *    command or `Task`/`Agent` (no run journal) does NOT promote here: its
-   *    launch marker outlives the process, so a lost completion notification
-   *    would spin the pill forever (the phantom-`running_background` bug).
-   *    Claude-Code-specific — see `deriveState`. */
+   *    outstanding background run it launched is still live — either a dynamic
+   *    `Workflow` with an observable run journal
+   *    (`<session>/workflows/<runId>.json`), or a `/fork` sub-agent with a
+   *    streaming transcript (`<session>/subagents/agent-<id>.jsonl`). Without
+   *    this the end-of-turn would read as `waiting` (needs-user); the agent is
+   *    actually busy-waiting on that run. A backgrounded `Bash` command or
+   *    `Task`/`Agent` (no observable anchor) does NOT promote here: its launch
+   *    marker outlives the process, so a lost completion notification would spin
+   *    the pill forever (the phantom-`running_background` bug). The `workflow`
+   *    field below is populated only for the `Workflow` case; a fork promotes
+   *    the state but carries no fan-out journal, so `workflow` stays null.
+   *    Claude-Code-specific — see `deriveState` and the session-watcher. */
   state: z.enum([
     "thinking",
     "tool_use",
