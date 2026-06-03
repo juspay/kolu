@@ -11,7 +11,12 @@ export const meta = {
 // ---------------------------------------------------------------------------
 const a = args || {}
 const repoPath = a.repoPath || '.'
-const base = a.base || 'origin/master'
+// The diff base. Resolved to the MERGE-BASE of (rawBase, HEAD) just before the
+// debate (see phase 'Debate') so commits rawBase gained since the branch forked
+// aren't reviewed as if this change made them. `let` because that resolution
+// reassigns it; every prompt reads the resolved value. (Idempotent when the
+// caller already passed a merge-base SHA, e.g. /be-review.)
+let base = a.base || 'origin/master'
 // Where the generated skill lives, so the codex runner can find codex-review.sh.
 const skillDir = a.skillDir || '.claude/skills/codex-debate'
 // Per-worktree scratch dir for rebuttal/verdict files. Derived from repoPath
@@ -220,6 +225,18 @@ let lastClaude = null
 // per-workflow agent backstop is the only hard ceiling; interrupt via
 // /workflows or TaskStop if you ever need to stop one by hand.)
 phase('Debate')
+
+// Resolve the diff base to the merge-base of (base, HEAD) so codex reviews only
+// what THIS branch changed, not commits the base branch gained since the branch
+// forked (those would otherwise show up in `git diff base` — master's drift
+// reviewed as ours). A thin mechanical git agent; the workflow can't run git
+// itself. Idempotent when `base` is already a merge-base SHA (caller resolved it).
+const baseRes = await agent(
+  `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex). If the command fails, return the literal \`${base}\` unchanged. Do nothing else.`,
+  { label: 'resolve:merge-base', phase: 'Debate', schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA (or the unchanged base ref on failure)' } } } },
+)
+if (baseRes?.sha?.trim()) base = baseRes.sha.trim()
+log(`Diffing against ${base.slice(0, 12)} (merge-base of ${a.base || 'origin/master'} and HEAD), so the base branch's drift since the fork isn't reviewed.`)
 
 for (let round = 1; ; round++) {
   const verdict = await codexReviews(round, lastClaude ? JSON.stringify(lastClaude) : null)

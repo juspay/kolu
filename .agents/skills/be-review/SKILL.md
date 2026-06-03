@@ -68,6 +68,9 @@ to `cd`.
 
 - **`--base <branch>`**: remote-tracking ref to diff against (e.g. `origin/master`).
   Default the repo default via `git symbolic-ref --short refs/remotes/origin/HEAD`.
+  Setup resolves this to the **merge-base** of the branch and `base`, and *that* is
+  what every reviewer diffs against — so commits `base` gained since the branch
+  forked are NOT reviewed as if this PR made them (no master-drift noise).
 - **`--tracks codex,lens,police`**: which tracks to run *and the order they
   consolidate in*. Default all three; codex first (it changes the most), police
   last (lightest touch), so an overlap surfaces picking the later track.

@@ -47,7 +47,9 @@ Parse `[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]`:
   the repo default branch as `git symbolic-ref --short refs/remotes/origin/HEAD`
   (e.g. `origin/master`) — used **as-is**, NOT stripped to local `master` (which
   can lag the remote). Fallback `origin/master`. Step 1 runs `git fetch origin`
-  first so the ref is current.
+  first so the ref is current. The workflow then resolves this to the **merge-base**
+  of `base` and HEAD and diffs against that, so commits `base` gained since the
+  branch forked aren't reviewed as part of this change.
 - **`--no-commit`**: don't commit per round — leave all agreed changes
   uncommitted in the working tree for you to commit yourself. Default is to
   **commit each round** (see below).

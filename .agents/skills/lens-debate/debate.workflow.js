@@ -26,7 +26,13 @@ const MODEL = 'opus'
 // ---------------------------------------------------------------------------
 const a = args || {}
 const repoPath = a.repoPath || '.'
-const base = a.base || 'origin/master'
+// The diff base. Resolved to the MERGE-BASE of (rawBase, HEAD) just below, before
+// DIFF is built, so the lenses review only what THIS branch changed — not commits
+// the base branch gained since the branch forked (those would otherwise appear in
+// `git diff base` as the base branch's drift, reviewed as ours). `let` because the
+// resolution reassigns it. Idempotent when the caller already passed a merge-base
+// SHA (e.g. /be-review).
+let base = a.base || 'origin/master'
 // Safety backstop only — NOT a deadlock cap. The debate runs until consensus;
 // this just keeps a pathologically oscillating debate from running unbounded.
 // Hitting it is reported as `unresolved` (needs human), never `deadlock`, and
@@ -65,6 +71,17 @@ const REVIEWERS = [
   { lens: 'hickey', framework: 'structural simplicity — independent concerns complected, or one thing fragmented? (Simple Made Easy)' },
 ]
 if (withPolice) REVIEWERS.push({ lens: 'code-police', framework: 'code quality, correctness, and common-mistake review' })
+
+// Resolve the diff base to the merge-base of (base, HEAD) BEFORE building DIFF
+// (which interpolates `base` eagerly), so the lenses review only what this branch
+// changed, not the base branch's drift since the fork. A thin mechanical git
+// agent (the workflow can't run git itself); grouped under the Review phase.
+// Idempotent when `base` is already a merge-base SHA (caller resolved it).
+const baseRes = await agent(
+  `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex). If the command fails, return the literal \`${base}\` unchanged. Do nothing else.`,
+  { label: 'resolve:merge-base', phase: 'Review', model, schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA (or the unchanged base ref on failure)' } } } },
+)
+if (baseRes?.sha?.trim()) base = baseRes.sha.trim()
 
 // How every agent is told to inspect the change. The lenses do NOT trust a
 // curated finding list — they read the source themselves (the load-bearing

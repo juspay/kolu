@@ -94,6 +94,8 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-co
   given, else the repo default branch via
   `git symbolic-ref --short refs/remotes/origin/HEAD` (e.g. `origin/master`),
   used **as-is**. Fallback `origin/master`. Step 1 runs `git fetch origin` first.
+  The workflow resolves this to the **merge-base** of `base` and HEAD and diffs
+  against that, so the base branch's drift since the fork isn't reviewed as ours.
 - **`--max-rounds <n>`**: safety backstop on debate rounds. Default **12**. Not a
   deadlock cap (see above) — raise it freely.
 - **`--no-commit`**: still apply the agreed fixes to the working tree, but leave

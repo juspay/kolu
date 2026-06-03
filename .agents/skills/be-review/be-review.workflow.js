@@ -62,8 +62,11 @@ const CODEX_SCRIPT = '.claude/skills/codex-debate/debate.workflow.js'
 const LENS_SCRIPT = '.claude/skills/lens-debate/debate.workflow.js'
 const CODEX_SKILLDIR = '.claude/skills/codex-debate'
 
+// The diff base reviewers actually use is the MERGE-BASE (resolved by Setup),
+// not the raw `${base}` tip — see SETUP_SCHEMA.mergeBase. DIFF is an arrow, so it
+// reads `mergeBase` lazily at call time (Tracks phase, after Setup has set it).
 const DIFF = (wt) =>
-  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${base}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored \`.worktrees/\` and \`.be-review/\` scratch dirs if they appear.`
+  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${mergeBase}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored \`.worktrees/\` and \`.be-review/\` scratch dirs if they appear.`
 
 const rationaleBlock = rationale
   ? `\nAuthor's note on deliberate decisions (do not flag these as defects unless the reasoning is itself wrong):\n${rationale}\n`
@@ -75,9 +78,10 @@ const rationaleBlock = rationale
 const SETUP_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['branchHead', 'cleanTree', 'worktrees'],
+  required: ['branchHead', 'mergeBase', 'cleanTree', 'worktrees'],
   properties: {
     branchHead: { type: 'string', description: 'SHA of the branch HEAD every track was forked from' },
+    mergeBase: { type: 'string', description: 'SHA of `git merge-base <base> HEAD` — the diff base reviewers actually use, so master’s drift past the fork point is NOT reviewed' },
     cleanTree: {
       type: 'boolean',
       description: 'true iff the main worktree had NO uncommitted changes (outside the scratch dirs) when checked',
@@ -173,6 +177,7 @@ phase('Setup')
 const setupPrompt = `You are a MECHANICAL SETUP RUNNER preparing isolated worktrees for a parallel code-review gauntlet. Do exactly these steps (every path here is ABSOLUTE; use \`git -C\` and never rely on the current directory); do not edit any source files.
 
 1. Record the branch HEAD: \`git -C ${repoPath} rev-parse HEAD\` — this is \`branchHead\`, the commit every track forks from.
+1b. Record the MERGE-BASE: \`git -C ${repoPath} merge-base ${base} HEAD\` — this is \`mergeBase\`, the point the branch diverged from its base. Reviewers diff against THIS (not the raw \`${base}\` tip) so that commits \`${base}\` gained since the branch forked are NOT reviewed as if this PR made them. If the command fails, fall back to \`mergeBase\` = the resolved \`${base}\` and say so in a worktree \`note\`.
 2. CLEAN-TREE PREFLIGHT. The tracks fork detached worktrees from \`branchHead\`, so anything NOT committed to HEAD is invisible to every reviewer. Run \`git -C ${repoPath} status --short\` and ignore only lines under the gitignored scratch dirs (\`.worktrees/\` and \`.be-review/\`). If ANY other staged, unstaged, or untracked entry remains, the working tree is dirty: set \`cleanTree\`: false, put those offending lines in \`dirtyStatus\`, SKIP worktree creation entirely (return an empty \`worktrees\` array), and stop. Otherwise set \`cleanTree\`: true and \`dirtyStatus\`: "".
 3. Only if \`cleanTree\` is true — ensure the scratch dirs exist: \`mkdir -p ${WT_ROOT} ${SCRATCH}\`.
 4. Only if \`cleanTree\` is true — for EACH track in [${TRACKS.join(', ')}], create a fresh detached worktree at \`branchHead\`:
@@ -181,10 +186,14 @@ const setupPrompt = `You are a MECHANICAL SETUP RUNNER preparing isolated worktr
    - Then: \`git -C ${repoPath} worktree add --detach ${WT_ROOT}/be-review-<track> <branchHead>\`.
 5. Run \`git -C ${repoPath} worktree prune\` to clear any stale entries.
 
-Return \`branchHead\`, \`cleanTree\`, \`dirtyStatus\`, and, for each track, its absolute worktree \`path\` and whether creation succeeded (\`ok\`). If a worktree failed, set \`ok\`: false and put the git error in \`note\` — do NOT invent success.`
+Return \`branchHead\`, \`mergeBase\`, \`cleanTree\`, \`dirtyStatus\`, and, for each track, its absolute worktree \`path\` and whether creation succeeded (\`ok\`). If a worktree failed, set \`ok\`: false and put the git error in \`note\` — do NOT invent success.`
 
 const setup = await agent(setupPrompt, { label: 'setup:worktrees', phase: 'Setup', model, schema: SETUP_SCHEMA })
 const branchHead = (setup?.branchHead || '').trim()
+// The diff base every reviewer uses: the merge-base of the branch and `${base}`,
+// so commits `${base}` gained since the branch forked aren't reviewed as ours.
+// Falls back to the raw base if Setup couldn't resolve it.
+const mergeBase = (setup?.mergeBase || base).trim()
 
 // Clean-tree gate. The tracks fork from HEAD, so uncommitted work in the main
 // worktree would be invisible to every reviewer — a /be-review run could then
@@ -215,7 +224,7 @@ for (const t of failedTracks) {
   tracks[t] = { track: t, status: 'track-error', error: `setup: ${note}` }
 }
 if (failedTracks.length) log(`Setup: worktree creation FAILED for ${failedTracks.join(', ')} — recorded as track-error so the caller falls back for those.`)
-log(`Setup: branchHead ${branchHead.slice(0, 9)}; tracks live: ${liveTracks.join(', ') || '(none)'}`)
+log(`Setup: branchHead ${branchHead.slice(0, 9)}; diffing against merge-base ${mergeBase.slice(0, 9)} (not the raw ${base} tip); tracks live: ${liveTracks.join(', ') || '(none)'}`)
 
 if (!branchHead || liveTracks.length === 0) {
   return { status: 'setup-failed', branchHead, base, tracks, consolidation: null, note: 'no track worktrees could be created' }
@@ -242,7 +251,7 @@ async function policeTrack(wt) {
   // is gated on the tiny-diff heuristic the skill mandates (skip when the worktree
   // diff against base is <10 lines).
   const tinyDiff = await agent(
-    `Run \`git -C ${wt} diff ${base} --shortstat\` and report whether the changed-line total (insertions + deletions) is **under 10**. Return only that boolean.`,
+    `Run \`git -C ${wt} diff ${mergeBase} --shortstat\` and report whether the changed-line total (insertions + deletions) is **under 10**. Return only that boolean.`,
     { label: 'police:diff-size', phase: 'Tracks', model, schema: { type: 'object', properties: { tiny: { type: 'boolean' } }, required: ['tiny'] } },
   )
   const passes = [
@@ -322,11 +331,11 @@ ${message}
 // up whatever each track committed.
 const trackThunk = {
   codex: () =>
-    workflow({ scriptPath: CODEX_SCRIPT }, { repoPath: wtDir('codex'), base, skillDir: CODEX_SKILLDIR, commit })
+    workflow({ scriptPath: CODEX_SCRIPT }, { repoPath: wtDir('codex'), base: mergeBase, skillDir: CODEX_SKILLDIR, commit })
       .then((r) => ({ track: 'codex', ...r }))
       .catch((e) => ({ track: 'codex', status: 'track-error', error: String(e) })),
   lens: () =>
-    workflow({ scriptPath: LENS_SCRIPT }, { repoPath: wtDir('lens'), base, rationale, model, commit })
+    workflow({ scriptPath: LENS_SCRIPT }, { repoPath: wtDir('lens'), base: mergeBase, rationale, model, commit })
       .then((r) => ({ track: 'lens', ...r }))
       .catch((e) => ({ track: 'lens', status: 'track-error', error: String(e) })),
   police: () =>
