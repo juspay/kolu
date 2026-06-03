@@ -11,6 +11,7 @@
  *  undefined so the renderer keeps (http/data) or chips it. A path that escapes
  *  the repo root (`../../etc`) also returns undefined; the route would 403 it. */
 
+import { hasOwnScheme } from "@kolu/solid-markdown";
 import { buildTerminalFileUrl } from "kolu-common/preview";
 
 export function resolveMarkdownImageSrc(
@@ -19,9 +20,11 @@ export function resolveMarkdownImageSrc(
   src: string,
 ): string | undefined {
   const trimmed = src.trim();
-  if (trimmed === "" || trimmed.startsWith("#")) return undefined;
-  if (trimmed.startsWith("//")) return undefined; // protocol-relative
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return undefined; // has a scheme
+  // A src that carries its own origin/scheme (absolute URL, `data:`,
+  // protocol-relative `//host`, or an in-page `#anchor`) is not a repo path —
+  // bail and let the renderer keep/chip it. The shape test is shared with the
+  // href policy (`safeHref`) so "has its own origin" lives in one place.
+  if (trimmed === "" || hasOwnScheme(trimmed)) return undefined;
 
   // Root-absolute "/x" resolves from the repo root; everything else from the
   // markdown file's own directory.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderMarkdownToRawHtml } from "./render";
-import { safeHref } from "./url-policy";
+import { hasOwnScheme, safeHref } from "./url-policy";
 
 const html = (md: string, inline = false) =>
   renderMarkdownToRawHtml(md, { inline });
@@ -23,6 +23,24 @@ describe("safeHref", () => {
     expect(safeHref("vbscript:msgbox(1)")).toBeUndefined();
     expect(safeHref("data:text/html,<script>1</script>")).toBeUndefined();
     expect(safeHref("   ")).toBeUndefined();
+  });
+});
+
+describe("hasOwnScheme", () => {
+  it("is true for refs with their own origin/scheme", () => {
+    expect(hasOwnScheme("https://cdn.example.com/x.png")).toBe(true);
+    expect(hasOwnScheme("data:image/png;base64,AAAA")).toBe(true);
+    expect(hasOwnScheme("mailto:a@b.com")).toBe(true);
+    expect(hasOwnScheme("//cdn.example.com/x.png")).toBe(true); // protocol-rel
+    expect(hasOwnScheme("#section")).toBe(true); // in-page anchor
+    expect(hasOwnScheme("  https://x.test/a  ")).toBe(true); // trimmed first
+  });
+
+  it("is false for bare repo-relative paths", () => {
+    expect(hasOwnScheme("logo.png")).toBe(false);
+    expect(hasOwnScheme("./docs/logo.png")).toBe(false);
+    expect(hasOwnScheme("../img/x.png")).toBe(false);
+    expect(hasOwnScheme("/img/x.png")).toBe(false); // root-absolute, not scheme
   });
 });
 
