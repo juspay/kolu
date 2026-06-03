@@ -27,6 +27,7 @@ let
       ./tsconfig.base.json
       ./packages/surface
       ./packages/surface-nix-host
+      ./packages/surface-app
       ./packages/solid-pierre
       ./packages/solid-markdown
       ./packages/solid-fileview

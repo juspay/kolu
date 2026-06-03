@@ -18,7 +18,10 @@ import {
   type JSX,
   useContext,
 } from "solid-js";
-import { buildInfo as defaultBuildInfo, type BuildInfoDef } from "../surface.ts";
+import {
+  buildInfo as defaultBuildInfo,
+  type BuildInfoDef,
+} from "../surface.ts";
 
 /** Whether the SW API is exposed (any secure context — incl. localhost + the
  *  Chrome insecure-origin flag). The right gate for retirement: a worker on such
@@ -70,9 +73,7 @@ export interface SurfaceAppModel<
   setAttention: (count: number) => void;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: the bound surface client's deep
-// generics aren't worth threading through the app-shell model; the runtime shape
-// (cells.buildInfo.use({ initial }).value()) is stable.
+// biome-ignore lint/suspicious/noExplicitAny: surface's bound cell `.use()` is an authority-discriminated overload union that a minimal structural shape can't satisfy; the runtime path (cells.buildInfo.use().value()) is stable. Typing this against surface's exported SurfaceClient is a ship-time hardening.
 type ControlPlane = any;
 
 const SurfaceAppContext = createContext<SurfaceAppModel>();

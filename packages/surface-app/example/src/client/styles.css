@@ -19,7 +19,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font:
+    15px / 1.6 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    system-ui,
+    sans-serif;
 }
 
 .rail {
@@ -30,7 +35,7 @@ body {
   padding: 0.6rem 1rem;
   border-bottom: 1px solid var(--line);
   background: #0e0f12;
-  font: 600 11px/1 var(--mono);
+  font: 600 11px / 1 var(--mono);
   color: #c8ccd4;
 }
 .rail .dot {
@@ -75,7 +80,7 @@ body {
   border: 1px solid rgba(107, 78, 255, 0.45);
   border-radius: 999px;
   padding: 2px 9px;
-  font: 600 10px/1 var(--mono);
+  font: 600 10px / 1 var(--mono);
   cursor: pointer;
 }
 .reload:hover {

@@ -45,7 +45,9 @@ const { router: surfaceRouter } = implementSurface(surface, {
 
 // biome-ignore lint/suspicious/noExplicitAny: see kolu server.ts — the router
 // fragment's union isn't accepted by RPCHandler's input type; runtime is valid.
-const appRouter = implement(surface.contract).router({ ...surfaceRouter }) as any;
+const appRouter = implement(surface.contract).router({
+  ...surfaceRouter,
+}) as any;
 
 const app = new Hono();
 
@@ -73,14 +75,19 @@ if (existsSync(DIST_DIR)) {
   });
 }
 
-const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
-  console.log(
-    `@kolu/surface-app-example on http://${info.address}:${info.port} (server commit ${SERVER_COMMIT})`,
-  );
-  if (!existsSync(DIST_DIR)) {
-    console.log("  (no dist yet — run `pnpm build:client`, or start Vite for dev)");
-  }
-});
+const server = serve(
+  { fetch: app.fetch, port: PORT, hostname: HOST },
+  (info) => {
+    console.log(
+      `@kolu/surface-app-example on http://${info.address}:${info.port} (server commit ${SERVER_COMMIT})`,
+    );
+    if (!existsSync(DIST_DIR)) {
+      console.log(
+        "  (no dist yet — run `pnpm build:client`, or start Vite for dev)",
+      );
+    }
+  },
+);
 
 const wsHandler = new WsRPCHandler(appRouter);
 const wss = new WebSocketServer({ noServer: true });
@@ -89,7 +96,9 @@ wss.on("connection", (peer) => {
 });
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.startsWith("/rpc/ws")) {
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      wss.emit("connection", ws, req),
+    );
   } else {
     socket.destroy();
   }

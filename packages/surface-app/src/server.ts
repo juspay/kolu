@@ -69,9 +69,11 @@ export function installPwaManifest(
 ): void {
   const { name, short_name, themeColor, backgroundColor, icons, ...extra } =
     manifest;
+  // `c.body` (not `c.json`) so the spec-mandated `application/manifest+json`
+  // content-type isn't overridden back to `application/json`.
   app.get(path, (c) =>
-    c.json(
-      {
+    c.body(
+      JSON.stringify({
         name,
         short_name: short_name ?? name,
         start_url: "/",
@@ -80,8 +82,9 @@ export function installPwaManifest(
         background_color: backgroundColor ?? "#0c0c0e",
         icons: icons ?? [],
         ...extra,
-      },
-      { headers: { "Content-Type": "application/manifest+json" } },
+      }),
+      200,
+      { "content-type": "application/manifest+json" },
     ),
   );
 }
