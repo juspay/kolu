@@ -55,6 +55,13 @@ describe("toggleTaskInSource", () => {
     );
   });
 
+  it("toggles a CRLF-encoded task line and preserves the line ending", () => {
+    const src = ["- [ ] one\r", "- [ ] two\r", "- [ ] three"].join("\n");
+    expect(toggleTaskInSource(src, 1)).toBe(
+      ["- [ ] one\r", "- [x] two\r", "- [ ] three"].join("\n"),
+    );
+  });
+
   it("returns null when the index is out of range", () => {
     expect(toggleTaskInSource("- [ ] only", 5)).toBeNull();
     expect(toggleTaskInSource("no tasks here", 0)).toBeNull();

@@ -19,8 +19,10 @@ export function toggleTaskInSource(
 ): string | null {
   const lines = content.split("\n");
   // A list item (unordered -,*,+ or ordered 1. / 1)) whose first content is a
-  // task marker `[ ]` / `[x]` / `[X]`.
-  const TASK = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\].*)$/;
+  // task marker `[ ]` / `[x]` / `[X]`. The trailing group stops at a CR/LF so a
+  // CRLF-encoded line (`- [ ] todo\r` after splitting on `\n`) still matches,
+  // and the captured `\r` is re-emitted so the line ending survives the rewrite.
+  const TASK = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\][^\r\n]*)(\r?)$/;
   const FENCE = /^\s*(`{3,}|~{3,})/;
 
   let inFence = false;
@@ -46,7 +48,7 @@ export function toggleTaskInSource(
     if (!task) continue;
     if (count === taskIndex) {
       const next = task[2] === " " ? "x" : " ";
-      lines[i] = `${task[1]}${next}${task[3]}`;
+      lines[i] = `${task[1]}${next}${task[3]}${task[4] ?? ""}`;
       return lines.join("\n");
     }
     count++;
