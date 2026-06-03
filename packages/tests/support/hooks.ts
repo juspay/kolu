@@ -178,7 +178,8 @@ function errorCodes(err: unknown, out: string[] = []): string[] {
  *  scenarios. Matching on `code` restores the intended 3× retry. */
 function isTransientSetupError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  if (TRANSIENT_SETUP_ERRORS.some((needle) => msg.includes(needle))) return true;
+  if (TRANSIENT_SETUP_ERRORS.some((needle) => msg.includes(needle)))
+    return true;
   return errorCodes(err).some((code) => TRANSIENT_SETUP_ERRORS.includes(code));
 }
 
