@@ -130,10 +130,6 @@ export const Markdown: Component<{
   // Links default on for block variants, off for inline — an inline slot's own
   // click handler (open editor / open palette) must win over a nested anchor.
   const links = () => props.links ?? variant() !== "inline";
-  // Only the full-pane document preview is a *document*: it gets the README
-  // inline-HTML + image surface, GitHub-faithful soft breaks, and code
-  // highlighting. The compact/inline intent slots keep the stricter scope.
-  const richHtml = () => isDocument();
 
   // Lazily load the Shiki highlighter for the document preview; `highlighter()`
   // flips from undefined → ready, re-running the html memo so code re-paints.
@@ -152,7 +148,11 @@ export const Markdown: Component<{
       }),
       {
         links: links(),
-        richHtml: richHtml(),
+        // Only the full-pane document preview is a *document*: it gets the
+        // README inline-HTML + image surface, GitHub-faithful soft breaks, and
+        // code highlighting. The compact/inline intent slots keep the stricter
+        // scope.
+        richHtml: isDocument(),
         resolveImageSrc: props.resolveImageSrc,
         highlightCode:
           isDocument() && highlighter() != null ? highlightCode : undefined,
