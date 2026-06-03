@@ -563,6 +563,16 @@ function policeComment(t) {
 ${rows || '| — | — | — | — |'}`
 }
 
+// Fallback comment for any requested track that has NO bespoke builder. It leans
+// only on the always-present per-track fields (`track`, `status`, and `error`/
+// `note` when present), so a newly-added reviewer track gets a real PR comment
+// instead of being silently dropped — keeping Report total over `TRACKS`.
+function genericComment(t) {
+  return `## ${t?.track || 'unknown'} track
+
+**Outcome:** \`${t?.status || 'unknown'}\`.${t?.error ? ` Track error: ${esc(t.error)}.` : ''}${t?.note ? `\n\n${esc(t.note)}` : ''}`
+}
+
 function consolidationSection(c, order) {
   const rows = (c?.picks || [])
     .map((p) => `| ${esc(p.track)} | ${sha9(p.sourceCommit)} | \`${esc(p.outcome)}\` | ${sha9(p.newCommit)} | ${esc(p.note) || ''} |`)
@@ -830,13 +840,16 @@ if (postComments) {
   // requested-track audit trail instead of silently omitting the dropped track. A
   // per-track comment builder keyed by track name; adding/removing a reviewer costs
   // Report nothing — no hardcoded track literal to keep in sync.
+  // Bespoke per-track builders; any requested track without one falls back to
+  // `genericComment`, so the map below stays TOTAL over `TRACKS` — a new reviewer
+  // track gets a comment even before it grows a hand-written builder.
   const builder = { codex: codexComment, lens: lensComment, police: policeComment }
   // The consolidation ledger is a WORKFLOW-level artifact, not a track artifact, so
   // it posts as its own comment — surviving any track subset instead of being
   // string-stapled onto whichever track happens to be present.
   const bodies = [
     ['consolidation', consolidationSection(consolidation, consolidateOrder)],
-    ...TRACKS.filter((t) => builder[t]).map((t) => [t, builder[t](tracks[t])]),
+    ...TRACKS.map((t) => [t, (builder[t] || genericComment)(tracks[t])]),
   ]
   // Post sequentially so the comments land in a stable order (consolidation, then
   // the tracks in canonical order).
