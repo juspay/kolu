@@ -11,7 +11,7 @@ export const meta = {
       title: "Setup",
       detail:
         "fan out one detached worktree per review track off the branch HEAD",
-      model: "opus",
+      model: "haiku",
     },
     {
       title: "Tracks",
@@ -23,18 +23,18 @@ export const meta = {
       title: "Consolidate",
       detail:
         "cherry-pick each track’s commits onto the branch in order; reconcile the rare overlap",
-      model: "opus",
+      model: "sonnet",
     },
     {
       title: "Report",
       detail:
         "post a detailed PR comment for each track plus the consolidation ledger",
-      model: "opus",
+      model: "sonnet",
     },
     {
       title: "Cleanup",
       detail: "tear down the per-track worktrees",
-      model: "opus",
+      model: "haiku",
     },
   ],
 };
@@ -117,6 +117,7 @@ const spentTokens = () => {
   try {
     return (typeof budget !== "undefined" && budget.spent && budget.spent()) || 0;
   } catch {
+    /* budget API absent or threw — instrumentation is best-effort, return 0 */
     return 0;
   }
 };
@@ -126,7 +127,8 @@ function markPhaseTokens(phaseName) {
   const now = spentTokens();
   const delta = now - _tokMark;
   _tokMark = now;
-  tokensByPhase[phaseName] = (tokensByPhase[phaseName] || 0) + delta;
+  // each phase name is called exactly once at its boundary
+  tokensByPhase[phaseName] = delta;
   log(`💸 ${phaseName}: +${delta.toLocaleString()} output tokens (run total ${now.toLocaleString()})`);
 }
 // The review tracks to run AND the order they consolidate in. codex first (it
@@ -1141,6 +1143,8 @@ if (!commit) {
   log(
     `--no-commit: skipping Consolidate + Cleanup. Per-track fixes are UNCOMMITTED in their worktrees; inspect them there: ${liveTracks.map((t) => `git -C ${wtDir(t)} diff`).join(" ; ")}`,
   );
+  markPhaseTokens("Tracks");
+  log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
   return {
     status: "no-commit",
     branchHead,
@@ -1153,6 +1157,7 @@ if (!commit) {
     dropped: [],
     note: "commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — see the `worktrees` field below for each track’s path — and re-run with commit enabled to consolidate.",
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
+    tokensByPhase,
   };
 }
 
