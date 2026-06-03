@@ -431,6 +431,17 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   // scrape merges against this (not the published metadata, which it may itself
   // have promoted). Null between sessions; reset in `destroyCurrent`.
   let latestInfo: Info | null = null;
+  // The published agent metadata, but only when it's this provider's own —
+  // i.e. the `published?.kind === provider.kind` narrowing, defined once and
+  // shared by both writers that ask "has the published state diverged from
+  // this candidate?": the watcher callback (to *skip* the raw publish the
+  // poll owns) and the poll tick (to *do* the republish). Returns null when
+  // nothing is published yet, or when a different provider owns the tile, so
+  // a caller can read the divergence test declaratively off the result.
+  const publishedAgent = (): AgentInfo | null => {
+    const published = record.meta.agent;
+    return published?.kind === provider.kind ? published : null;
+  };
   let registeredForExternal = false;
   let stopped = false;
   let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
@@ -529,7 +540,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
           // republishes on any *structural* divergence from the published agent
           // — not just a state edge — so a held prompt's summary update lands on
           // the next tick, not only when it clears.
-          const published = record.meta.agent;
+          const published = publishedAgent();
           const scrape = provider.screenScrape;
           // Only suppress the raw publish when the divergence is the one lift
           // the poll performs — a live `awaiting_user` promotion over a still-
@@ -544,8 +555,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
             scrape &&
             hooks.readScreenText &&
             scrape.isPollable(info) &&
-            published?.kind === provider.kind &&
-            published.state === "awaiting_user" &&
+            published?.state === "awaiting_user" &&
             info.state === "waiting"
           ) {
             return;
@@ -606,11 +616,8 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
         // held `awaiting_user` state, so a state-only gate would drop it for
         // the whole prompt window — comparing all fields republishes it here.
         const desired = scrape.promote(info, text);
-        const published = record.meta.agent;
-        if (
-          published?.kind === provider.kind &&
-          !isDeepStrictEqual(published, desired)
-        ) {
+        const published = publishedAgent();
+        if (published && !isDeepStrictEqual(published, desired)) {
           setAgentMetadataVia(record, hooks, desired as unknown as AgentInfo);
         }
       } catch (err) {
