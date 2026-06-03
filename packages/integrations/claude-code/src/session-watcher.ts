@@ -24,8 +24,8 @@ import {
   findTranscriptPath,
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
-  nextForkStaleDeadline,
-  nextWorkflowStaleDeadline,
+  liveWorkflowRuns,
+  nextStaleDeadline,
   observeWorkflowRun,
   outstandingBackgroundTasks,
   outstandingForkRuns,
@@ -305,7 +305,7 @@ export function createSessionWatcher(
     // two staleness checks in one pass can disagree about the current time.
     const now = Date.now();
     // observeWorkflowRun is the single source of truth; the three projections
-    // below (liveOutstandingTasks / nextWorkflowStaleDeadline /
+    // below (liveOutstandingTasks / liveWorkflowRuns /
     // deriveWorkflowProgress) all read its result. Observe each distinct runId
     // ONCE per check pass and memoize into this Map — each observation is now a
     // readdir + N stats over the live streaming dir (#1123), so re-observing the
@@ -374,16 +374,17 @@ export function createSessionWatcher(
     //     read as "busy" — orphaned + stale is already definitive.
     let publishedState = derived.state;
     let staleDeadline: number | null = null;
-    if (derived.state === "running_background" || forks.length > 0) {
+    // The live background runs keeping this main busy-waiting, both kinds folded
+    // to one `LiveRun` set: workflows (journal-anchored) and `/fork`s (subagent-
+    // transcript-anchored). Each producer keeps its own anchor-reading IO private;
+    // the watcher just plugs into the single set and its one deadline fold.
+    const live = [...liveWorkflowRuns(session, outstanding, observe), ...forks];
+    if (live.length > 0) {
       publishedState = "running_background";
-      // Soonest stale deadline across both run kinds, ignoring the null
-      // (none-observable) side — so a fork-only or workflow-only promotion still
-      // arms a recheck, and a mixed set fires on whichever ages out first.
-      const deadlines = [
-        nextWorkflowStaleDeadline(session, outstanding, now, observe),
-        nextForkStaleDeadline(forks, now),
-      ].filter((d): d is number => d !== null);
-      staleDeadline = deadlines.length > 0 ? Math.min(...deadlines) : null;
+      // Soonest stale deadline across every live run, on each run's own window —
+      // so a fork-only or workflow-only promotion still arms a recheck, and a
+      // mixed set fires on whichever ages out first.
+      staleDeadline = nextStaleDeadline(live, now);
     } else {
       const quietMs = transcriptQuietMs(transcriptWatching.path, now);
       if (quietMs !== null) {
@@ -530,9 +531,10 @@ export function createSessionWatcher(
    *  snapshot (`<runId>.json`) re-derives progress even when the transcript is
    *  quiet. Live progress under `subagents/workflows/<runId>/` is NOT watched
    *  (a recursive watch there proved unreliable on macOS, #1123); the reused
-   *  stale-recheck timer (`nextWorkflowStaleDeadline`, anchored on the live run
-   *  dir's newest file) drives live re-derivation instead, so the fan-out count
-   *  refreshes each window rather than on every append. */
+   *  stale-recheck timer (`nextStaleDeadline` over the live workflow runs,
+   *  anchored on the live run dir's newest file) drives live re-derivation
+   *  instead, so the fan-out count refreshes each window rather than on every
+   *  append. */
   function setupWorkflowsWatching() {
     workflowsDirWatcher = watchOrWaitForDir(
       workflowsDirFor(session),

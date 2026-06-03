@@ -57,10 +57,10 @@ describe("completedBackgroundTaskIds", () => {
   });
 });
 
-describe("outstandingForkRuns / nextForkStaleDeadline", () => {
+describe("outstandingForkRuns / nextStaleDeadline", () => {
   let tmpDir: string;
   let outstandingForkRuns: typeof import("./index.ts").outstandingForkRuns;
-  let nextForkStaleDeadline: typeof import("./index.ts").nextForkStaleDeadline;
+  let nextStaleDeadline: typeof import("./index.ts").nextStaleDeadline;
   let subagentsDirFor: typeof import("./index.ts").subagentsDirFor;
   let staleMs: number;
   const sessionId = "fork-test-session";
@@ -73,7 +73,7 @@ describe("outstandingForkRuns / nextForkStaleDeadline", () => {
     vi.resetModules();
     const mod = await import("./index.ts");
     outstandingForkRuns = mod.outstandingForkRuns;
-    nextForkStaleDeadline = mod.nextForkStaleDeadline;
+    nextStaleDeadline = mod.nextStaleDeadline;
     subagentsDirFor = mod.subagentsDirFor;
     staleMs = mod.FORK_TRANSCRIPT_STALE_MS;
   });
@@ -127,6 +127,8 @@ describe("outstandingForkRuns / nextForkStaleDeadline", () => {
     expect(forks.map((f) => f.id)).toContain("aimplement-it-fresh");
     const fork = forks.find((f) => f.id === "aimplement-it-fresh");
     expect(typeof fork?.anchorMs).toBe("number");
+    // A fork projects to the shared `LiveRun` shape carrying its own window.
+    expect(fork?.staleMs).toBe(staleMs);
   });
 
   it("excludes a fork whose id is in the completed set (finished)", () => {
@@ -194,10 +196,18 @@ describe("outstandingForkRuns / nextForkStaleDeadline", () => {
     ).not.toContain("afork-now");
   });
 
-  describe("nextForkStaleDeadline", () => {
+  // The fork stale deadline now folds through the shared `nextStaleDeadline`
+  // receptacle: each fork projects to a `LiveRun` carrying `FORK_TRANSCRIPT_STALE_MS`.
+  describe("nextStaleDeadline (fork runs)", () => {
+    const fork = (id: string, anchorMs: number) => ({
+      id,
+      anchorMs,
+      staleMs,
+    });
+
     it("returns the transcript mtime plus the stale window for a live fork", () => {
       const anchorMs = 1_000_000;
-      expect(nextForkStaleDeadline([{ id: "f1", anchorMs }], 0)).toBe(
+      expect(nextStaleDeadline([fork("f1", anchorMs)], 0)).toBe(
         anchorMs + staleMs,
       );
     });
@@ -205,24 +215,18 @@ describe("outstandingForkRuns / nextForkStaleDeadline", () => {
     it("clamps an already-stale fork's deadline to `now` (fire immediately)", () => {
       const now = 10_000_000;
       const anchorMs = now - staleMs - 60_000;
-      expect(nextForkStaleDeadline([{ id: "f1", anchorMs }], now)).toBe(now);
+      expect(nextStaleDeadline([fork("f1", anchorMs)], now)).toBe(now);
     });
 
     it("returns the earliest deadline across multiple forks", () => {
       const now = 0;
       expect(
-        nextForkStaleDeadline(
-          [
-            { id: "old", anchorMs: 1_000 },
-            { id: "new", anchorMs: 9_000 },
-          ],
-          now,
-        ),
+        nextStaleDeadline([fork("old", 1_000), fork("new", 9_000)], now),
       ).toBe(1_000 + staleMs);
     });
 
-    it("returns null for an empty fork set", () => {
-      expect(nextForkStaleDeadline([], 0)).toBeNull();
+    it("returns null for an empty run set", () => {
+      expect(nextStaleDeadline([], 0)).toBeNull();
     });
   });
 });

@@ -875,6 +875,42 @@ export function deriveWorkflowProgress(
   return fallback;
 }
 
+/** A background run keeping an otherwise-idle main busy-waiting, projected to the
+ *  one shape the watcher's promotion path needs: an `id`, its liveness `anchorMs`
+ *  (the most recent on-disk write attributable to the run), and the `staleMs`
+ *  window after which a quiet anchor means the run is orphaned. The two run KINDS
+ *  — a `Workflow` (journal-anchored, `WORKFLOW_JOURNAL_STALE_MS`) and a `/fork`
+ *  (subagent-transcript-anchored, `FORK_TRANSCRIPT_STALE_MS`) — both fold to this
+ *  so the watcher plugs into one receptacle instead of hand-composing two parallel
+ *  triads. A third kind adds another producer behind it, untouched watcher. Each
+ *  producer keeps its own anchor-reading IO private (observe-dir-walk vs
+ *  single-file-stat); only the projection is shared. */
+export interface LiveRun {
+  id: string;
+  anchorMs: number;
+  staleMs: number;
+}
+
+/** Earliest wall-clock time at which one of `runs` would cross its stale
+ *  threshold, or null when `runs` is empty. The single staleness-deadline fold
+ *  for every background-run kind: a quiet run emits no fs event, so the watcher
+ *  arms a one-shot recheck timer at this deadline; when it fires the next scan
+ *  sees the run's anchor as stale (orphaned → demote) or freshly-written (still
+ *  live → re-arm). Each run carries its own `staleMs` so a `Workflow` and a
+ *  `/fork` can age out on different windows through the same fold. Clamped to
+ *  `now` so an already-stale run fires immediately. */
+export function nextStaleDeadline(
+  runs: LiveRun[],
+  now: number = Date.now(),
+): number | null {
+  let earliest: number | null = null;
+  for (const r of runs) {
+    const deadline = Math.max(r.anchorMs + r.staleMs, now);
+    if (earliest === null || deadline < earliest) earliest = deadline;
+  }
+  return earliest;
+}
+
 /** Filter `outstanding` to the tasks that may drive the `running_background`
  *  promotion, dropping a `Workflow` run once kolu can no longer observe it as
  *  live: its snapshot is *positively* read as terminal, or its liveness anchor
@@ -902,28 +938,29 @@ export function liveOutstandingTasks(
   });
 }
 
-/** Earliest wall-clock time at which one of `tasks`' workflow runs would cross
- *  the stale threshold, or null if none has an observable liveness anchor.
- *
- *  A quiet run emits no fs event, so the watcher arms a one-shot timer here; when
- *  it fires, the next `liveOutstandingTasks` sees the anchor as stale and demotes
- *  (or, for a still-streaming run, sees it fresh and re-arms). Uses the same
+/** Project the live workflow `tasks` (already filtered by `liveOutstandingTasks`)
+ *  to the shared `LiveRun` shape the watcher's promotion path consumes, dropping
+ *  non-workflow tasks (runId null) and any whose anchor can't be observed. The
+ *  workflow producer behind the `nextStaleDeadline` receptacle — the `/fork`
+ *  producer (`outstandingForkRuns`) returns `LiveRun` directly. Reuses the same
  *  `observeWorkflowRun` anchor as the gate so the two never disagree. */
-export function nextWorkflowStaleDeadline(
+export function liveWorkflowRuns(
   session: SessionFile,
   tasks: BackgroundTask[],
-  now: number = Date.now(),
   observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
-): number | null {
-  let earliest: number | null = null;
+): LiveRun[] {
+  const runs: LiveRun[] = [];
   for (const task of tasks) {
     if (!task.runId) continue;
     const { anchorMs } = observe(task.runId);
     if (anchorMs === null) continue; // no observable anchor → gate already demoted it
-    const deadline = Math.max(anchorMs + WORKFLOW_JOURNAL_STALE_MS, now);
-    if (earliest === null || deadline < earliest) earliest = deadline;
+    runs.push({
+      id: task.runId,
+      anchorMs,
+      staleMs: WORKFLOW_JOURNAL_STALE_MS,
+    });
   }
-  return earliest;
+  return runs;
 }
 
 // --- Fork sub-agent detection (`/fork`) ---
@@ -958,14 +995,6 @@ const FORK_META_RE = /^agent-(.+)\.meta\.json$/;
  *  separate const so fork timing can move without touching workflow timing. */
 export const FORK_TRANSCRIPT_STALE_MS = 2 * 60 * 1000;
 
-/** An outstanding `/fork` run: its sub-agent id (the `agent-<id>` basename,
- *  identical to the completion notification's `<task-id>`) and the liveness
- *  anchor — the mtime of its streaming transcript. */
-export interface ForkRun {
-  id: string;
-  anchorMs: number;
-}
-
 /** True when `agent-<id>.meta.json` tags the sub-agent as a `/fork`. A
  *  malformed/unreadable meta reads as "not a fork" — never promote on a file we
  *  can't positively classify. */
@@ -983,6 +1012,10 @@ function isForkMeta(metaPath: string): boolean {
 /** Scan `<session>/subagents` for live `/fork` runs: tagged `agentType:"fork"`,
  *  not yet reporting a terminal status (`completed`), and with a transcript
  *  written within `FORK_TRANSCRIPT_STALE_MS` (still streaming → still running).
+ *  Returns each as a `LiveRun` — the shared shape the watcher's promotion path
+ *  consumes, alongside the workflow producer (`liveWorkflowRuns`) — anchored on
+ *  the streaming transcript's mtime and carrying `FORK_TRANSCRIPT_STALE_MS` as its
+ *  own stale window.
  *
  *  `completed` (from `completedBackgroundTaskIds`) is the fast positive-finish
  *  signal so an idle main demotes the instant the fork's completion lands; the
@@ -993,7 +1026,7 @@ export function outstandingForkRuns(
   session: SessionFile,
   completed: Set<string>,
   now: number = Date.now(),
-): ForkRun[] {
+): LiveRun[] {
   const dir = subagentsDirFor(session);
   let names: string[];
   try {
@@ -1001,7 +1034,7 @@ export function outstandingForkRuns(
   } catch {
     return []; // no subagents dir → no forks
   }
-  const forks: ForkRun[] = [];
+  const forks: LiveRun[] = [];
   for (const name of names) {
     const id = FORK_META_RE.exec(name)?.[1];
     if (id === undefined) continue;
@@ -1014,27 +1047,9 @@ export function outstandingForkRuns(
     }
     if (now - anchorMs > FORK_TRANSCRIPT_STALE_MS) continue; // orphaned
     if (!isForkMeta(path.join(dir, name))) continue; // not a /fork
-    forks.push({ id, anchorMs });
+    forks.push({ id, anchorMs, staleMs: FORK_TRANSCRIPT_STALE_MS });
   }
   return forks;
-}
-
-/** Earliest time one of `forks` crosses the stale threshold — the fork analogue
- *  of `nextWorkflowStaleDeadline`. While a fork keeps a quiet (idle) main
- *  promoted, the main transcript fires no event, so the watcher arms a one-shot
- *  timer here; when it fires the next scan sees the fork's transcript as stale
- *  (orphaned → demote) or freshly-written (still live → re-arm). Null when
- *  `forks` is empty. */
-export function nextForkStaleDeadline(
-  forks: ForkRun[],
-  now: number = Date.now(),
-): number | null {
-  let earliest: number | null = null;
-  for (const f of forks) {
-    const deadline = Math.max(f.anchorMs + FORK_TRANSCRIPT_STALE_MS, now);
-    if (earliest === null || deadline < earliest) earliest = deadline;
-  }
-  return earliest;
 }
 
 // --- Phantom transient de-escalation (#1017) ---
