@@ -19,6 +19,17 @@ const STATUS_LABEL: Record<string, string> = {
 
 function Shell() {
   const pwa = useSurfaceApp();
+  // app-specific cell — composed alongside surface-app's buildInfo, same wire,
+  // same client. The server pushes it live; Solid re-renders on each delta.
+  const stats = app.cells.serverStats.use({ authority: "server" });
+  const uptime = () => {
+    const s = stats.value();
+    return s?.startedAt ? `${Math.floor((s.now - s.startedAt) / 1000)}s` : "…";
+  };
+  const clock = () => {
+    const s = stats.value();
+    return s?.now ? new Date(s.now).toLocaleTimeString() : "…";
+  };
   const [count, setCount] = createSignal(0);
   const ping = () => {
     const n = count() + 1;
@@ -67,6 +78,33 @@ function Shell() {
             <code>{pwa.clientCommit}</code>.)
           </p>
         </Show>
+
+        <section class="stats">
+          <div class="stats-h">
+            <span class="livedot" /> Live from the server
+          </div>
+          <div class="statgrid">
+            <div>
+              <span class="sk">uptime</span>
+              <span class="sv">{uptime()}</span>
+            </div>
+            <div>
+              <span class="sk">clients</span>
+              <span class="sv">{stats.value()?.connections ?? 0}</span>
+            </div>
+            <div>
+              <span class="sk">server clock</span>
+              <span class="sv">{clock()}</span>
+            </div>
+          </div>
+          <p class="muted small">
+            This panel reads an <b>app-specific</b> <code>serverStats</code>{" "}
+            cell (the server pushes it live); the rail above reads surface-app's{" "}
+            <code>buildInfo</code>. Both compose into one{" "}
+            <code>defineSurface</code>, over one wire. Open a second tab — the{" "}
+            <b>clients</b> count rises in both.
+          </p>
+        </section>
 
         <button type="button" class="ping" onClick={ping}>
           Ping → setAttention({count() + 1})

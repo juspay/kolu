@@ -138,3 +138,48 @@ code {
 .small {
   font-size: 0.82rem;
 }
+
+.stats {
+  margin-top: 1.6rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  background: var(--panel);
+}
+.stats-h {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font: 600 0.72rem var(--mono);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.8rem;
+}
+.livedot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 6px var(--good);
+}
+.statgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+}
+.statgrid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.sk {
+  font: 600 0.66rem var(--mono);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.sv {
+  font: 600 1.3rem var(--mono);
+  color: var(--good);
+}

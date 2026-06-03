@@ -20,7 +20,7 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
-import { surface } from "../common/surface.ts";
+import { EMPTY_STATS, type ServerStats, surface } from "../common/surface.ts";
 
 const PORT = Number(process.env.PORT ?? 7710);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -31,11 +31,35 @@ const DIST_DIR =
 // biome-ignore lint/suspicious/noExplicitAny: MemoryPublisher's generic is too strict for our payloads; type safety lives on the typed channels.
 const publisher = new MemoryPublisher<Record<string, any>>();
 
-const { router: surfaceRouter } = implementSurface(surface, {
+// App-specific live state — the example's OWN cell, composed alongside
+// surface-app's buildInfo. The server pushes updates via ctx.cells.serverStats.set.
+let stats: ServerStats = {
+  ...EMPTY_STATS,
+  startedAt: Date.now(),
+  now: Date.now(),
+};
+const statsStore = {
+  get: () => stats,
+  set: (next: ServerStats) => {
+    stats = next;
+  },
+};
+
+const { router: surfaceRouter, ctx } = implementSurface(surface, {
   channel: <T>(name: string) => publisherChannel<T>(publisher, name),
-  // compose the buildInfo impl — commit auto-resolved (env → git → "dev"):
-  cells: { ...buildInfoServer() },
+  cells: {
+    ...buildInfoServer(), // surface-app-specific: build identity (commit auto-resolved)
+    serverStats: { store: statsStore }, // app-specific: live server stats
+  },
 });
+
+/** Broadcast a stats patch to every subscriber (snapshot + delta in one call). */
+function pushStats(patch: Partial<ServerStats>): void {
+  ctx.cells.serverStats.set({ ...stats, ...patch });
+}
+
+// Tick the server clock once a second so even a single tab sees the cell update live.
+setInterval(() => pushStats({ now: Date.now() }), 1000);
 
 // biome-ignore lint/suspicious/noExplicitAny: see kolu server.ts — the router fragment's union isn't accepted by RPCHandler's input type; runtime is valid.
 const appRouter = implement(surface.contract).router({
@@ -78,6 +102,11 @@ const server = serve(
 const wsHandler = new WsRPCHandler(appRouter);
 const wss = new WebSocketServer({ noServer: true });
 wss.on("connection", (peer) => {
+  // app-specific: reflect the live client count in the serverStats cell
+  pushStats({ connections: stats.connections + 1 });
+  peer.on("close", () =>
+    pushStats({ connections: Math.max(0, stats.connections - 1) }),
+  );
   void wsHandler.upgrade(peer);
 });
 server.on("upgrade", (req, socket, head) => {
