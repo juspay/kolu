@@ -487,16 +487,28 @@ async function policeTrack(wt) {
   const POLICE_MAX_ROUNDS = 4;
   const applied = [];
   let totalFindings = 0;
-  let policeRound = 0;
   let sweepsRun = 0;
   let lastRoundFindings = 0;
-  for (; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
-    sweepsRun++; // one review pass per iteration, counted BEFORE any break/cap exit so the reported sweep count is exact (not derived from the loop index)
+  // Files the PREVIOUS sweep's fixes touched (absolute paths under `wt`). Sweep 1
+  // reviews the FULL diff; sweeps 2+ re-review ONLY these files — for regressions or
+  // partial fixes the just-applied edits introduced, NOT new pre-existing nits in
+  // untouched code (issue #1163). Re-scanning the whole diff every sweep is what made
+  // police grind to the cap on its endless nit-tail; narrowing to touched-files-for-
+  // regressions converges (typically ~2 sweeps) while keeping the load-bearing "a fix
+  // can introduce or only partially resolve an issue" guarantee "until clean" exists for.
+  let touchedFiles = [];
+  for (let policeRound = 0; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
+    sweepsRun++; // one review sweep per iteration, counted BEFORE any break/cap exit so the reported count is exact
+    const firstSweep = policeRound === 0;
+    const rel = touchedFiles.map((f) => f.replace(`${wt}/`, "").replace(/^\/+/, ""));
+    const scope = firstSweep
+      ? DIFF(wt)
+      : `Re-review ONLY the files the previous sweep's fixes just touched: run \`git -C ${wt} diff ${mergeBase} -- ${rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(" ")}\` and Read those files (ABSOLUTE paths under \`${wt}\`).`;
     const reviews = await parallel(
       passes.map(
         (p) => () =>
           agent(
-            `You are the **code-police ${p.key}** reviewer on a fresh, cold context — the implementer is biased to rationalize their own diff, so you start from "assume the code is wrong until proven right" and NEVER talk yourself out of a finding. First Read \`${wt}/.claude/skills/code-police/SKILL.md\` (and \`${wt}/.agency/code-police.md\` if it exists) for the rules and reviewing principles, then ${DIFF(wt)}\n${rationaleBlock}\nReview through ${p.brief}. Emit high-confidence findings only; an empty list is a fine verdict for a clean diff. Each finding: a title, a file:line location, the problem, a concrete implementable fix, and a severity.`,
+            `You are the **code-police ${p.key}** reviewer on a fresh, cold context — the implementer is biased to rationalize their own diff, so you start from "assume the code is wrong until proven right" and NEVER talk yourself out of a finding. First Read \`${wt}/.claude/skills/code-police/SKILL.md\` (and \`${wt}/.agency/code-police.md\` if it exists) for the rules and reviewing principles, then ${scope}\n${rationaleBlock}\n${firstSweep ? `Review through ${p.brief}. Emit high-confidence findings only; an empty list is a fine verdict for a clean diff.` : `A previous sweep already reviewed the whole change; do NOT re-raise pre-existing issues in untouched code. Look ONLY for problems the just-applied fixes INTRODUCED or left PARTIALLY resolved, through ${p.brief}. An empty list is the expected, good result.`} Each finding: a title, a file:line location, the problem, a concrete implementable fix, and a severity.`,
             {
               label: `police:${p.key}:r${policeRound + 1}`,
               phase: "Tracks",
@@ -515,9 +527,10 @@ async function policeTrack(wt) {
     );
     lastRoundFindings = findings.length;
     log(
-      `police: round ${policeRound + 1} — ${findings.length} finding(s) across ${passes.length} passes`,
+      `police: sweep ${policeRound + 1} (${firstSweep ? "full diff" : `regression check on ${rel.length} touched file(s)`}) — ${findings.length} finding(s)`,
     );
-    if (!findings.length) break; // clean sweep on the updated worktree → done
+    if (!findings.length) break; // clean sweep → done
+    const sweepTouched = new Set();
 
     // Apply each finding as its own commit, sequentially (same-file edits can't be
     // parallel-applied). Every edit and git command targets the absolute worktree.
@@ -532,6 +545,7 @@ async function policeTrack(wt) {
         },
       );
       const files = impl?.filesChanged ?? [];
+      files.forEach((x) => sweepTouched.add(x)); // next sweep re-reviews only these
       let sha = null;
       if (commit && files.length) {
         sha =
@@ -560,6 +574,10 @@ async function policeTrack(wt) {
       );
     }
     totalFindings += findings.length;
+    touchedFiles = [...sweepTouched];
+    // No fix actually changed a file (all uncommitted/empty) → there's nothing for
+    // a regression sweep to re-review, so stop rather than re-run an identical pass.
+    if (!touchedFiles.length) break;
   }
   // `clean` only if the FINAL sweep found nothing. If we exhausted the round cap
   // with findings still open, the worktree isn't verified-clean — report
@@ -1202,7 +1220,11 @@ if (branchMoved || branchDirty) {
 // never torn down. A dirty/unknown track is surfaced in the result for the human.
 const cleanCheck = liveTracks.length
   ? await agent(
-      `${mechanicalPreamble("CLEANLINESS CHECKER")} For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (${trackScratchList}); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines. Report a row for EVERY track listed, even if its worktree looks empty or the command errors (if \`git status\` fails, set clean=false and put the error in dirtyStatus). Do not edit anything. Tracks and their worktrees:
+      `${mechanicalPreamble("CLEANLINESS CHECKER")} For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (${trackScratchList}); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines.
+
+ONE NORMALIZATION FIRST (issue #1164): \`apm.lock.yaml\` is a generated lockfile whose \`generated_at:\` timestamp \`just ai::apm\` rewrites on every run, so a track that touched APM skills (which forces a regen) routinely leaves it \` M apm.lock.yaml\` as pure no-op churn. For any track whose status shows \`apm.lock.yaml\` modified, run \`git -C <path> diff -- apm.lock.yaml\`: if the ONLY changed content line is \`generated_at:\` (a timestamp), run \`git -C <path> checkout -- apm.lock.yaml\` to discard that churn and do NOT count it as dirty. If \`apm.lock.yaml\` has ANY other change (a real dependency edit), keep it as a dirty entry. This \`checkout\` of the timestamp-only lockfile is the ONLY edit you may make; do not touch anything else. Re-run \`git -C <path> status --short\` after the discard so your verdict reflects the normalized tree.
+
+Report a row for EVERY track listed, even if its worktree looks empty or the command errors (if \`git status\` fails, set clean=false and put the error in dirtyStatus). Tracks and their worktrees:
 ${liveTracks.map((t) => `  - ${t}: ${wtDir(t)}`).join("\n")}
 For each track return { track, clean (boolean), dirtyStatus (the offending \`status --short\` lines verbatim, or "" if clean) }.`,
       {

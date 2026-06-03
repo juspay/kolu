@@ -62,10 +62,14 @@ to `cd`.
   its own commit. Pass the change rationale so deliberate decisions aren't flagged.
 - **police** — `/code-police`'s three cold passes (rule checklist, fact-check,
   elegance) reproduced as parallel agents, each finding applied as its own commit
-  (`fix(police):`). The passes run **until a sweep is clean** (re-reviewing the
-  updated worktree after each apply, so a fix that introduces or only partially
-  resolves an issue is caught), capped at a few sweeps; hitting the cap with issues
-  still open reports `incomplete` rather than a false consensus.
+  (`fix(police):`). **Sweep 1** reviews the full diff and applies every finding;
+  **later sweeps re-review ONLY the files the previous sweep's fixes touched**, for
+  regressions or partial fixes those edits introduced — *not* fresh pre-existing
+  nits in untouched code (issue #1163). This keeps the load-bearing "a fix can
+  introduce/partially-resolve an issue" guarantee while letting police **converge
+  (~2 sweeps)** instead of grinding the cap re-scanning the whole diff for more
+  nits. Capped at a few sweeps; hitting the cap with regressions still open reports
+  `incomplete` rather than a false consensus.
   `fmt`-on-touched-files runs in every apply. Per-finding `just check` is
   **deferred** to the post-consolidation check + `/be` §5 CI rather than run 3×
   concurrently across the parallel worktrees.
