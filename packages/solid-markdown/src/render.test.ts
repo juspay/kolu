@@ -111,11 +111,10 @@ describe("renderMarkdownToRawHtml — GFM structure", () => {
   it("emits each task checkbox as its list item's leading element, tight or loose", () => {
     // A tight list (no blank line between items) puts the checkbox directly
     // under the <li>; a loose list (blank-line-separated, GitHub's common
-    // README shape) wraps it in the item's leading <p>. The sanitize pass keys
-    // its `data-md-task` tagging on exactly these two shapes, so the parse
-    // layer must keep emitting them for interactive toggling to survive — this
-    // pins the contract so a marked upgrade that changed the wrapper would fail
-    // here rather than silently breaking loose-list checkboxes.
+    // README shape) wraps it in the item's leading <p>. The sanitize pass
+    // disables both shapes' checkboxes (read-only), so this pins the GFM
+    // task-list output contract — a marked upgrade that changed the wrapper
+    // would fail here rather than silently altering how checkboxes render.
     const tight = html("- [ ] a\n- [ ] b");
     expect(tight).toContain("<li><input");
     const loose = html("- [ ] a\n\n- [ ] b");

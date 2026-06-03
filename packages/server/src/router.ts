@@ -9,14 +9,12 @@
  * between the surface fragment and the raw RPCs.
  */
 
-import { constants as fsConstants } from "node:fs";
-import { open } from "node:fs/promises";
 import { ORPCError } from "@orpc/server";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
-import { resolveForWriteUnder, worktreeCreate, worktreeRemove } from "kolu-git";
+import { worktreeCreate, worktreeRemove } from "kolu-git";
 import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
@@ -293,76 +291,6 @@ export const appRouter = t.router({
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       log.info({ worktree: input.worktreePath }, "worktree remove");
       unwrapGit(await worktreeRemove(input.worktreePath, log));
-    }),
-  },
-  fs: {
-    // Overwrite a working-tree file (the rendered-Markdown task-list toggle).
-    // A create-write needs a write-side guard, not the read-oriented
-    // `resolveExistingUnder` (which fails *open* on a missing realpath target):
-    // `resolveForWriteUnder` realpaths the *parent* directory and rejects when
-    // it escapes the repo root or doesn't resolve. The leaf is then opened with
-    // `O_NOFOLLOW` so the kernel refuses a symlinked leaf pointing out of the
-    // tree — together these close the symlink write-escape that a lexical-only
-    // path under a fail-open guard would leave open. The open preview
-    // re-renders on its own: the `fsReadFile` watcher sees the working-tree
-    // change and re-yields the new content.
-    writeFile: t.fs.writeFile.handler(async ({ input }) => {
-      // Pass `log` so the guard's own escape-path errors ("write parent
-      // escapes root (symlink)" / "write parent not resolvable") are recorded:
-      // an attempted path-traversal/symlink escape is a security-relevant
-      // failure that must leave server-side evidence.
-      const guard = await resolveForWriteUnder(
-        input.repoPath,
-        input.filePath,
-        log,
-      );
-      if (!guard.ok) {
-        // Log the rejection here too so it stays attributable to the request
-        // even if the guard's internal log shape changes.
-        log.warn(
-          { repo: input.repoPath, file: input.filePath },
-          "fs write: path escapes repo root (rejected)",
-        );
-        throw new ORPCError("BAD_REQUEST", {
-          message: "path escapes repo root",
-        });
-      }
-      let handle: Awaited<ReturnType<typeof open>>;
-      try {
-        // O_NOFOLLOW: a symlinked leaf (parent in-repo, leaf points outside)
-        // is rejected by the kernel with ELOOP instead of being followed.
-        handle = await open(
-          guard.value.abs,
-          fsConstants.O_WRONLY |
-            fsConstants.O_CREAT |
-            fsConstants.O_TRUNC |
-            fsConstants.O_NOFOLLOW,
-          0o644,
-        );
-      } catch (err) {
-        // `open()` with O_NOFOLLOW fails for many reasons that are *not* path
-        // escapes — EACCES (no write permission), EISDIR (target is a dir),
-        // EROFS (read-only fs), ENOSPC (disk full), EMFILE/ENFILE. Only ELOOP
-        // (a symlinked leaf the kernel refused to follow) is the escape case.
-        // Log the real errno at error level and surface a faithful message so a
-        // disk-full failure is never reported as a security violation.
-        log.error(
-          { err, repo: input.repoPath, file: input.filePath },
-          "fs write: open failed",
-        );
-        const code = (err as NodeJS.ErrnoException)?.code;
-        const message =
-          code === "ELOOP"
-            ? "path escapes repo root (symlinked target)"
-            : `failed to open file for write: ${(err as Error).message}`;
-        throw new ORPCError("BAD_REQUEST", { message });
-      }
-      try {
-        await handle.writeFile(input.content, "utf-8");
-      } finally {
-        await handle.close();
-      }
-      log.info({ repo: input.repoPath, file: input.filePath }, "fs write");
     }),
   },
 });

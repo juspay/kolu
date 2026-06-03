@@ -50,10 +50,6 @@ export type SanitizeOptions = {
    *  output of escaped code text) or `undefined` to leave the block plain.
    *  Wired only for the document preview, once the highlighter is warm. */
   highlightCode?: (code: string, lang: string) => string | undefined;
-  /** Make GFM task-list checkboxes interactive: enabled + tagged with their
-   *  source order (`data-md-task`), so the host can write a toggle back to the
-   *  file. Off (presentational, disabled) everywhere else. */
-  interactiveTasks?: boolean;
 };
 
 // The README inline-HTML subset, plus the tags `marked` emits for GFM. No
@@ -254,37 +250,6 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
   anchor.setAttribute("rel", "noopener noreferrer");
 }
 
-/** Whether a `<input type="checkbox">` is one `marked` minted from GFM task
- *  syntax (`- [ ]`), as opposed to a raw inline checkbox an author wrote in the
- *  document body. `marked` always emits the task checkbox as the very first
- *  thing in its `<li>`, but the exact wrapper depends on list tightness:
- *    - *tight* list (no blank line between items): `<li><input …> a</li>` —
- *      the input's parent is the `<li>` itself.
- *    - *loose* list (items separated by a blank line, GitHub's most common
- *      README task-list shape): `<li><p><input …> a</p></li>` — the input's
- *      parent is a `<p>` that is the `<li>`'s first element child.
- *  Accepting both shapes is what keeps interactive toggling alive for loose
- *  lists, and — because `toggleTaskInSource` counts *every* source task marker
- *  regardless of tightness — keeps the rendered `data-md-task` indices congruent
- *  with the source-scan order (a loose checkbox that failed this guard would
- *  stay un-clickable *and* not advance the counter, shifting every later task's
- *  click by one). A raw inline `<input disabled>` in body text (a `<p>` outside
- *  any list, a table cell) is rejected because it is not the first element child
- *  of an `<li>` (nor of the `<li>`'s leading `<p>`); `disabled` alone can't tell
- *  the two apart since both arrive `disabled`. */
-function isMarkedTaskCheckbox(input: Element): boolean {
-  if (input.previousElementSibling !== null) return false;
-  const li = input.closest("li");
-  if (li === null) return false;
-  const parent = input.parentElement;
-  // Tight: the input is the `<li>`'s own first element child.
-  if (parent === li) return true;
-  // Loose: the input is wrapped in a `<p>` that is the `<li>`'s first element
-  // child. Guard against a `<p>` deeper in the item (e.g. a nested list's
-  // paragraph) by requiring it to be the `<li>`'s leading element.
-  return parent?.tagName === "P" && li.firstElementChild === parent;
-}
-
 /** The trusted-injection seam: when a highlighter is supplied and returns
  *  markup, replace the plain `<pre>` in the tree with Shiki's themed `<pre>` and
  *  return that; otherwise return the original `<pre>` untouched. Shiki's output
@@ -357,36 +322,15 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
     applyLinkPolicy(anchor, opts.links);
   }
 
-  // `<input>` is allowed only to carry a GFM task-list checkbox. Drop any
-  // other input (a stray `type="text"` etc.). When interactive tasks are
-  // enabled we re-enable a marked task checkbox and tag it with its source
-  // order so the host can write a toggle back to the file — otherwise it stays
-  // presentational (disabled).
-  //
-  // A marked task checkbox is the leading checkbox of an `<li>` — directly for
-  // a tight list (`<li><input>…`) or wrapped in the item's leading `<p>` for a
-  // loose, blank-line-separated one (`<li><p><input>…`); see
-  // `isMarkedTaskCheckbox`. Both shapes are exactly what `marked` emits for
-  // `- [ ]` syntax, and the only shapes the source scanner
-  // (`toggleTaskInSource`) counts — it counts every source task marker
-  // regardless of list tightness, so accepting both shapes here keeps the two
-  // index spaces congruent. Keying on `disabled` alone is too broad: a raw
-  // inline `<input type="checkbox" disabled>` sitting in body text (a stray
-  // `<p>`, a table cell) also arrives `disabled` but has no `[ ]`/`[x]` marker
-  // in the source, so the scanner never counts it — tagging it would assign a
-  // `data-md-task` index the scanner can't map back, shifting every later
-  // task's click by one. Such a raw checkbox stays presentational.
-  let taskIndex = 0;
+  // `<input>` is allowed only to carry a GFM task-list checkbox, and the
+  // preview is read-only — so every checkbox stays presentational (disabled),
+  // the way GitHub renders a README's task list. Any other input (a stray
+  // `type="text"`, etc.) is dropped.
   for (const input of root.querySelectorAll("input")) {
-    if (input.getAttribute("type") !== "checkbox") {
-      input.remove();
-      continue;
-    }
-    if (opts.interactiveTasks && isMarkedTaskCheckbox(input)) {
-      input.removeAttribute("disabled");
-      input.setAttribute("data-md-task", String(taskIndex++));
-    } else {
+    if (input.getAttribute("type") === "checkbox") {
       input.setAttribute("disabled", "");
+    } else {
+      input.remove();
     }
   }
 

@@ -32,11 +32,10 @@ import { isMarkdown, isRasterImage } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Match, Switch } from "solid-js";
 import { toast } from "solid-sonner";
-import { app, client } from "../wire";
+import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
-import { toggleTaskInSource } from "./taskToggle";
 
 export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
@@ -124,34 +123,6 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           truncated={file.source?.truncated ?? false}
           resolveImageSrc={(src) =>
             resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
-          }
-          // The server reads .md files truncated at 1 MB (`truncated: true`),
-          // so `source.content` is only a prefix. Writing the flipped prefix
-          // back as the whole file would silently destroy everything past 1 MB
-          // — so keep checkboxes presentational (omit `onToggleTask`) when the
-          // source is truncated; a click can't write a truncated body back.
-          onToggleTask={
-            file.source?.truncated
-              ? undefined
-              : (taskIndex) => {
-                  // Flip the Nth task marker in the current source and write it
-                  // back; the file watcher re-yields the new content,
-                  // re-rendering the checkbox in its toggled state.
-                  const next = toggleTaskInSource(
-                    file.source?.content ?? "",
-                    taskIndex,
-                  );
-                  if (next === null) return;
-                  void client.fs
-                    .writeFile({
-                      repoPath: props.repoPath,
-                      filePath: props.filePath,
-                      content: next,
-                    })
-                    .catch((err: Error) =>
-                      toast.error(`Failed to save: ${err.message}`),
-                    );
-                }
           }
         />
       ),

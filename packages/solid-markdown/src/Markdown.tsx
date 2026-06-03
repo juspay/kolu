@@ -15,8 +15,8 @@
  *    - "inline"   — inline-only parse, no block wrapper (annotation slots).
  *    - "compact"  — block parse at chat/dock scale (kolu's intent body).
  *    - "document" — full-pane preview: GitHub-faithful soft breaks, Shiki code
- *      highlighting + copy buttons, and (when a host wires `onToggleTask`)
- *      interactive task-list checkboxes. */
+ *      highlighting + copy buttons, and read-only (presentational) task-list
+ *      checkboxes. The preview never writes back to the file. */
 
 import {
   type Component,
@@ -49,20 +49,18 @@ function copyCodeBlock(button: HTMLElement): void {
     .catch((err) => console.warn("markdown: copy to clipboard failed", err));
 }
 
-/** Handle interactive bits inside the rendered Markdown — links, code-copy
- *  buttons, and task-list checkboxes. Bound imperatively (not via JSX
- *  `onClick`) because these are delegated handlers over sanitizer-minted DOM,
- *  not declarative element interactions the a11y lint would expect a role for.
+/** Handle interactive bits inside the rendered Markdown — code-copy buttons and
+ *  in-page anchors. (The preview is read-only; task-list checkboxes render as
+ *  presentational state.) Bound imperatively (not via JSX `onClick`) because
+ *  these are delegated handlers over sanitizer-minted DOM, not declarative
+ *  element interactions the a11y lint would expect a role for.
  *
  *  Each also stops the bubble so a nested control in a clickable host slot
  *  (dock card, switcher card) doesn't double-fire that slot's handler. */
-function bindInteractions(
-  el: HTMLElement,
-  onToggleTask: () => ((taskIndex: number) => void) | undefined,
-): void {
+function bindInteractions(el: HTMLElement): void {
   const onPointerDown = (e: Event) => {
     const target = e.target as Element | null;
-    if (target?.closest?.("a, [data-md-copy], input[data-md-task]")) {
+    if (target?.closest?.("a, [data-md-copy]")) {
       e.stopPropagation();
     }
   };
@@ -75,18 +73,6 @@ function bindInteractions(
       e.preventDefault();
       e.stopPropagation();
       copyCodeBlock(copyButton);
-      return;
-    }
-
-    const task = target.closest<HTMLInputElement>("input[data-md-task]");
-    if (task) {
-      // Let the server round-trip drive the checked state (write → file
-      // watcher → re-render), so prevent the local toggle to avoid a
-      // flicker/revert.
-      e.preventDefault();
-      e.stopPropagation();
-      const index = Number(task.getAttribute("data-md-task"));
-      if (Number.isInteger(index)) onToggleTask()?.(index);
       return;
     }
 
@@ -120,10 +106,6 @@ export const Markdown: Component<{
   /** Resolve a repo-relative image `src` to a loadable URL (see
    *  `SanitizeOptions.resolveImageSrc`). Document variant only. */
   resolveImageSrc?: (src: string) => string | undefined;
-  /** Persist a GFM task-list toggle: called with the task's source order when
-   *  a checkbox is clicked. When set (document variant), checkboxes render
-   *  interactive; the host writes the flip back to the file. */
-  onToggleTask?: (taskIndex: number) => void;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   const isDocument = () => variant() === "document";
@@ -177,18 +159,14 @@ export const Markdown: Component<{
         resolveImageSrc: props.resolveImageSrc,
         highlightCode:
           isDocument() && highlighter() != null ? highlightCode : undefined,
-        interactiveTasks: isDocument() && props.onToggleTask != null,
       },
     ),
   );
 
-  const bind = (el: HTMLElement) =>
-    bindInteractions(el, () => props.onToggleTask);
-
   return (
     <Dynamic
       component={variant() === "inline" ? "span" : "div"}
-      ref={bind}
+      ref={bindInteractions}
       class="kolu-md"
       data-md-variant={variant()}
       innerHTML={html()}

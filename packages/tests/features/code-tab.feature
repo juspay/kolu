@@ -463,13 +463,7 @@ Feature: Code tab (review + browse)
   # the same "File truncated" banner the source view shows — otherwise a partial
   # document renders silently with no warning. The marker + task item sit in the
   # first bytes so they survive the 1 MB cut and prove content rendered.
-  #
-  # Toggling a checkbox writes the rendered source back to the file; on a
-  # truncated source that source is only the 1 MB prefix, so a write would
-  # silently destroy everything past 1 MB. Guard: checkboxes go presentational
-  # (disabled, no interactive `data-md-task`) when truncated, so a click can't
-  # write a truncated body back.
-  Scenario: Truncated Markdown warns and keeps task checkboxes presentational
+  Scenario: Truncated Markdown warns and renders task checkboxes read-only
     When I run "rm -rf /tmp/kolu-md-trunc && git init /tmp/kolu-md-trunc && cd /tmp/kolu-md-trunc"
     And I run "printf '# Truncated Doc\n\nbody marker\n\n- [ ] guard me\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
     And I run "git add . && git commit -m init"
@@ -479,9 +473,8 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     And the markdown preview should contain "Truncated Doc"
     And the markdown preview should show the truncation warning
-    # The checkbox renders, but presentational: a disabled box with no
-    # `data-md-task`, so a click is inert and can't write the truncated prefix
-    # back over the full file.
+    # The preview is read-only: the task checkbox renders presentational
+    # (disabled, never interactive).
     And the markdown preview should render a "input[type=checkbox][disabled]" element
     And the markdown preview should not render a "input[data-md-task]" element
 
@@ -609,9 +602,9 @@ Feature: Code tab (review + browse)
     And the markdown preview should not render a "span.kolu-md-img-fallback" element
 
   # Syntax highlighting (Shiki), GitHub-faithful soft breaks (document folds a
-  # single newline to a space), and interactive task-list checkboxes that write
-  # the toggle back to the file.
-  Scenario: Markdown preview highlights code, folds soft breaks, and writes task toggles
+  # single newline to a space), and read-only task-list checkboxes (the preview
+  # never writes back to the file).
+  Scenario: Markdown preview highlights code, folds soft breaks, and renders task checkboxes
     When I run "rm -rf /tmp/kolu-md-rich2 && git init /tmp/kolu-md-rich2 && cd /tmp/kolu-md-rich2"
     And I run "printf '# Doc\n\nline one\nline two\n\n```js\nconst x = 1;\n```\n\n- [ ] todo item\n' > README.md"
     And I run "git add . && git commit -m init"
@@ -626,93 +619,8 @@ Feature: Code tab (review + browse)
     And the markdown preview should render a "pre.shiki" element
     # GitHub-faithful soft breaks: the two source lines fold into one paragraph.
     And the markdown preview should not render a "p br" element
-    # Interactive task checkbox: enabled + indexed.
-    And the markdown preview should render a "input[data-md-task]" element
-    # Toggling it writes [x] back to the file; the watcher re-renders the box
-    # in its new checked state (the round-trip proof).
-    When I toggle markdown task 0
-    Then markdown preview task 0 should be checked
-
-  # Index-space congruence guard: the rendered preview and the source-scan
-  # toggler must count tasks in the SAME order, or a click toggles the wrong
-  # line. A raw inline `<input type=checkbox disabled>` in body text arrives
-  # `disabled` just like a real GFM task checkbox — but it carries no `[ ]`
-  # marker the source scanner counts. Tagging it would mint a `data-md-task`
-  # index the scanner can't map back, shifting every later real task by one. So
-  # only marked task checkboxes (first child of an `<li>`) get indexed; the raw
-  # one stays presentational. The round-trip toggle of the SECOND real task
-  # (index 1, the line after the raw checkbox) only lands on the right source
-  # line if the two index spaces stayed congruent.
-  Scenario: Markdown preview keeps a raw body checkbox presentational so task indices stay congruent
-    When I run "rm -rf /tmp/kolu-md-rawcb && git init /tmp/kolu-md-rawcb && cd /tmp/kolu-md-rawcb"
-    And I run "printf -- '- [ ] first real\n\nnote <input type=checkbox disabled> raw\n\n- [ ] second real\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should contain "first real"
-    # Exactly the two real tasks are interactive; the raw body checkbox is not.
-    And the markdown preview should render a "input[data-md-task='0']" element
-    And the markdown preview should render a "input[data-md-task='1']" element
-    And the markdown preview should not render a "input[data-md-task='2']" element
-    # The raw inline checkbox stays presentational (disabled, no `data-md-task`).
+    # The task checkbox renders read-only (presentational, disabled).
     And the markdown preview should render a "input[type=checkbox][disabled]" element
-    # Toggling the second real task round-trips: only correct if index 1 maps to
-    # the second `- [ ]` line, not a line shifted by the raw checkbox.
-    When I toggle markdown task 1
-    Then markdown preview task 1 should be checked
-
-  # Loose task list: items separated by a blank line — GitHub's most common
-  # README task-list shape. `marked` wraps each checkbox in the item's leading
-  # `<p>` (`<li><p><input>…`), not directly under the `<li>`. The sanitize pass
-  # must recognize that loose shape too, or every loose checkbox stays disabled
-  # and un-clickable (never gets `data-md-task`). This proves a loose list is
-  # fully interactive and its toggle round-trips back to the file.
-  Scenario: Markdown preview makes loose (blank-line-separated) task lists interactive
-    When I run "rm -rf /tmp/kolu-md-loose && git init /tmp/kolu-md-loose && cd /tmp/kolu-md-loose"
-    And I run "printf -- '- [ ] alpha\n\n- [ ] beta\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should contain "alpha"
-    # Both loose checkboxes are interactive + indexed in source order.
-    And the markdown preview should render a "input[data-md-task='0']" element
-    And the markdown preview should render a "input[data-md-task='1']" element
-    And the markdown preview should not render a "input[data-md-task='2']" element
-    # Toggling the second loose task round-trips through the file watcher.
-    When I toggle markdown task 1
-    Then markdown preview task 1 should be checked
-
-  # Index-space congruence across tightness: a loose list followed by a tight
-  # list. The source scanner (`toggleTaskInSource`) counts every `- [ ]` marker
-  # regardless of tightness, so the rendered `data-md-task` indices must do the
-  # same — loose tasks are 0 and 1, the first tight task is 2. If the sanitizer
-  # skipped the loose (`<li><p><input>`) checkboxes, the first tight box would be
-  # rendered `data-md-task='0'` while the scanner counts it as the third marker, so
-  # a click on it would toggle the WRONG (first loose) line. Toggling index 2
-  # round-trips only if both index spaces stayed congruent.
-  Scenario: Markdown preview keeps task indices congruent across a loose-then-tight list
-    When I run "rm -rf /tmp/kolu-md-mixed && git init /tmp/kolu-md-mixed && cd /tmp/kolu-md-mixed"
-    And I run "printf -- '- [ ] loose one\n\n- [ ] loose two\n\nthen tight:\n\n- [ ] tight one\n- [ ] tight two\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should contain "loose one"
-    # All four tasks indexed 0..3 in source order, loose and tight alike.
-    And the markdown preview should render a "input[data-md-task='0']" element
-    And the markdown preview should render a "input[data-md-task='1']" element
-    And the markdown preview should render a "input[data-md-task='2']" element
-    And the markdown preview should render a "input[data-md-task='3']" element
-    And the markdown preview should not render a "input[data-md-task='4']" element
-    # Toggling the first TIGHT task (index 2) only lands on "tight one" if the
-    # two loose tasks were counted ahead of it — the regression's failure mode.
-    When I toggle markdown task 2
-    Then markdown preview task 2 should be checked
 
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable

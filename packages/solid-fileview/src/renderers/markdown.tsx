@@ -23,10 +23,6 @@ export type MarkdownRendererProps = {
    *  `@kolu/solid-markdown`'s `resolveImageSrc`). The host wires this to its
    *  file-serving route so README images render instead of falling back. */
   resolveImageSrc?: (src: string) => string | undefined;
-  /** Persist a task-list checkbox toggle (see `@kolu/solid-markdown`'s
-   *  `onToggleTask`). The host writes the flipped source back to the file;
-   *  omit to keep checkboxes presentational. */
-  onToggleTask?: (taskIndex: number) => void;
 };
 
 export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
@@ -44,7 +40,6 @@ export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
         markdown={props.markdown}
         variant="document"
         resolveImageSrc={props.resolveImageSrc}
-        onToggleTask={props.onToggleTask}
       />
     </div>
   </div>

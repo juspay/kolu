@@ -288,10 +288,6 @@
   margin: 0 0.5em 0 0;
   vertical-align: middle;
 }
-/* Interactive task checkboxes (the host wired a write-back) get a pointer. */
-.kolu-md input[type="checkbox"][data-md-task] {
-  cursor: pointer;
-}
 
 /* ── Tables ──────────────────────────────────────────────────── */
 /* `display:block` + `width:max-content` lets a wide table scroll horizontally
