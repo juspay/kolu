@@ -20,9 +20,13 @@
  *  ## Signature (measured: 0 changes across 82 Claude releases, 2.1.77→2.1.159)
  *  - **ExitPlanMode** — exact literals, boolean-certain: `Ready to code?`,
  *    `…is ready to execute. Would you like to proceed?`, `No, keep planning`.
- *  - **AskUserQuestion** — structural: a select caret (`❯`, ASCII fallback `>`)
- *    AND an arrow-key select footer. Question + option labels are
- *    model-supplied, so they are NOT part of the signature.
+ *  - **AskUserQuestion** — structural: a *caret-marked numbered option row*
+ *    (`❯ 1. …`, ASCII fallback `> 1. …`) with an arrow-key select footer a few
+ *    lines below it. The caret must sit on a numbered option — a bare `> `
+ *    blockquote or shell-continuation line is not enough — and the footer must
+ *    be structurally adjacent, so an idle screen that merely mentions "to
+ *    navigate" somewhere can't co-occur into a false prompt. Question + option
+ *    labels are model-supplied, so they are NOT part of the signature.
  *  - **No box-drawing glyphs** — Claude's prompt boxes have no `╭/┌` corners,
  *    so the signature must never depend on borders.
  *  - **Bottom-region gate** — the live prompt renders at the cursor (screen
@@ -53,19 +57,25 @@ const EXIT_PLAN_LITERALS = [
   "ready to execute. Would you like to proceed?",
 ] as const;
 
-/** The highlighted-option row Claude paints: a select caret (`❯`, ASCII
- *  fallback `>`) at the START of a line (after optional indentation), a space,
- *  then a NUMBERED option (`1.`, `2)`). Anchoring the caret to an option row —
- *  not "any whitespace-delimited `>`" — is what keeps `cat > file` and Markdown
- *  blockquotes (`> quoted text`) out: a shell redirect has no line-leading
- *  caret marking a numbered option, so it can't satisfy the signature. */
-const SELECT_CARET_RE = /^\s*(?:❯|>)\s+\d+[.)]/m;
+/** The highlighted option row Claude paints: an optional leading indent, the
+ *  select caret (`❯`, ASCII fallback `>`), a space, then a *numbered* option
+ *  (`1.`, `2.`, …). Anchoring the caret to a numbered option — not just any
+ *  `> ` line — is what keeps a markdown blockquote, shell-continuation prompt,
+ *  quoted email, or diff/log line from satisfying the caret half of the
+ *  signature. */
+const OPTION_ROW_RE = /^\s*(?:❯|>)\s+\d+\.\s/;
 
 /** The arrow-key select hint Claude renders under an option list: either the
  *  glyphs themselves (`↑`/`↓`) or an explicit "to select" / "to navigate"
- *  footer. Required in conjunction with the caret-marked option row, so prose
- *  containing "to select" can't match without an actual option list above it. */
+ *  footer. Required *structurally adjacent* to the caret-marked option row (see
+ *  `hasSelectPrompt`), so an arrow glyph or "to navigate" phrase drifting
+ *  elsewhere through the tail can't co-occur into a false match. */
 const SELECT_FOOTER_RE = /[↑↓]|to (?:select|navigate)/i;
+
+/** How many lines below the caret-marked option row the footer may sit and still
+ *  count as part of the same prompt. Covers the tallest option list's blank
+ *  separator before its footer without reaching unrelated tail content. */
+const FOOTER_LOOKAHEAD_LINES = 12;
 
 /** The last block of rendered lines, trailing blank rows trimmed so the "tail"
  *  is the last *painted* content, not the empty rows below a short prompt. */
@@ -76,18 +86,35 @@ function tailRegion(screenText: string): string[] {
   return lines.slice(Math.max(0, end - TAIL_REGION_LINES), end);
 }
 
+/** Whether the tail holds an AskUserQuestion select prompt: a caret-marked
+ *  numbered option row with an arrow-key footer within the next few lines. The
+ *  adjacency requirement is the anchor — a bare `> ` blockquote can't satisfy
+ *  the caret (it isn't a numbered option), and a stray "to navigate" elsewhere
+ *  can't satisfy the footer (it must trail an actual option row). */
+function hasSelectPrompt(lines: string[]): boolean {
+  for (let i = 0; i < lines.length; i++) {
+    if (!OPTION_ROW_RE.test(lines[i] ?? "")) continue;
+    const footerWindow = lines
+      .slice(i + 1, i + 1 + FOOTER_LOOKAHEAD_LINES)
+      .join("\n");
+    if (SELECT_FOOTER_RE.test(footerWindow)) return true;
+  }
+  return false;
+}
+
 /** Whether a Claude awaiting-user prompt (`ExitPlanMode`/`AskUserQuestion`) is
  *  painted on the rendered screen. */
 export function screenHasClaudePrompt(screenText: string): boolean {
-  const region = tailRegion(screenText);
-  const text = region.join("\n");
+  const lines = tailRegion(screenText);
 
   // ExitPlanMode: its literals are boolean-certain.
-  if (EXIT_PLAN_LITERALS.some((lit) => text.includes(lit))) return true;
+  if (EXIT_PLAN_LITERALS.some((lit) => lines.join("\n").includes(lit))) {
+    return true;
+  }
 
-  // AskUserQuestion: structural conjunction — a select caret AND the arrow-key
-  // footer, both within the tail region.
-  return SELECT_CARET_RE.test(text) && SELECT_FOOTER_RE.test(text);
+  // AskUserQuestion: a caret-marked numbered option row with the arrow-key
+  // footer structurally adjacent (within a few lines below it).
+  return hasSelectPrompt(lines);
 }
 
 // --- Promote-only policy (the seam the server poller drives) ---

@@ -109,6 +109,16 @@ That's the recommended flow.`;
 const PROSE_TO_SELECT = `● I went ahead and updated the query to select only the
   active rows, since that's what the report needs.`;
 
+/** Adversarial negative: idle output where a markdown `> ` blockquote and the
+ *  phrase "to navigate" co-occur in the tail, but there is no real select
+ *  prompt — the caret isn't on a numbered option, so the structural signature
+ *  must NOT match (the false-dock-ping case from #905 review). */
+const BLOCKQUOTE_AND_NAVIGATE = `● Quoting the docs:
+
+> Use the arrow keys to navigate between panes.
+
+● That's how the layout works.`;
+
 describe("screenHasClaudePrompt — ExitPlanMode", () => {
   it("detects the 'Ready to code?' header", () => {
     expect(screenHasClaudePrompt(EXIT_PLAN_READY_TO_CODE)).toBe(true);
@@ -164,6 +174,12 @@ describe("screenHasClaudePrompt — negatives", () => {
 
   it("ignores prose that merely contains 'to select'", () => {
     expect(screenHasClaudePrompt(PROSE_TO_SELECT)).toBe(false);
+  });
+
+  it("ignores a `> ` blockquote co-occurring with 'to navigate'", () => {
+    // Caret + footer both appear in the tail, but the caret is a markdown
+    // blockquote, not a numbered option row — must not promote to a prompt.
+    expect(screenHasClaudePrompt(BLOCKQUOTE_AND_NAVIGATE)).toBe(false);
   });
 });
 
