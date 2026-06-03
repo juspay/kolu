@@ -5,6 +5,32 @@ import { hasOwnScheme, safeHref } from "./url-policy";
 const html = (md: string, inline = false) =>
   renderMarkdownToRawHtml(md, { inline });
 
+describe("renderMarkdownToRawHtml — raw-HTML boundary", () => {
+  it("passes raw HTML through for the document preview (rawHtml defaults on)", () => {
+    expect(html("press <kbd>K</kbd>")).toContain("<kbd>K</kbd>");
+    expect(html("<div>block</div>")).toContain("<div>block</div>");
+  });
+
+  it("escapes raw block + inline HTML for intent slots (rawHtml off)", () => {
+    const out = renderMarkdownToRawHtml("<h1>raw</h1> and <kbd>K</kbd>", {
+      rawHtml: false,
+    });
+    expect(out).not.toContain("<h1>");
+    expect(out).not.toContain("<kbd>");
+    expect(out).toContain("&lt;h1&gt;");
+  });
+
+  it("still renders markdown-produced tags when rawHtml is off", () => {
+    // `#`/`**` produce <h1>/<strong> via the renderer, not the html hook, so
+    // they survive even with raw HTML escaped.
+    const out = renderMarkdownToRawHtml("# Heading\n\n**bold**", {
+      rawHtml: false,
+    });
+    expect(out).toContain("<h1");
+    expect(out).toContain("<strong>bold</strong>");
+  });
+});
+
 describe("safeHref", () => {
   it("allows http(s), mailto, and in-page anchors", () => {
     expect(safeHref("https://example.com/x")).toBe("https://example.com/x");

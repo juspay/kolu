@@ -139,8 +139,13 @@ export const Markdown: Component<{
   // with no ErrorBoundary in the preview path, blank the whole preview. Null
   // keeps `highlighter() != null` false so code renders plain, matching
   // highlight.ts's per-block fallback.
+  // Only pay for Shiki when the document actually has a fenced code block — a
+  // code-less README never triggers the dynamic `shiki` chunk + grammar load.
+  // The predicate can't false-negative (every real fence opens a line with
+  // ``` / ~~~); a rare false positive just warms an unused highlighter.
+  const hasCodeFence = () => /^[ \t]{0,3}(?:```|~~~)/m.test(props.markdown);
   const [highlighter] = createResource(
-    () => isDocument() || undefined,
+    () => (isDocument() && hasCodeFence()) || undefined,
     () =>
       loadHighlighter().catch((err) => {
         console.warn(
@@ -158,6 +163,9 @@ export const Markdown: Component<{
         // GitHub folds a single newline to a space; chat/dock want it as a
         // break. Document → faithful (false); compact/inline → break (true).
         breaks: !isDocument(),
+        // Only the document preview admits a README's raw HTML; the compact/
+        // inline intent slots (user/agent strings) escape it to literal text.
+        rawHtml: isDocument(),
       }),
       {
         links: links(),

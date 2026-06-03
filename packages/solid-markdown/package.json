@@ -10,6 +10,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./render": "./src/render.ts",
+    "./url-policy": "./src/url-policy.ts",
     "./markdown.css": "./src/markdown.css"
   },
   "scripts": {

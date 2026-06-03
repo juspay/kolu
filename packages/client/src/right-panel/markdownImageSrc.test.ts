@@ -52,4 +52,17 @@ describe("resolveMarkdownImageSrc", () => {
     expect(resolve("README.md", "../../etc/passwd")).toBeUndefined();
     expect(resolve("docs/readme.md", "../../../secret")).toBeUndefined();
   });
+
+  it("decodes URL-escaped segments so they aren't double-encoded", () => {
+    // `my%20images` names a `my images` dir on disk; the route re-encodes once.
+    expect(resolve("README.md", "my%20images/logo.png")).toBe(
+      "/api/terminals/term-1/file/my%20images/logo.png",
+    );
+  });
+
+  it("rejects a separator/traversal smuggled through an escape", () => {
+    expect(resolve("README.md", "a%2f..%2f..%2fetc")).toBeUndefined();
+    expect(resolve("README.md", "%2e%2e/secret")).toBeUndefined();
+    expect(resolve("README.md", "bad%ZZ.png")).toBeUndefined();
+  });
 });

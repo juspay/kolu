@@ -36,6 +36,15 @@ export type RenderOptions = {
    *  soft breaks to a space). On for the chat/dock intent scale (message-like),
    *  off for the document preview (GitHub-faithful). Defaults on. */
   breaks?: boolean;
+  /** Pass *raw* inline/block HTML through to the sanitizer (true) or escape it
+   *  to literal text at parse time (false). Only the document preview is a
+   *  document, so only it admits a README's raw HTML. The compact/inline intent
+   *  slots are clickable UI rows built from user/agent strings — there a raw
+   *  `<h1>`/`<pre>`/`<a>` must render as literal text, NOT as markup. The
+   *  downstream tag allowlist can't make this distinction on its own (it would
+   *  also have to drop the *same* tags when markdown legitimately produces
+   *  them), so the boundary is enforced here, at the token level. Defaults on. */
+  rawHtml?: boolean;
 };
 
 // The fixed GFM extension stack — constant across every instance. These are
@@ -67,10 +76,29 @@ function useCodeFenceRenderer(inst: Marked): void {
   });
 }
 
-function buildMarked(breaks: boolean): Marked {
+// The document-only raw-HTML boundary. `marked`'s `html` hook fires for both
+// raw *block* HTML (`<div>…`) and inline raw *tags* (`<a>`, `<kbd>`, `<pre>`),
+// so escaping it here neutralizes the whole raw-HTML surface for compact/inline
+// at the token level — markdown-*produced* tags (which never flow through this
+// hook) keep rendering. When `rawHtml` is on (the document preview), return
+// false to fall back to marked's default passthrough. The downstream allowlist
+// can't enforce this (it must keep `<h1>`/`<pre>`/`<a>` for markdown output),
+// so the boundary lives here.
+function useRawHtmlPolicy(inst: Marked, rawHtml: boolean): void {
+  inst.use({
+    renderer: {
+      html({ text }) {
+        return rawHtml ? false : escapeHtml(text);
+      },
+    },
+  });
+}
+
+function buildMarked(breaks: boolean, rawHtml: boolean): Marked {
   const inst = new Marked({ gfm: true, breaks });
   useGfmExtensions(inst);
   useCodeFenceRenderer(inst);
+  useRawHtmlPolicy(inst, rawHtml);
   return inst;
 }
 
@@ -107,15 +135,17 @@ function rewriteAlerts(html: string): string {
     .replace(/<p class="markdown-alert-title"\s*>/g, "<p data-md-alert-title>");
 }
 
-// The soft-break setting is the only axis that varies the parser, so cache one
-// configured instance per `breaks`. Rendering is synchronous, so a shared
-// instance is safe; the cache just avoids rebuilding the renderer on every call.
-const INSTANCES = new Map<boolean, Marked>();
-function instance(breaks: boolean): Marked {
-  let inst = INSTANCES.get(breaks);
+// The soft-break setting and the raw-HTML toggle are the axes that vary the
+// parser, so cache one configured instance per (breaks, rawHtml). Rendering is
+// synchronous, so a shared instance is safe; the cache just avoids rebuilding
+// the renderer on every call.
+const INSTANCES = new Map<string, Marked>();
+function instance(breaks: boolean, rawHtml: boolean): Marked {
+  const key = `${breaks}:${rawHtml}`;
+  let inst = INSTANCES.get(key);
   if (!inst) {
-    inst = buildMarked(breaks);
-    INSTANCES.set(breaks, inst);
+    inst = buildMarked(breaks, rawHtml);
+    INSTANCES.set(key, inst);
   }
   return inst;
 }
@@ -125,7 +155,7 @@ export function renderMarkdownToRawHtml(
   markdown: string,
   opts: RenderOptions,
 ): string {
-  const inst = instance(opts.breaks ?? true);
+  const inst = instance(opts.breaks ?? true, opts.rawHtml ?? true);
   // Our config is fully synchronous (no async extensions), so both calls
   // return a string; the union with Promise only arises under `{ async: true }`.
   if (opts.inline) return inst.parseInline(markdown) as string;
