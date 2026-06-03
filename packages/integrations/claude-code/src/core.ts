@@ -582,9 +582,16 @@ export function completedBackgroundTaskIds(lines: string[]): Set<string> {
  *  Bounded by the same tail window as `deriveState`: a launch whose
  *  confirmation has scrolled out of the tail can't be detected. That only
  *  costs a fallback to the pre-existing `waiting` classification — never a
- *  crash or a wrong-direction promotion. */
-export function outstandingBackgroundTasks(lines: string[]): BackgroundTask[] {
-  const completed = completedBackgroundTaskIds(lines);
+ *  crash or a wrong-direction promotion.
+ *
+ *  `completed` (the shared "which runs finished" projection) is scanned
+ *  internally by default so standalone callers stay one-argument; the watcher
+ *  passes a precomputed set so the projection is read once per check pass,
+ *  shared with `outstandingForkRuns`. */
+export function outstandingBackgroundTasks(
+  lines: string[],
+  completed: Set<string> = completedBackgroundTaskIds(lines),
+): BackgroundTask[] {
   const launched = new Map<string, string | null>(); // taskId → runId
 
   for (const raw of lines) {

@@ -320,6 +320,12 @@ export function createSessionWatcher(
       }
       return o;
     };
+    // The shared "which runs finished" projection (core.ts:545), scanned over
+    // the tail ONCE per pass and threaded into both consumers below —
+    // `outstandingBackgroundTasks` (launched − completed) and
+    // `outstandingForkRuns` (fast positive-finish signal). Mirrors the `obs`
+    // memoization above: read the projection once, hand it to every reader.
+    const completed = completedBackgroundTaskIds(lines);
     // Drop tasks that can't keep the session "working": a `Workflow` whose
     // journal has gone terminal/stale (orphaned by a restart). `deriveState`
     // further narrows to runId-bearing `Workflow` runs, so a bare backgrounded
@@ -327,7 +333,7 @@ export function createSessionWatcher(
     // keeps `running_background`.
     const outstanding = liveOutstandingTasks(
       session,
-      outstandingBackgroundTasks(lines),
+      outstandingBackgroundTasks(lines, completed),
       now,
       observe,
     );
@@ -350,7 +356,7 @@ export function createSessionWatcher(
     // `subagents/` readdir) is skipped.
     const forks =
       derived.state === "waiting"
-        ? outstandingForkRuns(session, completedBackgroundTaskIds(lines), now)
+        ? outstandingForkRuns(session, completed, now)
         : [];
 
     // Resolve the state to publish and when (if ever) to re-probe. One
