@@ -133,9 +133,22 @@ export const Markdown: Component<{
 
   // Lazily load the Shiki highlighter for the document preview; `highlighter()`
   // flips from undefined → ready, re-running the html memo so code re-paints.
+  // Swallow a load failure (e.g. the lazy `shiki` chunk fails on a flaky
+  // network — the very case this lazy-load tolerates) and resolve to null:
+  // reading an *errored* resource inside the `html` memo would re-throw and,
+  // with no ErrorBoundary in the preview path, blank the whole preview. Null
+  // keeps `highlighter() != null` false so code renders plain, matching
+  // highlight.ts's per-block fallback.
   const [highlighter] = createResource(
     () => isDocument() || undefined,
-    () => loadHighlighter(),
+    () =>
+      loadHighlighter().catch((err) => {
+        console.warn(
+          "markdown: shiki highlighter failed to load; code renders plain",
+          err,
+        );
+        return null;
+      }),
   );
 
   const html = createMemo(() =>
