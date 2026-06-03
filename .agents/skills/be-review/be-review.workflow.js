@@ -120,6 +120,18 @@ if (!/^[A-Za-z0-9._-]+$/.test(RUN_ID) || RUN_ID === '..' || RUN_ID === '.') {
 const WT_ROOT = `${repoPath}/.worktrees`
 const wtDir = (track) => `${WT_ROOT}/be-review-${RUN_ID}-${track}`
 const SCRATCH = `${repoPath}/.be-review/${RUN_ID}`
+// The two gitignored scratch dirs this orchestrator owns: live per-track
+// worktrees under `.worktrees/` and commit-message/PR-comment scratch under
+// `.be-review/`. Two prompts must name them in lockstep — the DIFF brief tells
+// reviewers to ignore them, and the Setup preflight excludes them from the
+// clean-tree check — so the list lives here once and both interpolate it.
+const ORCHESTRATOR_SCRATCH = ['.worktrees/', '.be-review/']
+const scratchList = ORCHESTRATOR_SCRATCH.map((d) => `\`${d}\``).join(' and ')
+// The per-track debate scratch dirs the child workflows own (codex/lens write
+// their transcripts here). The consolidation clean-check must ignore these when
+// judging whether a track left uncommitted work, so the list lives here once.
+const TRACK_SCRATCH = ['.codex-debate/', '.lens-debate/']
+const trackScratchList = TRACK_SCRATCH.map((d) => `\`${d}\``).join(', ')
 
 // Generated skill locations the child debate workflows live at.
 const CODEX_SCRIPT = '.claude/skills/codex-debate/debate.workflow.js'
@@ -130,11 +142,20 @@ const CODEX_SKILLDIR = '.claude/skills/codex-debate'
 // not the raw `${base}` tip — see SETUP_SCHEMA.mergeBase. DIFF is an arrow, so it
 // reads `mergeBase` lazily at call time (Tracks phase, after Setup has set it).
 const DIFF = (wt) =>
-  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${mergeBase}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored \`.worktrees/\` and \`.be-review/\` scratch dirs if they appear.`
+  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${mergeBase}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored ${scratchList} scratch dirs if they appear.`
 
 const rationaleBlock = rationale
   ? `\nAuthor's note on deliberate decisions (do not flag these as defects unless the reasoning is itself wrong):\n${rationale}\n`
   : ''
+
+// Single source of the cwd-safety contract every mechanical git agent runs under.
+// The Workflow runtime can't run git/gh itself, so a thin agent shells out — and
+// because all agents share the SESSION cwd (see SHARED-CWD NOTE), each MUST use
+// absolute paths + `git -C` and never rely on the current directory. This sentence
+// was copy-pasted across the six mechanical-agent prompts; hoisting it here means
+// the contract lives in ONE place if the shared-cwd guarantee ever changes.
+const mechanicalPreamble = (role) =>
+  `You are a MECHANICAL ${role}. Every path here is ABSOLUTE; use \`git -C\` and never rely on the current directory.`
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -242,11 +263,11 @@ const CONSOLIDATE_SCHEMA = {
 // ---------------------------------------------------------------------------
 phase('Setup')
 
-const setupPrompt = `You are a MECHANICAL SETUP RUNNER preparing isolated worktrees for a parallel code-review gauntlet. Do exactly these steps (every path here is ABSOLUTE; use \`git -C\` and never rely on the current directory); do not edit any source files.
+const setupPrompt = `${mechanicalPreamble('SETUP RUNNER')} You are preparing isolated worktrees for a parallel code-review gauntlet. Do exactly these steps; do not edit any source files.
 
 1. Record the branch HEAD: \`git -C ${repoPath} rev-parse HEAD\` — this is \`branchHead\`, the commit every track forks from.
 1b. Record the MERGE-BASE: \`git -C ${repoPath} merge-base ${base} HEAD\` — this is \`mergeBase\`, the point the branch diverged from its base. Reviewers diff against THIS (not the raw \`${base}\` tip) so that commits \`${base}\` gained since the branch forked are NOT reviewed as if this PR made them. If the command FAILS (missing/typoed base, stale ref, or unrelated history), the review scope is untrustworthy — do NOT fall back to the raw \`${base}\`; instead set \`mergeBase\`: "" and put the exact git error in \`mergeBaseError\`, then STOP (skip worktree creation, return an empty \`worktrees\` array). (The orchestrator aborts the whole run when \`mergeBase\` is empty.)
-2. CLEAN-TREE PREFLIGHT. The tracks fork detached worktrees from \`branchHead\`, so anything NOT committed to HEAD is invisible to every reviewer. Run \`git -C ${repoPath} status --short\` and ignore only lines under the gitignored scratch dirs (\`.worktrees/\` and \`.be-review/\`). If ANY other staged, unstaged, or untracked entry remains, the working tree is dirty: set \`cleanTree\`: false, put those offending lines in \`dirtyStatus\`, SKIP worktree creation entirely (return an empty \`worktrees\` array), and stop. Otherwise set \`cleanTree\`: true and \`dirtyStatus\`: "".
+2. CLEAN-TREE PREFLIGHT. The tracks fork detached worktrees from \`branchHead\`, so anything NOT committed to HEAD is invisible to every reviewer. Run \`git -C ${repoPath} status --short\` and ignore only lines under the gitignored scratch dirs (${scratchList}). If ANY other staged, unstaged, or untracked entry remains, the working tree is dirty: set \`cleanTree\`: false, put those offending lines in \`dirtyStatus\`, SKIP worktree creation entirely (return an empty \`worktrees\` array), and stop. Otherwise set \`cleanTree\`: true and \`dirtyStatus\`: "".
 3. Only if \`cleanTree\` is true — ensure the scratch dirs exist: \`mkdir -p ${WT_ROOT} ${SCRATCH}\`.
 4. Only if \`cleanTree\` is true — create a fresh detached worktree at \`branchHead\` for each track, at these EXACT absolute paths (per-run unique, so they cannot belong to another in-flight run):
 ${TRACKS.map((t) => `   - ${t}: \`git -C ${repoPath} worktree add --detach ${wtDir(t)} <branchHead>\``).join('\n')}
@@ -411,7 +432,7 @@ async function commitFix(wt, id, subject, body, files) {
   const fileArgs = rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ')
   const msgPath = `${SCRATCH}/commit-msg-${id}.txt`
   const message = `${subject}\n\n${body}`
-  const prompt = `You are a MECHANICAL COMMITTER. Do exactly these steps and nothing else — do not edit files, do not push, do not stage anything beyond the listed files. Every path is absolute / \`git -C\`; do not rely on the current directory.
+  const prompt = `${mechanicalPreamble('COMMITTER')} Do exactly these steps and nothing else — do not edit files, do not push, do not stage anything beyond the listed files.
 
 1. Ensure the scratch dir exists: \`mkdir -p ${SCRATCH}\`.
 2. Using the Write tool, create \`${msgPath}\` with EXACTLY this content:
@@ -563,6 +584,16 @@ function policeComment(t) {
 ${rows || '| — | — | — | — |'}`
 }
 
+// Fallback comment for any requested track that has NO bespoke builder. It leans
+// only on the always-present per-track fields (`track`, `status`, and `error`/
+// `note` when present), so a newly-added reviewer track gets a real PR comment
+// instead of being silently dropped — keeping Report total over `TRACKS`.
+function genericComment(t) {
+  return `## ${t?.track || 'unknown'} track
+
+**Outcome:** \`${t?.status || 'unknown'}\`.${t?.error ? ` Track error: ${esc(t.error)}.` : ''}${t?.note ? `\n\n${esc(t.note)}` : ''}`
+}
+
 function consolidationSection(c, order) {
   const rows = (c?.picks || [])
     .map((p) => `| ${esc(p.track)} | ${sha9(p.sourceCommit)} | \`${esc(p.outcome)}\` | ${sha9(p.newCommit)} | ${esc(p.note) || ''} |`)
@@ -578,7 +609,7 @@ ${rows || '| — | — | — | — | — |'}`
 // MAIN worktree (gh uses cwd's repo; the agent runs `gh -C`-equivalent by cd-ing).
 async function postComment(slug, body) {
   const file = `${SCRATCH}/comment-${slug}.md`
-  const prompt = `You are a MECHANICAL PR COMMENTER. Do exactly these steps and nothing else.
+  const prompt = `${mechanicalPreamble('PR COMMENTER')} Do exactly these steps and nothing else.
 
 1. \`mkdir -p ${SCRATCH}\`.
 2. Using the Write tool, create \`${file}\` with EXACTLY this markdown content:
@@ -610,7 +641,6 @@ if (!commit) {
     consolidation: null,
     reconciled: [],
     dropped: [],
-    conflicts: [],
     note: 'commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — see the `worktrees` field below for each track’s path — and re-run with commit enabled to consolidate.',
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
   }
@@ -680,7 +710,6 @@ if (branchMoved || branchDirty) {
     consolidation: null,
     reconciled: [],
     dropped: [],
-    conflicts: [],
     preservedTracks: liveTracks,
     note: `consolidation aborted: ${why}. Cherry-picking onto the changed base would review against an untrustworthy scope, so nothing was consolidated and every track worktree was PRESERVED (see each track's note for the recovery cherry-pick).${dirty ? `\nOffending entries:\n${dirty}` : ''}`,
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
@@ -702,7 +731,7 @@ if (branchMoved || branchDirty) {
 // never torn down. A dirty/unknown track is surfaced in the result for the human.
 const cleanCheck = liveTracks.length
   ? await agent(
-      `You are a MECHANICAL CLEANLINESS CHECKER. For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (\`.codex-debate/\`, \`.lens-debate/\`); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines. Report a row for EVERY track listed, even if its worktree looks empty or the command errors (if \`git status\` fails, set clean=false and put the error in dirtyStatus). Do not edit anything. Tracks and their worktrees:
+      `${mechanicalPreamble('CLEANLINESS CHECKER')} For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (${trackScratchList}); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines. Report a row for EVERY track listed, even if its worktree looks empty or the command errors (if \`git status\` fails, set clean=false and put the error in dirtyStatus). Do not edit anything. Tracks and their worktrees:
 ${liveTracks.map((t) => `  - ${t}: ${wtDir(t)}`).join('\n')}
 For each track return { track, clean (boolean), dirtyStatus (the offending \`status --short\` lines verbatim, or "" if clean) }.`,
       {
@@ -826,13 +855,12 @@ if (currentHead !== branchHead) {
     consolidation: null,
     reconciled: [],
     dropped: [],
-    conflicts: [],
     note: `consolidation precondition failed: the branch in \`${repoPath}\` is at \`${currentHead || '(unknown)'}\` but the review tracks forked from \`${branchHead}\`. The HEAD has advanced past the shared fork point — likely a re-run in an already-consolidated worktree — so cherry-picking the track commits would stack them a SECOND time and double-apply every fix. Nothing was consolidated and the per-track worktrees are PRESERVED. Reset the branch to \`${branchHead}\` (\`git -C ${repoPath} reset --hard ${branchHead}\`) or start from a clean worktree, then re-run.`,
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
   }
 }
 
-const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. Every command below is \`git -C\` against an ABSOLUTE path — do not rely on the current directory. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
+const consolidatePrompt = `${mechanicalPreamble('CONSOLIDATOR')} You are consolidating the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
 
 The branch in \`${repoPath}\` is currently AT \`${branchHead}\` (the tracks' shared fork point). Process tracks in THIS order: ${consolidateOrder.join(' → ')}.
 
@@ -872,13 +900,16 @@ if (postComments) {
   // requested-track audit trail instead of silently omitting the dropped track. A
   // per-track comment builder keyed by track name; adding/removing a reviewer costs
   // Report nothing — no hardcoded track literal to keep in sync.
+  // Bespoke per-track builders; any requested track without one falls back to
+  // `genericComment`, so the map below stays TOTAL over `TRACKS` — a new reviewer
+  // track gets a comment even before it grows a hand-written builder.
   const builder = { codex: codexComment, lens: lensComment, police: policeComment }
   // The consolidation ledger is a WORKFLOW-level artifact, not a track artifact, so
   // it posts as its own comment — surviving any track subset instead of being
   // string-stapled onto whichever track happens to be present.
   const bodies = [
     ['consolidation', consolidationSection(consolidation, consolidateOrder)],
-    ...TRACKS.filter((t) => builder[t]).map((t) => [t, builder[t](tracks[t])]),
+    ...TRACKS.map((t) => [t, (builder[t] || genericComment)(tracks[t])]),
   ]
   // Post sequentially so the comments land in a stable order (consolidation, then
   // the tracks in canonical order).
@@ -906,7 +937,7 @@ const teardownTracks = consolidateOrder
 if (preservedTracks.length) log(`Cleanup: preserving ${preservedTracks.length} worktree(s) not consolidated (${preservedTracks.join(', ')}) — they may hold uncommitted or unreplayed committed edits.`)
 if (teardownTracks.length) {
   await agent(
-    `You are a MECHANICAL CLEANUP RUNNER. Every path is absolute / \`git -C\`; do not rely on the current directory. Remove EACH of these worktrees, then prune; ignore errors if one is already gone. Do NOT touch any other path.
+    `${mechanicalPreamble('CLEANUP RUNNER')} Remove EACH of these worktrees, then prune; ignore errors if one is already gone. Do NOT touch any other path.
 ${teardownTracks.map((t) => `  - \`git -C ${repoPath} worktree remove --force ${wtDir(t)}\``).join('\n')}
 Then: \`git -C ${repoPath} worktree prune\`. Leave the gitignored \`${SCRATCH}\` directory (it holds commit-message + comment scratch); do not delete the branch's commits. Return "done".`,
     { label: 'cleanup:worktrees', phase: 'Cleanup', model },
@@ -952,8 +983,5 @@ return {
   // (police `incomplete`, lens `unresolved`, codex `reviewer-error`); their fixes
   // landed but the gauntlet didn't fully finish. Non-empty ⇒ 'consolidation-incomplete'.
   incompleteTracks,
-  // back-compat: the union of non-clean picks. Consumers keying on a discarded
-  // fix (e.g. /be §4's "dropped overlap" adjudication) should read `dropped`.
-  conflicts: [...reconciled, ...dropped],
   comments,
 }
