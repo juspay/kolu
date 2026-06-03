@@ -24,16 +24,38 @@ User-set constraints for this run:
 
 | | Baseline (PAR=4) | After (PAR=8 + fixes) | Δ |
 | --- | --- | --- | --- |
-| e2e suite wall-clock (`cuke_s`) | **~450 s** | **~156 s** | **−65%** |
-| Total (`total_s`) | ~452 s | ~159 s | −65% |
-| Clean-run reliability | 1/3 runs flaked (code-tab `[branch]` hard-fail) | **3/3 green, 0 retries** | ✓ |
+| e2e suite wall-clock, clean run | ~420–570 s (med ~450) | **~155–165 s** | **≈ −65%** |
+| Specific failure modes | code-tab `[branch]` hard-fail; server-death cascade (251/398) | **both eliminated** | ✓ |
+| General darwin-load timeout flakiness | 3–9 timeouts/run (retry-absorbed) | 0–18/run (retry-absorbed) | ≈ unchanged |
 
-The win is two-layered: **4→8 workers** on the idle 24-core host removes ~48% of
-the wall-clock, and the **flake fixes** remove the remaining time that
-failing/retrying scenarios burned at 20–40 s each (baseline b1 skipped 43 steps
-to retries; the final runs skip 0). Both land in the real `just test` →
-`ci::e2e` path. The catastrophic bimodal failure that *looked* like a
-parallelism ceiling turned out to be a retry-blind harness bug (below).
+The duration win is two-layered: **4→8 workers** on the idle 24-core host roughly
+halves the parallelizable body, and the **flake fixes** remove the 20–40 s a
+failing/retrying scenario burns. Both land in the real `just test` → `ci::e2e`
+path. The catastrophic bimodal failure that *looked* like a parallelism ceiling
+turned out to be a retry-blind harness bug (below).
+
+**Honesty caveat — the darwin suite stays load-flaky.** A ~20 s `POLL_TIMEOUT` /
+60 s `HYDRATION_TIMEOUT` flake fires 0–18×/run at *both* PAR=4 and PAR=8 (the
+pre-existing "darwin runner load" class the two prior flaky-test reports also
+couldn't fully kill), absorbed by `CUCUMBER_RETRY=1`. This run did **not**
+eliminate that class — it removed two *specific* failure modes and made the rest
+diagnosable. PAR=8's higher load can marginally pressure the slow-hydration tail.
+
+### Authoritative validation (real `ci::e2e` recipe path)
+
+| Run | path | wall | timeouts (retried) | result |
+| --- | --- | --- | --- | --- |
+| `justci run ci::e2e@aarch64-darwin` | full pipeline node | 12m30s\* | 24 | **398/398 ✓** |
+| r1 (`just ci::e2e`) | real recipe | 267 s | 12 | 397/398 (one 60 s hydration hard-fail) |
+| r2 (`just ci::e2e`) | real recipe | 163 s | 0 | **398/398 ✓** |
+
+\* The justci node also rebuilt `koluBin` from scratch (test-harness edits bust
+its content hash) and ran in isolation without the concurrent `ci::nix` node that
+normally overlaps that build via store-lock dedup; its 24 retried timeouts (a
+high-tail loaded moment) account for the rest. **The recipe change works**:
+adaptive parallelism resolved to 8 workers, `ulimit` raised, suite green. Of 12
+PAR=8 runs total, 11 were green; one (r1) went red on a single 60 s hydration
+timeout — the residual darwin-load flake, gated by `CUCUMBER_RETRY=1` (kept).
 
 ---
 
