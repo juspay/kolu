@@ -461,11 +461,17 @@ Feature: Code tab (review + browse)
   # Regression: a >1 MB .md file is read back truncated (first 1 MB only). It
   # still defaults to the rendered view, so the rendered appliance must carry
   # the same "File truncated" banner the source view shows — otherwise a partial
-  # document renders silently with no warning. The marker sits in the first
-  # bytes so it survives the 1 MB cut and proves content rendered.
-  Scenario: Truncated Markdown still warns in the rendered view
+  # document renders silently with no warning. The marker + task item sit in the
+  # first bytes so they survive the 1 MB cut and prove content rendered.
+  #
+  # Toggling a checkbox writes the rendered source back to the file; on a
+  # truncated source that source is only the 1 MB prefix, so a write would
+  # silently destroy everything past 1 MB. Guard: checkboxes go presentational
+  # (disabled, no interactive `data-md-task`) when truncated, so a click can't
+  # write a truncated body back.
+  Scenario: Truncated Markdown warns and keeps task checkboxes presentational
     When I run "rm -rf /tmp/kolu-md-trunc && git init /tmp/kolu-md-trunc && cd /tmp/kolu-md-trunc"
-    And I run "printf '# Truncated Doc\n\nbody marker\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
+    And I run "printf '# Truncated Doc\n\nbody marker\n\n- [ ] guard me\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
@@ -473,6 +479,11 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     And the markdown preview should contain "Truncated Doc"
     And the markdown preview should show the truncation warning
+    # The checkbox renders, but presentational: a disabled box with no
+    # `data-md-task`, so a click is inert and can't write the truncated prefix
+    # back over the full file.
+    And the markdown preview should render a "input[type=checkbox][disabled]" element
+    And the markdown preview should not render a "input[data-md-task]" element
 
   Scenario: Markdown source toggle reveals the raw markdown
     When I run "rm -rf /tmp/kolu-md-src && git init /tmp/kolu-md-src && cd /tmp/kolu-md-src"
