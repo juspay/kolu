@@ -189,6 +189,25 @@ defineBuildInfo({ schema: z.object({ commit: z.string(), ptyHost: PtyHostRefSche
 </table>
 <p>And the commit is <strong>resolved once</strong> — <code>SURFACE_APP_COMMIT</code> env, else <code>git rev-parse --short HEAD</code>, else <code>"dev"</code> (which <code>clientIsStale</code> already treats as never-stale) — then fed to both the client define and the server cell. No app writes a sha.</p>
 
+<p class="lbl">✗ the spike — the example re-implemented the library's job (what review flagged)</p>
+<pre><span class="c">// server — a hand-written cell store, and a hand-rolled /sw.js route</span>
+cells: { buildInfo: { store: { get: () =&gt; ({ commit: SERVER_COMMIT }), set() {} } } }
+app.get(<span class="s">"/sw.js"</span>, (c) =&gt; c.body(SW_SOURCE, 200, { <span class="s">"content-type"</span>: <span class="s">"text/javascript"</span> }));
+<span class="c">// vite.config — a sha literal (!) and a per-app define</span>
+<span class="k">const</span> clientCommit = process.env.CLIENT_COMMIT || <span class="s">"c11e7700"</span>;
+define: { __SURFACE_APP_COMMIT__: JSON.stringify(clientCommit) }
+<span class="c">// env.d.ts — the global's type, redeclared per app</span>
+<span class="k">declare const</span> __SURFACE_APP_COMMIT__: string;</pre>
+
+<p class="lbl">✓ composed — the app stitches fragments and owns none of it</p>
+<pre><span class="c">// server — compose the impl fragment (commit auto-resolved), then serve shell + manifest + /sw.js</span>
+implementSurface(surface, { channel, cells: { ...buildInfoServer() } });
+installSurfaceApp(app, { clientDist, manifest });
+<span class="c">// vite.config — one plugin resolves the commit (git/env), injects the define, ships its type</span>
+plugins: [solid(), surfaceApp()]
+<span class="c">// env.d.ts — deleted. no define, no sha literal, no hand-rolled routes.</span></pre>
+<p class="muted">Every removed line was the app doing the library's job; every surviving line composes a fragment. That's the whole principle.</p>
+
 <h2>The API — entrypoints</h2>
 <p>One package, sub-path entrypoints mirroring @kolu/surface's <code>exports</code> map. Pure kernels under <code>utils/</code>.</p>
 
