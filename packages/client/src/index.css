@@ -6,7 +6,7 @@
  * than via a component-level CSS import the package's `sideEffects:false`
  * could tree-shake — so the rendered preview, intent body, and dock all pick
  * them up. Theme palette stays here (the sheet reads `--color-accent`). */
-@import "../../solid-markdown/src/markdown.css";
+@import "@kolu/solid-markdown/markdown.css";
 
 /* `@kolu/solid-markdown` also ships a few Tailwind utility classes. Make the
  * cross-package source explicit so those classes are always generated —
