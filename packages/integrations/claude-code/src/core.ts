@@ -990,9 +990,19 @@ const FORK_META_RE = /^agent-(.+)\.meta\.json$/;
 
 /** A `/fork` sub-agent streams its transcript continuously while it runs, so a
  *  multi-minute gap means it died (its launching claude was killed and the
- *  completion notification can never arrive). Mirrors `WORKFLOW_JOURNAL_STALE_MS`
- *  — the same "quiet long enough to be sure it's orphaned" threshold — kept a
- *  separate const so fork timing can move without touching workflow timing. */
+ *  completion notification can never arrive). Encodes the SAME domain fact as
+ *  `WORKFLOW_JOURNAL_STALE_MS` — "how long a streaming background anchor may go
+ *  quiet before it's presumed orphaned" — and is currently the same 2 min. This
+ *  is a named const, not a separate threshold: both values are carried per-run as
+ *  `LiveRun.staleMs` and folded in one place (`nextStaleDeadline`), so the fork
+ *  and workflow windows can never silently drift apart in the math. They are kept
+ *  as two consts only because they are two pieces of data anchored on two
+ *  different artifacts; there is no observed or roadmapped scenario where
+ *  fork-orphan timing must diverge from workflow-orphan timing (both watch the
+ *  same "sub-agent transcript stopped streaming" mechanism). Should a genuinely
+ *  independent fork window ever materialize, change this value; until then,
+ *  collapsing both to one `BACKGROUND_RUN_STALE_MS` would be a fine further
+ *  simplification. */
 export const FORK_TRANSCRIPT_STALE_MS = 2 * 60 * 1000;
 
 /** True when `agent-<id>.meta.json` tags the sub-agent as a `/fork`. A
