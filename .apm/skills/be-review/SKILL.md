@@ -109,9 +109,11 @@ to `cd`.
   cherry-pick/reconcile, the police review/apply passes — code-police is natively
   Sonnet anyway), **`mechModel: haiku`** for mechanical agents (setup, every
   commit, cleanup, comment posters, status/HEAD checks, merge-base + codex runner).
-  Override any tier via args. The run reports a per-phase **`tokensByPhase`**
-  breakdown (output tokens, from `budget.spent()`) so you can see where the cost
-  goes — Tracks dominates, Report is the reporters, the mechanical phases are cheap.
+  Override any tier via args. The run reports a **`tokensByPhase`** breakdown
+  (output tokens, from `budget.spent()` on the shared turn counter) bucketed by
+  each phase's wall-clock window — NOT isolated to that phase's agents: concurrent
+  track and child-workflow output lands in whichever window is open, so read it as
+  per-mark-interval spend for tuning the tiers, not as an isolated per-phase cost.
 
 ## Steps
 
