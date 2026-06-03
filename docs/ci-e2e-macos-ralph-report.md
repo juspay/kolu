@@ -20,6 +20,21 @@ User-set constraints for this run:
   `CUCUMBER_RETRY` are tunable levers (the host has 24 idle cores; CI uses 4
   workers).
 
+## Result (same harness, same host, medians)
+
+| | Baseline (PAR=4) | After (PAR=8 + fixes) | Δ |
+| --- | --- | --- | --- |
+| e2e suite wall-clock (`cuke_s`) | **~450 s** | **~156 s** | **−65%** |
+| Total (`total_s`) | ~452 s | ~159 s | −65% |
+| Clean-run reliability | 1/3 runs flaked (code-tab `[branch]` hard-fail) | **3/3 green, 0 retries** | ✓ |
+
+The win is two-layered: **4→8 workers** on the idle 24-core host removes ~48% of
+the wall-clock, and the **flake fixes** remove the remaining time that
+failing/retrying scenarios burned at 20–40 s each (baseline b1 skipped 43 steps
+to retries; the final runs skip 0). Both land in the real `just test` →
+`ci::e2e` path. The catastrophic bimodal failure that *looked* like a
+parallelism ceiling turned out to be a retry-blind harness bug (below).
+
 ---
 
 ## What the e2e lane does
@@ -121,34 +136,117 @@ The suite is **bimodal** at PAR≥6: when it stays healthy it's ~30% faster
    workers would have passed. One dead server → hundreds of failures + a fast
    finish. This is why the catastrophic runs are also the fastest.
 
-**Suspected mechanism:** `ulimit -n` on rasam is **256** (macOS default; hard
-limit is `unlimited`). The soft limit is inherited by each spawned server. Under
-higher total concurrency the server's `accept()` hits **EMFILE** and stops
-accepting connections without crashing or logging — exactly the silent
-unreachability observed. Fix under test: `ulimit -n 65536` before the suite (a
-one-line recipe change). If it makes PAR=8/12 stable, raising parallelism becomes
-a real Pareto win; if not, the lever is unsafe and stays at 4.
+### Root cause (adjudicated by a parallel theory-test workflow)
+
+Five candidate mechanisms were tested in parallel against the captured logs +
+source. **All five were refuted**, and the true mechanism — which none of the
+initial hypotheses named — was isolated with high confidence:
+
+- ✗ **EMFILE / fd-256** — no `EMFILE`/`ENFILE` anywhere; the failure is isolated
+  to *one* server (not all); the wedged server passed *zero* scenarios so nothing
+  accumulated; and PAR=8 ran clean at *higher* concurrency. (The 256 limit is
+  real but not the trigger.)
+- ✗ **get-port TOCTOU** — six distinct ports per run, each claimed once.
+- ✗ **ephemeral-port / TIME_WAIT** — no `EADDRNOTAVAIL`/`EADDRINUSE`.
+- ✗ **CPU event-loop stall** — `postJSONOnce` has *no* timeout, so a live-but-
+  stalled server would **hang**, not fail fast; the errno is `ECONNREFUSED`
+  (process *gone*), not `ETIMEDOUT`/`ECONNRESET`.
+- ✗ **orphan-server confound** — failures hit the worker's *own* freshly-bound
+  port, not a foreign one.
+
+**Actual mechanism:** a single worker's spawned kolu server **dies** mid-run
+(`ECONNREFUSED` on its own port; it had passed `/api/health` and logged only the
+benign SQLite `ExperimentalWarning`). Two *harness* defects then turn one dead
+server into a catastrophe:
+
+1. **`isTransientSetupError` checked only `err.message`, not `err.code`**
+   (`hooks.ts:152`). Node raises a dual-stack `AggregateError` for a refused
+   connection whose `.message` is **empty** and whose real errno (`ECONNREFUSED`)
+   lives on `.code`/`.errors[].code`. So the Before-hook reset **bailed on the
+   first attempt with zero retries** and rethrew `…killAll failed after
+   retries:` with an empty tail (matches 1179/1179 failing lines byte-for-byte).
+2. **Queue-drain amplification** — cucumber workers pull from a shared queue, so
+   the now-instant-failing worker greedily drains ~251 scenarios (vs ~29 for each
+   healthy worker). One dead server ⇒ 251–286 failures *and* the fast finish.
+
+The **death cause itself was invisible**: the server's stdout was suppressed
+unless `KOLU_TEST_VERBOSE`, and there was no exit log — so nothing distinguished
+a crash from a wedge. Both defects are fixed in the **harness-hardening** cycle
+below, and an instrumented campaign (clean-start + `ulimit -n 65536` + per-worker
+server logs + exit logging) re-runs PAR=6/8 to confirm the blast radius is capped
+and to capture *why* a server dies if it recurs.
 
 ## Optimization log
 
-| Cycle | Axis | Target | Classification | Change | Re-measure | Verdict |
-| ----- | ---- | ------ | -------------- | ------ | ---------- | ------- |
-| _pending_ | | | | | | |
+Per-PAR medians (cucumber phase only; `build_s`/`install_s` ≈ 1s on the warm
+store). Catastrophic runs excluded from the duration median (they fail fast and
+aren't a real timing).
+
+| Config | runs | med cuke_s | catastrophic | note |
+| ------ | ---- | ---------- | ------------ | ---- |
+| PAR=4 (baseline) | 3 | ~450 | 0 | the old CI setting |
+| PAR=6 (ulimit 256, dirty) | 3 | 318 (1 clean) | **2/3** | orphan/retry-blind cascade |
+| PAR=8 (ulimit 256) | 3 | ~242 | 0 | already ~46% faster |
+| PAR=12 (ulimit 256) | 1 | 360 | 0 | **slower** than 8 (tail+contention) |
+| PAR=8 (hardened, ulimit 65536) | 3 | ~233 | 0 | parallelism only |
+| PAR=6 (hardened, clean-start) | 3 | 210 | **0/3** | cascade gone |
+| **PAR=8 + all flake fixes (final)** | 3 | **~156** | 0 | **adopted — 398/398, 0 retries** |
+
+| Cycle | Axis | Change | Outcome |
+| ----- | ---- | ------ | ------- |
+| 1 — Parallelism sweep | duration | Measure 4/6/8/12 on the idle 24-core host | **PAR=8 is the knee**: cuke ~450s→~233s (**−48%**). PAR=12 *slower* (overhead + the ~34s slowest-scenario tail). Committed past noise. |
+| 2 — Root cause (theory workflow) | flakiness | 5 hypotheses tested in parallel vs the captured logs | All 5 refuted; pinned to **single-server-death + retry-blindness + queue-drain** (see above). |
+| 3 — Harness hardening | flakiness | `isTransientSetupError` checks `err.code`/`AggregateError`; errno in error tail; per-worker server log + exit log; `postJSONOnce` rejects non-2xx | PAR=6 clean-start went **2/3 catastrophic → 0/3**; 6 hardened runs, **0 server deaths**, no retries needed. Cascade amplifier removed; deaths now diagnosable. |
+| 4 — code-tab branch barrier | both | Block on `git push` completion before branch-mode `gitStatus` subscribes | Removes the baseline hard-fail (`code-tab.feature` `[branch]`, failed both attempts in b1/b3/i8b) and the ~40s of POLL_TIMEOUT it burned. |
+| 5 — codex fixture `BEGIN IMMEDIATE` | flakiness | Atomic DELETE+INSERT row-swap | Closes the null/null reconcile-gap race (worse at higher PAR); mirrors the OpenCode fix. |
+| 6 — Adaptive parallelism + ulimit | duration | `CUCUMBER_PARALLEL` ≈ cores/3 clamped [4,8]; `ulimit -n 65536` | Lands the PAR=8 win in the real `just test` (→ `ci::e2e`) on rasam, keeps laptops at 4, adds fd insurance. |
 
 ---
 
 ## Dead ends
 
-_Documented as encountered ("X doesn't help")._
+- **Collapsing the triple `pnpm install` / nested devshell** — sub-noise on the
+  warm store (`install_s` ≈ 1s; `koluBin` cached). Documented, not committed.
+- **Raising `CUCUMBER_PARALLEL` to 12** — *slower* than 8 on 24 cores (the
+  ~34s slowest scenarios + worker contention dominate past 8). PAR=8 is the knee.
+- **EMFILE / fd-256 as the catastrophe cause** — disproven by the theory
+  workflow (raising `ulimit` is still kept as cheap insurance, not a fix).
+- **Trimming `HYDRATION_TIMEOUT` / the mobile "does-not-summon-keyboard" 30s
+  scenarios** — not pursued: those waits guard real negatives and the 60s
+  hydration margin absorbs the darwin slow-hydration tail with one retry. (Noted
+  from the prior reports' dead-ends to avoid repeating.)
 
 ---
 
 ## Findings
 
-_Pending._
+1. **The suite is the cost; parallelism is the lever.** On rasam's warm store the
+   only meaningful wall-clock is the cucumber phase. Going 4→8 workers on the idle
+   24-core host cut it ~48% — the single biggest win. 12 is past the knee.
+2. **The "parallelism is unsafe" scare was a harness bug, not a host limit.** The
+   bimodal catastrophe at PAR=6 was a single server dying once and a *retry-blind*
+   error classifier turning that into a 251-scenario queue-drain. Fixing the
+   classifier (match `err.code`, not just `.message`) restores the intended
+   retry; hardened PAR=6 went 2/3-catastrophic → 0/3.
+3. **A parallel theory-test workflow earned its keep.** Five plausible causes
+   (fd/EMFILE, get-port, TIME_WAIT, CPU-stall, orphan) were all refuted against
+   the logs, redirecting the fix from "raise ulimit and hope" to the real
+   classifier/observability bug — which a single-threaded guess (mine was EMFILE)
+   would have gotten wrong.
+4. **Observability was the missing piece.** The server death emitted nothing;
+   per-worker server logs + exit logging now make any recurrence diagnosable
+   instead of a silent 251-failure mystery.
 
 ---
 
 ## Cost breakdown
 
-_Pending._
+- **Adaptive parallelism**: 8 servers + 8 Chromium contexts on a 128 GB / 24-core
+  host — load avg peaked ~12 (half the cores), comfortable headroom.
+- **`ulimit -n 65536`**: free; the hard limit is `unlimited`.
+- **`err.code` retry / non-2xx**: zero on green runs (only widens what the
+  already-intended retry catches / surfaces an already-failing reset).
+- **Per-worker server log**: one append-stream per worker, drained data that was
+  already being read off the pipe — negligible.
+- **code-tab barrier / codex transaction**: one extra `echo`+buffer-wait per
+  branch fixture; a single SQLite transaction per codex fixture — sub-ms.
