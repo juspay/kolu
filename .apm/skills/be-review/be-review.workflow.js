@@ -107,11 +107,18 @@ const mechModel = a.mechModel || "haiku";
 // ---------------------------------------------------------------------------
 // Token instrumentation. `budget.spent()` is the turn's running OUTPUT-token
 // counter (shared across the main loop + all workflows). Snapshotting it at each
-// phase boundary gives a per-phase token breakdown so the cost distribution is
-// visible (Tracks dominates; Report is the reporters; the mechanical phases are
+// phase boundary gives a cost-distribution breakdown so you can see where the
+// tokens go (Tracks dominates; Report is the reporters; the mechanical phases are
 // cheap) — exactly what you need to know where to spend the next optimization.
-// Output-only and approximate when other work runs concurrently, but for a solo
-// run it maps cleanly to phases. Guarded: `budget` may be absent in some runtimes.
+// CAVEAT: each bucket is the OUTPUT tokens emitted on the shared turn counter
+// during that phase's wall-clock window — NOT isolated to that phase's agents.
+// Phase boundaries are plain marks on one shared monotonic number, not
+// synchronization points: the Tracks phase dispatches all tracks concurrently
+// (parallel(...)), and those child workflows (codex/lens) draw on the same
+// `budget`, so any concurrent track and child-workflow output lands in whichever
+// window happens to be open. Treat the numbers as per-mark-interval spend, not
+// per-phase cost — don't read Tracks vs Report as an isolated comparison.
+// Guarded: `budget` may be absent in some runtimes.
 // ---------------------------------------------------------------------------
 const spentTokens = () => {
   try {
@@ -1562,10 +1569,12 @@ return {
   consolidation,
   reconciled,
   dropped,
-  // Per-phase OUTPUT-token cost (from budget.spent()), so a run reports where its
-  // tokens went — Tracks dominates; Report is the reporter agents; the mechanical
-  // phases are cheap. Approximate (output-only; shared turn counter), useful for
-  // tuning the model tiers and spotting where to trim next.
+  // OUTPUT tokens (from budget.spent()) emitted on the shared turn counter during
+  // each phase's wall-clock window — NOT isolated to that phase's agents. Concurrent
+  // track and child-workflow output lands in whichever window is open, so this is
+  // per-mark-interval spend, not isolated per-phase cost; don't read Tracks vs Report
+  // as a clean comparison. Still useful for tuning the model tiers and spotting where
+  // the bulk of the tokens go.
   tokensByPhase,
   // Tracks whose fixes were NOT consolidated onto the branch (preserved worktrees);
   // empty in the common case. Non-empty ⇒ status is 'consolidation-incomplete'.
