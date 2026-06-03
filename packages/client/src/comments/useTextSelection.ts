@@ -2,8 +2,10 @@
  *  element into a debounced `{ locator, rect }` signal — drives the
  *  `SelectionPill` placement and feeds the composer on activation.
  *
- *  Mounted on:
- *    - `BrowseFileView.tsx` (text browse, Pierre's `CodeView` file item)
+ *  Mounted via `CommentTextSurface` at the comment seam:
+ *    - `withComments("text", …)` in `BrowseFileDispatcher.tsx`
+ *      (the source view via `BrowseFileView`; rendered Markdown is
+ *      `"none"`-captured, so it never mounts this hook)
  *    - The diff branch in `CodeTab.tsx` (Pierre's `CodeView` diff item)
  *
  *  The HTML-iframe surface uses the in-iframe SDK instead (this hook
