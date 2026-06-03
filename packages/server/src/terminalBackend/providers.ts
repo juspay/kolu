@@ -136,8 +136,14 @@ export interface ProviderHooks {
    *  dependency on the PTY host — a remote ssh pty-host serves the same read
    *  over the wire. Drives `AgentProvider.screenScrape` promotion (Claude's
    *  `AskUserQuestion` / `ExitPlanMode` — #905); without it, screen scrape is
-   *  simply inactive. */
-  readScreenText?: () => Promise<string>;
+   *  simply inactive.
+   *
+   *  `tailLines` reads only the last N rendered lines: the screen-scrape
+   *  detector inspects just the screen bottom, so the poll asks for exactly
+   *  its tail (`screenScrape.tailLines`) rather than the whole buffer — a long
+   *  scrollback (the configured 50k lines) isn't allocated, joined, shipped,
+   *  and discarded once a second while a session waits. */
+  readScreenText?: (tailLines?: number) => Promise<string>;
 }
 
 // ── Foreground process observer ──────────────────────────────────────
@@ -369,6 +375,20 @@ const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
  *  while the agent is in a pollable (idle) state, so it's off the hot path. */
 const SCREEN_SCRAPE_POLL_MS = 1000;
 
+/** True for the pty-host's "no PTY with id" ORPCError — the benign teardown
+ *  race where the terminal vanished between a poll being scheduled and its
+ *  screen read landing. Read `.code` structurally rather than via `instanceof`
+ *  so it still classifies a deserialized error from a remote pty-host (the
+ *  error crosses a socket in R-2 and is no longer the same class). */
+function isNotFoundError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: unknown }).code === "NOT_FOUND"
+  );
+}
+
 function setAgentMetadataVia(
   record: ProviderRecord,
   hooks: ProviderHooks,
@@ -524,7 +544,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
       try {
         const info = latestInfo;
         if (info && scrape.isPollable(info)) {
-          const text = await readScreen();
+          const text = await readScreen(scrape.tailLines);
           if (!stopped && latestInfo === info) {
             const promoted = scrape.promote(info, text);
             const published = record.meta.agent;
@@ -544,7 +564,17 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
           }
         }
       } catch (err) {
-        plog.debug({ err }, "screen-scrape poll tick failed");
+        // A NOT_FOUND is the benign teardown race — the PTY vanished between
+        // this tick being scheduled and the screen read landing (the local
+        // handle / a remote pty-host throws "no PTY with id"). Keep that at
+        // debug; anything else is an unexpected failure in the scrape path
+        // (a broken read leaves the prompt silently un-promoted), so surface
+        // it at error per the project's logging rule.
+        if (isNotFoundError(err)) {
+          plog.debug({ err }, "screen-scrape poll tick raced teardown");
+        } else {
+          plog.error({ err }, "screen-scrape poll tick failed");
+        }
       }
       if (!stopped) timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
     };

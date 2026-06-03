@@ -84,6 +84,31 @@ const BARE_PROCEED = `● Should I keep going? Would you like to proceed?
 const PLAIN_ASSISTANT_TEXT = `● The function returns null when the file is
   missing, so the caller treats it as "retry".`;
 
+/** Adversarial negative: a completed response whose shell redirection (`cat >
+ *  file`) supplies a `>` and whose prose says "to select" — the conjunction the
+ *  old "any whitespace-delimited `>`" caret would have falsely matched. The
+ *  redirect isn't a line-leading caret marking a numbered option, so it must
+ *  NOT promote. */
+const SHELL_REDIRECT_PROSE = `● Run this to capture the output:
+
+  cat config.json > /tmp/file
+
+Then open /tmp/file to select the target host for the next step.`;
+
+/** Adversarial negative: a Markdown blockquote (`> quoted`) plus prose with
+ *  "to navigate" — a blockquote `>` is line-leading but doesn't mark a numbered
+ *  option, so it must NOT match. */
+const MARKDOWN_BLOCKQUOTE = `● As the docs note:
+
+> Use the arrow keys to navigate the file tree.
+
+That's the recommended flow.`;
+
+/** Adversarial negative: prose that literally contains "to select" with no
+ *  option list anywhere. */
+const PROSE_TO_SELECT = `● I went ahead and updated the query to select only the
+  active rows, since that's what the report needs.`;
+
 describe("detectClaudePrompt — ExitPlanMode", () => {
   it("detects the 'Ready to code?' header", () => {
     expect(detectClaudePrompt(EXIT_PLAN_READY_TO_CODE)).toEqual({
@@ -153,6 +178,18 @@ describe("detectClaudePrompt — negatives", () => {
 
   it("ignores ordinary assistant prose", () => {
     expect(detectClaudePrompt(PLAIN_ASSISTANT_TEXT)).toBeNull();
+  });
+
+  it("ignores shell redirection + 'to select' prose (caret must mark an option)", () => {
+    expect(detectClaudePrompt(SHELL_REDIRECT_PROSE)).toBeNull();
+  });
+
+  it("ignores a Markdown blockquote + 'to navigate' prose", () => {
+    expect(detectClaudePrompt(MARKDOWN_BLOCKQUOTE)).toBeNull();
+  });
+
+  it("ignores prose that merely contains 'to select'", () => {
+    expect(detectClaudePrompt(PROSE_TO_SELECT)).toBeNull();
   });
 });
 

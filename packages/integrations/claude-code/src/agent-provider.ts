@@ -30,7 +30,11 @@ import {
   subscribeSessionsDir,
 } from "./core.ts";
 import type { ClaudeCodeInfo } from "./schemas.ts";
-import { isScreenPollable, promoteFromScreen } from "./screen.ts";
+import {
+  isScreenPollable,
+  promoteFromScreen,
+  TAIL_REGION_LINES,
+} from "./screen.ts";
 import { createSessionWatcher } from "./session-watcher.ts";
 
 export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
@@ -73,6 +77,7 @@ export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
   // `isScreenPollable` holds and lifts `waiting → awaiting_user`. Pure +
   // promote-only; both halves live in `screen.ts` next to the detector.
   screenScrape: {
+    tailLines: TAIL_REGION_LINES,
     isPollable: isScreenPollable,
     promote: promoteFromScreen,
   },

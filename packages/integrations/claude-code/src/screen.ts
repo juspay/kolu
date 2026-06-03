@@ -47,7 +47,7 @@ export type ClaudeScreenPrompt =
  *  at the cursor (screen bottom); 40 lines comfortably covers the tallest option
  *  list plus its footer while excluding scrollback that could carry stale
  *  prompt-like words. */
-const TAIL_REGION_LINES = 40;
+export const TAIL_REGION_LINES = 40;
 
 /** ExitPlanMode literals — any one is boolean-certain proof of the plan-exit
  *  dialog. `No, keep planning` is the option unique to it; `Ready to code?` is
@@ -60,15 +60,18 @@ const EXIT_PLAN_LITERALS = [
   "ready to execute. Would you like to proceed?",
 ] as const;
 
-/** The select caret Claude prints beside the highlighted option (`❯`) and its
- *  ASCII fallback (`>`), at a line start or after whitespace and followed by a
- *  space — so it matches `❯ 1. …` but not a `>` mid-word or in a redirect. */
-const SELECT_CARET_RE = /(?:^|\s)(?:❯|>)\s/m;
+/** The highlighted-option row Claude paints: a select caret (`❯`, ASCII
+ *  fallback `>`) at the START of a line (after optional indentation), a space,
+ *  then a NUMBERED option (`1.`, `2)`). Anchoring the caret to an option row —
+ *  not "any whitespace-delimited `>`" — is what keeps `cat > file` and Markdown
+ *  blockquotes (`> quoted text`) out: a shell redirect has no line-leading
+ *  caret marking a numbered option, so it can't satisfy the signature. */
+const SELECT_CARET_RE = /^\s*(?:❯|>)\s+\d+[.)]/m;
 
 /** The arrow-key select hint Claude renders under an option list: either the
  *  glyphs themselves (`↑`/`↓`) or an explicit "to select" / "to navigate"
- *  footer. Required in conjunction with the caret, so an arrow glyph drifting
- *  through scrollback alone can't match. */
+ *  footer. Required in conjunction with the caret-marked option row, so prose
+ *  containing "to select" can't match without an actual option list above it. */
 const SELECT_FOOTER_RE = /[↑↓]|to (?:select|navigate)/i;
 
 /** A numbered option row (`❯ 1. …`, `2) …`), used to exclude option lines when

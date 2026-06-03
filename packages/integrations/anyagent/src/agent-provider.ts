@@ -157,6 +157,11 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
    *  through that contract — keeps the screen capability out of agents that
    *  don't need it. */
   screenScrape?: {
+    /** How many lines of the screen tail the detector inspects. The orchestrator
+     *  asks the host for only this many trailing lines (`readScreenText(tailLines)`)
+     *  so a long scrollback (the configured 50k lines) isn't allocated, joined,
+     *  shipped, and discarded every poll just to read the screen bottom. */
+    readonly tailLines: number;
     /** Whether `info` is in a state the screen scrape could promote — gates the
      *  poll clock so the screen read only runs during the (idle) wait window. */
     isPollable(info: Info): boolean;
