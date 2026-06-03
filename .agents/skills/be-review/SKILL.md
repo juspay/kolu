@@ -1,7 +1,7 @@
 ---
 name: be-review
 description: Run /be's review gauntlet in PARALLEL — codex⇄claude, lowy⇄hickey, and code-police each debate to consensus in their own git worktree at the same time, then consolidate the per-track commits onto the branch (the rare overlap is reconciled) and post a detailed PR comment per track. Use from /be §4, or when the user asks to "run the review gauntlet in parallel". Requires Claude Code's Workflow tool.
-argument-hint: "[--base <branch>] [--tracks codex,lens,police] [--no-commit] [--no-comment]"
+argument-hint: "[--base <branch>] [--tracks codex,lens,police] [--no-commit] [--no-comment] [--no-rich-comment]"
 ---
 
 # Parallel review gauntlet
@@ -94,12 +94,13 @@ to `cd`.
 - **`--no-comment`**: suppress the PR comments. By default the **Report** phase
   posts a detailed PR comment per track plus the consolidation ledger — the review
   trail the gauntlet exists to leave. This flag reports in chat only.
-- **`richComment`** (default `true`): author each comment with a per-track
-  **reporter agent** (narrative + tables + reasoning, synthesized from the track's
-  full structured result) rather than the terse deterministic string builders. The
-  builders remain the **baseline** the agent improves and the **fallback** on empty
-  output; a trivial track (track-error / clean / no findings) skips the agent.
-  Pass `richComment: false` to force the cheap deterministic comments.
+- **`--no-rich-comment`** (maps to `richComment: false`): force the cheap
+  deterministic string-builder comments. By **default** (`richComment: true`) each
+  comment is authored by a per-track **reporter agent** (narrative + tables +
+  reasoning, synthesized from the track's full structured result) rather than the
+  terse builders. The builders remain the **baseline** the agent improves and the
+  **fallback** on empty/invalid output; a trivial track (track-error / clean / no
+  findings) skips the agent. Use this flag when you want the fast, no-agent comments.
 
 ## Steps
 
@@ -135,7 +136,7 @@ Workflow({
     tracks: ["codex", "lens", "police"],   // also the consolidation order
     commit: <false only if --no-commit>,
     comment: <false only if --no-comment>,
-    richComment: <false to force terse deterministic comments; default true (reporter agents)>
+    richComment: <false only if --no-rich-comment; default true (reporter agents)>
   }
 })
 ```
