@@ -23,8 +23,8 @@ import {
   createMemo,
   createResource,
   onCleanup,
-  Show,
 } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { highlightCode, loadHighlighter } from "./highlight";
 import { renderMarkdownToRawHtml } from "./render";
 import { sanitizeHtml } from "./sanitize";
@@ -165,23 +165,12 @@ export const Markdown: Component<{
     bindInteractions(el, () => props.onToggleTask);
 
   return (
-    <Show
-      when={variant() !== "inline"}
-      fallback={
-        <span
-          ref={bind}
-          class="kolu-md"
-          data-md-variant={variant()}
-          innerHTML={html()}
-        />
-      }
-    >
-      <div
-        ref={bind}
-        class="kolu-md"
-        data-md-variant={variant()}
-        innerHTML={html()}
-      />
-    </Show>
+    <Dynamic
+      component={variant() === "inline" ? "span" : "div"}
+      ref={bind}
+      class="kolu-md"
+      data-md-variant={variant()}
+      innerHTML={html()}
+    />
   );
 };
