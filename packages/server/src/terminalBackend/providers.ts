@@ -554,24 +554,20 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
         const text = await readScreen(scrape.tailLines);
         if (pollStopped || latestInfo !== info) return;
 
-        const promoted = scrape.promote(info, text);
+        // The desired info is whatever the scrape resolves to: an
+        // `awaiting_user`-promotion when the screen prompts, or the raw
+        // watcher `info` when it doesn't. Republish on any divergence from
+        // the published state. This subsumes both the promote (don't churn a
+        // held prompt) and the self-demote (the watcher's change gate can
+        // silently drop the JSONL write that settles a stale promotion back
+        // to a structurally-equal `waiting`, so it never demotes on its own).
+        const desired = scrape.promote(info, text);
         const published = record.meta.agent;
-
-        // Only the scrape-changed guard remains on the promote side;
-        // `setAgentMetadataVia` owns the publish-if-changed idempotence.
-        if (promoted !== info) {
-          setAgentMetadataVia(record, hooks, promoted as unknown as AgentInfo);
-        } else if (
-          // No prompt on screen, but the published state is still a
-          // scrape-promotion (e.g. `awaiting_user`) that diverges from the
-          // raw watcher info. The watcher's change gate can silently drop
-          // the JSONL write that settles back to a structurally-equal
-          // `waiting`, so it never demotes. Self-demote here by republishing
-          // the raw `latestInfo`, closing the gap without touching the gate.
+        if (
           published?.kind === provider.kind &&
-          published.state !== info.state
+          published.state !== desired.state
         ) {
-          setAgentMetadataVia(record, hooks, info as unknown as AgentInfo);
+          setAgentMetadataVia(record, hooks, desired as unknown as AgentInfo);
         }
       } catch (err) {
         // A NOT_FOUND is the benign teardown race — the PTY vanished between
