@@ -13,7 +13,12 @@ import { DEFAULT_PORT } from "kolu-common/config";
 import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
-import { getCacheControlHeader, isImmutableAssetPath } from "./cacheControl.ts";
+import {
+  ASSET_MISS_CACHE_CONTROL,
+  getCacheControlHeader,
+  isImmutableAssetPath,
+  SHELL_CACHE_CONTROL,
+} from "./cacheControl.ts";
 import { cacheDiagnostics } from "./cacheDiagnostics.ts";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
@@ -254,16 +259,17 @@ if (clientDist) {
   // stale/bogus content hash — so 404 it rather than serve the HTML shell:
   // index.html under a `.js` URL is the wrong MIME and would be cached
   // `immutable` for a year (see isImmutableAssetPath), poisoning the next load.
-  // Any other unmatched path is a client-side route → serve the shell, forced
-  // `no-store` (like `/`) so a normal reload can never replay a stale shell.
+  // Any other unmatched path is a client-side route → serve the shell under
+  // `SHELL_CACHE_CONTROL` (the same directive cacheControl.ts pins on `/`) so a
+  // normal reload can never replay a stale shell.
   app.get(
     "/*",
     async (c, next) => {
       if (isImmutableAssetPath(c.req.path)) {
-        c.header("Cache-Control", "no-store");
+        c.header("Cache-Control", ASSET_MISS_CACHE_CONTROL);
         return c.notFound();
       }
-      c.header("Cache-Control", "no-store");
+      c.header("Cache-Control", SHELL_CACHE_CONTROL);
       return next();
     },
     serveStatic({ root, path: "index.html" }),

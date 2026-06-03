@@ -16,6 +16,15 @@
  *   keeps working on secure-context deploys.
  * - Everything else — no opinion, let the upstream default stand.
  */
+/** The SPA shell's cache directive — the single source of truth. `NO_STORE_PATHS`
+ *  below is built from it, and the index.ts SPA-fallback stamps it on client-side
+ *  routes (which aren't in `NO_STORE_PATHS`), so the shell policy lives in one place. */
+export const SHELL_CACHE_CONTROL = "no-store";
+
+/** A `/assets/*` miss that 404s must not be cached either; semantically distinct
+ *  from the shell policy (don't cache a 404), so it carries its own name. */
+export const ASSET_MISS_CACHE_CONTROL = "no-store";
+
 const NO_STORE_PATHS = new Set(["/", "/index.html"]);
 const REVALIDATE_PATHS = new Set(["/sw.js", "/registerSW.js"]);
 const WORKBOX_CHUNK = /^\/workbox-[^/]+\.js$/;
@@ -32,7 +41,7 @@ export function getCacheControlHeader(path: string): string | null {
     return "public, max-age=31536000, immutable";
   }
   if (NO_STORE_PATHS.has(path)) {
-    return "no-store";
+    return SHELL_CACHE_CONTROL;
   }
   if (REVALIDATE_PATHS.has(path) || WORKBOX_CHUNK.test(path)) {
     return "no-cache, must-revalidate";
