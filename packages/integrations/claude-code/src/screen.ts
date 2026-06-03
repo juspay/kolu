@@ -36,13 +36,6 @@
 
 import type { ClaudeCodeInfo } from "./schemas.ts";
 
-/** A recognized Claude prompt awaiting the human, discriminated by the tool
- *  that produced it. `question` is best-effort tooltip text for AskUserQuestion
- *  (null when no clean candidate is found) — the promotion never depends on it. */
-export type ClaudeScreenPrompt =
-  | { tool: "ExitPlanMode" }
-  | { tool: "AskUserQuestion"; question: string | null };
-
 /** How many lines of the screen tail the gate inspects. The live prompt renders
  *  at the cursor (screen bottom); 40 lines comfortably covers the tallest option
  *  list plus its footer while excluding scrollback that could carry stale
@@ -74,10 +67,6 @@ const SELECT_CARET_RE = /^\s*(?:❯|>)\s+\d+[.)]/m;
  *  containing "to select" can't match without an actual option list above it. */
 const SELECT_FOOTER_RE = /[↑↓]|to (?:select|navigate)/i;
 
-/** A numbered option row (`❯ 1. …`, `2) …`), used to exclude option lines when
- *  hunting for the question text above them. */
-const OPTION_ROW_RE = /^(?:❯|>)?\s*\d+[.)]/;
-
 /** The last block of rendered lines, trailing blank rows trimmed so the "tail"
  *  is the last *painted* content, not the empty rows below a short prompt. */
 function tailRegion(screenText: string): string[] {
@@ -87,42 +76,18 @@ function tailRegion(screenText: string): string[] {
   return lines.slice(Math.max(0, end - TAIL_REGION_LINES), end);
 }
 
-/** Recognize a Claude awaiting-user prompt on the rendered screen, or null. */
-export function detectClaudePrompt(
-  screenText: string,
-): ClaudeScreenPrompt | null {
+/** Whether a Claude awaiting-user prompt (`ExitPlanMode`/`AskUserQuestion`) is
+ *  painted on the rendered screen. */
+export function screenHasClaudePrompt(screenText: string): boolean {
   const region = tailRegion(screenText);
   const text = region.join("\n");
 
-  // ExitPlanMode first: its literals are boolean-certain, and its dialog also
-  // carries the generic select structure — checking it first keeps the
-  // discriminated union unambiguous (a plan exit never reads as a question).
-  if (EXIT_PLAN_LITERALS.some((lit) => text.includes(lit))) {
-    return { tool: "ExitPlanMode" };
-  }
+  // ExitPlanMode: its literals are boolean-certain.
+  if (EXIT_PLAN_LITERALS.some((lit) => text.includes(lit))) return true;
 
   // AskUserQuestion: structural conjunction — a select caret AND the arrow-key
   // footer, both within the tail region.
-  if (SELECT_CARET_RE.test(text) && SELECT_FOOTER_RE.test(text)) {
-    return { tool: "AskUserQuestion", question: extractQuestion(region) };
-  }
-
-  return null;
-}
-
-/** Best-effort question text: the nearest non-empty, non-option, non-footer line
- *  above the first option caret. Null when no clean candidate is found. */
-function extractQuestion(region: string[]): string | null {
-  const caretIdx = region.findIndex((l) => SELECT_CARET_RE.test(l));
-  if (caretIdx <= 0) return null;
-  for (let i = caretIdx - 1; i >= 0; i--) {
-    const line = (region[i] ?? "").trim();
-    if (line === "") continue;
-    if (SELECT_FOOTER_RE.test(line)) continue;
-    if (OPTION_ROW_RE.test(line)) continue;
-    return line;
-  }
-  return null;
+  return SELECT_CARET_RE.test(text) && SELECT_FOOTER_RE.test(text);
 }
 
 // --- Promote-only policy (the seam the server poller drives) ---
@@ -147,7 +112,7 @@ export function promoteFromScreen(
   screenText: string,
 ): ClaudeCodeInfo {
   if (info.state !== "waiting") return info;
-  return detectClaudePrompt(screenText)
+  return screenHasClaudePrompt(screenText)
     ? { ...info, state: "awaiting_user" }
     : info;
 }

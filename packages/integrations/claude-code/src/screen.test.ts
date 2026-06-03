@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ClaudeCodeInfo } from "./schemas.ts";
 import {
-  detectClaudePrompt,
   isScreenPollable,
   promoteFromScreen,
+  screenHasClaudePrompt,
 } from "./screen.ts";
 
 // --- Fixtures (rendered-screen snapshots, VT already resolved) ---
@@ -109,87 +109,61 @@ That's the recommended flow.`;
 const PROSE_TO_SELECT = `● I went ahead and updated the query to select only the
   active rows, since that's what the report needs.`;
 
-describe("detectClaudePrompt — ExitPlanMode", () => {
+describe("screenHasClaudePrompt — ExitPlanMode", () => {
   it("detects the 'Ready to code?' header", () => {
-    expect(detectClaudePrompt(EXIT_PLAN_READY_TO_CODE)).toEqual({
-      tool: "ExitPlanMode",
-    });
+    expect(screenHasClaudePrompt(EXIT_PLAN_READY_TO_CODE)).toBe(true);
   });
 
   it("detects the 'ready to execute. Would you like to proceed?' variant", () => {
-    expect(detectClaudePrompt(EXIT_PLAN_READY_TO_EXECUTE)).toEqual({
-      tool: "ExitPlanMode",
-    });
+    expect(screenHasClaudePrompt(EXIT_PLAN_READY_TO_EXECUTE)).toBe(true);
   });
 
   it("detects via the unique 'No, keep planning' option alone", () => {
-    expect(detectClaudePrompt(EXIT_PLAN_KEEP_PLANNING)).toEqual({
-      tool: "ExitPlanMode",
-    });
-  });
-
-  it("wins over the question structure it also carries", () => {
-    // EXIT_PLAN_READY_TO_CODE has a caret + footer too; the literal must
-    // discriminate it as ExitPlanMode, never AskUserQuestion.
-    expect(detectClaudePrompt(EXIT_PLAN_READY_TO_CODE)?.tool).toBe(
-      "ExitPlanMode",
-    );
+    expect(screenHasClaudePrompt(EXIT_PLAN_KEEP_PLANNING)).toBe(true);
   });
 });
 
-describe("detectClaudePrompt — AskUserQuestion", () => {
-  it("detects a caret + footer select prompt and extracts the question", () => {
-    expect(detectClaudePrompt(ASK_USER_QUESTION)).toEqual({
-      tool: "AskUserQuestion",
-      question: "Which database should we target for the first cut?",
-    });
+describe("screenHasClaudePrompt — AskUserQuestion", () => {
+  it("detects a caret + footer select prompt", () => {
+    expect(screenHasClaudePrompt(ASK_USER_QUESTION)).toBe(true);
   });
 
   it("detects the ASCII fallback caret", () => {
-    const result = detectClaudePrompt(ASK_USER_QUESTION_ASCII);
-    expect(result?.tool).toBe("AskUserQuestion");
-  });
-
-  it("extracts the question, skipping option and footer lines", () => {
-    const result = detectClaudePrompt(ASK_USER_QUESTION_ASCII);
-    expect(result).toMatchObject({
-      tool: "AskUserQuestion",
-      question: "Pick a deployment target",
-    });
+    expect(screenHasClaudePrompt(ASK_USER_QUESTION_ASCII)).toBe(true);
   });
 });
 
-describe("detectClaudePrompt — negatives", () => {
-  it("returns null for empty input", () => {
-    expect(detectClaudePrompt("")).toBeNull();
+describe("screenHasClaudePrompt — negatives", () => {
+  it("returns false for empty input", () => {
+    expect(screenHasClaudePrompt("")).toBe(false);
   });
 
   it("ignores 'proceed' buried in scrollback (bottom-region gate)", () => {
-    expect(detectClaudePrompt(SCROLLBACK_PROCEED)).toBeNull();
+    expect(screenHasClaudePrompt(SCROLLBACK_PROCEED)).toBe(false);
   });
 
   it("ignores a plain numbered list with no caret/footer", () => {
-    expect(detectClaudePrompt(PLAIN_NUMBERED_LIST)).toBeNull();
+    expect(screenHasClaudePrompt(PLAIN_NUMBERED_LIST)).toBe(false);
   });
 
   it("ignores a bare 'Would you like to proceed?' with no plan anchor", () => {
-    expect(detectClaudePrompt(BARE_PROCEED)).toBeNull();
+    expect(screenHasClaudePrompt(BARE_PROCEED)).toBe(false);
   });
 
   it("ignores ordinary assistant prose", () => {
-    expect(detectClaudePrompt(PLAIN_ASSISTANT_TEXT)).toBeNull();
+    expect(screenHasClaudePrompt(PLAIN_ASSISTANT_TEXT)).toBe(false);
   });
 
   it("ignores shell redirection + 'to select' prose (caret must mark an option)", () => {
-    expect(detectClaudePrompt(SHELL_REDIRECT_PROSE)).toBeNull();
+    expect(screenHasClaudePrompt(SHELL_REDIRECT_PROSE)).toBe(false);
   });
 
   it("ignores a Markdown blockquote + 'to navigate' prose", () => {
-    expect(detectClaudePrompt(MARKDOWN_BLOCKQUOTE)).toBeNull();
+    expect(screenHasClaudePrompt(MARKDOWN_BLOCKQUOTE)).toBe(false);
   });
 
   it("ignores prose that merely contains 'to select'", () => {
-    expect(detectClaudePrompt(PROSE_TO_SELECT)).toBeNull();
+    expect(screenHasClaudePrompt(PROSE_TO_SELECT)).toBe(false);
   });
 });
 
