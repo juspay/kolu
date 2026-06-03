@@ -307,12 +307,22 @@ export const appRouter = t.router({
     // re-renders on its own: the `fsReadFile` watcher sees the working-tree
     // change and re-yields the new content.
     writeFile: t.fs.writeFile.handler(async ({ input }) => {
+      // Pass `log` so the guard's own escape-path errors ("write parent
+      // escapes root (symlink)" / "write parent not resolvable") are recorded:
+      // an attempted path-traversal/symlink escape is a security-relevant
+      // failure that must leave server-side evidence.
       const guard = await resolveForWriteUnder(
         input.repoPath,
         input.filePath,
         log,
       );
       if (!guard.ok) {
+        // Log the rejection here too so it stays attributable to the request
+        // even if the guard's internal log shape changes.
+        log.warn(
+          { repo: input.repoPath, file: input.filePath },
+          "fs write: path escapes repo root (rejected)",
+        );
         throw new ORPCError("BAD_REQUEST", {
           message: "path escapes repo root",
         });
