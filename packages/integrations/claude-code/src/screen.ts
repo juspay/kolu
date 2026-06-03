@@ -86,6 +86,16 @@ function tailRegion(screenText: string): string[] {
   return lines.slice(Math.max(0, end - TAIL_REGION_LINES), end);
 }
 
+/** Whether any tail line carries an ExitPlanMode literal — boolean-certain proof
+ *  of the plan-exit dialog. Takes `lines` so it reads symmetric with
+ *  `hasSelectPrompt`, keeping `screenHasClaudePrompt` to a single
+ *  representation. */
+function hasExitPlanLiteral(lines: string[]): boolean {
+  return EXIT_PLAN_LITERALS.some((lit) =>
+    lines.some((line) => line.includes(lit)),
+  );
+}
+
 /** Whether the tail holds an AskUserQuestion select prompt: a caret-marked
  *  numbered option row with an arrow-key footer within the next few lines. The
  *  adjacency requirement is the anchor — a bare `> ` blockquote can't satisfy
@@ -106,10 +116,9 @@ function hasSelectPrompt(lines: string[]): boolean {
  *  painted on the rendered screen. */
 export function screenHasClaudePrompt(screenText: string): boolean {
   const lines = tailRegion(screenText);
-  const tail = lines.join("\n");
 
   // ExitPlanMode: its literals are boolean-certain.
-  if (EXIT_PLAN_LITERALS.some((lit) => tail.includes(lit))) {
+  if (hasExitPlanLiteral(lines)) {
     return true;
   }
 
