@@ -529,6 +529,46 @@ Feature: Code tab (review + browse)
     And the markdown preview should not render a "script" element
     And the markdown preview should not render a "a[href^=javascript]" element
 
+  # The sanitizer is a tight allowlist, not DOMPurify's broad defaults: inline
+  # `style`/`class`, SVG, and non-checkbox form controls must all be dropped so
+  # an untrusted README can't restyle, frame, or plant focusable controls in
+  # the app. (`printf` fixtures avoid inner single quotes — see note above.)
+  Scenario: Markdown preview drops style, class, SVG, and form controls
+    When I run "rm -rf /tmp/kolu-md-tight && git init /tmp/kolu-md-tight && cd /tmp/kolu-md-tight"
+    And I run "printf '# Tight Allowlist\n\n<p style=color:red class=takeover>styled para</p>\n\n<svg width=10 height=10><rect width=10 height=10 /></svg>\n\n<button>press me</button>\n\n<input type=text value=injected />\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "styled para"
+    # The text survives but its presentational + structural escape hatches don't.
+    And the markdown preview should not render a "[style]" element
+    And the markdown preview should not render a ".takeover" element
+    And the markdown preview should not render a "svg" element
+    And the markdown preview should not render a "button" element
+    And the markdown preview should not render a "input[type=text]" element
+
+  # The renderer only stamps the anchors it mints; a raw inline `<a>` from the
+  # README must still pick up the link policy in the sanitize pass — a safe
+  # relative href survives but is forced to open in a new tab (so it can't
+  # navigate the Kolu tab itself), and an unsafe scheme is unwrapped to text.
+  Scenario: Markdown preview applies the link policy to raw inline anchors
+    When I run "rm -rf /tmp/kolu-md-rawa && git init /tmp/kolu-md-rawa && cd /tmp/kolu-md-rawa"
+    And I run "printf '# Raw Anchors\n\n<a href=docs/guide.md>relative doc</a>\n\n<a href=javascript:1>raw evil</a>\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "relative doc"
+    And the markdown preview should contain "raw evil"
+    # Safe relative anchor kept, but forced to a new tab with a severed opener.
+    And the markdown preview should render a "a[target=_blank]" element
+    And the markdown preview should render a "a[rel~=noopener]" element
+    # The unsafe-scheme anchor is gone; its text remains.
+    And the markdown preview should not render a "a[href^=javascript]" element
+
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
   # panel keyed off `preferences.rightPanel.codeTabTreeSize`. The handle

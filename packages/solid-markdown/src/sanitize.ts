@@ -2,41 +2,159 @@
  *  parse layer (./render) so that layer stays Node-testable. DOMPurify needs a
  *  live `window`, so this module is browser-only.
  *
- *  The policy keeps the inline HTML a real-world README leans on — alignment
- *  wrappers (`<p align>`), `<details>`/`<summary>`, `<kbd>`, `<sub>`/`<sup>`,
- *  task-list `<input>`s, images — while stripping anything that could script,
- *  style, or frame the host app. It is the security backstop behind the parse
- *  layer's href allowlist, not a substitute for it.
+ *  The policy is a *tight, Markdown-specific allowlist* — not DOMPurify's broad
+ *  defaults. DOMPurify's defaults keep `style`/`class`/`id` attributes plus the
+ *  whole SVG/MathML/interactive-element surface, any of which an untrusted
+ *  README could use to apply global app styles, render focusable controls, or
+ *  otherwise take over the host. Since the result is inserted straight into
+ *  Kolu's live DOM, we pin `ALLOWED_TAGS` / `ALLOWED_ATTR` to exactly the
+ *  README subset we want and nothing else.
  *
- *  Sanitizing to a detached DOM (rather than a string) lets us run two small
- *  presentational passes on the *result*, where markdown-rendered and inline
- *  HTML have converged into one tree:
- *    - sever every targeted link from its opener (`rel=noopener`), and
+ *  Two scopes share this module:
+ *    - the *document* preview keeps the inline HTML a real-world README leans on
+ *      — alignment wrappers (`<p align>`), `<details>`/`<summary>`, `<kbd>`,
+ *      `<sub>`/`<sup>`, task-list `<input>`s, images;
+ *    - the *intent* surfaces (compact / inline chat slots) get a stricter scope
+ *      with no raw block HTML and no images, since those are clickable UI rows,
+ *      not documents.
+ *
+ *  Sanitizing to a detached DOM (rather than a string) lets us run a few small
+ *  passes on the *result*, where markdown-rendered and inline HTML have
+ *  converged into one tree:
+ *    - apply the per-slot link policy to *every* anchor (markdown- or
+ *      inline-HTML-sourced): drop it when links are off, else force
+ *      `target="_blank" rel="noopener noreferrer"`;
  *    - swap any image whose src can't load here (a repo-relative README image)
  *      for a labelled fallback chip instead of a broken-image icon. */
 
 import DOMPurify from "dompurify";
+import { safeHref } from "./render";
 
-const CONFIG = {
-  // A previewed document must never script, style, or frame the host app.
-  // DOMPurify already drops most of these; listing them is defense in depth.
-  FORBID_TAGS: [
-    "script",
-    "style",
-    "iframe",
-    "form",
-    "object",
-    "embed",
-    "link",
-    "meta",
-    "base",
-  ],
-  // Attributes DOMPurify strips by default that GFM / inline HTML depend on:
-  // `align` (alignment wrappers + table cells), `target`/`loading` (anchors,
-  // images), `checked` (task-list state).
-  ADD_ATTR: ["align", "target", "loading", "checked"],
-  RETURN_DOM: true,
+/** Per-slot policy for the sanitize pass — mirrors the renderer's
+ *  `RenderOptions` so one object threads parse + sanitize. */
+export type SanitizeOptions = {
+  /** Keep real anchors (true) or unwrap them to their inner content (false).
+   *  Off for slots whose own click handler must win over a nested anchor. */
+  links: boolean;
+  /** Allow the README inline-HTML / image surface. Off for the compact and
+   *  inline intent slots, which are clickable UI rows, not documents — there a
+   *  user/agent string must not inject block HTML or images. */
+  richHtml: boolean;
 };
+
+// The README inline-HTML subset, plus the tags `marked` emits for GFM. No
+// `style`/`script`/`iframe`/`form`/`object`/`embed`/SVG/MathML, no media or
+// arbitrary interactive controls — only the disabled task-list checkbox.
+const DOCUMENT_TAGS = [
+  // Block structure marked emits.
+  "p",
+  "br",
+  "hr",
+  "blockquote",
+  "pre",
+  "div",
+  "span",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "ul",
+  "ol",
+  "li",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "th",
+  "td",
+  // Inline text.
+  "a",
+  "img",
+  "code",
+  "em",
+  "strong",
+  "del",
+  "s",
+  "ins",
+  "mark",
+  "sub",
+  "sup",
+  "kbd",
+  "abbr",
+  "small",
+  "b",
+  "i",
+  "u",
+  // README-flavoured containers.
+  "details",
+  "summary",
+  "input",
+];
+
+// Intent slots: just the inline text marks markdown produces — no images, no
+// block HTML containers, no inputs.
+const INTENT_TAGS = [
+  "p",
+  "br",
+  "span",
+  "a",
+  "code",
+  "em",
+  "strong",
+  "del",
+  "s",
+  "ins",
+  "mark",
+  "sub",
+  "sup",
+  "kbd",
+  "abbr",
+  "small",
+  "b",
+  "i",
+  "u",
+  "ul",
+  "ol",
+  "li",
+  "blockquote",
+  "pre",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+];
+
+// Exactly the attributes the allowed tags need — `style`/`class`/`id` are
+// deliberately *absent* so a previewed document can't restyle or anchor itself
+// into the app. `href` is re-validated below; `target`/`rel` are re-stamped.
+const DOCUMENT_ATTR = [
+  "href",
+  "title",
+  "alt",
+  "src",
+  "align",
+  "type",
+  "checked",
+];
+const INTENT_ATTR = ["href", "title"];
+
+function configFor(opts: SanitizeOptions) {
+  // An explicit `ALLOWED_TAGS`/`ALLOWED_ATTR` *array* replaces DOMPurify's
+  // default base (html+svg+mathml) outright — so SVG/MathML and every
+  // unlisted interactive/media element are excluded simply by not being in
+  // these lists. We deliberately do NOT set `USE_PROFILES`: a profile would
+  // overwrite the explicit lists with the full html allowlist and silently
+  // re-admit `style`/`class`/inputs/etc.
+  return {
+    ALLOWED_TAGS: opts.richHtml ? DOCUMENT_TAGS : INTENT_TAGS,
+    ALLOWED_ATTR: opts.richHtml ? DOCUMENT_ATTR : INTENT_ATTR,
+    RETURN_DOM: true,
+  };
+}
 
 /** Only an absolute http(s) src can load in this context; a repo-relative
  *  README image (`./docs/logo.png`) has no server to resolve against here. */
@@ -52,18 +170,52 @@ function basename(src: string): string {
   return segments[segments.length - 1] ?? "image";
 }
 
-/** Sanitize `marked`-produced HTML into DOM-safe markup. Returns an empty
- *  string when there is no DOM (SSR / Node), since there is nothing to render
- *  into anyway. */
-export function sanitizeHtml(rawHtml: string): string {
+/** Apply the per-slot link policy to one anchor that survived sanitization
+ *  (markdown- or inline-HTML-sourced alike). When links are off, unwrap it to
+ *  its children so the text survives but the anchor doesn't. When on, drop a
+ *  non-allowlisted href and force every kept anchor to open in a new tab with a
+ *  severed opener — the renderer only stamps the anchors *it* mints, so this is
+ *  what covers raw inline `<a>`. */
+function applyLinkPolicy(anchor: Element, links: boolean): void {
+  if (!links) {
+    anchor.replaceWith(...Array.from(anchor.childNodes));
+    return;
+  }
+  const href = anchor.getAttribute("href");
+  if (!href || safeHref(href) === undefined) {
+    anchor.replaceWith(...Array.from(anchor.childNodes));
+    return;
+  }
+  anchor.setAttribute("target", "_blank");
+  anchor.setAttribute("rel", "noopener noreferrer");
+}
+
+/** Sanitize `marked`-produced HTML into DOM-safe markup under the given
+ *  per-slot policy. Returns an empty string when there is no DOM (SSR / Node),
+ *  since there is nothing to render into anyway. */
+export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
   if (typeof window === "undefined") return "";
 
-  const root = DOMPurify.sanitize(rawHtml, CONFIG) as unknown as HTMLElement;
+  const root = DOMPurify.sanitize(
+    rawHtml,
+    configFor(opts),
+  ) as unknown as HTMLElement;
 
-  // Inline HTML can carry its own `<a target=...>`; the parse layer already
-  // stamps `rel` on the anchors it mints, this covers the rest.
-  for (const anchor of root.querySelectorAll("a[target]")) {
-    anchor.setAttribute("rel", "noopener noreferrer");
+  // Apply the link policy to every anchor — not just the renderer's, and not
+  // just the ones that happen to carry a `target`.
+  for (const anchor of root.querySelectorAll("a")) {
+    applyLinkPolicy(anchor, opts.links);
+  }
+
+  // `<input>` is allowed only to carry a GFM task-list checkbox. Drop any
+  // other input (a stray `type="text"` etc.), and make the kept checkboxes
+  // presentational — they are rendered state, never interactive here.
+  for (const input of root.querySelectorAll("input")) {
+    if (input.getAttribute("type") === "checkbox") {
+      input.setAttribute("disabled", "");
+    } else {
+      input.remove();
+    }
   }
 
   // Replace un-loadable images (markdown- or inline-HTML-sourced alike) with a

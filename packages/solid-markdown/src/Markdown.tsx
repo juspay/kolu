@@ -50,12 +50,19 @@ export const Markdown: Component<{
   // Links default on for block variants, off for inline — an inline slot's own
   // click handler (open editor / open palette) must win over a nested anchor.
   const links = () => props.links ?? variant() !== "inline";
+  // Only the full-pane document preview is a *document*: it gets the README
+  // inline-HTML + image surface. The compact/inline intent slots are clickable
+  // UI rows rendering user/agent text, so they keep the stricter scope that
+  // strips raw block HTML and images (the behaviour they had before this
+  // renderer gained raw-HTML support).
+  const richHtml = () => variant() === "document";
   const html = createMemo(() =>
     sanitizeHtml(
       renderMarkdownToRawHtml(props.markdown, {
         links: links(),
         inline: variant() === "inline",
       }),
+      { links: links(), richHtml: richHtml() },
     ),
   );
 

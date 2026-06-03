@@ -149,7 +149,12 @@
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.875em;
 }
-.kolu-md :not(pre) > code {
+/* Inline code: the `:not(pre) >` guard skips fenced-block code, whose parent
+ * is `<pre>`. The `> code` arm catches inline code that the inline variant
+ * emits as a *direct* child of the root (no wrapping `<p>`), which the
+ * descendant form above would miss. */
+.kolu-md :not(pre) > code,
+.kolu-md > code {
   padding: 0.15em 0.4em;
   background: var(--md-box);
   border-radius: 4px;
@@ -318,7 +323,11 @@
   font-size: inherit;
   line-height: inherit;
 }
-.kolu-md-inline :not(pre) > code {
+/* Direct-child arm (`> code`) included: the inline parse emits a leading
+ * codespan as a direct child of `.kolu-md-inline`, which the descendant form
+ * (`:not(pre) > code`) would not reach. */
+.kolu-md-inline :not(pre) > code,
+.kolu-md-inline > code {
   padding: 0.1em 0.3em;
   background: color-mix(in oklch, currentColor 12%, transparent);
   border-radius: 3px;
