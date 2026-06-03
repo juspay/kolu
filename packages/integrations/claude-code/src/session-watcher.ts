@@ -326,6 +326,11 @@ export function createSessionWatcher(
     // `outstandingForkRuns` (fast positive-finish signal). Mirrors the `obs`
     // memoization above: read the projection once, hand it to every reader.
     const completed = completedBackgroundTaskIds(lines);
+    // One clock read shared by the fork scan, the stale deadlines, the
+    // transient-decay quiet window below, AND the workflow-liveness check just
+    // below — so all the staleness comparisons in this pass test against a
+    // single `now`.
+    const now = Date.now();
     // Drop tasks that can't keep the session "working": a `Workflow` whose
     // journal has gone terminal/stale (orphaned by a restart). `deriveState`
     // further narrows to runId-bearing `Workflow` runs, so a bare backgrounded
