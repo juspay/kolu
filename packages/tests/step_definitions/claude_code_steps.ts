@@ -408,6 +408,40 @@ When(
   },
 );
 
+When(
+  "the terminal renders a Claude {string} prompt",
+  async function (this: KoluWorld, kind: string) {
+    // #905: an `ExitPlanMode` / `AskUserQuestion` prompt never reaches the
+    // JSONL while it's pending (the SDK buffers it), so the transcript stays
+    // `waiting`. kolu recovers `awaiting_user` by scraping the *rendered
+    // screen* server-side. Paint the prompt's measured signature into the real
+    // PTY so the screen-scrape poll (which reads `getScreenText` off the live
+    // buffer) sees exactly what Claude paints — no transcript change.
+    const lines =
+      kind === "plan-approval"
+        ? [
+            " Ready to code?",
+            "",
+            "❯ 1. Yes, and auto-accept edits",
+            "  2. Yes, and manually approve edits",
+            "  3. No, keep planning",
+            "",
+            " ↑/↓ to select · Enter to confirm",
+          ]
+        : [
+            " Which database should we target for the first cut?",
+            "",
+            "❯ 1. Postgres",
+            "  2. SQLite",
+            "",
+            " ↑/↓ to select · Enter to confirm",
+          ];
+    const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
+    await this.page.keyboard.type(printf);
+    await this.page.keyboard.press("Enter");
+  },
+);
+
 When("the Claude Code session ends", async function (this: KoluWorld) {
   cleanup();
 });
