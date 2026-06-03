@@ -36,10 +36,17 @@ function copyCodeBlock(button: HTMLElement): void {
   const pre = button.closest(".kolu-md-code")?.querySelector("pre");
   const text = pre?.textContent ?? "";
   if (!text) return;
-  void navigator.clipboard?.writeText(text).then(() => {
-    button.setAttribute("data-copied", "");
-    setTimeout(() => button.removeAttribute("data-copied"), 1500);
-  });
+  void navigator.clipboard
+    ?.writeText(text)
+    .then(() => {
+      button.setAttribute("data-copied", "");
+      setTimeout(() => button.removeAttribute("data-copied"), 1500);
+    })
+    // A rejected write (permission denied, unfocused document, API throw) would
+    // otherwise surface as an unhandled rejection — and the "Copied" flash never
+    // fires, so a failed copy is silently indistinguishable from a successful one.
+    // Warn so the failure is diagnosable rather than swallowed.
+    .catch((err) => console.warn("markdown: copy to clipboard failed", err));
 }
 
 /** Handle interactive bits inside the rendered Markdown — links, code-copy
