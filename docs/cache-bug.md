@@ -13,11 +13,21 @@ and the running client is an old bundle. The defining signature:
 - **Hard reload (cmd+Shift+R) → latest commit.**
 - **Normal reload (cmd+R) → stale commit comes back.**
 
-## Current status: **OPEN** — a stuck HTTP-cache entry for `/` (NOT a service worker)
+## Current status: **RESOLVED (diagnosis)** — a stale service worker, enabled by Chrome's `unsafely-treat-insecure-origin-as-secure` flag; this PR's HTTPS gate orphaned it
 
-The server-side fix (below) is shipped and verified correct. After a redeploy the
-bug returned and reproduces on a *second* Mac (`zest`). A real Chrome driven
-against the deployed server settled the cause — see *Update: SW ruled out*.
+The server-side fix (below) is correct and stays. The recurring staleness is a
+**service worker** serving its old precache — possible because the user enabled
+Chrome's `#unsafely-treat-insecure-origin-as-secure` for `http://pureintent:7692`
+and `http://zest:7692`, making those plain-HTTP origins **secure contexts** where a
+SW can register. This PR's SW gate checked `location.protocol === "https:"` instead
+of `window.isSecureContext`, so it misclassified those origins, stopped managing the
+existing worker, and **orphaned it**. Fix: kill the SW (unregister in production +
+stop registering). See *Resolution* at the bottom.
+
+> ⚠️ The "Update — service worker RULED OUT" section below was **WRONG** — it
+> over-generalized from a test against a *different, truly-insecure* origin
+> (`http://100.122.32.106:7692`, not in the flag list). Kept for the trail; see
+> *Resolution*.
 
 ## What it is NOT (ruled out on the box)
 
@@ -175,3 +185,55 @@ curl -s -o /dev/null -w '%{http_code}\n' "http://$HOST:7692/assets/index-DEADBEE
   user's *browser* state — which is exactly where the bug lived.)
 - This is why the [`web-delivery`](./plans/web-delivery.html) skill + library
   exists: encode the freshness contract once so the next app doesn't relitigate it.
+
+## Resolution — it WAS a service worker (the flag was the missing fact)
+
+The user runs Chrome with `#unsafely-treat-insecure-origin-as-secure` set to
+`http://pureintent:7692,http://zest:7692`. That makes those plain-HTTP origins
+**secure contexts**, so `navigator.serviceWorker` is available and a SW registered
+on both machines. zest's Network panel confirmed it: the `zest` *document* and every
+asset showed **`(ServiceWorker)`** in the Size column — the SW was intercepting the
+navigation and serving its stale precache (`20e5c10`). Hard reload bypasses the SW
+(fresh); normal reload goes through it (stale).
+
+**Why this PR caused the regression:** the SW gate added here checked
+`location.protocol === "https:"`. The flag-secured origins are `http://` yet
+**secure** (`window.isSecureContext === true`). So the gate wrongly treated them as
+"no SW," `initPwa()` early-returned, the new client stopped managing the worker, and
+`unregisterStaleServiceWorkers()` only ran in dev — **orphaning** the SW: never
+updated, never removed. The correct secure-context test is `window.isSecureContext`,
+**never** `location.protocol === "https:"`.
+
+**The fix (chosen): kill the SW.** kolu gains nothing from it (no offline — it needs
+a live WebSocket; immutable HTTP caching already covers asset speed; install survives
+on a secure context via the manifest alone on modern Chrome). So:
+
+1. `unregisterStaleServiceWorkers()` runs in **production** (not just dev) and deletes
+   the SW caches — tears down the orphaned workers on the flag-secured origins and
+   self-heals every affected browser on next load.
+2. Stop registering / shipping a SW (drop `initPwa`/`registerSW` + the VitePWA `sw.js`
+   generation).
+3. Keep `no-store` shell + immutable assets + the durable `≠ srv` skew prompt as the
+   SW-less freshness mechanism.
+
+**Immediate per-browser unblock:** DevTools → Application → Service Workers →
+Unregister (or Clear site data) → reload.
+
+**HTTPS vs the flag (orthogonal to the fix):** the flag is a poor-man's secure
+context — works on the user's own machines but is manual per-browser and doesn't
+distribute. Real HTTPS (cert / `tailscale serve`) gives every client a secure context
+without a flag, but it does **not** fix this bug by itself (it would relocate to a new
+origin = clean slate, and keep the SW). Decide it independently of the SW kill.
+
+### Learnings added to the pile
+
+- **`window.isSecureContext`, never `location.protocol === "https:"`** — the latter
+  misses `http://localhost` and flag-secured origins. This one wrong predicate caused
+  the regression.
+- **The diagnostic gap that cost the most: the bug lived in the user's *browser*, and
+  every wrong turn came from testing a server / a box-browser / the wrong origin
+  instead of the user's actual origin.** The `(ServiceWorker)` Size column and the
+  `chrome://flags` setting were the two facts that cracked it — both browser-side.
+- **A service worker is a standing liability you must own end-to-end** — gating *new*
+  registration doesn't remove an *existing* worker; you need an active unregister
+  path, in production, or it outlives the gate forever.
