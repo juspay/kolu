@@ -34,23 +34,35 @@ import { clientIsStale } from "./ui/commitRef";
  *  This interval only matters for a tab left open with no reconnect. */
 const UPDATE_POLL_MS = 60 * 60 * 1000;
 
-/** Whether the service-worker update path should run. Beyond `registerSW`'s own
- *  `"serviceWorker" in navigator` check (true in any secure context), we ALSO
- *  require an HTTPS origin — deliberately excluding `http://localhost`, which is
- *  a secure context where a SW *would* register. Rationale: a SW only earns its
- *  keep on real HTTPS deploys (the race-free reload of #1125); on
- *  `http://localhost` it just adds a precache that can serve stale assets — the
- *  exact failure this area keeps hitting. Production bare-hostname HTTP (e.g.
- *  `http://host:7692`) is already excluded by the secure-context rule. So the SW
+/** Whether the browser exposes the service-worker API at all — exactly
+ *  `registerSW`'s own gate (`"serviceWorker" in navigator`), true in any secure
+ *  context INCLUDING `http://localhost`. This is NOT "should the SW update path
+ *  run" (that's `serviceWorkerSupported`, which is stricter). It answers only
+ *  "can a worker be registered/unregistered here?", which is the right gate for
+ *  two API-touching ops: NOT registering where a register would otherwise take
+ *  effect, and tearing down a stale worker on a localhost dev origin. */
+const serviceWorkerApiAvailable =
+  typeof navigator !== "undefined" && "serviceWorker" in navigator;
+
+/** Whether the service-worker update path should run. Beyond the API being
+ *  available (`serviceWorkerApiAvailable`), we ALSO require an HTTPS origin —
+ *  deliberately excluding `http://localhost`, which is a secure context where a
+ *  SW *would* register. Rationale: a SW only earns its keep on real HTTPS
+ *  deploys (the race-free reload of #1125); on `http://localhost` it just adds a
+ *  precache that can serve stale assets — the exact failure this area keeps
+ *  hitting. Production bare-hostname HTTP (e.g. `http://host:7692`) is already
+ *  excluded because the API isn't exposed outside a secure context. So the SW
  *  runs on HTTPS only; everywhere else falls to the no-SW path (durable
  *  stale-commit + restart prompt, plain `location.reload()` onto the `no-store`
- *  shell). When `false`, no SW callback ever fires, `swUpdateReady()` stays
- *  `false`, and the returned `updateServiceWorker` is an inert no-op — callers
- *  branch on THIS, not on the truthiness of `updateServiceWorker` (which
- *  `registerSW` returns even with no SW present). */
+ *  shell). This gates BOTH the update-path branching here AND `initPwa`'s
+ *  registration — so on `http://localhost` we never register a worker whose
+ *  precache the no-SW `reloadForUpdate()` would then race against. When `false`,
+ *  no SW callback ever fires, `swUpdateReady()` stays `false`, and the returned
+ *  `updateServiceWorker` is an inert no-op — callers branch on THIS, not on the
+ *  truthiness of `updateServiceWorker` (which `registerSW` returns even with no
+ *  SW present). */
 const serviceWorkerSupported =
-  typeof navigator !== "undefined" &&
-  "serviceWorker" in navigator &&
+  serviceWorkerApiAvailable &&
   typeof location !== "undefined" &&
   location.protocol === "https:";
 
@@ -99,9 +111,12 @@ let registration: ServiceWorkerRegistration | undefined;
 /** Dev-only: unregister any stale production service worker. A worker left over
  *  from a prod build would intercept dev-server requests and serve cached assets
  *  indefinitely, so we tear it down rather than register one. Guarded on
- *  `serviceWorkerSupported` so it stays inert on plain HTTP/LAN. */
+ *  `serviceWorkerApiAvailable`, NOT `serviceWorkerSupported`: the dev server
+ *  runs on `http://localhost`, which fails the HTTPS gate but still exposes the
+ *  SW API — so the stricter predicate would skip the very cleanup this exists
+ *  for. On plain HTTP/LAN the API isn't exposed, so this stays inert there. */
 export function unregisterStaleServiceWorkers(): void {
-  if (!serviceWorkerSupported) return;
+  if (!serviceWorkerApiAvailable) return;
   void navigator.serviceWorker.getRegistrations().then((registrations) => {
     for (const r of registrations) r.unregister();
   });
@@ -109,8 +124,19 @@ export function unregisterStaleServiceWorkers(): void {
 
 /** Register the service worker and wire update detection. Call once at
  *  startup. No-op in dev: with `devOptions` disabled, `virtual:pwa-register`
- *  resolves to a stub whose `registerSW` does nothing. */
+ *  resolves to a stub whose `registerSW` does nothing.
+ *
+ *  Gated on `serviceWorkerSupported` (HTTPS only). `registerSW`'s own internal
+ *  gate is just `"serviceWorker" in navigator`, which is also true on
+ *  `http://localhost` — so a production build served over `http://localhost`
+ *  would otherwise register a precaching worker even though every other path in
+ *  this module treats that origin as no-SW. That mismatch is the bug: a
+ *  registered precache with a `reloadForUpdate()` that does a plain
+ *  `location.reload()` the precache can intercept and serve stale. So we simply
+ *  don't register off HTTPS; the no-SW path (durable stale-commit prompt + plain
+ *  reload onto the `no-store` shell) takes over. */
 export function initPwa(): void {
+  if (!serviceWorkerSupported) return;
   updateServiceWorker = registerSW({
     immediate: true,
     // A fresh build is installed and waiting. Surface the prompt rather than

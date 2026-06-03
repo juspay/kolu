@@ -123,18 +123,55 @@ describe("pwa service-worker update wiring", () => {
   });
 
   describe("no service worker (plain HTTP / LAN)", () => {
-    it("production initPwa() with no SW still gives a working reload", async () => {
+    it("production initPwa() does not register off HTTPS, and reload still works", async () => {
       // The node env's navigator has no `serviceWorker`, matching HTTP/LAN —
-      // do NOT stub one in. `registerSW` still returns its `updateSW` spy, but
-      // that spy is an inert no-op there: reloadForUpdate must NOT call it (it
-      // would silently fail to reload). It must hit `location.reload()`.
+      // do NOT stub one in. `initPwa` is gated on `serviceWorkerSupported`, so
+      // off the SW update path it must NOT call `registerSW` at all (registering
+      // a precaching worker whose reload path is a plain `location.reload()`
+      // would re-open the stale-precache race). reloadForUpdate must still hit
+      // `location.reload()`.
       const reload = vi.fn();
       vi.stubGlobal("location", { reload });
       const { initPwa, reloadForUpdate } = await loadPwa();
-      initPwa(); // assigns updateServiceWorker (defined-but-inert)
+      initPwa(); // no-op: never reaches registerSW
+      expect(h.options).toBeUndefined(); // registerSW was never invoked
       reloadForUpdate();
-      expect(h.updateSW).not.toHaveBeenCalled();
+      expect(h.updateSW).toBeUndefined();
       expect(reload).toHaveBeenCalledOnce();
+    });
+
+    it("production initPwa() does not register on http://localhost (secure context, but not HTTPS)", async () => {
+      // The regression CODEX caught: `http://localhost` exposes
+      // `navigator.serviceWorker` (it's a secure context), so `registerSW`'s own
+      // `"serviceWorker" in navigator` gate would register a precaching worker —
+      // even though every other path in pwa.ts treats this origin as no-SW. The
+      // HTTPS gate on `initPwa` must keep us off `registerSW` here.
+      vi.stubGlobal("navigator", { serviceWorker: {}, onLine: true });
+      vi.stubGlobal("location", { protocol: "http:", reload: vi.fn() });
+      const { initPwa } = await loadPwa();
+      initPwa();
+      expect(h.options).toBeUndefined(); // registerSW was never invoked
+    });
+
+    it("dev unregisterStaleServiceWorkers() still tears down a worker on http://localhost", async () => {
+      // The other half of the regression: the dev cleanup runs on
+      // `http://localhost`, which fails the HTTPS gate but DOES expose the SW
+      // API. It must use the API-availability predicate, not the stricter update
+      // predicate, or it would skip the very cleanup it exists for.
+      const unregister = vi.fn();
+      const getRegistrations = vi
+        .fn()
+        .mockResolvedValue([{ unregister }, { unregister }]);
+      vi.stubGlobal("navigator", {
+        serviceWorker: { getRegistrations },
+        onLine: true,
+      });
+      vi.stubGlobal("location", { protocol: "http:", reload: vi.fn() });
+      const { unregisterStaleServiceWorkers } = await loadPwa();
+      unregisterStaleServiceWorkers();
+      await Promise.resolve();
+      expect(getRegistrations).toHaveBeenCalledOnce();
+      expect(unregister).toHaveBeenCalledTimes(2);
     });
 
     it("falls back to a plain reload even when initPwa was never called", async () => {
