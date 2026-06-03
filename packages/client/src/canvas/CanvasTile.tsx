@@ -165,8 +165,15 @@ const CanvasTile: Component<{
       // the pre-#988 `visibility: hidden` wrapper without re-introducing
       // it. xterm.js writes still land in the buffer (no render dependency
       // on inert), so the dock's buffer previews stay populated.
+      //
+      // Deliberately NOT pairing this with `aria-hidden="true"`: `inert`
+      // already drops the subtree from the accessibility tree, so the
+      // attribute is redundant — and the browser blocks `aria-hidden` on an
+      // ancestor of a focused element (the xterm helper textarea can retain
+      // DOM focus the instant a tile is covered), logging a WAI-ARIA console
+      // warning. `inert` is the spec's recommended replacement precisely
+      // because it hides *and* prevents focus without that conflict.
       inert={isCovered()}
-      aria-hidden={isCovered() ? "true" : undefined}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
         // Maximized uses `absolute inset-0 z-40` to cover the canvas
