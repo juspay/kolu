@@ -17,36 +17,32 @@
  *  `ClaudeCodeInfo` import is type-only (erased), so this stays as pure as
  *  `schemas.ts`.
  *
- *  ## Signature — framework chrome, captured live from claude-code v2.1.162
- *  Each marker is a *framework-rendered* string, not model-supplied option text,
- *  so it survives wording drift in the options (the very drift that broke the
- *  earlier signature — see below):
+ *  ## Signature — one framework-rendered marker (claude-code v2.1.162, captured live)
+ *  `AskUserQuestion`'s select footer `↑/↓ to navigate` — framework chrome, not
+ *  the model-supplied question/option text, so it survives option-label churn.
+ *  Captured ONLY on this prompt; the look-alikes a user might have on screen at
+ *  `waiting` all use a *different* footer, so none collide:
+ *   - Claude's own `/fork` agent list → `↑/↓ to select · Enter to view` — "to
+ *     select", NOT "to navigate";
+ *   - `/model` picker → "Enter to set as default · s to use this session only";
+ *   - folder-trust prompt → "Enter to confirm · Esc to cancel";
+ *   - slash / `@` menus → no arrow footer at all.
  *
- *  - **AskUserQuestion** — the select footer `↑/↓ to navigate`. Captured ONLY on
- *    this prompt; the idle pickers that also render an option list use a
- *    *different* footer (`/model` → "Enter to set as default · s to use this
- *    session only · Esc to cancel"; the folder-trust prompt → "Enter to confirm
- *    · Esc to cancel"), and the slash / `@` menus render no arrow-nav footer at
- *    all. So this marker does not collide with a user idly browsing a menu while
- *    the session sits at `waiting`.
- *  - **ExitPlanMode** — the header `Ready to code?` (and the older
- *    `…is ready to execute. Would you like to proceed?` phrasing). ExitPlanMode
- *    has NO arrow-nav footer (it shows `shift+tab to approve…` / `ctrl-g to
- *    edit…`), so the AskUserQuestion marker would miss it — it needs its own.
+ *  Deliberately a *single* marker. `ExitPlanMode` is NOT detected in this cut —
+ *  its dialog has no arrow footer (`Ready to code?` + `shift+tab to approve…`),
+ *  so it would need a separate, more volatile string literal. A small,
+ *  high-confidence surface we grow over time beats a broad one that
+ *  false-promotes; ExitPlanMode (and the hook-based path) is a follow-up.
  *
- *  - **Bottom-region gate** — the live prompt renders at the cursor (screen
- *    bottom), so matching is confined to the screen tail; a marker that scrolled
- *    into history can't fire (and once the user answers, the JSONL advances out
- *    of `waiting` and the poll disarms regardless of what lingers on screen).
+ *  Bottom-region gate: the live prompt renders at the cursor (screen bottom), so
+ *  matching is confined to the screen tail — a footer scrolled into history can't
+ *  fire, and once the user answers, the JSONL advances out of `waiting` and the
+ *  poll disarms regardless of what lingers on screen.
  *
- *  History: this file used to match option *labels* (`No, keep planning`) and a
- *  caret-row + footer-adjacency structure. Both were fragile and partly wrong —
- *  v2.1.162 renamed that option to `Tell Claude what to change`, and the guessed
- *  AskUserQuestion footer (`↑/↓ to select`) was never the real string. The
- *  markers below are verbatim captures (`tmux capture-pane`, the same VT-resolved
- *  text `getScreenText` returns). Re-confirm them from a live capture on a tool
- *  rename — never from guesses. The JSONL tool names (`core.ts`
- *  `AWAITING_USER_TOOLS`) move on the same release, so they change together. */
+ *  Re-confirm the marker from a live capture (`tmux capture-pane`, the same
+ *  VT-resolved text `getScreenText` returns) on any Claude UI change — never from
+ *  a guess (the earlier guessed footer `↑/↓ to select` was never real and would
+ *  have collided with the `/fork` agent list above). */
 
 import type { ClaudeCodeInfo } from "./schemas.ts";
 
@@ -56,18 +52,12 @@ import type { ClaudeCodeInfo } from "./schemas.ts";
  *  prompt-like words. */
 export const TAIL_REGION_LINES = 40;
 
-/** The awaiting-user prompt markers (see the file header for the live-capture
- *  rationale). A match anywhere in the screen tail is proof of a prompt:
- *   - the AskUserQuestion select footer `↑/↓ to navigate` (whitespace around the
- *     slash kept flexible against minor VT spacing) — unique to that prompt;
- *   - the ExitPlanMode header `Ready to code?` and its older
- *     `ready to execute. Would you like to proceed?` phrasing — ExitPlanMode has
- *     no arrow footer, so it can't be caught by the AskUserQuestion marker. */
-const PROMPT_MARKERS: ReadonlyArray<string | RegExp> = [
-  /↑\s*\/\s*↓\s+to navigate/,
-  "Ready to code?",
-  "ready to execute. Would you like to proceed?",
-];
+/** The one awaiting-user marker: `AskUserQuestion`'s select footer
+ *  `↑/↓ to navigate` (whitespace around the slash kept flexible against minor VT
+ *  spacing). See the file header for why this single marker, and why the
+ *  look-alike footers (`↑/↓ to select` on Claude's `/fork` agent list, the
+ *  `/model` and trust pickers) deliberately don't match. */
+const NAV_FOOTER_RE = /↑\s*\/\s*↓\s+to navigate/;
 
 /** The last block of rendered lines, trailing blank rows trimmed so the "tail"
  *  is the last *painted* content, not the empty rows below a short prompt. */
@@ -78,14 +68,10 @@ function tailRegion(screenText: string): string[] {
   return lines.slice(Math.max(0, end - TAIL_REGION_LINES), end);
 }
 
-/** Whether a Claude awaiting-user prompt (`ExitPlanMode`/`AskUserQuestion`) is
- *  painted on the rendered screen — any `PROMPT_MARKERS` entry present in the
- *  screen tail. */
+/** Whether a Claude `AskUserQuestion` prompt is painted on the rendered screen —
+ *  its `↑/↓ to navigate` select footer present in the screen tail. */
 export function screenHasClaudePrompt(screenText: string): boolean {
-  const tail = tailRegion(screenText).join("\n");
-  return PROMPT_MARKERS.some((m) =>
-    typeof m === "string" ? tail.includes(m) : m.test(tail),
-  );
+  return NAV_FOOTER_RE.test(tailRegion(screenText).join("\n"));
 }
 
 // --- Promote-only policy (the seam the server poller drives) ---

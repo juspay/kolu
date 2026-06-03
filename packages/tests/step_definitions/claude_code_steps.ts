@@ -460,35 +460,22 @@ When(
 );
 
 When(
-  "the terminal renders a Claude {string} prompt",
-  async function (this: KoluWorld, kind: string) {
-    // #905: an `ExitPlanMode` / `AskUserQuestion` prompt never reaches the
-    // JSONL while it's pending (the SDK buffers it), so the transcript stays
-    // `waiting`. kolu recovers `awaiting_user` by scraping the *rendered
-    // screen* server-side. Paint the prompt's measured signature into the real
-    // PTY so the screen-scrape poll (which reads `getScreenText` off the live
-    // buffer) sees exactly what Claude paints — no transcript change.
-    // Real v2.1.162 signatures (captured live): ExitPlanMode is keyed by the
-    // `Ready to code?` header; AskUserQuestion by the `↑/↓ to navigate` footer.
-    const lines =
-      kind === "plan-approval"
-        ? [
-            " Ready to code?",
-            "",
-            "❯ 1. Yes, and auto-accept edits",
-            "  2. Yes, and manually approve edits",
-            "  3. Tell Claude what to change",
-            "",
-            " shift+tab to approve with this feedback",
-          ]
-        : [
-            " Which database do you prefer?",
-            "",
-            "❯ 1. Postgres",
-            "  2. SQLite",
-            "",
-            " Enter to select · ↑/↓ to navigate · Esc to cancel",
-          ];
+  "the terminal renders a Claude AskUserQuestion prompt",
+  async function (this: KoluWorld) {
+    // #905: an `AskUserQuestion` prompt never reaches the JSONL while it's
+    // pending (the SDK buffers it), so the transcript stays `waiting`. kolu
+    // recovers `awaiting_user` by scraping the *rendered screen* server-side.
+    // Paint the prompt's real v2.1.162 signature — the `↑/↓ to navigate` select
+    // footer — into the live PTY so the screen-scrape poll (which reads
+    // `getScreenText` off the buffer) sees exactly what Claude paints.
+    const lines = [
+      " Which database do you prefer?",
+      "",
+      "❯ 1. Postgres",
+      "  2. SQLite",
+      "",
+      " Enter to select · ↑/↓ to navigate · Esc to cancel",
+    ];
     const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
     await this.page.keyboard.type(printf);
     await this.page.keyboard.press("Enter");

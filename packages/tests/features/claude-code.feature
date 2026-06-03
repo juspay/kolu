@@ -117,21 +117,14 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "waiting"
     And there should be no page errors
 
-  Scenario: A plan-approval prompt on screen promotes waiting to awaiting (screen scrape, #905)
-    # ExitPlanMode buffers in the SDK, so the JSONL stays `waiting` the whole
-    # time the prompt is up. kolu recognizes the prompt on the rendered screen
-    # and promotes to awaiting_user — exercising the full pipeline: live PTY
-    # screen → getScreenText poll → detector → dock badge.
-    When a Claude Code session is mocked with state "waiting"
-    Then the tile chrome should show an agent indicator with state "waiting"
-    When the terminal renders a Claude "plan-approval" prompt
-    Then the tile chrome should show an agent indicator with state "awaiting_user"
-    And there should be no page errors
-
   Scenario: An AskUserQuestion prompt on screen promotes waiting to awaiting (screen scrape, #905)
+    # AskUserQuestion buffers in the SDK, so the JSONL stays `waiting` the whole
+    # time the prompt is up. kolu recognizes its `↑/↓ to navigate` select footer
+    # on the rendered screen and promotes to awaiting_user — exercising the full
+    # pipeline: live PTY screen → getScreenText poll → detector → dock badge.
     When a Claude Code session is mocked with state "waiting"
     Then the tile chrome should show an agent indicator with state "waiting"
-    When the terminal renders a Claude "question" prompt
+    When the terminal renders a Claude AskUserQuestion prompt
     Then the tile chrome should show an agent indicator with state "awaiting_user"
     And there should be no page errors
 

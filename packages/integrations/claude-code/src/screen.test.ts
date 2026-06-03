@@ -30,28 +30,21 @@ Which database do you prefer?
 
 Enter to select · ↑/↓ to navigate · Esc to cancel`;
 
-/** ExitPlanMode — header `Ready to code?`. Note the option labels (`Tell Claude
- *  what to change`) and the footer carry NO arrow-nav hint, so the marker is the
- *  header, not the footer. */
-const EXIT_PLAN_READY_TO_CODE = ` Ready to code?
+/** Adversarial NEGATIVE — Claude's own `/fork` background-agent list (captured
+ *  live from a real session). Its footer is `↑/↓ to select` — "to select", NOT
+ *  "to navigate" — so the marker must NOT fire while a user browses it. This is
+ *  the closest known look-alike to the AskUserQuestion footer, so it's the
+ *  load-bearing regression guard for the single-marker choice. */
+const FORK_AGENT_LIST = `* Crunched for 51s · 1 local agent still running
 
- Here is Claude's plan:
- Add a hello() function to foo.js and export it.
+❯ s
 
-❯ 1. Yes, and auto-accept edits
-  2. Yes, and manually approve edits
-  3. Tell Claude what to change
+▶▶ bypass permissions on (shift+tab to cycle) · PR #1158
 
- shift+tab to approve with this feedback
- ctrl-g to edit in Nvim · ~/.claude/plans/foo.md`;
-
-/** ExitPlanMode — older plan-summary-led "ready to execute" phrasing. */
-const EXIT_PLAN_READY_TO_EXECUTE = `● I've drafted the migration plan above.
-
- The migration is ready to execute. Would you like to proceed?
-
-❯ 1. Yes
-  2. No`;
+● main
+○ meer4ge-latest-master  Running typecheck on merged BrowseFileDispatcher.tsx
+                                    ↑/↓ to select · Enter to view
+                                    1m 14s · ↓ 232.4k tokens`;
 
 /** Adversarial NEGATIVE — the real `/model` picker (captured live). It IS a
  *  caret-marked numbered select list (`❯ 3. Haiku ✔`), but its footer carries no
@@ -92,16 +85,6 @@ const PROSE_NAVIGATE = `● Use the arrow keys to navigate the file tree, then p
 const PLAIN_ASSISTANT_TEXT = `● The function returns null when the file is
   missing, so the caller treats it as "retry".`;
 
-describe("screenHasClaudePrompt — ExitPlanMode", () => {
-  it("detects the 'Ready to code?' header", () => {
-    expect(screenHasClaudePrompt(EXIT_PLAN_READY_TO_CODE)).toBe(true);
-  });
-
-  it("detects the 'ready to execute. Would you like to proceed?' variant", () => {
-    expect(screenHasClaudePrompt(EXIT_PLAN_READY_TO_EXECUTE)).toBe(true);
-  });
-});
-
 describe("screenHasClaudePrompt — AskUserQuestion", () => {
   it("detects the live '↑/↓ to navigate' select footer", () => {
     expect(screenHasClaudePrompt(ASK_USER_QUESTION)).toBe(true);
@@ -111,6 +94,10 @@ describe("screenHasClaudePrompt — AskUserQuestion", () => {
 describe("screenHasClaudePrompt — negatives", () => {
   it("returns false for empty input", () => {
     expect(screenHasClaudePrompt("")).toBe(false);
+  });
+
+  it("ignores Claude's /fork agent list (footer is '↑/↓ to select', not 'to navigate')", () => {
+    expect(screenHasClaudePrompt(FORK_AGENT_LIST)).toBe(false);
   });
 
   it("ignores the /model picker (real select menu, different footer)", () => {
@@ -170,12 +157,6 @@ describe("promoteFromScreen", () => {
     expect(promoted.state).toBe("awaiting_user");
     // Promote-only changes the state; every other field rides through.
     expect(promoted).toEqual({ ...info, state: "awaiting_user" });
-  });
-
-  it("lifts on an ExitPlanMode screen too", () => {
-    expect(
-      promoteFromScreen(waitingInfo(), EXIT_PLAN_READY_TO_CODE).state,
-    ).toBe("awaiting_user");
   });
 
   it("does not promote on the /model picker", () => {
