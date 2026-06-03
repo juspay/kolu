@@ -15,12 +15,7 @@ import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
-import {
-  assertRealpathUnder,
-  resolveUnder,
-  worktreeCreate,
-  worktreeRemove,
-} from "kolu-git";
+import { resolveExistingUnder, worktreeCreate, worktreeRemove } from "kolu-git";
 import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
@@ -306,22 +301,17 @@ export const appRouter = t.router({
     // open preview re-renders on its own: the `fsReadFile` watcher sees the
     // working-tree change and re-yields the new content.
     writeFile: t.fs.writeFile.handler(async ({ input }) => {
-      const resolved = resolveUnder(input.repoPath, input.filePath);
-      if (!resolved.ok) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: "path escapes repo root",
-        });
-      }
-      const authority = await assertRealpathUnder(
+      const guarded = await resolveExistingUnder(
         input.repoPath,
-        resolved.value.abs,
+        input.filePath,
+        log,
       );
-      if (!authority.ok) {
+      if (!guarded.ok) {
         throw new ORPCError("BAD_REQUEST", {
           message: "path escapes repo root",
         });
       }
-      await writeFile(resolved.value.abs, input.content, "utf-8");
+      await writeFile(guarded.value.abs, input.content, "utf-8");
       log.info({ repo: input.repoPath, file: input.filePath }, "fs write");
     }),
   },
