@@ -8,11 +8,12 @@
  *
  *  Commentability is decided *here*, once: every renderer is built through
  *  `withComments(capture, …)`, which declares how that view exposes itself for
- *  comments — `"text"` (selectable DOM → `CommentTextSurface`), `"iframe"`
- *  (the sandboxed preview owns its own postMessage bridge), or `"none"` (a
- *  raster image, nothing to anchor to). The renderers stay pure presenters;
- *  a new one can't silently ship without a comment decision because it has to
- *  pick a capture mode at this seam:
+ *  comments — `"text"` (selectable source DOM → `CommentTextSurface`),
+ *  `"iframe"` (the sandboxed preview owns its own postMessage bridge), or
+ *  `"none"` (nothing to anchor to: a raster image, or a *rendered* form whose
+ *  selection doesn't map back to source — see the Markdown note below). The
+ *  renderers stay pure presenters; a new one can't silently ship without a
+ *  comment decision because it has to pick a capture mode at this seam:
  *
  *    - `kind: "text"`   → a `FileData` with `content`; FileView renders the
  *      injected pierre source renderer (`BrowseFileView`). Markdown (`.md`)
@@ -38,7 +39,14 @@ import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import { isMarkdown, isRasterImage } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, type JSX, Match, Switch } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  type JSX,
+  Match,
+  Show,
+  Switch,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { app } from "../wire";
@@ -87,7 +95,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         // The host's text is the file source, so the highlight overlay
         // re-anchors when the server bumps content on save.
         contentTick={file.source?.content ?? ""}
-        class="h-full w-full"
+        // `flex-1 min-h-0` so the host fills the space left under the
+        // (optional) truncation banner sibling without overflowing it.
+        class="min-h-0 w-full flex-1"
       >
         {view}
       </CommentTextSurface>
@@ -99,19 +109,31 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // kolu's theme + initial line selection. The render closure reads `props`
   // reactively (FileView calls it inside its own JSX), so theme/selection
   // changes flow through without rebuilding it.
+  //
+  // The "File truncated" banner is rendered as a sibling ABOVE the comment
+  // surface, not inside it: the banner is chrome, not file content, so it must
+  // stay out of the commentable host or a user could select "File truncated …"
+  // and save a comment whose quote is UI copy the agent can't find in the file.
   const sourceRenderer: SourceRenderer = {
-    render: (file) =>
-      withComments(
-        "text",
-        file,
-        <BrowseFileView
-          filePath={file.path}
-          content={file.source?.content ?? ""}
-          truncated={file.source?.truncated ?? false}
-          theme={props.theme}
-          initialSelectedLines={props.initialSelectedLines}
-        />,
-      ),
+    render: (file) => (
+      <div class="flex h-full w-full flex-col">
+        <Show when={file.source?.truncated}>
+          <div class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30">
+            File truncated (exceeds 1 MB)
+          </div>
+        </Show>
+        {withComments(
+          "text",
+          file,
+          <BrowseFileView
+            filePath={file.path}
+            content={file.source?.content ?? ""}
+            theme={props.theme}
+            initialSelectedLines={props.initialSelectedLines}
+          />,
+        )}
+      </div>
+    ),
   };
 
   // Kolu's rendered appliances, tried in order. Raster images take the plain
@@ -152,11 +174,18 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // Kolu's rendered appliances for *text* files — just Markdown today. A
   // `.md` file carries source (the text on the wire) AND a rendered form (the
   // same text as a document), so FileView offers a Source ⇄ Rendered toggle,
-  // defaulting to rendered. The rendered document is selectable DOM, so it's
-  // `"text"`-commentable just like the source view — toggling no longer drops
-  // the "+ Comment" pill. Non-markdown text matches nothing here and stays
-  // source-only (no toggle). Markdown renders from `content`, not a URL — so
-  // these never appear in the binary `renderedRenderers` list above.
+  // defaulting to rendered. The rendered document is `"none"`: it IS selectable
+  // DOM, but it's a *different representation* of the file (Markdown → reading
+  // document), so a selection there doesn't map cleanly onto source. The quote
+  // ("Hello Doc") may not even exist verbatim in source ("# Hello Doc"), and a
+  // rendered-DOM line number isn't a source line — `lineRange` would jump the
+  // tray to the wrong place, and the highlight overlay would re-find against
+  // the wrong haystack. Comments on Markdown stay in the Source view (which
+  // anchors against Pierre's shadow-rooted source DOM); rendered annotation is
+  // its own feature (plan phase-3 v1: rendered Markdown is read-only). Non-
+  // markdown text matches nothing here and stays source-only (no toggle).
+  // Markdown renders from `content`, not a URL — so these never appear in the
+  // binary `renderedRenderers` list above.
   const textRenderers: RenderedRenderer[] = [
     {
       match: isMarkdown,
@@ -165,7 +194,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       // optional field — never a real blank-document path.
       render: (file) =>
         withComments(
-          "text",
+          "none",
           file,
           <MarkdownRenderer
             markdown={file.source?.content ?? ""}
