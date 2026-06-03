@@ -542,14 +542,18 @@ phase('Consolidate')
 // worktree — so any edit a track left UNcommitted (an apply agent that produced
 // files but whose commit helper failed, a formatter that touched an unlisted
 // file, an untracked new file) would be invisible to cherry-pick and then deleted
-// for good. Mechanically check each candidate track's worktree is clean; a dirty
-// one is excluded from both consolidation AND cleanup (its worktree is preserved
-// for the human) and surfaced in the result, instead of silently discarded.
-const consolidateCandidates = liveTracks.filter((t) => tracks[t]?.status !== 'track-error')
-const cleanCheck = consolidateCandidates.length
+// for good. The check runs for EVERY live worktree — including a track whose
+// gauntlet CRASHED (`track-error`): a crash after edits-applied-but-before-commit
+// is exactly when uncommitted work is most likely, so skipping crashed tracks
+// here would force-remove the very edits this gate exists to save. We only USE the
+// clean result to decide consolidation eligibility (a `track-error` track is never
+// cherry-picked regardless); for cleanup we FAIL CLOSED — any worktree that isn't
+// EXPLICITLY clean (dirty, or missing from the checker's response) is preserved,
+// never torn down. A dirty/unknown track is surfaced in the result for the human.
+const cleanCheck = liveTracks.length
   ? await agent(
-      `You are a MECHANICAL CLEANLINESS CHECKER. For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (\`.codex-debate/\`, \`.lens-debate/\`); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines. Do not edit anything. Tracks and their worktrees:
-${consolidateCandidates.map((t) => `  - ${t}: ${wtDir(t)}`).join('\n')}
+      `You are a MECHANICAL CLEANLINESS CHECKER. For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (\`.codex-debate/\`, \`.lens-debate/\`); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines. Report a row for EVERY track listed, even if its worktree looks empty or the command errors (if \`git status\` fails, set clean=false and put the error in dirtyStatus). Do not edit anything. Tracks and their worktrees:
+${liveTracks.map((t) => `  - ${t}: ${wtDir(t)}`).join('\n')}
 For each track return { track, clean (boolean), dirtyStatus (the offending \`status --short\` lines verbatim, or "" if clean) }.`,
       {
         label: 'consolidate:clean-check',
@@ -578,21 +582,31 @@ For each track return { track, clean (boolean), dirtyStatus (the offending \`sta
       },
     )
   : { tracks: [] }
-const dirtyTracks = consolidateCandidates.filter((t) => (cleanCheck?.tracks || []).find((c) => c.track === t && c.clean === false))
-for (const t of dirtyTracks) {
-  const ds = (cleanCheck?.tracks || []).find((c) => c.track === t)?.dirtyStatus || ''
+// FAIL CLOSED for cleanup: a track is "preserved" (kept off teardown) unless the
+// checker EXPLICITLY reported it clean. So a missing row, or a row that says it's
+// dirty, both keep the worktree. `cleanTracks` is the allowlist of explicitly-clean
+// worktrees; everything else is preserved.
+const cleanResultFor = (t) => (cleanCheck?.tracks || []).find((c) => c.track === t)
+const cleanTracks = liveTracks.filter((t) => cleanResultFor(t)?.clean === true)
+const preservedTracks = liveTracks.filter((t) => !cleanTracks.includes(t))
+for (const t of preservedTracks) {
+  const row = cleanResultFor(t)
+  const ds = row?.dirtyStatus || ''
+  const reason = row ? 'left UNcommitted changes in its worktree' : "could not be confirmed clean (no clean-check result — failing closed)"
   tracks[t] = {
     ...tracks[t],
     consolidated: false,
     dirtyStatus: ds,
-    note: `track left UNcommitted changes in its worktree (${wtDir(t)}); NOT consolidated and its worktree was PRESERVED so the edits aren't lost. Inspect with \`git -C ${wtDir(t)} status\`.${ds ? `\nOffending entries:\n${ds}` : ''}`,
+    note: `track ${reason} (${wtDir(t)}); NOT consolidated and its worktree was PRESERVED so any edits aren't lost. Inspect with \`git -C ${wtDir(t)} status\`.${ds ? `\nOffending entries:\n${ds}` : ''}`,
   }
-  log(`Consolidate: track ${t} has UNcommitted changes — excluded from consolidation, worktree preserved at ${wtDir(t)}.`)
+  log(`Consolidate: track ${t} not confirmed clean — excluded from consolidation, worktree preserved at ${wtDir(t)}.`)
 }
 
-// Only replay tracks that are clean (every agreed fix really is a commit) and made
-// real work — the agent only picks committed work.
-const consolidateOrder = consolidateCandidates.filter((t) => !dirtyTracks.includes(t))
+// Only replay tracks that are explicitly clean (every agreed fix really is a
+// commit) AND completed without crashing — a `track-error` track is never
+// cherry-picked even if its worktree happens to be clean, since its commit ledger
+// is untrustworthy. The agent only picks committed work.
+const consolidateOrder = cleanTracks.filter((t) => tracks[t]?.status !== 'track-error')
 const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. Every command below is \`git -C\` against an ABSOLUTE path — do not rely on the current directory. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
 
 The branch in \`${repoPath}\` is currently AT \`${branchHead}\` (the tracks' shared fork point). Process tracks in THIS order: ${consolidateOrder.join(' → ')}.
@@ -651,14 +665,16 @@ if (postComments) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 5 — tear down the per-track worktrees. Dirty tracks (uncommitted edits
-// the clean-check caught) are PRESERVED, not removed — their worktree is the only
-// place those edits live, so force-removing it would discard them.
+// Phase 5 — tear down the per-track worktrees. Only EXPLICITLY-clean worktrees are
+// torn down; anything not confirmed clean (uncommitted edits the clean-check
+// caught, OR a worktree the checker never reported on — including a crashed
+// `track-error` track) is PRESERVED, since its worktree may be the only place
+// those edits live and force-removing it would discard them. Fail closed.
 // ---------------------------------------------------------------------------
 phase('Cleanup')
 
-const teardownTracks = liveTracks.filter((t) => !dirtyTracks.includes(t))
-if (dirtyTracks.length) log(`Cleanup: preserving ${dirtyTracks.length} dirty worktree(s) (${dirtyTracks.join(', ')}) — they hold uncommitted edits.`)
+const teardownTracks = cleanTracks
+if (preservedTracks.length) log(`Cleanup: preserving ${preservedTracks.length} worktree(s) not confirmed clean (${preservedTracks.join(', ')}) — they may hold uncommitted edits.`)
 if (teardownTracks.length) {
   await agent(
     `You are a MECHANICAL CLEANUP RUNNER. Every path is absolute / \`git -C\`; do not rely on the current directory. Remove EACH of these worktrees, then prune; ignore errors if one is already gone. Do NOT touch any other path.

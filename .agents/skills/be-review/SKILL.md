@@ -27,7 +27,9 @@ branch HEAD ┼─ be-review-lens    ─ lowy⇄hickey debate  ─→ commits �
 ```
 
 The per-track worktrees live under the repo's conventional `.worktrees/`
-(gitignored) — `.worktrees/be-review-<track>`. **Isolation is structural, not
+(gitignored) — `.worktrees/be-review-<runId>-<track>`, where `<runId>` is unique
+per invocation (the returned `worktrees` field carries each track's exact path).
+**Isolation is structural, not
 behavioral:** every workflow agent inherits the *session* cwd (the harness has no
 per-agent cwd, and `isolation:'worktree'` can't host a multi-round debate that
 accumulates commits in one tree), so every git command is `git -C <worktree>` and
@@ -81,9 +83,10 @@ to `cd`.
   (debugging a single track). Consolidation cherry-picks per-track *commits*, so
   with this flag the orchestrator **skips Consolidate + Report + Cleanup and
   preserves the worktrees** (status `no-commit`) — leaving every track's worktree
-  in place under `.worktrees/be-review-<track>/` (the branch is untouched) rather
-  than silently discarding the uncommitted edits; inspect and tear them down
-  yourself. Default is to commit, which is what actually ships fixes.
+  in place under `.worktrees/be-review-<runId>-<track>/` (the branch is untouched;
+  the returned `worktrees` field carries each exact path) rather than silently
+  discarding the uncommitted edits; inspect and tear them down yourself. Default is
+  to commit, which is what actually ships fixes.
 - **`--no-comment`**: suppress the PR comments. By default the **Report** phase
   posts a detailed PR comment per track (codex debate table, lens per-finding
   ledger, police findings) plus the consolidation ledger — the review trail the
@@ -147,9 +150,10 @@ returns:
   and re-run) or no worktree could be created. `tracks` carries the per-track
   `track-error` detail.
 - `no-commit` — `--no-commit` was set, so each track's fixes are left
-  **uncommitted in its preserved `.worktrees/be-review-<track>` worktree** and
-  nothing is consolidated, reported, or cleaned up. The result lists those
-  `worktrees` to inspect; re-run with commit enabled to actually consolidate.
+  **uncommitted in its preserved `.worktrees/be-review-<runId>-<track>` worktree**
+  and nothing is consolidated, reported, or cleaned up. The result lists those
+  `worktrees` (with exact paths) to inspect; re-run with commit enabled to
+  actually consolidate.
   (`--no-commit` is a single-track-debugging mode, not a way to ship fixes.)
 - For any per-track `track-error` (setup failure or a crashed gauntlet), fall back
   to the serial path for that track.
@@ -169,8 +173,8 @@ and merges.
 ## Safety & notes
 
 - **Reviewers are read-only; only their own worktree is written.** Each track's
-  fixes land in `.worktrees/be-review-<track>/`; the branch is touched only by the
-  consolidation cherry-picks, which never push or merge.
+  fixes land in `.worktrees/be-review-<runId>-<track>/`; the branch is touched only
+  by the consolidation cherry-picks, which never push or merge.
 - **Isolation is structural (cwd-independent).** Workflow agents share the session
   cwd; the orchestrator and both child workflows (`/codex-debate`, `/lens-debate`)
   therefore use `git -C <worktree>` and absolute paths throughout, so a forgotten
@@ -187,11 +191,15 @@ and merges.
   `/lens-debate` → `/code-police` path is still available and sees each fix fresh.
 - **Uncommitted track edits are never silently dropped.** Consolidation replays
   only *committed* commits and Cleanup force-removes the worktrees, so before
-  consolidating the orchestrator mechanically checks each track's worktree with
-  `git status --short`. A track that left uncommitted/untracked edits (a failed
-  commit helper, a formatter touching an unlisted file) is **excluded from
-  consolidation and its worktree is preserved** (not torn down), and surfaced in
-  the result so the human can recover it — rather than cherry-picked-around and
+  consolidating the orchestrator mechanically checks **every live worktree** with
+  `git status --short` — including a track whose gauntlet *crashed*
+  (`track-error`), since a crash after edits-applied-but-before-commit is exactly
+  when uncommitted work is most likely. Cleanup **fails closed**: only a worktree
+  the checker reports *explicitly clean* is torn down; one that left
+  uncommitted/untracked edits (a failed commit helper, a formatter touching an
+  unlisted file, a mid-run crash) — or that the checker never reported on — is
+  **excluded from consolidation and its worktree is preserved**, and surfaced in
+  the result so the human can recover it, rather than cherry-picked-around and
   deleted.
 - **Parallel-safe — even in the same worktree.** Worktrees live under the
   gitignored `<repoPath>/.worktrees/` as `be-review-<runId>-<track>` and the
