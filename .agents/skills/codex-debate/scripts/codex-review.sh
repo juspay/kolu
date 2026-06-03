@@ -144,14 +144,19 @@ if ! [[ "$backoff" =~ ^[0-9]+$ ]]; then
   backoff=5
 fi
 n=1
+: >"$log"  # start each round fresh; attempts below APPEND so no failure's diagnostics are lost
 while :; do
   rm -f "$out"
+  # Append (not truncate): when every attempt fails, the synthesized reviewerError
+  # verdict's tail_log must reflect ALL attempts' diagnostics — surfacing the exact
+  # transient failures this retry loop exists to weather — not just the final one.
+  echo "=== attempt $n/$attempts ===" >>"$log"
   if ! codex exec \
         --sandbox read-only \
         -c model_reasoning_effort="xhigh" \
         --output-schema "$schema" \
         -o "$out" \
-        "$prompt"</dev/null >"$log" 2>&1; then
+        "$prompt"</dev/null >>"$log" 2>&1; then
     echo "codex exec exited non-zero (attempt $n/$attempts; see $log)" >&2
   fi
   # Success the moment codex writes a verdict: the kernel sandbox + --output-schema
