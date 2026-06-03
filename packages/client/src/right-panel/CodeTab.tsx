@@ -14,13 +14,7 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
-import {
-  CodeView,
-  type CodeViewItem,
-  diffItem,
-  FileTree,
-  useCodeViewSelection,
-} from "@kolu/solid-pierre";
+import { FileTree } from "@kolu/solid-pierre";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
@@ -47,15 +41,11 @@ import {
   renderTreeContextMenu,
   toGitStatusEntries,
 } from "../ui/pierreAdapters";
-import {
-  koluCodeViewProps,
-  pierreIconConfig,
-  pierreTreesStyle,
-} from "../ui/pierreTheme";
+import { pierreIconConfig, pierreTreesStyle } from "../ui/pierreTheme";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { app } from "../wire";
+import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
-import CodeMenuFrame from "./CodeMenuFrame";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
@@ -671,21 +661,13 @@ const CodeTab: Component<{
                           const repo = repoPath();
                           const tid = props.terminalId;
                           if (repo === null || tid === null) return null;
-                          // Single-file diff → one CodeView item. The wrapper
-                          // virtualizes long diffs internally (50k-line lockfile,
-                          // #809 / #514 Phase 8) — no separate scroll context
-                          // component required.
-                          const items = createMemo<CodeViewItem[]>(() => {
-                            const item = diffItem(
-                              path,
-                              d().hunks[0] ?? "",
-                              (err) =>
-                                toast.error(
-                                  `Diff parse failed: ${err.message}`,
-                                ),
-                            );
-                            return item ? [item] : [];
-                          });
+                          // The comment capture surface is applied here at the
+                          // seam — `BrowseDiffView` is a pure presenter, exactly
+                          // like `BrowseFileView`, so "is this commentable?"
+                          // lives in one place per view family rather than being
+                          // re-open-coded inside the leaf. `contentTick` is the
+                          // raw hunk string so the highlight overlay re-anchors
+                          // when a live edit re-diffs the file.
                           return (
                             <CommentTextSurface
                               terminalId={tid}
@@ -693,44 +675,12 @@ const CodeTab: Component<{
                               contentTick={d().hunks[0] ?? ""}
                               class="h-full w-full"
                             >
-                              <CodeMenuFrame
+                              <BrowseDiffView
                                 path={path}
-                                onOpen={(ref) => {
-                                  openInCodeTab({
-                                    ref,
-                                    repoRoot: repo,
-                                    targetMode: "browse",
-                                  });
-                                }}
-                              >
-                                {(selection) => {
-                                  const codeViewSelection =
-                                    useCodeViewSelection(
-                                      () => path,
-                                      selection.range,
-                                    );
-                                  return (
-                                    <CodeView
-                                      items={items()}
-                                      theme={diffTheme()}
-                                      diffStyle="unified"
-                                      enableLineSelection
-                                      selectedLines={codeViewSelection()}
-                                      onSelectedLinesChange={(s) =>
-                                        selection.handleSelect(s?.range ?? null)
-                                      }
-                                      onError={(err) =>
-                                        toast.error(
-                                          `Diff render failed: ${err.message}`,
-                                        )
-                                      }
-                                      class="h-full w-full overflow-auto"
-                                      {...koluCodeViewProps()}
-                                      data-testid="pierre-diff-view"
-                                    />
-                                  );
-                                }}
-                              </CodeMenuFrame>
+                                hunk={d().hunks[0] ?? ""}
+                                theme={diffTheme()}
+                                repoRoot={repo}
+                              />
                             </CommentTextSurface>
                           );
                         }}
