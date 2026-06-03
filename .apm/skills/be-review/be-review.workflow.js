@@ -120,6 +120,13 @@ if (!/^[A-Za-z0-9._-]+$/.test(RUN_ID) || RUN_ID === '..' || RUN_ID === '.') {
 const WT_ROOT = `${repoPath}/.worktrees`
 const wtDir = (track) => `${WT_ROOT}/be-review-${RUN_ID}-${track}`
 const SCRATCH = `${repoPath}/.be-review/${RUN_ID}`
+// The two gitignored scratch dirs this orchestrator owns: live per-track
+// worktrees under `.worktrees/` and commit-message/PR-comment scratch under
+// `.be-review/`. Two prompts must name them in lockstep — the DIFF brief tells
+// reviewers to ignore them, and the Setup preflight excludes them from the
+// clean-tree check — so the list lives here once and both interpolate it.
+const ORCHESTRATOR_SCRATCH = ['.worktrees/', '.be-review/']
+const scratchList = ORCHESTRATOR_SCRATCH.map((d) => `\`${d}\``).join(' and ')
 
 // Generated skill locations the child debate workflows live at.
 const CODEX_SCRIPT = '.claude/skills/codex-debate/debate.workflow.js'
@@ -130,7 +137,7 @@ const CODEX_SKILLDIR = '.claude/skills/codex-debate'
 // not the raw `${base}` tip — see SETUP_SCHEMA.mergeBase. DIFF is an arrow, so it
 // reads `mergeBase` lazily at call time (Tracks phase, after Setup has set it).
 const DIFF = (wt) =>
-  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${mergeBase}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored \`.worktrees/\` and \`.be-review/\` scratch dirs if they appear.`
+  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${mergeBase}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored ${scratchList} scratch dirs if they appear.`
 
 const rationaleBlock = rationale
   ? `\nAuthor's note on deliberate decisions (do not flag these as defects unless the reasoning is itself wrong):\n${rationale}\n`
@@ -255,7 +262,7 @@ const setupPrompt = `${mechanicalPreamble('SETUP RUNNER')} You are preparing iso
 
 1. Record the branch HEAD: \`git -C ${repoPath} rev-parse HEAD\` — this is \`branchHead\`, the commit every track forks from.
 1b. Record the MERGE-BASE: \`git -C ${repoPath} merge-base ${base} HEAD\` — this is \`mergeBase\`, the point the branch diverged from its base. Reviewers diff against THIS (not the raw \`${base}\` tip) so that commits \`${base}\` gained since the branch forked are NOT reviewed as if this PR made them. If the command FAILS (missing/typoed base, stale ref, or unrelated history), the review scope is untrustworthy — do NOT fall back to the raw \`${base}\`; instead set \`mergeBase\`: "" and put the exact git error in \`mergeBaseError\`, then STOP (skip worktree creation, return an empty \`worktrees\` array). (The orchestrator aborts the whole run when \`mergeBase\` is empty.)
-2. CLEAN-TREE PREFLIGHT. The tracks fork detached worktrees from \`branchHead\`, so anything NOT committed to HEAD is invisible to every reviewer. Run \`git -C ${repoPath} status --short\` and ignore only lines under the gitignored scratch dirs (\`.worktrees/\` and \`.be-review/\`). If ANY other staged, unstaged, or untracked entry remains, the working tree is dirty: set \`cleanTree\`: false, put those offending lines in \`dirtyStatus\`, SKIP worktree creation entirely (return an empty \`worktrees\` array), and stop. Otherwise set \`cleanTree\`: true and \`dirtyStatus\`: "".
+2. CLEAN-TREE PREFLIGHT. The tracks fork detached worktrees from \`branchHead\`, so anything NOT committed to HEAD is invisible to every reviewer. Run \`git -C ${repoPath} status --short\` and ignore only lines under the gitignored scratch dirs (${scratchList}). If ANY other staged, unstaged, or untracked entry remains, the working tree is dirty: set \`cleanTree\`: false, put those offending lines in \`dirtyStatus\`, SKIP worktree creation entirely (return an empty \`worktrees\` array), and stop. Otherwise set \`cleanTree\`: true and \`dirtyStatus\`: "".
 3. Only if \`cleanTree\` is true — ensure the scratch dirs exist: \`mkdir -p ${WT_ROOT} ${SCRATCH}\`.
 4. Only if \`cleanTree\` is true — create a fresh detached worktree at \`branchHead\` for each track, at these EXACT absolute paths (per-run unique, so they cannot belong to another in-flight run):
 ${TRACKS.map((t) => `   - ${t}: \`git -C ${repoPath} worktree add --detach ${wtDir(t)} <branchHead>\``).join('\n')}
