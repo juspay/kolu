@@ -20,14 +20,15 @@
  */
 
 import type { MiddlewareHandler } from "hono";
+import { isImmutableAssetPath, isShellPath } from "./cacheControl.ts";
 import { log } from "./log.ts";
 
 export const cacheDiagnostics: MiddlewareHandler = async (c, next) => {
   await next();
   const path = c.req.path;
-  const isShell = path === "/" || path === "/index.html";
+  const isShell = isShellPath(path);
   const isNavigation = c.req.header("sec-fetch-mode") === "navigate";
-  const isAssetMiss = path.startsWith("/assets/") && c.res.status === 404;
+  const isAssetMiss = isImmutableAssetPath(path) && c.res.status === 404;
   if (!isShell && !isNavigation && !isAssetMiss) return;
   log.info(
     {
