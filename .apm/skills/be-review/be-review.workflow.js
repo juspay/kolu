@@ -129,7 +129,8 @@ function markPhaseTokens(phaseName) {
   const now = spentTokens();
   const delta = now - _tokMark;
   _tokMark = now;
-  tokensByPhase[phaseName] = (tokensByPhase[phaseName] || 0) + delta;
+  // each phase name is called exactly once at its boundary
+  tokensByPhase[phaseName] = delta;
   log(`💸 ${phaseName}: +${delta.toLocaleString()} output tokens (run total ${now.toLocaleString()})`);
 }
 // The review tracks to run AND the order they consolidate in. codex first (it
