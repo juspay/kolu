@@ -1,4 +1,5 @@
 import { Given, Then, When } from "@cucumber/cucumber";
+import { waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -837,6 +838,21 @@ async function setupCodeTabFixture(
     await runShell(world, `git checkout -b feature`);
     await runShell(world, writeFiles);
     await runShell(world, `git add .`);
+    // Branch mode's gitStatus stream resolves `origin/<default>` on its FIRST
+    // read. If `git push -u origin HEAD` above is still in flight when the
+    // stream subscribes (it forks git + writes the bare repo — slow under
+    // darwin CI load), that read throws BASE_BRANCH_NOT_FOUND, which
+    // PERMANENTLY errors the subscription (no watcher, no recovery); every
+    // file-row wait then burns its full POLL_TIMEOUT and the scenario
+    // hard-fails on BOTH cucumber attempts (the same race loses twice). Block
+    // on an explicit shell-completion barrier so the whole setup — crucially
+    // the push — is done before `activateCodeTabMode` subscribes. The marker
+    // is split across a shell string-concat (`SET""TLED`) so the search text
+    // matches only the command's OUTPUT, never the typed-command echo — a real
+    // ordering barrier, not a sleep.
+    const token = work.replace(/[^a-zA-Z0-9]/g, "");
+    await runShell(world, `echo "KOLU_SET""TLED_${token}"`);
+    await waitForBufferContains(world.page, `KOLU_SETTLED_${token}`);
   } else if (mode === "browse") {
     await runShell(world, `git init ${work} && cd ${work}`);
     await runShell(world, writeFiles);
