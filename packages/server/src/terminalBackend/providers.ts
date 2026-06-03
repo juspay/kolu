@@ -550,32 +550,28 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     const tick = async () => {
       try {
         const info = latestInfo;
-        if (info && scrape.isPollable(info)) {
-          const text = await readScreen(scrape.tailLines);
-          if (!pollStopped && latestInfo === info) {
-            const promoted = scrape.promote(info, text);
-            const published = record.meta.agent;
-            // Only the scrape-changed guard remains on the promote side;
-            // `setAgentMetadataVia` owns the publish-if-changed idempotence.
-            if (promoted !== info) {
-              setAgentMetadataVia(
-                record,
-                hooks,
-                promoted as unknown as AgentInfo,
-              );
-            } else if (
-              // No prompt on screen, but the published state is still a
-              // scrape-promotion (e.g. `awaiting_user`) that diverges from the
-              // raw watcher info. The watcher's change gate can silently drop
-              // the JSONL write that settles back to a structurally-equal
-              // `waiting`, so it never demotes. Self-demote here by republishing
-              // the raw `latestInfo`, closing the gap without touching the gate.
-              published?.kind === provider.kind &&
-              published.state !== info.state
-            ) {
-              setAgentMetadataVia(record, hooks, info as unknown as AgentInfo);
-            }
-          }
+        if (!info || !scrape.isPollable(info)) return;
+        const text = await readScreen(scrape.tailLines);
+        if (pollStopped || latestInfo !== info) return;
+
+        const promoted = scrape.promote(info, text);
+        const published = record.meta.agent;
+
+        // Only the scrape-changed guard remains on the promote side;
+        // `setAgentMetadataVia` owns the publish-if-changed idempotence.
+        if (promoted !== info) {
+          setAgentMetadataVia(record, hooks, promoted as unknown as AgentInfo);
+        } else if (
+          // No prompt on screen, but the published state is still a
+          // scrape-promotion (e.g. `awaiting_user`) that diverges from the
+          // raw watcher info. The watcher's change gate can silently drop
+          // the JSONL write that settles back to a structurally-equal
+          // `waiting`, so it never demotes. Self-demote here by republishing
+          // the raw `latestInfo`, closing the gap without touching the gate.
+          published?.kind === provider.kind &&
+          published.state !== info.state
+        ) {
+          setAgentMetadataVia(record, hooks, info as unknown as AgentInfo);
         }
       } catch (err) {
         // A NOT_FOUND is the benign teardown race — the PTY vanished between
@@ -589,8 +585,11 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
         } else {
           plog.error({ err }, "screen-scrape poll tick failed");
         }
+      } finally {
+        // Re-arm from `finally` so the guard-clause early returns above still
+        // reschedule the poll.
+        if (!pollStopped) timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
       }
-      if (!pollStopped) timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
     };
     timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
     return () => {
