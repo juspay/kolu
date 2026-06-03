@@ -39,9 +39,20 @@ export const meta = {
   ],
 };
 
-// The model every orchestrated agent runs on. Structural review on /be runs on
-// Opus (the lens debate forces it, overriding its sonnet frontmatter); keep the
-// override to one socket so a model bump is a one-liner.
+// COST TIERS. Most agents this orchestrator spawns are mechanical (git/gh/file
+// shuffling) or synthesis (authoring a comment), NOT deep reasoning — yet the old
+// single socket ran everything on Opus (~5x Sonnet, ~10-15x Haiku). Split into
+// three tiers and run each agent on the cheapest model that does its job with no
+// quality loss on the parts that matter:
+//   MODEL (opus)   — deep reasoning: the lens lenses + claude-author rounds (the
+//                    lens debate FORCES Opus; that's load-bearing) and lens apply.
+//   AUTHOR (sonnet)— competent-but-not-deep work: the reporter agents, the
+//                    consolidation cherry-pick/reconcile, and the police review +
+//                    apply passes (code-police is natively `model: sonnet` anyway).
+//   MECH (haiku)   — deterministic shell work: setup, every commit, cleanup, the
+//                    comment posters, the git status/HEAD checks, merge-base + the
+//                    codex runner. No judgement, just run the command and report.
+// Each is one socket so a model bump stays a one-liner; all overridable via args.
 const MODEL = "opus";
 
 // ---------------------------------------------------------------------------
@@ -87,7 +98,37 @@ const postComments = a.comment !== false;
 // empty) skips the agent so a no-op debate costs nothing. `--no-rich-comment`
 // (richComment: false) forces the deterministic comments.
 const richComment = a.richComment !== false;
+// The three cost tiers (see the MODEL comment above). `model` = deep reasoning;
+// `authorModel` = synthesis/review (Sonnet); `mechModel` = mechanical (Haiku).
 const model = a.model || MODEL;
+const authorModel = a.authorModel || "sonnet";
+const mechModel = a.mechModel || "haiku";
+
+// ---------------------------------------------------------------------------
+// Token instrumentation. `budget.spent()` is the turn's running OUTPUT-token
+// counter (shared across the main loop + all workflows). Snapshotting it at each
+// phase boundary gives a per-phase token breakdown so the cost distribution is
+// visible (Tracks dominates; Report is the reporters; the mechanical phases are
+// cheap) — exactly what you need to know where to spend the next optimization.
+// Output-only and approximate when other work runs concurrently, but for a solo
+// run it maps cleanly to phases. Guarded: `budget` may be absent in some runtimes.
+// ---------------------------------------------------------------------------
+const spentTokens = () => {
+  try {
+    return (typeof budget !== "undefined" && budget.spent && budget.spent()) || 0;
+  } catch {
+    return 0;
+  }
+};
+const tokensByPhase = {};
+let _tokMark = spentTokens();
+function markPhaseTokens(phaseName) {
+  const now = spentTokens();
+  const delta = now - _tokMark;
+  _tokMark = now;
+  tokensByPhase[phaseName] = (tokensByPhase[phaseName] || 0) + delta;
+  log(`💸 ${phaseName}: +${delta.toLocaleString()} output tokens (run total ${now.toLocaleString()})`);
+}
 // The review tracks to run AND the order they consolidate in. codex first (it
 // changes the most — bug fixes), then the structural lenses, then police, so an
 // overlap surfaces as a conflict picking the later, lighter-touch track.
@@ -344,7 +385,7 @@ Return \`branchHead\`, \`mergeBase\`, \`cleanTree\`, \`dirtyStatus\`, and, for e
 const setup = await agent(setupPrompt, {
   label: "setup:worktrees",
   phase: "Setup",
-  model,
+  model: mechModel,
   schema: SETUP_SCHEMA,
 });
 const branchHead = (setup?.branchHead || "").trim();
@@ -424,6 +465,7 @@ if (!branchHead || liveTracks.length === 0) {
 // ---------------------------------------------------------------------------
 // Phase 2 — run every track's gauntlet to consensus, concurrently & isolated
 // ---------------------------------------------------------------------------
+markPhaseTokens("Setup");
 phase("Tracks");
 
 // The police track. /code-police is a skill, not a workflow, so its cold passes
@@ -446,7 +488,7 @@ async function policeTrack(wt) {
     {
       label: "police:diff-size",
       phase: "Tracks",
-      model,
+      model: mechModel,
       schema: {
         type: "object",
         properties: { tiny: { type: "boolean" } },
@@ -500,7 +542,7 @@ async function policeTrack(wt) {
             {
               label: `police:${p.key}:r${policeRound + 1}`,
               phase: "Tracks",
-              model,
+              model: authorModel,
               schema: POLICE_FINDINGS_SCHEMA,
             },
           ),
@@ -527,7 +569,7 @@ async function policeTrack(wt) {
         {
           label: `police-apply:${f.id}`,
           phase: "Tracks",
-          model,
+          model: authorModel,
           schema: IMPL_SCHEMA,
         },
       );
@@ -605,7 +647,7 @@ ${message}
   return agent(prompt, {
     label: `police-commit:${id}`,
     phase: "Tracks",
-    model,
+    model: mechModel,
     schema: {
       type: "object",
       additionalProperties: false,
@@ -635,6 +677,8 @@ const trackThunk = {
         base: mergeBase,
         skillDir: CODEX_SKILLDIR,
         commit,
+        model, // claude-author rounds: deep reasoning
+        mechModel, // codex runner + per-round commit: mechanical
       },
     )
       .then((r) => ({ track: "codex", ...r }))
@@ -646,7 +690,7 @@ const trackThunk = {
   lens: () =>
     workflow(
       { scriptPath: LENS_SCRIPT },
-      { repoPath: wtDir("lens"), base: mergeBase, rationale, model, commit },
+      { repoPath: wtDir("lens"), base: mergeBase, rationale, model, mechModel, commit },
     )
       .then((r) => ({ track: "lens", ...r }))
       .catch((e) => ({
@@ -963,7 +1007,7 @@ HARD RULES:
     const out = await agent(prompt, {
       label: `report:${slug}`,
       phase: "Report",
-      model,
+      model: authorModel,
       schema: {
         type: "object",
         additionalProperties: false,
@@ -1082,7 +1126,7 @@ async function postComment(slug, body) {
    \`printf %s '${b64}' | base64 -d > ${file}\`
 3. Post it to THIS branch's PR: \`cd ${repoPath} && gh pr comment --body-file ${file}\`. (\`gh\` resolves the PR from the current branch.) If there is NO open PR for the branch, do nothing and report "no PR".
 4. Return the comment URL gh prints, or "no PR".`;
-  return agent(prompt, { label: `comment:${slug}`, phase: "Report", model });
+  return agent(prompt, { label: `comment:${slug}`, phase: "Report", model: mechModel });
 }
 
 // ---------------------------------------------------------------------------
@@ -1118,6 +1162,7 @@ if (!commit) {
 // surfaces as a cherry-pick conflict the agent reconciles by honoring BOTH
 // changes (it has both commit messages = both debates' rationale).
 // ---------------------------------------------------------------------------
+markPhaseTokens("Tracks");
 phase("Consolidate");
 
 // BRANCH-DRIFT GATE. The Tracks phase can run for many minutes; the consolidator
@@ -1137,7 +1182,7 @@ const driftCheck = await agent(
   {
     label: "consolidate:drift-check",
     phase: "Consolidate",
-    model,
+    model: mechModel,
     schema: {
       type: "object",
       additionalProperties: false,
@@ -1208,7 +1253,7 @@ For each track return { track, clean (boolean), dirtyStatus (the offending \`sta
       {
         label: "consolidate:clean-check",
         phase: "Consolidate",
-        model,
+        model: mechModel,
         schema: {
           type: "object",
           additionalProperties: false,
@@ -1318,7 +1363,7 @@ const headCheck = await agent(
   {
     label: "consolidate:precondition",
     phase: "Consolidate",
-    model,
+    model: mechModel,
     schema: {
       type: "object",
       additionalProperties: false,
@@ -1373,7 +1418,7 @@ Do NOT push and do NOT merge — leave the consolidated commits on the local bra
 const consolidation = await agent(consolidatePrompt, {
   label: "consolidate:cherry-pick",
   phase: "Consolidate",
-  model,
+  model: authorModel,
   schema: CONSOLIDATE_SCHEMA,
 });
 const picks = consolidation?.picks ?? [];
@@ -1388,6 +1433,7 @@ log(
 // ledger. This is the review trail the whole gauntlet exists to leave; it runs
 // here (not in the caller) so it ALWAYS happens. `--no-comment` suppresses it.
 // ---------------------------------------------------------------------------
+markPhaseTokens("Consolidate");
 phase("Report");
 
 const comments = {};
@@ -1456,6 +1502,7 @@ if (postComments) {
 // never reported on, OR a crashed `track-error` track whose committed-but-
 // unreplayed fixes were deliberately excluded from consolidation. Fail closed.
 // ---------------------------------------------------------------------------
+markPhaseTokens("Report");
 phase("Cleanup");
 
 const teardownTracks = consolidateOrder;
@@ -1468,7 +1515,7 @@ if (teardownTracks.length) {
     `${mechanicalPreamble("CLEANUP RUNNER")} Remove EACH of these worktrees, then prune; ignore errors if one is already gone. Do NOT touch any other path.
 ${teardownTracks.map((t) => `  - \`git -C ${repoPath} worktree remove --force ${wtDir(t)}\``).join("\n")}
 Then: \`git -C ${repoPath} worktree prune\`. Leave the gitignored \`${SCRATCH}\` directory (it holds commit-message + comment scratch); do not delete the branch's commits. Return "done".`,
-    { label: "cleanup:worktrees", phase: "Cleanup", model },
+    { label: "cleanup:worktrees", phase: "Cleanup", model: mechModel },
   );
 } else {
   log(
@@ -1503,6 +1550,8 @@ if (incompleteTracks.length) {
     `Done: status=consolidation-incomplete — ${incompleteTracks.length} track(s) consolidated but their review did not finish (${incompleteTracks.map((t) => `${t}=${tracks[t]?.status}`).join(", ")}); re-run the gauntlet (or that track) before treating the change as fully reviewed.`,
   );
 }
+markPhaseTokens("Cleanup");
+log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
 return {
   status,
   branchHead,
@@ -1513,6 +1562,11 @@ return {
   consolidation,
   reconciled,
   dropped,
+  // Per-phase OUTPUT-token cost (from budget.spent()), so a run reports where its
+  // tokens went — Tracks dominates; Report is the reporter agents; the mechanical
+  // phases are cheap. Approximate (output-only; shared turn counter), useful for
+  // tuning the model tiers and spotting where to trim next.
+  tokensByPhase,
   // Tracks whose fixes were NOT consolidated onto the branch (preserved worktrees);
   // empty in the common case. Non-empty ⇒ status is 'consolidation-incomplete'.
   preservedTracks,
