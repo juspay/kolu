@@ -388,11 +388,21 @@ const trackThunk = {
       .catch((e) => ({ track: 'police', status: 'track-error', error: String(e) })),
 }
 
-const trackResults = await parallel(liveTracks.map((t) => trackThunk[t]))
-// `tracks` already carries a `track-error` entry for every setup failure; the live
-// tracks fill in alongside them, so the returned map covers EVERY requested track.
-liveTracks.forEach((t, i) => (tracks[t] = trackResults[i] || { track: t, status: 'track-error', error: 'no result' }))
-for (const t of liveTracks) log(`Track ${t}: ${tracks[t].status || 'unknown'}`)
+// A live track with no registered thunk (an unknown/typo'd TRACKS entry whose
+// worktree Setup still built) would make `parallel` invoke `undefined()`. Seed it
+// as a track-error — same shape as a setup failure — and drop it from dispatch so
+// the parallel call stays total.
+const dispatchable = liveTracks.filter((t) => trackThunk[t])
+for (const t of liveTracks.filter((t) => !trackThunk[t])) {
+  tracks[t] = { track: t, status: 'track-error', error: 'unknown track: no thunk registered' }
+  log(`Track ${t}: no thunk registered — recorded as track-error and excluded from dispatch.`)
+}
+const trackResults = await parallel(dispatchable.map((t) => trackThunk[t]))
+// `tracks` already carries a `track-error` entry for every setup failure (and any
+// unknown track above); the dispatchable tracks fill in alongside them, so the
+// returned map covers EVERY requested track.
+dispatchable.forEach((t, i) => (tracks[t] = trackResults[i] || { track: t, status: 'track-error', error: 'no result' }))
+for (const t of dispatchable) log(`Track ${t}: ${tracks[t].status || 'unknown'}`)
 
 // ---------------------------------------------------------------------------
 // PR-comment builders + poster (used by the Report phase). Bodies are built
