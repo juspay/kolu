@@ -518,23 +518,35 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
           // state edge: it lifts the pollable state to a promotion and is the
           // only path that settles it back (the watcher's change gate silently
           // drops the structurally-equal `waiting` write that would otherwise
-          // demote). So while a poll-promotion is live — the published agent's
-          // state differs from this still-pollable watcher info — publishing
-          // this info raw would demote the promotion to its own structurally
-          // equal `waiting` (e.g. a late `refreshSummary` resolving mid-prompt),
-          // flickering the dock and double-bumping recency. Skip the raw publish
-          // and let the poll own that edge; non-state fields it carries (e.g. a
-          // refreshed summary that resolves mid-prompt) are still picked up,
-          // because the poll republishes on any *structural* divergence from
-          // the published agent — not just a state edge — so a held prompt's
-          // summary update lands on the next tick, not only when it clears.
+          // demote). So while *that specific* poll-promotion is live — the
+          // published agent sits at `awaiting_user` over this still-`waiting`
+          // watcher info — publishing this info raw would demote the promotion
+          // to its own structurally equal `waiting` (e.g. a late `refreshSummary`
+          // resolving mid-prompt), flickering the dock and double-bumping
+          // recency. Skip only that one raw publish and let the poll own the
+          // edge; non-state fields it carries (e.g. a refreshed summary that
+          // resolves mid-prompt) are still picked up, because the poll
+          // republishes on any *structural* divergence from the published agent
+          // — not just a state edge — so a held prompt's summary update lands on
+          // the next tick, not only when it clears.
           const published = record.meta.agent;
           const scrape = provider.screenScrape;
+          // Only suppress the raw publish when the divergence is the one lift
+          // the poll performs — a live `awaiting_user` promotion over a still-
+          // `waiting` watcher — AND this host can actually run the poll that
+          // owns settling it back (`readScreenText` is optional; screen-less
+          // hosts get a no-op poll, so they must always publish raw or the tile
+          // freezes forever). Any other pollable divergence (e.g. a real
+          // `thinking → waiting` turn-end settle) is published immediately, so
+          // it never waits up to a poll tick or gets dropped by a sub-tick
+          // state bounce.
           if (
             scrape &&
+            hooks.readScreenText &&
             scrape.isPollable(info) &&
             published?.kind === provider.kind &&
-            published.state !== info.state
+            published.state === "awaiting_user" &&
+            info.state === "waiting"
           ) {
             return;
           }
