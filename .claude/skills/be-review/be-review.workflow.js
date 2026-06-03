@@ -1063,10 +1063,11 @@ function toBase64(s) {
   const CH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
   let out = ''
   for (let i = 0; i < bin.length; i += 3) {
+    const n = Math.min(3, bin.length - i)
     const a = bin.charCodeAt(i)
-    const b = i + 1 < bin.length ? bin.charCodeAt(i + 1) : 0
-    const c = i + 2 < bin.length ? bin.charCodeAt(i + 2) : 0
-    out += CH[a >> 2] + CH[((a & 3) << 4) | (b >> 4)] + (i + 1 < bin.length ? CH[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bin.length ? CH[c & 63] : '=')
+    const b = n > 1 ? bin.charCodeAt(i + 1) : 0
+    const c = n > 2 ? bin.charCodeAt(i + 2) : 0
+    out += CH[a >> 2] + CH[((a & 3) << 4) | (b >> 4)] + (n > 1 ? CH[((b & 15) << 2) | (c >> 6)] : '=') + (n > 2 ? CH[c & 63] : '=')
   }
   return out
 }
