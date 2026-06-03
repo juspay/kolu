@@ -130,6 +130,33 @@ describe("renderMarkdownToRawHtml — inline variant", () => {
   });
 });
 
+describe("renderMarkdownToRawHtml — code + breaks", () => {
+  it("stamps the fence language on data-lang (for downstream highlighting)", () => {
+    const out = html("```ts\nconst x = 1;\n```");
+    expect(out).toContain('<code data-lang="ts">');
+    expect(out).toContain("const x = 1;");
+  });
+
+  it("emits a bare <pre><code> for an unlabelled fence", () => {
+    const out = html("```\nplain\n```");
+    expect(out).toContain("<pre><code>");
+    expect(out).not.toContain("data-lang");
+  });
+
+  it("honours the breaks option (GitHub folds soft breaks; chat keeps them)", () => {
+    const folded = renderMarkdownToRawHtml("a\nb", {
+      links: true,
+      breaks: false,
+    });
+    expect(folded).not.toContain("<br>");
+    const broken = renderMarkdownToRawHtml("a\nb", {
+      links: true,
+      breaks: true,
+    });
+    expect(broken).toContain("<br>");
+  });
+});
+
 describe("renderMarkdownToRawHtml — GFM extensions", () => {
   it("renders footnotes as a superscript ref + a footnotes section", () => {
     const out = html("text[^1] here\n\n[^1]: the note");

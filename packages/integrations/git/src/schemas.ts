@@ -185,6 +185,21 @@ export const FsReadFileOutputSchema = z.discriminatedUnion("kind", [
 ]);
 export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
 
+/** Overwrite a UTF-8 file inside a repo working tree. Currently the sole
+ *  caller is the rendered-Markdown task-list toggle, which rewrites a `.md`
+ *  file's content; the handler path-guards `filePath` to the repo root. The
+ *  open preview re-renders automatically — the same `fsReadFile` watcher that
+ *  observes the working tree re-yields the new content. */
+export const FsWriteFileInputSchema = z.object({
+  /** Absolute path to the repo root (the write-guard boundary). */
+  repoPath: z.string(),
+  /** Path relative to repo root. */
+  filePath: z.string(),
+  /** Full new UTF-8 content. */
+  content: z.string(),
+});
+export type FsWriteFileInput = z.infer<typeof FsWriteFileInputSchema>;
+
 // --- Derived types ---
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;

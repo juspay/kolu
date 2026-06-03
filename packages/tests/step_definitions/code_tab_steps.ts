@@ -805,6 +805,21 @@ Then(
   },
 );
 
+// Click an interactive task-list checkbox in the rendered preview. The
+// delegated handler writes the toggled source back to the file; the watcher
+// re-renders. The scenario then flips to Source to prove the file changed.
+When(
+  "I toggle markdown task {int}",
+  async function (this: KoluWorld, index: number) {
+    const checkbox = this.page.locator(
+      `[data-testid="browse-preview-markdown"] input[data-md-task="${index}"]`,
+    );
+    await checkbox.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await checkbox.click();
+    await this.waitForFrame();
+  },
+);
+
 // ── Right-panel tab switching + filter input ──
 
 When(

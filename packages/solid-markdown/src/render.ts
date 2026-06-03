@@ -6,6 +6,11 @@
  *  `<details>`, `<kbd>`, `<img>`, alignment wrappers and friends survive to
  *  the sanitizer.
  *
+ *  What this renderer does NOT support — math/LaTeX, mermaid, emoji
+ *  shortcodes, @mentions, #issue/SHA autolinks, and the non-GitHub ecosystem
+ *  syntaxes — is catalogued in ../LIMITATIONS.md. Keep it in sync when adding
+ *  or dropping a feature here.
+ *
  *  Images are deliberately *not* special-cased here: markdown `![]()` and
  *  inline `<img>` only converge after parsing, so their "can this src load?"
  *  fallback lives in the sanitize pass (./sanitize), where both are seen
@@ -30,6 +35,10 @@ export type RenderOptions = {
   links: boolean;
   /** Inline-only parse: no block wrapper, for single-line annotation slots. */
   inline?: boolean;
+  /** Treat a single newline as a hard line break (GitHub does NOT — it folds
+   *  soft breaks to a space). On for the chat/dock intent scale (message-like),
+   *  off for the document preview (GitHub-faithful). Defaults on. */
+  breaks?: boolean;
 };
 
 /** Allowlist a URL for use as an `href`. Returns the original string when
@@ -58,8 +67,8 @@ export function safeHref(href: string): string | undefined {
   return ok ? trimmed : undefined;
 }
 
-function buildMarked(links: boolean): Marked {
-  const inst = new Marked({ gfm: true, breaks: true });
+function buildMarked(links: boolean, breaks: boolean): Marked {
+  const inst = new Marked({ gfm: true, breaks });
   inst.use({
     renderer: {
       link(token) {
@@ -70,6 +79,15 @@ function buildMarked(links: boolean): Marked {
         if (!href || !links) return inner;
         const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
         return `<a href="${escapeHtml(href)}"${title} target="_blank" rel="noopener noreferrer">${inner}</a>`;
+      },
+      code(token) {
+        // Carry the fence language on `data-lang` — the sanitizer allowlists
+        // it but strips `class`, so this is what lets the sanitize pass find +
+        // syntax-highlight the block (see ./highlight). The body is escaped
+        // here; highlighting replaces it with trusted markup downstream.
+        const lang = (token.lang ?? "").trim().split(/\s+/)[0] ?? "";
+        const attr = lang ? ` data-lang="${escapeHtml(lang)}"` : "";
+        return `<pre><code${attr}>${escapeHtml(token.text)}</code></pre>\n`;
       },
     },
   });
@@ -107,15 +125,17 @@ function rewriteAlerts(html: string): string {
     .replace(/<p class="markdown-alert-title"\s*>/g, "<p data-md-alert-title>");
 }
 
-// Link policy is the only axis that varies the parser, so cache one configured
-// instance per boolean. Rendering is synchronous, so a shared instance is
-// safe; the cache just avoids rebuilding the renderer on every call.
-const INSTANCES = new Map<boolean, Marked>();
-function instance(links: boolean): Marked {
-  let inst = INSTANCES.get(links);
+// Link policy and the soft-break setting are the only axes that vary the
+// parser, so cache one configured instance per (links, breaks). Rendering is
+// synchronous, so a shared instance is safe; the cache just avoids rebuilding
+// the renderer on every call.
+const INSTANCES = new Map<string, Marked>();
+function instance(links: boolean, breaks: boolean): Marked {
+  const key = `${links}:${breaks}`;
+  let inst = INSTANCES.get(key);
   if (!inst) {
-    inst = buildMarked(links);
-    INSTANCES.set(links, inst);
+    inst = buildMarked(links, breaks);
+    INSTANCES.set(key, inst);
   }
   return inst;
 }
@@ -125,7 +145,7 @@ export function renderMarkdownToRawHtml(
   markdown: string,
   opts: RenderOptions,
 ): string {
-  const inst = instance(opts.links);
+  const inst = instance(opts.links, opts.breaks ?? true);
   // Our config is fully synchronous (no async extensions), so both calls
   // return a string; the union with Promise only arises under `{ async: true }`.
   if (opts.inline) return inst.parseInline(markdown) as string;

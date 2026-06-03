@@ -597,6 +597,31 @@ Feature: Code tab (review + browse)
     And the markdown preview should render a "img[src*='/api/terminals/']" element
     And the markdown preview should not render a "span.kolu-md-img-fallback" element
 
+  # Syntax highlighting (Shiki), GitHub-faithful soft breaks (document folds a
+  # single newline to a space), and interactive task-list checkboxes that write
+  # the toggle back to the file.
+  Scenario: Markdown preview highlights code, folds soft breaks, and writes task toggles
+    When I run "rm -rf /tmp/kolu-md-rich2 && git init /tmp/kolu-md-rich2 && cd /tmp/kolu-md-rich2"
+    And I run "printf '# Doc\n\nline one\nline two\n\n```js\nconst x = 1;\n```\n\n- [ ] todo item\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    # Fenced code gets a copy-button wrapper and is syntax-highlighted (Shiki
+    # loads async; the steps poll).
+    And the markdown preview should render a "div.kolu-md-code" element
+    And the markdown preview should render a "button.kolu-md-copy" element
+    And the markdown preview should render a "pre.shiki" element
+    # GitHub-faithful soft breaks: the two source lines fold into one paragraph.
+    And the markdown preview should not render a "p br" element
+    # Interactive task checkbox: enabled + indexed.
+    And the markdown preview should render a "input[data-md-task]" element
+    # Toggling it writes [x] back to the file — proven via the source view.
+    When I toggle markdown task 0
+    And I switch the file view to "source"
+    Then the file content should contain "[x] todo item"
+
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
   # panel keyed off `preferences.rightPanel.codeTabTreeSize`. The handle

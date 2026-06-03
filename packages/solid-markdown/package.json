@@ -26,6 +26,7 @@
     "marked-alert": "^2.1.2",
     "marked-footnote": "^1.2.4",
     "marked-gfm-heading-id": "^4.1.1",
+    "shiki": "^3.23.0",
     "solid-js": "^1.9.0"
   }
 }

@@ -14,6 +14,7 @@
 
 import { eventIterator, oc } from "@orpc/contract";
 import {
+  FsWriteFileInputSchema,
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
@@ -183,5 +184,10 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
+  },
+  fs: {
+    /** Overwrite a file in a repo working tree (path-guarded to the root).
+     *  Powers the rendered-Markdown task-list toggle. */
+    writeFile: oc.input(FsWriteFileInputSchema).output(z.void()),
   },
 });

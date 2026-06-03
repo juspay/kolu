@@ -9,12 +9,18 @@
  * between the surface fragment and the raw RPCs.
  */
 
+import { writeFile } from "node:fs/promises";
 import { ORPCError } from "@orpc/server";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
-import { worktreeCreate, worktreeRemove } from "kolu-git";
+import {
+  assertRealpathUnder,
+  resolveUnder,
+  worktreeCreate,
+  worktreeRemove,
+} from "kolu-git";
 import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
@@ -291,6 +297,32 @@ export const appRouter = t.router({
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       log.info({ worktree: input.worktreePath }, "worktree remove");
       unwrapGit(await worktreeRemove(input.worktreePath, log));
+    }),
+  },
+  fs: {
+    // Overwrite a working-tree file (the rendered-Markdown task-list toggle).
+    // The file path is guarded to the repo root — lexically (no `..` escape)
+    // and against a symlink whose real target escapes — before the write. The
+    // open preview re-renders on its own: the `fsReadFile` watcher sees the
+    // working-tree change and re-yields the new content.
+    writeFile: t.fs.writeFile.handler(async ({ input }) => {
+      const resolved = resolveUnder(input.repoPath, input.filePath);
+      if (!resolved.ok) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "path escapes repo root",
+        });
+      }
+      const authority = await assertRealpathUnder(
+        input.repoPath,
+        resolved.value.abs,
+      );
+      if (!authority.ok) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "path escapes repo root",
+        });
+      }
+      await writeFile(resolved.value.abs, input.content, "utf-8");
+      log.info({ repo: input.repoPath, file: input.filePath }, "fs write");
     }),
   },
 });

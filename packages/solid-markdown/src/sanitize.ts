@@ -46,6 +46,14 @@ export type SanitizeOptions = {
    *  resolved, in which case the image degrades to a labelled chip. App-
    *  agnostic: the host supplies the mapping; the package just applies it. */
   resolveImageSrc?: (src: string) => string | undefined;
+  /** Syntax-highlight a fenced code block, returning *trusted* HTML (Shiki
+   *  output of escaped code text) or `undefined` to leave the block plain.
+   *  Wired only for the document preview, once the highlighter is warm. */
+  highlightCode?: (code: string, lang: string) => string | undefined;
+  /** Make GFM task-list checkboxes interactive: enabled + tagged with their
+   *  source order (`data-md-task`), so the host can write a toggle back to the
+   *  file. Off (presentational, disabled) everywhere else. */
+  interactiveTasks?: boolean;
 };
 
 // The README inline-HTML subset, plus the tags `marked` emits for GFM. No
@@ -157,7 +165,9 @@ const DOCUMENT_ATTR = [
   "type",
   "checked",
   // Inert structural/state attributes (no script surface): list numbering,
-  // image dimensions, table cell spans, disclosure state, lazy loading.
+  // image dimensions, table cell spans, disclosure state, lazy loading, and
+  // `disabled` — which marked stamps on task checkboxes and is the signal the
+  // task pass keys on (it must survive DOMPurify to be read back).
   "start",
   "width",
   "height",
@@ -165,6 +175,7 @@ const DOCUMENT_ATTR = [
   "rowspan",
   "open",
   "loading",
+  "disabled",
   // `id` is kept so heading anchors + footnote refs have landing targets, but
   // every id is namespaced (md- prefix) post-sanitize so an untrusted README
   // can't collide with an app id (see sanitizeHtml).
@@ -173,6 +184,9 @@ const DOCUMENT_ATTR = [
   // markup into (class itself stays forbidden).
   "data-md-alert",
   "data-md-alert-title",
+  // The fence language the renderer stamps on `<code>` so the code-block pass
+  // can syntax-highlight it (`class` is forbidden, so this carries it).
+  "data-lang",
 ];
 const INTENT_ATTR = ["href", "title"];
 
@@ -243,6 +257,49 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
   anchor.setAttribute("rel", "noopener noreferrer");
 }
 
+/** Highlight (when a highlighter is supplied) and decorate a fenced code
+ *  block: replace the plain `<pre>` with Shiki's themed markup, then wrap it in
+ *  a `.kolu-md-code` container carrying a copy button. Shiki's output is
+ *  trusted (it escapes the code text into the span tree), so it's injected past
+ *  the allowlist via a `<template>` — the `style`/`class` it relies on would
+ *  otherwise be stripped. The copy button + wrapper are elements we mint here,
+ *  not from the document, so they need no allowlist entry. */
+function enhanceCodeBlock(
+  pre: Element,
+  highlight?: (code: string, lang: string) => string | undefined,
+): void {
+  const code = pre.querySelector(":scope > code");
+  if (!code) return;
+  const text = code.textContent ?? "";
+  const lang = code.getAttribute("data-lang") ?? "";
+
+  let block: Element = pre;
+  if (highlight) {
+    const html = highlight(text, lang);
+    if (html) {
+      const tpl = document.createElement("template");
+      tpl.innerHTML = html; // trusted: Shiki output of escaped code text
+      const shikiPre = tpl.content.querySelector("pre");
+      if (shikiPre) {
+        pre.replaceWith(shikiPre);
+        block = shikiPre;
+      }
+    }
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "kolu-md-code";
+  block.replaceWith(wrap);
+  wrap.appendChild(block);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "kolu-md-copy";
+  button.setAttribute("data-md-copy", "");
+  button.setAttribute("aria-label", "Copy code");
+  wrap.appendChild(button);
+}
+
 /** Sanitize `marked`-produced HTML into DOM-safe markup under the given
  *  per-slot policy. Returns an empty string when there is no DOM (SSR / Node),
  *  since there is nothing to render into anyway. */
@@ -261,13 +318,31 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
   }
 
   // `<input>` is allowed only to carry a GFM task-list checkbox. Drop any
-  // other input (a stray `type="text"` etc.), and make the kept checkboxes
-  // presentational — they are rendered state, never interactive here.
+  // other input (a stray `type="text"` etc.). A marked task checkbox arrives
+  // `disabled`; when interactive tasks are enabled we re-enable it and tag it
+  // with its source order so the host can write a toggle back to the file —
+  // otherwise it stays presentational (disabled). A raw-HTML `<input checkbox>`
+  // without `disabled` has no source marker to map to, so it stays disabled.
+  let taskIndex = 0;
   for (const input of root.querySelectorAll("input")) {
-    if (input.getAttribute("type") === "checkbox") {
-      input.setAttribute("disabled", "");
-    } else {
+    if (input.getAttribute("type") !== "checkbox") {
       input.remove();
+      continue;
+    }
+    const isMarkedTask = input.hasAttribute("disabled");
+    if (opts.interactiveTasks && isMarkedTask) {
+      input.removeAttribute("disabled");
+      input.setAttribute("data-md-task", String(taskIndex++));
+    } else {
+      input.setAttribute("disabled", "");
+    }
+  }
+
+  // Code blocks: syntax-highlight (when a highlighter is supplied) and wrap
+  // each in a copy-button affordance. Only for the document scope.
+  if (opts.richHtml) {
+    for (const pre of Array.from(root.querySelectorAll("pre"))) {
+      enhanceCodeBlock(pre, opts.highlightCode);
     }
   }
 

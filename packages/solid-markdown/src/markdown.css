@@ -178,6 +178,63 @@
   font-size: 0.875em;
 }
 
+/* ── Shiki syntax highlighting (document preview) ─────────────── */
+/* Shiki emits dual-theme output (`defaultColor:false`): each token span carries
+ * `--shiki-light` / `--shiki-dark` color variables. We pick the light variable
+ * by default and swap to dark under `.dark`. Background stays the `.kolu-md pre`
+ * box above (not Shiki's theme bg) for consistent contrast on the page. */
+.kolu-md .shiki,
+.kolu-md .shiki code,
+.kolu-md .shiki span {
+  color: var(--shiki-light);
+  background: transparent;
+}
+.dark .kolu-md .shiki,
+.dark .kolu-md .shiki code,
+.dark .kolu-md .shiki span {
+  color: var(--shiki-dark);
+}
+
+/* ── Code block wrapper + copy button ────────────────────────── */
+.kolu-md-code {
+  position: relative;
+  margin: 0 0 var(--md-gap);
+}
+.kolu-md-code pre {
+  margin: 0;
+}
+.kolu-md-copy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  padding: 0.2em 0.6em;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--md-muted);
+  background: color-mix(in oklch, currentColor 10%, transparent);
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease;
+}
+.kolu-md-copy::before {
+  content: "Copy";
+}
+.kolu-md-code:hover .kolu-md-copy,
+.kolu-md-copy:focus-visible {
+  opacity: 1;
+}
+.kolu-md-copy[data-copied] {
+  opacity: 1;
+  color: var(--color-ok, #16a34a);
+}
+.kolu-md-copy[data-copied]::before {
+  content: "Copied";
+}
+
 /* ── Blockquote ──────────────────────────────────────────────── */
 .kolu-md blockquote {
   padding: 0 0 0 1em;
@@ -230,6 +287,10 @@
 .kolu-md input[type="checkbox"] {
   margin: 0 0.5em 0 0;
   vertical-align: middle;
+}
+/* Interactive task checkboxes (the host wired a write-back) get a pointer. */
+.kolu-md input[type="checkbox"][data-md-task] {
+  cursor: pointer;
 }
 
 /* ── Tables ──────────────────────────────────────────────────── */

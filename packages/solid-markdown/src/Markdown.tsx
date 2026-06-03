@@ -14,44 +14,95 @@
  *  `variant` selects the parse mode + the styling scale:
  *    - "inline"   — inline-only parse, no block wrapper (annotation slots).
  *    - "compact"  — block parse at chat/dock scale (kolu's intent body).
- *    - "document" — block parse at reading scale (full-pane previews). */
+ *    - "document" — full-pane preview: GitHub-faithful soft breaks, Shiki code
+ *      highlighting + copy buttons, and (when a host wires `onToggleTask`)
+ *      interactive task-list checkboxes. */
 
-import { type Component, createMemo, onCleanup, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createResource,
+  onCleanup,
+  Show,
+} from "solid-js";
+import { highlightCode, loadHighlighter } from "./highlight";
 import { renderMarkdownToRawHtml } from "./render";
 import { sanitizeHtml } from "./sanitize";
 
 export type MarkdownVariant = "inline" | "compact" | "document";
 
-/** Handle clicks on links inside the rendered Markdown. Bound imperatively
- *  rather than via a JSX `onClick` because it's a propagation guard, not a
- *  primary interaction — it needs no keyboard affordance and would otherwise
- *  be a static-element interaction the a11y lint (rightly) rejects.
+/** Copy a code block's text to the clipboard and flash the button. */
+function copyCodeBlock(button: HTMLElement): void {
+  const pre = button.closest(".kolu-md-code")?.querySelector("pre");
+  const text = pre?.textContent ?? "";
+  if (!text) return;
+  void navigator.clipboard?.writeText(text).then(() => {
+    button.setAttribute("data-copied", "");
+    setTimeout(() => button.removeAttribute("data-copied"), 1500);
+  });
+}
+
+/** Handle interactive bits inside the rendered Markdown — links, code-copy
+ *  buttons, and task-list checkboxes. Bound imperatively (not via JSX
+ *  `onClick`) because these are delegated handlers over sanitizer-minted DOM,
+ *  not declarative element interactions the a11y lint would expect a role for.
  *
- *  Two jobs:
- *    - swallow the bubble so a nested anchor in a clickable host slot (dock
- *      card, switcher card, intent body) doesn't also fire that slot's handler;
- *    - resolve an in-page anchor (TOC jump, footnote ref/back-ref — namespaced
- *      `#md-…` by the sanitizer) by scrolling to the target *within* the
- *      preview, without navigating or writing to the app's URL hash. */
-function guardAnchorClicks(el: HTMLElement): void {
-  const handle = (e: Event) => {
-    const anchor = (e.target as Element | null)?.closest?.("a");
-    if (!anchor) return;
-    e.stopPropagation();
-    if (e.type !== "click") return;
-    const href = anchor.getAttribute("href");
-    if (!href || !href.startsWith("#") || href.length < 2) return;
-    const target = el.querySelector(`#${CSS.escape(href.slice(1))}`);
-    if (target) {
-      e.preventDefault();
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
+ *  Each also stops the bubble so a nested control in a clickable host slot
+ *  (dock card, switcher card) doesn't double-fire that slot's handler. */
+function bindInteractions(
+  el: HTMLElement,
+  onToggleTask: () => ((taskIndex: number) => void) | undefined,
+): void {
+  const onPointerDown = (e: Event) => {
+    const target = e.target as Element | null;
+    if (target?.closest?.("a, [data-md-copy], input[data-md-task]")) {
+      e.stopPropagation();
     }
   };
-  el.addEventListener("click", handle);
-  el.addEventListener("pointerdown", handle);
+  const onClick = (e: MouseEvent) => {
+    const target = e.target as Element | null;
+    if (!target) return;
+
+    const copyButton = target.closest<HTMLElement>("[data-md-copy]");
+    if (copyButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      copyCodeBlock(copyButton);
+      return;
+    }
+
+    const task = target.closest<HTMLInputElement>("input[data-md-task]");
+    if (task) {
+      // Let the server round-trip drive the checked state (write → file
+      // watcher → re-render), so prevent the local toggle to avoid a
+      // flicker/revert.
+      e.preventDefault();
+      e.stopPropagation();
+      const index = Number(task.getAttribute("data-md-task"));
+      if (Number.isInteger(index)) onToggleTask()?.(index);
+      return;
+    }
+
+    const anchor = target.closest("a");
+    if (anchor) {
+      e.stopPropagation();
+      const href = anchor.getAttribute("href");
+      // In-page anchors (TOC, footnotes — namespaced `#md-…`) scroll within
+      // the preview without navigating or writing the app's URL hash.
+      if (href?.startsWith("#") && href.length > 1) {
+        const landing = el.querySelector(`#${CSS.escape(href.slice(1))}`);
+        if (landing) {
+          e.preventDefault();
+          landing.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+    }
+  };
+  el.addEventListener("click", onClick);
+  el.addEventListener("pointerdown", onPointerDown);
   onCleanup(() => {
-    el.removeEventListener("click", handle);
-    el.removeEventListener("pointerdown", handle);
+    el.removeEventListener("click", onClick);
+    el.removeEventListener("pointerdown", onPointerDown);
   });
 }
 
@@ -60,40 +111,59 @@ export const Markdown: Component<{
   variant?: MarkdownVariant;
   links?: boolean;
   /** Resolve a repo-relative image `src` to a loadable URL (see
-   *  `SanitizeOptions.resolveImageSrc`). Only consulted for the document
-   *  variant, which is the one that renders images. */
+   *  `SanitizeOptions.resolveImageSrc`). Document variant only. */
   resolveImageSrc?: (src: string) => string | undefined;
+  /** Persist a GFM task-list toggle: called with the task's source order when
+   *  a checkbox is clicked. When set (document variant), checkboxes render
+   *  interactive; the host writes the flip back to the file. */
+  onToggleTask?: (taskIndex: number) => void;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
+  const isDocument = () => variant() === "document";
   // Links default on for block variants, off for inline — an inline slot's own
   // click handler (open editor / open palette) must win over a nested anchor.
   const links = () => props.links ?? variant() !== "inline";
   // Only the full-pane document preview is a *document*: it gets the README
-  // inline-HTML + image surface. The compact/inline intent slots are clickable
-  // UI rows rendering user/agent text, so they keep the stricter scope that
-  // strips raw block HTML and images (the behaviour they had before this
-  // renderer gained raw-HTML support).
-  const richHtml = () => variant() === "document";
+  // inline-HTML + image surface, GitHub-faithful soft breaks, and code
+  // highlighting. The compact/inline intent slots keep the stricter scope.
+  const richHtml = () => isDocument();
+
+  // Lazily load the Shiki highlighter for the document preview; `highlighter()`
+  // flips from undefined → ready, re-running the html memo so code re-paints.
+  const [highlighter] = createResource(
+    () => isDocument() || undefined,
+    () => loadHighlighter(),
+  );
+
   const html = createMemo(() =>
     sanitizeHtml(
       renderMarkdownToRawHtml(props.markdown, {
         links: links(),
         inline: variant() === "inline",
+        // GitHub folds a single newline to a space; chat/dock want it as a
+        // break. Document → faithful (false); compact/inline → break (true).
+        breaks: !isDocument(),
       }),
       {
         links: links(),
         richHtml: richHtml(),
         resolveImageSrc: props.resolveImageSrc,
+        highlightCode:
+          isDocument() && highlighter() != null ? highlightCode : undefined,
+        interactiveTasks: isDocument() && props.onToggleTask != null,
       },
     ),
   );
+
+  const bind = (el: HTMLElement) =>
+    bindInteractions(el, () => props.onToggleTask);
 
   return (
     <Show
       when={variant() !== "inline"}
       fallback={
         <span
-          ref={guardAnchorClicks}
+          ref={bind}
           class="kolu-md"
           data-md-variant={variant()}
           innerHTML={html()}
@@ -101,7 +171,7 @@ export const Markdown: Component<{
       }
     >
       <div
-        ref={guardAnchorClicks}
+        ref={bind}
         class="kolu-md"
         data-md-variant={variant()}
         innerHTML={html()}
