@@ -510,11 +510,11 @@ Feature: Code tab (review + browse)
     And the markdown preview should render a "kbd" element
     And the markdown preview should render a "[align=center]" element
     And the markdown preview should contain "centered note"
-    # A repo-relative image can't load here, so it degrades to a labelled
-    # chip (its alt text) rather than a broken-image icon — markdown `![]()`
-    # and inline `<img>` alike.
-    And the markdown preview should not render a "img" element
-    And the markdown preview should contain "brand-logo"
+    # A repo-relative inline `<img>` resolves against the doc's directory to the
+    # per-terminal file route — a real <img>, not raw text or a broken icon.
+    # Load-vs-fallback coverage is in the "lists, footnotes, alerts, and
+    # resolves repo images" scenario below.
+    And the markdown preview should render a "img[src*='/api/terminals/']" element
 
   Scenario: Markdown preview strips script-capable HTML and links
     When I run "rm -rf /tmp/kolu-md-xss && git init /tmp/kolu-md-xss && cd /tmp/kolu-md-xss"
