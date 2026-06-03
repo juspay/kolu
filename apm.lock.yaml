@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-03T12:57:29.526801+00:00'
+generated_at: '2026-06-03T13:57:18.077882+00:00'
 apm_version: 0.16.1
 dependencies:
 - repo_url: anthropics/skills
@@ -119,6 +119,7 @@ local_deployed_files:
 - .agents/skills/lens-debate
 - .agents/skills/parcel
 - .agents/skills/perf-diagnose
+- .agents/skills/pg
 - .agents/skills/pierre
 - .agents/skills/test
 - .claude/commands/whatchanged.md
@@ -140,6 +141,7 @@ local_deployed_files:
 - .claude/skills/lens-debate
 - .claude/skills/parcel
 - .claude/skills/perf-diagnose
+- .claude/skills/pg
 - .claude/skills/pierre
 - .claude/skills/test
 - .opencode/commands/whatchanged.md

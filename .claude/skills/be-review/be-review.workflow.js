@@ -56,6 +56,13 @@ const commit = a.commit !== false
 // Post a detailed PR comment per track + the consolidation ledger (default on).
 // `--no-comment` (comment:false) suppresses the outward-facing write.
 const postComments = a.comment !== false
+// Author each comment with a per-track REPORTER AGENT (rich narrative + tables +
+// reasoning) rather than the terse deterministic string builders (issue #1151).
+// Default on. The deterministic builders remain the baseline the agent improves
+// and the fallback on empty output, and a trivial track (track-error / clean /
+// empty) skips the agent so a no-op debate costs nothing. `richComment: false`
+// forces the deterministic comments.
+const richComment = a.richComment !== false
 const model = a.model || MODEL
 // The review tracks to run AND the order they consolidate in. codex first (it
 // changes the most — bug fixes), then the structural lenses, then police, so an
@@ -605,6 +612,74 @@ function consolidationSection(c, order) {
 ${rows || '| — | — | — | — | — |'}`
 }
 
+// ---------------------------------------------------------------------------
+// Rich reporter agents (issue #1151). The deterministic builders above are the
+// BASELINE (and the fallback); a reporter agent turns the structured track
+// result into a genuinely detailed, well-organized comment — narrative + tables
+// + reasoning — that a string builder can't synthesize from the rich-but-under-
+// used fields each track carries. The mechanical `postComment` below still does
+// the actual `gh pr comment`; only the body *authoring* becomes an agent.
+// ---------------------------------------------------------------------------
+
+// What each reporter should foreground — the fields each track carries that the
+// terse builders drop on the floor (see issue #1151).
+const REPORT_GUIDANCE = {
+  codex: `Tell the codex⇄claude debate ROUND BY ROUND: how it converged (not just open-counts), the reasoning behind each disposition, codex's responses to Claude's rebuttals, and which findings were conceded vs fixed. Group findings by severity. Source: per-round transcript (findings = id/severity/location/issue/suggestion/status; claude actions = findingId/disposition/detail; round commit).`,
+  lens: `Lead with each lens's INDEPENDENT findings (lowy and hickey each surface several). Then, per finding, the cross-examination outcome with BOTH lenses' reasoning, the agreed plan, and — most interesting — which findings FLIPPED disposition during the debate (drop→fix or fix→drop) and why. Source: settled[] (origin, title, location, disposition, plan, both lenses' reasonings), reviews (each lens's independent findings), history[] (per round), applied[] (commit), unresolved[].`,
+  police: `For each finding give the actual PROBLEM statement and the FIX (not just title + commit), grouped by pass (rules / fact-check / elegance). Source: applied[] (id, title, severity, problem, files, commit).`,
+  consolidation: `Surface the reconciliation REASONING prominently: for any pick whose outcome is 'reconciled' or 'dropped', explain the overlap and how it was resolved (the note) as prose, not a buried table cell. Clean picks can stay a compact table. Source: picks[] (track, sourceCommit, outcome, newCommit, files, note).`,
+}
+
+// Strip a wrapping ``` / ```markdown fence if the agent wrapped the whole body.
+function stripFences(s) {
+  const m = String(s || '')
+    .trim()
+    .match(/^```(?:markdown|md)?\n([\s\S]*?)\n```$/)
+  return (m ? m[1] : s || '').trim()
+}
+
+// Is there enough substance to be worth an authoring agent? A track-error, a
+// clean/empty result, or a no-pick consolidation just posts its deterministic
+// baseline — no agent spent on a one-liner.
+function hasRichContent(slug, data) {
+  if (!data) return false
+  if (slug === 'consolidation') return (data.picks || []).length > 0
+  if (data.status === 'track-error') return false
+  if (slug === 'codex') return (data.transcript || []).some((r) => (r.codex?.findings || []).length)
+  if (slug === 'lens') return (data.settled || []).length > 0 || Object.values(data.reviews || {}).some((v) => (v || []).length)
+  if (slug === 'police') return (data.applied || []).length > 0
+  return false
+}
+
+// Author a rich comment body for one slug from its structured result. Returns the
+// deterministic `baseline` on empty/failed output so Report never posts a blank
+// comment. `baseline` carries the canonical top-level header (the agent is told to
+// keep it), so PR anchors stay stable whether the body is agent- or builder-authored.
+async function reporterBody(slug, data, baseline, guidance) {
+  const prompt = `You are the **${slug} reporter** for a /be-review run. Author ONE genuinely detailed, well-organized GitHub PR comment from the structured result below — narrative + tables + reasoning, not a terse row count.
+
+STRUCTURED RESULT (JSON):
+${JSON.stringify(data, null, 2)}
+
+DETERMINISTIC BASELINE (improve on it — keep its facts and its EXACT top-level header line, add the depth it lacks):
+${baseline}
+
+WHAT TO FOREGROUND:
+${guidance}
+Open with a 1-2 sentence synthesis of what this track changed and why.
+
+HARD RULES:
+- Keep the baseline's exact top-level header line (the \`##\`/\`###\` heading) so the PR anchor stays stable.
+- Output ONLY the raw markdown body — no surrounding code fence, no preamble, no "here is the comment".
+- Commit SHAs MUST be plain text (bare, e.g. a1b2c3d4e), NEVER wrapped in backticks — GitHub only auto-links bare SHAs.
+- Stay under 60 KB; if the data is large, prioritize the most significant findings and note how many you summarized.
+- Do NOT invent facts not in the structured result — synthesize only from the data given; you need not read the repo.
+Return the markdown body as your final message.`
+  const out = await agent(prompt, { label: `report:${slug}`, phase: 'Report', model })
+  const body = stripFences(out)
+  return body && body.length > 40 ? body : baseline
+}
+
 // Post one comment via a mechanical agent. Resolves the PR from the branch in the
 // MAIN worktree (gh uses cwd's repo; the agent runs `gh -C`-equivalent by cd-ing).
 async function postComment(slug, body) {
@@ -904,16 +979,31 @@ if (postComments) {
   // `genericComment`, so the map below stays TOTAL over `TRACKS` — a new reviewer
   // track gets a comment even before it grows a hand-written builder.
   const builder = { codex: codexComment, lens: lensComment, police: policeComment }
-  // The consolidation ledger is a WORKFLOW-level artifact, not a track artifact, so
-  // it posts as its own comment — surviving any track subset instead of being
-  // string-stapled onto whichever track happens to be present.
-  const bodies = [
-    ['consolidation', consolidationSection(consolidation, consolidateOrder)],
-    ...TRACKS.map((t) => [t, (builder[t] || genericComment)(tracks[t])]),
+  // Each item is [slug, structuredData, deterministicBaseline]. The baseline is
+  // both what a reporter agent improves and the fallback when `richComment` is off
+  // or the track is trivial. The consolidation ledger is a WORKFLOW-level artifact,
+  // not a track artifact, so it posts as its own comment — surviving any track
+  // subset instead of being string-stapled onto whichever track happens to be present.
+  const items = [
+    ['consolidation', consolidation, consolidationSection(consolidation, consolidateOrder)],
+    ...TRACKS.map((t) => [t, tracks[t], (builder[t] || genericComment)(tracks[t])]),
   ]
-  // Post sequentially so the comments land in a stable order (consolidation, then
-  // the tracks in canonical order).
-  for (const [slug, body] of bodies) {
+  // Author the bodies — a rich reporter AGENT for non-trivial tracks (in parallel),
+  // the deterministic baseline otherwise — then POST sequentially for a stable
+  // order. A failed/empty authoring falls back to the baseline, so Report never
+  // skips a comment.
+  const authored = await parallel(
+    items.map(([slug, data, baseline]) => () =>
+      richComment && hasRichContent(slug, data)
+        ? reporterBody(slug, data, baseline, REPORT_GUIDANCE[slug] || '')
+            .then((body) => [slug, body])
+            .catch(() => [slug, baseline])
+        : Promise.resolve([slug, baseline]),
+    ),
+  )
+  for (const item of authored) {
+    if (!item) continue
+    const [slug, body] = item
     const url = await postComment(slug, body)
     comments[slug] = (url || '').trim()
     log(`Report: posted ${slug} comment${comments[slug] ? ` → ${comments[slug]}` : ''}`)

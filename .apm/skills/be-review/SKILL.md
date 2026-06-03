@@ -92,9 +92,14 @@ to `cd`.
   discarding the uncommitted edits; inspect and tear them down yourself. Default is
   to commit, which is what actually ships fixes.
 - **`--no-comment`**: suppress the PR comments. By default the **Report** phase
-  posts a detailed PR comment per track (codex debate table, lens per-finding
-  ledger, police findings) plus the consolidation ledger — the review trail the
-  gauntlet exists to leave. This flag reports in chat only.
+  posts a detailed PR comment per track plus the consolidation ledger — the review
+  trail the gauntlet exists to leave. This flag reports in chat only.
+- **`richComment`** (default `true`): author each comment with a per-track
+  **reporter agent** (narrative + tables + reasoning, synthesized from the track's
+  full structured result) rather than the terse deterministic string builders. The
+  builders remain the **baseline** the agent improves and the **fallback** on empty
+  output; a trivial track (track-error / clean / no findings) skips the agent.
+  Pass `richComment: false` to force the cheap deterministic comments.
 
 ## Steps
 
@@ -129,7 +134,8 @@ Workflow({
     rationale: "<optional author note on deliberate decisions>",
     tracks: ["codex", "lens", "police"],   // also the consolidation order
     commit: <false only if --no-commit>,
-    comment: <false only if --no-comment>
+    comment: <false only if --no-comment>,
+    richComment: <false to force terse deterministic comments; default true (reporter agents)>
   }
 })
 ```
@@ -143,8 +149,10 @@ for concurrent ones.
 It runs five phases the user can watch via `/workflows`: **Setup** (fan out one
 detached worktree per track under `.worktrees/`), **Tracks** (the three gauntlets
 run concurrently to consensus), **Consolidate** (cherry-pick each track's commits
-onto the branch, reconciling overlap), **Report** (post a detailed PR comment per
-track + the consolidation ledger), **Cleanup** (tear down the worktrees). It
+onto the branch, reconciling overlap), **Report** (a per-track **reporter agent**
+authors a detailed PR comment from each track's structured result — narrative +
+tables + reasoning — plus the consolidation ledger; `richComment: false` falls back
+to the terse deterministic builders), **Cleanup** (tear down the worktrees). It
 returns:
 
 ```
