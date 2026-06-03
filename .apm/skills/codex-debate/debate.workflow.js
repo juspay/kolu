@@ -216,12 +216,28 @@ phase('Debate')
 // forked (those would otherwise show up in `git diff base` — master's drift
 // reviewed as ours). A thin mechanical git agent; the workflow can't run git
 // itself. Idempotent when `base` is already a merge-base SHA (caller resolved it).
+const rawBase = a.base || 'origin/master'
 const baseRes = await agent(
-  `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex). If the command fails, return the literal \`${base}\` unchanged. Do nothing else.`,
-  { label: 'resolve:merge-base', phase: 'Debate', schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA (or the unchanged base ref on failure)' } } } },
+  `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex) in \`sha\`. If the command FAILS (missing/typoed base, stale ref, unrelated history), return \`sha\`: "" and put the verbatim git error in \`error\` — do NOT fall back to the raw base ref. Do nothing else.`,
+  { label: 'resolve:merge-base', phase: 'Debate', schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
 )
-if (baseRes?.sha?.trim()) base = baseRes.sha.trim()
-log(`Diffing against ${base.slice(0, 12)} (merge-base of ${a.base || 'origin/master'} and HEAD), so the base branch's drift since the fork isn't reviewed.`)
+// Fail loud on a bad base. Falling back to the raw `${base}` tip would review the
+// base branch's drift since the fork as if this change made it — the exact noise
+// the merge-base removes — so a missing/typoed/stale base must abort, not degrade.
+if (!baseRes?.sha?.trim()) {
+  const err = (baseRes?.error || '').trim()
+  log(`Aborting: \`git merge-base ${rawBase} HEAD\` failed; the diff scope can't be trusted. Not falling back to the raw ${rawBase} tip.`)
+  return {
+    status: 'merge-base-error',
+    base: rawBase,
+    rounds: 0,
+    transcript: [],
+    finalVerdict: null,
+    note: `merge-base of \`${rawBase}\` and HEAD could not be resolved (missing/typoed base, stale ref, or unrelated history), so the review scope is untrustworthy. Fix the base ref (e.g. \`git fetch\`) and re-run.${err ? `\ngit error:\n${err}` : ''}`,
+  }
+}
+base = baseRes.sha.trim()
+log(`Diffing against ${base.slice(0, 12)} (merge-base of ${rawBase} and HEAD), so the base branch's drift since the fork isn't reviewed.`)
 
 for (let round = 1; ; round++) {
   const verdict = await codexReviews(round, lastClaude ? JSON.stringify(lastClaude) : null)

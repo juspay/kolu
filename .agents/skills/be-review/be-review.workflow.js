@@ -24,7 +24,26 @@ const MODEL = 'opus'
 // Inputs (passed via the Workflow tool's `args`)
 // ---------------------------------------------------------------------------
 const a = args || {}
-const repoPath = a.repoPath || '.'
+// repoPath is the worktree root and the spine of EVERY path below (`git -C`,
+// child `repoPath`s, scratch + worktree dirs). It MUST be absolute: the whole
+// "isolation is structural, not behavioral" guarantee rests on every git command
+// and file path being absolute, and the codex child `cd`s into its repoPath while
+// reading a scratch path derived from it — a relative repoPath would `cd` once and
+// then resolve that scratch path against the new cwd, writing the verdict to a
+// nested path and reading it back from a different one. Rather than silently
+// canonicalize against an unknowable session cwd, reject a non-absolute repoPath
+// loudly. (/be always passes an absolute root; the default `.` is rejected here.)
+const repoPath = (a.repoPath || '').trim()
+if (!repoPath.startsWith('/')) {
+  return {
+    status: 'setup-failed',
+    branchHead: '',
+    base: a.base || 'origin/master',
+    tracks: {},
+    consolidation: null,
+    note: `repoPath must be an ABSOLUTE path (got ${repoPath ? `\`${repoPath}\`` : 'empty'}). Every git command and scratch/worktree path in this orchestrator is absolute and cwd-independent; a relative repoPath would break the codex child's cd-then-read-scratch step and let agents leak into the wrong tree. Pass the absolute worktree root.`,
+  }
+}
 const base = a.base || 'origin/master'
 // Optional author note on deliberate design decisions, threaded into the lens
 // debate so the lenses don't flag intentional choices.
@@ -51,11 +70,17 @@ const TRACKS = a.tracks || ['codex', 'lens', 'police']
 // the shared cwd is irrelevant — no agent can leak into the wrong tree by
 // forgetting to `cd`. The per-track worktrees live under the repo's conventional
 // `.worktrees/` (gitignored); commit-message + PR-comment scratch lives under
-// the gitignored `.be-review/`. Both are absolute and per-main-worktree, so
-// parallel /be-review runs in different worktrees never collide.
+// the gitignored `.be-review/`. Both are absolute, and a per-RUN id is woven into
+// the worktree name and the scratch subdir so two /be-review runs in the SAME
+// main worktree never clobber each other's live worktrees or scratch files (the
+// old fixed `be-review-<track>` / `.be-review/*` paths let a second run `rm -rf`
+// the first run's in-flight worktree). The id is the start-time epoch ms — unique
+// per invocation, and the actual paths are reported back in the result so manual
+// inspection doesn't need to guess them.
+const RUN_ID = String(Date.now())
 const WT_ROOT = `${repoPath}/.worktrees`
-const wtDir = (track) => `${WT_ROOT}/be-review-${track}`
-const SCRATCH = `${repoPath}/.be-review`
+const wtDir = (track) => `${WT_ROOT}/be-review-${RUN_ID}-${track}`
+const SCRATCH = `${repoPath}/.be-review/${RUN_ID}`
 
 // Generated skill locations the child debate workflows live at.
 const CODEX_SCRIPT = '.claude/skills/codex-debate/debate.workflow.js'
@@ -81,7 +106,11 @@ const SETUP_SCHEMA = {
   required: ['branchHead', 'mergeBase', 'cleanTree', 'worktrees'],
   properties: {
     branchHead: { type: 'string', description: 'SHA of the branch HEAD every track was forked from' },
-    mergeBase: { type: 'string', description: 'SHA of `git merge-base <base> HEAD` — the diff base reviewers actually use, so master’s drift past the fork point is NOT reviewed' },
+    mergeBase: { type: 'string', description: 'SHA of `git merge-base <base> HEAD` — the diff base reviewers actually use, so master’s drift past the fork point is NOT reviewed. Empty string iff the merge-base command FAILED (do NOT fall back to the raw base).' },
+    mergeBaseError: {
+      type: 'string',
+      description: 'the verbatim `git merge-base` error when mergeBase is empty; "" otherwise',
+    },
     cleanTree: {
       type: 'boolean',
       description: 'true iff the main worktree had NO uncommitted changes (outside the scratch dirs) when checked',
@@ -177,13 +206,12 @@ phase('Setup')
 const setupPrompt = `You are a MECHANICAL SETUP RUNNER preparing isolated worktrees for a parallel code-review gauntlet. Do exactly these steps (every path here is ABSOLUTE; use \`git -C\` and never rely on the current directory); do not edit any source files.
 
 1. Record the branch HEAD: \`git -C ${repoPath} rev-parse HEAD\` — this is \`branchHead\`, the commit every track forks from.
-1b. Record the MERGE-BASE: \`git -C ${repoPath} merge-base ${base} HEAD\` — this is \`mergeBase\`, the point the branch diverged from its base. Reviewers diff against THIS (not the raw \`${base}\` tip) so that commits \`${base}\` gained since the branch forked are NOT reviewed as if this PR made them. If the command fails, fall back to \`mergeBase\` = the resolved \`${base}\` and say so in a worktree \`note\`.
+1b. Record the MERGE-BASE: \`git -C ${repoPath} merge-base ${base} HEAD\` — this is \`mergeBase\`, the point the branch diverged from its base. Reviewers diff against THIS (not the raw \`${base}\` tip) so that commits \`${base}\` gained since the branch forked are NOT reviewed as if this PR made them. If the command FAILS (missing/typoed base, stale ref, or unrelated history), the review scope is untrustworthy — do NOT fall back to the raw \`${base}\`; instead set \`mergeBase\`: "" and put the exact git error in \`mergeBaseError\`, then STOP (skip worktree creation, return an empty \`worktrees\` array). (The orchestrator aborts the whole run when \`mergeBase\` is empty.)
 2. CLEAN-TREE PREFLIGHT. The tracks fork detached worktrees from \`branchHead\`, so anything NOT committed to HEAD is invisible to every reviewer. Run \`git -C ${repoPath} status --short\` and ignore only lines under the gitignored scratch dirs (\`.worktrees/\` and \`.be-review/\`). If ANY other staged, unstaged, or untracked entry remains, the working tree is dirty: set \`cleanTree\`: false, put those offending lines in \`dirtyStatus\`, SKIP worktree creation entirely (return an empty \`worktrees\` array), and stop. Otherwise set \`cleanTree\`: true and \`dirtyStatus\`: "".
 3. Only if \`cleanTree\` is true — ensure the scratch dirs exist: \`mkdir -p ${WT_ROOT} ${SCRATCH}\`.
-4. Only if \`cleanTree\` is true — for EACH track in [${TRACKS.join(', ')}], create a fresh detached worktree at \`branchHead\`:
-   - Path: \`${WT_ROOT}/be-review-<track>\` (absolute).
-   - If that path already exists from a prior run, remove it first: \`git -C ${repoPath} worktree remove --force ${WT_ROOT}/be-review-<track>\` (ignore errors if it's not registered), then \`rm -rf ${WT_ROOT}/be-review-<track>\`.
-   - Then: \`git -C ${repoPath} worktree add --detach ${WT_ROOT}/be-review-<track> <branchHead>\`.
+4. Only if \`cleanTree\` is true — create a fresh detached worktree at \`branchHead\` for each track, at these EXACT absolute paths (per-run unique, so they cannot belong to another in-flight run):
+${TRACKS.map((t) => `   - ${t}: \`git -C ${repoPath} worktree add --detach ${wtDir(t)} <branchHead>\``).join('\n')}
+   These paths are unique to THIS run, so they should not pre-exist. If \`worktree add\` reports the path already exists, that is an error — set \`ok\`: false and put the message in \`note\`; do NOT \`rm -rf\` or force-remove it (it may belong to a concurrent run).
 5. Run \`git -C ${repoPath} worktree prune\` to clear any stale entries.
 
 Return \`branchHead\`, \`mergeBase\`, \`cleanTree\`, \`dirtyStatus\`, and, for each track, its absolute worktree \`path\` and whether creation succeeded (\`ok\`). If a worktree failed, set \`ok\`: false and put the git error in \`note\` — do NOT invent success.`
@@ -192,8 +220,24 @@ const setup = await agent(setupPrompt, { label: 'setup:worktrees', phase: 'Setup
 const branchHead = (setup?.branchHead || '').trim()
 // The diff base every reviewer uses: the merge-base of the branch and `${base}`,
 // so commits `${base}` gained since the branch forked aren't reviewed as ours.
-// Falls back to the raw base if Setup couldn't resolve it.
-const mergeBase = (setup?.mergeBase || base).trim()
+const mergeBase = (setup?.mergeBase || '').trim()
+
+// Merge-base gate. A failed `git merge-base` means the review scope can't be
+// trusted (missing/typoed base, stale ref, unrelated history). Falling back to the
+// raw `${base}` tip would silently review the base branch's drift as if this PR
+// made it — the exact noise the merge-base exists to remove. Fail loudly instead.
+if (!mergeBase) {
+  const err = (setup?.mergeBaseError || '').trim()
+  log(`Setup: ABORT — \`git merge-base ${base} HEAD\` failed; the review scope can't be trusted. Not falling back to the raw ${base} tip.`)
+  return {
+    status: 'setup-failed',
+    branchHead,
+    base,
+    tracks: {},
+    consolidation: null,
+    note: `merge-base of \`${base}\` and HEAD could not be resolved, so the diff scope is untrustworthy (missing/typoed base, stale ref, or unrelated history). Fix the base ref (e.g. \`git fetch\`) and re-run.${err ? `\ngit error:\n${err}` : ''}`,
+  }
+}
 
 // Clean-tree gate. The tracks fork from HEAD, so uncommitted work in the main
 // worktree would be invisible to every reviewer — a /be-review run could then
@@ -470,7 +514,7 @@ ${body}
 // consolidated and nothing is cleaned up. (This is the documented single-track-debugging mode.)
 // ---------------------------------------------------------------------------
 if (!commit) {
-  log(`--no-commit: skipping Consolidate + Cleanup. Per-track fixes are UNCOMMITTED in their worktrees; inspect them there (\`git -C ${WT_ROOT}/be-review-<track> diff\`).`)
+  log(`--no-commit: skipping Consolidate + Cleanup. Per-track fixes are UNCOMMITTED in their worktrees; inspect them there: ${liveTracks.map((t) => `git -C ${wtDir(t)} diff`).join(' ; ')}`)
   return {
     status: 'no-commit',
     branchHead,
@@ -480,7 +524,7 @@ if (!commit) {
     tracks,
     consolidation: null,
     conflicts: [],
-    note: 'commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — review each `.worktrees/be-review-<track>` and re-run with commit enabled to consolidate.',
+    note: 'commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — see the `worktrees` field below for each track’s path — and re-run with commit enabled to consolidate.',
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
   }
 }
@@ -493,14 +537,70 @@ if (!commit) {
 // ---------------------------------------------------------------------------
 phase('Consolidate')
 
-// Skip tracks that errored or made no commits — the agent only picks real work.
-const consolidateOrder = liveTracks.filter((t) => tracks[t]?.status !== 'track-error')
+// CLEAN-WORKTREE GATE before consolidation. Consolidation replays only COMMITTED
+// commits (`rev-list branchHead..HEAD`), and Cleanup later force-removes every
+// worktree — so any edit a track left UNcommitted (an apply agent that produced
+// files but whose commit helper failed, a formatter that touched an unlisted
+// file, an untracked new file) would be invisible to cherry-pick and then deleted
+// for good. Mechanically check each candidate track's worktree is clean; a dirty
+// one is excluded from both consolidation AND cleanup (its worktree is preserved
+// for the human) and surfaced in the result, instead of silently discarded.
+const consolidateCandidates = liveTracks.filter((t) => tracks[t]?.status !== 'track-error')
+const cleanCheck = consolidateCandidates.length
+  ? await agent(
+      `You are a MECHANICAL CLEANLINESS CHECKER. For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (\`.codex-debate/\`, \`.lens-debate/\`); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines. Do not edit anything. Tracks and their worktrees:
+${consolidateCandidates.map((t) => `  - ${t}: ${wtDir(t)}`).join('\n')}
+For each track return { track, clean (boolean), dirtyStatus (the offending \`status --short\` lines verbatim, or "" if clean) }.`,
+      {
+        label: 'consolidate:clean-check',
+        phase: 'Consolidate',
+        model,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['tracks'],
+          properties: {
+            tracks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['track', 'clean'],
+                properties: {
+                  track: { type: 'string' },
+                  clean: { type: 'boolean' },
+                  dirtyStatus: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    )
+  : { tracks: [] }
+const dirtyTracks = consolidateCandidates.filter((t) => (cleanCheck?.tracks || []).find((c) => c.track === t && c.clean === false))
+for (const t of dirtyTracks) {
+  const ds = (cleanCheck?.tracks || []).find((c) => c.track === t)?.dirtyStatus || ''
+  tracks[t] = {
+    ...tracks[t],
+    consolidated: false,
+    dirtyStatus: ds,
+    note: `track left UNcommitted changes in its worktree (${wtDir(t)}); NOT consolidated and its worktree was PRESERVED so the edits aren't lost. Inspect with \`git -C ${wtDir(t)} status\`.${ds ? `\nOffending entries:\n${ds}` : ''}`,
+  }
+  log(`Consolidate: track ${t} has UNcommitted changes — excluded from consolidation, worktree preserved at ${wtDir(t)}.`)
+}
+
+// Only replay tracks that are clean (every agreed fix really is a commit) and made
+// real work — the agent only picks committed work.
+const consolidateOrder = consolidateCandidates.filter((t) => !dirtyTracks.includes(t))
 const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. Every command below is \`git -C\` against an ABSOLUTE path — do not rely on the current directory. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
 
 The branch in \`${repoPath}\` is currently AT \`${branchHead}\` (the tracks' shared fork point). Process tracks in THIS order: ${consolidateOrder.join(' → ')}.
 
-For each track, its worktree is \`${WT_ROOT}/be-review-<track>\`. Get that track's new commits oldest-first:
-  \`git -C ${WT_ROOT}/be-review-<track> rev-list --reverse ${branchHead}..HEAD\`
+Each track's worktree (use these EXACT absolute paths):
+${consolidateOrder.map((t) => `  - ${t}: ${wtDir(t)}`).join('\n')}
+For each track, get its new commits oldest-first:
+  \`git -C <that track's worktree> rev-list --reverse ${branchHead}..HEAD\`
 (An empty list means the track found nothing to change — skip it.)
 
 Then cherry-pick each of those commits onto the branch IN THAT ORDER:
@@ -524,17 +624,20 @@ phase('Report')
 
 const comments = {}
 if (postComments) {
-  // Data-drive Report over the SAME track set as every other phase: a per-track
-  // comment builder keyed by track name, iterated in the canonical
-  // `consolidateOrder`/`liveTracks` order. Adding/removing a reviewer costs Report
-  // nothing — no hardcoded track literal to keep in sync.
+  // Data-drive Report over every REQUESTED track (the `TRACKS` set), not just the
+  // live ones: a track whose worktree failed in Setup is in `tracks` as
+  // `track-error`, and each builder renders that as a "Track error" comment — so
+  // setup failures get a PR comment too, keeping the documented one-comment-per-
+  // requested-track audit trail instead of silently omitting the dropped track. A
+  // per-track comment builder keyed by track name; adding/removing a reviewer costs
+  // Report nothing — no hardcoded track literal to keep in sync.
   const builder = { codex: codexComment, lens: lensComment, police: policeComment }
   // The consolidation ledger is a WORKFLOW-level artifact, not a track artifact, so
   // it posts as its own comment — surviving any track subset instead of being
   // string-stapled onto whichever track happens to be present.
   const bodies = [
     ['consolidation', consolidationSection(consolidation, consolidateOrder)],
-    ...liveTracks.filter((t) => builder[t]).map((t) => [t, builder[t](tracks[t])]),
+    ...TRACKS.filter((t) => builder[t]).map((t) => [t, builder[t](tracks[t])]),
   ]
   // Post sequentially so the comments land in a stable order (consolidation, then
   // the tracks in canonical order).
@@ -548,14 +651,24 @@ if (postComments) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 5 — tear down the per-track worktrees
+// Phase 5 — tear down the per-track worktrees. Dirty tracks (uncommitted edits
+// the clean-check caught) are PRESERVED, not removed — their worktree is the only
+// place those edits live, so force-removing it would discard them.
 // ---------------------------------------------------------------------------
 phase('Cleanup')
 
-await agent(
-  `You are a MECHANICAL CLEANUP RUNNER. Every path is absolute / \`git -C\`; do not rely on the current directory. For each track in [${liveTracks.join(', ')}] run \`git -C ${repoPath} worktree remove --force ${WT_ROOT}/be-review-<track>\` (ignore errors if already gone), then \`git -C ${repoPath} worktree prune\`. Leave the gitignored \`${SCRATCH}\` directory (it holds commit-message + comment scratch); do not delete the branch's commits. Return "done".`,
-  { label: 'cleanup:worktrees', phase: 'Cleanup', model },
-)
+const teardownTracks = liveTracks.filter((t) => !dirtyTracks.includes(t))
+if (dirtyTracks.length) log(`Cleanup: preserving ${dirtyTracks.length} dirty worktree(s) (${dirtyTracks.join(', ')}) — they hold uncommitted edits.`)
+if (teardownTracks.length) {
+  await agent(
+    `You are a MECHANICAL CLEANUP RUNNER. Every path is absolute / \`git -C\`; do not rely on the current directory. Remove EACH of these worktrees, then prune; ignore errors if one is already gone. Do NOT touch any other path.
+${teardownTracks.map((t) => `  - \`git -C ${repoPath} worktree remove --force ${wtDir(t)}\``).join('\n')}
+Then: \`git -C ${repoPath} worktree prune\`. Leave the gitignored \`${SCRATCH}\` directory (it holds commit-message + comment scratch); do not delete the branch's commits. Return "done".`,
+    { label: 'cleanup:worktrees', phase: 'Cleanup', model },
+  )
+} else {
+  log('Cleanup: no clean worktrees to tear down (all preserved or none live).')
+}
 
 return {
   status: 'done',

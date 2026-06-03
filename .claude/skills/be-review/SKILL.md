@@ -70,7 +70,10 @@ to `cd`.
   Default the repo default via `git symbolic-ref --short refs/remotes/origin/HEAD`.
   Setup resolves this to the **merge-base** of the branch and `base`, and *that* is
   what every reviewer diffs against — so commits `base` gained since the branch
-  forked are NOT reviewed as if this PR made them (no master-drift noise).
+  forked are NOT reviewed as if this PR made them (no master-drift noise). If the
+  merge-base can't be resolved (missing/typoed/stale base ref), Setup aborts with
+  `status: 'setup-failed'` rather than falling back to the raw `base` tip and
+  reviewing an untrustworthy scope — fix the ref (`git fetch`) and re-run.
 - **`--tracks codex,lens,police`**: which tracks to run *and the order they
   consolidate in*. Default all three; codex first (it changes the most), police
   last (lightest touch), so an overlap surfaces picking the later track.
@@ -90,7 +93,10 @@ to `cd`.
 
 ### 1. Resolve context
 
-- Determine `repoPath` (the worktree root, normally the cwd).
+- Determine `repoPath` — the **absolute** worktree root (normally the cwd; resolve
+  it with `git -C . rev-parse --show-toplevel`). The orchestrator rejects a
+  relative `repoPath` with `status: 'setup-failed'`, since every git command and
+  scratch/worktree path it builds is absolute and cwd-independent.
 - `git fetch origin` so the base remote-tracking ref is current.
 - Resolve `base` (a remote-tracking ref like `origin/master`).
 - Confirm a non-empty diff: `git diff --stat <base>`. If empty, stop.
@@ -179,11 +185,22 @@ and merges.
   residual semantic staleness is backstopped by `/be` §5 CI and human review. If a
   change is small and correctness-critical, the serial `/codex-debate` →
   `/lens-debate` → `/code-police` path is still available and sees each fix fresh.
-- **Parallel-safe.** Worktrees live under the gitignored `<repoPath>/.worktrees/`
-  and commit-message + PR-comment scratch under the gitignored
-  `<repoPath>/.be-review/`; each track's own `.codex-debate/`/`.lens-debate/`
-  scratch nests inside its worktree. All paths are absolute and
-  per-main-worktree, so parallel `/be-review` runs never collide.
+- **Uncommitted track edits are never silently dropped.** Consolidation replays
+  only *committed* commits and Cleanup force-removes the worktrees, so before
+  consolidating the orchestrator mechanically checks each track's worktree with
+  `git status --short`. A track that left uncommitted/untracked edits (a failed
+  commit helper, a formatter touching an unlisted file) is **excluded from
+  consolidation and its worktree is preserved** (not torn down), and surfaced in
+  the result so the human can recover it — rather than cherry-picked-around and
+  deleted.
+- **Parallel-safe — even in the same worktree.** Worktrees live under the
+  gitignored `<repoPath>/.worktrees/` as `be-review-<runId>-<track>` and the
+  commit-message + PR-comment scratch under the gitignored
+  `<repoPath>/.be-review/<runId>/`, where `<runId>` is unique per invocation; each
+  track's own `.codex-debate/`/`.lens-debate/` scratch nests inside its worktree.
+  All paths are absolute and per-run, so two `/be-review` runs — in different
+  worktrees *or the same one* — never clobber each other's live worktrees or
+  scratch. Setup never `rm -rf`s a path that could belong to a concurrent run.
 
 ## Files
 
