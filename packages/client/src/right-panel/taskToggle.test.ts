@@ -55,6 +55,18 @@ describe("toggleTaskInSource", () => {
     );
   });
 
+  it("ignores `[ ]` inside a blockquoted fenced code block", () => {
+    // `marked` renders the quoted fence as plain code (no checkbox), so the
+    // only checkbox is the real task at index 0. The scan must skip the
+    // blockquoted fence too, or its task-looking line drifts the count.
+    const src = ["> ```", "> - [ ] not a task", "> ```", "", "- [ ] real"].join(
+      "\n",
+    );
+    expect(toggleTaskInSource(src, 0)).toBe(
+      ["> ```", "> - [ ] not a task", "> ```", "", "- [x] real"].join("\n"),
+    );
+  });
+
   it("toggles task items inside blockquotes in renderer order", () => {
     // `marked` renders `> - [ ] x` as a real checkbox, so the blockquoted task
     // is index 0 — the scan must see it too, or the count drifts.

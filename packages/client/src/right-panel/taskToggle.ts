@@ -31,7 +31,12 @@ export function toggleTaskInSource(
   // splitting on `\n`) still matches, and the captured `\r` is re-emitted so
   // the line ending survives the rewrite.
   const TASK = /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\][^\r\n]*)(\r?)$/;
-  const FENCE = /^\s*(`{3,}|~{3,})/;
+  // The fence skip tolerates the same blockquote prefix `TASK` does, so a
+  // blockquoted fenced block (`> ```` … `> ````) is detected as a fence and
+  // its task-looking lines are skipped. Without the prefix, `inFence` would
+  // never flip for a quoted fence, yet `> - [ ]` inside it would still match
+  // `TASK` — drifting the count past the renderer's `data-md-task` indices.
+  const FENCE = /^\s*(?:>\s*)*(`{3,}|~{3,})/;
 
   let inFence = false;
   let fenceChar = "";
