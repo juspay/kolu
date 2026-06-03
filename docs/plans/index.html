@@ -125,6 +125,11 @@
   <span class="f">phantom-running-background.html</span>
   <span class="d">Why the spinner survives a Claude restart: an orphaned background-launch marker has no completion, so the <code>waiting→running_background</code> promotion never decays. Traces the bug to its introducing PR (#1015, which predicted it as #1017) and inverts #1017’s “staleness must not override the bg signal” assumption. Diagnosis against the live transcript, four fix candidates with adversarial verdicts (the two “obvious” process-liveness fixes are traps), and a recommended one-line fix — promote only <em>backed</em> tasks (<code>runId != null</code> Workflow runs), with a layered transcript-only veto held in reserve — plus why e2e mocked the state instead of deriving it. Sibling of the workflow viewer above.</span>
 </a>
+<a class="entry" href="./web-delivery.html">
+  <span class="t">Web delivery — the freshness contract</span> <span class="tag seedling">seedling</span> <span class="tag accent">#1149</span>
+  <span class="f">web-delivery.html</span>
+  <span class="d">A skill + <code>@kolu/web-delivery</code> library so every kolu-shaped web/PWA app ships the <em>deployed</em> client to returning users by construction — one never-cached shell, everything else immutable, version-skew made visible &amp; one-tap recoverable. The next <em>electricity</em> (graduates to <a href="https://github.com/srid/drishti">drishti</a>); generalizes the four-times-relitigated stale-client bug (#696/#1125/#1135/#1149). <span class="muted">Sibling: <a href="./electricity.html">electricity.html</a>.</span></span>
+</a>
 
 <h2>Reviews <span class="muted" style="font-size:.8rem; font-weight:400">— Hickey / Lowy structural audits</span></h2>
 <a class="entry" href="./electricity.html">
