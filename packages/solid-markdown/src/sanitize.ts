@@ -28,7 +28,7 @@
  *      for a labelled fallback chip instead of a broken-image icon. */
 
 import DOMPurify from "dompurify";
-import { safeHref } from "./render";
+import { isLoadableImage, safeHref } from "./url-policy";
 
 /** Per-slot policy for the sanitize pass — mirrors the renderer's
  *  `RenderOptions` so one object threads parse + sanitize. */
@@ -211,13 +211,6 @@ function configFor(opts: SanitizeOptions) {
     ALLOW_ARIA_ATTR: false,
     RETURN_DOM: true,
   };
-}
-
-/** An image that loads directly as written — an absolute http(s) URL or an
- *  inline data:image URI. A repo-relative README src (`./docs/logo.png`) is
- *  NOT loadable as-is; it goes through the host's `resolveImageSrc` first. */
-function isLoadableImage(src: string): boolean {
-  return /^(?:https?:\/\/|data:image\/)/i.test(src.trim());
 }
 
 /** Prefix for every id/hash-href the sanitizer keeps, so an untrusted

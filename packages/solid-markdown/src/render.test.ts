@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderMarkdownToRawHtml, safeHref } from "./render";
+import { renderMarkdownToRawHtml } from "./render";
+import { safeHref } from "./url-policy";
 
 const html = (md: string, links = true, inline = false) =>
   renderMarkdownToRawHtml(md, { links, inline });

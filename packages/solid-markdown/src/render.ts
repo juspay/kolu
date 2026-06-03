@@ -27,6 +27,7 @@ import { Marked } from "marked";
 import markedAlert from "marked-alert";
 import markedFootnote from "marked-footnote";
 import { gfmHeadingId } from "marked-gfm-heading-id";
+import { safeHref } from "./url-policy";
 
 export type RenderOptions = {
   /** Render links as real anchors (true) or inert text (false). Off for slots
@@ -40,32 +41,6 @@ export type RenderOptions = {
    *  off for the document preview (GitHub-faithful). Defaults on. */
   breaks?: boolean;
 };
-
-/** Allowlist a URL for use as an `href`. Returns the original string when
- *  safe, else `undefined` (the caller then renders inert text). DOM-free:
- *  resolves relative refs against a fixed base so we can read the *effective*
- *  scheme without a `window`. Blocks `javascript:`, `data:`, `vbscript:` and
- *  any other script-capable scheme; allows http(s), mailto, and in-page
- *  anchors. */
-export function safeHref(href: string): string | undefined {
-  const trimmed = href.trim();
-  if (trimmed === "") return undefined;
-  if (trimmed.startsWith("#")) return trimmed; // in-page anchor
-  let url: URL;
-  try {
-    // A relative or protocol-relative ref carries no scheme of its own;
-    // resolving against an https base surfaces the effective protocol so the
-    // check below is uniform for absolute and relative hrefs alike.
-    url = new URL(trimmed, "https://markdown.local/");
-  } catch {
-    return undefined; // unparseable → treat as unsafe, render as plain text
-  }
-  const ok =
-    url.protocol === "http:" ||
-    url.protocol === "https:" ||
-    url.protocol === "mailto:";
-  return ok ? trimmed : undefined;
-}
 
 function buildMarked(links: boolean, breaks: boolean): Marked {
   const inst = new Marked({ gfm: true, breaks });
