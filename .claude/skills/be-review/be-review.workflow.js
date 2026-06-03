@@ -363,9 +363,9 @@ function codexComment(t) {
   const rows = (t.transcript || [])
     .map((r) => {
       const v = r.codex || {}
-      const openBM = (v.findings || []).filter((f) => f.status !== 'resolved' && (f.severity === 'blocking' || f.severity === 'major')).length
+      const open = (v.findings || []).filter((f) => f.status !== 'resolved').length
       const disp = (r.claude?.actions || []).map((act) => `${act.findingId}:${act.disposition}`).join(', ')
-      return `| ${r.round} | ${v.approved ? '✅' : '❌'} | ${openBM} | ${esc(disp) || '—'} | ${sha9(r.commit)} |`
+      return `| ${r.round} | ${v.approved ? '✅' : '❌'} | ${open} | ${esc(disp) || '—'} | ${sha9(r.commit)} |`
     })
     .join('\n')
   return `## 🤖 Codex ⇄ Claude debate
@@ -374,7 +374,7 @@ function codexComment(t) {
 
 ${esc(t.finalVerdict?.summary)}
 
-| Round | codex approved | open blk/maj | claude dispositions | commit |
+| Round | codex approved | findings open | claude dispositions | commit |
 |---|---|---|---|---|
 ${rows || '| — | — | — | — | — |'}`
 }

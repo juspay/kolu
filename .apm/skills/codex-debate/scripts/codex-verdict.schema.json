@@ -4,7 +4,7 @@
   "properties": {
     "approved": {
       "type": "boolean",
-      "description": "true ONLY if no blocking or major issues remain. Minor issues and nits may remain."
+      "description": "true ONLY when every finding is resolved — all your feedback addressed at any severity (minor and nit included), not just blockers."
     },
     "summary": {
       "type": "string",
