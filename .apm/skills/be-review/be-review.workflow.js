@@ -127,6 +127,11 @@ const SCRATCH = `${repoPath}/.be-review/${RUN_ID}`
 // clean-tree check — so the list lives here once and both interpolate it.
 const ORCHESTRATOR_SCRATCH = ['.worktrees/', '.be-review/']
 const scratchList = ORCHESTRATOR_SCRATCH.map((d) => `\`${d}\``).join(' and ')
+// The per-track debate scratch dirs the child workflows own (codex/lens write
+// their transcripts here). The consolidation clean-check must ignore these when
+// judging whether a track left uncommitted work, so the list lives here once.
+const TRACK_SCRATCH = ['.codex-debate/', '.lens-debate/']
+const trackScratchList = TRACK_SCRATCH.map((d) => `\`${d}\``).join(', ')
 
 // Generated skill locations the child debate workflows live at.
 const CODEX_SCRIPT = '.claude/skills/codex-debate/debate.workflow.js'
@@ -728,7 +733,7 @@ if (branchMoved || branchDirty) {
 // never torn down. A dirty/unknown track is surfaced in the result for the human.
 const cleanCheck = liveTracks.length
   ? await agent(
-      `${mechanicalPreamble('CLEANLINESS CHECKER')} For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (\`.codex-debate/\`, \`.lens-debate/\`); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines. Report a row for EVERY track listed, even if its worktree looks empty or the command errors (if \`git status\` fails, set clean=false and put the error in dirtyStatus). Do not edit anything. Tracks and their worktrees:
+      `${mechanicalPreamble('CLEANLINESS CHECKER')} For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (${trackScratchList}); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines. Report a row for EVERY track listed, even if its worktree looks empty or the command errors (if \`git status\` fails, set clean=false and put the error in dirtyStatus). Do not edit anything. Tracks and their worktrees:
 ${liveTracks.map((t) => `  - ${t}: ${wtDir(t)}`).join('\n')}
 For each track return { track, clean (boolean), dirtyStatus (the offending \`status --short\` lines verbatim, or "" if clean) }.`,
       {
