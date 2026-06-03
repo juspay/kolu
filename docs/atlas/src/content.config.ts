@@ -19,10 +19,12 @@ const atlas = defineCollection({
     status: z
       .enum(["proposed", "accepted", "implemented", "superseded"])
       .optional(),
-    // Optional MOC edge: the id (flat slug) of the note this one nests under in
-    // the generated index tree. A note with no parent (or a missing/draft
-    // parent) is a root — membership stays automatic, only the edge is authored.
-    parent: z.string().optional(),
+    // Optional MOC edges: id(s) (flat slugs) of the notes this one nests under
+    // in the generated index. Accepts one slug or a list — a note can have
+    // multiple parents (e.g. its design parent + a cross-cutting `bugs` hub) and
+    // appears under each. No valid parent (missing/self/draft/cyclic) → a root,
+    // so membership stays automatic; only the edges are authored.
+    parents: z.union([z.string(), z.array(z.string())]).optional(),
     updated: z.coerce.date().optional(),
     draft: z.boolean().default(false),
   }),

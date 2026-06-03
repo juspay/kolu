@@ -6,25 +6,32 @@ import type { TreeNode } from "../lib/indexTree";
 
 interface Props {
   nodes: TreeNode[];
+  // ids on the path from the root to here — a child already on the path is a
+  // cycle and is not recursed into (a note can have multiple parents → DAG).
+  ancestors?: string[];
 }
-const { nodes } = Astro.props as Props;
+const { nodes, ancestors = [] } = Astro.props as Props;
 ---
 <ul class="tree">
   {
-    nodes.map((node) => (
-      <li class="tree-item">
-        <a class="note-link" href={`./${node.note.id}.html`}>
-          <div class="note-row">
-            <h3 class="note-name">{node.note.data.title}</h3>
-            <span class={`badge m-${node.note.data.maturity}`}>{node.note.data.maturity}</span>
-            <span class="badge badge-kind">{node.note.data.kind}</span>
-            {node.note.data.status && <span class="badge badge-muted">{node.note.data.status}</span>}
-            {node.note.data.draft && <span class="badge badge-draft">draft</span>}
-          </div>
-          <p class="note-desc">{node.note.data.description}</p>
-        </a>
-        {node.children.length > 0 && <Astro.self nodes={node.children} />}
-      </li>
-    ))
+    nodes.map((node) => {
+      const path = [...ancestors, node.note.id];
+      const children = node.children.filter((c) => !path.includes(c.note.id));
+      return (
+        <li class="tree-item">
+          <a class="note-link" href={`./${node.note.id}.html`}>
+            <div class="note-row">
+              <h3 class="note-name">{node.note.data.title}</h3>
+              <span class={`badge m-${node.note.data.maturity}`}>{node.note.data.maturity}</span>
+              <span class="badge badge-kind">{node.note.data.kind}</span>
+              {node.note.data.status && <span class="badge badge-muted">{node.note.data.status}</span>}
+              {node.note.data.draft && <span class="badge badge-draft">draft</span>}
+            </div>
+            <p class="note-desc">{node.note.data.description}</p>
+          </a>
+          {children.length > 0 && <Astro.self nodes={children} ancestors={path} />}
+        </li>
+      );
+    })
   }
 </ul>

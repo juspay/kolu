@@ -5,11 +5,15 @@ export interface TreeNode {
   children: TreeNode[];
 }
 
-/** Build a parent→children forest from flat notes. `data.parent` is a note id
- *  (flat slug); a note whose parent is missing, self, or filtered out (e.g. a
- *  draft) becomes a root — so nothing is ever unfiled. Cycle-safe: any node not
- *  reachable from a root is promoted to a root rather than lost. Children keep
- *  the incoming order (sort `notes` before calling); roots are title-sorted. */
+const toParents = (p: string | string[] | undefined): string[] =>
+  p === undefined ? [] : Array.isArray(p) ? p : [p];
+
+/** Build a parent→children forest from flat notes. `data.parents` lists note ids
+ *  (flat slugs); a note can list several, so it appears under EACH parent. A
+ *  note with no valid parent (missing / self / filtered-out, e.g. a draft) is a
+ *  root — nothing is ever unfiled. The result is a DAG of shared node objects;
+ *  the renderer (IndexTree) breaks cycles with an ancestor-path guard, and so
+ *  does the reachability check here. Children + roots are title-sorted. */
 export function buildNoteTree(notes: CollectionEntry<"atlas">[]): TreeNode[] {
   const nodes = new Map<string, TreeNode>(
     notes.map((n) => [n.id, { note: n, children: [] }]),
@@ -17,27 +21,30 @@ export function buildNoteTree(notes: CollectionEntry<"atlas">[]): TreeNode[] {
   const roots: TreeNode[] = [];
   for (const n of notes) {
     const node = nodes.get(n.id)!;
-    const parentId = n.data.parent;
-    const parent =
-      parentId && parentId !== n.id ? nodes.get(parentId) : undefined;
-    if (parent) parent.children.push(node);
-    else roots.push(node);
+    const parentIds = toParents(n.data.parents).filter(
+      (pid) => pid !== n.id && nodes.has(pid),
+    );
+    if (parentIds.length === 0) roots.push(node);
+    else for (const pid of parentIds) nodes.get(pid)!.children.push(node);
   }
 
-  // Promote any note unreachable from a root (a parent cycle) so it still shows.
-  const seen = new Set<string>();
-  const walk = (ns: TreeNode[]): void => {
-    for (const x of ns) {
-      if (seen.has(x.note.id)) continue;
-      seen.add(x.note.id);
-      walk(x.children);
-    }
+  // Promote any note unreachable from a root (a pure parent cycle) so it still
+  // shows. The path set breaks cycles the same way the renderer does.
+  const reachable = new Set<string>();
+  const walk = (node: TreeNode, path: Set<string>): void => {
+    if (reachable.has(node.note.id) || path.has(node.note.id)) return;
+    reachable.add(node.note.id);
+    const next = new Set(path).add(node.note.id);
+    for (const c of node.children) walk(c, next);
   };
-  walk(roots);
+  for (const r of roots) walk(r, new Set());
   for (const n of notes) {
-    if (!seen.has(n.id)) roots.push(nodes.get(n.id)!);
+    if (!reachable.has(n.id)) roots.push(nodes.get(n.id)!);
   }
 
-  roots.sort((a, b) => a.note.data.title.localeCompare(b.note.data.title));
+  const byTitle = (a: TreeNode, b: TreeNode) =>
+    a.note.data.title.localeCompare(b.note.data.title);
+  for (const node of nodes.values()) node.children.sort(byTitle);
+  roots.sort(byTitle);
   return roots;
 }

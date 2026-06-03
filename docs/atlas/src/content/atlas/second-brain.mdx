@@ -163,8 +163,8 @@ Each rebuilds with `just atlas::build` and passes `ci::atlas-sync` like the kit.
 
 ## Navigation — a generated tree
 
-- **The index is a MOC tree built from frontmatter** — a note nests under its `parent` (a flat slug); anything without one is a root. Membership is automatic (a note can never be unfiled); only the *edges* are authored. Retires the hand MOC + its `docs-moc` link-gate (kept only while legacy `docs/plans/*.html` exist).
-- **Flat, ancestry-free slugs** — the filename is a handle, not a path; hierarchy is metadata (`parent`), not the filename.
+- **The index is a MOC built from frontmatter** — a note lists one or more `parents` (flat slugs) and appears under each; anything with no valid parent is a root. So it's a DAG, not a strict tree: a note can sit under its design parent *and* a cross-cutting hub (e.g. a `bugs` node). Membership is automatic (a note can never be unfiled); only the *edges* are authored. Retires the hand MOC + its `docs-moc` link-gate (kept only while legacy `docs/plans/*.html` exist).
+- **Flat, ancestry-free slugs** — the filename is a handle, not a path; hierarchy is metadata (`parents`), not the filename.
 - **Each node shows `kind` + `maturity` badges; drafts are hidden** from the build.
 - **A nested ToC** (`<Toc>`) is auto-inserted from each note's headings — the box above.
 - **Dead-link checking stays a generic linter**, not a bespoke gate.

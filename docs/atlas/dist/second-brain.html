@@ -190,8 +190,8 @@ component: <span style="font-family:ui-monospace, monospace;font-size:0.8em;bord
 <strong>Promotion path:</strong> inline → co-located → shared kit, once it proves reused.</p>
 <h2 id="navigation--a-generated-tree">Navigation — a generated tree</h2>
 <ul>
-<li><strong>The index is a MOC tree built from frontmatter</strong> — a note nests under its <code>parent</code> (a flat slug); anything without one is a root. Membership is automatic (a note can never be unfiled); only the <em>edges</em> are authored. Retires the hand MOC + its <code>docs-moc</code> link-gate (kept only while legacy <code>docs/plans/*.html</code> exist).</li>
-<li><strong>Flat, ancestry-free slugs</strong> — the filename is a handle, not a path; hierarchy is metadata (<code>parent</code>), not the filename.</li>
+<li><strong>The index is a MOC built from frontmatter</strong> — a note lists one or more <code>parents</code> (flat slugs) and appears under each; anything with no valid parent is a root. So it’s a DAG, not a strict tree: a note can sit under its design parent <em>and</em> a cross-cutting hub (e.g. a <code>bugs</code> node). Membership is automatic (a note can never be unfiled); only the <em>edges</em> are authored. Retires the hand MOC + its <code>docs-moc</code> link-gate (kept only while legacy <code>docs/plans/*.html</code> exist).</li>
+<li><strong>Flat, ancestry-free slugs</strong> — the filename is a handle, not a path; hierarchy is metadata (<code>parents</code>), not the filename.</li>
 <li><strong>Each node shows <code>kind</code> + <code>maturity</code> badges; drafts are hidden</strong> from the build.</li>
 <li><strong>A nested ToC</strong> (<code>&lt;Toc&gt;</code>) is auto-inserted from each note’s headings — the box above.</li>
 <li><strong>Dead-link checking stays a generic linter</strong>, not a bespoke gate.</li>
