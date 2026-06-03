@@ -216,7 +216,7 @@ phase('Debate')
 // forked (those would otherwise show up in `git diff base` — master's drift
 // reviewed as ours). A thin mechanical git agent; the workflow can't run git
 // itself. Idempotent when `base` is already a merge-base SHA (caller resolved it).
-const rawBase = a.base || 'origin/master'
+const rawBase = base
 const baseRes = await agent(
   `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex) in \`sha\`. If the command FAILS (missing/typoed base, stale ref, unrelated history), return \`sha\`: "" and put the verbatim git error in \`error\` — do NOT fall back to the raw base ref. Do nothing else.`,
   { label: 'resolve:merge-base', phase: 'Debate', schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
