@@ -38,28 +38,39 @@ export type RenderOptions = {
   breaks?: boolean;
 };
 
-function buildMarked(breaks: boolean): Marked {
-  const inst = new Marked({ gfm: true, breaks });
+// The fixed GFM extension stack — constant across every instance. These are
+// GitHub-Flavored extensions the base parser dropped: stable heading ids (so
+// in-page anchors + footnote back-refs have landing targets), footnotes, and
+// `> [!NOTE]`-style alerts. The plugins reset their slug/counter state per
+// parse, so the cached instance is safe to reuse across documents.
+function useGfmExtensions(inst: Marked): void {
+  inst.use(gfmHeadingId());
+  inst.use(markedFootnote());
+  inst.use(markedAlert());
+}
+
+// The per-slot renderer override — the only thing the parser config varies on.
+// Just the code fence today: carry the fence language on `data-lang` so the
+// sanitize pass can find + syntax-highlight the block (see ./highlight).
+function useCodeFenceRenderer(inst: Marked): void {
   inst.use({
     renderer: {
       code(token) {
-        // Carry the fence language on `data-lang` — the sanitizer allowlists
-        // it but strips `class`, so this is what lets the sanitize pass find +
-        // syntax-highlight the block (see ./highlight). The body is escaped
-        // here; highlighting replaces it with trusted markup downstream.
+        // The sanitizer allowlists `data-lang` but strips `class`, so this is
+        // what survives to drive highlighting. The body is escaped here;
+        // highlighting replaces it with trusted markup downstream.
         const lang = (token.lang ?? "").trim().split(/\s+/)[0] ?? "";
         const attr = lang ? ` data-lang="${escapeHtml(lang)}"` : "";
         return `<pre><code${attr}>${escapeHtml(token.text)}</code></pre>\n`;
       },
     },
   });
-  // GitHub-Flavored extensions the base parser dropped: stable heading ids (so
-  // in-page anchors + footnote back-refs have landing targets), footnotes, and
-  // `> [!NOTE]`-style alerts. The plugins reset their slug/counter state per
-  // parse, so the cached instance is safe to reuse across documents.
-  inst.use(gfmHeadingId());
-  inst.use(markedFootnote());
-  inst.use(markedAlert());
+}
+
+function buildMarked(breaks: boolean): Marked {
+  const inst = new Marked({ gfm: true, breaks });
+  useGfmExtensions(inst);
+  useCodeFenceRenderer(inst);
   return inst;
 }
 
