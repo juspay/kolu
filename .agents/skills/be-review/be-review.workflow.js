@@ -356,8 +356,10 @@ async function policeTrack(wt) {
   const applied = []
   let totalFindings = 0
   let policeRound = 0
+  let sweepsRun = 0
   let lastRoundFindings = 0
   for (; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
+    sweepsRun++ // one review pass per iteration, counted BEFORE any break/cap exit so the reported sweep count is exact (not derived from the loop index)
     const reviews = await parallel(
       passes.map((p) => () =>
         agent(
@@ -396,7 +398,7 @@ async function policeTrack(wt) {
   const reachedClean = lastRoundFindings === 0
   const status = !totalFindings ? 'clean' : reachedClean ? 'consensus' : 'incomplete'
   if (!reachedClean) log(`police: hit round cap (${POLICE_MAX_ROUNDS}) with findings still open — reporting incomplete.`)
-  return { status, findings: totalFindings, rounds: policeRound + (reachedClean ? 0 : 1), passes: passes.map((p) => p.key), applied }
+  return { status, findings: totalFindings, rounds: sweepsRun, passes: passes.map((p) => p.key), applied }
 }
 
 // Mechanical committer shared by the police track: stages EXACTLY the listed
@@ -751,6 +753,23 @@ const cleanTracks = liveTracks.filter((t) => cleanResultFor(t)?.clean === true)
 // is untrustworthy. The agent only picks committed work.
 const consolidateOrder = cleanTracks.filter((t) => tracks[t]?.status !== 'track-error')
 
+// The terminal statuses that mean a track's review actually FINISHED — codex/lens
+// reached consensus (or had nothing to raise), police got a clean final sweep.
+// Anything else a consolidated track can carry (police `incomplete` after the
+// round cap, lens `unresolved` with findings still contested, codex
+// `reviewer-error`/`merge-base-error`) means the gauntlet did NOT fully complete
+// for that track, even though its committed fixes are real and DO get replayed.
+const COMPLETED_TRACK_STATUS = new Set(['clean', 'consensus'])
+// Consolidated tracks whose own review did not reach a completed terminus. Their
+// fixes still land (they're committed and clean), but the top-level result must
+// not read `done`, or /be would proceed as if the gauntlet fully passed when a
+// police/lens sweep was actually cut short. (A `track-error` track is never in
+// `consolidateOrder`, so it can't appear here.)
+const incompleteTracks = consolidateOrder.filter((t) => !COMPLETED_TRACK_STATUS.has(tracks[t]?.status))
+for (const t of incompleteTracks) {
+  log(`Consolidate: track ${t} consolidated but its review ended \`${tracks[t]?.status}\` (not a completed terminus) — top-level status will reflect that the gauntlet did not fully finish.`)
+}
+
 // Preserve every live track we did NOT consolidate, so neither uncommitted edits
 // nor committed-but-unreplayed commits are lost.
 const preservedTracks = liveTracks.filter((t) => !consolidateOrder.includes(t))
@@ -854,17 +873,25 @@ Then: \`git -C ${repoPath} worktree prune\`. Leave the gitignored \`${SCRATCH}\`
   log('Cleanup: no consolidated worktrees to tear down (all preserved or none live).')
 }
 
-// Top-level status reflects whether EVERY requested track actually landed on the
-// branch. A preserved track (uncommitted edits, an unconfirmed worktree, or a
-// crashed `track-error` whose committed fixes were deliberately not replayed) means
-// at least one reviewer's fixes live ONLY in a side worktree — so `done` would
-// overstate the outcome and let /be continue as if the gauntlet fully consolidated.
-// Surface `consolidation-incomplete` (with the preserved tracks + recovery notes
-// already on each `tracks[t]`) so the caller can adjudicate instead of silently
-// shipping a partial consolidation.
-const status = preservedTracks.length ? 'consolidation-incomplete' : 'done'
+// Top-level status reflects whether EVERY requested track actually (a) landed on
+// the branch AND (b) ran its review to a completed terminus. Two ways it falls
+// short of `done`:
+//   - a PRESERVED track (uncommitted edits, an unconfirmed worktree, or a crashed
+//     `track-error` whose committed fixes were deliberately not replayed) means at
+//     least one reviewer's fixes live ONLY in a side worktree; or
+//   - an INCOMPLETE track (consolidated, but its review ended `incomplete`/
+//     `unresolved`/`reviewer-error` rather than `clean`/`consensus`) means the
+//     gauntlet was cut short for that track even though its fixes landed.
+// Either way `done` would overstate the outcome and let /be continue as if the
+// gauntlet fully passed. Surface `consolidation-incomplete` (the preserved tracks'
+// recovery notes are already on each `tracks[t]`; the incomplete tracks carry their
+// own non-terminal status) so the caller adjudicates instead of silently shipping.
+const status = preservedTracks.length || incompleteTracks.length ? 'consolidation-incomplete' : 'done'
 if (preservedTracks.length) {
   log(`Done: status=consolidation-incomplete — ${preservedTracks.length} track(s) preserved, not consolidated: ${preservedTracks.join(', ')}. Their worktrees hold the only copy of those fixes; see each track's note for the recovery cherry-pick.`)
+}
+if (incompleteTracks.length) {
+  log(`Done: status=consolidation-incomplete — ${incompleteTracks.length} track(s) consolidated but their review did not finish (${incompleteTracks.map((t) => `${t}=${tracks[t]?.status}`).join(', ')}); re-run the gauntlet (or that track) before treating the change as fully reviewed.`)
 }
 return {
   status,
@@ -879,6 +906,10 @@ return {
   // Tracks whose fixes were NOT consolidated onto the branch (preserved worktrees);
   // empty in the common case. Non-empty ⇒ status is 'consolidation-incomplete'.
   preservedTracks,
+  // Tracks that WERE consolidated but whose review ended on a non-terminal status
+  // (police `incomplete`, lens `unresolved`, codex `reviewer-error`); their fixes
+  // landed but the gauntlet didn't fully finish. Non-empty ⇒ 'consolidation-incomplete'.
+  incompleteTracks,
   // back-compat: the union of non-clean picks. Consumers keying on a discarded
   // fix (e.g. /be §4's "dropped overlap" adjudication) should read `dropped`.
   conflicts: [...reconciled, ...dropped],
