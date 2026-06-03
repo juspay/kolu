@@ -621,13 +621,35 @@ ${rows || '| — | — | — | — | — |'}`
 // the actual `gh pr comment`; only the body *authoring* becomes an agent.
 // ---------------------------------------------------------------------------
 
-// What each reporter should foreground — the fields each track carries that the
-// terse builders drop on the floor (see issue #1151).
-const REPORT_GUIDANCE = {
-  codex: `Tell the codex⇄claude debate ROUND BY ROUND: how it converged (not just open-counts), the reasoning behind each disposition, codex's responses to Claude's rebuttals, and which findings were conceded vs fixed. Group findings by severity. Source: per-round transcript (findings = id/severity/location/issue/suggestion/status; claude actions = findingId/disposition/detail; round commit).`,
-  lens: `Lead with each lens's INDEPENDENT findings (lowy and hickey each surface several). Then, per finding, the cross-examination outcome with BOTH lenses' reasoning, the agreed plan, and — most interesting — which findings FLIPPED disposition during the debate (drop→fix or fix→drop) and why. Source: settled[] (origin, title, location, disposition, plan, both lenses' reasonings), reviews (each lens's independent findings), history[] (per round), applied[] (commit), unresolved[].`,
-  police: `For each finding give the actual PROBLEM statement and the FIX (not just title + commit), grouped by pass (rules / fact-check / elegance). \`fix\` is the prescribed remedy and \`summary\` is what the implementer actually applied — use both; do NOT invent a fix the data doesn't carry. Source: applied[] (id, title, severity, problem, fix, summary, files, commit).`,
-  consolidation: `Surface the reconciliation REASONING prominently: for any pick whose outcome is 'reconciled' or 'dropped', explain the overlap and how it was resolved (the note) as prose, not a buried table cell. Clean picks can stay a compact table. Source: picks[] (track, sourceCommit, outcome, newCommit, files, note).`,
+// Per-track reporter registry, keyed by slug. Each entry states a track's result
+// shape ONCE: `build` (deterministic baseline comment), `isRich` (is there enough
+// substance to spend an authoring agent), and `guidance` (what a reporter should
+// foreground — the fields the terse builder drops on the floor, see issue #1151).
+// Co-locating these means 'where do this track's findings live' is written once —
+// when a child workflow's output schema changes, only this track's entry moves,
+// instead of editing a builder AND a parallel emptiness switch that can drift apart.
+const reporters = {
+  codex: {
+    build: codexComment,
+    isRich: (d) => (d.transcript || []).some((r) => (r.codex?.findings || []).length),
+    guidance: `Tell the codex⇄claude debate ROUND BY ROUND: how it converged (not just open-counts), the reasoning behind each disposition, codex's responses to Claude's rebuttals, and which findings were conceded vs fixed. Group findings by severity. Source: per-round transcript (findings = id/severity/location/issue/suggestion/status; claude actions = findingId/disposition/detail; round commit).`,
+  },
+  lens: {
+    build: lensComment,
+    isRich: (d) => (d.settled || []).length > 0 || Object.values(d.reviews || {}).some((v) => (v || []).length),
+    guidance: `Lead with each lens's INDEPENDENT findings (lowy and hickey each surface several). Then, per finding, the cross-examination outcome with BOTH lenses' reasoning, the agreed plan, and — most interesting — which findings FLIPPED disposition during the debate (drop→fix or fix→drop) and why. Source: settled[] (origin, title, location, disposition, plan, both lenses' reasonings), reviews (each lens's independent findings), history[] (per round), applied[] (commit), unresolved[].`,
+  },
+  police: {
+    build: policeComment,
+    isRich: (d) => (d.applied || []).length > 0,
+    guidance: `For each finding give the actual PROBLEM statement and the FIX (not just title + commit), grouped by pass (rules / fact-check / elegance). \`fix\` is the prescribed remedy and \`summary\` is what the implementer actually applied — use both; do NOT invent a fix the data doesn't carry. Source: applied[] (id, title, severity, problem, fix, summary, files, commit).`,
+  },
+  consolidation: {
+    // consolidation's baseline needs the consolidate order, so the Report loop
+    // builds it inline; only isRich/guidance live here.
+    isRich: (d) => (d.picks || []).length > 0,
+    guidance: `Surface the reconciliation REASONING prominently: for any pick whose outcome is 'reconciled' or 'dropped', explain the overlap and how it was resolved (the note) as prose, not a buried table cell. Clean picks can stay a compact table. Source: picks[] (track, sourceCommit, outcome, newCommit, files, note).`,
+  },
 }
 
 // Strip a wrapping ``` / ```markdown fence if the agent wrapped the whole body.
@@ -640,15 +662,12 @@ function stripFences(s) {
 
 // Is there enough substance to be worth an authoring agent? A track-error, a
 // clean/empty result, or a no-pick consolidation just posts its deterministic
-// baseline — no agent spent on a one-liner.
+// baseline — no agent spent on a one-liner. The per-track 'where do findings live'
+// predicate lives ONCE in the `reporters` registry (alongside that track's builder),
+// so it can't drift from the builder when a result schema changes.
 function hasRichContent(slug, data) {
-  if (!data) return false
-  if (slug === 'consolidation') return (data.picks || []).length > 0
-  if (data.status === 'track-error') return false
-  if (slug === 'codex') return (data.transcript || []).some((r) => (r.codex?.findings || []).length)
-  if (slug === 'lens') return (data.settled || []).length > 0 || Object.values(data.reviews || {}).some((v) => (v || []).length)
-  if (slug === 'police') return (data.applied || []).length > 0
-  return false
+  if (!data || data.status === 'track-error') return false
+  return reporters[slug]?.isRich?.(data) ?? false
 }
 
 // Author a rich comment body for one slug from its structured result. This is the
@@ -1027,10 +1046,11 @@ if (postComments) {
   // requested-track audit trail instead of silently omitting the dropped track. A
   // per-track comment builder keyed by track name; adding/removing a reviewer costs
   // Report nothing — no hardcoded track literal to keep in sync.
-  // Bespoke per-track builders; any requested track without one falls back to
-  // `genericComment`, so the map below stays TOTAL over `TRACKS` — a new reviewer
-  // track gets a comment even before it grows a hand-written builder.
-  const builder = { codex: codexComment, lens: lensComment, police: policeComment }
+  // Bespoke per-track builders come from the `reporters` registry; any requested
+  // track without one falls back to `genericComment`, so the lookup stays TOTAL
+  // over `TRACKS` — a new reviewer track gets a comment even before it grows a
+  // hand-written builder. The same registry supplies each track's `isRich`/`guidance`,
+  // so 'where do this track's findings live' is stated once per track.
   // Each item is [slug, structuredData, deterministicBaseline]. The baseline is
   // both what a reporter agent improves and the fallback when `richComment` is off
   // or the track is trivial. The consolidation ledger is a WORKFLOW-level artifact,
@@ -1038,7 +1058,7 @@ if (postComments) {
   // subset instead of being string-stapled onto whichever track happens to be present.
   const items = [
     ['consolidation', consolidation, consolidationSection(consolidation, consolidateOrder)],
-    ...TRACKS.map((t) => [t, tracks[t], (builder[t] || genericComment)(tracks[t])]),
+    ...TRACKS.map((t) => [t, tracks[t], (reporters[t]?.build || genericComment)(tracks[t])]),
   ]
   // Author the bodies — a rich reporter AGENT for non-trivial tracks (in parallel),
   // the deterministic baseline otherwise — then POST sequentially for a stable
@@ -1046,7 +1066,7 @@ if (postComments) {
   // skips a comment.
   const authored = await parallel(
     items.map(([slug, data, baseline]) => () =>
-      authorBody(slug, data, baseline, REPORT_GUIDANCE[slug] || '').then((body) => [slug, body]),
+      authorBody(slug, data, baseline, reporters[slug]?.guidance || '').then((body) => [slug, body]),
     ),
   )
   for (const item of authored) {
