@@ -308,15 +308,29 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
   }
 
   /** Poll `read()` until it equals `want` or the deadline passes. Returns the
-   *  last observed value so a failed expect prints the actual state. */
+   *  last observed value so a failed expect prints the actual state.
+   *
+   *  `onTick` fires on a steady `tickMs` cadence (NOT every 25ms poll) — kept
+   *  slower than the watcher's 150ms trailing-edge debounce so the debounce can
+   *  actually settle and re-derive between nudges instead of being reset on every
+   *  poll. It exists to model a *streaming* on-disk source (a live fork appends
+   *  its transcript continuously) so a single dropped fs.watch event can't wedge
+   *  the test — the same reason the e2e harness re-touches its mock files. */
   async function waitForState(
     read: () => string | null,
     want: string,
-    timeoutMs = 3000,
+    opts: { onTick?: () => void; tickMs?: number; timeoutMs?: number } = {},
   ): Promise<string | null> {
+    const { onTick, tickMs = 250, timeoutMs = 3000 } = opts;
     const deadline = Date.now() + timeoutMs;
+    let nextTick = 0;
     while (Date.now() < deadline) {
       if (read() === want) return want;
+      const now = Date.now();
+      if (onTick && now >= nextTick) {
+        onTick();
+        nextTick = now + tickMs;
+      }
       await new Promise((r) => setTimeout(r, 25));
     }
     return read();
@@ -347,17 +361,38 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
       // The fork's artifacts appear AFTER the main already went quiet — the F1
       // race. Only the `subagents/` watcher can re-trigger the scan here; the
       // main transcript fires no further event. The row must promote.
+      //
+      // The fork's transcript STREAMS while it runs, so model that: append to it
+      // on a steady tick. Each append is a `subagents/` write the watcher catches
+      // — and the first append lands after the dir watch is attached, so the
+      // promotion fires reliably even when the initial create events are dropped
+      // (directory fs.watch is unreliable for late-created entries on macOS,
+      // #1123). A frozen single-write fork is what wedged this test on darwin.
       writeForkAgent("aimplement-it-late");
-      expect(await waitForState(state, "running_background")).toBe(
-        "running_background",
+      const forkJsonl = path.join(
+        subagentsDirFor(session),
+        "agent-aimplement-it-late.jsonl",
       );
+      expect(
+        await waitForState(state, "running_background", {
+          onTick: () => fs.appendFileSync(forkJsonl, "{}\n"),
+          timeoutMs: 8000,
+        }),
+      ).toBe("running_background");
       // A fork promotes the state but carries no fan-out journal.
       expect(latest()?.workflow ?? null).toBeNull();
 
       // The fork reports completion on the MAIN transcript. The completed-id
       // signal drops it from the live set on the next scan → demote to waiting.
+      // Re-assert on a tick so a dropped main-transcript event can't wedge the
+      // demote (idempotent — the same terminal task-id).
       appendTranscript(completion("aimplement-it-late"));
-      expect(await waitForState(state, "waiting")).toBe("waiting");
+      expect(
+        await waitForState(state, "waiting", {
+          onTick: () => appendTranscript(completion("aimplement-it-late")),
+          timeoutMs: 8000,
+        }),
+      ).toBe("waiting");
     } finally {
       watcher.destroy();
     }
