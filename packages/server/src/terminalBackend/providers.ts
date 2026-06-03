@@ -620,12 +620,20 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
       }
     };
     timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
+    plog.info(
+      { terminal: terminalId },
+      "claude-code: screen-scrape poll installed",
+    );
     return () => {
       pollStopped = true;
       if (timer) {
         clearTimeout(timer);
         timer = null;
       }
+      plog.info(
+        { terminal: terminalId },
+        "claude-code: screen-scrape poll retired",
+      );
     };
   }
 
