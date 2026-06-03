@@ -38,6 +38,7 @@ export { getDiff, getStatus, parseNameStatus } from "./review.ts";
 export {
   assertRealpathUnder,
   resolveExistingUnder,
+  resolveForWriteUnder,
   resolveUnder,
 } from "./safe-path.ts";
 // File-preview classification used to live here; it moved to the node-free
