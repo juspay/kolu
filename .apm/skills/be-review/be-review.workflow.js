@@ -120,6 +120,7 @@ const spentTokens = () => {
   try {
     return (typeof budget !== "undefined" && budget.spent && budget.spent()) || 0;
   } catch {
+    /* budget API absent or threw — instrumentation is best-effort, return 0 */
     return 0;
   }
 };
