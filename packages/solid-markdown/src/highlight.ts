@@ -20,7 +20,7 @@ export const SHIKI_DARK = "github-dark";
 // A curated language set, kept reasonable so the one-time grammar load stays
 // cheap. An unlisted language falls back to plain `text` — still themed +
 // boxed + copyable, just not colorized.
-const LANGS = [
+export const LANGS = [
   "javascript",
   "typescript",
   "jsx",
@@ -60,7 +60,7 @@ const LANGS = [
 ] as const;
 
 // Common info-string aliases → a grammar in LANGS.
-const ALIAS: Record<string, string> = {
+export const ALIAS: Record<string, string> = {
   js: "javascript",
   mjs: "javascript",
   cjs: "javascript",
@@ -83,7 +83,7 @@ const ALIAS: Record<string, string> = {
   ex: "elixir",
 };
 
-const SUPPORTED = new Set<string>([...LANGS, "bash"]);
+const SUPPORTED = new Set<string>(LANGS);
 
 let highlighter: Highlighter | null = null;
 let loadPromise: Promise<Highlighter> | null = null;
