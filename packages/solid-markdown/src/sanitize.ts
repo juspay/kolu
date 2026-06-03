@@ -220,7 +220,7 @@ const ID_NS = "md-";
 /** Trailing path segment, used to label a fallback chip whose image had no
  *  alt text so it still says something useful. */
 function basename(src: string): string {
-  const path = src.split(/[?#]/, 1)[0] ?? src;
+  const path = src.split(/[?#]/, 1)[0];
   const segments = path.split("/").filter(Boolean);
   return segments[segments.length - 1] ?? "image";
 }
