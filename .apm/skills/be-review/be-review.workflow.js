@@ -582,31 +582,47 @@ For each track return { track, clean (boolean), dirtyStatus (the offending \`sta
       },
     )
   : { tracks: [] }
-// FAIL CLOSED for cleanup: a track is "preserved" (kept off teardown) unless the
-// checker EXPLICITLY reported it clean. So a missing row, or a row that says it's
-// dirty, both keep the worktree. `cleanTracks` is the allowlist of explicitly-clean
-// worktrees; everything else is preserved.
+// FAIL CLOSED for cleanup: a track is "preserved" (kept off teardown) unless it is
+// safe to discard. A worktree is safe to discard ONLY if it was both (a) EXPLICITLY
+// reported clean by the checker AND (b) successfully replayed onto the branch — i.e.
+// it ends up in `consolidateOrder`. Everything else is preserved:
+//   - a missing clean-check row, or a row that says it's dirty → may hold UNcommitted
+//     edits (fail closed on the checker);
+//   - a `track-error` track, even one that `git status` calls clean → may hold
+//     COMMITTED-but-unreplayed work, since `consolidateOrder` deliberately excludes
+//     it (its commit ledger is untrustworthy, so the consolidator never cherry-picks
+//     it). Removing its detached worktree would make those commits unreachable.
+// `cleanTracks` is the allowlist of explicitly-clean worktrees; `consolidateOrder`
+// narrows that to the ones we actually replayed; teardown only touches the latter.
 const cleanResultFor = (t) => (cleanCheck?.tracks || []).find((c) => c.track === t)
 const cleanTracks = liveTracks.filter((t) => cleanResultFor(t)?.clean === true)
-const preservedTracks = liveTracks.filter((t) => !cleanTracks.includes(t))
-for (const t of preservedTracks) {
-  const row = cleanResultFor(t)
-  const ds = row?.dirtyStatus || ''
-  const reason = row ? 'left UNcommitted changes in its worktree' : "could not be confirmed clean (no clean-check result — failing closed)"
-  tracks[t] = {
-    ...tracks[t],
-    consolidated: false,
-    dirtyStatus: ds,
-    note: `track ${reason} (${wtDir(t)}); NOT consolidated and its worktree was PRESERVED so any edits aren't lost. Inspect with \`git -C ${wtDir(t)} status\`.${ds ? `\nOffending entries:\n${ds}` : ''}`,
-  }
-  log(`Consolidate: track ${t} not confirmed clean — excluded from consolidation, worktree preserved at ${wtDir(t)}.`)
-}
 
 // Only replay tracks that are explicitly clean (every agreed fix really is a
 // commit) AND completed without crashing — a `track-error` track is never
 // cherry-picked even if its worktree happens to be clean, since its commit ledger
 // is untrustworthy. The agent only picks committed work.
 const consolidateOrder = cleanTracks.filter((t) => tracks[t]?.status !== 'track-error')
+
+// Preserve every live track we did NOT consolidate, so neither uncommitted edits
+// nor committed-but-unreplayed commits are lost.
+const preservedTracks = liveTracks.filter((t) => !consolidateOrder.includes(t))
+for (const t of preservedTracks) {
+  const row = cleanResultFor(t)
+  const ds = row?.dirtyStatus || ''
+  const reason =
+    tracks[t]?.status === 'track-error'
+      ? 'CRASHED (track-error) so its commit ledger is untrustworthy and it was never replayed — its worktree may hold committed-but-unconsolidated fixes'
+      : row
+        ? 'left UNcommitted changes in its worktree'
+        : 'could not be confirmed clean (no clean-check result — failing closed)'
+  tracks[t] = {
+    ...tracks[t],
+    consolidated: false,
+    dirtyStatus: ds,
+    note: `track ${reason} (${wtDir(t)}); NOT consolidated and its worktree was PRESERVED so any edits aren't lost. Inspect with \`git -C ${wtDir(t)} log ${branchHead}..HEAD\` and \`git -C ${wtDir(t)} status\`.${ds ? `\nOffending entries:\n${ds}` : ''}`,
+  }
+  log(`Consolidate: track ${t} not consolidated — worktree preserved at ${wtDir(t)}.`)
+}
 const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. Every command below is \`git -C\` against an ABSOLUTE path — do not rely on the current directory. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
 
 The branch in \`${repoPath}\` is currently AT \`${branchHead}\` (the tracks' shared fork point). Process tracks in THIS order: ${consolidateOrder.join(' → ')}.
@@ -665,16 +681,18 @@ if (postComments) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 5 — tear down the per-track worktrees. Only EXPLICITLY-clean worktrees are
-// torn down; anything not confirmed clean (uncommitted edits the clean-check
-// caught, OR a worktree the checker never reported on — including a crashed
-// `track-error` track) is PRESERVED, since its worktree may be the only place
-// those edits live and force-removing it would discard them. Fail closed.
+// Phase 5 — tear down the per-track worktrees. Only worktrees we actually
+// CONSOLIDATED (explicitly clean AND replayed onto the branch — i.e.
+// `consolidateOrder`) are torn down. Everything else is PRESERVED, since its
+// worktree may be the only place its edits live and force-removing it would
+// discard them: uncommitted edits the clean-check caught, a worktree the checker
+// never reported on, OR a crashed `track-error` track whose committed-but-
+// unreplayed fixes were deliberately excluded from consolidation. Fail closed.
 // ---------------------------------------------------------------------------
 phase('Cleanup')
 
-const teardownTracks = cleanTracks
-if (preservedTracks.length) log(`Cleanup: preserving ${preservedTracks.length} worktree(s) not confirmed clean (${preservedTracks.join(', ')}) — they may hold uncommitted edits.`)
+const teardownTracks = consolidateOrder
+if (preservedTracks.length) log(`Cleanup: preserving ${preservedTracks.length} worktree(s) not consolidated (${preservedTracks.join(', ')}) — they may hold uncommitted or unreplayed committed edits.`)
 if (teardownTracks.length) {
   await agent(
     `You are a MECHANICAL CLEANUP RUNNER. Every path is absolute / \`git -C\`; do not rely on the current directory. Remove EACH of these worktrees, then prune; ignore errors if one is already gone. Do NOT touch any other path.
@@ -683,7 +701,7 @@ Then: \`git -C ${repoPath} worktree prune\`. Leave the gitignored \`${SCRATCH}\`
     { label: 'cleanup:worktrees', phase: 'Cleanup', model },
   )
 } else {
-  log('Cleanup: no clean worktrees to tear down (all preserved or none live).')
+  log('Cleanup: no consolidated worktrees to tear down (all preserved or none live).')
 }
 
 return {
