@@ -843,6 +843,34 @@ function consolidationSection(c, order) {
 ${rows || "| — | — | — | — | — |"}`;
 }
 
+// Rewrite a track's commit SHAs (worktree → branch) before its comment is built.
+// A track's `applied[].commit` and `transcript[].commit` are its WORKTREE SHAs;
+// consolidation cherry-picks each onto the branch as a NEW SHA, leaving the
+// worktree commit dangling/unpushed — so a comment that links the worktree SHA
+// 404s on GitHub. The consolidation `picks[]` carries the sourceCommit→newCommit
+// map; rewrite every commit field through it so the comment links resolve. A
+// commit dropped in consolidation (subsumed by an overlapping track, no
+// `newCommit`) has no branch SHA, so its field is nulled — the builders render
+// that as "—" rather than a dead link. The consolidation slug is left untouched
+// (its picks already carry both SHAs). Returns a remapped CLONE; the original
+// track result is unchanged.
+function remapCommits(slug, data, picks) {
+  if (!data || slug === "consolidation") return data;
+  const pairs = (picks || []).filter((p) => p.sourceCommit);
+  if (!pairs.length) return data;
+  const toBranch = (sha) => {
+    if (!sha) return sha;
+    const hit = pairs.find(
+      (p) => sha.startsWith(p.sourceCommit) || p.sourceCommit.startsWith(sha),
+    );
+    return hit ? hit.newCommit || null : sha; // mapped → branch SHA; dropped → null; unseen → unchanged
+  };
+  const out = JSON.parse(JSON.stringify(data));
+  for (const a of out.applied || []) a.commit = toBranch(a.commit);
+  for (const r of out.transcript || []) r.commit = toBranch(r.commit);
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Rich reporter agents (issue #1151). The deterministic builders above are the
 // BASELINE (and the fallback); a reporter agent turns the structured track
@@ -1358,10 +1386,14 @@ if (postComments) {
   // falls back to it too, so Report never skips a comment.
   const authored = await parallel(
     items.map(([slug, data]) => () => {
-      const baseline = (reporters[slug]?.build || genericComment)(data);
+      // Rewrite worktree commit SHAs to the branch SHAs they were cherry-picked
+      // to, so the comment's commit links resolve on GitHub (worktree commits are
+      // dangling/unpushed). No-op for the consolidation slug.
+      const mapped = remapCommits(slug, data, picks);
+      const baseline = (reporters[slug]?.build || genericComment)(mapped);
       return authorBody(
         slug,
-        data,
+        mapped,
         baseline,
         reporters[slug]?.guidance || "",
       ).then((body) => [slug, body]);
