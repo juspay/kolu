@@ -510,9 +510,30 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
         next,
         (info) => {
           // The watcher's data-source-derived info is the source of truth; the
-          // screen scrape only promotes off it. Stash it so the poll merges
-          // against the latest, then publish it raw.
+          // screen scrape only promotes off it. Always stash it so the poll
+          // merges against the latest.
           latestInfo = info;
+          // The screen-scrape poll is the single writer for the promote/demote
+          // state edge: it lifts the pollable state to a promotion and is the
+          // only path that settles it back (the watcher's change gate silently
+          // drops the structurally-equal `waiting` write that would otherwise
+          // demote). So while a poll-promotion is live — the published agent's
+          // state differs from this still-pollable watcher info — publishing
+          // this info raw would demote the promotion to its own structurally
+          // equal `waiting` (e.g. a late `refreshSummary` resolving mid-prompt),
+          // flickering the dock and double-bumping recency. Skip the raw publish
+          // and let the poll own that edge; non-state fields it carries (e.g. a
+          // refreshed summary) are picked up on the next promote/demote republish.
+          const published = record.meta.agent;
+          const scrape = provider.screenScrape;
+          if (
+            scrape &&
+            scrape.isPollable(info) &&
+            published?.kind === provider.kind &&
+            published.state !== info.state
+          ) {
+            return;
+          }
           setAgentMetadataVia(record, hooks, info as unknown as AgentInfo);
         },
         plog,
