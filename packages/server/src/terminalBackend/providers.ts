@@ -542,14 +542,14 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     const scrape = provider.screenScrape;
     const readScreen = hooks.readScreenText;
     if (!scrape || !readScreen) return () => {};
-    let stopped = false;
+    let pollStopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
       try {
         const info = latestInfo;
         if (info && scrape.isPollable(info)) {
           const text = await readScreen(scrape.tailLines);
-          if (!stopped && latestInfo === info) {
+          if (!pollStopped && latestInfo === info) {
             const promoted = scrape.promote(info, text);
             // Only the scrape-changed guard remains; `setAgentMetadataVia`
             // owns the publish-if-changed idempotence.
@@ -575,11 +575,11 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
           plog.error({ err }, "screen-scrape poll tick failed");
         }
       }
-      if (!stopped) timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
+      if (!pollStopped) timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
     };
     timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
     return () => {
-      stopped = true;
+      pollStopped = true;
       if (timer) {
         clearTimeout(timer);
         timer = null;
