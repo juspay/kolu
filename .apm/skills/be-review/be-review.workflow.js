@@ -641,7 +641,6 @@ if (!commit) {
     consolidation: null,
     reconciled: [],
     dropped: [],
-    conflicts: [],
     note: 'commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — see the `worktrees` field below for each track’s path — and re-run with commit enabled to consolidate.',
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
   }
@@ -711,7 +710,6 @@ if (branchMoved || branchDirty) {
     consolidation: null,
     reconciled: [],
     dropped: [],
-    conflicts: [],
     preservedTracks: liveTracks,
     note: `consolidation aborted: ${why}. Cherry-picking onto the changed base would review against an untrustworthy scope, so nothing was consolidated and every track worktree was PRESERVED (see each track's note for the recovery cherry-pick).${dirty ? `\nOffending entries:\n${dirty}` : ''}`,
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
@@ -944,8 +942,5 @@ return {
   // (police `incomplete`, lens `unresolved`, codex `reviewer-error`); their fixes
   // landed but the gauntlet didn't fully finish. Non-empty ⇒ 'consolidation-incomplete'.
   incompleteTracks,
-  // back-compat: the union of non-clean picks. Consumers keying on a discarded
-  // fix (e.g. /be §4's "dropped overlap" adjudication) should read `dropped`.
-  conflicts: [...reconciled, ...dropped],
   comments,
 }
