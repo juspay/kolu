@@ -175,7 +175,7 @@ export function checkForUpdate(): void {
  *  precache. Without one (HTTP/LAN), `updateServiceWorker` is an inert no-op
  *  (see its doc), so we must call `location.reload()` ourselves — a plain
  *  reload is already fresh there: no worker intercepts it and the server serves
- *  the shell `no-cache`. */
+ *  a fresh, un-stored (`no-store`) shell. */
 export function reloadForUpdate(): void {
   if (serviceWorkerSupported && updateServiceWorker)
     void updateServiceWorker(true);
