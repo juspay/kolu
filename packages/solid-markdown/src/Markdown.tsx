@@ -72,7 +72,8 @@ export const Markdown: Component<{
       fallback={
         <span
           ref={guardAnchorClicks}
-          class="kolu-md kolu-md-inline"
+          class="kolu-md"
+          data-md-variant={variant()}
           innerHTML={html()}
         />
       }

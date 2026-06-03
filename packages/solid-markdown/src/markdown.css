@@ -14,7 +14,7 @@
  * Three scales share these rules and diverge only in the size tokens:
  *   - default (`[data-md-variant="document"]`) — full-pane reading scale.
  *   - `[data-md-variant="compact"]`            — chat/dock intent scale.
- *   - `.kolu-md-inline`                        — inline-only, no block layout. */
+ *   - `[data-md-variant="inline"]`             — inline-only, no block layout. */
 
 .kolu-md {
   /* Scale tokens — overridden per variant below. */
@@ -319,15 +319,15 @@
 }
 
 /* ── Inline variant (single-line annotation slots) ───────────── */
-.kolu-md-inline {
+.kolu-md[data-md-variant="inline"] {
   font-size: inherit;
   line-height: inherit;
 }
 /* Direct-child arm (`> code`) included: the inline parse emits a leading
- * codespan as a direct child of `.kolu-md-inline`, which the descendant form
+ * codespan as a direct child of the inline root, which the descendant form
  * (`:not(pre) > code`) would not reach. */
-.kolu-md-inline :not(pre) > code,
-.kolu-md-inline > code {
+.kolu-md[data-md-variant="inline"] :not(pre) > code,
+.kolu-md[data-md-variant="inline"] > code {
   padding: 0.1em 0.3em;
   background: color-mix(in oklch, currentColor 12%, transparent);
   border-radius: 3px;
