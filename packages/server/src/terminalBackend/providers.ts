@@ -43,7 +43,7 @@ import type {
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
-import { parseAgentCommand } from "anyagent";
+import { agentInfoEqual, parseAgentCommand } from "anyagent";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
 import { subscribeGitInfo } from "kolu-git";
@@ -394,6 +394,10 @@ function setAgentMetadataVia(
   hooks: ProviderHooks,
   nextAgent: AgentInfo | null,
 ): void {
+  // Publish-if-changed: the canonical AgentInfo comparator is the one gate for
+  // "did the published state already reflect this?", so every publisher —
+  // watcher and screen-scrape poll alike — funnels through one equality check.
+  if (agentInfoEqual(record.meta.agent, nextAgent)) return;
   const bump = shouldBumpRecencyForAgentChange(
     record.meta.agent,
     nextAgent,
@@ -547,14 +551,9 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
           const text = await readScreen(scrape.tailLines);
           if (!stopped && latestInfo === info) {
             const promoted = scrape.promote(info, text);
-            const published = record.meta.agent;
-            if (
-              promoted !== info &&
-              !(
-                published?.kind === provider.kind &&
-                published.state === promoted.state
-              )
-            ) {
+            // Only the scrape-changed guard remains; `setAgentMetadataVia`
+            // owns the publish-if-changed idempotence.
+            if (promoted !== info) {
               setAgentMetadataVia(
                 record,
                 hooks,
