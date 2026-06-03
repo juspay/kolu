@@ -969,7 +969,11 @@ HARD RULES:
       return baseline;
     }
     return body;
-  } catch {
+  } catch (e) {
+    // Don't swallow the thrown agent error: log which slug fell back and why, so a
+    // broken reporter is diagnosable instead of silently posting the baseline
+    // (police police-r1-rules-1 / police-r1-fact-check-1).
+    log(`Report: ${slug} reporter agent failed (${String(e)}) — falling back to the deterministic baseline.`);
     return baseline;
   }
 }
