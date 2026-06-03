@@ -542,43 +542,59 @@ const TERMINAL_STATUS_RE = new RegExp(
   `<status>(?:${TERMINAL_STATUSES.join("|")})</status>`,
 );
 
+/** Task-ids whose background run has reported a terminal status — scanned from
+ *  the main transcript's `queue-operation` enqueue notifications
+ *  (`<task-id>X</task-id>` paired with a terminal `<status>`).
+ *
+ *  The shared "which runs finished" projection. `outstandingBackgroundTasks`
+ *  subtracts it from the launched set; `outstandingForkRuns` uses it as the
+ *  fast positive-finish signal — a `/fork` never enters the launched set (its
+ *  launch is a local-command, not a `tool_result`), so without this an idle
+ *  main would keep spinning for the full stale window after the fork completed.
+ *  Here it demotes the instant the completion notification lands. */
+export function completedBackgroundTaskIds(lines: string[]): Set<string> {
+  const completed = new Set<string>();
+  for (const raw of lines) {
+    let entry: { type?: string; operation?: string; content?: unknown };
+    try {
+      entry = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (entry.type !== "queue-operation" || entry.operation !== "enqueue")
+      continue;
+    const content = typeof entry.content === "string" ? entry.content : "";
+    const id = TASK_ID_TAG_RE.exec(content)?.[1];
+    if (id && TERMINAL_STATUS_RE.test(content)) completed.add(id);
+  }
+  return completed;
+}
+
 /** Scan the transcript tail for background tasks launched but not yet
  *  reporting a terminal status.
  *
  *  Launch markers live in `user` `tool_result` blocks — one of the three
  *  `BG_LAUNCH_RES` phrasings (Workflow / backgrounded Bash / backgrounded
- *  Agent). Completion markers live in `queue-operation` entries
- *  (`operation: "enqueue"`) whose `content` is a `<task-notification>`
- *  carrying `<task-id>X</task-id>` and a terminal `<status>`. The launch ID
- *  and the completion's `<task-id>` are the same token, so
- *  outstanding = launched − completed.
+ *  Agent). Completion markers (`completedBackgroundTaskIds`) live in
+ *  `queue-operation` enqueue entries. The launch ID and the completion's
+ *  `<task-id>` are the same token, so outstanding = launched − completed.
  *
  *  Bounded by the same tail window as `deriveState`: a launch whose
  *  confirmation has scrolled out of the tail can't be detected. That only
  *  costs a fallback to the pre-existing `waiting` classification — never a
  *  crash or a wrong-direction promotion. */
 export function outstandingBackgroundTasks(lines: string[]): BackgroundTask[] {
+  const completed = completedBackgroundTaskIds(lines);
   const launched = new Map<string, string | null>(); // taskId → runId
-  const completed = new Set<string>();
 
   for (const raw of lines) {
     let entry: {
       type?: string;
-      operation?: string;
-      content?: unknown;
       message?: { content?: Array<{ type?: string; content?: unknown }> };
     };
     try {
       entry = JSON.parse(raw);
     } catch {
-      continue;
-    }
-
-    if (entry.type === "queue-operation") {
-      if (entry.operation !== "enqueue") continue;
-      const content = typeof entry.content === "string" ? entry.content : "";
-      const id = TASK_ID_TAG_RE.exec(content)?.[1];
-      if (id && TERMINAL_STATUS_RE.test(content)) completed.add(id);
       continue;
     }
 
@@ -622,6 +638,14 @@ function sessionRootFor(session: SessionFile): string {
  *  Sibling of the transcript JSONL, which lives at `<projects>/<cwd>/<session>.jsonl`. */
 export function workflowsDirFor(session: SessionFile): string {
   return path.join(sessionRootFor(session), "workflows");
+}
+
+/** Per-session subagents root: `<projects>/<cwd>/<session>/subagents`. Holds one
+ *  `agent-<id>.jsonl` (streaming transcript) + `agent-<id>.meta.json` per async
+ *  sub-agent, plus the `workflows/` live-run tree. A `/fork` lands a sub-agent
+ *  here tagged `{"agentType":"fork"}` in its meta. */
+export function subagentsDirFor(session: SessionFile): string {
+  return path.join(sessionRootFor(session), "subagents");
 }
 
 /** On-disk shape of a workflow run journal (`workflows/<runId>.json`) — just
@@ -690,7 +714,7 @@ function newestFileMtimeMs(dir: string): number | null {
  *  The session-watcher watches this tree so live-run writes (`journal.jsonl` /
  *  streaming `agent-*.jsonl` appends) re-derive progress (#1123). */
 function liveWorkflowsRootFor(session: SessionFile): string {
-  return path.join(sessionRootFor(session), "subagents", "workflows");
+  return path.join(subagentsDirFor(session), "workflows");
 }
 
 /** The live event-log directory for a `Workflow` run under the current runtime
@@ -897,6 +921,117 @@ export function nextWorkflowStaleDeadline(
     const { anchorMs } = observe(task.runId);
     if (anchorMs === null) continue; // no observable anchor → gate already demoted it
     const deadline = Math.max(anchorMs + WORKFLOW_JOURNAL_STALE_MS, now);
+    if (earliest === null || deadline < earliest) earliest = deadline;
+  }
+  return earliest;
+}
+
+// --- Fork sub-agent detection (`/fork`) ---
+//
+// A `/fork` spawns a background sub-agent the way a `Workflow` does, but it is
+// launched from a slash command, so its launch lands in the transcript ONLY as
+// a `system`/`local_command` echo (`⑂ forked <name> (<n>)`) — never the
+// `tool_result` confirmation the three `BG_LAUNCH_RES` phrasings match. It is
+// therefore invisible to `outstandingBackgroundTasks`, so an idle (`waiting`)
+// main never promotes to `running_background` while a fork runs, and the dock
+// reads the row as idle (issue: forks undetected while main idle). Detect it
+// from its on-disk artifacts instead: `subagents/agent-<id>.meta.json` (tagged
+// `agentType:"fork"`) + the streaming `subagents/agent-<id>.jsonl` whose mtime
+// is the liveness anchor — the direct analogue of the Workflow journal path.
+
+/** Meta tag a `/fork` writes to `agent-<id>.meta.json`. Async `Agent`/`Task`
+ *  sub-agents carry a different (or absent) `agentType`, so this discriminator
+ *  promotes ONLY forks — a backgrounded `Agent` stays unpromoted (its launch
+ *  marker outlives the process; the same phantom guard `deriveState` applies to
+ *  runId-less tasks). */
+const FORK_AGENT_TYPE = "fork";
+
+/** `agent-<id>.meta.json` → captures `<id>` (identical to the completion
+ *  notification's `<task-id>`). The `workflows/` live-run subdir has no
+ *  `.meta.json`, so it is naturally excluded. */
+const FORK_META_RE = /^agent-(.+)\.meta\.json$/;
+
+/** A `/fork` sub-agent streams its transcript continuously while it runs, so a
+ *  multi-minute gap means it died (its launching claude was killed and the
+ *  completion notification can never arrive). Mirrors `WORKFLOW_JOURNAL_STALE_MS`
+ *  — the same "quiet long enough to be sure it's orphaned" threshold — kept a
+ *  separate const so fork timing can move without touching workflow timing. */
+export const FORK_TRANSCRIPT_STALE_MS = 2 * 60 * 1000;
+
+/** An outstanding `/fork` run: its sub-agent id (the `agent-<id>` basename,
+ *  identical to the completion notification's `<task-id>`) and the liveness
+ *  anchor — the mtime of its streaming transcript. */
+export interface ForkRun {
+  id: string;
+  anchorMs: number;
+}
+
+/** True when `agent-<id>.meta.json` tags the sub-agent as a `/fork`. A
+ *  malformed/unreadable meta reads as "not a fork" — never promote on a file we
+ *  can't positively classify. */
+function isForkMeta(metaPath: string): boolean {
+  try {
+    const json = JSON.parse(fs.readFileSync(metaPath, "utf8")) as {
+      agentType?: unknown;
+    };
+    return json.agentType === FORK_AGENT_TYPE;
+  } catch {
+    return false;
+  }
+}
+
+/** Scan `<session>/subagents` for live `/fork` runs: tagged `agentType:"fork"`,
+ *  not yet reporting a terminal status (`completed`), and with a transcript
+ *  written within `FORK_TRANSCRIPT_STALE_MS` (still streaming → still running).
+ *
+ *  `completed` (from `completedBackgroundTaskIds`) is the fast positive-finish
+ *  signal so an idle main demotes the instant the fork's completion lands; the
+ *  mtime gate is the phantom guard for an orphaned fork whose completion never
+ *  arrives. The transcript is stat-ed before the meta is read, so a finished or
+ *  stale sub-agent costs only a stat. `now` injectable for tests. */
+export function outstandingForkRuns(
+  session: SessionFile,
+  completed: Set<string>,
+  now: number = Date.now(),
+): ForkRun[] {
+  const dir = subagentsDirFor(session);
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return []; // no subagents dir → no forks
+  }
+  const forks: ForkRun[] = [];
+  for (const name of names) {
+    const id = FORK_META_RE.exec(name)?.[1];
+    if (id === undefined) continue;
+    if (completed.has(id)) continue; // already finished
+    let anchorMs: number;
+    try {
+      anchorMs = fs.statSync(path.join(dir, `agent-${id}.jsonl`)).mtimeMs;
+    } catch {
+      continue; // no transcript → unobservable, don't promote (phantom guard)
+    }
+    if (now - anchorMs > FORK_TRANSCRIPT_STALE_MS) continue; // orphaned
+    if (!isForkMeta(path.join(dir, name))) continue; // not a /fork
+    forks.push({ id, anchorMs });
+  }
+  return forks;
+}
+
+/** Earliest time one of `forks` crosses the stale threshold — the fork analogue
+ *  of `nextWorkflowStaleDeadline`. While a fork keeps a quiet (idle) main
+ *  promoted, the main transcript fires no event, so the watcher arms a one-shot
+ *  timer here; when it fires the next scan sees the fork's transcript as stale
+ *  (orphaned → demote) or freshly-written (still live → re-arm). Null when
+ *  `forks` is empty. */
+export function nextForkStaleDeadline(
+  forks: ForkRun[],
+  now: number = Date.now(),
+): number | null {
+  let earliest: number | null = null;
+  for (const f of forks) {
+    const deadline = Math.max(f.anchorMs + FORK_TRANSCRIPT_STALE_MS, now);
     if (earliest === null || deadline < earliest) earliest = deadline;
   }
   return earliest;

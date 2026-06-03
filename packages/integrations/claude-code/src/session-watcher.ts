@@ -13,6 +13,7 @@ import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
 import { match } from "ts-pattern";
 import {
+  completedBackgroundTaskIds,
   decayTransientState,
   deriveState,
   deriveTaskProgress,
@@ -23,9 +24,11 @@ import {
   findTranscriptPath,
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
+  nextForkStaleDeadline,
   nextWorkflowStaleDeadline,
   observeWorkflowRun,
   outstandingBackgroundTasks,
+  outstandingForkRuns,
   PROJECTS_DIR,
   type SessionFile,
   type WorkflowObservation,
@@ -322,12 +325,32 @@ export function createSessionWatcher(
       return;
     }
 
-    // Resolve the state to publish and when (if ever) to re-probe. Two
-    // staleness-driven de-escalations live here, on disjoint states — a quiet
-    // transcript / journal fires no fs event, so each arms the reused one-shot
-    // recheck timer that re-derives without an external trigger:
-    //   - running_background (#1109): demote once the workflow journal goes
-    //     stale; the deadline tracks the soonest live-journal stale time.
+    // One clock read shared by the fork scan, the stale deadlines, and the
+    // transient-decay quiet window below — so all the staleness comparisons in
+    // this pass test against a single `now`.
+    const now = Date.now();
+
+    // `/fork` promotion: a fork is a background sub-agent the main session
+    // launched, but its launch is a local-command (not a `tool_result`), so it
+    // never enters `outstanding` and `deriveState` can't see it. Detect it from
+    // its on-disk subagent transcript — but only for an otherwise-idle
+    // (`waiting`) main, where a live fork means it's busy-waiting on the fork,
+    // not awaiting the human. When a live `Workflow` already promoted to
+    // `running_background`, the row is busy regardless, so the fork scan (a
+    // `subagents/` readdir) is skipped.
+    const forks =
+      derived.state === "waiting"
+        ? outstandingForkRuns(session, completedBackgroundTaskIds(lines), now)
+        : [];
+
+    // Resolve the state to publish and when (if ever) to re-probe. One
+    // escalation and two staleness-driven de-escalations live here, on disjoint
+    // states — a quiet transcript / journal fires no fs event, so each arms the
+    // reused one-shot recheck timer that re-derives without an external trigger:
+    //   - running_background: a busy-wait on an observable background run — a
+    //     `Workflow` (journal, #1109) or a live `/fork` (subagent transcript).
+    //     Promoted from `waiting` for a fork; demoted once every run's anchor
+    //     goes stale, the deadline tracking the soonest across both.
     //   - dangling tool_use (#1017): demote to `waiting` once the transcript is
     //     quiet past the window AND claude's subtree is idle (no descendant
     //     process). A genuine long tool keeps a child, so it is never cleared.
@@ -341,15 +364,17 @@ export function createSessionWatcher(
     //     read as "busy" — orphaned + stale is already definitive.
     let publishedState = derived.state;
     let staleDeadline: number | null = null;
-    if (derived.state === "running_background") {
-      staleDeadline = nextWorkflowStaleDeadline(
-        session,
-        outstanding,
-        Date.now(),
-        observe,
-      );
+    if (derived.state === "running_background" || forks.length > 0) {
+      publishedState = "running_background";
+      // Soonest stale deadline across both run kinds, ignoring the null
+      // (none-observable) side — so a fork-only or workflow-only promotion still
+      // arms a recheck, and a mixed set fires on whichever ages out first.
+      const deadlines = [
+        nextWorkflowStaleDeadline(session, outstanding, now, observe),
+        nextForkStaleDeadline(forks, now),
+      ].filter((d): d is number => d !== null);
+      staleDeadline = deadlines.length > 0 ? Math.min(...deadlines) : null;
     } else {
-      const now = Date.now();
       const quietMs = transcriptQuietMs(transcriptWatching.path, now);
       if (quietMs !== null) {
         const decayed = decayTransientState(
