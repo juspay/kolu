@@ -697,6 +697,20 @@ Return the markdown body as your final message.`
   return body
 }
 
+// Author one comment body, owning the WHOLE generator choice behind a single
+// socket: deterministic baseline for an off/trivial track, else the rich reporter
+// agent. The try/catch guards only a THROWN agent error — `reporterBody` already
+// folds the empty/short-output fallback to `baseline` — so the Report loop never
+// reaches past this receptacle to wire the strategies together itself.
+async function authorBody(slug, data, baseline, guidance) {
+  if (!richComment || !hasRichContent(slug, data)) return baseline
+  try {
+    return await reporterBody(slug, data, baseline, guidance)
+  } catch {
+    return baseline
+  }
+}
+
 // Post one comment via a mechanical agent. Resolves the PR from the branch in the
 // MAIN worktree (gh uses cwd's repo; the agent runs `gh -C`-equivalent by cd-ing).
 //
@@ -1029,16 +1043,7 @@ if (postComments) {
   // skips a comment.
   const authored = await parallel(
     items.map(([slug, data, baseline]) => () =>
-      richComment && hasRichContent(slug, data)
-        ? reporterBody(slug, data, baseline, REPORT_GUIDANCE[slug] || '')
-            .then((body) => [slug, body])
-            .catch((e) => {
-              // Don't swallow the failure: record which track fell back and why, so a
-              // broken reporter is diagnosable instead of silently posting the baseline.
-              log(`Report: ${slug} reporter agent FAILED (${e?.message || e}) — falling back to deterministic baseline.`)
-              return [slug, baseline]
-            })
-        : Promise.resolve([slug, baseline]),
+      authorBody(slug, data, baseline, REPORT_GUIDANCE[slug] || '').then((body) => [slug, body]),
     ),
   )
   for (const item of authored) {
