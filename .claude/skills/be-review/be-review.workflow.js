@@ -1026,15 +1026,27 @@ async function authorBody(slug, data, baseline, guidance) {
 // decodes it to the file mechanically and never sees it as prose, so no body content
 // can be confused with a workflow instruction. The deterministic baseline is itself a
 // valid body and rides the same opaque path (it's the fallback when authoring fails).
-// UTF-8-safe base64, runtime-agnostic: Node's Buffer if present, else TextEncoder +
-// btoa (handles multi-byte chars, which a bare btoa(string) would corrupt).
+// UTF-8-safe base64. The Workflow runtime has NEITHER `Buffer` NOR `TextEncoder`
+// NOR `btoa` (the old `new TextEncoder()` fallback threw `ReferenceError:
+// TextEncoder is not defined` and crashed the whole Report phase), so the fallback
+// is a self-contained pure-JS encoder using only `encodeURIComponent` (always
+// present) for UTF-8 and a hand-rolled base64 alphabet — no runtime globals. The
+// `Buffer` fast-path is kept behind a `typeof` guard (which never throws) for
+// runtimes that do have it; the pure path is byte-for-byte identical output.
 function toBase64(s) {
   const str = String(s)
   if (typeof Buffer !== 'undefined') return Buffer.from(str, 'utf8').toString('base64')
-  const bytes = new TextEncoder().encode(str)
-  let bin = ''
-  for (const b of bytes) bin += String.fromCharCode(b)
-  return btoa(bin)
+  // UTF-8 bytes as a binary string, without TextEncoder: %XX escape each byte.
+  const bin = encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+  const CH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  let out = ''
+  for (let i = 0; i < bin.length; i += 3) {
+    const a = bin.charCodeAt(i)
+    const b = i + 1 < bin.length ? bin.charCodeAt(i + 1) : 0
+    const c = i + 2 < bin.length ? bin.charCodeAt(i + 2) : 0
+    out += CH[a >> 2] + CH[((a & 3) << 4) | (b >> 4)] + (i + 1 < bin.length ? CH[((b & 15) << 2) | (c >> 6)] : '=') + (i + 2 < bin.length ? CH[c & 63] : '=')
+  }
+  return out
 }
 
 async function postComment(slug, body) {
