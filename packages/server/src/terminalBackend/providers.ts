@@ -534,9 +534,12 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
    *  doesn't scrape or the host can't read the screen. While `isPollable` holds
    *  for the latest watcher info, read the rendered screen each tick and, if the
    *  scrape promotes it (e.g. `waiting → awaiting_user`), republish the promoted
-   *  info. Promote-only and idempotent: it republishes only when the promoted
-   *  state isn't already the published one, so a held prompt doesn't churn
-   *  metadata; a demotion only ever arrives via the watcher. Recursive
+   *  info. Idempotent: it republishes a promotion only when that state isn't
+   *  already the published one, so a held prompt doesn't churn metadata. It
+   *  also self-demotes: if the screen no longer prompts but the published state
+   *  is still a stale scrape-promotion, it republishes the raw watcher info,
+   *  since the watcher's change gate can silently drop the settling write that
+   *  would otherwise demote. Recursive
    *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
   function startScreenScrapePoll(): () => void {
     const scrape = provider.screenScrape;
@@ -551,14 +554,26 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
           const text = await readScreen(scrape.tailLines);
           if (!pollStopped && latestInfo === info) {
             const promoted = scrape.promote(info, text);
-            // Only the scrape-changed guard remains; `setAgentMetadataVia`
-            // owns the publish-if-changed idempotence.
+            const published = record.meta.agent;
+            // Only the scrape-changed guard remains on the promote side;
+            // `setAgentMetadataVia` owns the publish-if-changed idempotence.
             if (promoted !== info) {
               setAgentMetadataVia(
                 record,
                 hooks,
                 promoted as unknown as AgentInfo,
               );
+            } else if (
+              // No prompt on screen, but the published state is still a
+              // scrape-promotion (e.g. `awaiting_user`) that diverges from the
+              // raw watcher info. The watcher's change gate can silently drop
+              // the JSONL write that settles back to a structurally-equal
+              // `waiting`, so it never demotes. Self-demote here by republishing
+              // the raw `latestInfo`, closing the gap without touching the gate.
+              published?.kind === provider.kind &&
+              published.state !== info.state
+            ) {
+              setAgentMetadataVia(record, hooks, info as unknown as AgentInfo);
             }
           }
         }
