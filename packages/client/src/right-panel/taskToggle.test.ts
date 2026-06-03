@@ -31,6 +31,68 @@ describe("toggleTaskInSource", () => {
     expect(toggleTaskInSource("+ [ ] plus", 0)).toBe("+ [x] plus");
   });
 
+  it("does not count a marker `marked` renders as plain text (no checkbox)", () => {
+    // `marked` only mints a checkbox when `]` is followed by whitespace AND
+    // non-empty text, so `- [ ]typo` (no space — a common author typo) renders
+    // as plain text. The two real checkboxes are at indices 0 (design) and 1
+    // (build); a click on the first visible one must toggle `design`, NOT the
+    // typo line above it.
+    const src = "- [ ]typo\n- [ ] design\n- [ ] build";
+    expect(toggleTaskInSource(src, 0)).toBe(
+      "- [ ]typo\n- [x] design\n- [ ] build",
+    );
+    expect(toggleTaskInSource(src, 1)).toBe(
+      "- [ ]typo\n- [ ] design\n- [x] build",
+    );
+    // Only two checkboxes render, so index 2 is out of range — the typo line is
+    // never reachable.
+    expect(toggleTaskInSource(src, 2)).toBeNull();
+  });
+
+  it("does not count a bare or whitespace-only marker (renders no checkbox)", () => {
+    // `- [ ]` (bare) and `- [ ] ` (trailing space only) both render as plain
+    // text in `marked`, so neither is a counted task — index 0 is out of range.
+    expect(toggleTaskInSource("- [ ]", 0)).toBeNull();
+    expect(toggleTaskInSource("- [ ] ", 0)).toBeNull();
+    // A real checkbox after a bare marker is still index 0.
+    expect(toggleTaskInSource("- [ ]\n- [ ] real", 0)).toBe(
+      "- [ ]\n- [x] real",
+    );
+  });
+
+  it("respects the CommonMark fence-length rule (shorter inner fence is body)", () => {
+    // A ```` block whose body contains a ``` line: CommonMark closes a fence
+    // only with a same-char run at least as long as the opener, so the inner
+    // ``` is code, not a close. `marked` renders the whole thing as ONE code
+    // block plus the single real checkbox after the ```` close — so the scanner
+    // must keep `inFence` set through the inner ``` and index that real task at
+    // 0. Comparing only the fence char would flip `inFence` off early and count
+    // the in-fence `- [ ] still inside` line, drifting the toggle.
+    const src = [
+      "````",
+      "- [ ] inner not a task",
+      "```",
+      "- [ ] still inside",
+      "````",
+      "",
+      "- [ ] real",
+    ].join("\n");
+    expect(toggleTaskInSource(src, 0)).toBe(
+      [
+        "````",
+        "- [ ] inner not a task",
+        "```",
+        "- [ ] still inside",
+        "````",
+        "",
+        "- [x] real",
+      ].join("\n"),
+    );
+    // The only rendered checkbox is the one real task, so index 1 is out of
+    // range — no in-fence line is reachable.
+    expect(toggleTaskInSource(src, 1)).toBeNull();
+  });
+
   it("ignores `[ ]` inside fenced code blocks", () => {
     const src = [
       "- [ ] real",

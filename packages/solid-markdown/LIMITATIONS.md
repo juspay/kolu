@@ -61,10 +61,14 @@ Obsidian extensions. Listed for completeness; low priority.
 - Task-list write-back counts task markers with a scan that mirrors what the
   renderer indexes: it skips fenced code blocks and the leading YAML
   front-matter block (so a `- [ ]`-shaped line under a front-matter key never
-  drifts the count), and only marked-syntax checkboxes are made interactive —
-  the leading checkbox of an `<li>`, whether tight (`<li><input>`) or loose
-  (`<li><p><input>`, the blank-line-separated form). A raw inline
-  `<input type="checkbox">` in body text stays presentational so the two index
-  spaces stay congruent. The one remaining edge: a task-looking line inside a
-  **4-space indented** code block can miscount (rare), since indented code
-  blocks aren't tracked.
+  drifts the count), requires a space-or-tab run **then non-empty text** after
+  the close bracket (so `- [ ]typo`, `- [ ]`, and `- [ ] ` — which `marked`
+  renders as plain text, not a checkbox — are never counted), and honours the
+  CommonMark fence-length rule (a shorter same-char fence inside a longer block,
+  e.g. a ``` line inside a ```` block, is body, not a close). Only
+  marked-syntax checkboxes are made interactive — the leading checkbox of an
+  `<li>`, whether tight (`<li><input>`) or loose (`<li><p><input>`, the
+  blank-line-separated form). A raw inline `<input type="checkbox">` in body
+  text stays presentational so the two index spaces stay congruent. The one
+  remaining edge: a task-looking line inside a **4-space indented** code block
+  can miscount (rare), since indented code blocks aren't tracked.

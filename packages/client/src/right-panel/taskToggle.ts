@@ -53,32 +53,51 @@ function toggleTaskInBody(content: string, taskIndex: number): string | null {
   // `marked` renders a task list inside a blockquote (`> - [ ] x`) as a real
   // checkbox — so the renderer indexes it (`data-md-task`) and the scan must
   // too, or the two counters drift and a click toggles the wrong line. The
-  // prefix lands in group 1 and is re-emitted verbatim on rewrite. The trailing
-  // group stops at a CR/LF so a CRLF-encoded line (`- [ ] todo\r` after
-  // splitting on `\n`) still matches, and the captured `\r` is re-emitted so
-  // the line ending survives the rewrite.
-  const TASK = /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\][^\r\n]*)(\r?)$/;
+  // prefix lands in group 1 and is re-emitted verbatim on rewrite.
+  //
+  // After the close bracket `marked` only mints a checkbox when `]` is
+  // followed by whitespace AND non-empty text — `- [ ]typo` (no space, a
+  // common author typo), `- [ ]` (bare), and `- [ ] ` (trailing space only)
+  // all render as plain text, NOT a checkbox. So the trailing group requires
+  // `[ \t]+\S` (a space/tab run then a non-whitespace char) before the rest of
+  // the line; without it the scanner over-counts and a click toggles an
+  // unrelated line. The `[^\r\n]*` after `\S` stops at a CR/LF so a CRLF line
+  // (`- [ ] todo\r` after splitting on `\n`) still matches, and the captured
+  // `\r` is re-emitted so the line ending survives the rewrite.
+  const TASK =
+    /^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\][ \t]+\S[^\r\n]*)(\r?)$/;
   // The fence skip tolerates the same blockquote prefix `TASK` does, so a
   // blockquoted fenced block (`> ```` … `> ````) is detected as a fence and
   // its task-looking lines are skipped. Without the prefix, `inFence` would
   // never flip for a quoted fence, yet `> - [ ]` inside it would still match
   // `TASK` — drifting the count past the renderer's `data-md-task` indices.
+  // The run of fence chars is captured whole so its length can be compared:
+  // CommonMark requires a closing fence to be at least as long as the opener,
+  // so a shorter same-char fence inside a longer block (a ``` line inside a
+  // ```` block) is body text, not a close. Comparing only the char would flip
+  // `inFence` off early, mis-tracking the rest of the document.
   const FENCE = /^\s*(?:>\s*)*(`{3,}|~{3,})/;
 
   let inFence = false;
   let fenceChar = "";
+  let fenceLen = 0;
   let count = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     const fence = line.match(FENCE);
     if (fence) {
-      const marker = (fence[1] ?? "")[0] ?? "";
+      const run = fence[1] ?? "";
+      const marker = run[0] ?? "";
       if (!inFence) {
         inFence = true;
         fenceChar = marker;
-      } else if (marker === fenceChar) {
+        fenceLen = run.length;
+      } else if (marker === fenceChar && run.length >= fenceLen) {
+        // A same-char run only closes when it's ≥ the opener's length
+        // (CommonMark §4.5); a shorter run is part of the code block's body.
         inFence = false;
         fenceChar = "";
+        fenceLen = 0;
       }
       continue;
     }
