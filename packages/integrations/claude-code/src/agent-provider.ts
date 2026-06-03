@@ -74,8 +74,11 @@ export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
   // answers, so the JSONL classifier reports `waiting` throughout the prompt
   // (#905). The prompt is on the rendered screen, though — so when the host can
   // read it (`ProviderHooks.readScreenText`), the orchestrator polls while
-  // `isScreenPollable` holds and lifts `waiting → awaiting_user`. Pure +
-  // promote-only; both halves live in `screen.ts` next to the detector.
+  // `isScreenPollable` holds and lifts `waiting → awaiting_user`. `promote` only
+  // ever lifts (never lowers); the orchestrator self-demotes when the prompt
+  // clears, because the watcher's change gate drops the structurally-identical
+  // `waiting` settle-back. Both halves of the policy live in `screen.ts` next to
+  // the detector.
   screenScrape: {
     tailLines: TAIL_REGION_LINES,
     isPollable: isScreenPollable,

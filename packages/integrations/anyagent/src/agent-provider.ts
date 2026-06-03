@@ -149,13 +149,18 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
    *  clock while `isPollable(info)` holds and republishes `promote(info,
    *  screenText)`.
    *
-   *  Pure + promote-only: the scrape can only lift a state, never lower it — a
-   *  genuine state change flows back through `createWatcher` (the JSONL fs.watch
-   *  is silent during the wait, which is why the scrape needs its own clock).
-   *  Agents whose data source already sees the prompt omit this field and pay no
-   *  poll cost. Independent of `createWatcher` so no screen handle threads
-   *  through that contract — keeps the screen capability out of agents that
-   *  don't need it. */
+   *  Pure: `promote` only ever lifts a state (`waiting → awaiting_user`), never
+   *  lowers it. But the watcher can't be relied on to settle it back: when the
+   *  prompt clears, the JSONL the watcher derives from is structurally identical
+   *  to the `waiting` it already reported, so the watcher's change gate drops
+   *  the write and never demotes. The orchestrator therefore self-demotes — when
+   *  `promote` returns `info` unchanged (no prompt on screen) but the published
+   *  state is still a stale promotion, it republishes the raw watcher `info`. The
+   *  JSONL fs.watch is also silent during the wait, which is why the scrape needs
+   *  its own clock. Agents whose data source already sees the prompt omit this
+   *  field and pay no poll cost. Independent of `createWatcher` so no screen
+   *  handle threads through that contract — keeps the screen capability out of
+   *  agents that don't need it. */
   screenScrape?: {
     /** How many lines of the screen tail the detector inspects. The orchestrator
      *  asks the host for only this many trailing lines (`readScreenText(tailLines)`)
