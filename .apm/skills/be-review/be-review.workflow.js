@@ -42,7 +42,7 @@ export const meta = {
 // quality loss on the parts that matter:
 //   MODEL (opus)   — deep reasoning: the lens lenses + claude-author rounds (the
 //                    lens debate FORCES Opus; that's load-bearing) and lens apply.
-//   AUTHOR (sonnet)— competent-but-not-deep work: the reporter agents, the
+//   SYNTH (sonnet) — competent-but-not-deep synthesis work: the reporter agents, the
 //                    consolidation cherry-pick/reconcile, and the police review +
 //                    apply passes (code-police is natively `model: sonnet` anyway).
 //   MECH (haiku)   — deterministic shell work: setup, every commit, cleanup, the
@@ -95,9 +95,9 @@ const postComments = a.comment !== false;
 // (richComment: false) forces the deterministic comments.
 const richComment = a.richComment !== false;
 // The three cost tiers (see the MODEL comment above). `model` = deep reasoning;
-// `authorModel` = synthesis/review (Sonnet); `mechModel` = mechanical (Haiku).
+// `synthModel` = synthesis (Sonnet); `mechModel` = mechanical (Haiku).
 const model = a.model || MODEL;
-const authorModel = a.authorModel || "sonnet";
+const synthModel = a.synthModel || "sonnet";
 const mechModel = a.mechModel || "haiku";
 
 // ---------------------------------------------------------------------------
@@ -545,7 +545,7 @@ async function policeTrack(wt) {
             {
               label: `police:${p.key}:r${policeRound + 1}`,
               phase: "Tracks",
-              model: authorModel,
+              model: synthModel,
               schema: POLICE_FINDINGS_SCHEMA,
             },
           ),
@@ -572,7 +572,7 @@ async function policeTrack(wt) {
         {
           label: `police-apply:${f.id}`,
           phase: "Tracks",
-          model: authorModel,
+          model: synthModel,
           schema: IMPL_SCHEMA,
         },
       );
@@ -1010,7 +1010,7 @@ HARD RULES:
     const out = await agent(prompt, {
       label: `report:${slug}`,
       phase: "Report",
-      model: authorModel,
+      model: synthModel,
       schema: {
         type: "object",
         additionalProperties: false,
@@ -1421,7 +1421,7 @@ Do NOT push and do NOT merge — leave the consolidated commits on the local bra
 const consolidation = await agent(consolidatePrompt, {
   label: "consolidate:cherry-pick",
   phase: "Consolidate",
-  model: authorModel,
+  model: synthModel,
   schema: CONSOLIDATE_SCHEMA,
 });
 const picks = consolidation?.picks ?? [];
