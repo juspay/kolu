@@ -28,6 +28,13 @@ const workDir = `${repoPath}/.codex-debate`
 // carries the debate context (codex's findings + claude's dispositions). Never
 // pushes or merges — that stays the human's call.
 const commit = a.commit !== false
+// Model tiers. The claude-author round does real reasoning (fixing/disputing
+// codex's findings) → `model` (Opus). Everything else here is mechanical — the
+// codex runner just shells out to codex-review.sh and copies the verdict, the
+// committer stages files, the merge-base resolver runs one git command → `mechModel`
+// (Haiku). Defaults match a direct invocation; /be-review passes both explicitly.
+const model = a.model || 'opus'
+const mechModel = a.mechModel || 'haiku'
 
 // ---------------------------------------------------------------------------
 // Schemas — the codex verdict schema mirrors scripts/codex-verdict.schema.json
@@ -124,6 +131,7 @@ ${rebuttalStep}
   return agent(prompt, {
     label: `codex:round${round}`,
     phase: 'Debate',
+    model: mechModel, // mechanical: runs codex-review.sh + copies the verdict
     schema: CODEX_VERDICT_SCHEMA,
   })
 }
@@ -148,6 +156,7 @@ Return: actions (one per finding — findingId, disposition, detail), filesChang
   return agent(prompt, {
     label: `claude:round${round}`,
     phase: 'Debate',
+    model, // deep reasoning: the author fixing/disputing real findings
     schema: CLAUDE_RESPONSE_SCHEMA,
   })
 }
@@ -190,7 +199,7 @@ ${message}
    \`git -C ${repoPath} add -- ${fileArgs} && git -C ${repoPath} commit -F ${msgPath}\`
    Stage ONLY those files. Do NOT use \`git add -A\` or \`git add .\`.
 4. Return the new commit SHA from \`git -C ${repoPath} rev-parse HEAD\`. Do NOT push.`
-  return agent(prompt, { label: `commit:round${round}`, phase: 'Debate' })
+  return agent(prompt, { label: `commit:round${round}`, phase: 'Debate', model: mechModel })
 }
 
 const transcript = []
@@ -219,7 +228,7 @@ phase('Debate')
 const rawBase = base
 const baseRes = await agent(
   `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex) in \`sha\`. If the command FAILS (missing/typoed base, stale ref, unrelated history), return \`sha\`: "" and put the verbatim git error in \`error\` — do NOT fall back to the raw base ref. Do nothing else.`,
-  { label: 'resolve:merge-base', phase: 'Debate', schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
+  { label: 'resolve:merge-base', phase: 'Debate', model: mechModel, schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
 )
 // Fail loud on a bad base. Falling back to the raw `${base}` tip would review the
 // base branch's drift since the fork as if this change made it — the exact noise

@@ -1,7 +1,8 @@
 // The Workflow runtime requires `export const meta` to be the FIRST statement
-// and a PURE LITERAL (no variable interpolation), so the model is inlined as
-// 'opus' in each phase below. The single `const MODEL` socket lives just after
-// meta — every other model reference in this script reads it lazily at
+// and a PURE LITERAL (no variable interpolation), so the primary model is
+// inlined as 'opus' in the phase entries below; commit agents within Apply run
+// on mechModel (haiku). The single `const MODEL` socket lives just after meta —
+// every other model reference in this script reads it lazily at
 // input-resolution time, well after meta is evaluated.
 export const meta = {
   name: 'lens-debate',
@@ -50,6 +51,11 @@ const rationale = (a.rationale || '').trim()
 // Model every lens/agent runs on; defaults to MODEL (see top of file). Overridable
 // via args to mirror the file's input pattern and to make a model bump a one-liner.
 const model = a.model || MODEL
+// Mechanical tier (Haiku). The lenses' reviews + the per-finding debate + applying
+// an agreed fix all do real reasoning → `model` (Opus, load-bearing for the
+// lenses). The merge-base resolver and the per-fix committer are pure git → run
+// them on `mechModel`. Defaults match a direct invocation; /be-review passes it.
+const mechModel = a.mechModel || 'haiku'
 // Per-worktree scratch for commit-message files; gitignored so it never shows up
 // in the diff the lenses review, and parallel debates in different worktrees
 // never collide. Only the commit-message files land here.
@@ -80,7 +86,7 @@ if (withPolice) REVIEWERS.push({ lens: 'code-police', framework: 'code quality, 
 const rawBase = base
 const baseRes = await agent(
   `You are a MECHANICAL RUNNER. Run \`git -C ${repoPath} merge-base ${base} HEAD\` and return ONLY the resulting commit SHA (hex) in \`sha\`. If the command FAILS (missing/typoed base, stale ref, unrelated history), return \`sha\`: "" and put the verbatim git error in \`error\` — do NOT fall back to the raw base ref. Do nothing else.`,
-  { label: 'resolve:merge-base', phase: 'Review', model, schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
+  { label: 'resolve:merge-base', phase: 'Review', model: mechModel, schema: { type: 'object', additionalProperties: false, required: ['sha'], properties: { sha: { type: 'string', description: 'the merge-base SHA, or "" on failure' }, error: { type: 'string', description: 'the git error when sha is empty' } } } },
 )
 // Fail loud on a bad base. Falling back to the raw `${base}` tip would make the
 // lenses review the base branch's drift since the fork as if this change made it —
@@ -246,7 +252,7 @@ ${message}
    \`git -C ${repoPath} add -- ${fileArgs} && git -C ${repoPath} commit -F ${msgPath}\`
    Stage ONLY those files. Do NOT use \`git add -A\` or \`git add .\`.
 4. Return the new commit SHA from \`git -C ${repoPath} rev-parse HEAD\`. Do NOT push.`
-  return agent(prompt, { label: `commit:${fix.id}`, phase: 'Apply' })
+  return agent(prompt, { label: `commit:${fix.id}`, phase: 'Apply', model: mechModel })
 }
 
 // ---------------------------------------------------------------------------
