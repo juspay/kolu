@@ -251,36 +251,37 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
   anchor.setAttribute("rel", "noopener noreferrer");
 }
 
-/** Highlight (when a highlighter is supplied) and decorate a fenced code
- *  block: replace the plain `<pre>` with Shiki's themed markup, then wrap it in
- *  a `.kolu-md-code` container carrying a copy button. Shiki's output is
- *  trusted (it escapes the code text into the span tree), so it's injected past
- *  the allowlist via a `<template>` — the `style`/`class` it relies on would
- *  otherwise be stripped. The copy button + wrapper are elements we mint here,
- *  not from the document, so they need no allowlist entry. */
-function enhanceCodeBlock(
+/** The trusted-injection seam: when a highlighter is supplied and returns
+ *  markup, replace the plain `<pre>` in the tree with Shiki's themed `<pre>` and
+ *  return that; otherwise return the original `<pre>` untouched. Shiki's output
+ *  is trusted (it escapes the code text into the span tree), so it's injected
+ *  past the allowlist via a `<template>` — the `style`/`class` it relies on
+ *  would otherwise be stripped. This is the one place class/style survive, so it
+ *  owns nothing else: no wrapping, no buttons, no mutable reassignment leaking
+ *  out — just the chosen element. */
+function highlightInto(
   pre: Element,
   highlight?: (code: string, lang: string) => string | undefined,
-): void {
+): Element {
+  if (!highlight) return pre;
   const code = pre.querySelector(":scope > code");
-  if (!code) return;
-  const text = code.textContent ?? "";
-  const lang = code.getAttribute("data-lang") ?? "";
+  const text = code?.textContent ?? "";
+  const lang = code?.getAttribute("data-lang") ?? "";
+  const html = highlight(text, lang);
+  if (!html) return pre;
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html; // trusted: Shiki output of escaped code text
+  const shikiPre = tpl.content.querySelector("pre");
+  if (!shikiPre) return pre;
+  pre.replaceWith(shikiPre);
+  return shikiPre;
+}
 
-  let block: Element = pre;
-  if (highlight) {
-    const html = highlight(text, lang);
-    if (html) {
-      const tpl = document.createElement("template");
-      tpl.innerHTML = html; // trusted: Shiki output of escaped code text
-      const shikiPre = tpl.content.querySelector("pre");
-      if (shikiPre) {
-        pre.replaceWith(shikiPre);
-        block = shikiPre;
-      }
-    }
-  }
-
+/** Pure DOM decoration, highlight-agnostic: wrap the given code block in a
+ *  `.kolu-md-code` container and append a copy button. The button + wrapper are
+ *  elements we mint here, not from the document, so they need no allowlist
+ *  entry. */
+function wrapWithCopyButton(block: Element): void {
   const wrap = document.createElement("div");
   wrap.className = "kolu-md-code";
   block.replaceWith(wrap);
@@ -292,6 +293,17 @@ function enhanceCodeBlock(
   button.setAttribute("data-md-copy", "");
   button.setAttribute("aria-label", "Copy code");
   wrap.appendChild(button);
+}
+
+/** Highlight (when a highlighter is supplied) and decorate a fenced code
+ *  block: replace the plain `<pre>` with Shiki's themed markup, then wrap it in
+ *  a `.kolu-md-code` container carrying a copy button. */
+function enhanceCodeBlock(
+  pre: Element,
+  highlight?: (code: string, lang: string) => string | undefined,
+): void {
+  if (!pre.querySelector(":scope > code")) return;
+  wrapWithCopyButton(highlightInto(pre, highlight));
 }
 
 /** Sanitize `marked`-produced HTML into DOM-safe markup under the given
