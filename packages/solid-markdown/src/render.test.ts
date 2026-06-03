@@ -26,9 +26,11 @@ describe("safeHref", () => {
 });
 
 describe("renderMarkdownToRawHtml — GFM structure", () => {
-  it("renders headings at their level", () => {
-    expect(html("# Title")).toContain("<h1>Title</h1>");
-    expect(html("## Sub")).toContain("<h2>Sub</h2>");
+  it("renders headings at their level with a stable anchor id", () => {
+    expect(html("# Title")).toContain('<h1 id="title">Title</h1>');
+    expect(html("## Sub Section")).toContain(
+      '<h2 id="sub-section">Sub Section</h2>',
+    );
   });
 
   it("renders emphasis, strong, and strikethrough", () => {
@@ -125,5 +127,35 @@ describe("renderMarkdownToRawHtml — inline variant", () => {
     const out = html("a **b**", true, true);
     expect(out).not.toContain("<p>");
     expect(out).toContain("<strong>b</strong>");
+  });
+});
+
+describe("renderMarkdownToRawHtml — GFM extensions", () => {
+  it("renders footnotes as a superscript ref + a footnotes section", () => {
+    const out = html("text[^1] here\n\n[^1]: the note");
+    expect(out).toContain("<sup>");
+    expect(out).toContain('href="#footnote-1"');
+    expect(out).toContain('<section class="footnotes"');
+    expect(out).toContain("the note");
+    // The literal marker must NOT leak as text.
+    expect(out).not.toContain("[^1]");
+  });
+
+  it("rewrites GitHub alert blockquotes to a data-md-alert attribute", () => {
+    const out = html("> [!WARNING]\n> be careful");
+    expect(out).toContain('data-md-alert="warning"');
+    expect(out).toContain("data-md-alert-title");
+    expect(out).toContain("be careful");
+    // The class-based markup and the literal token must be gone.
+    expect(out).not.toContain('class="markdown-alert');
+    expect(out).not.toContain("[!WARNING]");
+  });
+
+  it("strips a leading YAML front-matter block", () => {
+    const out = html("---\ntitle: Hello\nauthor: Jane\n---\n\n# Real Heading");
+    expect(out).toContain('<h1 id="real-heading">Real Heading</h1>');
+    // The metadata must not render as an hr + Setext heading.
+    expect(out).not.toContain("title: Hello");
+    expect(out).not.toContain("<hr>");
   });
 });

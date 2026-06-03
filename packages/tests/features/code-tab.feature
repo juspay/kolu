@@ -569,6 +569,34 @@ Feature: Code tab (review + browse)
     # The unsafe-scheme anchor is gone; its text remains.
     And the markdown preview should not render a "a[href^=javascript]" element
 
+  # Regression guard for a feature audit's findings: Tailwind v4 preflight
+  # blanking list markers, footnotes + GitHub alerts being unsupported, and
+  # repo-relative images degrading to a chip instead of loading from the
+  # per-terminal file route. The SVG asset gives the relative image something
+  # real to resolve to.
+  Scenario: Markdown preview renders lists, footnotes, alerts, and resolves repo images
+    When I run "rm -rf /tmp/kolu-md-rich && git init /tmp/kolu-md-rich && cd /tmp/kolu-md-rich"
+    And I run "printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"><rect width=\"8\" height=\"8\"/></svg>' > logo.svg"
+    And I run "printf '# Rich Doc\n\n![logo](logo.svg)\n\n- one\n- two\n\n1. a\n2. b\n\nclaim[^x]\n\n[^x]: the footnote\n\n> [!WARNING]\n> heads up\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Rich Doc"
+    # Lists show real markers (Tailwind preflight would otherwise blank them).
+    And the markdown preview list markers should be visible
+    # Footnotes render as a section + superscript ref, not literal [^x] text.
+    And the markdown preview should render a "section" element
+    And the markdown preview should render a "sup a" element
+    And the markdown preview should not contain "[^x]"
+    # The GitHub alert renders with its type carried on a data attribute.
+    And the markdown preview should render a "[data-md-alert=warning]" element
+    # The repo-relative image resolves to the per-terminal file route and is a
+    # real <img>, not a fallback chip.
+    And the markdown preview should render a "img[src*='/api/terminals/']" element
+    And the markdown preview should not render a "span.kolu-md-img-fallback" element
+
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
   # panel keyed off `preferences.rightPanel.codeTabTreeSize`. The handle

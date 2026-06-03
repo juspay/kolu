@@ -48,7 +48,9 @@
 .kolu-md pre,
 .kolu-md table,
 .kolu-md hr,
-.kolu-md details {
+.kolu-md details,
+.kolu-md figure,
+.kolu-md section {
   margin: 0 0 var(--md-gap);
 }
 .kolu-md > :first-child {
@@ -190,9 +192,26 @@
 }
 
 /* ── Lists ───────────────────────────────────────────────────── */
-.kolu-md ul,
+/* Tailwind v4's preflight resets `ul, ol { list-style: none }` app-wide, so
+ * the markers must be re-declared here or every list renders as unmarked
+ * indented lines (the marker is otherwise gone). Nested unordered lists step
+ * disc → circle → square the way GitHub does. */
+.kolu-md ul {
+  padding-left: 1.6em;
+  list-style: disc outside;
+}
 .kolu-md ol {
   padding-left: 1.6em;
+  list-style: decimal outside;
+}
+.kolu-md ul ul {
+  list-style-type: circle;
+}
+.kolu-md ul ul ul {
+  list-style-type: square;
+}
+.kolu-md li::marker {
+  color: var(--md-muted);
 }
 .kolu-md li + li {
   margin-top: 0.25em;
@@ -298,6 +317,99 @@
 }
 .kolu-md [align="left"] {
   text-align: left;
+}
+
+/* ── Definition lists (raw <dl>/<dt>/<dd>) ───────────────────── */
+.kolu-md dt {
+  font-weight: 600;
+}
+.kolu-md dd {
+  margin: 0 0 0.25em 1.5em;
+}
+
+/* ── Figures + table caption ─────────────────────────────────── */
+.kolu-md figure {
+  text-align: center;
+}
+.kolu-md figcaption,
+.kolu-md caption {
+  font-size: 0.85em;
+  color: var(--md-muted);
+  text-align: center;
+}
+.kolu-md figcaption {
+  margin-top: 0.3em;
+}
+.kolu-md caption {
+  caption-side: top;
+  margin-bottom: 0.3em;
+}
+
+/* ── GFM footnotes (marked-footnote) ─────────────────────────── */
+/* The reference superscript links down to a "Footnotes" section at the end.
+ * marked-footnote's `class="sr-only"` on the section heading is stripped by
+ * the allowlist, so it shows as a small label rather than being hidden — fine
+ * for a reading preview. */
+.kolu-md sup a {
+  text-decoration: none;
+  padding: 0 0.1em;
+}
+.kolu-md section {
+  padding-top: 0.5em;
+  border-top: 1px solid var(--md-border);
+  font-size: 0.9em;
+  color: var(--md-muted);
+}
+.kolu-md section h2 {
+  margin: 0 0 0.4em;
+  font-size: 0.95em;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+/* ── GitHub alerts (> [!NOTE] etc.) ──────────────────────────── */
+/* render.ts rewrites marked-alert's `class="markdown-alert markdown-alert-X"`
+ * to a `data-md-alert="X"` attribute (the allowlist drops `class`), and the
+ * injected octicon SVG is stripped — the icon comes from CSS instead. */
+.kolu-md [data-md-alert] {
+  margin: 0 0 var(--md-gap);
+  padding: 0.6em 1em;
+  border-left: 0.25em solid var(--md-alert-color, var(--md-border-strong));
+  border-radius: 4px;
+  background: color-mix(
+    in oklch,
+    var(--md-alert-color, currentColor) 8%,
+    transparent
+  );
+}
+.kolu-md [data-md-alert] > :first-child {
+  margin-top: 0;
+}
+.kolu-md [data-md-alert] > :last-child {
+  margin-bottom: 0;
+}
+/* The colored left border + colored bold title carry the alert type — no
+ * icon glyph, which keeps it robust across platforms (emoji fonts vary) and
+ * needs no SVG (the octicon the extension injects is stripped anyway). */
+.kolu-md [data-md-alert-title] {
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--md-alert-color);
+}
+.kolu-md [data-md-alert="note"] {
+  --md-alert-color: #539bf5;
+}
+.kolu-md [data-md-alert="tip"] {
+  --md-alert-color: #57ab5a;
+}
+.kolu-md [data-md-alert="important"] {
+  --md-alert-color: #986ee2;
+}
+.kolu-md [data-md-alert="warning"] {
+  --md-alert-color: #c69026;
+}
+.kolu-md [data-md-alert="caution"] {
+  --md-alert-color: #e5534b;
 }
 
 /* ── Compact scale (chat / dock intent body) ─────────────────── */

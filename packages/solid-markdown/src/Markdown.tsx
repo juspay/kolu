@@ -22,22 +22,36 @@ import { sanitizeHtml } from "./sanitize";
 
 export type MarkdownVariant = "inline" | "compact" | "document";
 
-/** Swallow a click/pointerdown that lands on a link, so a nested anchor in a
- *  clickable host slot (dock card, switcher card, intent body) doesn't also
- *  fire that slot's handler. Bound imperatively rather than via a JSX
- *  `onClick` because it's a propagation guard, not a primary interaction — it
- *  needs no keyboard affordance and would otherwise be a static-element
- *  interaction the a11y lint (rightly) rejects. */
+/** Handle clicks on links inside the rendered Markdown. Bound imperatively
+ *  rather than via a JSX `onClick` because it's a propagation guard, not a
+ *  primary interaction — it needs no keyboard affordance and would otherwise
+ *  be a static-element interaction the a11y lint (rightly) rejects.
+ *
+ *  Two jobs:
+ *    - swallow the bubble so a nested anchor in a clickable host slot (dock
+ *      card, switcher card, intent body) doesn't also fire that slot's handler;
+ *    - resolve an in-page anchor (TOC jump, footnote ref/back-ref — namespaced
+ *      `#md-…` by the sanitizer) by scrolling to the target *within* the
+ *      preview, without navigating or writing to the app's URL hash. */
 function guardAnchorClicks(el: HTMLElement): void {
-  const swallow = (e: Event) => {
-    const target = e.target as Element | null;
-    if (target?.closest?.("a")) e.stopPropagation();
+  const handle = (e: Event) => {
+    const anchor = (e.target as Element | null)?.closest?.("a");
+    if (!anchor) return;
+    e.stopPropagation();
+    if (e.type !== "click") return;
+    const href = anchor.getAttribute("href");
+    if (!href || !href.startsWith("#") || href.length < 2) return;
+    const target = el.querySelector(`#${CSS.escape(href.slice(1))}`);
+    if (target) {
+      e.preventDefault();
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   };
-  el.addEventListener("click", swallow);
-  el.addEventListener("pointerdown", swallow);
+  el.addEventListener("click", handle);
+  el.addEventListener("pointerdown", handle);
   onCleanup(() => {
-    el.removeEventListener("click", swallow);
-    el.removeEventListener("pointerdown", swallow);
+    el.removeEventListener("click", handle);
+    el.removeEventListener("pointerdown", handle);
   });
 }
 
@@ -45,6 +59,10 @@ export const Markdown: Component<{
   markdown: string;
   variant?: MarkdownVariant;
   links?: boolean;
+  /** Resolve a repo-relative image `src` to a loadable URL (see
+   *  `SanitizeOptions.resolveImageSrc`). Only consulted for the document
+   *  variant, which is the one that renders images. */
+  resolveImageSrc?: (src: string) => string | undefined;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   // Links default on for block variants, off for inline — an inline slot's own
@@ -62,7 +80,11 @@ export const Markdown: Component<{
         links: links(),
         inline: variant() === "inline",
       }),
-      { links: links(), richHtml: richHtml() },
+      {
+        links: links(),
+        richHtml: richHtml(),
+        resolveImageSrc: props.resolveImageSrc,
+      },
     ),
   );
 

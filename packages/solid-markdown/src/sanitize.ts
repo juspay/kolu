@@ -40,6 +40,12 @@ export type SanitizeOptions = {
    *  inline intent slots, which are clickable UI rows, not documents — there a
    *  user/agent string must not inject block HTML or images. */
   richHtml: boolean;
+  /** Resolve a non-absolute image `src` (a repo-relative README image like
+   *  `./docs/logo.png`) to a URL the browser can actually load — e.g. the
+   *  host's per-repo file route. Returns `undefined` when the src can't be
+   *  resolved, in which case the image degrades to a labelled chip. App-
+   *  agnostic: the host supplies the mapping; the package just applies it. */
+  resolveImageSrc?: (src: string) => string | undefined;
 };
 
 // The README inline-HTML subset, plus the tags `marked` emits for GFM. No
@@ -91,6 +97,17 @@ const DOCUMENT_TAGS = [
   "details",
   "summary",
   "input",
+  // Definition lists, figures, table caption/colgroup (raw-HTML in READMEs),
+  // and the footnotes/alert containers the marked extensions emit.
+  "dl",
+  "dt",
+  "dd",
+  "figure",
+  "figcaption",
+  "caption",
+  "colgroup",
+  "col",
+  "section",
 ];
 
 // Intent slots: just the inline text marks markdown produces — no images, no
@@ -139,6 +156,23 @@ const DOCUMENT_ATTR = [
   "align",
   "type",
   "checked",
+  // Inert structural/state attributes (no script surface): list numbering,
+  // image dimensions, table cell spans, disclosure state, lazy loading.
+  "start",
+  "width",
+  "height",
+  "colspan",
+  "rowspan",
+  "open",
+  "loading",
+  // `id` is kept so heading anchors + footnote refs have landing targets, but
+  // every id is namespaced (md- prefix) post-sanitize so an untrusted README
+  // can't collide with an app id (see sanitizeHtml).
+  "id",
+  // The alert type + title marker the renderer rewrites marked-alert's class
+  // markup into (class itself stays forbidden).
+  "data-md-alert",
+  "data-md-alert-title",
 ];
 const INTENT_ATTR = ["href", "title"];
 
@@ -165,11 +199,16 @@ function configFor(opts: SanitizeOptions) {
   };
 }
 
-/** Only an absolute http(s) src can load in this context; a repo-relative
- *  README image (`./docs/logo.png`) has no server to resolve against here. */
+/** An image that loads directly as written — an absolute http(s) URL or an
+ *  inline data:image URI. A repo-relative README src (`./docs/logo.png`) is
+ *  NOT loadable as-is; it goes through the host's `resolveImageSrc` first. */
 function isLoadableImage(src: string): boolean {
-  return /^https?:\/\//i.test(src.trim());
+  return /^(?:https?:\/\/|data:image\/)/i.test(src.trim());
 }
+
+/** Prefix for every id/hash-href the sanitizer keeps, so an untrusted
+ *  document's anchors stay self-consistent but can't collide with app ids. */
+const ID_NS = "md-";
 
 /** Trailing path segment, used to label a fallback chip whose image had no
  *  alt text so it still says something useful. */
@@ -191,10 +230,15 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
     return;
   }
   const href = anchor.getAttribute("href");
-  if (!href || safeHref(href) === undefined) {
+  const safe = href ? safeHref(href) : undefined;
+  if (safe === undefined) {
     anchor.replaceWith(...Array.from(anchor.childNodes));
     return;
   }
+  // In-page anchors (TOC jumps, footnote refs/back-refs) must stay in the
+  // document — a new tab to `#frag` would just blank-load the app shell. The
+  // component intercepts the click to scroll within the preview.
+  if (safe.startsWith("#")) return;
   anchor.setAttribute("target", "_blank");
   anchor.setAttribute("rel", "noopener noreferrer");
 }
@@ -227,16 +271,38 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
     }
   }
 
-  // Replace un-loadable images (markdown- or inline-HTML-sourced alike) with a
-  // labelled chip rather than a broken-image icon.
+  // Resolve images (markdown- or inline-HTML-sourced alike): absolute http(s)/
+  // data URIs load as written; a repo-relative src is handed to the host's
+  // resolver (→ the per-repo file route); anything still un-loadable degrades
+  // to a labelled chip rather than a broken-image icon.
   for (const img of root.querySelectorAll("img")) {
     const src = img.getAttribute("src") ?? "";
     if (isLoadableImage(src)) continue;
+    const resolved = opts.resolveImageSrc?.(src);
+    if (resolved !== undefined) {
+      img.setAttribute("src", resolved);
+      img.setAttribute("loading", "lazy");
+      continue;
+    }
     const chip = document.createElement("span");
     chip.className = "kolu-md-img-fallback";
     chip.title = src;
     chip.textContent = img.getAttribute("alt") || basename(src);
     img.replaceWith(chip);
+  }
+
+  // Namespace every id and the in-page hrefs that target them, so a document's
+  // heading/footnote anchors resolve among themselves without colliding with
+  // the app's ids.
+  for (const el of root.querySelectorAll("[id]")) {
+    const id = el.getAttribute("id");
+    if (id) el.setAttribute("id", `${ID_NS}${id}`);
+  }
+  for (const anchor of root.querySelectorAll('a[href^="#"]')) {
+    const href = anchor.getAttribute("href");
+    if (href && href.length > 1) {
+      anchor.setAttribute("href", `#${ID_NS}${href.slice(1)}`);
+    }
   }
 
   return root.innerHTML;

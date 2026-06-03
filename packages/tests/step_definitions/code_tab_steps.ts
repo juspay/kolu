@@ -766,6 +766,45 @@ Then(
   },
 );
 
+// Tailwind v4's preflight resets `list-style: none` app-wide, so the rendered
+// preview must re-declare list markers or every list renders unmarked. Assert
+// the computed marker is actually disc/decimal, not the reset `none` — a plain
+// "renders a ul" check would pass even with the bug.
+Then(
+  "the markdown preview list markers should be visible",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      () => {
+        const root = '[data-testid="browse-preview-markdown"]';
+        const ul = document.querySelector(`${root} ul:not(:has(input))`);
+        const ol = document.querySelector(`${root} ol`);
+        if (!ul || !ol) return false;
+        return (
+          getComputedStyle(ul).listStyleType === "disc" &&
+          getComputedStyle(ol).listStyleType === "decimal"
+        );
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the markdown preview should not contain {string}",
+  async function (this: KoluWorld, unexpected: string) {
+    const md = this.page.locator('[data-testid="browse-preview-markdown"]');
+    // The preview is already visible at this point (asserted earlier in the
+    // scenario), so a single read is enough to confirm the text is absent.
+    const text = (await md.textContent({ timeout: POLL_TIMEOUT })) ?? "";
+    if (text.includes(unexpected)) {
+      throw new Error(
+        `markdown preview unexpectedly contained "${unexpected}"`,
+      );
+    }
+  },
+);
+
 // ── Right-panel tab switching + filter input ──
 
 When(

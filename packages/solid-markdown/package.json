@@ -23,6 +23,9 @@
     "@kolu/html-escape": "workspace:*",
     "dompurify": "^3.2.4",
     "marked": "^18.0.2",
+    "marked-alert": "^2.1.2",
+    "marked-footnote": "^1.2.4",
+    "marked-gfm-heading-id": "^4.1.1",
     "solid-js": "^1.9.0"
   }
 }

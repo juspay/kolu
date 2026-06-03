@@ -35,6 +35,7 @@ import { toast } from "solid-sonner";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
+import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 
 export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
@@ -120,6 +121,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         <MarkdownRenderer
           markdown={file.source?.content ?? ""}
           truncated={file.source?.truncated ?? false}
+          resolveImageSrc={(src) =>
+            resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
+          }
         />
       ),
     },

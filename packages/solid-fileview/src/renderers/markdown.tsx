@@ -19,6 +19,10 @@ export type MarkdownRendererProps = {
   truncated?: boolean;
   /** Extra classes for the scroll container — e.g. a host backdrop. */
   class?: string;
+  /** Resolve a repo-relative image `src` to a loadable URL (see
+   *  `@kolu/solid-markdown`'s `resolveImageSrc`). The host wires this to its
+   *  file-serving route so README images render instead of falling back. */
+  resolveImageSrc?: (src: string) => string | undefined;
 };
 
 export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
@@ -32,7 +36,11 @@ export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
       </div>
     </Show>
     <div class="mx-auto max-w-3xl p-6 text-fg sm:p-8">
-      <Markdown markdown={props.markdown} variant="document" />
+      <Markdown
+        markdown={props.markdown}
+        variant="document"
+        resolveImageSrc={props.resolveImageSrc}
+      />
     </div>
   </div>
 );

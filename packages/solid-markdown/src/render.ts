@@ -19,6 +19,9 @@
 
 import { escapeHtml } from "@kolu/html-escape";
 import { Marked } from "marked";
+import markedAlert from "marked-alert";
+import markedFootnote from "marked-footnote";
+import { gfmHeadingId } from "marked-gfm-heading-id";
 
 export type RenderOptions = {
   /** Render links as real anchors (true) or inert text (false). Off for slots
@@ -70,7 +73,38 @@ function buildMarked(links: boolean): Marked {
       },
     },
   });
+  // GitHub-Flavored extensions the base parser dropped: stable heading ids (so
+  // in-page anchors + footnote back-refs have landing targets), footnotes, and
+  // `> [!NOTE]`-style alerts. The plugins reset their slug/counter state per
+  // parse, so the cached instance is safe to reuse across documents.
+  inst.use(gfmHeadingId());
+  inst.use(markedFootnote());
+  inst.use(markedAlert());
   return inst;
+}
+
+/** Strip a leading YAML front-matter block (`---` … `---`) so document
+ *  metadata doesn't render as a spurious top-of-page `<hr>` + Setext heading.
+ *  Only matches a block at the very start of the document. */
+function stripFrontMatter(markdown: string): string {
+  return markdown.replace(
+    /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/,
+    "",
+  );
+}
+
+/** Rewrite `marked-alert`'s class-based markup into an allowlist-safe
+ *  `data-md-alert` attribute. The sanitizer drops `class` outright (an
+ *  untrusted README must not apply app classes) and strips the injected
+ *  octicon SVG, so the alert type is carried on a data attribute the allowlist
+ *  permits and the icon comes from CSS instead. */
+function rewriteAlerts(html: string): string {
+  return html
+    .replace(
+      /<div class="markdown-alert markdown-alert-(\w+)"\s*>/g,
+      '<div data-md-alert="$1">',
+    )
+    .replace(/<p class="markdown-alert-title"\s*>/g, "<p data-md-alert-title>");
 }
 
 // Link policy is the only axis that varies the parser, so cache one configured
@@ -94,7 +128,8 @@ export function renderMarkdownToRawHtml(
   const inst = instance(opts.links);
   // Our config is fully synchronous (no async extensions), so both calls
   // return a string; the union with Promise only arises under `{ async: true }`.
-  return opts.inline
-    ? (inst.parseInline(markdown) as string)
-    : (inst.parse(markdown) as string);
+  if (opts.inline) return inst.parseInline(markdown) as string;
+  // Block parse: strip front-matter first, then normalize alert markup. Both
+  // are document-level concerns that never apply to the inline slot.
+  return rewriteAlerts(inst.parse(stripFrontMatter(markdown)) as string);
 }

@@ -17,18 +17,18 @@
 
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { encodePreviewPath } from "kolu-common/preview";
+import { buildTerminalFileUrl } from "kolu-common/preview";
 import { assertRealpathUnder, resolveUnder } from "kolu-git";
 
-/** Base URL for the iframe-preview file route. Used by both
- *  `buildIframePreviewUrl` (server emits URLs in this shape) and the Hono
- *  route registration in `index.ts` (matches incoming requests against the
- *  same shape). One constant → renames touch one place. */
-export const TERMINAL_FILE_ROUTE_BASE = "/api/terminals";
-
-/** Path suffix relative to `TERMINAL_FILE_ROUTE_BASE` for per-terminal file
- *  serving. Concatenated as `${BASE}/${terminalId}/file/${path}`. */
-export const TERMINAL_FILE_ROUTE_FILE_SEGMENT = "file";
+// The route-shape contract (`TERMINAL_FILE_ROUTE_BASE`,
+// `TERMINAL_FILE_ROUTE_FILE_SEGMENT`, `buildTerminalFileUrl`) lives in
+// `kolu-common/preview` so the client can build the same URLs (it resolves
+// repo-relative Markdown image srcs). Re-exported here so the Hono route
+// registration in `index.ts` keeps importing them from this module.
+export {
+  TERMINAL_FILE_ROUTE_BASE,
+  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
+} from "kolu-common/preview";
 
 /** Canonical URL shape for the iframe-served file route, used in
  *  `FsReadFileOutput.kind === "binary"` and matched by the Hono route in
@@ -39,8 +39,7 @@ export function buildIframePreviewUrl(
   filePath: string,
   mtimeMs: number,
 ): string {
-  const encodedPath = encodePreviewPath(filePath);
-  return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodedPath}?v=${Math.floor(mtimeMs)}`;
+  return `${buildTerminalFileUrl(terminalId, filePath)}?v=${Math.floor(mtimeMs)}`;
 }
 
 /** Content-Type per extension for files served by this route. Every
