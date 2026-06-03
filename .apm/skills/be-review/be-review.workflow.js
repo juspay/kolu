@@ -651,10 +651,12 @@ function hasRichContent(slug, data) {
   return false
 }
 
-// Author a rich comment body for one slug from its structured result. Returns the
-// deterministic `baseline` on empty/failed output so Report never posts a blank
-// comment. `baseline` carries the canonical top-level header (the agent is told to
-// keep it), so PR anchors stay stable whether the body is agent- or builder-authored.
+// Author a rich comment body for one slug from its structured result. This is the
+// SOLE enforcement site for the 'never blank' contract: it never rejects and never
+// returns blank — a thrown agent error AND an empty/short body both fall back to the
+// deterministic `baseline` (both mean 'authoring didn't yield a usable body').
+// `baseline` carries the canonical top-level header (the agent is told to keep it),
+// so PR anchors stay stable whether the body is agent- or builder-authored.
 async function reporterBody(slug, data, baseline, guidance) {
   const prompt = `You are the **${slug} reporter** for a /be-review run. Author ONE genuinely detailed, well-organized GitHub PR comment from the structured result below — narrative + tables + reasoning, not a terse row count.
 
@@ -675,40 +677,41 @@ HARD RULES:
 - Stay under 60 KB; if the data is large, prioritize the most significant findings and note how many you summarized.
 - Do NOT invent facts not in the structured result — synthesize only from the data given; you need not read the repo.
 Return the markdown body as your final message.`
-  const out = await agent(prompt, { label: `report:${slug}`, phase: 'Report', model })
-  const body = stripFences(out)
-  // The prompt asks for these, but prompt instructions aren't enforcement — VALIDATE
-  // the returned body and fall back to the deterministic baseline (with a log line)
-  // when it fails, so a misbehaving reporter can't break the stable PR anchor or
-  // overshoot GitHub's comment limit. Checks: (1) non-trivial length; (2) the
-  // baseline's exact first header line is present, so the anchor the deterministic
-  // builder owns is preserved; (3) under GitHub's 65 536-char body cap (60 KB budget
-  // with headroom). stripFences already removed any whole-body ``` wrapper.
-  const header = String(baseline).split('\n')[0]
-  const bad =
-    !body ||
-    body.length <= 40 ||
-    (header.trim() && !body.includes(header.trim())) ||
-    body.length > 60000
-  if (bad) {
-    log(`Report: ${slug} reporter output rejected (len=${body.length}, header=${body.includes(header.trim())}) — falling back to deterministic baseline.`)
+  // SOLE enforcement of the 'never blank' contract: a thrown agent error AND an
+  // invalid body both fall back to the deterministic `baseline`, so this function
+  // never rejects and never returns blank (lens lowy-2). The prompt asks for the
+  // body's shape, but prompt instructions aren't enforcement — VALIDATE the returned
+  // body (codex F2): (1) non-trivial length; (2) the baseline's exact first header
+  // line is present, so the anchor the deterministic builder owns is preserved;
+  // (3) under GitHub's 65 536-char body cap (60 KB budget with headroom). stripFences
+  // already removed any whole-body ``` wrapper.
+  try {
+    const out = await agent(prompt, { label: `report:${slug}`, phase: 'Report', model })
+    const body = stripFences(out)
+    const header = String(baseline).split('\n')[0]
+    const bad =
+      !body ||
+      body.length <= 40 ||
+      (header.trim() && !body.includes(header.trim())) ||
+      body.length > 60000
+    if (bad) {
+      log(`Report: ${slug} reporter output rejected (len=${body.length}, header=${body.includes(header.trim())}) — falling back to deterministic baseline.`)
+      return baseline
+    }
+    return body
+  } catch {
     return baseline
   }
-  return body
 }
 
 // Author one comment body, owning the WHOLE generator choice behind a single
 // socket: deterministic baseline for an off/trivial track, else the rich reporter
-// agent. The try/catch guards only a THROWN agent error — `reporterBody` already
-// folds the empty/short-output fallback to `baseline` — so the Report loop never
-// reaches past this receptacle to wire the strategies together itself.
+// agent. `reporterBody` owns the complete fallback (it never rejects and never
+// returns blank — a throw or an empty/short body both yield `baseline`), so the
+// Report loop never reaches past this receptacle to wire the strategies together itself.
 async function authorBody(slug, data, baseline, guidance) {
   if (!richComment || !hasRichContent(slug, data)) return baseline
-  try {
-    return await reporterBody(slug, data, baseline, guidance)
-  } catch {
-    return baseline
-  }
+  return reporterBody(slug, data, baseline, guidance)
 }
 
 // Post one comment via a mechanical agent. Resolves the PR from the branch in the
