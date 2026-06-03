@@ -1,7 +1,8 @@
 // The Workflow runtime requires `export const meta` to be the FIRST statement
-// and a PURE LITERAL (no interpolation), so 'opus' is inlined per phase. The
-// single MODEL socket lives just after meta; every other model reference reads
-// it lazily, well after meta is evaluated.
+// and a PURE LITERAL (no interpolation). meta.phases no longer assert a phase
+// model: each phase now spans mixed tiers, so the authoritative model is the
+// per-agent `model:` carried by each spawned agent. The MODEL socket lives just
+// after meta; every other model reference reads it lazily, after meta evaluates.
 export const meta = {
   name: "be-review",
   description:
@@ -11,30 +12,25 @@ export const meta = {
       title: "Setup",
       detail:
         "fan out one detached worktree per review track off the branch HEAD",
-      model: "opus",
     },
     {
       title: "Tracks",
       detail:
         "codex, lens, and police gauntlets each run to consensus, concurrently and isolated",
-      model: "opus",
     },
     {
       title: "Consolidate",
       detail:
         "cherry-pick each track’s commits onto the branch in order; reconcile the rare overlap",
-      model: "opus",
     },
     {
       title: "Report",
       detail:
         "post a detailed PR comment for each track plus the consolidation ledger",
-      model: "opus",
     },
     {
       title: "Cleanup",
       detail: "tear down the per-track worktrees",
-      model: "opus",
     },
   ],
 };
