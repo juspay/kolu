@@ -19,7 +19,6 @@ import {
   isImmutableAssetPath,
   SHELL_CACHE_CONTROL,
 } from "./cacheControl.ts";
-import { cacheDiagnostics } from "./cacheDiagnostics.ts";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import {
@@ -101,12 +100,6 @@ app.use(
     },
   }),
 );
-
-// --- Cache diagnostics (stale-client investigation) ---
-// Logs shell navigations + asset misses at INFO so a deployed build reveals
-// exactly what a browser does on a normal (cmd+R) vs hard (cmd+Shift+R) reload.
-// See cacheDiagnostics.ts; remove once the cache behavior is confirmed fixed.
-app.use("/*", cacheDiagnostics);
 
 // --- oRPC plugins ---
 const rpcPlugins = [

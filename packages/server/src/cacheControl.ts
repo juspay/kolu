@@ -54,10 +54,3 @@ export function getCacheControlHeader(path: string): string | null {
 export function isImmutableAssetPath(path: string): boolean {
   return path.startsWith(ASSET_PREFIX);
 }
-
-/** True for the SPA shell (`/`, `/index.html`) — the `no-store` class. Shares
- *  `NO_STORE_PATHS` with `getCacheControlHeader` so the shell path set the cache
- *  policy acts on and any observer of it can't drift. */
-export function isShellPath(path: string): boolean {
-  return NO_STORE_PATHS.has(path);
-}
