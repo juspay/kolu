@@ -12,7 +12,6 @@
 import { ORPCError } from "@orpc/server";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
-import { TerminalNotFoundError } from "kolu-common/errors";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
@@ -45,7 +44,8 @@ import {
 /** Get terminal or throw — shared by all per-terminal handlers. */
 function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
-  if (!entry) throw new TerminalNotFoundError(id);
+  if (!entry)
+    throw new ORPCError("NOT_FOUND", { message: `Terminal ${id} not found` });
   return entry;
 }
 
@@ -187,7 +187,10 @@ export const appRouter = t.router({
 
     kill: t.terminal.kill.handler(async ({ input }) => {
       const info = await killTerminal(input.id);
-      if (!info) throw new TerminalNotFoundError(input.id);
+      if (!info)
+        throw new ORPCError("NOT_FOUND", {
+          message: `Terminal ${input.id} not found`,
+        });
       return info;
     }),
 

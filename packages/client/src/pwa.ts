@@ -25,7 +25,8 @@
 
 import { createSignal } from "solid-js";
 import { registerSW } from "virtual:pwa-register";
-import { lifecycle } from "./rpc/rpc";
+import { lifecycle, serverInfo } from "./rpc/rpc";
+import { clientIsStale } from "./ui/commitRef";
 
 /** Hourly backstop poll. The fast path is `checkForUpdate()` on server restart
  *  (wired in `App.tsx`): a Kolu deploy restarts the server, the WebSocket
@@ -33,16 +34,25 @@ import { lifecycle } from "./rpc/rpc";
  *  This interval only matters for a tab left open with no reconnect. */
 const UPDATE_POLL_MS = 60 * 60 * 1000;
 
-/** Whether a service worker can register at all. This is exactly the gate
- *  `registerSW` itself checks (`"serviceWorker" in navigator`), which is only
- *  ever true in a secure context — so it's also `false` on plain HTTP (LAN
- *  mode). It is the single source of truth for "is the SW update path live?":
- *  when `false`, no SW callback ever fires, so `swUpdateReady()` stays `false`
- *  forever and the returned `updateServiceWorker` is an inert no-op. Callers
- *  branch on this, NOT on the truthiness of `updateServiceWorker` (which
+/** Whether the service-worker update path should run. Beyond `registerSW`'s own
+ *  `"serviceWorker" in navigator` check (true in any secure context), we ALSO
+ *  require an HTTPS origin — deliberately excluding `http://localhost`, which is
+ *  a secure context where a SW *would* register. Rationale: a SW only earns its
+ *  keep on real HTTPS deploys (the race-free reload of #1125); on
+ *  `http://localhost` it just adds a precache that can serve stale assets — the
+ *  exact failure this area keeps hitting. Production bare-hostname HTTP (e.g.
+ *  `http://host:7692`) is already excluded by the secure-context rule. So the SW
+ *  runs on HTTPS only; everywhere else falls to the no-SW path (durable
+ *  stale-commit + restart prompt, plain `location.reload()` onto the `no-store`
+ *  shell). When `false`, no SW callback ever fires, `swUpdateReady()` stays
+ *  `false`, and the returned `updateServiceWorker` is an inert no-op — callers
+ *  branch on THIS, not on the truthiness of `updateServiceWorker` (which
  *  `registerSW` returns even with no SW present). */
 const serviceWorkerSupported =
-  typeof navigator !== "undefined" && "serviceWorker" in navigator;
+  typeof navigator !== "undefined" &&
+  "serviceWorker" in navigator &&
+  typeof location !== "undefined" &&
+  location.protocol === "https:";
 
 /** True once a freshly-built service worker is installed and waiting — i.e. a
  *  new client build is ready and `reloadForUpdate()` will land on it. Only ever
@@ -58,13 +68,21 @@ const [swUpdateReady, setSwUpdateReady] = createSignal(false);
  *  - With a SW: the accurate "installed-and-waiting" signal. A server restart
  *    that ships *unchanged* assets does not nag a reload, and clicking Reload is
  *    race-free (activates the waiting worker, reloads on `controllerchange`).
- *  - Without a SW (HTTP/LAN): no SW callback can fire, so fall back to the old
- *    heuristic — a server restart (new process id) likely means a deploy with
- *    new assets, so offer a plain reload. */
+ *  - Without a SW (any non-HTTPS origin — plain HTTP, LAN, a bare-hostname
+ *    deploy, or `http://localhost`; see `serviceWorkerSupported`): no SW callback
+ *    can ever fire, so derive the prompt from two signals. `restarted` catches a
+ *    deploy live — but it is transient, so a backgrounded tab that missed the
+ *    reconnect never sees it. `clientIsStale` is the durable backstop: whenever
+ *    the running bundle's baked-in commit provably differs from the server's, the
+ *    tab is out of date no matter when it connected. `reloadForUpdate()` is a
+ *    plain `location.reload()` here, and the server serves `index.html`
+ *    `no-store`, so the reload always lands on the fresh bundle. */
 export function updateReady(): boolean {
-  return serviceWorkerSupported
-    ? swUpdateReady()
-    : lifecycle().kind === "restarted";
+  if (serviceWorkerSupported) return swUpdateReady();
+  return (
+    lifecycle().kind === "restarted" ||
+    clientIsStale(serverInfo()?.commit, __KOLU_COMMIT__)
+  );
 }
 
 /** Activates the waiting worker and reloads onto it; `registerSW`'s return.

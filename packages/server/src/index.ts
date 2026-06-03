@@ -13,7 +13,8 @@ import { DEFAULT_PORT } from "kolu-common/config";
 import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
-import { getCacheControlHeader } from "./cacheControl.ts";
+import { getCacheControlHeader, isImmutableAssetPath } from "./cacheControl.ts";
+import { cacheDiagnostics } from "./cacheDiagnostics.ts";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import {
@@ -95,6 +96,12 @@ app.use(
     },
   }),
 );
+
+// --- Cache diagnostics (stale-client investigation) ---
+// Logs shell navigations + asset misses at INFO so a deployed build reveals
+// exactly what a browser does on a normal (cmd+R) vs hard (cmd+Shift+R) reload.
+// See cacheDiagnostics.ts; remove once the cache behavior is confirmed fixed.
+app.use("/*", cacheDiagnostics);
 
 // --- oRPC plugins ---
 const rpcPlugins = [
@@ -243,7 +250,24 @@ if (clientDist) {
     return next();
   });
   app.use("/*", serveStatic({ root }));
-  app.get("/*", serveStatic({ root, path: "index.html" }));
+  // SPA fallback. A `/assets/*` request reaching here MISSED a real file — a
+  // stale/bogus content hash — so 404 it rather than serve the HTML shell:
+  // index.html under a `.js` URL is the wrong MIME and would be cached
+  // `immutable` for a year (see isImmutableAssetPath), poisoning the next load.
+  // Any other unmatched path is a client-side route → serve the shell, forced
+  // `no-store` (like `/`) so a normal reload can never replay a stale shell.
+  app.get(
+    "/*",
+    async (c, next) => {
+      if (isImmutableAssetPath(c.req.path)) {
+        c.header("Cache-Control", "no-store");
+        return c.notFound();
+      }
+      c.header("Cache-Control", "no-store");
+      return next();
+    },
+    serveStatic({ root, path: "index.html" }),
+  );
 }
 
 // --- TLS setup ---

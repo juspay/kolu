@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   options: undefined as RegisterSWOptions | undefined,
   updateSW: undefined as ReturnType<typeof vi.fn> | undefined,
   lifecycleKind: "connected" as ServerLifecycleEvent["kind"],
+  serverInfo: undefined as { commit?: string } | undefined,
 }));
 vi.mock("virtual:pwa-register", () => ({
   registerSW: (opts: RegisterSWOptions) => {
@@ -27,6 +28,7 @@ vi.mock("virtual:pwa-register", () => ({
  *  — driven by `h.lifecycleKind` so tests can simulate a server restart. */
 vi.mock("./rpc/rpc", () => ({
   lifecycle: () => ({ kind: h.lifecycleKind }),
+  serverInfo: () => h.serverInfo,
 }));
 
 /** pwa.ts holds module-level signal + registration state, and reads
@@ -46,6 +48,9 @@ const fakeReg = () =>
  *  by default; stub one in to simulate a secure context. */
 function withServiceWorker() {
   vi.stubGlobal("navigator", { serviceWorker: {}, onLine: true });
+  // `serviceWorkerSupported` now also requires an HTTPS origin (see pwa.ts), so
+  // an https `location` is part of simulating a secure context.
+  vi.stubGlobal("location", { protocol: "https:", reload: vi.fn() });
 }
 
 beforeEach(() => {
@@ -54,6 +59,9 @@ beforeEach(() => {
   h.options = undefined;
   h.updateSW = undefined;
   h.lifecycleKind = "connected";
+  h.serverInfo = undefined;
+  // pwa.ts reads `__KOLU_COMMIT__` (a build-time define) on the no-SW path.
+  vi.stubGlobal("__KOLU_COMMIT__", "clientsha");
 });
 
 afterEach(() => {
@@ -146,6 +154,36 @@ describe("pwa service-worker update wiring", () => {
       expect(updateReady()).toBe(false);
       h.lifecycleKind = "restarted";
       expect(updateReady()).toBe(true);
+    });
+
+    it("surfaces the reload prompt when the client commit provably differs from the server's", async () => {
+      // The durable backstop: a backgrounded tab that missed the restart event
+      // still learns it's stale from the commit mismatch (the same signal the
+      // `≠ srv` badge uses). reloadForUpdate() -> location.reload() lands fresh
+      // because the server serves index.html `no-store`.
+      vi.stubGlobal("__KOLU_COMMIT__", "617b80d");
+      h.serverInfo = { commit: "d5aed3c" };
+      const { initPwa, updateReady } = await loadPwa();
+      initPwa();
+      expect(updateReady()).toBe(true);
+    });
+
+    it("does not prompt when the client and server commits match", async () => {
+      vi.stubGlobal("__KOLU_COMMIT__", "d5aed3c");
+      h.serverInfo = { commit: "d5aed3c" };
+      const { initPwa, updateReady } = await loadPwa();
+      initPwa();
+      expect(updateReady()).toBe(false);
+    });
+
+    it("does not prompt on a dev/dirty build even when the strings differ", async () => {
+      // clientIsStale only fires on two CLEAN refs, so a dev build can't
+      // false-positive into a perpetual reload nag.
+      vi.stubGlobal("__KOLU_COMMIT__", "dev");
+      h.serverInfo = { commit: "d5aed3c" };
+      const { initPwa, updateReady } = await loadPwa();
+      initPwa();
+      expect(updateReady()).toBe(false);
     });
   });
 });

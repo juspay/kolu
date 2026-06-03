@@ -9,7 +9,6 @@
     "./surface": "./src/surface.ts",
     "./terminalBackend": "./src/terminalBackend.ts",
     "./contract": "./src/contract.ts",
-    "./errors": "./src/errors.ts",
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",
     "./terminalKey": "./src/terminalKey.ts",
