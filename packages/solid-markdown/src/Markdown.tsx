@@ -138,7 +138,6 @@ export const Markdown: Component<{
   const html = createMemo(() =>
     sanitizeHtml(
       renderMarkdownToRawHtml(props.markdown, {
-        links: links(),
         inline: variant() === "inline",
         // GitHub folds a single newline to a space; chat/dock want it as a
         // break. Document → faithful (false); compact/inline → break (true).

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { renderMarkdownToRawHtml } from "./render";
 import { safeHref } from "./url-policy";
 
-const html = (md: string, links = true, inline = false) =>
-  renderMarkdownToRawHtml(md, { links, inline });
+const html = (md: string, inline = false) =>
+  renderMarkdownToRawHtml(md, { inline });
 
 describe("safeHref", () => {
   it("allows http(s), mailto, and in-page anchors", () => {
@@ -65,35 +65,6 @@ describe("renderMarkdownToRawHtml — GFM structure", () => {
   });
 });
 
-describe("renderMarkdownToRawHtml — links", () => {
-  it("renders safe links as anchors with rel/target", () => {
-    const out = html("[site](https://example.com)");
-    expect(out).toContain('href="https://example.com"');
-    expect(out).toContain('target="_blank"');
-    expect(out).toContain('rel="noopener noreferrer"');
-    expect(out).toContain(">site</a>");
-  });
-
-  it("autolinks bare URLs (GFM)", () => {
-    expect(html("see https://example.com now")).toContain(
-      'href="https://example.com"',
-    );
-  });
-
-  it("renders a javascript: link as inert text, never an anchor", () => {
-    const out = html("[click](javascript:alert(1))");
-    expect(out).not.toContain("<a ");
-    expect(out).not.toContain("javascript:");
-    expect(out).toContain("click");
-  });
-
-  it("renders no anchors at all when links are disabled", () => {
-    const out = html("[site](https://example.com)", false);
-    expect(out).not.toContain("<a ");
-    expect(out).toContain("site");
-  });
-});
-
 describe("renderMarkdownToRawHtml — images", () => {
   // The parse layer just emits <img>; the load-or-fallback decision lives in
   // the DOM sanitize pass (covered by the e2e suite), where markdown- and
@@ -125,7 +96,7 @@ describe("renderMarkdownToRawHtml — inline HTML passthrough", () => {
 
 describe("renderMarkdownToRawHtml — inline variant", () => {
   it("emits no block wrapper", () => {
-    const out = html("a **b**", true, true);
+    const out = html("a **b**", true);
     expect(out).not.toContain("<p>");
     expect(out).toContain("<strong>b</strong>");
   });
@@ -145,15 +116,9 @@ describe("renderMarkdownToRawHtml — code + breaks", () => {
   });
 
   it("honours the breaks option (GitHub folds soft breaks; chat keeps them)", () => {
-    const folded = renderMarkdownToRawHtml("a\nb", {
-      links: true,
-      breaks: false,
-    });
+    const folded = renderMarkdownToRawHtml("a\nb", { breaks: false });
     expect(folded).not.toContain("<br>");
-    const broken = renderMarkdownToRawHtml("a\nb", {
-      links: true,
-      breaks: true,
-    });
+    const broken = renderMarkdownToRawHtml("a\nb", { breaks: true });
     expect(broken).toContain("<br>");
   });
 });

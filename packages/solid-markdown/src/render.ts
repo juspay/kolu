@@ -1,20 +1,21 @@
 /** Markdown → HTML (raw, pre-sanitization). Pure and DOM-free: `marked` in
- *  GFM mode with a custom link renderer that allowlists hrefs and honours the
- *  per-slot link policy. The default renderer handles the rest of
- *  GitHub-Flavored Markdown — headings, tables, task lists, strikethrough,
- *  autolinks, images — and passes inline HTML through verbatim, so
- *  `<details>`, `<kbd>`, `<img>`, alignment wrappers and friends survive to
- *  the sanitizer.
+ *  GFM mode. The default renderer handles GitHub-Flavored Markdown — headings,
+ *  tables, task lists, strikethrough, autolinks, links, images — and passes
+ *  inline HTML through verbatim, so `<details>`, `<kbd>`, `<img>`, alignment
+ *  wrappers and friends survive to the sanitizer.
  *
  *  What this renderer does NOT support — math/LaTeX, mermaid, emoji
  *  shortcodes, @mentions, #issue/SHA autolinks, and the non-GitHub ecosystem
  *  syntaxes — is catalogued in ../LIMITATIONS.md. Keep it in sync when adding
  *  or dropping a feature here.
  *
- *  Images are deliberately *not* special-cased here: markdown `![]()` and
- *  inline `<img>` only converge after parsing, so their "can this src load?"
- *  fallback lives in the sanitize pass (./sanitize), where both are seen
- *  uniformly. This layer just emits the tags.
+ *  Link *and* image policy are deliberately *not* applied here. This layer is
+ *  purely structural: it emits the default `<a href=…>` / `<img src=…>` tags,
+ *  and the per-slot decisions — "is this href safe? should links be anchors at
+ *  all? what target/rel? can this image src load?" — all live in the sanitize
+ *  pass (./sanitize). That's where markdown `[]()`/`![]()` and inline
+ *  `<a>`/`<img>` converge into one tree, so applying the policy there covers
+ *  both halves uniformly instead of re-deriving it per source.
  *
  *  The output is *untrusted* HTML: every caller must run it through
  *  `sanitizeHtml` (see ./sanitize) before inserting it into the DOM. Keeping
@@ -27,13 +28,8 @@ import { Marked } from "marked";
 import markedAlert from "marked-alert";
 import markedFootnote from "marked-footnote";
 import { gfmHeadingId } from "marked-gfm-heading-id";
-import { safeHref } from "./url-policy";
 
 export type RenderOptions = {
-  /** Render links as real anchors (true) or inert text (false). Off for slots
-   *  whose own click handler must win over a nested anchor — dock rows,
-   *  switcher cards, the title bar. */
-  links: boolean;
   /** Inline-only parse: no block wrapper, for single-line annotation slots. */
   inline?: boolean;
   /** Treat a single newline as a hard line break (GitHub does NOT — it folds
@@ -42,19 +38,10 @@ export type RenderOptions = {
   breaks?: boolean;
 };
 
-function buildMarked(links: boolean, breaks: boolean): Marked {
+function buildMarked(breaks: boolean): Marked {
   const inst = new Marked({ gfm: true, breaks });
   inst.use({
     renderer: {
-      link(token) {
-        const inner = this.parser.parseInline(token.tokens ?? []);
-        const href = safeHref(token.href);
-        // Unsafe scheme, or links disabled for this slot → inert text. The
-        // rendered inner is already HTML, so it carries through emphasis/code.
-        if (!href || !links) return inner;
-        const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
-        return `<a href="${escapeHtml(href)}"${title} target="_blank" rel="noopener noreferrer">${inner}</a>`;
-      },
       code(token) {
         // Carry the fence language on `data-lang` — the sanitizer allowlists
         // it but strips `class`, so this is what lets the sanitize pass find +
@@ -100,17 +87,15 @@ function rewriteAlerts(html: string): string {
     .replace(/<p class="markdown-alert-title"\s*>/g, "<p data-md-alert-title>");
 }
 
-// Link policy and the soft-break setting are the only axes that vary the
-// parser, so cache one configured instance per (links, breaks). Rendering is
-// synchronous, so a shared instance is safe; the cache just avoids rebuilding
-// the renderer on every call.
-const INSTANCES = new Map<string, Marked>();
-function instance(links: boolean, breaks: boolean): Marked {
-  const key = `${links}:${breaks}`;
-  let inst = INSTANCES.get(key);
+// The soft-break setting is the only axis that varies the parser, so cache one
+// configured instance per `breaks`. Rendering is synchronous, so a shared
+// instance is safe; the cache just avoids rebuilding the renderer on every call.
+const INSTANCES = new Map<boolean, Marked>();
+function instance(breaks: boolean): Marked {
+  let inst = INSTANCES.get(breaks);
   if (!inst) {
-    inst = buildMarked(links, breaks);
-    INSTANCES.set(key, inst);
+    inst = buildMarked(breaks);
+    INSTANCES.set(breaks, inst);
   }
   return inst;
 }
@@ -120,7 +105,7 @@ export function renderMarkdownToRawHtml(
   markdown: string,
   opts: RenderOptions,
 ): string {
-  const inst = instance(opts.links, opts.breaks ?? true);
+  const inst = instance(opts.breaks ?? true);
   // Our config is fully synchronous (no async extensions), so both calls
   // return a string; the union with Promise only arises under `{ async: true }`.
   if (opts.inline) return inst.parseInline(markdown) as string;

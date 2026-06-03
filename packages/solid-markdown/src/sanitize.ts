@@ -229,8 +229,9 @@ function basename(src: string): string {
  *  (markdown- or inline-HTML-sourced alike). When links are off, unwrap it to
  *  its children so the text survives but the anchor doesn't. When on, drop a
  *  non-allowlisted href and force every kept anchor to open in a new tab with a
- *  severed opener — the renderer only stamps the anchors *it* mints, so this is
- *  what covers raw inline `<a>`. */
+ *  severed opener. This is the *only* link-policy site: the render layer emits
+ *  marked's default `<a href=…>` and applies no policy, so markdown `[]()` and
+ *  raw inline `<a>` both pick the policy up here, uniformly, exactly once. */
 function applyLinkPolicy(anchor: Element, links: boolean): void {
   if (!links) {
     anchor.replaceWith(...Array.from(anchor.childNodes));
