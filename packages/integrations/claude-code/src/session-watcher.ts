@@ -32,6 +32,7 @@ import {
   PROJECTS_DIR,
   type SessionFile,
   type WorkflowObservation,
+  subagentsDirFor,
   TAIL_BYTES,
   tailJsonlLines,
   watchOrWaitForDir,
@@ -158,6 +159,15 @@ export function createSessionWatcher(
   // Snapshots land while the agent is busy-waiting and the transcript is
   // otherwise quiet, so this keeps the fan-out count live. Null until set up.
   let workflowsDirWatcher: (() => void) | null = null;
+  // Watcher over the per-session `subagents/` dir, where a `/fork` lands its
+  // `agent-<id>.meta.json` + streaming `agent-<id>.jsonl`. A fork's launch only
+  // echoes a local-command into the MAIN transcript, and its artifacts may
+  // appear AFTER the transcript event that idled the main has already been
+  // processed — at which point nothing else would re-trigger the fork scan. This
+  // watcher closes that race: the moment the fork's files land (create or
+  // append), it reschedules the check so the now-`waiting` main promotes to
+  // `running_background`. Null until set up.
+  let subagentsDirWatcher: (() => void) | null = null;
 
   let destroyed = false;
 
@@ -289,6 +299,11 @@ export function createSessionWatcher(
     if (transcriptWatching.kind !== "watching") return;
 
     const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
+    // One clock read for the whole pass: the workflow-staleness filter
+    // (`liveOutstandingTasks`), the fork scan, both stale deadlines, and the
+    // transient-decay quiet window all compare against this single `now`, so no
+    // two staleness checks in one pass can disagree about the current time.
+    const now = Date.now();
     // observeWorkflowRun is the single source of truth; the three projections
     // below (liveOutstandingTasks / nextWorkflowStaleDeadline /
     // deriveWorkflowProgress) all read its result. Observe each distinct runId
@@ -313,7 +328,7 @@ export function createSessionWatcher(
     const outstanding = liveOutstandingTasks(
       session,
       outstandingBackgroundTasks(lines),
-      Date.now(),
+      now,
       observe,
     );
     const derived = deriveState(lines, outstanding);
@@ -324,11 +339,6 @@ export function createSessionWatcher(
       );
       return;
     }
-
-    // One clock read shared by the fork scan, the stale deadlines, and the
-    // transient-decay quiet window below — so all the staleness comparisons in
-    // this pass test against a single `now`.
-    const now = Date.now();
 
     // `/fork` promotion: a fork is a background sub-agent the main session
     // launched, but its launch is a local-command (not a `tool_result`), so it
@@ -531,9 +541,30 @@ export function createSessionWatcher(
     );
   }
 
+  /** Watch the per-session `subagents/` dir so a `/fork`'s artifacts
+   *  (`agent-<id>.meta.json` + streaming `agent-<id>.jsonl`) re-run the fork
+   *  scan the moment they land — even when the main transcript has already gone
+   *  quiet. A fork's launch echoes only into the MAIN transcript, but the scan
+   *  it triggers can run BEFORE the sub-agent's files exist; without this watch
+   *  nothing would re-trigger and the now-idle main would stay `waiting` for the
+   *  full stale window. A non-recursive watch suffices: the fork's files land
+   *  directly in `subagents/` (the `subagents/workflows/` live tree is a direct
+   *  child dir, separately handled). `watchOrWaitForDir` tolerates the dir not
+   *  existing yet — `subagents/` AND its `<session>/` parent are both created
+   *  lazily on the first sub-agent, and the helper walks up to the nearest
+   *  existing ancestor, re-attaching down the chain as each level appears. */
+  function setupSubagentsWatching() {
+    subagentsDirWatcher = watchOrWaitForDir(
+      subagentsDirFor(session),
+      () => scheduleTranscriptCheck(),
+      plog,
+    );
+  }
+
   // --- Start watching ---
   setupTranscriptWatching();
   setupWorkflowsWatching();
+  setupSubagentsWatching();
 
   return {
     session,
@@ -551,6 +582,8 @@ export function createSessionWatcher(
       teardownTranscriptWatching();
       workflowsDirWatcher?.();
       workflowsDirWatcher = null;
+      subagentsDirWatcher?.();
+      subagentsDirWatcher = null;
     },
   };
 }

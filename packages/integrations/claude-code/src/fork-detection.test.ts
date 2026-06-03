@@ -226,3 +226,136 @@ describe("outstandingForkRuns / nextForkStaleDeadline", () => {
     });
   });
 });
+
+/** End-to-end through `createSessionWatcher`: drives the user-visible eventing
+ *  path (the published `ClaudeCodeInfo.state`), not just the helper scan. Proves
+ *  the F1 fix — the `subagents/` watcher re-runs the fork scan when the fork's
+ *  artifacts land AFTER the main transcript already went idle — and that a
+ *  completion notification on the main transcript demotes the row again.
+ *
+ *  Uses real `fs.watch` + real timers (the watcher's actual machinery), so each
+ *  assertion polls for the expected published state rather than reading a single
+ *  synchronous snapshot. `KOLU_CLAUDE_PROJECTS_DIR` is set, which both redirects
+ *  the on-disk lookups into the tmp tree AND disables the SDK summary fetch. */
+describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
+  let tmpDir: string;
+  let createSessionWatcher: typeof import("./index.ts").createSessionWatcher;
+  let subagentsDirFor: typeof import("./index.ts").subagentsDirFor;
+  let encodeProjectPath: typeof import("./index.ts").encodeProjectPath;
+  const sessionId = "fork-watcher-session";
+  const cwd = "/home/user/fork-watcher-project";
+  const session = { pid: 1, sessionId, cwd };
+
+  const noopLog = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-fork-watcher-"));
+    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    vi.resetModules();
+    const mod = await import("./index.ts");
+    createSessionWatcher = mod.createSessionWatcher;
+    subagentsDirFor = mod.subagentsDirFor;
+    encodeProjectPath = mod.encodeProjectPath;
+  });
+
+  afterAll(() => {
+    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const projectDir = () => path.join(tmpDir, encodeProjectPath(cwd));
+  const transcriptPath = () => path.join(projectDir(), `${sessionId}.jsonl`);
+
+  /** Append a JSONL entry to the main transcript (each transcript write is what
+   *  fires the file watcher in production). */
+  function appendTranscript(entry: object): void {
+    fs.appendFileSync(transcriptPath(), `${JSON.stringify(entry)}\n`);
+  }
+
+  /** An assistant `end_turn` — the main session is idle (`waiting`). */
+  const endTurn = () => ({
+    type: "assistant",
+    message: { stop_reason: "end_turn", model: "claude-opus-4-8" },
+  });
+
+  /** A `queue-operation` enqueue carrying a terminal `<task-notification>` for
+   *  `taskId` — the fork's completion signal on the MAIN transcript. */
+  const completion = (taskId: string) => ({
+    type: "queue-operation",
+    operation: "enqueue",
+    content: `<task-notification>\n<task-id>${taskId}</task-id>\n<status>completed</status>\n</task-notification>`,
+  });
+
+  /** Write a live `/fork` sub-agent's `agent-<id>.meta.json` + streaming
+   *  `agent-<id>.jsonl` into `subagents/` (fresh mtime → still running). */
+  function writeForkAgent(id: string): void {
+    const dir = subagentsDirFor(session);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `agent-${id}.meta.json`),
+      JSON.stringify({ agentType: "fork", name: id, description: id }),
+    );
+    fs.writeFileSync(path.join(dir, `agent-${id}.jsonl`), "{}\n");
+  }
+
+  /** Poll `read()` until it equals `want` or the deadline passes. Returns the
+   *  last observed value so a failed expect prints the actual state. */
+  async function waitForState(
+    read: () => string | null,
+    want: string,
+    timeoutMs = 3000,
+  ): Promise<string | null> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (read() === want) return want;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return read();
+  }
+
+  it("promotes a waiting main to running_background when fork artifacts land late, then demotes on completion", async () => {
+    fs.mkdirSync(projectDir(), { recursive: true });
+    // Main is idle BEFORE any fork exists: the watcher's first derivation reads
+    // `waiting`, and the fork scan finds nothing (artifacts don't exist yet).
+    fs.writeFileSync(transcriptPath(), `${JSON.stringify(endTurn())}\n`);
+
+    // Collect every emission rather than a single mutable — reading the tail
+    // keeps the union type (a mutated-in-callback local narrows to `never`).
+    const emitted: import("./index.ts").ClaudeCodeInfo[] = [];
+    const watcher = createSessionWatcher(
+      session,
+      (info) => emitted.push(info),
+      noopLog,
+    );
+    try {
+      const latest = () => emitted.at(-1) ?? null;
+      const state = () => latest()?.state ?? null;
+
+      // Initial derivation: idle, no fork.
+      expect(await waitForState(state, "waiting")).toBe("waiting");
+      expect(latest()?.workflow ?? null).toBeNull();
+
+      // The fork's artifacts appear AFTER the main already went quiet — the F1
+      // race. Only the `subagents/` watcher can re-trigger the scan here; the
+      // main transcript fires no further event. The row must promote.
+      writeForkAgent("aimplement-it-late");
+      expect(await waitForState(state, "running_background")).toBe(
+        "running_background",
+      );
+      // A fork promotes the state but carries no fan-out journal.
+      expect(latest()?.workflow ?? null).toBeNull();
+
+      // The fork reports completion on the MAIN transcript. The completed-id
+      // signal drops it from the live set on the next scan → demote to waiting.
+      appendTranscript(completion("aimplement-it-late"));
+      expect(await waitForState(state, "waiting")).toBe("waiting");
+    } finally {
+      watcher.destroy();
+    }
+  });
+});

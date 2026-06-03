@@ -1339,12 +1339,22 @@ export function tryWatchDir(
 
 /**
  * Watch a directory that may not yet exist. If direct watch fails, falls
- * back to watching the immediate parent (one level only) and re-attaches
- * to the target as soon as it appears. Returns a cleanup function.
+ * back to watching the nearest existing ancestor and re-attaches toward the
+ * target as each missing level appears. Returns a cleanup function.
  *
- * Used for both SESSIONS_DIR (absent on fresh systems until first claude
- * run) and the per-session project dir under PROJECTS_DIR (created lazily
- * when claude writes its first transcript).
+ * The fallback recurses up the chain — not just one level — so a target whose
+ * parent ALSO doesn't exist yet still gets watched. This matters for the
+ * per-session `subagents/` dir: its parent (`<session>/`) is itself created
+ * lazily on the first sub-agent, so a single-level fallback would attach to
+ * nothing and miss a `/fork` whose artifacts land while the main transcript is
+ * already quiet. Each level's appearance kicks `onChange` (the target may have
+ * been fully populated between our attempt and the event), so the consumer
+ * re-derives once the leaf finally exists.
+ *
+ * Used for SESSIONS_DIR (absent on fresh systems until first claude run), the
+ * per-session project dir under PROJECTS_DIR (created when claude writes its
+ * first transcript), and the per-session `subagents/` dir (created on the first
+ * sub-agent / `/fork`).
  */
 export function watchOrWaitForDir(
   dir: string,
@@ -1355,30 +1365,33 @@ export function watchOrWaitForDir(
   if (direct) return direct;
 
   let child: (() => void) | null = null;
-  let parentWatcher: fs.FSWatcher | null = null;
+  let ancestorWatcher: (() => void) | null = null;
   const parent = path.dirname(dir);
-  try {
-    parentWatcher = fs.watch(parent, () => {
+  // `path.dirname` of a filesystem root is the root itself — stop there so a
+  // bad/relative target can't recurse forever. tryWatchDir already failed on
+  // `dir`, so the only fallback is the parent; if the parent IS the root and
+  // unwatchable, we simply hold no watcher (same as the prior behavior).
+  if (parent !== dir) {
+    const onParentChange = () => {
       if (child) return;
       const attached = tryWatchDir(dir, onChange, log);
       if (!attached) return;
       child = attached;
-      parentWatcher?.close();
-      parentWatcher = null;
-      log?.info({ dir, parent }, "claude-code: parent-dir watcher retired");
-      // Kick — dir may already contain files (race: created between our
-      // first attempt and the parent event).
+      // The ancestor chain has served its purpose — retire it.
+      ancestorWatcher?.();
+      ancestorWatcher = null;
+      log?.info({ dir, parent }, "claude-code: ancestor-dir watcher retired");
+      // Kick — dir may already be populated (race: created and filled between
+      // our first attempt and the parent event).
       onChange();
-    });
-    log?.info({ dir, parent }, "claude-code: parent-dir watcher installed");
-  } catch (err) {
-    log?.debug({ err, dir }, "fs.watch parent fallback failed");
+    };
+    // Recurse: if `parent` doesn't exist either, this watches ITS nearest
+    // existing ancestor and re-attaches down the chain as each level appears.
+    ancestorWatcher = watchOrWaitForDir(parent, onParentChange, log);
   }
   return () => {
-    if (parentWatcher) {
-      parentWatcher.close();
-      log?.info({ dir, parent }, "claude-code: parent-dir watcher retired");
-    }
+    ancestorWatcher?.();
+    ancestorWatcher = null;
     child?.();
   };
 }
