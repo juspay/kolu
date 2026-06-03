@@ -533,6 +533,8 @@ if (!commit) {
     order: [],
     tracks,
     consolidation: null,
+    reconciled: [],
+    dropped: [],
     conflicts: [],
     note: 'commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — see the `worktrees` field below for each track’s path — and re-run with commit enabled to consolidate.',
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
@@ -652,8 +654,10 @@ Then cherry-pick each of those commits onto the branch IN THAT ORDER:
 Do NOT push and do NOT merge — leave the consolidated commits on the local branch for the human. Return the final branch HEAD and the per-commit \`picks\` ledger (in processing order); the overlaps you reconciled are just the picks whose outcome isn't \`clean\`.`
 
 const consolidation = await agent(consolidatePrompt, { label: 'consolidate:cherry-pick', phase: 'Consolidate', model, schema: CONSOLIDATE_SCHEMA })
-const conflicts = (consolidation?.picks ?? []).filter((p) => p.outcome !== 'clean')
-log(`Consolidate: ${(consolidation?.picks ?? []).length} commit(s) replayed, ${conflicts.length} overlap(s) reconciled. HEAD ${(consolidation?.finalHead || '').slice(0, 9)}`)
+const picks = consolidation?.picks ?? []
+const reconciled = picks.filter((p) => p.outcome === 'reconciled')
+const dropped = picks.filter((p) => p.outcome === 'dropped')
+log(`Consolidate: ${picks.length} commit(s) replayed, ${reconciled.length} reconciled, ${dropped.length} dropped. HEAD ${(consolidation?.finalHead || '').slice(0, 9)}`)
 
 // ---------------------------------------------------------------------------
 // Phase 4 — post a detailed PR comment for EVERY track + the consolidation
@@ -722,6 +726,10 @@ return {
   order: consolidateOrder,
   tracks,
   consolidation,
-  conflicts,
+  reconciled,
+  dropped,
+  // back-compat: the union of non-clean picks. Consumers keying on a discarded
+  // fix (e.g. /be §4's "dropped overlap" adjudication) should read `dropped`.
+  conflicts: [...reconciled, ...dropped],
   comments,
 }
