@@ -1,2 +1,2 @@
-/** Injected by Vite's `define` (see vite.config.ts) — this client's baked commit. */
-declare const __SURFACE_APP_COMMIT__: string;
+// The `__SURFACE_APP_COMMIT__` type lives in the library, not here — reference it.
+/// <reference types="@kolu/surface-app/client" />

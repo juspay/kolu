@@ -1,18 +1,19 @@
 /**
- * Hello-world server for @kolu/surface-app.
+ * Hello-world server for @kolu/surface-app — pure composition, no bespoke glue.
  *
- * Implements the surface (the `buildInfo` cell reports the server's commit),
- * exposes it over oRPC HTTP + WebSocket, and — when a built client exists —
- * serves it through `installSurfaceApp` so the freshness contract (no-store
- * shell, immutable assets, 404 asset-miss, manifest, /sw.js retirement) is live.
+ * The buildInfo cell's server impl is composed from `buildInfoServer()` (commit
+ * auto-resolved); `installSurfaceApp` serves the shell fresh + the manifest +
+ * the `/sw.js` retirement worker. The example writes no cell store, no `/sw.js`
+ * route, and no commit literal. To see skew in dev, boot with
+ * `SURFACE_APP_COMMIT=<other>` — a real deploy-simulating override.
  */
 
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { implementSurface, publisherChannel } from "@kolu/surface/server";
-import { installSurfaceApp } from "@kolu/surface-app/server";
-import { SW_SOURCE } from "@kolu/surface-app";
+import { buildInfoServer, installSurfaceApp } from "@kolu/surface-app/server";
+import { resolveCommit } from "@kolu/surface-app/vite";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import { implement } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
@@ -23,28 +24,20 @@ import { surface } from "../common/surface.ts";
 
 const PORT = Number(process.env.PORT ?? 7710);
 const HOST = process.env.HOST ?? "127.0.0.1";
-// The server's build commit — different from the client's baked value by default
-// so the `≠ srv` skew is visible. In a real app the surface-app commit stamp sets it.
-const SERVER_COMMIT = process.env.SURFACE_APP_COMMIT ?? "5e2e2bbb";
 const DIST_DIR =
   process.env.KOLU_SURFACE_APP_DIST ??
   fileURLToPath(new URL("../../dist", import.meta.url));
 
-// biome-ignore lint/suspicious/noExplicitAny: MemoryPublisher's generic is too
-// strict for our payloads; type safety lives on the typed channels.
+// biome-ignore lint/suspicious/noExplicitAny: MemoryPublisher's generic is too strict for our payloads; type safety lives on the typed channels.
 const publisher = new MemoryPublisher<Record<string, any>>();
 
 const { router: surfaceRouter } = implementSurface(surface, {
   channel: <T>(name: string) => publisherChannel<T>(publisher, name),
-  cells: {
-    buildInfo: {
-      store: { get: () => ({ commit: SERVER_COMMIT }), set: () => {} },
-    },
-  },
+  // compose the buildInfo impl — commit auto-resolved (env → git → "dev"):
+  cells: { ...buildInfoServer() },
 });
 
-// biome-ignore lint/suspicious/noExplicitAny: see kolu server.ts — the router
-// fragment's union isn't accepted by RPCHandler's input type; runtime is valid.
+// biome-ignore lint/suspicious/noExplicitAny: see kolu server.ts — the router fragment's union isn't accepted by RPCHandler's input type; runtime is valid.
 const appRouter = implement(surface.contract).router({
   ...surfaceRouter,
 }) as any;
@@ -61,14 +54,7 @@ app.use("/rpc/*", async (c, next) => {
 });
 
 if (existsSync(DIST_DIR)) {
-  // The self-destructing worker, served no-cache so the browser's update check
-  // always re-fetches it (registered before the static catch-all).
-  app.get("/sw.js", (c) => {
-    c.header("Cache-Control", "no-cache, must-revalidate");
-    return c.body(SW_SOURCE, 200, {
-      "content-type": "text/javascript; charset=utf-8",
-    });
-  });
+  // one call: fresh shell + manifest + /sw.js retirement — all from the library.
   installSurfaceApp(app, {
     clientDist: DIST_DIR,
     manifest: { name: "surface-app hello", themeColor: "#6b4eff", icons: [] },
@@ -79,7 +65,7 @@ const server = serve(
   { fetch: app.fetch, port: PORT, hostname: HOST },
   (info) => {
     console.log(
-      `@kolu/surface-app-example on http://${info.address}:${info.port} (server commit ${SERVER_COMMIT})`,
+      `@kolu/surface-app-example on http://${info.address}:${info.port} (server commit ${resolveCommit()})`,
     );
     if (!existsSync(DIST_DIR)) {
       console.log(

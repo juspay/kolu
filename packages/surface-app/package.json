@@ -11,7 +11,9 @@
     ".": "./src/index.ts",
     "./server": "./src/server.ts",
     "./surface": "./src/surface.ts",
-    "./solid": "./src/solid/index.ts"
+    "./solid": "./src/solid/index.ts",
+    "./vite": "./src/vite.ts",
+    "./client": "./src/client.d.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

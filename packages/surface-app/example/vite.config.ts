@@ -1,17 +1,12 @@
+import { surfaceApp } from "@kolu/surface-app/vite";
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
-// The client's baked-in commit. In a real app this is injected by the
-// surface-app commit stamp (Vite/Nix) or a Bun define; here we hardcode a value
-// DIFFERENT from the server's default so the `≠ srv` skew is visible on first load.
-const clientCommit = process.env.CLIENT_COMMIT || "c11e7700";
-
+// `surfaceApp()` resolves the commit (SURFACE_APP_COMMIT env → git → "dev") and
+// injects `__SURFACE_APP_COMMIT__` — no define, no sha literal, no env.d.ts here.
 export default defineConfig({
   root: "src/client",
-  define: {
-    __SURFACE_APP_COMMIT__: JSON.stringify(clientCommit),
-  },
-  plugins: [solid()],
+  plugins: [solid(), surfaceApp()],
   server: {
     port: 5175,
     proxy: {
