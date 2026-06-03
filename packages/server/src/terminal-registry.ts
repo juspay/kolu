@@ -96,6 +96,8 @@ export function getTerminal(id: TerminalId): TerminalProcess | undefined {
  *  surface) so the wire shape can't drift between call sites. Typed
  *  (not a bare Error) because oRPC scrubs bare errors to an opaque
  *  "Internal server error". */
-export function terminalNotFound(id: string): ORPCError<"NOT_FOUND", undefined> {
+export function terminalNotFound(
+  id: string,
+): ORPCError<"NOT_FOUND", undefined> {
   return new ORPCError("NOT_FOUND", { message: `Terminal ${id} not found` });
 }
