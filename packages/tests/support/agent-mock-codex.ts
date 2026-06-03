@@ -132,17 +132,31 @@ export function writeCodexFixture(opts: {
         model TEXT
       );
     `);
-    db.prepare("DELETE FROM threads WHERE cwd = ?").run(opts.cwd);
-    db.prepare(
-      "INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms, title, model) VALUES (?, ?, ?, 'cli', 0, ?, ?, ?)",
-    ).run(
-      threadId,
-      rolloutPath,
-      opts.cwd,
-      Date.now(),
-      opts.title ?? "codex-mock test thread",
-      opts.model ?? "gpt-5",
-    );
+    // Atomic row-swap: the server's reconcile (driven by the WAL watcher /
+    // nudgeCodex every 250 ms) must see either the OLD or the NEW thread row,
+    // never the empty gap between DELETE and INSERT — a reader landing in that
+    // gap sees zero rows for cwd and clears the indicator to null/null (the
+    // residual codex bootstrap flake, which fires more often under higher
+    // parallelism). Mirrors the OpenCode fixture (agent-mock-opencode.ts) and
+    // the real Codex CLI, which write transactionally.
+    db.exec("BEGIN IMMEDIATE;");
+    try {
+      db.prepare("DELETE FROM threads WHERE cwd = ?").run(opts.cwd);
+      db.prepare(
+        "INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms, title, model) VALUES (?, ?, ?, 'cli', 0, ?, ?, ?)",
+      ).run(
+        threadId,
+        rolloutPath,
+        opts.cwd,
+        Date.now(),
+        opts.title ?? "codex-mock test thread",
+        opts.model ?? "gpt-5",
+      );
+      db.exec("COMMIT;");
+    } catch (e) {
+      db.exec("ROLLBACK;");
+      throw e;
+    }
   } finally {
     db.close();
   }
