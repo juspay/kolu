@@ -17,6 +17,7 @@
  *  tested in a plain Node environment, where DOMPurify (and `window`) are
  *  absent. */
 
+import { escapeHtml } from "@kolu/html-escape";
 import { Marked } from "marked";
 
 export type RenderOptions = {
@@ -52,20 +53,6 @@ export function safeHref(href: string): string | undefined {
     url.protocol === "https:" ||
     url.protocol === "mailto:";
   return ok ? trimmed : undefined;
-}
-
-const ESCAPES: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-};
-
-/** Escape a string for safe interpolation into an HTML attribute or text
- *  node. Applied only to values we mint ourselves (hrefs, titles, alt text);
- *  rendered inline content is already HTML and is passed through untouched. */
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"]/g, (c) => ESCAPES[c] ?? c);
 }
 
 function buildMarked(links: boolean): Marked {

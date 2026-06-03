@@ -651,6 +651,9 @@ importers:
 
   packages/solid-markdown:
     dependencies:
+      '@kolu/html-escape':
+        specifier: workspace:*
+        version: link:../html-escape
       dompurify:
         specifier: ^3.2.4
         version: 3.4.8

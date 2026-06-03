@@ -20,6 +20,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
+    "@kolu/html-escape": "workspace:*",
     "dompurify": "^3.2.4",
     "marked": "^18.0.2",
     "solid-js": "^1.9.0"
