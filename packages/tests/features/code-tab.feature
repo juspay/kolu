@@ -663,6 +663,57 @@ Feature: Code tab (review + browse)
     When I toggle markdown task 1
     Then markdown preview task 1 should be checked
 
+  # Loose task list: items separated by a blank line — GitHub's most common
+  # README task-list shape. `marked` wraps each checkbox in the item's leading
+  # `<p>` (`<li><p><input>…`), not directly under the `<li>`. The sanitize pass
+  # must recognize that loose shape too, or every loose checkbox stays disabled
+  # and un-clickable (never gets `data-md-task`). This proves a loose list is
+  # fully interactive and its toggle round-trips back to the file.
+  Scenario: Markdown preview makes loose (blank-line-separated) task lists interactive
+    When I run "rm -rf /tmp/kolu-md-loose && git init /tmp/kolu-md-loose && cd /tmp/kolu-md-loose"
+    And I run "printf -- '- [ ] alpha\n\n- [ ] beta\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "alpha"
+    # Both loose checkboxes are interactive + indexed in source order.
+    And the markdown preview should render a "input[data-md-task=0]" element
+    And the markdown preview should render a "input[data-md-task=1]" element
+    And the markdown preview should not render a "input[data-md-task=2]" element
+    # Toggling the second loose task round-trips through the file watcher.
+    When I toggle markdown task 1
+    Then markdown preview task 1 should be checked
+
+  # Index-space congruence across tightness: a loose list followed by a tight
+  # list. The source scanner (`toggleTaskInSource`) counts every `- [ ]` marker
+  # regardless of tightness, so the rendered `data-md-task` indices must do the
+  # same — loose tasks are 0 and 1, the first tight task is 2. If the sanitizer
+  # skipped the loose (`<li><p><input>`) checkboxes, the first tight box would be
+  # rendered `data-md-task=0` while the scanner counts it as the third marker, so
+  # a click on it would toggle the WRONG (first loose) line. Toggling index 2
+  # round-trips only if both index spaces stayed congruent.
+  Scenario: Markdown preview keeps task indices congruent across a loose-then-tight list
+    When I run "rm -rf /tmp/kolu-md-mixed && git init /tmp/kolu-md-mixed && cd /tmp/kolu-md-mixed"
+    And I run "printf -- '- [ ] loose one\n\n- [ ] loose two\n\nthen tight:\n\n- [ ] tight one\n- [ ] tight two\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "loose one"
+    # All four tasks indexed 0..3 in source order, loose and tight alike.
+    And the markdown preview should render a "input[data-md-task=0]" element
+    And the markdown preview should render a "input[data-md-task=1]" element
+    And the markdown preview should render a "input[data-md-task=2]" element
+    And the markdown preview should render a "input[data-md-task=3]" element
+    And the markdown preview should not render a "input[data-md-task=4]" element
+    # Toggling the first TIGHT task (index 2) only lands on "tight one" if the
+    # two loose tasks were counted ahead of it — the regression's failure mode.
+    When I toggle markdown task 2
+    Then markdown preview task 2 should be checked
+
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
   # panel keyed off `preferences.rightPanel.codeTabTreeSize`. The handle
