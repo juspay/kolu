@@ -1224,6 +1224,8 @@ if (branchMoved || branchDirty) {
       note: `NOT consolidated — ${why}, so the consolidator's "branch is at ${branchHead.slice(0, 9)}" assumption no longer holds. The track's worktree was PRESERVED at ${wtDir(t)}; after resolving the drift, replay its commits with \`git -C ${repoPath} cherry-pick $(git -C ${wtDir(t)} rev-list --reverse ${branchHead}..HEAD)\`.`,
     };
   }
+  markPhaseTokens("Consolidate");
+  log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
   return {
     status: "consolidation-aborted",
     branchHead,
@@ -1237,6 +1239,7 @@ if (branchMoved || branchDirty) {
     preservedTracks: liveTracks,
     note: `consolidation aborted: ${why}. Cherry-picking onto the changed base would review against an untrustworthy scope, so nothing was consolidated and every track worktree was PRESERVED (see each track's note for the recovery cherry-pick).${dirty ? `\nOffending entries:\n${dirty}` : ""}`,
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
+    tokensByPhase,
   };
 }
 
@@ -1390,6 +1393,8 @@ if (currentHead !== branchHead) {
   log(
     `Consolidate: ABORTING — branch HEAD is ${sha9(currentHead) || "(unknown)"} but the tracks forked from ${sha9(branchHead)}. The branch has drifted (likely an already-consolidated re-run); cherry-picking now would double-apply every fix. Worktrees PRESERVED.`,
   );
+  markPhaseTokens("Consolidate");
+  log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
   return {
     status: "consolidation-precondition-failed",
     branchHead,
@@ -1402,6 +1407,7 @@ if (currentHead !== branchHead) {
     dropped: [],
     note: `consolidation precondition failed: the branch in \`${repoPath}\` is at \`${currentHead || "(unknown)"}\` but the review tracks forked from \`${branchHead}\`. The HEAD has advanced past the shared fork point — likely a re-run in an already-consolidated worktree — so cherry-picking the track commits would stack them a SECOND time and double-apply every fix. Nothing was consolidated and the per-track worktrees are PRESERVED. Reset the branch to \`${branchHead}\` (\`git -C ${repoPath} reset --hard ${branchHead}\`) or start from a clean worktree, then re-run.`,
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
+    tokensByPhase,
   };
 }
 
