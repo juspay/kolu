@@ -653,9 +653,9 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     And the markdown preview should contain "first real"
     # Exactly the two real tasks are interactive; the raw body checkbox is not.
-    And the markdown preview should render a "input[data-md-task=0]" element
-    And the markdown preview should render a "input[data-md-task=1]" element
-    And the markdown preview should not render a "input[data-md-task=2]" element
+    And the markdown preview should render a "input[data-md-task='0']" element
+    And the markdown preview should render a "input[data-md-task='1']" element
+    And the markdown preview should not render a "input[data-md-task='2']" element
     # The raw inline checkbox stays presentational (disabled, no `data-md-task`).
     And the markdown preview should render a "input[type=checkbox][disabled]" element
     # Toggling the second real task round-trips: only correct if index 1 maps to
@@ -679,9 +679,9 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     And the markdown preview should contain "alpha"
     # Both loose checkboxes are interactive + indexed in source order.
-    And the markdown preview should render a "input[data-md-task=0]" element
-    And the markdown preview should render a "input[data-md-task=1]" element
-    And the markdown preview should not render a "input[data-md-task=2]" element
+    And the markdown preview should render a "input[data-md-task='0']" element
+    And the markdown preview should render a "input[data-md-task='1']" element
+    And the markdown preview should not render a "input[data-md-task='2']" element
     # Toggling the second loose task round-trips through the file watcher.
     When I toggle markdown task 1
     Then markdown preview task 1 should be checked
@@ -691,7 +691,7 @@ Feature: Code tab (review + browse)
   # regardless of tightness, so the rendered `data-md-task` indices must do the
   # same — loose tasks are 0 and 1, the first tight task is 2. If the sanitizer
   # skipped the loose (`<li><p><input>`) checkboxes, the first tight box would be
-  # rendered `data-md-task=0` while the scanner counts it as the third marker, so
+  # rendered `data-md-task='0'` while the scanner counts it as the third marker, so
   # a click on it would toggle the WRONG (first loose) line. Toggling index 2
   # round-trips only if both index spaces stayed congruent.
   Scenario: Markdown preview keeps task indices congruent across a loose-then-tight list
@@ -704,11 +704,11 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     And the markdown preview should contain "loose one"
     # All four tasks indexed 0..3 in source order, loose and tight alike.
-    And the markdown preview should render a "input[data-md-task=0]" element
-    And the markdown preview should render a "input[data-md-task=1]" element
-    And the markdown preview should render a "input[data-md-task=2]" element
-    And the markdown preview should render a "input[data-md-task=3]" element
-    And the markdown preview should not render a "input[data-md-task=4]" element
+    And the markdown preview should render a "input[data-md-task='0']" element
+    And the markdown preview should render a "input[data-md-task='1']" element
+    And the markdown preview should render a "input[data-md-task='2']" element
+    And the markdown preview should render a "input[data-md-task='3']" element
+    And the markdown preview should not render a "input[data-md-task='4']" element
     # Toggling the first TIGHT task (index 2) only lands on "tight one" if the
     # two loose tasks were counted ahead of it — the regression's failure mode.
     When I toggle markdown task 2
