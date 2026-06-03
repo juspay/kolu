@@ -120,7 +120,13 @@ export function highlightCode(code: string, lang: string): string | undefined {
       themes: { light: SHIKI_LIGHT, dark: SHIKI_DARK },
       defaultColor: false,
     });
-  } catch {
+  } catch (err) {
+    // best-effort: an unexpected Shiki/grammar error leaves the block plain,
+    // still boxed + copyable. Warn so a recurring highlighter fault is diagnosable.
+    console.warn(
+      `shiki: failed to highlight ${useLang} block, falling back to plain`,
+      err,
+    );
     return undefined;
   }
 }
