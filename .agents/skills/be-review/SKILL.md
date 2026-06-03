@@ -143,7 +143,7 @@ returns:
                            //   a track whose worktree setup failed is status:'track-error'
   consolidation,           // { finalHead, picks[] }  (null when not consolidated)
   conflicts,               // the reconciled overlaps (picks whose outcome ≠ clean; empty common case)
-  comments }               // { codex, lens, police } → posted comment URLs ({} under --no-comment)
+  comments }               // { consolidation, codex, lens, police } → posted comment URLs ({} under --no-comment)
 ```
 
 - `setup-failed` — no work was consolidated: a dirty main worktree (commit/stash

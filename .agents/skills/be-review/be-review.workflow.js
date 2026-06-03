@@ -312,8 +312,9 @@ async function policeTrack(wt) {
       ),
     ),
   )
-  const findings = []
-  passes.forEach((p, i) => (reviews[i]?.findings ?? []).forEach((f, j) => findings.push({ id: `police-${p.key}-${j + 1}`, pass: p.key, ...f })))
+  const findings = passes.flatMap((p, i) =>
+    (reviews[i]?.findings ?? []).map((f, j) => ({ id: `police-${p.key}-${j + 1}`, pass: p.key, ...f })),
+  )
   log(`police: ${findings.length} finding(s) across ${passes.length} passes`)
 
   // Apply each finding as its own commit, sequentially (same-file edits can't be
@@ -388,11 +389,21 @@ const trackThunk = {
       .catch((e) => ({ track: 'police', status: 'track-error', error: String(e) })),
 }
 
-const trackResults = await parallel(liveTracks.map((t) => trackThunk[t]))
-// `tracks` already carries a `track-error` entry for every setup failure; the live
-// tracks fill in alongside them, so the returned map covers EVERY requested track.
-liveTracks.forEach((t, i) => (tracks[t] = trackResults[i] || { track: t, status: 'track-error', error: 'no result' }))
-for (const t of liveTracks) log(`Track ${t}: ${tracks[t].status || 'unknown'}`)
+// A live track with no registered thunk (an unknown/typo'd TRACKS entry whose
+// worktree Setup still built) would make `parallel` invoke `undefined()`. Seed it
+// as a track-error — same shape as a setup failure — and drop it from dispatch so
+// the parallel call stays total.
+const dispatchable = liveTracks.filter((t) => trackThunk[t])
+for (const t of liveTracks.filter((t) => !trackThunk[t])) {
+  tracks[t] = { track: t, status: 'track-error', error: 'unknown track: no thunk registered' }
+  log(`Track ${t}: no thunk registered — recorded as track-error and excluded from dispatch.`)
+}
+const trackResults = await parallel(dispatchable.map((t) => trackThunk[t]))
+// `tracks` already carries a `track-error` entry for every setup failure (and any
+// unknown track above); the dispatchable tracks fill in alongside them, so the
+// returned map covers EVERY requested track.
+dispatchable.forEach((t, i) => (tracks[t] = trackResults[i] || { track: t, status: 'track-error', error: 'no result' }))
+for (const t of dispatchable) log(`Track ${t}: ${tracks[t].status || 'unknown'}`)
 
 // ---------------------------------------------------------------------------
 // PR-comment builders + poster (used by the Report phase). Bodies are built
@@ -523,6 +534,8 @@ if (!commit) {
     order: [],
     tracks,
     consolidation: null,
+    reconciled: [],
+    dropped: [],
     conflicts: [],
     note: 'commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — see the `worktrees` field below for each track’s path — and re-run with commit enabled to consolidate.',
     worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
@@ -642,8 +655,10 @@ Then cherry-pick each of those commits onto the branch IN THAT ORDER:
 Do NOT push and do NOT merge — leave the consolidated commits on the local branch for the human. Return the final branch HEAD and the per-commit \`picks\` ledger (in processing order); the overlaps you reconciled are just the picks whose outcome isn't \`clean\`.`
 
 const consolidation = await agent(consolidatePrompt, { label: 'consolidate:cherry-pick', phase: 'Consolidate', model, schema: CONSOLIDATE_SCHEMA })
-const conflicts = (consolidation?.picks ?? []).filter((p) => p.outcome !== 'clean')
-log(`Consolidate: ${(consolidation?.picks ?? []).length} commit(s) replayed, ${conflicts.length} overlap(s) reconciled. HEAD ${(consolidation?.finalHead || '').slice(0, 9)}`)
+const picks = consolidation?.picks ?? []
+const reconciled = picks.filter((p) => p.outcome === 'reconciled')
+const dropped = picks.filter((p) => p.outcome === 'dropped')
+log(`Consolidate: ${picks.length} commit(s) replayed, ${reconciled.length} reconciled, ${dropped.length} dropped. HEAD ${(consolidation?.finalHead || '').slice(0, 9)}`)
 
 // ---------------------------------------------------------------------------
 // Phase 4 — post a detailed PR comment for EVERY track + the consolidation
@@ -712,6 +727,10 @@ return {
   order: consolidateOrder,
   tracks,
   consolidation,
-  conflicts,
+  reconciled,
+  dropped,
+  // back-compat: the union of non-clean picks. Consumers keying on a discarded
+  // fix (e.g. /be §4's "dropped overlap" adjudication) should read `dropped`.
+  conflicts: [...reconciled, ...dropped],
   comments,
 }
