@@ -74,10 +74,13 @@ const TRACKS = a.tracks || ['codex', 'lens', 'police']
 // the worktree name and the scratch subdir so two /be-review runs in the SAME
 // main worktree never clobber each other's live worktrees or scratch files (the
 // old fixed `be-review-<track>` / `.be-review/*` paths let a second run `rm -rf`
-// the first run's in-flight worktree). The id is the start-time epoch ms — unique
-// per invocation, and the actual paths are reported back in the result so manual
-// inspection doesn't need to guess them.
-const RUN_ID = String(Date.now())
+// the first run's in-flight worktree). The id comes from `args.runId`: the
+// workflow runtime forbids `Date.now()`/`Math.random()` (they'd break resume), so
+// the CALLER stamps a unique value (the /be-review skill passes the launch epoch
+// ms). Defaults to 'run' when absent — fine for a single run; CONCURRENT runs in
+// the same main worktree must pass distinct ids. The actual paths are reported in
+// the result so manual inspection doesn't need to guess them.
+const RUN_ID = String(a.runId || 'run')
 const WT_ROOT = `${repoPath}/.worktrees`
 const wtDir = (track) => `${WT_ROOT}/be-review-${RUN_ID}-${track}`
 const SCRATCH = `${repoPath}/.be-review/${RUN_ID}`

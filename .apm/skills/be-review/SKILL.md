@@ -121,6 +121,7 @@ Workflow({
   args: {
     repoPath: "<worktree root>",
     base: "<base branch>",                 // remote-tracking ref, e.g. origin/master
+    runId: "<unique id, e.g. current epoch ms>", // isolates this run's worktrees/scratch
     rationale: "<optional author note on deliberate decisions>",
     tracks: ["codex", "lens", "police"],   // also the consolidation order
     commit: <false only if --no-commit>,
@@ -128,6 +129,12 @@ Workflow({
   }
 })
 ```
+
+**Pass a unique `runId`** (the workflow can't call `Date.now()` itself — the runtime
+forbids it to keep resume deterministic). Stamp the current epoch ms (or any unique
+token) so two `/be-review` runs in the same main worktree don't clobber each other's
+worktrees/scratch. Omitting it defaults to `'run'` — safe for a single run, unsafe
+for concurrent ones.
 
 It runs five phases the user can watch via `/workflows`: **Setup** (fan out one
 detached worktree per track under `.worktrees/`), **Tracks** (the three gauntlets
