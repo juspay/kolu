@@ -2,7 +2,6 @@ import tailwindcss from "@tailwindcss/vite";
 import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 import { DEFAULT_PORT } from "kolu-common/config";
 import { defineConfig } from "vite";
-import { VitePWA } from "vite-plugin-pwa";
 import solid from "vite-plugin-solid";
 
 const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
@@ -24,36 +23,12 @@ if (!fontsDir) {
 }
 
 export default defineConfig({
-  plugins: [
-    solid(),
-    tailwindcss(),
-    VitePWA({
-      // `prompt`, not `autoUpdate`: a new build must NOT reload an open tab out
-      // from under a live terminal session. `prompt` keeps the freshly-built
-      // worker in `waiting` until the user clicks Reload (see pwa.ts), whereas
-      // `autoUpdate` force-reloads on activation with no way to defer on the
-      // pinned plugin version. The worker still updates its precache eagerly;
-      // only the navigation is user-gated.
-      registerType: "prompt",
-      // `pwa.ts` registers the worker itself (via `virtual:pwa-register`) so it
-      // can own update detection and the reload — `false` tells the plugin not
-      // to also auto-inject a registration, which would double-register.
-      injectRegister: false,
-      manifest: false,
-      workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
-        // Raised from the 2 MiB default to accommodate the shiki bundle
-        // pulled in by @pierre/diffs. Precaching keeps the Code tab snappy
-        // offline.
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-        // Take control of the page the moment the waiting worker is told to
-        // skip waiting (on the user's Reload click) so the `controllerchange`
-        // fires and the reload lands on the new build — `skipWaiting` stays
-        // off so the worker waits for that click rather than activating eagerly.
-        clientsClaim: true,
-      },
-    }),
-  ],
+  // No VitePWA / service worker: kolu doesn't use one (it can't work offline and
+  // a precaching worker only served stale builds across deploys — see
+  // docs/cache-bug.md). Freshness is the server's `no-store` shell + immutable
+  // hashed assets; `public/sw.js` is a self-destructing worker that retires any
+  // SW an earlier build registered.
+  plugins: [solid(), tailwindcss()],
   resolve: {
     alias: {
       "kolu-fonts": `${fontsDir}/fonts.css`,

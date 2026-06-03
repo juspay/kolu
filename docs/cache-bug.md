@@ -13,7 +13,20 @@ and the running client is an old bundle. The defining signature:
 - **Hard reload (cmd+Shift+R) → latest commit.**
 - **Normal reload (cmd+R) → stale commit comes back.**
 
-## Current status: **RESOLVED (diagnosis)** — a stale service worker, enabled by Chrome's `unsafely-treat-insecure-origin-as-secure` flag; this PR's HTTPS gate orphaned it
+## Current status: **FIXED** — the service worker is killed; the stale layer is gone
+
+Confirmed by experiment: the user **disabled** Chrome's
+`unsafely-treat-insecure-origin-as-secure` flag, restarted, and the bug
+**vanished with no unregister** — toggling the flag toggled the SW's ability to
+control the page, hence the bug. So it was the service worker all along, enabled
+by that flag making the plain-HTTP origins secure contexts; this PR's gate
+checked `location.protocol === "https:"` instead of `window.isSecureContext` and
+orphaned the worker. **Fix shipped:** kolu no longer registers/ships a SW,
+`retireServiceWorker()` runs on every load, and a self-destructing `public/sw.js`
+retires any worker an earlier build registered. The `no-store` shell + immutable
+assets + durable `≠ srv` prompt remain the SW-less freshness mechanism.
+
+### Original diagnosis (before the flag was found) — kept for the trail
 
 The server-side fix (below) is correct and stays. The recurring staleness is a
 **service worker** serving its old precache — possible because the user enabled

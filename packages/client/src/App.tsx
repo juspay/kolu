@@ -51,8 +51,7 @@ import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
-import { checkForUpdate } from "./pwa";
-import { lifecycle, serverProcessId, wsStatus } from "./rpc/rpc";
+import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
@@ -154,20 +153,6 @@ const App: Component = () => {
   // Terminal search bar state — close when switching terminals.
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
-
-  // A server restart (new process id) means a deploy likely shipped new client
-  // assets — nudge the service worker to look for them now, instead of waiting
-  // for the hourly poll. Once a fresh build is installed and waiting,
-  // `TransportOverlay` surfaces the reload prompt (see pwa.ts).
-  createEffect(
-    on(
-      () => lifecycle().kind,
-      (kind) => {
-        if (kind === "restarted") checkForUpdate();
-      },
-      { defer: true },
-    ),
-  );
 
   const { initTipTriggers } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });

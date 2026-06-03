@@ -1,5 +1,3 @@
-/// <reference types="vite-plugin-pwa/client" />
-
 declare const __KOLU_COMMIT__: string;
 declare const __XTERM_VERSION__: string;
 

@@ -16,13 +16,14 @@ describe("getCacheControlHeader", () => {
     expect(getCacheControlHeader("/index.html")).toBe("no-store");
   });
 
-  it("revalidates the service-worker scripts on every request", () => {
-    for (const p of ["/sw.js", "/registerSW.js", "/workbox-01f28f5c.js"]) {
-      expect(getCacheControlHeader(p)).toBe("no-cache, must-revalidate");
-    }
+  it("revalidates /sw.js so the self-destructing worker is always re-fetched", () => {
+    expect(getCacheControlHeader("/sw.js")).toBe("no-cache, must-revalidate");
   });
 
-  it("has no opinion on anything else", () => {
+  it("has no opinion on anything else — including the retired SW scripts", () => {
+    // kolu no longer ships registerSW.js / workbox-*; they get no directive.
+    expect(getCacheControlHeader("/registerSW.js")).toBeNull();
+    expect(getCacheControlHeader("/workbox-01f28f5c.js")).toBeNull();
     expect(getCacheControlHeader("/favicon.svg")).toBeNull();
     expect(getCacheControlHeader("/manifest.webmanifest")).toBeNull();
     expect(getCacheControlHeader("/deep/client/route")).toBeNull();

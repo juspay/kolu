@@ -10,10 +10,10 @@
  *   hard reload cleared it — pinning the app to an old bundle across deploys.
  *   `no-store` removes the entry entirely so a normal reload can never replay a
  *   stale shell. The shell is ~1 KB, refetched per navigation — negligible.
- * - Service-worker scripts (`/sw.js`, `/registerSW.js`, `workbox-*`) —
- *   `no-cache` so a deploy's new worker is picked up on first reload, while
- *   staying cacheable-but-revalidated so the SW byte-comparison update path
- *   keeps working on secure-context deploys.
+ * - `/sw.js` — `no-cache` so the browser's service-worker update check always
+ *   re-fetches it. kolu no longer uses a service worker; `/sw.js` is now a
+ *   self-destructing worker that retires any SW an earlier build registered, and
+ *   it only does its job if the update check isn't served a stale cached copy.
  * - Everything else — no opinion, let the upstream default stand.
  */
 /** The SPA shell's cache directive — the single source of truth. `NO_STORE_PATHS`
@@ -26,8 +26,7 @@ export const SHELL_CACHE_CONTROL = "no-store";
 export const ASSET_MISS_CACHE_CONTROL = "no-store";
 
 const NO_STORE_PATHS = new Set(["/", "/index.html"]);
-const REVALIDATE_PATHS = new Set(["/sw.js", "/registerSW.js"]);
-const WORKBOX_CHUNK = /^\/workbox-[^/]+\.js$/;
+const REVALIDATE_PATHS = new Set(["/sw.js"]);
 
 /** The content-hashed asset prefix — the one class `getCacheControlHeader`
  *  stamps `immutable`. A *miss* under it must 404, not fall through to the SPA
@@ -43,7 +42,7 @@ export function getCacheControlHeader(path: string): string | null {
   if (NO_STORE_PATHS.has(path)) {
     return SHELL_CACHE_CONTROL;
   }
-  if (REVALIDATE_PATHS.has(path) || WORKBOX_CHUNK.test(path)) {
+  if (REVALIDATE_PATHS.has(path)) {
     return "no-cache, must-revalidate";
   }
   return null;
