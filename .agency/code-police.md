@@ -215,6 +215,32 @@ function useEvent(..., options: { onError: (err) => void; ... }): void {
 
 _Rationale_: a hook returning `Subscription<T>` with `.error()` lets consumers read the error reactively and render it — optional `onError` is fine there. Void return with no error surface in the result type is a category mismatch; the type system has to require the handler or the failure is invisible by construction. Codified after `useEvent.onError` and `pollOnEvent.onReadError` were tightened to required in `@kolu/surface`.
 
+### callback-fanout-guarded-at-funnel
+
+A watcher/subscription that invokes a caller-supplied callback (`onChange`, `onEvent`, an `emit` helper) from **more than one emission path** must place the try/catch at the single shared funnel the callback passes through — never on a subset of the call sites. A throwing consumer that escapes is not a benign log line: floated through a `void fetchAndEmit()` it surfaces as an **unhandled rejection** (fatal — the global handler in `index.ts` calls `process.exit(1)`), and from a synchronous `channel.consume({ onEvent })` callback it **breaks out of `buildConsume`'s `for await` loop** (`@kolu/surface`), silently freezing that subscription for the rest of the terminal's life.
+
+Bad — boundary on the async path only, leaving the synchronous pending emit uncontained:
+```ts
+async function fetchAndEmit(root) {
+  try { emit(await resolveGitHubPr(root)); } catch (err) { log?.error(…); }
+}
+function setGit(...) {
+  emit({ kind: "pending" }); // ← still runs onChange synchronously, unguarded
+  void fetchAndEmit(root);
+}
+```
+
+Good — boundary inside `emit`, the one point every path funnels through:
+```ts
+function emit(pr) {
+  if (stopped || prResultEqual(pr, lastPr)) return;
+  lastPr = pr;
+  try { onChange(pr); } catch (err) { log?.error({ err }, "…: emit failed"); }
+}
+```
+
+_Rationale_: the dangerous escape is the *uncovered* path, and watchers routinely emit from several (a synchronous "pending" on change + an async resolved value + a poll tick). Guarding one path reads as "handled" in review while another stays a live throw vector. Putting the boundary at the shared invocation point makes "the consumer callback cannot throw out of this watcher" a single-site invariant instead of a per-call-site discipline. Complements `silent-handler-required-on-void-subscriptions` (which requires the *primitive's* `onError` at the type level); this rule is about the *watcher implementation* containing the consumer it fans out to. Codified after a `subscribeGitHubPr` fix guarded `fetchAndEmit` but missed `setGit`'s synchronous `emit({ pending })` ([kolu#1143](https://github.com/juspay/kolu/pull/1143)).
+
 ### migration-shape-guard
 
 A `Conf` (or analogous schema) migration that acts on a specific value shape must early-return when the on-disk shape doesn't match its preconditions. Never write transient orphan fields that subsequent migrations are expected to destructure-out.

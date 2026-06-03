@@ -13,6 +13,30 @@ import { resolveExistingUnder } from "./safe-path.ts";
 
 const execFileAsync = promisify(execFile);
 
+/** Single spawn/parse/error path shared by the two `git ls-files` listings.
+ *  Owns the maxBuffer ceiling, the newline split + empty-line filter, and the
+ *  GIT_FAILED error envelope; callers supply the args array and the message
+ *  prefix used on failure. */
+async function gitLsFiles(
+  repoPath: string,
+  args: string[],
+  failMsg: string,
+  log?: Logger,
+): Promise<GitResult<string[]>> {
+  try {
+    const { stdout } = await execFileAsync("git", args, {
+      cwd: repoPath,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const paths = stdout.split("\n").filter((l) => l.length > 0);
+    return ok(paths);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log?.error({ err: msg, repoPath }, "git ls-files failed");
+    return err({ code: "GIT_FAILED", message: `${failMsg}: ${msg}` });
+  }
+}
+
 /** Flat list of every repo-relative path (tracked + untracked-but-not-ignored).
  *  One-shot snapshot for Pierre's `@pierre/trees`, which builds the tree
  *  hierarchy itself from a flat path list.
@@ -23,19 +47,38 @@ export async function listAll(
   repoPath: string,
   log?: Logger,
 ): Promise<GitResult<string[]>> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard"],
-      { cwd: repoPath, maxBuffer: 64 * 1024 * 1024 },
-    );
-    const paths = stdout.split("\n").filter((l) => l.length > 0);
-    return ok(paths);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    log?.error({ err: e, repoPath }, "git ls-files failed");
-    return err({ code: "GIT_FAILED", message: `Failed to list files: ${msg}` });
-  }
+  return gitLsFiles(
+    repoPath,
+    ["ls-files", "--cached", "--others", "--exclude-standard"],
+    "Failed to list files",
+    log,
+  );
+}
+
+/** Repo-relative paths git *ignores* — the exact complement of `listAll`'s
+ *  `--cached --others --exclude-standard` (union the two and you have the whole
+ *  working tree). `--directory` collapses a fully-ignored directory to its name
+ *  (so `node_modules/` is one entry, not thousands), and any trailing slash is
+ *  stripped here. The working-tree watcher feeds these to parcel's `ignore`, so
+ *  it watches exactly what the browse tree shows — committed build outputs
+ *  (Atlas's `docs/atlas/dist/`) included, gitignored ones excluded. Note: this
+ *  does NOT list `.git` (git never reports its own dir); callers that need it
+ *  ignored must add it themselves.
+ *
+ *  @param repoPath  Absolute path to the repo root.
+ *  @param log       Optional logger. */
+export async function listIgnoredPaths(
+  repoPath: string,
+  log?: Logger,
+): Promise<GitResult<string[]>> {
+  const result = await gitLsFiles(
+    repoPath,
+    ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"],
+    "Failed to list ignored files",
+    log,
+  );
+  if (!result.ok) return result;
+  return ok(result.value.map((l) => l.replace(/\/+$/, "")));
 }
 
 /** Max file size to read (1 MB). Larger files get a truncation notice. */
