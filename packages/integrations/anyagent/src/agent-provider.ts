@@ -137,6 +137,34 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
       log: Logger,
     ): void;
   };
+
+  /** Optional screen-scrape promotion. Some agents render an awaiting-user
+   *  prompt on the terminal that their watcher's data source can't see during
+   *  the wait — Claude Code buffers the `AskUserQuestion` / `ExitPlanMode`
+   *  `tool_use` message in memory and flushes the transcript JSONL only after
+   *  the user answers, so `createWatcher` reports `waiting` throughout the
+   *  prompt (#905). When this field is declared AND the host can read the
+   *  terminal's rendered screen (`readScreenText`, a host capability the
+   *  orchestrator passes in), the orchestrator polls the screen on its own
+   *  clock while `isPollable(info)` holds and republishes `promote(info,
+   *  screenText)`.
+   *
+   *  Pure + promote-only: the scrape can only lift a state, never lower it — a
+   *  genuine state change flows back through `createWatcher` (the JSONL fs.watch
+   *  is silent during the wait, which is why the scrape needs its own clock).
+   *  Agents whose data source already sees the prompt omit this field and pay no
+   *  poll cost. Independent of `createWatcher` so no screen handle threads
+   *  through that contract — keeps the screen capability out of agents that
+   *  don't need it. */
+  screenScrape?: {
+    /** Whether `info` is in a state the screen scrape could promote — gates the
+     *  poll clock so the screen read only runs during the (idle) wait window. */
+    isPollable(info: Info): boolean;
+    /** Pure merge of the watcher-derived `info` with a rendered-screen snapshot.
+     *  Returns the same `info` reference when nothing on screen warrants a
+     *  promotion, or a new promoted `Info` when it does. */
+    promote(info: Info, screenText: string): Info;
+  };
 }
 
 /** True if the preexec hint or the kernel basename names `agentName`.

@@ -129,6 +129,15 @@ export interface ProviderHooks {
    *  (recent-repos / recent-agents); a host with no activity feed omits them. */
   trackRecentRepo?: (root: string, name: string) => void;
   trackRecentAgent?: (cmd: string) => void;
+  /** Optional — read the terminal's current rendered screen as VT-resolved
+   *  plain text. Provided by hosts that can reach the PTY screen buffer (the
+   *  local backend, via pty-host's `getScreenText`); omitted by hosts that
+   *  can't. Async + host-supplied, so the DAG keeps its zero *synchronous*
+   *  dependency on the PTY host — a remote ssh pty-host serves the same read
+   *  over the wire. Drives `AgentProvider.screenScrape` promotion (Claude's
+   *  `AskUserQuestion` / `ExitPlanMode` — #905); without it, screen scrape is
+   *  simply inactive. */
+  readScreenText?: () => Promise<string>;
 }
 
 // ── Foreground process observer ──────────────────────────────────────
@@ -354,6 +363,12 @@ function getActivation(kind: string): ExternalChangesActivation {
  *  own settle window — these delays only re-check the agent-state files. */
 const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
 
+/** Cadence of the screen-scrape poll (`AgentProvider.screenScrape`). The prompt
+ *  appears asynchronously after the JSONL settles to `waiting` and produces no
+ *  fs event, so the scrape needs its own ~1 s clock to catch it. Runs ONLY
+ *  while the agent is in a pollable (idle) state, so it's off the hot path. */
+const SCREEN_SCRAPE_POLL_MS = 1000;
+
 function setAgentMetadataVia(
   record: ProviderRecord,
   hooks: ProviderHooks,
@@ -382,7 +397,15 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   hooks: ProviderHooks,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
-  let current: { watcher: AgentWatcher; key: string } | null = null;
+  let current: {
+    watcher: AgentWatcher;
+    key: string;
+    stopPoll: () => void;
+  } | null = null;
+  // The most recent watcher-derived info for the matched session — the screen
+  // scrape merges against this (not the published metadata, which it may itself
+  // have promoted). Null between sessions; reset in `destroyCurrent`.
+  let latestInfo: Info | null = null;
   let registeredForExternal = false;
   let stopped = false;
   let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
@@ -448,8 +471,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     const nextKey = next ? provider.sessionKey(next) : null;
     if ((current?.key ?? null) === nextKey) return;
     const hadCurrent = current !== null;
-    current?.watcher.destroy();
-    current = null;
+    destroyCurrent();
     if (!next || !nextKey) {
       if (hadCurrent) plog.debug("agent session ended");
       if (record.meta.agent?.kind === provider.kind) {
@@ -463,10 +485,76 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
       watcher: provider.createWatcher(
         next,
         (info) => {
+          // The watcher's data-source-derived info is the source of truth; the
+          // screen scrape only promotes off it. Stash it so the poll merges
+          // against the latest, then publish it raw.
+          latestInfo = info;
           setAgentMetadataVia(record, hooks, info as unknown as AgentInfo);
         },
         plog,
       ),
+      stopPoll: startScreenScrapePoll(),
+    };
+  }
+
+  /** Tear down the matched session's watcher + screen-scrape poll and forget its
+   *  derived info, so a stale read can't leak across a session change. */
+  function destroyCurrent() {
+    current?.watcher.destroy();
+    current?.stopPoll();
+    current = null;
+    latestInfo = null;
+  }
+
+  /** Arm the idle-gated screen-scrape poll, or a no-op when this provider
+   *  doesn't scrape or the host can't read the screen. While `isPollable` holds
+   *  for the latest watcher info, read the rendered screen each tick and, if the
+   *  scrape promotes it (e.g. `waiting → awaiting_user`), republish the promoted
+   *  info. Promote-only and idempotent: it republishes only when the promoted
+   *  state isn't already the published one, so a held prompt doesn't churn
+   *  metadata; a demotion only ever arrives via the watcher. Recursive
+   *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
+  function startScreenScrapePoll(): () => void {
+    const scrape = provider.screenScrape;
+    const readScreen = hooks.readScreenText;
+    if (!scrape || !readScreen) return () => {};
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      try {
+        const info = latestInfo;
+        if (info && scrape.isPollable(info)) {
+          const text = await readScreen();
+          if (!stopped && latestInfo === info) {
+            const promoted = scrape.promote(info, text);
+            const published = record.meta.agent;
+            if (
+              promoted !== info &&
+              !(
+                published?.kind === provider.kind &&
+                published.state === promoted.state
+              )
+            ) {
+              setAgentMetadataVia(
+                record,
+                hooks,
+                promoted as unknown as AgentInfo,
+              );
+            }
+          }
+        }
+      } catch (err) {
+        plog.debug({ err }, "screen-scrape poll tick failed");
+      }
+      if (!stopped) timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
+    };
+    timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
+    return () => {
+      stopped = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
     };
   }
 
@@ -525,7 +613,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     if (registeredForExternal) {
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }
-    current?.watcher.destroy();
+    destroyCurrent();
     plog.debug("stopped");
   };
 }

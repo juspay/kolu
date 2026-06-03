@@ -296,6 +296,10 @@ function makeHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
       updateServerLiveMetadata(entry, id, mutate),
     trackRecentRepo,
     trackRecentAgent,
+    // The screen-scrape promoter (Claude's AskUserQuestion / ExitPlanMode, #905)
+    // reads the rendered screen through the pty-host handle. `getScreenText`
+    // waits on `ready`, so it's safe even if a poll tick races spawn.
+    readScreenText: () => entry.handle.getScreenText(),
   };
 }
 
