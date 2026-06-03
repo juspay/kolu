@@ -37,6 +37,7 @@
  */
 
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type {
   AgentInfoShape,
   AgentProvider,
@@ -523,7 +524,10 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
           // equal `waiting` (e.g. a late `refreshSummary` resolving mid-prompt),
           // flickering the dock and double-bumping recency. Skip the raw publish
           // and let the poll own that edge; non-state fields it carries (e.g. a
-          // refreshed summary) are picked up on the next promote/demote republish.
+          // refreshed summary that resolves mid-prompt) are still picked up,
+          // because the poll republishes on any *structural* divergence from
+          // the published agent — not just a state edge — so a held prompt's
+          // summary update lands on the next tick, not only when it clears.
           const published = record.meta.agent;
           const scrape = provider.screenScrape;
           if (
@@ -555,12 +559,14 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
    *  doesn't scrape or the host can't read the screen. While `isPollable` holds
    *  for the latest watcher info, read the rendered screen each tick and, if the
    *  scrape promotes it (e.g. `waiting → awaiting_user`), republish the promoted
-   *  info. Idempotent: it republishes a promotion only when that state isn't
-   *  already the published one, so a held prompt doesn't churn metadata. It
-   *  also self-demotes: if the screen no longer prompts but the published state
-   *  is still a stale scrape-promotion, it republishes the raw watcher info,
-   *  since the watcher's change gate can silently drop the settling write that
-   *  would otherwise demote. Recursive
+   *  info. Idempotent: it republishes only when the resolved info differs
+   *  structurally from the published agent, so a held prompt with no field
+   *  change doesn't churn metadata, while a non-state update (e.g. a summary
+   *  refreshing mid-prompt) still lands. It also self-demotes: if the screen
+   *  no longer prompts but the published state is still a stale scrape-
+   *  promotion, it republishes the raw watcher info, since the watcher's
+   *  change gate can silently drop the settling write that would otherwise
+   *  demote. Recursive
    *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
   function startScreenScrapePoll(): () => void {
     const scrape = provider.screenScrape;
@@ -577,16 +583,21 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
 
         // The desired info is whatever the scrape resolves to: an
         // `awaiting_user`-promotion when the screen prompts, or the raw
-        // watcher `info` when it doesn't. Republish on any divergence from
-        // the published state. This subsumes both the promote (don't churn a
-        // held prompt) and the self-demote (the watcher's change gate can
-        // silently drop the JSONL write that settles a stale promotion back
-        // to a structurally-equal `waiting`, so it never demotes on its own).
+        // watcher `info` when it doesn't. Republish on any *structural*
+        // divergence from the published agent — not just a state edge. This
+        // subsumes the promote (don't churn a held prompt), the self-demote
+        // (the watcher's change gate can silently drop the JSONL write that
+        // settles a stale promotion back to a structurally-equal `waiting`,
+        // so it never demotes on its own), AND non-state updates the watcher
+        // carried while the onChange skip path was deferring to this poll:
+        // a `refreshSummary`/token update that resolves mid-prompt keeps the
+        // held `awaiting_user` state, so a state-only gate would drop it for
+        // the whole prompt window — comparing all fields republishes it here.
         const desired = scrape.promote(info, text);
         const published = record.meta.agent;
         if (
           published?.kind === provider.kind &&
-          published.state !== desired.state
+          !isDeepStrictEqual(published, desired)
         ) {
           setAgentMetadataVia(record, hooks, desired as unknown as AgentInfo);
         }
