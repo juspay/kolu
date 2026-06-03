@@ -295,6 +295,16 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
     content: `<task-notification>\n<task-id>${taskId}</task-id>\n<status>completed</status>\n</task-notification>`,
   });
 
+  /** The `⑂ forked …` echo a `/fork` writes to the MAIN transcript at launch — a
+   *  `system`/`local_command` entry `deriveState` skips (so the trailing state
+   *  stays `waiting`). It is what fires the main-transcript watcher in
+   *  production; repeats are harmless. */
+  const forkEcho = (name: string) => ({
+    type: "system",
+    subtype: "local_command",
+    content: `<local-command-stdout>⑂ forked ${name} (1483)</local-command-stdout>`,
+  });
+
   /** Write a live `/fork` sub-agent's `agent-<id>.meta.json` + streaming
    *  `agent-<id>.jsonl` into `subagents/` (fresh mtime → still running). */
   function writeForkAgent(id: string): void {
@@ -313,9 +323,9 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
    *  `onTick` fires on a steady `tickMs` cadence (NOT every 25ms poll) — kept
    *  slower than the watcher's 150ms trailing-edge debounce so the debounce can
    *  actually settle and re-derive between nudges instead of being reset on every
-   *  poll. It exists to model a *streaming* on-disk source (a live fork appends
-   *  its transcript continuously) so a single dropped fs.watch event can't wedge
-   *  the test — the same reason the e2e harness re-touches its mock files. */
+   *  poll. It re-fires the main-transcript event so a single dropped fs.watch
+   *  event can't wedge the test — the same reason the e2e harness re-touches its
+   *  mock files. */
   async function waitForState(
     read: () => string | null,
     want: string,
@@ -358,24 +368,22 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
       expect(await waitForState(state, "waiting")).toBe("waiting");
       expect(latest()?.workflow ?? null).toBeNull();
 
-      // The fork's artifacts appear AFTER the main already went quiet — the F1
-      // race. Only the `subagents/` watcher can re-trigger the scan here; the
-      // main transcript fires no further event. The row must promote.
-      //
-      // The fork's transcript STREAMS while it runs, so model that: append to it
-      // on a steady tick. Each append is a `subagents/` write the watcher catches
-      // — and the first append lands after the dir watch is attached, so the
-      // promotion fires reliably even when the initial create events are dropped
-      // (directory fs.watch is unreliable for late-created entries on macOS,
-      // #1123). A frozen single-write fork is what wedged this test on darwin.
+      // The fork's artifacts appear AFTER the main already went quiet (the F1
+      // race), then the `/fork` writes its `⑂ forked …` echo to the MAIN
+      // transcript — which is what actually re-triggers detection in production:
+      // the single-file transcript watcher (reliable cross-platform, unlike the
+      // macOS directory watch — #1123) re-derives, and the synchronous subagents
+      // readdir finds the now-present fork and promotes. The echo is re-appended
+      // on a steady tick so a dropped fs event can't wedge it (a `system` entry
+      // deriveState skips, so repeats keep the trailing state `waiting`). The
+      // `subagents/` watcher stays as resilience for the rarer "artifacts lag the
+      // echo past the debounce" sub-race; it isn't asserted here because
+      // directory fs.watch is nondeterministic on macOS.
       writeForkAgent("aimplement-it-late");
-      const forkJsonl = path.join(
-        subagentsDirFor(session),
-        "agent-aimplement-it-late.jsonl",
-      );
+      appendTranscript(forkEcho("implement-it"));
       expect(
         await waitForState(state, "running_background", {
-          onTick: () => fs.appendFileSync(forkJsonl, "{}\n"),
+          onTick: () => appendTranscript(forkEcho("implement-it")),
           timeoutMs: 8000,
         }),
       ).toBe("running_background");
@@ -396,5 +404,8 @@ describe("createSessionWatcher — /fork lifecycle (eventing path)", () => {
     } finally {
       watcher.destroy();
     }
-  });
+    // Explicit 20s budget: the two ≤8s state-waits above can't fit vitest's
+    // default 5s per-test timeout, which (not an assertion) is what failed this
+    // test on the slower darwin lane.
+  }, 20_000);
 });
