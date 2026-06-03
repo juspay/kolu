@@ -62,9 +62,13 @@ to `cd`.
   its own commit. Pass the change rationale so deliberate decisions aren't flagged.
 - **police** — `/code-police`'s three cold passes (rule checklist, fact-check,
   elegance) reproduced as parallel agents, each finding applied as its own commit
-  (`fix(police):`). Per-finding `just check` is **deferred** to the
-  post-consolidation check + `/be` §5 CI rather than run 3× concurrently across
-  the parallel worktrees; `fmt`-on-touched-files still runs in each apply.
+  (`fix(police):`). The passes run **until a sweep is clean** (re-reviewing the
+  updated worktree after each apply, so a fix that introduces or only partially
+  resolves an issue is caught), capped at a few sweeps; hitting the cap with issues
+  still open reports `incomplete` rather than a false consensus.
+  `fmt`-on-touched-files runs in every apply. Per-finding `just check` is
+  **deferred** to the post-consolidation check + `/be` §5 CI rather than run 3×
+  concurrently across the parallel worktrees.
 
 ## Arguments
 
@@ -144,18 +148,31 @@ track + the consolidation ledger), **Cleanup** (tear down the worktrees). It
 returns:
 
 ```
-{ status,                  // 'done' | 'no-commit' | 'setup-failed'
+{ status,                  // 'done' | 'consolidation-incomplete' | 'consolidation-aborted' | 'no-commit' | 'setup-failed'
   branchHead, finalHead, base, order,
   tracks,                  // per-track result; ALWAYS one entry per requested track —
                            //   a track whose worktree setup failed is status:'track-error'
   consolidation,           // { finalHead, picks[] }  (null when not consolidated)
+  preservedTracks,         // tracks NOT consolidated (worktrees kept); non-empty ⇒ status incomplete/aborted
   conflicts,               // the reconciled overlaps (picks whose outcome ≠ clean; empty common case)
   comments }               // { consolidation, codex, lens, police } → posted comment URLs ({} under --no-comment)
 ```
 
 - `setup-failed` — no work was consolidated: a dirty main worktree (commit/stash
-  and re-run) or no worktree could be created. `tracks` carries the per-track
-  `track-error` detail.
+  and re-run), an unresolvable merge-base, a malformed `runId`/`tracks` argument,
+  or no worktree could be created. `tracks` carries the per-track `track-error`
+  detail.
+- `consolidation-incomplete` — the picks ran, but at least one requested track was
+  **preserved** (left uncommitted edits, couldn't be confirmed clean, or crashed
+  with committed-but-unreplayed work), so its fixes live only in its worktree.
+  `preservedTracks` names them and each `tracks[t].note` has the recovery
+  cherry-pick. `/be` should adjudicate these before continuing rather than treat
+  the gauntlet as fully landed.
+- `consolidation-aborted` — the branch HEAD moved or the main worktree went dirty
+  **during** the (long) parallel tracks phase, so the cherry-pick base is no longer
+  the reviewed `branchHead`. Nothing was consolidated and **all** track worktrees
+  are preserved (`preservedTracks` + per-track recovery cherry-picks). Resolve the
+  drift, then consolidate by hand or re-run.
 - `no-commit` — `--no-commit` was set, so each track's fixes are left
   **uncommitted in its preserved `.worktrees/be-review-<runId>-<track>` worktree**
   and nothing is consolidated, reported, or cleaned up. The result lists those

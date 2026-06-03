@@ -259,7 +259,20 @@ for (let round = 1; ; round++) {
   const open = openFindings(verdict)
   log(`Round ${round}: codex approved=${verdict.approved}, findings open=${open.length}`)
 
-  // Consensus: every finding resolved (any severity).
+  // Consensus requires BOTH no open finding AND codex's explicit approval. An
+  // inconsistent verdict — `approved:false` with nothing open — is not consensus:
+  // codex declined to approve while leaving us nothing to route to Claude, so
+  // treating it as agreement would ship an unapproved change. There's no finding
+  // to debate, so re-running codex would just replay the same inconsistency;
+  // surface it as a reviewer error (the terminal abnormal path) instead of
+  // looping forever or falsely converging.
+  if (open.length === 0 && verdict.approved !== true) {
+    status = 'reviewer-error'
+    log(`Round ${round}: inconsistent verdict — approved=false with no open findings; aborting as reviewer-error.`)
+    break
+  }
+
+  // Consensus: codex approved AND every finding resolved (any severity).
   if (open.length === 0) {
     break
   }

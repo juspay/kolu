@@ -61,6 +61,24 @@ const model = a.model || MODEL
 // changes the most — bug fixes), then the structural lenses, then police, so an
 // overlap surfaces as a conflict picking the later, lighter-touch track.
 const TRACKS = a.tracks || ['codex', 'lens', 'police']
+// Whitelist the track names. Each is woven into worktree paths and the agents'
+// shell snippets (just like RUN_ID above), and each must map to a registered
+// thunk. Reject an unknown track or a duplicate up front rather than building a
+// worktree at an unexpected path or invoking `undefined()` in `parallel` — a
+// typo'd/hostile track is an input error, not something to silently route around.
+const KNOWN_TRACKS = ['codex', 'lens', 'police']
+const badTracks = TRACKS.filter((t) => !KNOWN_TRACKS.includes(t))
+const dupTracks = TRACKS.filter((t, i) => TRACKS.indexOf(t) !== i)
+if (badTracks.length || dupTracks.length) {
+  return {
+    status: 'setup-failed',
+    branchHead: '',
+    base: a.base || 'origin/master',
+    tracks: {},
+    consolidation: null,
+    note: `tracks must be a subset of ${KNOWN_TRACKS.join(', ')} with no duplicates.${badTracks.length ? ` Unknown: ${[...new Set(badTracks)].join(', ')}.` : ''}${dupTracks.length ? ` Duplicated: ${[...new Set(dupTracks)].join(', ')}.` : ''}`,
+  }
+}
 
 // SHARED-CWD NOTE. Every workflow agent inherits the SESSION cwd (the main
 // worktree) — the harness offers no per-agent cwd, and `isolation:'worktree'`
@@ -81,6 +99,24 @@ const TRACKS = a.tracks || ['codex', 'lens', 'police']
 // the same main worktree must pass distinct ids. The actual paths are reported in
 // the result so manual inspection doesn't need to guess them.
 const RUN_ID = String(a.runId || 'run')
+// `RUN_ID` and the track names below are woven directly into filesystem paths
+// (worktree dirs, scratch subdirs) and into the shell snippets the mechanical
+// agents run, so they MUST be conservative tokens. A value with `/`, `..`, or
+// shell metacharacters could place a worktree or scratch file OUTSIDE the
+// intended `.worktrees`/`.be-review` dirs, collide with another run, or inject a
+// command into an agent's `git -C`/`mkdir` snippet. Reject anything that isn't a
+// plain `[A-Za-z0-9._-]` token (which also excludes path separators and `..` as a
+// whole, since `.` alone is fine but `..` can't reach a parent without a `/`).
+if (!/^[A-Za-z0-9._-]+$/.test(RUN_ID) || RUN_ID === '..' || RUN_ID === '.') {
+  return {
+    status: 'setup-failed',
+    branchHead: '',
+    base: a.base || 'origin/master',
+    tracks: {},
+    consolidation: null,
+    note: `runId must match ^[A-Za-z0-9._-]+$ (no slashes, no shell metacharacters) so it stays safe inside filesystem paths and shell snippets; got \`${RUN_ID}\`. Pass a plain token like the launch epoch ms.`,
+  }
+}
 const WT_ROOT = `${repoPath}/.worktrees`
 const wtDir = (track) => `${WT_ROOT}/be-review-${RUN_ID}-${track}`
 const SCRATCH = `${repoPath}/.be-review/${RUN_ID}`
@@ -307,36 +343,60 @@ async function policeTrack(wt) {
     { key: 'elegance', brief: 'the **Elegance** pass exactly as defined in that skill\'s "Running the passes" section (Pass 3) — simplicity and idiom' },
   ].filter((p) => p.key !== 'elegance' || !tinyDiff?.tiny)
   if (tinyDiff?.tiny) log('police: skipping elegance pass (tiny diff <10 lines, per code-police SKILL.md)')
-  const reviews = await parallel(
-    passes.map((p) => () =>
-      agent(
-        `You are the **code-police ${p.key}** reviewer on a fresh, cold context — the implementer is biased to rationalize their own diff, so you start from "assume the code is wrong until proven right" and NEVER talk yourself out of a finding. First Read \`${wt}/.claude/skills/code-police/SKILL.md\` (and \`${wt}/.agency/code-police.md\` if it exists) for the rules and reviewing principles, then ${DIFF(wt)}\n${rationaleBlock}\nReview through ${p.brief}. Emit high-confidence findings only; an empty list is a fine verdict for a clean diff. Each finding: a title, a file:line location, the problem, a concrete implementable fix, and a severity.`,
-        { label: `police:${p.key}`, phase: 'Tracks', model, schema: POLICE_FINDINGS_SCHEMA },
-      ),
-    ),
-  )
-  const findings = passes.flatMap((p, i) =>
-    (reviews[i]?.findings ?? []).map((f, j) => ({ id: `police-${p.key}-${j + 1}`, pass: p.key, ...f })),
-  )
-  log(`police: ${findings.length} finding(s) across ${passes.length} passes`)
 
-  // Apply each finding as its own commit, sequentially (same-file edits can't be
-  // parallel-applied). Every edit and git command targets the absolute worktree.
+  // /code-police runs its passes "until clean": applying a finding can introduce a
+  // NEW issue or leave one only partially fixed, so a single review+apply sweep is
+  // not equivalent. Loop the passes on the UPDATED worktree until a sweep returns
+  // no findings (clean) — applied fixes are re-reviewed, not assumed correct. A cap
+  // keeps a thrashing reviewer from spinning forever (the harness backstop is the
+  // hard ceiling); if we hit it with findings still open, the track reports
+  // `incomplete` rather than a false `consensus`. Each round's finding ids are
+  // round-scoped so commits stay unique across sweeps.
+  const POLICE_MAX_ROUNDS = 4
   const applied = []
-  for (const f of findings) {
-    const impl = await agent(
-      `You are implementing ONE code-police finding in the worktree at \`${wt}\`. Work ONLY inside that worktree — every file you Read or Edit MUST be an ABSOLUTE path under \`${wt}\` (your shell cwd is a DIFFERENT worktree, so a relative path would edit the wrong tree). Read the surrounding code first so the edit fits the existing style; keep it tightly scoped.\n\nFinding ${f.id} [${f.severity}] — ${f.title}\n  at ${f.location}\n  problem: ${f.problem}\n  fix: ${f.fix}\n\nMake ONLY this change. Do NOT git add / commit / push. You MAY run the project's formatter on files you touched (\`cd ${wt} && <formatter>\`). Return a one-line summary and the exact list of files you changed (absolute paths).`,
-      { label: `police-apply:${f.id}`, phase: 'Tracks', model, schema: IMPL_SCHEMA },
+  let totalFindings = 0
+  let policeRound = 0
+  let lastRoundFindings = 0
+  for (; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
+    const reviews = await parallel(
+      passes.map((p) => () =>
+        agent(
+          `You are the **code-police ${p.key}** reviewer on a fresh, cold context — the implementer is biased to rationalize their own diff, so you start from "assume the code is wrong until proven right" and NEVER talk yourself out of a finding. First Read \`${wt}/.claude/skills/code-police/SKILL.md\` (and \`${wt}/.agency/code-police.md\` if it exists) for the rules and reviewing principles, then ${DIFF(wt)}\n${rationaleBlock}\nReview through ${p.brief}. Emit high-confidence findings only; an empty list is a fine verdict for a clean diff. Each finding: a title, a file:line location, the problem, a concrete implementable fix, and a severity.`,
+          { label: `police:${p.key}:r${policeRound + 1}`, phase: 'Tracks', model, schema: POLICE_FINDINGS_SCHEMA },
+        ),
+      ),
     )
-    const files = impl?.filesChanged ?? []
-    let sha = null
-    if (commit && files.length) {
-      sha = (await commitFix(wt, f.id, `fix(police): ${f.title}`, `${impl.summary}\n\ncode-police ${f.pass} finding ${f.id} [${f.severity}]. Applied by the /be parallel gauntlet; not pushed or merged.`, files))?.sha?.trim() || null
+    const findings = passes.flatMap((p, i) =>
+      (reviews[i]?.findings ?? []).map((f, j) => ({ id: `police-r${policeRound + 1}-${p.key}-${j + 1}`, pass: p.key, ...f })),
+    )
+    lastRoundFindings = findings.length
+    log(`police: round ${policeRound + 1} — ${findings.length} finding(s) across ${passes.length} passes`)
+    if (!findings.length) break // clean sweep on the updated worktree → done
+
+    // Apply each finding as its own commit, sequentially (same-file edits can't be
+    // parallel-applied). Every edit and git command targets the absolute worktree.
+    for (const f of findings) {
+      const impl = await agent(
+        `You are implementing ONE code-police finding in the worktree at \`${wt}\`. Work ONLY inside that worktree — every file you Read or Edit MUST be an ABSOLUTE path under \`${wt}\` (your shell cwd is a DIFFERENT worktree, so a relative path would edit the wrong tree). Read the surrounding code first so the edit fits the existing style; keep it tightly scoped.\n\nFinding ${f.id} [${f.severity}] — ${f.title}\n  at ${f.location}\n  problem: ${f.problem}\n  fix: ${f.fix}\n\nMake ONLY this change, fixing the issue COMPLETELY (a partial fix would resurface in the next review sweep). Do NOT git add / commit / push. You MUST run the project's formatter on every file you touched (\`cd ${wt} && <formatter>\`). Return a one-line summary and the exact list of files you changed (absolute paths).`,
+        { label: `police-apply:${f.id}`, phase: 'Tracks', model, schema: IMPL_SCHEMA },
+      )
+      const files = impl?.filesChanged ?? []
+      let sha = null
+      if (commit && files.length) {
+        sha = (await commitFix(wt, f.id, `fix(police): ${f.title}`, `${impl.summary}\n\ncode-police ${f.pass} finding ${f.id} [${f.severity}]. Applied by the /be parallel gauntlet; not pushed or merged.`, files))?.sha?.trim() || null
+      }
+      applied.push({ id: f.id, title: f.title, severity: f.severity, problem: f.problem, files, commit: sha })
+      log(`police: applied ${f.id}${sha ? ` (${sha.slice(0, 9)})` : ' (uncommitted)'}`)
     }
-    applied.push({ id: f.id, title: f.title, severity: f.severity, problem: f.problem, files, commit: sha })
-    log(`police: applied ${f.id}${sha ? ` (${sha.slice(0, 9)})` : ' (uncommitted)'}`)
+    totalFindings += findings.length
   }
-  return { status: findings.length ? 'consensus' : 'clean', findings: findings.length, passes: passes.map((p) => p.key), applied }
+  // `clean` only if the FINAL sweep found nothing. If we exhausted the round cap
+  // with findings still open, the worktree isn't verified-clean — report
+  // `incomplete` so the caller (and the PR comment) doesn't read it as consensus.
+  const reachedClean = lastRoundFindings === 0
+  const status = !totalFindings ? 'clean' : reachedClean ? 'consensus' : 'incomplete'
+  if (!reachedClean) log(`police: hit round cap (${POLICE_MAX_ROUNDS}) with findings still open — reporting incomplete.`)
+  return { status, findings: totalFindings, rounds: policeRound + (reachedClean ? 0 : 1), passes: passes.map((p) => p.key), applied }
 }
 
 // Mechanical committer shared by the police track: stages EXACTLY the listed
@@ -420,6 +480,15 @@ const esc = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n+/g, ' ').tr
 
 const SEV = { blocking: '🔴 blocking', major: '🟠 major', minor: '🟡 minor', nit: '⚪ nit' }
 
+// A track that ran but was NOT consolidated (preserved worktree) carries
+// `consolidated:false` and a recovery `note`. Surface it as a banner at the top of
+// that track's comment so the PR audit trail never reads "reached consensus" while
+// the fixes silently live only in a side worktree.
+function preservedBanner(t) {
+  if (!t || t.consolidated !== false) return ''
+  return `\n\n> ⚠️ **Not consolidated onto the branch.** ${esc(t.note) || 'This track was preserved in its own worktree; its fixes are not on the branch.'}`
+}
+
 // Full per-round detail: every codex finding (severity, id, issue, location,
 // suggestion, status) and Claude's disposition of each — the complete debate
 // transcript, not a count table.
@@ -453,7 +522,7 @@ function codexComment(t) {
   const rounds = (t.transcript || []).map(codexRound).join('\n\n---\n\n')
   return `## 🤖 Codex ⇄ Claude debate
 
-**Outcome:** \`${t.status}\` after ${t.rounds} round(s) · codex reviewed at \`xhigh\` reasoning effort.
+**Outcome:** \`${t.status}\` after ${t.rounds} round(s) · codex reviewed at \`xhigh\` reasoning effort.${preservedBanner(t)}
 
 ${esc(t.finalVerdict?.summary)}
 
@@ -471,7 +540,7 @@ function lensComment(t) {
     : ''
   return `## ⚖️ Lowy ⇄ Hickey lens debate
 
-**Outcome:** \`${t.status}\` after ${t.rounds || 0} round(s). Independent review: ${Object.entries(t.reviews || {}).map(([k, v]) => `${k}=${(v || []).length}`).join(', ') || 'n/a'}.
+**Outcome:** \`${t.status}\` after ${t.rounds || 0} round(s). Independent review: ${Object.entries(t.reviews || {}).map(([k, v]) => `${k}=${(v || []).length}`).join(', ') || 'n/a'}.${preservedBanner(t)}
 
 | origin | finding | location | disposition | commit |
 |---|---|---|---|---|
@@ -485,7 +554,7 @@ function policeComment(t) {
     .join('\n')
   return `## 👮 Code-police
 
-**${t.findings || 0} finding(s)** across the ${(t.passes || []).join(' / ') || 'code-police'} passes${t.status === 'clean' ? ' — clean diff' : ''}.
+**${t.findings || 0} finding(s)** across the ${(t.passes || []).join(' / ') || 'code-police'} passes over ${t.rounds || 1} review sweep(s)${t.status === 'clean' ? ' — clean diff' : ''}.${t.status === 'incomplete' ? ` ⚠️ **Did not reach a clean sweep within the round cap** — the worktree may still have open issues; re-run /code-police on it.` : ''}${preservedBanner(t)}
 
 | severity | finding | files | commit |
 |---|---|---|---|
@@ -552,6 +621,69 @@ if (!commit) {
 // changes (it has both commit messages = both debates' rationale).
 // ---------------------------------------------------------------------------
 phase('Consolidate')
+
+// BRANCH-DRIFT GATE. The Tracks phase can run for many minutes; the consolidator
+// below cherry-picks onto the branch in `${repoPath}` and its prompt asserts the
+// branch is still AT `branchHead` (the tracks' shared fork point). Setup's
+// clean-tree preflight ran BEFORE the tracks, so if the user, another workflow, or
+// a second /be-review advanced or dirtied the branch while the tracks ran, we'd
+// cherry-pick onto an unreviewed base while telling the agent it's at `branchHead`
+// — corrupting the review scope. Re-check HEAD and cleanliness NOW, just before the
+// picks. If the branch moved or is dirty, abort and PRESERVE every track worktree
+// (don't tear them down — their commits are the only copy of the reviewed fixes),
+// so the human can consolidate by hand after sorting out the drift.
+const driftCheck = await agent(
+  `You are a MECHANICAL DRIFT CHECKER. Do exactly this against the main worktree at \`${repoPath}\` (use \`git -C\`; do not edit anything):
+1. \`git -C ${repoPath} rev-parse HEAD\` — return as \`head\`.
+2. \`git -C ${repoPath} status --short\` — IGNORE only lines under the gitignored scratch dirs (\`.worktrees/\` and \`.be-review/\`). If ANY other staged/unstaged/untracked entry remains, set \`clean\`: false and put those lines in \`dirtyStatus\`; otherwise \`clean\`: true and \`dirtyStatus\`: "".`,
+  {
+    label: 'consolidate:drift-check',
+    phase: 'Consolidate',
+    model,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['head', 'clean'],
+      properties: {
+        head: { type: 'string', description: 'current HEAD SHA of the main worktree' },
+        clean: { type: 'boolean' },
+        dirtyStatus: { type: 'string' },
+      },
+    },
+  },
+)
+const curHead = (driftCheck?.head || '').trim()
+const branchMoved = curHead && curHead !== branchHead
+const branchDirty = driftCheck?.clean === false
+if (branchMoved || branchDirty) {
+  const dirty = (driftCheck?.dirtyStatus || '').trim()
+  const why = branchMoved
+    ? `the branch HEAD moved from \`${branchHead.slice(0, 9)}\` (the tracks' fork point) to \`${curHead.slice(0, 9)}\` while the tracks ran`
+    : `the main worktree became dirty while the tracks ran`
+  log(`Consolidate: ABORT — ${why}. Cherry-picking onto a changed base would corrupt the review scope. Preserving all track worktrees for manual consolidation.`)
+  for (const t of liveTracks) {
+    tracks[t] = {
+      ...tracks[t],
+      consolidated: false,
+      note: `NOT consolidated — ${why}, so the consolidator's "branch is at ${branchHead.slice(0, 9)}" assumption no longer holds. The track's worktree was PRESERVED at ${wtDir(t)}; after resolving the drift, replay its commits with \`git -C ${repoPath} cherry-pick $(git -C ${wtDir(t)} rev-list --reverse ${branchHead}..HEAD)\`.`,
+    }
+  }
+  return {
+    status: 'consolidation-aborted',
+    branchHead,
+    finalHead: curHead || branchHead,
+    base,
+    order: [],
+    tracks,
+    consolidation: null,
+    reconciled: [],
+    dropped: [],
+    conflicts: [],
+    preservedTracks: liveTracks,
+    note: `consolidation aborted: ${why}. Cherry-picking onto the changed base would review against an untrustworthy scope, so nothing was consolidated and every track worktree was PRESERVED (see each track's note for the recovery cherry-pick).${dirty ? `\nOffending entries:\n${dirty}` : ''}`,
+    worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
+  }
+}
 
 // CLEAN-WORKTREE GATE before consolidation. Consolidation replays only COMMITTED
 // commits (`rev-list branchHead..HEAD`), and Cleanup later force-removes every
@@ -722,8 +854,20 @@ Then: \`git -C ${repoPath} worktree prune\`. Leave the gitignored \`${SCRATCH}\`
   log('Cleanup: no consolidated worktrees to tear down (all preserved or none live).')
 }
 
+// Top-level status reflects whether EVERY requested track actually landed on the
+// branch. A preserved track (uncommitted edits, an unconfirmed worktree, or a
+// crashed `track-error` whose committed fixes were deliberately not replayed) means
+// at least one reviewer's fixes live ONLY in a side worktree — so `done` would
+// overstate the outcome and let /be continue as if the gauntlet fully consolidated.
+// Surface `consolidation-incomplete` (with the preserved tracks + recovery notes
+// already on each `tracks[t]`) so the caller can adjudicate instead of silently
+// shipping a partial consolidation.
+const status = preservedTracks.length ? 'consolidation-incomplete' : 'done'
+if (preservedTracks.length) {
+  log(`Done: status=consolidation-incomplete — ${preservedTracks.length} track(s) preserved, not consolidated: ${preservedTracks.join(', ')}. Their worktrees hold the only copy of those fixes; see each track's note for the recovery cherry-pick.`)
+}
 return {
-  status: 'done',
+  status,
   branchHead,
   finalHead: consolidation?.finalHead || null,
   base,
@@ -732,6 +876,9 @@ return {
   consolidation,
   reconciled,
   dropped,
+  // Tracks whose fixes were NOT consolidated onto the branch (preserved worktrees);
+  // empty in the common case. Non-empty ⇒ status is 'consolidation-incomplete'.
+  preservedTracks,
   // back-compat: the union of non-clean picks. Consumers keying on a discarded
   // fix (e.g. /be §4's "dropped overlap" adjudication) should read `dropped`.
   conflicts: [...reconciled, ...dropped],

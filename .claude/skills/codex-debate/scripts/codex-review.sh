@@ -130,6 +130,19 @@ EOF
 # the reviewerError verdict below.
 attempts="${CODEX_REVIEW_RETRIES:-3}"
 backoff="${CODEX_REVIEW_BACKOFF:-5}"
+# Validate both as positive integers. Left unchecked, a non-numeric value makes
+# the arithmetic `[ "$n" -ge "$attempts" ]` test error every iteration, so the
+# loop would spin forever instead of giving up and synthesizing the reviewerError
+# verdict. Fall back to the documented defaults (and clamp attempts to >=1) loudly
+# rather than wedge the headless debate on a typo'd override.
+if ! [[ "$attempts" =~ ^[0-9]+$ ]] || [ "$attempts" -lt 1 ]; then
+  echo "WARNING: CODEX_REVIEW_RETRIES='$attempts' is not a positive integer; using 3." >&2
+  attempts=3
+fi
+if ! [[ "$backoff" =~ ^[0-9]+$ ]]; then
+  echo "WARNING: CODEX_REVIEW_BACKOFF='$backoff' is not a non-negative integer; using 5." >&2
+  backoff=5
+fi
 n=1
 while :; do
   rm -f "$out"
