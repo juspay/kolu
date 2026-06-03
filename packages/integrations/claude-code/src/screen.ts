@@ -106,9 +106,10 @@ function hasSelectPrompt(lines: string[]): boolean {
  *  painted on the rendered screen. */
 export function screenHasClaudePrompt(screenText: string): boolean {
   const lines = tailRegion(screenText);
+  const tail = lines.join("\n");
 
   // ExitPlanMode: its literals are boolean-certain.
-  if (EXIT_PLAN_LITERALS.some((lit) => lines.join("\n").includes(lit))) {
+  if (EXIT_PLAN_LITERALS.some((lit) => tail.includes(lit))) {
     return true;
   }
 
