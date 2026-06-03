@@ -7,9 +7,10 @@
  *  for the horizontal split + drag-to-resize; the mobile host wraps
  *  this in a `@corvu/drawer` (`RightPanelDrawer.tsx`). Both hosts thread
  *  the same `visible` accessor — desktop reads `collapsed()`, mobile
- *  reads `drawerOpen()` — so `aria-hidden` reflects actual visibility on
- *  both surfaces. `data-collapsed` is emitted when `!visible` so e2e
- *  selectors can assert collapse state without inspecting widths. */
+ *  reads `drawerOpen()` — so `inert` (and the `data-collapsed` marker)
+ *  reflect actual visibility on both surfaces. `data-collapsed` is emitted
+ *  when `!visible` so e2e selectors can assert collapse state without
+ *  inspecting widths. */
 
 import type {
   RightPanelTabKind,
@@ -61,12 +62,14 @@ const RightPanel: Component<{
       class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0"
       // Panel stays mounted across collapse on desktop so CodeTab's local
       // state survives (#818); the desktop Resizable shrinks it to ~0 width
-      // via `sizes=[1, 0]`. `aria-hidden` keeps the subtree out of the
-      // screen-reader tree; `inert` keeps it out of the Tab focus order
-      // (aria-hidden alone leaves the Collapse button and tab buttons
-      // Tab-reachable at zero width — invisible focus trap). Together
-      // they make "not visible" mean "not interactive."
-      aria-hidden={!props.visible}
+      // via `sizes=[1, 0]`. `inert` alone makes "not visible" mean "not
+      // interactive": it both drops the subtree from the accessibility tree
+      // and removes the Collapse button, tab buttons, and CodeTab inputs
+      // from the Tab focus order (an invisible focus trap otherwise). We
+      // deliberately omit a paired `aria-hidden`: the browser blocks
+      // `aria-hidden` on an ancestor of a focused element (a focused
+      // Collapse/tab button or CodeTab input when the panel collapses) and
+      // logs a WAI-ARIA console warning — `inert` covers both concerns.
       inert={!props.visible}
     >
       {/* Tab bar */}
