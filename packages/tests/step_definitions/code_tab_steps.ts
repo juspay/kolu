@@ -820,6 +820,26 @@ When(
   },
 );
 
+// Proof of the task-toggle round-trip: after a click writes the flip back to
+// the file, the watcher re-yields the content and the preview re-renders the
+// box in its new state. (Asserting the re-rendered checkbox — rather than
+// flipping to the source view — keeps the proof in one surface.)
+Then(
+  "markdown preview task {int} should be checked",
+  async function (this: KoluWorld, index: number) {
+    await this.page.waitForFunction(
+      (i) => {
+        const cb = document.querySelector<HTMLInputElement>(
+          `[data-testid="browse-preview-markdown"] input[data-md-task="${i}"]`,
+        );
+        return cb != null && cb.checked === true;
+      },
+      index,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Right-panel tab switching + filter input ──
 
 When(

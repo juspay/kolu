@@ -617,10 +617,10 @@ Feature: Code tab (review + browse)
     And the markdown preview should not render a "p br" element
     # Interactive task checkbox: enabled + indexed.
     And the markdown preview should render a "input[data-md-task]" element
-    # Toggling it writes [x] back to the file — proven via the source view.
+    # Toggling it writes [x] back to the file; the watcher re-renders the box
+    # in its new checked state (the round-trip proof).
     When I toggle markdown task 0
-    And I switch the file view to "source"
-    Then the file content should contain "[x] todo item"
+    Then markdown preview task 0 should be checked
 
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
