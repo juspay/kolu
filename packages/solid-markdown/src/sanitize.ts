@@ -149,9 +149,18 @@ function configFor(opts: SanitizeOptions) {
   // these lists. We deliberately do NOT set `USE_PROFILES`: a profile would
   // overwrite the explicit lists with the full html allowlist and silently
   // re-admit `style`/`class`/inputs/etc.
+  //
+  // `ALLOWED_ATTR` alone is *not* a complete allowlist: DOMPurify keeps any
+  // `data-*` / `aria-*` attribute by default (its `ALLOW_DATA_ATTR` /
+  // `ALLOW_ARIA_ATTR` short-circuit the `ALLOWED_ATTR` check). Markdown emits
+  // neither, and we don't want an untrusted README seeding `data-*` hooks the
+  // app might read or `aria-*` it didn't author — so we turn both off to make
+  // the attribute set exactly `DOCUMENT_ATTR` / `INTENT_ATTR`.
   return {
     ALLOWED_TAGS: opts.richHtml ? DOCUMENT_TAGS : INTENT_TAGS,
     ALLOWED_ATTR: opts.richHtml ? DOCUMENT_ATTR : INTENT_ATTR,
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false,
     RETURN_DOM: true,
   };
 }
