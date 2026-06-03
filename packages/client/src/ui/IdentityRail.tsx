@@ -28,7 +28,7 @@
 import { type Component, Show } from "solid-js";
 import { serverInfo, type WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
-import { clientIsStale } from "./commitRef";
+import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
 
 /** WebSocket transport status → the `srv` liveness dot. */
@@ -79,9 +79,10 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   //   );
   // };
 
-  // A genuinely outdated client — old bundle from browser cache against a
-  // freshly deployed server. Derivation lives in `commitRef` (unit-tested).
-  const stale = () => clientIsStale(serverInfo()?.commit, __KOLU_COMMIT__);
+  // A genuinely outdated client — old bundle against a freshly deployed server.
+  // Shared with the mobile chrome via `StaleBadge` (derivation in `commitRef`,
+  // unit-tested) so desktop and mobile flag the same thing the same way.
+  const stale = clientStale;
 
   return (
     <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
@@ -103,9 +104,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         </Tip>
         <Show when={stale()}>
           <Tip label="This client build doesn't match the server — reload to pick up the server's version.">
-            <span class="self-center rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning">
-              ≠ srv
-            </span>
+            <StaleBadge />
           </Tip>
         </Show>
       </span>

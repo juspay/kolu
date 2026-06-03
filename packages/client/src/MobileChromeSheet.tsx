@@ -16,14 +16,16 @@
  *  renders the sheet's contents; `onClose` is called after a user
  *  action so the parent can close the drawer. */
 
-import { type Component, createSignal } from "solid-js";
+import { type Component, createSignal, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
+import { reloadForUpdate } from "./pwa";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
 import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
+import { clientStale, StaleBadge } from "./ui/StaleBadge";
 
 const statusStyles: Record<WsStatus, string> = {
   connecting: "bg-warning animate-pulse",
@@ -64,6 +66,26 @@ const MobileChromeSheet: Component<{
           aria-label="Connection status"
         />
       </div>
+
+      {/* Client out of sync with the server — the actionable mobile form of the
+       *  desktop rail's `≠ srv` signal: a one-tap reload onto the deployed build
+       *  (reloadForUpdate is a plain location.reload() off HTTPS, landing fresh
+       *  because the shell is no-store). */}
+      <Show when={clientStale()}>
+        <button
+          type="button"
+          data-testid="mobile-stale-reload"
+          class="mx-3 mt-2 flex h-9 items-center justify-center gap-2 rounded-lg border border-warning/40 bg-warning/10 text-sm text-warning active:bg-warning/20"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => {
+            reloadForUpdate();
+            props.onClose();
+          }}
+        >
+          <StaleBadge />
+          <span>Client out of date — reload</span>
+        </button>
+      </Show>
 
       {/* Control cluster — palette, settings, inspector. Each button
        *  stops propagation on pointerdown so Corvu Drawer's drag handler

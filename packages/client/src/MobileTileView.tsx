@@ -28,6 +28,7 @@ import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
+import { clientStale, StaleBadge } from "./ui/StaleBadge";
 
 /** Minimum horizontal travel (px) before a swipe commits to a tile change. */
 const SWIPE_THRESHOLD = 60;
@@ -165,6 +166,15 @@ const MobileTileView: Component<{
                   <TerminalMetaCompact info={info()} />
                 </div>
               )}
+            </Show>
+            {/* At-a-glance "client out of sync with server" catch — the mobile
+             *  echo of the desktop rail's `≠ srv` badge, on the always-visible
+             *  handle so drift is caught without opening the sheet (which carries
+             *  the Reload action). */}
+            <Show when={clientStale()}>
+              <div data-testid="mobile-stale-badge" class="ml-auto shrink-0">
+                <StaleBadge />
+              </div>
             </Show>
           </div>
         </button>
