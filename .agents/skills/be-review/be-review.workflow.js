@@ -790,6 +790,48 @@ for (const t of preservedTracks) {
   }
   log(`Consolidate: track ${t} not consolidated — worktree preserved at ${wtDir(t)}.`)
 }
+
+// PRECONDITION GATE. The consolidate prompt below asserts the branch is AT
+// `branchHead` (the tracks' shared fork point) and cherry-picks the track commits
+// onto it without re-checking. That holds for a normal single run — nothing
+// advances the main worktree between Setup and here. But on an ABNORMAL re-run
+// (e.g. /be-review invoked twice in the same worktree without resetting), the
+// branch HEAD has already moved PAST `branchHead` to the previously-consolidated
+// commits; the Setup clean-tree preflight only rejects an UNcommitted tree, so a
+// clean-but-advanced HEAD sails through. Cherry-picking again would stack the
+// track commits a second time, silently double-applying every fix. Verify the
+// precondition mechanically (`rev-parse HEAD` == `branchHead`) and abort with a
+// `consolidation-precondition-failed` status rather than picking onto a drifted
+// HEAD — the worktrees are PRESERVED for the human to inspect and re-run from a
+// clean fork point.
+const headCheck = await agent(
+  `You are a MECHANICAL PRECONDITION CHECKER. Run \`git -C ${repoPath} rev-parse HEAD\` and report the FULL SHA it prints, verbatim. Do not edit anything, do not cherry-pick, do not run any other command.`,
+  {
+    label: 'consolidate:precondition',
+    phase: 'Consolidate',
+    model,
+    schema: { type: 'object', additionalProperties: false, required: ['head'], properties: { head: { type: 'string', description: 'the full HEAD SHA from `git rev-parse HEAD`' } } },
+  },
+)
+const currentHead = (headCheck?.head || '').trim()
+if (currentHead !== branchHead) {
+  log(`Consolidate: ABORTING — branch HEAD is ${sha9(currentHead) || '(unknown)'} but the tracks forked from ${sha9(branchHead)}. The branch has drifted (likely an already-consolidated re-run); cherry-picking now would double-apply every fix. Worktrees PRESERVED.`)
+  return {
+    status: 'consolidation-precondition-failed',
+    branchHead,
+    finalHead: currentHead || branchHead,
+    base,
+    order: [],
+    tracks,
+    consolidation: null,
+    reconciled: [],
+    dropped: [],
+    conflicts: [],
+    note: `consolidation precondition failed: the branch in \`${repoPath}\` is at \`${currentHead || '(unknown)'}\` but the review tracks forked from \`${branchHead}\`. The HEAD has advanced past the shared fork point — likely a re-run in an already-consolidated worktree — so cherry-picking the track commits would stack them a SECOND time and double-apply every fix. Nothing was consolidated and the per-track worktrees are PRESERVED. Reset the branch to \`${branchHead}\` (\`git -C ${repoPath} reset --hard ${branchHead}\`) or start from a clean worktree, then re-run.`,
+    worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
+  }
+}
+
 const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. Every command below is \`git -C\` against an ABSOLUTE path — do not rely on the current directory. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
 
 The branch in \`${repoPath}\` is currently AT \`${branchHead}\` (the tracks' shared fork point). Process tracks in THIS order: ${consolidateOrder.join(' → ')}.
