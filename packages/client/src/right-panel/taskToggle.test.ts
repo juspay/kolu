@@ -94,4 +94,42 @@ describe("toggleTaskInSource", () => {
     expect(toggleTaskInSource("- [ ] only", 5)).toBeNull();
     expect(toggleTaskInSource("no tasks here", 0)).toBeNull();
   });
+
+  it("skips a leading YAML front-matter block whose value is task-shaped", () => {
+    // The renderer strips front matter before assigning `data-md-task`, so the
+    // `- [ ] first` under the `todos:` key renders as NO checkbox. Index 0 must
+    // therefore toggle the first *body* task, leaving the front matter intact.
+    const src = [
+      "---",
+      "todos:",
+      "  - [ ] first",
+      "---",
+      "",
+      "- [ ] real",
+    ].join("\n");
+    expect(toggleTaskInSource(src, 0)).toBe(
+      ["---", "todos:", "  - [ ] first", "---", "", "- [x] real"].join("\n"),
+    );
+    // There is exactly one rendered checkbox, so index 1 is out of range — the
+    // front-matter line is never reachable.
+    expect(toggleTaskInSource(src, 1)).toBeNull();
+  });
+
+  it("preserves a CRLF front-matter prefix verbatim when toggling the body", () => {
+    const src = ["---\r", "title: Hi\r", "---\r", "\r", "- [ ] task"].join(
+      "\n",
+    );
+    expect(toggleTaskInSource(src, 0)).toBe(
+      ["---\r", "title: Hi\r", "---\r", "\r", "- [x] task"].join("\n"),
+    );
+  });
+
+  it("does not mistake a bare `---` (no front matter) for a stripped prefix", () => {
+    // A thematic-break `---` mid-document is not a leading front-matter block,
+    // so the scan still indexes from the top of the file.
+    const src = ["- [ ] a", "", "---", "", "- [ ] b"].join("\n");
+    expect(toggleTaskInSource(src, 1)).toBe(
+      ["- [ ] a", "", "---", "", "- [x] b"].join("\n"),
+    );
+  });
 });

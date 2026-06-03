@@ -633,6 +633,36 @@ Feature: Code tab (review + browse)
     When I toggle markdown task 0
     Then markdown preview task 0 should be checked
 
+  # Index-space congruence guard: the rendered preview and the source-scan
+  # toggler must count tasks in the SAME order, or a click toggles the wrong
+  # line. A raw inline `<input type=checkbox disabled>` in body text arrives
+  # `disabled` just like a real GFM task checkbox — but it carries no `[ ]`
+  # marker the source scanner counts. Tagging it would mint a `data-md-task`
+  # index the scanner can't map back, shifting every later real task by one. So
+  # only marked task checkboxes (first child of an `<li>`) get indexed; the raw
+  # one stays presentational. The round-trip toggle of the SECOND real task
+  # (index 1, the line after the raw checkbox) only lands on the right source
+  # line if the two index spaces stayed congruent.
+  Scenario: Markdown preview keeps a raw body checkbox presentational so task indices stay congruent
+    When I run "rm -rf /tmp/kolu-md-rawcb && git init /tmp/kolu-md-rawcb && cd /tmp/kolu-md-rawcb"
+    And I run "printf -- '- [ ] first real\n\nnote <input type=checkbox disabled> raw\n\n- [ ] second real\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "first real"
+    # Exactly the two real tasks are interactive; the raw body checkbox is not.
+    And the markdown preview should render a "input[data-md-task=0]" element
+    And the markdown preview should render a "input[data-md-task=1]" element
+    And the markdown preview should not render a "input[data-md-task=2]" element
+    # The raw inline checkbox stays presentational (disabled, no `data-md-task`).
+    And the markdown preview should render a "input[type=checkbox][disabled]" element
+    # Toggling the second real task round-trips: only correct if index 1 maps to
+    # the second `- [ ]` line, not a line shifted by the raw checkbox.
+    When I toggle markdown task 1
+    Then markdown preview task 1 should be checked
+
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
   # panel keyed off `preferences.rightPanel.codeTabTreeSize`. The handle

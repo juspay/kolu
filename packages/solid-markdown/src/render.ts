@@ -74,14 +74,23 @@ function buildMarked(breaks: boolean): Marked {
   return inst;
 }
 
+/** The leading YAML front-matter block (`---` … `---`) at the very start of a
+ *  document — a `---` fence line, any body, a closing `---` fence line, and its
+ *  line ending. Single-sourced so the renderer (which strips it) and the
+ *  task-toggle scanner (which must skip it to stay index-aligned with the
+ *  rendered checkboxes) agree on exactly what the prefix is. */
+export const FRONT_MATTER_RE =
+  /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+
 /** Strip a leading YAML front-matter block (`---` … `---`) so document
  *  metadata doesn't render as a spurious top-of-page `<hr>` + Setext heading.
- *  Only matches a block at the very start of the document. */
-function stripFrontMatter(markdown: string): string {
-  return markdown.replace(
-    /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/,
-    "",
-  );
+ *  Only matches a block at the very start of the document. Exported so the
+ *  task-toggle scanner can skip the identical prefix the renderer drops —
+ *  otherwise a task-marker-shaped line inside the front-matter (`- [ ]` under a
+ *  YAML key) would be counted by the scanner but never rendered, drifting every
+ *  `data-md-task` index. */
+export function stripFrontMatter(markdown: string): string {
+  return markdown.replace(FRONT_MATTER_RE, "");
 }
 
 /** Rewrite `marked-alert`'s class-based markup into an allowlist-safe

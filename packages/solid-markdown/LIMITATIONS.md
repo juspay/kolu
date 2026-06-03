@@ -58,5 +58,11 @@ Obsidian extensions. Listed for completeness; low priority.
 - Inline raw tags outside the allowlist (`<q>`, `<cite>`, `<var>`, `<ruby>`,
   `<time>`, `<wbr>`) and raw `<ol type>` / `<colgroup style>` are dropped.
 - Footnote a11y metadata (`aria-*`, the visually-hidden label) is stripped.
-- Task-list write-back counts task markers with a fence-aware scan; a task-looking
-  line inside a **4-space indented** code block can miscount (rare).
+- Task-list write-back counts task markers with a scan that mirrors what the
+  renderer indexes: it skips fenced code blocks and the leading YAML
+  front-matter block (so a `- [ ]`-shaped line under a front-matter key never
+  drifts the count), and only marked-syntax checkboxes (first child of an
+  `<li>`) are made interactive — a raw inline `<input type="checkbox">` in body
+  text stays presentational so the two index spaces stay congruent. The one
+  remaining edge: a task-looking line inside a **4-space indented** code block
+  can miscount (rare), since indented code blocks aren't tracked.

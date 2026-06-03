@@ -1,3 +1,9 @@
+// Import from the DOM-free render subpath (not the package barrel, which pulls
+// in the Solid `Markdown` component and `solid-js/web`) so the renderer's
+// front-matter regex stays single-sourced without dragging a browser-only
+// dependency into this Node-testable helper.
+import { stripFrontMatter } from "@kolu/solid-markdown/render";
+
 /** Flip the Nth GFM task-list marker (`- [ ]` ⇄ `- [x]`) in markdown source.
  *
  *  `taskIndex` is the 0-based source order of the task item — the same order
@@ -7,6 +13,15 @@
  *  a blockquote (`> - [ ]`, which `marked` renders as a real checkbox). Fenced
  *  code blocks are skipped so a `- [ ]` inside a ``` block (which `marked` does
  *  not render as a checkbox) never throws the count off.
+ *
+ *  A leading YAML front-matter block is skipped before scanning — the renderer
+ *  strips it (`stripFrontMatter`) before assigning `data-md-task` indices, so a
+ *  task-marker-shaped line inside it (a YAML block-sequence value like
+ *  `todos:\n  - [ ] x`) is rendered as no checkbox at all. Scanning the raw
+ *  content would count that line as index 0, silently corrupting the front
+ *  matter and drifting every real task by one; skipping the identical prefix
+ *  the renderer drops keeps the two index spaces congruent. The prefix is
+ *  preserved verbatim in the rewritten output.
  *
  *  Returns the rewritten content, or `null` when the index is out of range
  *  (e.g. the file changed underneath the open preview), in which case the
@@ -19,6 +34,18 @@ export function toggleTaskInSource(
   content: string,
   taskIndex: number,
 ): string | null {
+  // Split off the leading front-matter the renderer drops before indexing, scan
+  // only the body the checkboxes are minted from, then re-prepend the prefix
+  // verbatim so the rewritten file is byte-identical outside the toggled line.
+  const body = stripFrontMatter(content);
+  const prefix = content.slice(0, content.length - body.length);
+  const rewritten = toggleTaskInBody(body, taskIndex);
+  return rewritten === null ? null : prefix + rewritten;
+}
+
+/** Flip the Nth task marker in a front-matter-free document body. Split out so
+ *  `toggleTaskInSource` can offset the result back over the stripped prefix. */
+function toggleTaskInBody(content: string, taskIndex: number): string | null {
   const lines = content.split("\n");
   // A list item (unordered -,*,+ or ordered 1. / 1)) whose first content is a
   // task marker `[ ]` / `[x]` / `[X]`. An optional blockquote prefix (`>`, one

@@ -251,6 +251,23 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
   anchor.setAttribute("rel", "noopener noreferrer");
 }
 
+/** Whether a `<input type="checkbox">` is one `marked` minted from GFM task
+ *  syntax (`- [ ]`), as opposed to a raw inline checkbox an author wrote in the
+ *  document body. `marked` always emits the task checkbox as the very first
+ *  child of its `<li>` — and the source scanner (`toggleTaskInSource`) only
+ *  counts that shape — so requiring first-child-of-`<li>` keeps the rendered
+ *  `data-md-task` indices congruent with the source-scan order. (A real marked
+ *  task also arrives `disabled`, but a raw `<input disabled>` in body text does
+ *  too, so `disabled` alone can't tell them apart.) */
+function isMarkedTaskCheckbox(input: Element): boolean {
+  const parent = input.parentElement;
+  return (
+    parent !== null &&
+    parent.tagName === "LI" &&
+    input.previousElementSibling === null
+  );
+}
+
 /** The trusted-injection seam: when a highlighter is supplied and returns
  *  markup, replace the plain `<pre>` in the tree with Shiki's themed `<pre>` and
  *  return that; otherwise return the original `<pre>` untouched. Shiki's output
@@ -324,19 +341,27 @@ export function sanitizeHtml(rawHtml: string, opts: SanitizeOptions): string {
   }
 
   // `<input>` is allowed only to carry a GFM task-list checkbox. Drop any
-  // other input (a stray `type="text"` etc.). A marked task checkbox arrives
-  // `disabled`; when interactive tasks are enabled we re-enable it and tag it
-  // with its source order so the host can write a toggle back to the file —
-  // otherwise it stays presentational (disabled). A raw-HTML `<input checkbox>`
-  // without `disabled` has no source marker to map to, so it stays disabled.
+  // other input (a stray `type="text"` etc.). When interactive tasks are
+  // enabled we re-enable a marked task checkbox and tag it with its source
+  // order so the host can write a toggle back to the file — otherwise it stays
+  // presentational (disabled).
+  //
+  // A marked task checkbox is the *first child of an `<li>`* — that is exactly
+  // the shape `marked` emits for `- [ ]` syntax, and the only shape the source
+  // scanner (`toggleTaskInSource`) counts. Keying on `disabled` alone is too
+  // broad: a raw inline `<input type="checkbox" disabled>` sitting in body text
+  // (a `<p>`, a table cell) also arrives `disabled` but has no `[ ]`/`[x]`
+  // marker in the source, so the scanner never counts it — tagging it would
+  // assign a `data-md-task` index the scanner can't map back, shifting every
+  // later task's click by one. Requiring first-child-of-`<li>` keeps the two
+  // index spaces congruent; such a raw checkbox stays presentational.
   let taskIndex = 0;
   for (const input of root.querySelectorAll("input")) {
     if (input.getAttribute("type") !== "checkbox") {
       input.remove();
       continue;
     }
-    const isMarkedTask = input.hasAttribute("disabled");
-    if (opts.interactiveTasks && isMarkedTask) {
+    if (opts.interactiveTasks && isMarkedTaskCheckbox(input)) {
       input.removeAttribute("disabled");
       input.setAttribute("data-md-task", String(taskIndex++));
     } else {
