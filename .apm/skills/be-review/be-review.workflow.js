@@ -879,8 +879,11 @@ const reporters = {
     guidance: `For each finding give the actual PROBLEM statement and the FIX (not just title + commit), grouped by pass (rules / fact-check / elegance). \`fix\` is the prescribed remedy and \`summary\` is what the implementer actually applied — use both; do NOT invent a fix the data doesn't carry. Source: applied[] (id, title, severity, problem, fix, summary, files, commit).`,
   },
   consolidation: {
-    // consolidation's baseline needs the consolidate order, so the Report loop
-    // builds it inline; only isRich/guidance live here.
+    // consolidation's baseline needs the consolidate order; the closure reads it
+    // lazily (it's only invoked in the Report loop, after `consolidateOrder` is
+    // declared), so this entry states the consolidation result shape ONCE here too
+    // — `build` included — instead of special-casing its baseline inline.
+    build: (d) => consolidationSection(d, consolidateOrder),
     isRich: (d) => (d.picks || []).length > 0,
     guidance: `Surface the reconciliation REASONING prominently: for any pick whose outcome is 'reconciled' or 'dropped', explain the overlap and how it was resolved (the note) as prose, not a buried table cell. Clean picks can stay a compact table. Source: picks[] (track, sourceCommit, outcome, newCommit, files, note).`,
   },
@@ -1334,38 +1337,31 @@ if (postComments) {
   // over `TRACKS` — a new reviewer track gets a comment even before it grows a
   // hand-written builder. The same registry supplies each track's `isRich`/`guidance`,
   // so 'where do this track's findings live' is stated once per track.
-  // Each item is [slug, structuredData, deterministicBaseline]. The baseline is
-  // both what a reporter agent improves and the fallback when `richComment` is off
-  // or the track is trivial. The consolidation ledger is a WORKFLOW-level artifact,
-  // not a track artifact, so it posts as its own comment — surviving any track
-  // subset instead of being string-stapled onto whichever track happens to be present.
+  // Each item is [slug, structuredData]. The consolidation ledger is a
+  // WORKFLOW-level artifact, not a track artifact, so it posts as its own comment
+  // — surviving any track subset instead of being string-stapled onto whichever
+  // track happens to be present. Every slug's baseline/guidance/isRich now come
+  // from ONE `reporters` entry (consolidation included), so the loop is uniform.
   const items = [
-    [
-      "consolidation",
-      consolidation,
-      consolidationSection(consolidation, consolidateOrder),
-    ],
-    ...TRACKS.map((t) => [
-      t,
-      tracks[t],
-      (reporters[t]?.build || genericComment)(tracks[t]),
-    ]),
+    ["consolidation", consolidation],
+    ...TRACKS.map((t) => [t, tracks[t]]),
   ];
-  // Author the bodies — a rich reporter AGENT for non-trivial tracks (in parallel),
+  // Author the bodies — a rich reporter AGENT for non-trivial slugs (in parallel),
   // the deterministic baseline otherwise — then POST sequentially for a stable
-  // order. A failed/empty authoring falls back to the baseline, so Report never
-  // skips a comment.
+  // order. The baseline (`reporters[slug].build`, or `genericComment` for an
+  // unregistered slug) is both what a reporter agent improves and the fallback
+  // when `richComment` is off or the slug is trivial; a failed/empty authoring
+  // falls back to it too, so Report never skips a comment.
   const authored = await parallel(
-    items.map(
-      ([slug, data, baseline]) =>
-        () =>
-          authorBody(
-            slug,
-            data,
-            baseline,
-            reporters[slug]?.guidance || "",
-          ).then((body) => [slug, body]),
-    ),
+    items.map(([slug, data]) => () => {
+      const baseline = (reporters[slug]?.build || genericComment)(data);
+      return authorBody(
+        slug,
+        data,
+        baseline,
+        reporters[slug]?.guidance || "",
+      ).then((body) => [slug, body]);
+    }),
   );
   for (const item of authored) {
     if (!item) continue;
