@@ -65,12 +65,15 @@ fi
 rebuttal_block=""
 if [ -n "$rebuttal" ]; then
   rebuttal_block="
-CLAUDE responded to your PREVIOUS review as follows. Take it seriously: where a
-fix landed in the working tree, verify it and mark that finding resolved; where
-CLAUDE disputes a finding, either concede (mark it resolved) or hold firm with
-specific reasoning in responseToRebuttal.
+This is a FOLLOW-UP round — you already gave your full review. Your job now is to
+CLOSE OUT the findings already on the table, not re-scan the whole diff for more.
+For each existing finding: verify CLAUDE's fix and mark it resolved, or address
+CLAUDE's dispute (concede and mark resolved, or hold firm with specific reasoning
+in responseToRebuttal). Raise a NEW finding ONLY if CLAUDE's changes this round
+introduced it (a regression). Do NOT keep surfacing pre-existing issues you didn't
+raise in round 1 — that prevents the debate from ever converging.
 
-CLAUDE's response (JSON):
+CLAUDE responded to your PREVIOUS review as follows:
 $rebuttal
 "
 fi

@@ -355,28 +355,51 @@ for (const t of liveTracks) log(`Track ${t}: ${tracks[t].status || 'unknown'}`)
 // deterministically in JS from the structured track results; a thin mechanical
 // agent just writes each body to a scratch file and posts it with `gh pr comment`.
 // ---------------------------------------------------------------------------
-const sha9 = (s) => (s ? `\`${String(s).slice(0, 9)}\`` : '—')
+// Plain (NOT code-fenced) short SHA so GitHub auto-links it to the commit — a
+// backtick-wrapped SHA renders as code and is NOT linkified.
+const sha9 = (s) => (s ? String(s).slice(0, 9) : '—')
 const esc = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim()
+
+const SEV = { blocking: '🔴 blocking', major: '🟠 major', minor: '🟡 minor', nit: '⚪ nit' }
+
+// Full per-round detail: every codex finding (severity, id, issue, location,
+// suggestion, status) and Claude's disposition of each — the complete debate
+// transcript, not a count table.
+function codexRound(r) {
+  const v = r.codex || {}
+  const open = (v.findings || []).filter((f) => f.status !== 'resolved').length
+  const findings = (v.findings || []).length
+    ? v.findings
+        .map(
+          (f) =>
+            `- **${SEV[f.severity] || f.severity} · ${f.id}** — ${esc(f.issue)}\n  at \`${esc(f.location)}\` · status: **${f.status}**\n  suggestion: ${esc(f.suggestion)}`,
+        )
+        .join('\n')
+    : '_no findings_'
+  const actions = (r.claude?.actions || []).length
+    ? r.claude.actions.map((act) => `- **${act.findingId}** → _${act.disposition}_: ${esc(act.detail)}`).join('\n')
+    : ''
+  return [
+    `### Round ${r.round} — codex approved ${v.approved ? '✅' : '❌'} · ${open} open${r.commit ? ` · ${sha9(r.commit)}` : ''}`,
+    v.summary ? esc(v.summary) : '',
+    v.responseToRebuttal ? `**Codex on Claude's rebuttal:** ${esc(v.responseToRebuttal)}` : '',
+    `**Codex findings:**\n${findings}`,
+    actions ? `**Claude's response:**\n${actions}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
 
 function codexComment(t) {
   if (!t || t.status === 'track-error') return `## 🤖 Codex ⇄ Claude debate\n\n**Track error:** ${esc(t?.error) || 'did not run'}.`
-  const rows = (t.transcript || [])
-    .map((r) => {
-      const v = r.codex || {}
-      const open = (v.findings || []).filter((f) => f.status !== 'resolved').length
-      const disp = (r.claude?.actions || []).map((act) => `${act.findingId}:${act.disposition}`).join(', ')
-      return `| ${r.round} | ${v.approved ? '✅' : '❌'} | ${open} | ${esc(disp) || '—'} | ${sha9(r.commit)} |`
-    })
-    .join('\n')
+  const rounds = (t.transcript || []).map(codexRound).join('\n\n---\n\n')
   return `## 🤖 Codex ⇄ Claude debate
 
 **Outcome:** \`${t.status}\` after ${t.rounds} round(s) · codex reviewed at \`xhigh\` reasoning effort.
 
 ${esc(t.finalVerdict?.summary)}
 
-| Round | codex approved | findings open | claude dispositions | commit |
-|---|---|---|---|---|
-${rows || '| — | — | — | — | — |'}`
+${rounds}`
 }
 
 function lensComment(t) {
