@@ -8,12 +8,6 @@
  * them up. Theme palette stays here (the sheet reads `--color-accent`). */
 @import "@kolu/solid-markdown/markdown.css";
 
-/* `@kolu/solid-markdown` also ships a few Tailwind utility classes. Make the
- * cross-package source explicit so those classes are always generated —
- * Tailwind v4's auto-detection base shouldn't be relied on to reach a sibling
- * package. */
-@source "../../solid-markdown/src";
-
 /* `@kolu/solid-fileview` likewise ships its own Tailwind utility classes
  * (the toggle host + image/iframe appliances), so scan it too — otherwise
  * the toggle and preview-container utilities are tree-shaken away. */
