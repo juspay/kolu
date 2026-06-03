@@ -48,6 +48,7 @@ import {
   Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
+import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
@@ -88,22 +89,23 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     file: FileData,
     view: JSX.Element,
   ): JSX.Element =>
-    capture === "text" ? (
-      <CommentTextSurface
-        terminalId={props.terminalId}
-        path={file.path}
-        // The host's text is the file source, so the highlight overlay
-        // re-anchors when the server bumps content on save.
-        contentTick={file.source?.content ?? ""}
-        // `flex-1 min-h-0` so the host fills the space left under the
-        // (optional) truncation banner sibling without overflowing it.
-        class="min-h-0 w-full flex-1"
-      >
-        {view}
-      </CommentTextSurface>
-    ) : (
-      view
-    );
+    match(capture)
+      .with("text", () => (
+        <CommentTextSurface
+          terminalId={props.terminalId}
+          path={file.path}
+          // The host's text is the file source, so the highlight overlay
+          // re-anchors when the server bumps content on save.
+          contentTick={file.source?.content ?? ""}
+          // `flex-1 min-h-0` so the host fills the space left under the
+          // (optional) truncation banner sibling without overflowing it.
+          class="min-h-0 w-full flex-1"
+        >
+          {view}
+        </CommentTextSurface>
+      ))
+      .with(P.union("iframe", "none"), () => view)
+      .exhaustive();
 
   // Kolu's source appliance: pierre's syntax-highlighted CodeView, carrying
   // kolu's theme + initial line selection. The render closure reads `props`
