@@ -91,6 +91,17 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "waiting"
     And there should be no page errors
 
+  Scenario: A running /fork promotes the idle main to running-in-background
+    # A `/fork` ends the main's turn (idle) and runs a sub-agent in the
+    # background. Its launch is a local-command echo, not a tool_result, so it's
+    # invisible to the background-task accounting; the watcher detects it from the
+    # fork's on-disk subagent transcript and promotes the idle main to working.
+    # No workflow fan-out journal exists, so no badge — just the working pip.
+    When a Claude Code session is mocked with state "fork"
+    Then the tile chrome should show an agent indicator with state "running_background"
+    And the tile title state pip should be "working"
+    And there should be no page errors
+
   Scenario: An orphaned workflow (stale journal) settles to idle, not running
     When a Claude Code session is mocked with state "orphaned_workflow"
     Then the tile chrome should show an agent indicator with state "waiting"
