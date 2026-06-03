@@ -76,13 +76,27 @@ export function screenHasClaudePrompt(screenText: string): boolean {
 
 // --- Promote-only policy (the seam the server poller drives) ---
 
-/** Whether `info` is in a state the screen scrape could promote — the idle gate
- *  for the poll clock, so the screen read only runs during the wait window.
- *  Only a bare `waiting` (the JSONL classifier's read while the SDK buffers the
- *  prompt) is promotable; an in-flight `thinking`/`tool_use` already reads as
- *  working, and an already-`awaiting_user` value has nothing to lift. */
+/** States the screen scrape can lift to `awaiting_user`. Crucially this is NOT
+ *  just `waiting`: a pending `AskUserQuestion` leaves the JSONL showing the state
+ *  from *before* the buffered assistant reply, and in the common flow (the user
+ *  types, the agent immediately asks) the newest on-disk entry is the user's
+ *  prompt — so `deriveState` reports **`thinking`**, not `waiting` (gating to
+ *  `waiting` alone is why the dock sat on "Thinking" with the prompt clearly on
+ *  screen). `waiting` (a prior `end_turn`) and `tool_use` are possible too, so
+ *  all three are pollable. `awaiting_user` is already lifted; `running_background`
+ *  is a workflow busy-wait left alone. The poll still no-ops unless the prompt
+ *  marker is actually on screen, so polling an in-flight `thinking` is cheap and
+ *  can't false-promote. */
+const PROMOTABLE_STATES = new Set<ClaudeCodeInfo["state"]>([
+  "thinking",
+  "tool_use",
+  "waiting",
+]);
+
+/** Whether `info` is in a state the screen scrape could promote — the gate for
+ *  the poll clock. */
 export function isScreenPollable(info: ClaudeCodeInfo): boolean {
-  return info.state === "waiting";
+  return PROMOTABLE_STATES.has(info.state);
 }
 
 /** Merge the JSONL-derived `info` with a rendered-screen snapshot: lift
@@ -95,7 +109,7 @@ export function promoteFromScreen(
   info: ClaudeCodeInfo,
   screenText: string,
 ): ClaudeCodeInfo {
-  if (info.state !== "waiting") return info;
+  if (!PROMOTABLE_STATES.has(info.state)) return info;
   return screenHasClaudePrompt(screenText)
     ? { ...info, state: "awaiting_user" }
     : info;

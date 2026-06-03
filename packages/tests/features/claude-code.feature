@@ -117,13 +117,15 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "waiting"
     And there should be no page errors
 
-  Scenario: An AskUserQuestion prompt on screen promotes waiting to awaiting (screen scrape, #905)
-    # AskUserQuestion buffers in the SDK, so the JSONL stays `waiting` the whole
-    # time the prompt is up. kolu recognizes its `↑/↓ to navigate` select footer
-    # on the rendered screen and promotes to awaiting_user — exercising the full
-    # pipeline: live PTY screen → getScreenText poll → detector → dock badge.
-    When a Claude Code session is mocked with state "waiting"
-    Then the tile chrome should show an agent indicator with state "waiting"
+  Scenario: An AskUserQuestion prompt on screen promotes thinking to awaiting (screen scrape, #905)
+    # A pending AskUserQuestion reads as `thinking` on disk — the user's prompt is
+    # the newest JSONL entry and the assistant's tool_use reply is buffered in the
+    # SDK, so the screen scrape MUST promote from `thinking`, not only `waiting`
+    # (gating to `waiting` left the dock stuck on "Thinking" with the prompt up).
+    # kolu recognizes its `↑/↓ to navigate` footer on the rendered screen and
+    # promotes to awaiting_user — the full pipeline from the real starting state.
+    When a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
     When the terminal renders a Claude AskUserQuestion prompt
     Then the tile chrome should show an agent indicator with state "awaiting_user"
     And there should be no page errors

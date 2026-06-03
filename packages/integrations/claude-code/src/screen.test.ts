@@ -137,14 +137,17 @@ function waitingInfo(): ClaudeCodeInfo {
 }
 
 describe("isScreenPollable", () => {
-  it("is true only for waiting", () => {
-    expect(isScreenPollable(waitingInfo())).toBe(true);
-    for (const state of [
-      "thinking",
-      "tool_use",
-      "awaiting_user",
-      "running_background",
-    ] as const) {
+  it("is true for the working states a pending prompt can leave on disk", () => {
+    // A pending AskUserQuestion most often reads as `thinking` (the user's
+    // prompt is the newest on-disk entry), but `waiting`/`tool_use` are
+    // possible too — all must be polled.
+    for (const state of ["thinking", "tool_use", "waiting"] as const) {
+      expect(isScreenPollable({ ...waitingInfo(), state })).toBe(true);
+    }
+  });
+
+  it("is false for already-awaiting and workflow busy-wait", () => {
+    for (const state of ["awaiting_user", "running_background"] as const) {
       expect(isScreenPollable({ ...waitingInfo(), state })).toBe(false);
     }
   });
@@ -159,6 +162,15 @@ describe("promoteFromScreen", () => {
     expect(promoted).toEqual({ ...info, state: "awaiting_user" });
   });
 
+  it("lifts from thinking too (the real AskUserQuestion flow)", () => {
+    // The dock-stuck-on-Thinking bug: a pending prompt reads as `thinking`, so
+    // the scrape MUST promote from it, not only from `waiting`.
+    const thinking = { ...waitingInfo(), state: "thinking" as const };
+    expect(promoteFromScreen(thinking, ASK_USER_QUESTION).state).toBe(
+      "awaiting_user",
+    );
+  });
+
   it("does not promote on the /model picker", () => {
     const info = waitingInfo();
     expect(promoteFromScreen(info, MODEL_PICKER)).toBe(info);
@@ -169,8 +181,8 @@ describe("promoteFromScreen", () => {
     expect(promoteFromScreen(info, PLAIN_ASSISTANT_TEXT)).toBe(info);
   });
 
-  it("never promotes a non-waiting state, even with a prompt on screen", () => {
-    const thinking = { ...waitingInfo(), state: "thinking" as const };
-    expect(promoteFromScreen(thinking, ASK_USER_QUESTION)).toBe(thinking);
+  it("never promotes a non-promotable state, even with a prompt on screen", () => {
+    const running = { ...waitingInfo(), state: "running_background" as const };
+    expect(promoteFromScreen(running, ASK_USER_QUESTION)).toBe(running);
   });
 });
