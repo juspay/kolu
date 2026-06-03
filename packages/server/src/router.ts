@@ -329,10 +329,23 @@ export const appRouter = t.router({
             fsConstants.O_NOFOLLOW,
           0o644,
         );
-      } catch {
-        throw new ORPCError("BAD_REQUEST", {
-          message: "path escapes repo root",
-        });
+      } catch (err) {
+        // `open()` with O_NOFOLLOW fails for many reasons that are *not* path
+        // escapes — EACCES (no write permission), EISDIR (target is a dir),
+        // EROFS (read-only fs), ENOSPC (disk full), EMFILE/ENFILE. Only ELOOP
+        // (a symlinked leaf the kernel refused to follow) is the escape case.
+        // Log the real errno at error level and surface a faithful message so a
+        // disk-full failure is never reported as a security violation.
+        log.error(
+          { err, repo: input.repoPath, file: input.filePath },
+          "fs write: open failed",
+        );
+        const code = (err as NodeJS.ErrnoException)?.code;
+        const message =
+          code === "ELOOP"
+            ? "path escapes repo root (symlinked target)"
+            : `failed to open file for write: ${(err as Error).message}`;
+        throw new ORPCError("BAD_REQUEST", { message });
       }
       try {
         await handle.writeFile(input.content, "utf-8");
