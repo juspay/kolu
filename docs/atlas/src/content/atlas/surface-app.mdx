@@ -194,11 +194,15 @@ installSurfaceApp(app, { clientDist, manifest: { name: `kolu@${host}`, themeColo
 ### /surface — compose the library's surface <Pill variant="dx">@kolu/surface-app/surface</Pill>
 
 ```ts
-import { surfaceAppSurface } from "@kolu/surface-app/surface";   // or defineBuildInfo(...) to extend
-export const surface = composeSurfaces(surfaceAppSurface, defineSurface({ /* your cells … */ }));
+import { surfaceAppSurface, composeSurfaces } from "@kolu/surface-app/surface";
+// ONE merge: the buildInfo cell + the `surfaceApp.info` restart probe, composed
+// with your own spec. (`surfaceAppSurfaceWith(myBuildInfoDef)` for an extender.)
+export const surface = defineSurface(
+  composeSurfaces(surfaceAppSurface, { cells: { /* yours … */ }, procedures: { /* yours … */ } }),
+);
 ```
 
-Composing whole surfaces (not merging cell maps) may want a small `composeSurfaces` primitive in `@kolu/surface` — landing on surface's example first, per its discipline.
+`composeSurfaces` ships in `@kolu/surface-app` (a field-wise merge of two `SurfaceSpec`s — cells/collections/streams/events shallow, procedures two-level, throwing on a duplicate key). surface-app's contributions are namespaced under `surfaceApp` (probe at `surface.surfaceApp.info`) so they never collide with the app's own keys — the app wires the cell + probe as **one** fragment, not two separate spreads.
 
 ### /solid — behaviour + headless model <Pill variant="hi">@kolu/surface-app/solid</Pill>
 
@@ -230,8 +234,8 @@ Both stamp the same commit via `resolveCommit` (env → git → `"dev"`). The Bu
 Both are SolidJS + Hono on `@hono/node-server`, both vendor `@kolu/*` via npins (zero flake inputs), so adding surface-app is one overlay line each. **Same model + same UX**; kolu only differs by extending build identity for its pty-host axis.
 
 ```tsx
-// drishti — surface: compose the buildInfo definition (global → control-plane surface)
-export const adminSurface = composeSurfaces(surfaceAppSurface, defineSurface({ cells: { hosts, … } }));
+// drishti — surface: ONE merge of surface-app's fragment (cell + surfaceApp.info probe) + its own
+export const adminSurface = defineSurface(composeSurfaces(surfaceAppSurface, { collections: { hosts }, procedures: { hosts } }));
 // drishti — server: compose the impl + serve the shell (commit auto-resolved; /sw.js served by the lib)
 implementSurface(adminSurface, { channel, cells: { ...buildInfoServer() } });
 installSurfaceApp(app, { clientDist, manifest: { name: "drishti", themeColor: "#0e7490", icons } });
@@ -289,7 +293,7 @@ For this class it's **definitional**, not an opinion — but the rationale ships
 - **Surface-native.** Depends on `@kolu/surface` and rides it for the build-identity model.
 - **Batteries-included behaviour, headless UI.** Owns delivery, identity, commit stamping, SW retirement, install affordance, and the relationship-to-server model; apps render the chrome. The README ships the wiring.
 - **Interfaces where it varies** — build identity (default `{ commit }`; kolu extends).
-- **Settled questions.** Install needs no service worker; cert/TLS lives outside surface-app; the desktop layer is secure-context-gated with graceful degradation. The connection-lifecycle model now ships in-library as `createServerLifecycle`. Two follow-ups remain deferred: whether `@kolu/surface` grows a `composeSurfaces` primitive, and whether `@kolu/dev-tls` is extracted as its own optional package.
+- **Settled questions.** Install needs no service worker; cert/TLS lives outside surface-app; the desktop layer is secure-context-gated with graceful degradation. The connection-lifecycle model ships in-library as `createServerLifecycle`; the client build ships as `surfaceApp()` (Vite) / `buildSurfaceClient()` (Bun); and the surface fragment + `composeSurfaces` merge ship in `@kolu/surface-app` (probe namespaced under `surfaceApp`). One follow-up remains deferred: whether `@kolu/dev-tls` is extracted as its own optional package.
 
 ### Name
 
