@@ -102,17 +102,20 @@ to `cd`.
   deterministic string-builder comments. By **default** (`richComment: true`) each
   comment is authored by a per-track **reporter agent** (narrative + tables +
   reasoning, synthesized from the track's full structured result) rather than the
-  terse builders. The builders remain the **baseline** the agent improves and the
-  **fallback** on empty/invalid output; a trivial track (track-error / clean / no
-  findings) skips the agent. Use this flag when you want the fast, no-agent comments.
+  terse builders. That agent **writes its own body and posts it** in one shot, so
+  the large body never crosses a second agent as a base64 blob. The builders remain
+  the **baseline** the agent improves and the **fallback** if the agent throws; a
+  trivial track (track-error / clean / no findings) skips the agent and posts the
+  baseline directly. Use this flag when you want the fast, no-agent comments.
 - **Cost / model tiers** (`model` / `synthModel` / `mechModel`): the orchestrator
   and child workflows run each agent on the cheapest model that does its job, so a
   run doesn't pay Opus rates for `git`/`gh` shuffling. Defaults: **`model: opus`**
   for deep reasoning (the lens lenses — load-bearing — + claude-author + lens
-  apply), **`synthModel: sonnet`** for synthesis (the reporter agents, the
-  cherry-pick/reconcile, the police review/apply passes — code-police is natively
-  Sonnet anyway), **`mechModel: haiku`** for mechanical agents (setup, every
-  commit, cleanup, comment posters, status/HEAD checks, merge-base + codex runner).
+  apply), **`synthModel: sonnet`** for synthesis (the reporter agents — which now
+  author AND post their own comment — the cherry-pick/reconcile, the police
+  review/apply passes — code-police is natively Sonnet anyway), **`mechModel:
+  haiku`** for mechanical agents (setup, every commit, cleanup, the baseline-
+  fallback comment poster, status/HEAD checks, merge-base + codex runner).
   Override any tier via args. The run reports a **`tokensByPhase`** breakdown
   (output tokens, from `budget.spent()` on the shared turn counter) bucketed by
   each phase's wall-clock window — NOT isolated to that phase's agents: concurrent

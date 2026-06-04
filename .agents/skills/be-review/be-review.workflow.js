@@ -1055,19 +1055,36 @@ function hasRichContent(slug, data) {
   return reporters[slug]?.isRich?.(data) ?? false;
 }
 
-// Author a rich comment body for one slug from its structured result. This is the
-// SOLE enforcement site for the 'never blank' contract: it never rejects and never
-// returns blank — a thrown agent error AND an empty/whitespace `body` both fall back to
-// the deterministic `baseline` (both mean 'authoring didn't yield a usable body').
-// `baseline` carries the canonical top-level header (the agent is told to keep it),
-// so PR anchors stay stable whether the body is agent- or builder-authored.
-async function reporterBody(slug, data, baseline, guidance) {
-  const prompt = `You are the **${slug} reporter** for a /be-review run. Author ONE genuinely detailed, well-organized GitHub PR comment from the structured result below — narrative + tables + reasoning, not a terse row count.
+// Author AND post one comment in a SINGLE agent, returning the posted comment URL
+// (or "no PR"/""). The rich body is the expensive artifact — up to 60 KB — and the
+// old two-agent split paid for it TWICE: a reporter (Sonnet) emitted it, the
+// workflow held it, then a SECOND poster (Haiku) RE-INGESTED it as a ~50-60k-token
+// base64 blob just to write it to a file and run `gh`. Here the reporter writes its
+// OWN body straight to the comment file with the Write tool (content-as-parameter,
+// so no shell-escaping of markdown's backticks/quotes/`$`) and posts it itself, so
+// the body crosses an agent boundary exactly once. The deterministic `baseline`
+// remains the never-blank fallback: a trivial/`--no-rich-comment` slug, or an
+// agent THROW, posts the (small) baseline via `postComment` instead — every
+// requested track still gets exactly one comment. `baseline`'s first line is the
+// canonical header (carrying the PR anchor + methodology link); the agent is told
+// to lead with it verbatim, so anchors stay stable whether the body is agent- or
+// builder-authored.
+async function authorAndPost(slug, data, baseline, guidance) {
+  // Trivial track or rich comments disabled: no authoring agent to merge a post
+  // into — write+post the deterministic baseline through the cheap base64 poster.
+  // The baseline is small, so its token cost was never the waste (the LARGE rich
+  // body was), and routing it here keeps `postComment` as the single fallback path.
+  if (!richComment || !hasRichContent(slug, data)) {
+    return postComment(slug, baseline);
+  }
+  const file = `${SCRATCH}/comment-${slug}.md`;
+  const header = String(baseline).split("\n")[0];
+  const prompt = `You are the **${slug} reporter** for a /be-review run. Author ONE genuinely detailed, well-organized GitHub PR comment from the structured result below — narrative + tables + reasoning, not a terse row count — then POST it.
 
 STRUCTURED RESULT (JSON):
 ${JSON.stringify(data, null, 2)}
 
-DETERMINISTIC BASELINE (improve on it — keep its facts and its EXACT top-level header line, add the depth it lacks):
+DETERMINISTIC BASELINE (improve on it — keep its facts, add the depth it lacks):
 ${baseline}
 
 WHAT TO FOREGROUND:
@@ -1075,87 +1092,56 @@ ${guidance}
 Open with a 1-2 sentence synthesis of what this track changed and why.
 
 HARD RULES:
-- Keep the baseline's exact top-level header line (the \`##\`/\`###\` heading) so the PR anchor stays stable.
+- The comment's FIRST line MUST be EXACTLY this header verbatim (it owns the PR anchor and its link): ${header}
 - Commit SHAs MUST be plain text (bare, e.g. a1b2c3d4e), NEVER wrapped in backticks — GitHub only auto-links bare SHAs.
 - Stay under 60 KB; if the data is large, prioritize the most significant findings and note how many you summarized.
-- Do NOT invent facts not in the structured result — synthesize only from the data given; you need not read the repo.`;
-  // SOLE enforcement of the 'never blank' contract: a thrown agent error AND an
-  // invalid body both fall back to the deterministic `baseline`, so this function
-  // never rejects and never returns blank (lens lowy-2). The agent returns its body
-  // via a SCHEMA (lens) instead of free-form text, but the schema only guarantees a
-  // string — prompt instructions aren't enforcement — so VALIDATE the returned body
-  // (codex F2): the baseline's exact first header line must be present, so the anchor
-  // the deterministic builder owns is preserved, and the body must stay under GitHub's
-  // 65 536-char body cap (60 KB budget with headroom).
+- Do NOT invent facts not in the structured result — synthesize only from the data given; you need not read the repo.
+
+STEPS (do EXACTLY these, in order, then stop):
+1. Using the Write tool (NOT a shell heredoc — the body has special characters), create the file \`${file}\` with the full markdown comment body as its content.
+2. Post it to THIS branch's PR: \`cd ${repoPath} && gh pr comment --body-file ${file}\` (\`gh\` resolves the PR from the branch). If there is NO open PR for the branch, do nothing and set url to "no PR".
+3. Return the comment URL gh printed (or "no PR").`;
   try {
     const out = await agent(prompt, {
-      label: `report:${slug}`,
+      label: `comment:${slug}`,
       phase: "Report",
       model: synthModel,
       schema: {
         type: "object",
         additionalProperties: false,
-        required: ["body"],
+        required: ["url"],
         properties: {
-          body: {
+          url: {
             type: "string",
-            description:
-              "the raw markdown comment body, no preamble or code fence",
+            description: "the posted comment URL gh printed, or 'no PR'",
           },
         },
       },
     });
-    // The structured call reports authoring success by returning a `body`, so
-    // emptiness is the failure signal — no `> 40` length heuristic guessing whether a
-    // short-but-valid body is "real", and no stripFences (the schema asks for a fenced-
-    // free body) (lens hickey-3). The two remaining checks are NOT length heuristics —
-    // they guard hard invariants (codex F2): the baseline's exact first header line must
-    // survive so the deterministic PR anchor stays stable, and the body must stay under
-    // GitHub's 65 536-char cap (60 KB budget with headroom). Either failure falls back.
-    const body = String(out.body || "").trim();
-    const header = String(baseline).split("\n")[0];
-    const bad =
-      !body ||
-      (header.trim() && !body.includes(header.trim())) ||
-      body.length > 60000;
-    if (bad) {
-      log(
-        `Report: ${slug} reporter output rejected (len=${body.length}, header=${body.includes(header.trim())}) — falling back to deterministic baseline.`,
-      );
-      return baseline;
-    }
-    return body;
+    return String(out.url || "").trim();
   } catch (e) {
-    // Don't swallow the thrown agent error: log which slug fell back and why, so a
-    // broken reporter is diagnosable instead of silently posting the baseline
-    // (police police-r1-rules-1 / police-r1-fact-check-1).
+    // Don't swallow the throw: log which slug fell back and why, then honor the
+    // never-blank contract by posting the deterministic baseline through the cheap
+    // base64 poster so the track still gets its one comment (police police-r1).
     log(
-      `Report: ${slug} reporter agent failed (${String(e)}) — falling back to the deterministic baseline.`,
+      `Report: ${slug} reporter agent failed (${String(e)}) — posting the deterministic baseline instead.`,
     );
-    return baseline;
+    return postComment(slug, baseline);
   }
 }
 
-// Author one comment body, owning the WHOLE generator choice behind a single
-// socket: deterministic baseline for an off/trivial track, else the rich reporter
-// agent. `reporterBody` owns the complete fallback (it never rejects and never
-// returns blank — a throw or an empty/whitespace body both yield `baseline`), so the
-// Report loop never reaches past this receptacle to wire the strategies together itself.
-async function authorBody(slug, data, baseline, guidance) {
-  if (!richComment || !hasRichContent(slug, data)) return baseline;
-  return reporterBody(slug, data, baseline, guidance);
-}
-
-// Post one comment via a mechanical agent. Resolves the PR from the branch in the
-// MAIN worktree (gh uses cwd's repo; the agent runs `gh -C`-equivalent by cd-ing).
+// Post the deterministic BASELINE comment via a mechanical agent — the fallback
+// path for a trivial/`--no-rich-comment` slug or an `authorAndPost` throw. (Rich
+// bodies no longer come through here: their authoring agent writes+posts them
+// itself, so the large body never re-crosses an agent boundary.) Resolves the PR
+// from the branch in the MAIN worktree (gh uses cwd's repo; the agent cd-s in).
 //
-// The body is passed BASE64-ENCODED, not inlined. With rich reporter agents the body
-// is now free-form, multi-line model output that may synthesize text from findings or
-// source — inlining it between the commenter's own numbered steps would let that text
-// be read as instructions (prompt injection). Base64 makes the body OPAQUE: the agent
-// decodes it to the file mechanically and never sees it as prose, so no body content
-// can be confused with a workflow instruction. The deterministic baseline is itself a
-// valid body and rides the same opaque path (it's the fallback when authoring fails).
+// The body is passed BASE64-ENCODED, not inlined: even the baseline can carry
+// arbitrary finding/source text, and inlining it between the commenter's own
+// numbered steps would let that text be read as instructions (prompt injection).
+// Base64 makes the body OPAQUE — the agent decodes it to the file mechanically and
+// never sees it as prose. The cost is bounded because only the SMALL baseline ever
+// rides this path now; the expensive rich body bypasses it entirely.
 // UTF-8-safe base64. The Workflow runtime has NEITHER `Buffer` NOR `TextEncoder`
 // NOR `btoa` (the old `new TextEncoder()` fallback threw `ReferenceError:
 // TextEncoder is not defined` and crashed the whole Report phase), so the fallback
@@ -1591,42 +1577,33 @@ if (postComments) {
     ["consolidation", consolidation],
     ...TRACKS.map((t) => [t, tracks[t]]),
   ];
-  // Author the bodies — a rich reporter AGENT for non-trivial slugs, the
-  // deterministic baseline otherwise — and POST each one. PIPELINE, not a
-  // barrier-then-serial-loop: every slug flows author→post independently, so a
-  // slug posts the instant ITS body is authored while other slugs are still
-  // being written, and the posts run CONCURRENTLY instead of stacking. The old
-  // shape (await parallel(authoring) THEN a serial `for await postComment` loop)
-  // serialized the slow part — each `gh pr comment` agent takes minutes, so N
-  // tracks stacked to N×minutes of wall-clock; the pipeline collapses that to
-  // roughly max(author+post) over the slowest single slug. The cost: PR comment
-  // order is now post-COMPLETION order, not `items` order — an acceptable trade
-  // for cutting the Report phase from minutes-serial to one slug's round-trip,
-  // and each comment is a self-contained section so interleaving reads fine.
-  // The baseline (`reporters[slug].build`, or `genericComment` for an
-  // unregistered slug) is both what a reporter agent improves and the fallback
-  // when `richComment` is off or the slug is trivial; a failed/empty authoring
-  // falls back to it too, so Report never skips a comment. A stage throw drops
-  // that one slug to null (skipping its post) instead of crashing the phase —
-  // strictly safer than the old serial loop, where one postComment throw aborted
-  // the whole workflow.
-  const posted = await pipeline(
-    items,
-    ([slug, data]) => {
+  // Author+post every comment CONCURRENTLY. Each slug is one self-contained
+  // `authorAndPost` agent that writes its own body and posts it (or, for a
+  // trivial/disabled slug, posts the deterministic baseline) — so the slugs are
+  // fully independent and `parallel` runs them at once. This replaced TWO older
+  // shapes: (1) a barrier-then-serial-loop (author all in parallel, THEN post one
+  // at a time) whose serial `gh pr comment` agents stacked to N×minutes of
+  // wall-clock, and (2) the brief pipeline that fixed the latency but still paid
+  // to re-ingest each rich body in a separate poster agent. Folding author+post
+  // into one agent keeps the concurrency AND emits each (large) body exactly once.
+  // The cost is unchanged from the pipeline: PR comment order is post-COMPLETION
+  // order, not `items` order — fine, since each comment is a self-contained
+  // section. A thunk throw resolves to null here (parallel never rejects), so a
+  // doubly-failed slug is skipped rather than crashing the phase.
+  const posted = await parallel(
+    items.map(([slug, data]) => () => {
       // Rewrite worktree commit SHAs to the branch SHAs they were cherry-picked
       // to, so the comment's commit links resolve on GitHub (worktree commits are
       // dangling/unpushed). No-op for the consolidation slug.
       const mapped = remapCommits(slug, data, picks);
       const baseline = (reporters[slug]?.build || genericComment)(mapped);
-      return authorBody(
+      return authorAndPost(
         slug,
         mapped,
         baseline,
         reporters[slug]?.guidance || "",
-      ).then((body) => [slug, body]);
-    },
-    ([slug, body]) =>
-      postComment(slug, body).then((url) => [slug, (url || "").trim()]),
+      ).then((url) => [slug, (url || "").trim()]);
+    }),
   );
   for (const item of posted) {
     if (!item) continue;
