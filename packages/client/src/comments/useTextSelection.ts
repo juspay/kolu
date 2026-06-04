@@ -15,6 +15,7 @@
 import {
   extractOffsets,
   extractQuote,
+  type QuoteRoot,
   type SelectionRect,
 } from "@kolu/artifact-sdk/client";
 import {
@@ -86,7 +87,7 @@ function nodeInside(host: HTMLElement, node: Node | null): boolean {
  *  be resolved (e.g. cross-root range) — the offset walk is shared with
  *  `extractQuote` via `extractOffsets`. */
 function lineRangeForSelection(
-  root: Document | ShadowRoot | Element,
+  root: QuoteRoot,
   range: Range,
 ): { start: number; end: number } | undefined {
   const offsets = extractOffsets(root, range);

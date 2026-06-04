@@ -24,6 +24,7 @@ export type {
   IframeToParent,
   Locator,
   ParentToIframe,
+  QuoteRoot,
   SelectionRect,
   SelectMsg,
 } from "../types";

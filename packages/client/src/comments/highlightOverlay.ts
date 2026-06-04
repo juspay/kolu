@@ -13,6 +13,7 @@ import {
   applyHighlights,
   COMMENT_HIGHLIGHT_STYLE_THEMED,
   findQuote,
+  type QuoteRoot,
   rangeFromOffsets,
   rootTextContent,
 } from "@kolu/artifact-sdk/client";
@@ -39,7 +40,7 @@ function ensureStyle(): void {
  *  the rendered Markdown preview — fall back to the host element itself, so
  *  the re-find haystack is the view's subtree, not the whole app page (which
  *  must match the root `useTextSelection` anchored the quote against). */
-function findHostRoot(host: HTMLElement): Document | ShadowRoot | Element {
+function findHostRoot(host: HTMLElement): QuoteRoot {
   return walkShadowRoots(host, (sr) => sr) ?? host;
 }
 
