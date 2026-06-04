@@ -1128,7 +1128,7 @@ async function authorAndPost(slug, data, baseline, guidance) {
       })
       .catch((e2) => {
         log(
-          `Report: ${slug} reporter AND baseline poster both failed (${String(e2)}) — comment skipped.`,
+          `Report: ${slug} reporter agent failed (${String(e)}); baseline poster also failed (${String(e2)}) — comment skipped.`,
         );
         return "";
       });
