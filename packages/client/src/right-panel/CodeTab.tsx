@@ -674,6 +674,7 @@ const CodeTab: Component<{
                               path={path}
                               contentTick={d().hunks[0] ?? ""}
                               class="h-full w-full"
+                              lineAnchored={true}
                             >
                               <BrowseDiffView
                                 path={path}

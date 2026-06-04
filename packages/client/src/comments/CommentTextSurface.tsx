@@ -34,8 +34,8 @@ export type CommentTextSurfaceProps = {
   class?: string;
   /** When false, captured comments carry no source `lineRange` — set by
    *  rendered surfaces (the Markdown preview) where a rendered-DOM line
-   *  isn't a source line. Defaults to true (source / diff). */
-  lineAnchored?: boolean;
+   *  isn't a source line. Required — callers must make a deliberate choice. */
+  lineAnchored: boolean;
   /** Which browse surface this is, when the file offers a Source ⇄ Rendered
    *  toggle (Markdown). Recorded on captured comments so the tray jump can
    *  flip the toggle back. Omit for single-surface views (plain source, diff). */
@@ -50,7 +50,7 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
   const selection = useTextSelection({
     host,
     path: () => props.path,
-    lineAnchored: () => props.lineAnchored ?? true,
+    lineAnchored: () => props.lineAnchored,
     surface: () => props.surface,
   });
   // `createMemo` re-derives the store when `props.terminalId` changes,
@@ -67,7 +67,7 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
     // after mount (lazy Shiki re-render), so the overlay must re-anchor on
     // subtree mutation. Source / diff (line-anchored) ride contentTick alone —
     // their virtualized subtree churns on scroll and must not drive re-applies.
-    observeMutations: !(props.lineAnchored ?? true),
+    observeMutations: !props.lineAnchored,
   });
 
   return (

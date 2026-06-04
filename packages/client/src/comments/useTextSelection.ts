@@ -47,8 +47,8 @@ export interface UseTextSelectionOptions {
   /** When false, the captured comment carries no `lineRange` — for
    *  rendered (non-source) surfaces like the Markdown preview, where a
    *  rendered-DOM line number is meaningless as a source-file line.
-   *  Defaults to true (source / diff are line-addressable). */
-  lineAnchored?: Accessor<boolean>;
+   *  Required — callers must make a deliberate choice; no silent default. */
+  lineAnchored: Accessor<boolean>;
   /** Which browse surface this capture lives on, when the file offers a
    *  Source ⇄ Rendered toggle (Markdown). Recorded on the comment so the
    *  tray jump can restore that surface. Absent for single-surface views. */
@@ -214,10 +214,9 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     // Rendered surfaces (Markdown preview) opt out of line anchoring — a
     // rendered-DOM line isn't a source line, so persisting one would jump
     // the tray click to the wrong place.
-    const lineRange =
-      (opts.lineAnchored?.() ?? true)
-        ? lineRangeForSelection(resolvedRoot, lastRange)
-        : undefined;
+    const lineRange = opts.lineAnchored()
+      ? lineRangeForSelection(resolvedRoot, lastRange)
+      : undefined;
     const rects = lastRange.getClientRects();
     const last =
       rects.length > 0
