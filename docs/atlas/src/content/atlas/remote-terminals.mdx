@@ -1,0 +1,1450 @@
+---
+title: Remote terminals over SSH
+description: The implementation plan for SSH-backed remote terminals (kolu#951) — a TerminalBackend abstraction, a provider-DAG engine, PTY daemonization, an ssh transport, and version/session resilience.
+kind: plan
+maturity: evergreen
+status: accepted
+updated: 2026-06-02
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import Cite from "../../components/Cite.astro";
+import Finding from "../../components/Finding.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import Commit from "../../components/Commit.astro";
+import Kbd from "../../components/Kbd.astro";
+import Terminal from "../../components/Terminal.astro";
+
+Five-phase plan to ship remote terminals fresh off `master`. R-1 (<PrLink pr={981} />), R-1.5 (<PrLink pr={984} />), and R-1.6 (<PrLink pr={1004} />) have shipped on `master`. **R-4 (local PTY daemonization) is underway (phases [`R4a`–`R4c`](#the-phase-split-r4ar4c-r4d-folded-in), R4d folded in): R4a (<PrLink pr={1023} />) and R4b (<PrLink pr={1028} />) shipped; [R4c (#1031)](#the-phase-split-r4ar4c-r4d-folded-in) was attempted and <Pill variant="bad">dropped</Pill> after a macOS prod failure — being [redone](#the-phase-split-r4ar4c-r4d-folded-in) to split _only_ `pty-host` into a daemon that survives a deploy (cgroup-escape spike-verified) while the provider DAG stays fresh in kolu-server.** A whole-plan `/lowy` pass under [agency#186](https://github.com/srid/agency/pull/186)'s §6 + §6.5 calibration showed that building the long-lived multi-client PTY primitive (`@kolu/pty-host`) once in R-4 collapses R-2 + R-3 to ~740 LoC of incremental work each (vs. ~1860 if R-4 lands last). R-2 then ships the ssh transport variant against the same backend; R-3 ships the version handshake + `remoteSessionId` persistence. No deadline pressure on remote-terminal ship date drove this re-sequencing.
+
+<Callout kind="note" title="Meta">
+Zed source: `/tmp/zed` @ <Commit sha="3a81f8e9" /> (v1.5.0) · Reviewers folded in: `hickey`, `lowy`
+</Callout>
+
+<Callout kind="note" title="Contents">
+1. [Phases at a glance](#phases-at-a-glance)
+2. [Three volatility axes the design carves out](#axes)
+3. [Lessons informing the design](#lessons)
+4. [R-1 — `TerminalBackend` abstraction + `LocalTerminalBackend`](#r1)
+5. [R-1.5 — `@kolu/surface` framework gaps](#r1-5)
+6. [R-1.6 — Provider DAG extraction (the shared engine)](#r1-6)
+7. [R-4 — Local PTY daemonization + `@kolu/pty-host`](#r4) <Pill variant="ok">R4a+R4b shipped</Pill>
+   - [The real R-4 lesson — where the agent boundary belongs](#r4-boundary)
+   - [the phase split (R4a–R4c, R4d folded in)](#r4-redo)
+   - [Daemon must survive a deploy (cgroup mechanism, spike-verified)](#r4-survive)
+   - [Cross-cutting process lessons](#r4-lessons)
+   - [Post-deploy retro — provider location & the no-legacy ⊗ tmux tension](#r4-provider-location)
+   - _Original single-daemon design (reference):_ [Why R-4 first](#r4-why-first) · [User stories](#r4-user-stories) · [Story 6](#r4-status-indicator) · [Deliverables](#r4-deliverables) · [Lifecycle](#r4-supervisor) · [Logging](#r4-logging) · [Upgrading](#r4-upgrade) · [PR shape](#r4-slices) · [Process discipline](#r4-asymmetry)
+8. [R-2 — ssh transport variant + remote-only UI](#r2)
+   - [R-2 deliverables (post-R-4, ~610 LoC)](#r2-rebase)
+   - [Externalization audit](#r2-lowy-audit) · [inherited constraint](#r2-constraints) — [2a](#r2a) · [2b](#r2b) · [2c](#r2c) · [2d](#r2d) · [2e](#r2e) · [2f](#r2f)
+   - [PR shape — one PR, six commits](#r2-pr-shape)
+9. [R-3 — Version handshake + session-ID persistence](#r3)
+10. [Implementation reference](#impl-ref)
+    - [Landed](#impl-landed) · [Key APIs in the landed packages](#impl-apis)
+11. [Zed reference (file:line citations)](#zed-refs)
+12. [History — timestamped log](#history)
+</Callout>
+
+## Phases at a glance
+
+Four phases, ordered by what unblocks what. **R-1 and R-1.5 have shipped on `master`** (<PrLink pr={981} /> and <PrLink pr={984} />); R-2 then drops the entire remote-feature surface on top (the headline user shift) — and starts from a substantially stronger position than the original plan anticipated, because R-1.5 shipped the `@kolu/surface-nix-host` package whose `HostSession` + `provisionAgent` already cover most of R-2's transport/lifecycle work; R-3 adds network-blip resilience.
+
+| Phase | Gist | User-facing change | Status / PR |
+|---|---|---|---|
+| **R-1** | Server spine collapses around one `TerminalBackend` interface. `LocalTerminalBackend` wraps the in-process providers; `meta/*.ts` orchestrators dissolve into it. | **None.** Pure refactor — behavior is byte-identical. | <Pill variant="ok">shipped</Pill> <PrLink pr={981} /> |
+| **R-1.5** | `@kolu/surface` grew stdio link, loopback link, peer-server, and in-memory channel/cell/publisher. A new `@kolu/surface-nix-host` package extracted the reusable ssh + `.drv`-provisioning + lifecycle machinery. Validated by the remote-process-monitor demo (`htop`-shaped, cross-arch over `ssh + nix copy --derivation`) — "miniature Kolu" that R-2 mirrors row-for-row. | **None** directly. To framework consumers: "`@kolu/surface` now supports subprocess-worker patterns and remote-agent patterns out of the box." | <Pill variant="ok">shipped</Pill> <PrLink pr={984} /> |
+| **R-1.6** | Provider DAG (claude-code/codex/opencode detectors, git watcher, GitHub PR watcher, agent-command tracker, foreground observer) extracts from `LocalTerminalBackend` into `terminalBackend/providers.ts` behind a `ProviderHooks` indirection — so the same implementation runs on the kolu-server AND the agent. | **None.** Pure refactor — behavior byte-identical for local terminals. | <Pill variant="ok">shipped</Pill> <PrLink pr={1004} /> |
+| **R-4** | Local PTYs move into a long-lived `kolu --stdio` daemon on the same host (loopback stdio transport). `LocalTerminalBackend` becomes the loopback-transport client of one transport-parameterized `TerminalBackend` implementation that R-2 will reuse for ssh. New published package `@kolu/pty-host` — the multi-client PTY-owner primitive — lands as part of this. | Local terminals **survive kolu-server restart** — replaces tmux/zmx, closes <Issue n={671} />. _(Phases `R4a`–`R4d`: **R4a (pty-host) + R4b (provider engine) shipped**; **R4c was attempted (<PrLink pr={1031} />) and dropped** after a macOS prod failure — it daemonized a survivor that held the providers, serving stale detection. The redo splits only `pty-host` into the surviving daemon and keeps providers fresh in kolu-server; survive-restart — incl. the systemd cgroup-escape (spike-verified, so the old R4d folds in) — all lands in the R4c redo. See the retro.)_ | <Pill variant="warn">in progress</Pill><br /><Pill variant="ok">R4a</Pill> <PrLink pr={1023} /> · <Pill variant="ok">R4b</Pill> <PrLink pr={1028} /> · <Pill variant="bad">R4c redo</Pill> <PrLink pr={1031} /> |
+| **R-2** | Add the ssh transport variant to the transport-parameterized `TerminalBackend` R-4 built. `.drv`-ship + remote-realise via `@kolu/surface-nix-host`; `HostChip` on five surfaces; `DisconnectedOverlay` ssh-state-machine extension; SSH host picker; session restore preserves location; paste/upload `PRECONDITION_FAILED` guard. | **Remote terminals work end-to-end** — PTY, branch chip, agent badge, GitHub PR, Code tab, file upload, session restore, host chip on every surface. | <Pill variant="warn">after R-4</Pill> |
+| **R-3** | Persist `remoteSessionId` in `ServerPersistedTerminalFieldsSchema`; retire the `--refresh` hack at the call site. _The reattach machinery itself — `attachPty`, stable IDs, idle-TTL GC, scrollback snapshot-on-attach, plus the `system.version` contract-skew procedure — all already exist from R-4._ | Remote terminals **survive network blips** — laptop sleep, wifi drop, reconnect with full scrollback restored. | — |
+
+_PR cadence:_ R-1.5 shipped as <PrLink pr={984} />; R-1.6 shipped as <PrLink pr={1004} />. R-4 is now underway in phases (`R4a`–`R4d`): **R4a — the multi-client PTY primitive `@kolu/pty-host`, carved as a published package following the [agency#186 §6.5](https://github.com/srid/agency/pull/186) precedent — shipped as <PrLink pr={1023} />** (a pure in-process refactor); **R4b — the in-process agent boundary (the provider DAG moves into an in-process agent that emits a per-terminal metadata stream; kolu-server consumes it) — shipped as <PrLink pr={1028} />**; R4c (the `kolu --stdio` split + reattach + the spike-verified cgroup survive-mechanism, R4d folded in) follows — after the first R4c attempt (<PrLink pr={1031} />) was dropped and redone. R-2 then becomes "add the ssh-transport variant" against the unified backend (~610 LoC incremental); R-3 reduces to "version handshake + session-ID persistence" (~130 LoC incremental). The five phases stay on different volatility axes (framework expansion → shared engine → PTY-ownership encapsulation → host integration → resilience).
+
+## Three volatility axes the design carves out
+
+Lowy's question: what changes for its own reasons, and is each axis isolated to one module? The design carves three:
+
+| Axis | Encapsulated by | Reason |
+|---|---|---|
+| Where a terminal's state lives (this machine vs. a specific SSH host) | `TerminalBackend` interface + `location` discriminator | The only thing local-vs-remote changes at the kolu-server level. Everything downstream — the router, the surface, the orchestrators — talks to the `TerminalBackend` and doesn't know which location kind it has. |
+| How `TerminalBackend` reaches its agent (transport, framing, reconnect) | `HostSession` + `@kolu/surface/links/stdio` | The transport changes for its own reasons (loopback today + ssh tomorrow, mTLS-over-TCP later). The backend asks `HostSession` for a typed surface client; doesn't care how it connects. |
+| **Where the PTY process runs (caller's process vs. daemonized) + how scrollback persists across client reconnect** | **`@kolu/pty-host`** — the long-lived multi-client PTY owner primitive (R-4) | The PTY-lifetime question changes for its own reasons (kolu-server restart, ssh disconnect, eventual reattach semantics for sandboxed compute or remote build hosts). Encapsulated in one primitive (`createPtyHost(opts)` returning `spawn / attach / write / resize / kill / list`) the agent imports; consumers never touch `node-pty` or `@xterm/headless` directly. |
+
+Hickey's complement: an earlier design draft had per-domain remote providers (`RemoteGitInfoProvider`, `RemoteAgentProvider`, `RemoteFsProvider`, …) — each a transport adapter wearing a domain costume. The single-`TerminalBackend` cut has zero domain knowledge crossing the transport boundary. The agent runs the unmodified local providers; the boundary just ships their output.
+
+## Lessons informing the design
+
+Six lessons from the exploratory prototype that shape the choices below. Each names a specific failure mode someone redoing this would otherwise hit.
+
+| # | Lesson | Concrete design choice |
+|---|---|---|
+| 1 | **Hand-rolled transport adapters mask framework work.** If the code you're writing in your application would benefit any oRPC consumer (not just yours), it belongs in the framework. | R-1.5 landed stdio link, loopback link, peer-server, in-memory channel/cell/publisher in `@kolu/surface` — generic, zero Kolu specifics — plus the `@kolu/surface-nix-host` package for the ssh + Nix glue. R-2 consumes them. Don't write a stdio adapter inside `packages/server/`. |
+| 2 | **Per-entity reactive state wants collections, not parameterized streams.** "What changed about entity X" is what `Collection<K, V>` is for; snapshot+key-tracking semantics come built-in. Stream is for keyed compute (search results); collection is for keyed state. | The agent surface has ONE `terminalMetadata` collection keyed by terminal id, NOT eight parameterized `Stream<{id}, T>` entries. Aggregation happens on the agent; `RemoteTerminalBackend` subscribes once. |
+| 3 | **Framework code needs an end-to-end demo, not just unit tests.** The demo is a falsifiability test: if writing it against the primitives feels awkward, the primitives are at the wrong altitude. | R-1.5 is not "done" until the example app's `worker/` sub-demo exercises the stdio link, peer-server, and in-memory channel with snapshot+delta semantics observed via the browser UI. |
+| 4 | **"Shadow entry sync, I/O async" belongs in the `TerminalBackend.spawnPty` contract.** Registering a connecting-state entry synchronously, then doing all I/O on a later tick, is what makes the instant-tile UX work. | R-1's `TerminalBackend.spawnPty` contract documents the sync-shadow / async-tail pattern. `LocalTerminalBackend`'s I/O is instantaneous so it's a no-op there; `RemoteTerminalBackend` follows the same contract. |
+| 5 | **Wire-shape drift is a real bug class — fail fast, no defaults.** If kolu-server and the remote agent are built from different sources, every RPC 404s silently (kolu-server speaks `surface.X`, agent serves something else). | R-2's `install.ts` requires `KOLU_AGENT_FLAKE_REF`. No default — throws at first remote-spawn with an error message naming the bug class. Operator chooses the ref explicitly (dev branch / release tag). |
+| 6 | **Cold remote realisation can take minutes — design for it.** First `nix run` on a fresh remote builds the closure; without UX accommodation the user stares at a blank tile. | R-2 designs in three mitigations from the start: (a) instant tile + `DisconnectedOverlay`'s connecting-state spinner; (b) kolu-server pre-generates the terminal id so it can register before the spawn RPC roundtrips; (c) heartbeat deferred via `session.markConnected()` — doesn't start until first RPC succeeds, so the 5s × 5 timeout doesn't fire during the build. |
+
+## R-1 — `TerminalBackend` abstraction + `LocalTerminalBackend` <Pill variant="ok">shipped</Pill>
+
+_Landed on `master` as <PrLink pr={981} />. The description below documents the shape that landed; future phases consume it as-is._
+
+_User outcome:_ none. Pure architectural work — the server spine is rewritten around one interface; behavior is byte-identical.
+
+### What "TerminalBackend" means
+
+A `TerminalBackend` is the per-terminal world a terminal lives in. Concretely: **what process owns the PTY, what filesystem the Code-tab reads, where the git watcher runs, where the agent-state providers (Claude Code, OpenCode, Codex) observe their session files.** Every per-terminal stream and every per-host one-shot op goes through this object.
+
+Two concrete kinds:
+
+- **`LocalTerminalBackend`** — this kolu process. The PTY is spawned in-process via `node-pty`; providers watch local files via `@parcel/watcher`; git/fs ops shell out locally.
+- **`RemoteTerminalBackend`** — a specific SSH host. The PTY runs in the `kolu --stdio` agent on that host; every method proxies via oRPC over the agent's surface (R-2).
+
+**What it replaces.** Without this interface, the kolu-server's `meta/*.ts` orchestrators import `kolu-git`, `kolu-anyagent`, `kolu-github` directly and watch local files. Adding remote support without a backend interface means each integration grows a `location` parameter or a parallel `Remote*` twin — transport dispatch braided into every domain function. The `TerminalBackend` interface concentrates the local-vs-remote decision at **one seam** (terminal creation, via `getTerminalBackendFor(location)`); every consumer downstream just talks to `backend.X` and never asks "which kind?"
+
+**What dissolves into it.** `LocalTerminalBackend` absorbs the kolu-server's `meta/*.ts` per-terminal orchestrators (claude-code reconciler, codex reconciler, opencode reconciler, github PR poller, foreground-process detector, git watcher, cwd watcher) as private wiring inside its `spawnPty`. These files _delete_ as a kolu-server-side layer in R-1 — they survive only as their integration-package source (`kolu-claude-code`, `kolu-git`, etc.) that `LocalTerminalBackend` calls.
+
+**Why this is the right cut.** See the [volatility axes](#three-volatility-axes-the-design-carves-out): "where a terminal's state lives" is one independent axis. Carving the system at that axis means every other piece of the design (router, surface, restore, UI) treats local and remote as the same shape. The _only_ place that pattern-matches on `location.kind` is `getTerminalBackendFor`, the resolver itself.
+
+### The interface
+
+```ts
+interface TerminalBackend {
+  readonly id: TerminalLocation;        // { kind: "local" } | { kind: "ssh", host }
+  spawnPty(opts: PtySpawnOpts): Promise<TerminalHandle>;
+  terminalChannel<K>(terminalId, kind: K, signal?): AsyncIterable<TerminalChannelMap[K]>;
+  killTerminal(terminalId): boolean;
+  killTerminalEntry(entry): void;       // bulk-kill path, takes entry directly
+  uploadFile(terminalId, name, base64Data): Promise<string>;
+  readonly fs: TerminalBackendFs;               // listAll, readFile, subscribeRepoChange, subscribeFileChange
+  readonly git: TerminalBackendGit;             // getDiff, getStatus
+}
+```
+
+### Invariants
+
+1. **Kill convergence.** `TerminalBackend.killTerminal(id)` is the sole termination path. `TerminalHandle` does NOT carry `dispose()` — handle-as-control-surface and kill-as-lifecycle are two roles that get smuggled through one method if you let them.
+2. **Snapshot-then-delta on every stream.** `terminalChannel<K>` first yield is a full state snapshot; subsequent yields are deltas (the rule in `.claude/rules/streaming.md`). This is what makes oRPC's `ClientRetryPlugin` reconnect transparently — and what makes the equivalent on the kolu-server ↔ agent hop also reconnect transparently in R-3.
+3. **TerminalBackend owns its filesystem.** `TerminalBackendFs`/`TerminalBackendGit` cover BOTH one-shot ops AND watcher subscriptions. Same axis ("where the FS lives"), one place to dispatch.
+4. **Sync shadow entry, async I/O.** `spawnPty` registers a `TerminalProcess` entry synchronously (so the tile renders immediately), then performs any I/O on a later tick. `LocalTerminalBackend`'s I/O is instantaneous so this is a no-op there; `RemoteTerminalBackend` needs minutes for cold `nix run` realisation and the contract is what makes the instant-tile UX work.
+
+### What R-1 touched (now on `master`)
+
+- `packages/common/src/terminalBackend.ts` — the interface, channel map, fs/git surfaces, `TerminalHandle` (no `dispose`), `TerminalLocation` (R-1: single-variant, R-2 grows the `remote` arm).
+- `packages/server/src/terminalBackend/local.ts` — `LocalTerminalBackend`. Every per-terminal orchestrator (agent-command tracker, agent detectors ×3, git resolver, GitHub PR watcher, foreground observer) absorbed as private functions whose lifecycle is owned by `spawnPty`. Per-local-terminal state (`ptyHandle`, `currentAgent`, `stopProviders`) lives in one `LocalTerminalRecord` — kill drops the whole record atomically.
+- `packages/server/src/terminalBackend/index.ts` — the `getTerminalBackendFor(location)` resolver. Single dispatch point that pattern-matches on `location.kind`; R-2 fills in the `remote` branch beside it.
+- `packages/server/src/terminalBackend/metadata.ts` — the three publish-routing helpers (`updateServerMetadata` / `updateServerLiveMetadata` / `updateClientMetadata`) with their bidirectional type-fence. Used by both `LocalTerminalBackend`'s providers and `terminals.ts`'s client-facing setters.
+- `packages/server/src/terminalBackend/agentRecency.ts` — `shouldBumpRecencyForAgentChange` as a pure function so the recency rule has its own dedicated unit test.
+- `packages/server/src/terminals.ts`, `terminal-registry.ts`, `router.ts`, `surface.ts` — every per-terminal and per-host operation now goes through `getTerminalBackendFor(...)`. The registry stores `handle: TerminalHandle` (the abstract control surface) — `PtyHandle` structurally satisfies it, hiding `dispose`/`process`/`foregroundPid` at the type boundary.
+- `packages/server/src/meta/` — **deleted**. `agent-command.ts`, `agent.ts`, `git.ts`, `github.ts`, `process.ts`, `index.ts`, `state.ts` all dissolved into `terminalBackend/local.ts` as private functions; `state.test.ts` and `agent.test.ts` moved alongside their helpers as `terminalBackend/metadata.test.ts` and `terminalBackend/agentRecency.test.ts`.
+
+### How the refactor stayed safe
+
+- **Atomic refactor — single PR.** Six commits on the PR: the primary spine (interface + LocalTerminalBackend + resolver + meta/* deletion), two Hickey/Lowy fixes (drop wrap-closures, unify `currentAgent` onto the record), three code-police elegance fixes (extract `localBackend` const, drop redundant pre-check, restore doc comments). No transitional state, no feature flag — anything that survived into `master` is part of the new shape, not residue.
+- **Behavior preserved structurally.** `LocalTerminalBackend` invokes the same integration-package functions (`kolu-claude-code`, `kolu-git`, `kolu-github`, …) the orchestrators called. The publish-routing fence between persisted and live metadata fields (`updateServerMetadata` fires `terminals:dirty`; `updateServerLiveMetadata` doesn't) and the recency-bump rule (`shouldBumpRecencyForAgentChange`) are covered by the moved unit tests. CI verdict on the landed PR: 358 e2e scenarios × 2 lanes, 46 server unit tests, 24/24 nodes green.
+
+## `R-1.5` — `@kolu/surface` framework gaps <Pill variant="ok">shipped</Pill>
+
+_User outcome:_ none directly. To framework consumers: "`@kolu/surface` now supports subprocess-worker patterns" — same typed reactive primitives that power browser UI now work for sandboxed compute workers, IDE-extension language servers, remote SSH workers, etc. Plus a new sibling package `@kolu/surface-nix-host` that turns "ship a typed surface to another machine over ssh + Nix" into a one-liner consumers can call.
+
+Surface was browser-coupled at three spots. R-1.5 closed those gaps with _generic_ additions — zero Kolu specifics, useful to any oRPC consumer over a non-WebSocket link — and extracted the remote-deployment glue into its own package once the demo had proven its shape.
+
+### What landed in `@kolu/surface`
+
+1. **Stdio link adapter** (`@kolu/surface/links/stdio`) — `StdioRPCLink` + `createStdioCellsClient`. Wires an oRPC `ClientPeer` (from `@orpc/standard-server-peer`) to a `Readable`/`Writable` pair via base64+newline framing. Direction-neutral options (`read` / `write`) so client and server use the same shape.
+2. **In-process loopback** (`@kolu/surface/links/loopback`) — `createLoopbackPair()` returns crossed `PassThrough` streams so a server and client in the same process exercise the same framing as a real subprocess pair. Enables symmetric "local backend wrapped in the same client shape as a remote backend" patterns; also useful for testing.
+3. **Peer server** (`@kolu/surface/peer-server`) — `serveOverStdio({ router, transport })` pumps any typed oRPC router through `ServerPeer`. Default transport is `process.stdin` / `process.stdout`; loopback consumers pass the `server` half of a `LoopbackPair`. Defensively redirects `console.log` to `process.stderr` to mitigate lesson #4.
+4. **In-process pub/sub family** — `inMemoryChannel<T>()`, `inMemoryCell<T>()`, `inMemoryPublisher()`, and `inMemoryChannelByName()` in `@kolu/surface/server`, next to the existing `inMemoryStore<T>`. Single-process broadcast pub/sub for surfaces served from a Node-only process where `publisherChannel`'s external publisher dep is overkill. `inMemoryChannelByName` is the load-bearing piece for `implementSurface`'s keyed channels — without dedupe by name, the framework's publish-site and subscribe-site land on different `Channel<T>` instances and every delta is lost.
+
+### What landed in the new `@kolu/surface-nix-host` package
+
+The remote-process-monitor demo grew a transport+lifecycle layer that turned out to be wholly generic — ssh subprocess management, `.drv` provisioning, snapshot-then-delta connection state, exponential-backoff reconnect, ref-counted host sessions. By the end of the PR review (after hickey + lowy structural passes and a code-police elegance pass), it was clear this should live as its own package both for re-use in R-2 and to give reviewers a clean package boundary instead of asking them to re-verify ssh-and-Nix machinery on every future Kolu PR. The split happened in the same PR (commit <Commit sha="1d9fb7f8" />) once the shape stabilised.
+
+Public API (generic over `C extends ContractRouter`):
+
+- `HostSession<C>` — one ssh subprocess per `(host, drvPath, binary)`. Ref-counted via `pin()`/`acquire()`/`release()`. State machine. `onState` snapshot-then-delta. `currentClient()` + `isDestroyed()` for the consumer's reconnect-loop.
+- `provisionAgent({ host, drvPath, onProgress })` — `nix copy --derivation` + `ssh nix-store --realise` orchestration. **Nix is the contract, not the implementation** — no tarball / Docker / prebuilt fallback exists or will.
+- `mirrorRemoteCollection<K,V>(opts)` — generic per-key bridge: subscribe to the agent's `keys` stream, open per-key `get(key)` streams, pump values into the consumer's local collection. The fit for R-2's `terminalMetadata` (small-N, per-key reactive).
+- `waitForNextClient(session, previous)` — the reconnect-loop primitive: blocks until the session produces a fresh `AgentClient<C>` identity-distinct from the previous iteration's. Underwrites "reconnect → state reconciles, no ghosts" without consumers having to write the loop themselves.
+- `buildAgentCommand`, `isLocalHost`, `forEachLine` — helpers exported because R-2 needs them too.
+
+### The demo — the falsifiability test that shipped
+
+R-1.5's "done" gate was a single new sub-demo under `packages/surface/example/` — **remote process monitor**, a `top`-shaped live view of any host reachable over ssh — that exercises every R-1.5 primitive in the same shape R-2 will consume them. The existing `notes/` app stayed untouched; the new demo landed as its sibling:
+
+```
+packages/surface/example/
+├── notes/                  — existing, UNCHANGED
+└── remote-process-monitor/ — new (R-2 falsifiability)
+```
+
+All four R-1.5 primitives land in this one demo. Stdio link rides the ssh transport; peer-server pumps the agent's surface; in-memory channel runs the per-snapshot event bus on the remote side; in-process loopback covers the unit tests that swap the real ssh subprocess for an in-process double. A separate "worker-pattern" demo (e.g. a search-index worker subordinate to a parent) was considered but cut — Kolu's R-2 is the backend pattern, not the worker pattern, so a worker demo would prove a shape the framework's first consumer doesn't actually use. A log-tail demo was also considered and cut because no plain-text log file is universally readable, universally present, and actively updating across darwin/linux in 2025 — the "default data source" promise couldn't be kept.
+
+#### Remote process monitor (remote subprocess over SSH; "miniature Kolu")
+
+New three-tier web app in `packages/surface/example/remote-process-monitor/` — browser UI on top, a parent Node server in the middle, the remote agent at the bottom over ssh-stdio. The parent re-exposes the agent's surface to the browser, so the browser is a thin SolidJS client subscribing to a typed surface identical in shape to the one the notes app already uses:
+
+```
+Browser (SolidJS UI)
+   │  WebSocket (oRPC — the framework's existing browser transport)
+   ▼
+Parent server (Node — packages/surface/example/remote-process-monitor/)
+   │  ssh stdio (the R-1.5 stdio link — the new transport this PR adds)
+   ▼
+Remote host: process-monitor-agent (Node, --stdio mode)
+   │  /proc/* on linux, sysctl on darwin
+   ▼
+Kernel
+```
+
+This is the same three-tier shape Kolu R-2 will have (browser ↔ kolu-server over WebSocket ↔ kolu-agent over ssh-stdio) — just with process data instead of terminal data. The parent's bridging role is what R-2's `RemoteTerminalBackend` ends up performing for terminals.
+
+The parent server spawns the agent by shipping its **derivation** (not a realised closure) to the remote and realising it there — so a darwin parent can drive a linux remote without ever needing a cross-platform builder. This was the v1→v2 pivot during the PR (the original plan above said "build the closure locally" but that fails cross-arch; `KOLU_AGENT_DRV` + remote-realise was the resolution):
+
+```
+drv=$(nix eval --raw ".#packages.<remote-system>.process-monitor-agent.drvPath")
+nix copy --derivation --to ssh-ng://$host $drv
+ssh $host nix-store --realise $drv          → /nix/store/...-agent
+ssh $host $agentPath/bin/process-monitor-agent --stdio
+```
+
+The operator supplies `KOLU_AGENT_DRV` (or the `just dev` recipe computes it via `ssh $host uname -ms`). The agent reads `/proc/*` on linux or `sysctl` on darwin and exposes: a `processes` collection keyed by PID, a small-N `cpuCores` collection (4–32 per-core busy%), a `system` cell (load, mem, uptime), a `connection` cell (parent-owned lifecycle state), a `processesSnapshot` stream (bulk discriminated `{snapshot, entries[]} | {delta, upserts[], removes[]}` for the 600+ PIDs case where per-key fan-out is N+1-slow), and a `kill(pid, signal)` procedure. Cold first connect shows copy + realise progress in the UI before dropping into the live view.
+
+##### UI sketch
+
+<pre style={{ background: "#15171f", color: "#c9d1e3", padding: "0.9rem 1rem", borderRadius: "8px", whiteSpace: "pre", overflowX: "auto", fontSize: "0.8rem", lineHeight: 1.5, margin: "1.2rem 0" }}>{`┌─ Remote process monitor ─────────────────────────────────────────────────┐
+│ Host: prod-web-01  ● connected         [ Disconnect ]   poll: every 2s   │
+│ Load: 1.42 / 1.18 / 0.97   Mem: 6.2 / 16.0 GB   Uptime: 14d 3h          │
+├──────────────────────────────────────────────────────────────────────────┤
+│ PID    USER    CPU%   MEM%   COMMAND                                     │
+│ 1234   www     45.2   12.3   nginx: master process                       │
+│ 1235   www     38.1    8.7   nginx: worker process              [ kill ] │
+│ 2891   app     22.5   18.4   node /srv/app/server.js            [ kill ] │
+│ 4012   root     0.3    0.1   /usr/sbin/sshd                              │
+│ …                                                                        │
+└──────────────────────────────────────────────────────────────────────────┘
+
+Surface shape served over ssh-stdio:
+  system     : cell<{ loadAvg, memUsed, memTotal, uptime }>
+  processes  : collection<Pid, { user, cpuPct, memPct, command }>
+  kill       : procedure<{ pid, signal }, void>`}</pre>
+
+Connect-time states the UI must show — the same lifecycle `RemoteTerminalBackend` will need to surface in R-2:
+
+```
+1. "Copying agent to remote…"      (nix copy in flight)
+2. "Connecting…"                   (ssh subprocess spawned, awaiting handshake)
+3. "● connected"                   (first RPC roundtripped → heartbeat starts)
+4. "✕ disconnected — Reconnect"    (heartbeat missed × 5 → reconnect button)
+```
+
+**Primitives exercised:** stdio link (over `ssh`'s stdin/stdout), peer-server, snapshot-then-delta semantics across a network hop (keyed-collection snapshot + per-key deltas as processes appear/disappear/change), in-memory channel on the remote side for the per-tick snapshot bus.
+
+**User-facing benefit:** one-click live `top` for any host you can ssh to. No remote shell, no terminal multiplexer, no breaking out of the browser. The collection refreshes every 2s; reconnect-after-blip re-snaps the process list and the client reconciles against its last view via the framework's keyed-snapshot invariant.
+
+**Why this demo mattered as a falsifiability test.** It's Kolu remote terminals in miniature — same transport stack (`ssh + nix copy --derivation + nix-store --realise`), same cold-realisation wait pattern, same protocol-channel-is-stdout gotcha (lesson #4), and crucially the same _shape_ Kolu's `terminalMetadata` collection has: a keyed-snapshot collection of structured per-id state with deltas as state evolves. The demo proved R-1.5's primitives can express this cleanly — so R-2 reduces to "Kolu-specific consumer of the same shape" — `RemoteTerminalBackend`'s parent-side wiring is a structural twin of this demo's parent-side wiring, with several primitives (`HostSession<C>`, `provisionAgent`, `mirrorRemoteCollection`, `waitForNextClient`) already extracted into `@kolu/surface-nix-host` for R-2 to consume directly.
+
+##### R-2 falsifiability checklist — the demo must exhibit each of these
+
+This is what "the framework can express it cleanly" meant concretely. The demo's "done" gate was "every row below is observable in the running app." All twelve shipped — none required bending the R-1.5 primitives or reaching into Kolu-specific code.
+
+| # | R-2 pattern this row proves | What the demo must demonstrate |
+|---|---|---|
+| 1 | **Stdio link over ssh** | `ssh $host $agent/bin/process-monitor-agent --stdio` connects and exchanges typed RPC end-to-end, with the agent's closure copied from the parent's local nix store. |
+| 2 | **Peer-server pumps typed oRPC router** | the agent's `serveOverStdio({ router })` call serves a non-trivial router — at minimum a `processes` collection, a `system` cell, and a `kill(pid, signal)` procedure. |
+| 3 | **Snapshot-then-delta on collections** (lesson #5) | the `processes` collection's first yield is the full current process snapshot; subsequent yields are per-PID upserts and removes as processes appear, disappear, or change CPU/mem percentages. |
+| 4 | **Snapshot-then-delta on state listeners** | parent's `onConnectionStateChange(cb)` fires `cb(currentState)` synchronously before subscribing — so the UI can attach the connecting-overlay before `connect()` returns and still see the initial `connecting` state. |
+| 5 | **Deferred heartbeat** (lesson #6) | heartbeat does NOT start until first RPC roundtrips successfully; the demo survives a multi-minute cold `nix run` realisation without spurious "disconnected" transitions. |
+| 6 | **Single host session per host** | watching 2 files on the same host shares ONE ssh subprocess + ONE stdio link, not two. The host-session ref-counts watchers; closing the last watcher tears down the session. |
+| 7 | **Instant pane + async fill** | the monitor pane renders the moment the user clicks "connect" (with a "Copying agent to remote…" / "Connecting…" overlay); transport readiness is signalled by the first snapshot arriving, not by blocking the UI on the ssh handshake. |
+| 8 | **Wire-shape drift impossible by construction** (lesson #2's design lesson, inverted) | The demo ships the agent's _derivation_ (target-arch-correct via `nix eval --raw .#packages.<remote-system>.process-monitor-agent.drvPath`) and realises it on the remote, so parent and agent are _always_ built from the same Nix expression — drift can't happen. `KOLU_AGENT_DRV` is required (no fallback) — same shape R-2's `KOLU_AGENT_FLAKE_REF` will take. The choice was "matched-pair by operator-named input" — once for the demo (`.drv` path), again for R-2 (flake ref). |
+| 9 | **Remote command builder** | `@kolu/surface-nix-host` exports `buildAgentCommand({ host, agentPath, binary })` — generic over the binary name, so R-2 passes `binary: "kolu"` while the demo passes `binary: "process-monitor-agent"`. Same shape. The "does the closure already exist?" probe is implicit in `nix-store --realise` — it's a no-op when the output path already exists on the remote; no separate probe needed. |
+| 10 | **Auto `.drv` provisioning** | first connect runs `nix copy --derivation --to ssh-ng://$host $KOLU_AGENT_DRV` then `ssh $host nix-store --realise $KOLU_AGENT_DRV` — the remote gains the agent in its own architecture without needing a substituter, a published artifact, or a pre-installation step. UI surfaces copy + realise progress while waiting; subsequent connects skip both steps (closure already realised on the remote). Localhost short-circuits the copy. |
+| 11 | **Stdout is the protocol; logs go to fd 2** (lesson #4) | the process-monitor-agent's pino logs route to stderr. A deliberately-broken variant (logging to stdout) reproduces the failure mode (`SyntaxError: Unexpected token '«'` in the parent peer) so the gotcha has a regression test. |
+| 12 | **Reconnect → state reconciles, no ghosts** | yank the network mid-session, reconnect — the `processes` collection re-snaps, the client reconciles against its prior view (processes that ended during the gap disappear; new processes appear; the surface framework's keyed-snapshot semantics deliver this without the demo having to write reconciliation logic). This is the user-visible payoff of the snapshot-then-delta invariant for collections. |
+
+R-2 then becomes a structural twin: `RemoteTerminalBackend`'s parent-side wiring mirrors row-for-row this table, with the `terminalMetadata` collection playing the same role as `processes`+`cpuCores` (keyed snapshot + per-key deltas via `mirrorRemoteCollection`), the `terminalExit` event playing the same role as `system` (singleton cell-shaped state), and an `attach` stream layered on top to carry per-PTY byte output. Kolu-specifics (PTY ownership, multiple terminals per host, the agent's per-terminal provider DAG) sit on top — but the transport, the lifecycle invariants, and the reconnect story all ride on primitives R-1.5 has already shipped and proven.
+
+Localhost is a valid target for the demo's SSH lane (`ssh localhost …` tailing `/var/log/system.log` or similar) — no second machine required to verify the transport. A second host is for documentation polish, not for "done".
+
+_Future third demo — out of scope for R-1.5._ An MCP-server adapter that exposes any stdio-served surface to MCP-aware clients (Claude Code, Cursor, Claude Desktop). Tracked in <Issue n={982} />; lands as a separate PR after R-1.5 / R-2.
+
+### Footguns we found (now documented + tested)
+
+- **`implementSurface(...).router` returns a fragment**, not a top-level router. Re-wrap with `implement(contract).router(fragment)` before handing to `StandardRPCHandler`, or every request 404s. <Pill variant="ok">documented + regression-test pinned</Pill> — see <Cite file="packages/surface/src/implementSurface.test.ts" /> and the "Router wrapping (footgun)" section of `packages/surface/README.md`. The notes example silently had this bug; demo cold-start surfaced it on the first end-to-end run.
+- **Stdio's stdout IS the protocol channel** in agent processes. Any pino log line corrupts the next frame and the client peer dies with `SyntaxError: Unexpected token '«'`. <Pill variant="ok">mitigated + reproducer shipped</Pill> — `serveOverStdio` defensively redirects `console.log` to `process.stderr` in the default-transport case; the agent's `--broken-stdout-log` flag deliberately reproduces the failure mode for a regression test. R-2 still needs the same redirect at the pino layer.
+- **`inMemoryPublisher`'s channel-name dedupe is load-bearing.** Without it, the framework's keyed-channel publish-site and subscribe-site land on different `Channel<T>` instances and every delta is silently dropped. <Pill variant="ok">fixed in R-1.5</Pill> — `inMemoryChannelByName()` exists for this case; `inMemoryPublisher` evicts empty per-name channels on idle to avoid unbounded growth on long sessions (~600 PIDs every poll for the process monitor demo).
+- **Stdio link doesn't auto-reconnect mid-stream** (the streams die with the agent process). The `ClientRetryPlugin` alone is not enough — consumers must loop on `waitForNextClient(session, previous)` to bind to each fresh `AgentClient` the session produces post-respawn. R-1.5's bridge does this; R-2 inherits the same pattern.
+
+## R-1.6 — Provider DAG extraction (the shared engine) <Pill variant="ok">shipped</Pill>
+
+*Landed as <PrLink pr={1004} />.* Pure refactor — the per-terminal provider DAG moves out of `LocalTerminalBackend` into `packages/server/src/terminalBackend/providers.ts`, parameterized over `ProviderHooks` + `ProviderChannels` + `ProviderRecord` so the same implementation runs on the local kolu-server *and* the future remote `kolu --stdio` agent. **R-2's prototype (<PrLink pr={994} />) revealed that the original plan's "agent runs the unmodified local providers" line required an explicit extraction step the plan didn't budget for — surfacing this as its own phase made the refactor reviewable in isolation.**
+
+### Why this is its own phase, not part of R-2
+
+R-1 deliberately dissolved the providers into `LocalTerminalBackend` as private functions — the right cut for single-host kolu, where co-locating each provider with its lone consumer was simplest. Reusing the providers across machines now requires pulling them back out into a transport-agnostic module behind an explicit `ProviderHooks` indirection. Doing this inside R-2 means structural review evaluates a ~490-LoC refactor entangled with a feature; doing it as R-1.6 lets reviewers ask "is this the right cut?" in isolation from "does the feature work?" — and the refactor lands on `master` independently with no transitional state (the remote backend doesn't exist yet, so local behavior is byte-identical).
+
+### What gets extracted
+
+New module `packages/server/src/terminalBackend/providers.ts` holding the DAG. Each provider currently inlined in `local.ts` moves out with its full lifecycle (subscribe / publish / unsubscribe) intact:
+
+- Claude Code / Codex / OpenCode session detectors — chain off `title` + `cwd` channels; publish through the agent channel.
+- Git watcher — chains off `cwd`; publishes through the git channel.
+- GitHub PR watcher — chains off the git channel; publishes through the pr channel.
+- Agent-command tracker — chains off `commandRun`; publishes `lastAgentCommand`.
+- Foreground-process observer — chains off `title` + `pid`; publishes `foreground`.
+
+### The shape that actually shipped
+
+Three exported interfaces parameterize `providers.ts`; consumers build all three per-terminal:
+
+```ts
+interface ProviderRecord {
+  ptyHandle: PtyHandle;
+  meta: TerminalServerMetadata;   // canonical: ServerPersisted ∪ Live
+  currentAgent: string | null;
+}
+
+interface ProviderChannels {
+  cwd: Channel<string>;
+  title: Channel<string>;
+  commandRun: Channel<string>;
+  git: Channel<GitInfo | null>;
+}
+
+interface ProviderHooks {
+  updateServerMetadata(record, mutate: (m: ServerPersistedTerminalFields) => void): void;
+  updateServerLiveMetadata(record, mutate: (m: LiveTerminalFields) => void): void;
+  trackRecentRepo?(root, name): void;   // optional — parent-only
+  trackRecentAgent?(cmd): void;          // optional — parent-only
+}
+```
+
+The **fence types** (`ServerPersistedTerminalFields` / `LiveTerminalFields` from `kolu-common/surface`) are load-bearing: writing `m.agent` through `updateServerMetadata` is a compile error, so the `terminals:dirty` autosave firehose cannot be reintroduced by a new provider. `LocalTerminalBackend` wires each hook against its existing publishers + activity trackers; the future R-2 agent wires the two update verbs against its own publish surface and leaves `trackRecent*` undefined (no user-facing activity feed on the agent).
+
+### Host contract (the bit Codex caught)
+
+`record.meta.cwd` is read *once* at provider start; subsequent cwd changes flow only through `channels.cwd`. The first carve had `startAgentProvider` re-reading `record.meta.cwd` synchronously on every reconcile — which worked for the parent backend (it mutates `entry.meta.cwd` before publishing to the cwd channel, and `record.meta` aliases that object) but would have left a future host on the same `ProviderChannels`/`ProviderHooks` shape detecting agents against stale cwd. Codex flagged the hidden invariant in PR review; the fix moved the cwd source-of-truth into a local var seeded from `record.meta.cwd` and updated only via the channel. Contract now lives in the module docstring under "## Host contract".
+
+### What landed
+
+| File | Δ |
+| --- | --- |
+| `packages/server/src/terminalBackend/providers.ts` (new) | +510 LoC — the 7 providers, parameterized over the three interfaces above |
+| `packages/server/src/terminalBackend/local.ts` | **763 → 332** (−431) — lifecycle + `buildChannels(id)` + `buildHooks(entry, id)` |
+| `README.md` §Architecture + `packages/surface/README.md` | ±2 — provider-DAG references re-pointed to the new file |
+
+Net **+79 LoC** for the parameterization boilerplate; single source of truth, two consumers downstream.
+
+### Done when (achieved)
+
+- ✓ `providers.ts` contains the DAG behind `ProviderHooks`; `local.ts` loses the equivalent LoC and re-wires to consume it.
+- ✓ No `kolu-server`-specific imports inside `providers.ts` — only `kolu-claude-code`/`-codex`/`-opencode`, `kolu-git`, `kolu-github`, `kolu-pty`, `anyagent`, `@kolu/surface/server`, `kolu-common/surface`, and shared utilities. The provider DAG is a leaf, not a branch.
+- ✓ All 360 e2e scenarios (2885 steps) stay green on both linux + darwin — behavior byte-identical for local terminals.
+- *Skipped:* a fake-channels unit test of the `ProviderHooks` contract. The Codex-flagged hidden cwd invariant is now in the docstring instead; cwd-staleness regression would be caught by `git-context.feature` + the agent feature files. (Test could be added as a follow-up if a second host materializes; the e2e ladder is the working safety net today.)
+
+### PR cadence as it played out
+
+Ran `/do R-1.6` from `master` @ <Commit sha="d0948a3f" />. Single PR <PrLink pr={1004} />, 5 commits: 1 primary refactor + 1 lowy (derive `ProviderRecord.meta` from `TerminalServerMetadata`) + 1 hickey (narrow mutator types to restore persisted/live fence) + 2 police (restore dropped github-pr debug logs; document the `_record` parameter). Codex review surfaced the cwd-staleness hidden contract; +1 commit fixing it. All 24 CI nodes green twice (once on the carve, once on the codex fix + master merge). Total wall-clock: ~54 minutes for the carve, ~15 minutes for the codex round.
+
+## R-4 — Local PTY daemonization + `@kolu/pty-host` <Pill variant="warn">in progress (R4a–R4c · R4d folded in)</Pill>
+
+<p style={{ color: "var(--muted)", fontSize: "0.95em" }}><strong>R-4's current design + phases now live in their own doc:</strong> <a href="remote-terminals.pty-daemon.html">remote-terminals.pty-daemon.html</a> — which in turn links the A2 ChromeBar UI prototype, <a href="remote-terminals.pty-daemon.chrome-bar.html">remote-terminals.pty-daemon.chrome-bar.html</a>. The R-4 section below is earlier context, superseded by that doc's fresh-approach (`/lowy` + `/hickey`) decomposition.</p>
+
+**R4a — the `@kolu/pty-host` extraction — merged as <PrLink pr={1023} />; R4b — the parameterized provider engine — merged as <PrLink pr={1028} />. R4c was attempted (<PrLink pr={1031} />, "daemonize the in-process agent") and <Pill variant="bad">dropped</Pill> after a production failure on macOS** — daemonizing a long-lived survivor that *holds* the provider DAG serves stale detection on every deploy. The plan below is the **corrected design**: split *only* `pty-host` into the surviving daemon and keep the provider DAG fresh in kolu-server. The [post-deploy retro](#r4-provider-location) has the failure analysis + the prototype comparison (<PrLink pr={994} /> remote, <PrLink pr={1010} /> local daemon); the original single-daemon design is preserved as a collapsed reference at the end of the section.
+
+<a id="r4-boundary" />
+
+### The real R-4 lesson — where the agent boundary belongs
+
+`@kolu/pty-host` owns **only the PTY and what's readable off its byte stream**: the `node-pty` child + `@xterm/headless` screen mirror, the VT-derived taps (cwd via OSC&nbsp;7, title via OSC&nbsp;0/2, command-run via OSC&nbsp;633, exit), and `foregroundPid` (sampled *at the tty* — only the PTY's owner can read the foreground pgrp). It knows **nothing** about git, PRs, agents, or files. Verified in the prototype: `agent/main.ts` runs *zero* providers; the whole DAG runs in kolu-server (`startProviders` in `terminalBackend/local.ts`).
+
+Everything else is a **consumer** of pty-host's taps, and consumers split by *whose host state they read*:
+
+| Consumer | Reads | Must run… |
+| --- | --- | --- |
+| `foregroundPid` / process name | the tty's foreground pgrp | **at the PTY** — already inside pty-host |
+| git watcher · GitHub PR · agent detection (claude / codex / opencode) | the repo / host fs + process table + agent state files (`~/.claude`, codex &amp; opencode sqlite) | **where the shell runs** |
+| Code-tab file tree | files on disk (via `TerminalBackend.fs/git`) | **where the shell runs** |
+
+That second class — the provider DAG — must run **on the host where the shell runs**: locally that's this machine, remotely it's the ssh box (your laptop can't stat `~/.claude` or read the foreground pgrp over there). <PrLink pr={994} />'s remote prototype proved this works: it ran the full DAG *on the remote agent* and detection saw the real state.
+
+<Callout kind="danger">
+**The mistake an earlier draft of this plan made — built in R4b (<PrLink pr={1028} />) and broken in R4c (<PrLink pr={1031} />, dropped) — was conflating two independent axes:**
+</Callout>
+
+1. **Where providers run** (which host) → co-located with the PTY, per the table above.
+2. **What survives a deploy** → must be *thin and version-stable*, or the [no-legacy ⊗ tmux tension](#r4-provider-location) bites: a long-lived survivor that *holds* volatile code serves *stale* code after every deploy.
+
+R4b put the provider DAG *inside* a single long-lived "agent" — satisfying axis 1 but violating axis 2, because the provider DAG (git/agent-detect/PR) is the **most-edited code in the repo**. When R4c daemonized that agent, the surviving daemon served stale detection — the <PrLink pr={1031} /> production failure. The fix: co-location (axis 1) does *not* require providers to share a long-lived process with pty-host — only to run on the same host. So **split by volatility**:
+
+<pre style={{ background: "#0e121a", color: "#d7dce5", border: "1px solid var(--rule)", borderRadius: "10px", padding: "1rem", margin: "1.2rem 0", whiteSpace: "pre", overflowX: "auto", fontSize: "12.5px", lineHeight: 1.5 }}>{`┌─ pty-host daemon — thin · VERSIONED · SURVIVES a deploy ─┐   one per host
+│  node-pty child + @xterm/headless mirror + VT taps       │   (local unix socket; ssh-piped remotely)
+└──────┬───────────────────────────────┬───────────────────┘
+       │ byte streams                    │ raw taps
+       │ (attach / write / resize)       │ (cwd · title+fgPid · cmd-run · exit)
+       ▼                                 ▼
+┌─ provider layer — FRESH every deploy · co-located with the PTY ─┐
+│  providers.ts (the R-1.6 engine): git · PR · agent-detect       │   LOCAL  → runs in kolu-server
+│  reads THIS host's fs / procs / agent-state files               │   REMOTE → re-provisioned
+│  → emits the aggregated per-terminal metadata                   │            process on the ssh host
+└──────────────────────────────┬──────────────────────────────────┘
+                               ▼
+            kolu-server — orchestrator + UI · dock · canvas · sessions ·
+            recent-agents / recent-repos. For LOCAL it also IS the provider layer.`}</pre>
+
+The **only** long-lived, survivable component is `pty-host` — thin, rarely-changing, carrying a **contract version**. The provider DAG is always fresh and co-located: **in kolu-server for local** (it's already on the host and restarts every deploy — no separate process needed), and **a re-provisioned process for remote** (attached to the surviving remote pty-host). `Local`- and `RemoteTerminalBackend` still differ only in *transport* to pty-host; they additionally differ in where the provider layer is hosted (in-process vs a remote process) — an accepted asymmetry, because the provider *code* (`providers.ts`) is byte-identical in both.
+
+<Callout kind="warn">
+**Honest cost (accepted):** metadata is no longer "warm" across a kolu-server restart — the fresh provider layer re-detects (a brief re-detection pass on reconnect), trading #1031's warm-on-reconnect for freshness-on-deploy. **Payoff:** only a *pty-host contract* change (rare) forces a terminal-losing restart; a provider change (frequent) just restarts the cheap layer with PTYs untouched — the tmux feel holds for the common deploy. The rare case is made explicit by [pty-host versioning](#r4-survive) (nudge, then force, with a "you'll lose terminals" warning) — never a silent stale daemon.
+</Callout>
+
+#### tmux / dtach — why they don't fit
+
+The conventions say "prefer external over hand-rolled," so be explicit about it: `tmux` / `abduco` / `dtach` **only keep a PTY alive**. They give you none of what pty-host provides — no OSC-parsed tap streams, no `@xterm/headless` snapshot for lazy-attach, and **no place to host the provider DAG**. You'd still build pty-host's streaming layer *and* a provider host next to tmux, then inherit tmux's session model on top. It replaces the smallest sub-part and adds a process you don't control — so it loses here, but the original design owed it an explicit "considered and rejected."
+
+<a id="r4-redo" />
+
+### R-4 phase split (`R4a`–`R4c`, R4d folded in) — redesigned around the volatility split
+
+<p style={{ color: "var(--muted)", fontSize: "0.95em" }}>R4a + R4b shipped; R4c was attempted as "daemonize the providers-in-agent" (<PrLink pr={1031} />) and <strong>dropped</strong> — daemonizing a survivor that <em>holds</em> the providers serves stale detection (the prod failure; see the <a href="#r4-provider-location">retro</a>). The redo below moves <strong>only <code>pty-host</code></strong> into the daemon and keeps the provider DAG fresh in kolu-server.</p>
+
+<table>
+  <thead>
+    <tr><th>Phase</th><th>Scope</th><th>"Done" criterion</th><th>Why this cut</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>R4a</strong> — <code>@kolu/pty-host</code> <Pill variant="ok">shipped</Pill> <PrLink pr={1023} /></td><td>The thin multi-client PTY-owner primitive, called in-process. <em>Redo adds: a <code>pty-host</code> <strong>contract version</strong></em> — the survivable tap/control interface (spawn/attach/write/resize/screen + cwd · title+fgPid · cmd-run · exit).</td><td>Package builds + tested standalone; byte-identical happy path.</td><td>The durable survivable core. Correct as-is.</td></tr>
+    <tr><td><strong>R4b</strong> — provider engine against pty-host <Pill variant="ok">shipped</Pill> <PrLink pr={1028} /></td><td>Parameterize <code>providers.ts</code> over <code>ProviderHooks</code> so the DAG runs against any pty-host (in-process today).</td><td>Metadata byte-identical; providers consume pty-host taps via the hooks.</td><td><strong>The engine is right and reused.</strong> What R4b got wrong — and the redo corrects — is <em>bundling</em> the DAG into one "agent" object alongside pty-host (<code>createAgent</code>): harmless in-process, fatal once that object is daemonized. The redo keeps the engine, drops the bundling.</td></tr>
+    <tr><td><strong>R4c</strong> — thin <code>kolu --stdio</code> daemon that <em>actually survives</em> (R4d folded in) <Pill variant="warn">redo — supersedes <PrLink pr={1031} /></Pill></td><td>Move <strong>only <code>pty-host</code></strong> into a <code>kolu --stdio</code> daemon, <strong>spawned into its own cgroup so it survives a deploy on the real target</strong>: on Linux via <code>systemd-run --user --unit=kolu-pty-host</code> (<a href="#r4-survive">spike-verified</a> — own cgroup, survives <code>systemctl --user restart</code>), on macOS the detached spawn already survives launchd. Gated on <code>INVOCATION_ID</code> (dev / hand-run → spawn directly, no wrapper). The <strong>provider DAG stays in kolu-server</strong> (in-process, fresh), consuming the daemon's taps over the socket. Reattach-by-id at boot. <strong>pty-host version handshake</strong> (keyed on <em>build identity</em>, not the inert <code>pkgVersion</code>) → ChromeBar "update pending" nudge, then offer to <strong>force</strong> a restart behind an explicit "you'll lose terminals" confirm. + VM regression test asserting MainPID survives a restart.</td><td>Survives <code>systemctl --user restart kolu</code> on Linux <strong>and</strong> a launchd reload on macOS; same shells reattach with scrollback; metadata re-detects fresh; <code>parentId</code>/repo/branch/agent survive; a pty-host bump <em>prompts</em> — never silently stale.</td><td>The full survive payoff on the <em>real</em> target, with #1031's stale-provider + <code>parentId</code>-publish bugs designed out. <strong>R4d folds in</strong> because its mechanism is now spike-proven + cheap (a <code>systemd-run</code> wrapper) — splitting it out would ship a "survives on macOS only" R4c, the original trap. Providers fresh ⇒ <em>no-legacy</em> and <em>tmux feel</em> both hold.</td></tr>
+  </tbody>
+</table>
+
+Then **R-2 = "add the ssh transport"**: a thin *remote* pty-host (survives network blips) plus a **re-provisioned remote provider process** running the same `providers.ts` engine, attached to the remote pty-host and streaming metadata back. No new provider code — the engine is shared; what's new is the second host it runs on.
+
+**The one decision that defines this split:** the long-lived survivor is `pty-host` *only*. The provider DAG never lives in a process that outlives a deploy — it runs fresh, co-located with the PTY (kolu-server for local; a re-provisioned process for remote). That is what reconciles "no legacy agent" with the tmux feel; the [retro](#r4-provider-location) has the full argument.
+
+<Callout kind="warn">
+**Refactor the e2e suite for reattach — don't just add one scenario.** #1031's reattach test asserted only scrollback and missed the metadata + agent-detection regressions entirely. The redo should *parametrize a representative subset of existing feature tests* (git-context, claude/codex/opencode detection, sub-terminal grouping) to re-run under a "restart kolu-server mid-scenario, then reattach" harness — so repo/branch/agent/`parentId` surviving a reattach is covered by the *same* assertions that cover a fresh spawn. Plus an agent-detection test against a **real idle shell** (not a title-firing mock — #1031 passed CI partly because the mock fired a title event a real fresh shell wouldn't).
+</Callout>
+
+<Callout kind="warn">
+**Carry into R4c.** R4b's agent tests (`terminalBackend/agent.test.ts`) drive the *real* provider DAG, so on a machine with `~/.claude`/`~/.codex` state they install real watchers and log noise for a fake cwd — not hermetic. The fix wants either env-isolation of the provider state dirs (captured at module import, so non-trivial) or a provider-injection test seam — exactly the agent test infrastructure R4c needs once the agent gains a socket. Fold it in there. Tracked: <Issue n={1029} />.
+</Callout>
+
+<Callout kind="warn">
+**R4a's one deliberate non-byte-identical divergence — overflow policy.** The data fan-out moves from kolu-server's oRPC publisher (bounded ring buffer, **cap 100**, drops the *oldest* chunk on overflow → silent corruption, stays live) onto `@kolu/pty-host`'s bounded `Channel` (**cap 10,000**, drops the *subscriber* → ends the attach stream). Under normal load (a healthy consumer draining a localhost socket) the two are identical — no drops, in-order delivery — and the new cap is 100× higher, so it sheds far less readily. The behaviors differ only past the cap, and there the `Channel` is the deliberately-chosen primitive for the remote future (bounded memory; a wedged tab can't OOM kolu-server). Its missing half — the consumer re-attaching on an overflow-drop to get a fresh snapshot — is [R-3](#r3) resilience work, not R4a: in-process the cap is unreachable, so R4a ships the primitive and R-3 wires the recovery once a real network makes overflow possible. See the R-3 bullet "*Close the overflow-recovery loop*".
+</Callout>
+
+<a id="r4-survive" />
+
+### Daemon must survive a deploy — the cgroup mechanism (folded into R4c) <Pill variant="ok">spike verified ✓</Pill>
+
+*Spike <Pill variant="ok">done</Pill> — see [Mechanism](#r4-survive) below. The cgroup-escape is verified (transient `systemd-run --user --unit` survives a parent-service restart), so this work **folds into R4c** rather than a separate R4d.*
+
+Symptom in prod: after each redeploy, agents are *resumed* (fresh `claude -c` / `codex resume --last`) rather than reattached. Evidence: `agent.log` shows multiple `agent starting` lines and the live daemon is only minutes old. Root cause:
+
+<pre style={{ background: "var(--code-bg, #f4f1e8)", color: "var(--code-fg, #2a2d33)", border: "1px solid var(--rule)", borderRadius: "6px", padding: "12px 14px", whiteSpace: "pre", overflowX: "auto", fontSize: "12.5px", lineHeight: 1.5 }}>{`CGroup: …/app.slice/kolu.service
+        ├─ kolu-server (--port 7692)
+        ├─ kolu daemon (--stdio)        ← lives INSIDE kolu.service
+        └─ claude / codex / bash …      ← every PTY
+KillMode=control-group  →  systemctl restart kolu kills the WHOLE cgroup`}</pre>
+
+`detached:true` + `unref()` escapes the controlling terminal and process group, but **not the systemd cgroup** — so a deploy (or any `systemctl restart kolu`) takes the daemon and all PTYs down with it.
+
+#### Cross-platform deploy semantics (the asymmetry)
+
+<table>
+  <thead>
+    <tr><th>Context</th><th>What kills on restart</th><th>Does <code>detached</code> escape it?</th><th>Daemon survives a deploy?</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>systemd (Linux)</strong></td><td><code>KillMode=control-group</code> → whole cgroup</td><td><Pill variant="bad">no</Pill> — cgroup ≠ process group; <code>setsid</code> doesn't move it</td><td>No (today) — needs the fix below</td></tr>
+    <tr><td><strong>launchd (macOS)</strong></td><td>SIGTERM to the job's <em>process group</em></td><td><Pill variant="ok">yes</Pill> — <code>setsid</code> puts it in a new session/pgrp</td><td><strong>Yes, automatically</strong> — daemon is unmanaged; server restart leaves it alive</td></tr>
+    <tr><td><strong><code>nix run</code></strong></td><td>SIGINT to the foreground process</td><td>yes (detached)</td><td>Yes, but lingers as an orphan; <em>shares prod <code>~/.config/kolu</code></em> ⚠</td></tr>
+  </tbody>
+</table>
+
+*The irony: a naive declared systemd unit makes Linux **worse** than macOS, because `home-manager switch` rebuilds the package → the daemon unit's `ExecStart` store path changes → sd-switch restarts the daemon unit → PTYs die on every deploy. macOS wins precisely by leaving the daemon unmanaged.*
+
+#### Decided policy <Pill variant="ok">survive + "update pending" nudge</Pill>
+
+Favor **survive-first**; accept that the daemon then runs stale code between restarts. **Under the corrected split this is finally safe — and the justification is now true rather than aspirational:** the daemon is *only* `pty-host` (node-pty fds + xterm mirror + socket), and every volatile thing — the provider DAG included — lives in kolu-server and updates freely every deploy. So a surviving daemon serves stale code only when `pty-host`'s own (rarely-changing) contract changes; the handshake below catches exactly that:
+
+1. <Pill variant="ok">verified</Pill> Daemon **survives all routine deploys** (compatible pty-host contract → reuse the running daemon). *The mechanism (separate cgroup via `systemd-run --user --unit`) is spike-verified below and folded into R4c — so survival holds on Linux too, not just macOS.*
+2. On reconnect, compare the daemon's **pty-host build identity** (the `/nix/store` path or a baked git rev) to the new server's — **NOT `pkgVersion`**. This is the literal #1031 bug: `pkgVersion` is a build-invariant constant (`"0.1.0"`), so `outdated` was *always false* and a 20-hour-old daemon was reused across every deploy. Keyed on the build, a differing daemon publishes *"update pending (running X, server Y) — restart to apply"* and the ChromeBar dot goes steady amber.
+3. User restarts the daemon **when convenient** — the *Restart local PTY daemon* command (⌘K → Debug) SIGTERMs + respawns; PTY loss only at that chosen moment. The amber nudge can also **force** after a grace period for a known-bad pty-host skew — but always behind an explicit *"this will close your running terminals"* confirmation. Never silently legacy, never silently destructive.
+4. Contract-**incompatible** (a breaking pty-host wire change) → fail closed, forced restart.
+
+All four land together in the [R4c redo](#r4-redo) (R4d folded in): pieces 2–4 (the build-keyed nudge + user-triggered restart + fail-closed) plus piece&nbsp;1, the survive *mechanism* — which is no longer "prod-risky, gated on verification" because the [spike already verified it](#r4-survive) (transient `systemd-run --user --unit`, own cgroup, survives a restart).
+
+<Callout kind="warn">
+**One-time migration note:** the first kolu deploy carrying the R4c redo connects to whatever daemon is already running (old code, or none). Because the *old* daemon predates build-keyed staleness, the supervisor should treat an unrecognized/build-mismatched daemon as restart-required on that first cutover — the one restart that loses current terminals. Persists across deploys thereafter.
+</Callout>
+
+#### Mechanism — <Pill variant="ok">DECIDED · spike-verified</Pill> transient `systemd-run` unit
+
+A throwaway spike on a real systemd box (systemd 260, cgroup v2, rootless user manager) settled it. Spawning the daemon as its own transient unit —
+
+<pre style={{ background: "var(--code-bg, #f4f1e8)", color: "var(--code-fg, #2a2d33)", border: "1px solid var(--rule)", borderRadius: "6px", padding: "12px 14px", whiteSpace: "pre", overflowX: "auto", fontSize: "12.5px", lineHeight: 1.5 }}>{`systemd-run --user --unit=kolu-pty-host -- <kolu-abs-path> --stdio`}</pre>
+
+puts it in a **separate sibling cgroup under `app.slice`**, and it **survives both `systemctl --user stop` and `restart`** of kolu-server — verified: same PID, unchanged cgroup, before and after. The current `detached` + `setsid` spawn does **not** survive: on cgroup&nbsp;v2, `KillMode=control-group` (the default) walks *cgroup membership*, not the session, so a `setsid` child stays in kolu-server's cgroup and is killed on restart — the prototype's prod failure, reproduced. Verified caveats, all folded into R4c:
+
+- **Gate on `process.env.INVOCATION_ID`** — set by systemd for any unit's `ExecStart`. When present (kolu-server running as a service) → wrap the spawn in `systemd-run`; when absent (dev / hand-run / e2e) → spawn directly, unchanged. macOS/launchd uses its own path (and already survives).
+- **Linger must be on.** `systemd-run --user` needs the user manager alive while kolu-server is down (between deploys). The home-manager module should `loginctl enable-linger` (or document it) on Linux user-service installs.
+- **Absolute daemon path.** Unit `ExecStart` runs with a minimal PATH (esp. on NixOS) — invoke the daemon by absolute path, don't rely on PATH.
+- **Idempotent `--unit` reuse.** A surviving daemon still owns the unit name after kolu-server returns; detect it (`systemctl --user show kolu-pty-host -p ActiveState,MainPID`) instead of blindly re-running.
+
+*The alternatives (declared unit + sd-switch restart-suppression) are dropped — the runtime `systemd-run` wrapper is simpler, needs no module-level unit, and the spike proved it works.*
+
+#### Also open
+
+- **`nix run` footgun.** `nix run .` / `nix run github:…/<branch>` use the production wrapper → `KOLU_STATE_DIR=~/.config/kolu` → share the *same socket/daemon* as the installed `kolu.service`. Fix: ephemeral state dir for non-service launches, or a server-ownership guard. Decide: this PR or follow-up.
+- **VM regression test** (`nix/home/example/flake.nix`): assert `kolu-pty-daemon` stays active (MainPID unchanged) across `systemctl --user restart kolu` — the direct guard for the cgroup bug.
+- **Docs**: README "Local PTY daemon" section + comments in the module + supervisor explaining the systemd/launchd asymmetry.
+
+---
+
+<a id="r4-lessons" />
+
+### Cross-cutting process lessons
+
+1. **Test the load-bearing assumption first.** The one genuine unknown — does a child escape its parent's cgroup on systemd? — was verified *last*, in prod, after 3.7k lines, and the answer (no) invalidated the headline promise on Linux. The throwaway spike belongs at the *front* of R4d, before any survive code is written: `systemd-run --user` a sleeper, `systemctl restart` the parent, confirm `MainPID` + cgroup survive — then pick the mechanism. De-risk the assumption that, if false, deletes the feature.
+2. **Cut by risk profile, into stacked PRs.** The prototype sliced well but landed everything on one branch — refactor + behavior swap + unproven infra + polish, each a different blast radius and reviewer (which is why Codex kept finding lifecycle holes: the diff never isolated a boundary). The `R4a`–`R4d` split above is the same work cut at PR boundaries instead of commits. The [R-2 retro](#r2-retro) reached this independently — "the prototype's slices conflated the shared engine with the consumer code."
+
+#### What to keep verbatim from the prototype
+
+- **`@kolu/pty-host` as a primitive** — clean single-volatility boundary; the eager-subscribe + snapshot/delta race fix is hard-won and correct. (= R4a.)
+- **pty-host stays a pure PTY service** — it never learns about git/PR/agent detection. *But the provider DAG should move **into the agent**, not stay in kolu-server — see the [boundary](#r4-boundary); that's R4b's whole point and the prototype's one boundary miss.*
+- **Reusing the SSH-shaped `@kolu/surface` stdio link for the local socket** — forward-compatible with R-2's `RemoteTerminalBackend` at no extra cost.
+- **Fail-closed on contract incompatibility** + the version handshake — the correct primitives; the nudge + restart command (R4d's shipped half) are built on them.
+
+---
+
+<a id="r4-provider-location" />
+
+### Post-deploy retro — where the provider DAG lives, and the no-legacy ⊗ tmux tension <Pill variant="warn">decision record</Pill>
+
+*R4c (<PrLink pr={1031} />) was deployed to production (macOS) and looked **totally broken**: no agent detection, the dock showing full cwd paths instead of repo/branch, split terminals rendering as top-level. It was **not** the new code — it was a **stale daemon**. But the failure exposed a real gap: R4b put the volatile provider DAG inside a daemon *designed to survive deploys*, and the staleness detector that should have caught the mismatch was inert. This section records the analysis before R4c lands for real.*
+
+#### The immediate failure — a stale daemon that nothing could evict
+
+On macOS (and `nix run`) the `kolu --stdio` daemon is `detached` + `unref`'d, so it **survives a deploy** — that is the whole point. After a deploy the new kolu-server connects to the *already-running* daemon. The server logs showed one daemon pid (an *older build* — its boot log carried fields the current code doesn't even emit) reused across **~20 hours and many kolu-server restarts**, serving old/buggy code the whole time.
+
+<Callout kind="danger">
+**Root cause:** the staleness check keys on `pkgVersion`, which is a build-invariant constant (`"0.1.0"`). So `outdated = daemon.pkgVersion !== server.pkgVersion` is *always false*, the "update pending" nudge can never fire, and the only force-restart path (contract-*major* mismatch) also never changes. **Nothing ever evicts a stale daemon.** A daemon from any prior build looks current forever.
+</Callout>
+
+**Direct fix:** key the daemon-vs-server identity on a **build identity** (the kolu `/nix/store` path, or a git rev / build hash baked at compile time), not the static `pkgVersion`. Then `outdated` is real, the R4d nudge fires, and a build-changed daemon gets restarted (at a user-chosen moment, or automatically). This single change makes the production failure impossible.
+
+#### Where the provider DAG runs — the two prototypes answered oppositely
+
+The prod symptoms were all *provider-derived* metadata going stale (git, agent detection, PR) plus client-owned `parentId` — so the question is where the provider DAG runs, and the two prototypes made **opposite** choices (an earlier draft of this section wrongly lumped them together):
+
+- **<PrLink pr={994} /> (R-2, remote):** the **remote ssh agent runs the full provider DAG itself** — `agent.ts` calls `startProviders(...)`, commented *"running on the agent means detection sees the real state, not a stale parent-side guess."* (Local terminals in #994 were *in-process* — node-pty + providers both in kolu-server.) So #994 ran providers **co-located with the PTY**: on the agent for remote, in kolu-server for local — and its remote terminals worked *with* full git/agent/PR detection. **That is positive proof that providers-in-the-agent is correct, not a hazard.** *(#994's `agent.ts` docstring still says "DAG lives parent-side, agent-side is a follow-up" — stale wording; the HEAD code moved it agent-side. Read the code, not the comment.)*
+- **<PrLink pr={1010} /> (R-4, local daemon):** the local daemon (`agent/main.ts`) was a **dumb PTY pipe** — *zero* providers; it exposed raw VT taps (`cwd`, `title`+`foregroundPid`, `command-run`, exit, bytes) and kolu-server kept the whole DAG. That works for local *only* because kolu-server is co-located with the local PTY — and it wouldn't generalize to remote (precisely why #994 made the other choice there).
+
+The principle both honor: **providers run where the host-state lives** (the repo, `~/.claude`, the process table). R4b/R4c adopts #994's answer — providers in the agent — for *both* locations, so they differ only in transport. **That call is right, and #994 already proved it works.** So the R4c regression was *not* "providers in the agent." It was two narrower things: the stale-daemon bug above, and that the **local daemon survives a deploy while *carrying* the volatile providers**, so it serves stale detection logic until restarted. #994 never hit this — its local terminals were in-process (fresh on every kolu-server restart) and its remote agent is *re-provisioned* fresh when the flake ref changes, never "survive-stale." **The hazard is specific to a long-lived component that *holds* volatile code** — which is what R4c's local daemon became.
+
+#### The tension R4b never reconciled: *no-legacy agent* ⊗ *tmux feel*
+
+Two goals we hold:
+
+1. **No legacy agent — ever.** When kolu `vN` runs, it must talk to agent `vN`. No "compatible enough" stale agent.
+2. **tmux feel.** PTYs survive a kolu deploy/restart — terminals (and their scrollback, and the agents running in them) persist.
+
+These conflict **exactly and only when the agent's code changes** — because honoring (1) then forces the surviving agent (and its PTYs) to be torn down and recreated, violating (2). **So the conflict's *frequency* is the agent's *rate of change*.** And here is R4b's mistake: it defined the agent as `pty-host` (stable) **+ the provider DAG** — *the most frequently-changed code in the repo* (every git/agent-detection/PR tweak). Lumping a stable core with a volatile shell into one long-lived process means the agent changes *constantly*, so no-legacy forces PTY recreation on *most* deploys — and the tmux feel is lost in the common case. *(This bites the surviving **local** daemon specifically; #994's remote sidestepped it by re-provisioning the whole agent per version — which drops remote PTYs on that change, the same tradeoff in remote dress.)* R4d's "survive-first, running-stale-is-fine" policy tried to dodge this by tolerating a legacy agent, justified as "the daemon is a thin, rarely-changing primitive" — a justification that was **true for #1010's PTY-only daemon and false the moment R4b/R4c moved providers into it**.
+
+#### Resolution — decompose the agent by volatility
+
+The no-legacy principle and the tmux feel are **compatible if and only if the surviving component is thin and stable.** So split the agent along its volatility seam:
+
+<table>
+  <thead>
+    <tr><th>Layer</th><th>Volatility</th><th>Lifetime</th><th>Runs where</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong><code>@kolu/pty-host</code></strong> — PTY children + <code>@xterm/headless</code> scrollback + raw VT taps + <code>foregroundPid</code></td><td>Rarely changes (a thin byte/tap contract)</td><td><strong>Long-lived — survives deploys</strong> (the tmux core)</td><td>One per host (local daemon; remote daemon)</td></tr>
+    <tr><td><strong>Provider DAG</strong> — git · agent-detect · PR · foreground interpretation</td><td>Changes constantly</td><td><strong>Ephemeral — fresh every deploy</strong></td><td>Co-located with the PTY: <em>kolu-server itself</em> for local (it restarts every deploy and reads local disk); a <em>re-provisioned remote process</em> for remote, attached to the surviving remote pty-host</td></tr>
+  </tbody>
+</table>
+
+This honors **both** goals:
+
+- **No legacy:** the provider layer is *always* the current version (it restarts with kolu). The only thing that can go stale is `pty-host`, whose tap contract changes rarely; when it *does* change (a genuine breaking wire change), you accept a one-time no-legacy PTY recreation — rare and explainable.
+- **tmux feel:** `pty-host` (PTYs + scrollback + running agents) survives; only the cheap provider layer restarts on a normal deploy. Terminals persist across the *common* deploy.
+- **Remote symmetry preserved:** providers still run co-located with the PTY in both cases — the difference is they run in a *fresh, restartable controller* rather than inside the surviving agent. The same `providers.ts` engine; it just attaches to `pty-host`'s taps from whichever fresh process is co-located.
+
+<Callout kind="warn">
+This is straight [Lowy volatility-decomposition](#axes): do not braid a stable, long-lived core (`pty-host`) with a volatile shell (the provider DAG) inside one process. R4b's `agent = pty-host + providers` did exactly that — which is why a *surviving* agent serves stale detection logic. The corrected boundary is **surviving `pty-host` + a fresh, co-located provider layer** — it keeps #994's proven providers-co-located rule while borrowing #1010's thin-surviving-daemon instinct for the local case.
+</Callout>
+
+#### Consequences + next steps
+
+- **Keep providers-in-the-agent (proven by #994) — but stop the *survivor* from holding them.** Split the long-lived thin `pty-host` from a fresh, co-located provider layer (kolu-server for local; a re-provisioned process for remote). This is a real redesign of R4c's local daemon — it may be cleaner to **redo it** than to patch <PrLink pr={1031} />. *Honest cost of the split: metadata is no longer "warm" across a kolu-server restart (the fresh provider layer re-detects), trading R4c's warm-on-reconnect for freshness-on-deploy — the right trade, since stale detection is the worse failure.*
+- **Build-keyed staleness (do regardless).** Key the version handshake on a build identity, not the constant `pkgVersion`, so a stale `pty-host` is detected and restarted. Without this the production failure recurs on every breaking pty-host change.
+- **Publish client-owned fields on reattach.** `reattachPty` seeds `parentId`/`themeName` but never publishes them to the `terminalMetadata` collection (only server fields ride the warm `agentMetadata` snapshot), so reattached *split* terminals can render flat. Publish the seeded snapshot on every registration.
+- **Test what broke.** Add an e2e that asserts repo/branch/agent/`parentId` *survive a reattach* (the existing reattach test asserted only scrollback), and an agent-detection test against a real idle shell (not a title-firing mock).
+
+### Original single-daemon design (reference — superseded by the phase split above)
+
+### Why R-4 first (the sequencing flip)
+
+Original plan ordered R-2 → R-3 → R-4. A whole-plan `/lowy` pass (with the [agency#186](https://github.com/srid/agency/pull/186) §6 + §6.5 calibration) showed that R-4 introduces the structural primitive both R-2 and R-3 need (the long-lived multi-client PTY owner) — and that landing it last means building it once for ssh (R-3's `attachPty`) then generalizing to local (R-4). Total cost evidence:
+
+| Order | R-4 LoC | R-2 LoC | R-3 LoC | Total |
+|---|---|---|---|---|
+| R-2 → R-3 → R-4 | ~1400 | ~1390 | ~470 | **~3260** |
+| **R-4 → R-2 → R-3** (adopted) | ~1400 | ~610 | ~130 | **~2140** |
+
+R-4 itself costs the same in either order (it always rewrites the working `LocalTerminalBackend`; that's not order-dependent). Where the savings come from: in the flipped order, R-2's `screenMirror.ts` never gets built (the agent's `attachPty` provides snapshot-on-attach natively), R-2's `RemoteTerminalBackend` + 4 pumps + fs/git RPC forwarding collapse into the shared backend R-4 builds, and R-3's `attachPty` / stable IDs / idle-TTL / snapshot semantics already exist as `@kolu/pty-host`. Total savings: **~1120 LoC + one transitional concept**.
+
+The lens specifically noted that the order-flip was misleading at first glance (a piecemeal R-2-only pass said "no extraction needed"; the R-4 candidate revealed the latent `@kolu/pty-host` primitive only when the whole plan came into scope). Lesson worth durable-capturing: _scope `/lowy` passes to the entire phased plan, not to the next phase alone — package-coherence findings depend on knowing every consumer that's coming._
+
+### User stories (the experience R-4 delivers)
+
+<a id="r4-user-stories" />
+
+The headline outcome — "local terminals survive kolu-server restart" — sits at the centre of a handful of common situations that change measurably between today and post-R-4. These will eventually land in docs / the kolu.dev marketing page as the user-facing pitch.
+
+#### Story 1 — Restart kolu while an agent is mid-stream
+
+_The killer demo._ User has `claude` generating a long response. They need to `pnpm install` a new dep. They restart kolu-server.
+
+<pre style={{ background: "#0e121a", color: "#d6deeb", border: "1px solid var(--rule)", borderRadius: "10px", padding: "1rem", margin: "1.2rem 0", whiteSpace: "pre", overflowX: "auto", fontSize: "12.5px", lineHeight: 1.5 }}>{`Time
+ │  ┌─────────────┐    ┌──────────────────────┐
+ │  │ kolu-server │◄──►│ kolu --stdio daemon  │
+ │  │   (v1)      │    │   PTY-A: claude ████ │   ← claude streaming
+ │  └─────────────┘    │   PTY-B: bash        │
+ │                     │   PTY-C: vim         │
+ │                     └──────────────────────┘
+ │
+ │  ✗ pnpm install → kolu-server v1 dies
+ │
+ │                     ┌──────────────────────┐
+ │                     │ daemon (still alive) │
+ │                     │   PTY-A: claude ████ │   ← still streaming
+ │                     │   PTY-B: bash        │
+ │                     │   PTY-C: vim         │
+ │                     └──────────────────────┘
+ │
+ │  ┌─────────────┐    ┌──────────────────────┐
+ │  │ kolu-server │◄──►│ daemon (reattached)  │
+ │  │   (v2)      │    │   PTY-A: claude ████ │   ← uninterrupted
+ │  └─────────────┘    │   PTY-B: bash        │
+ │                     │   PTY-C: vim         │
+ ▼                     └──────────────────────┘`}</pre>
+
+Browser refresh, three tiles reappear with their existing scrollback + live state. `claude` never noticed the parent died. _Before R-4: all three PTYs died with kolu-server; session-restore created fresh tiles with no running processes._
+
+#### Story 2 — Dev and production kolu running side by side
+
+User is hacking on kolu itself. They have `just dev` (their work-in-progress) and `kolu` (the stable build they actually use for their day job) running simultaneously. They expect zero cross-contamination.
+
+<pre style={{ background: "#0e121a", color: "#d6deeb", border: "1px solid var(--rule)", borderRadius: "10px", padding: "1rem", margin: "1.2rem 0", whiteSpace: "pre", overflowX: "auto", fontSize: "12.5px", lineHeight: 1.5 }}>{`┌─────────────────┐                ┌─────────────────────────┐
+│ kolu dev        │◄──unix sock───►│ daemon (state: ./.kolu) │
+│ (port 5173)     │                │   dev's PTYs            │
+└─────────────────┘                └─────────────────────────┘
+
+┌─────────────────┐                ┌─────────────────────────────┐
+│ kolu (prod)     │◄──unix sock───►│ daemon (state: ~/.local/...)│
+│ (port 7681)     │                │   day-job's PTYs            │
+└─────────────────┘                └─────────────────────────────┘`}</pre>
+
+Two daemons, two state dirs, two unix sockets. Killing one kolu-server doesn't touch the other's PTYs. Restarting one kolu-server reattaches to its own daemon. _State dir is the multiplexer key._
+
+#### Story 3 — First launch (cold-boot startup)
+
+User runs `nix run github:juspay/kolu` for the first time. **The daemon comes up as part of kolu-server's boot, not lazily on first terminal click** — by the time the UI is reachable, the daemon is already warm. Session restore (if there were saved terminals from a previous install) reattaches to the daemon during boot.
+
+<pre style={{ background: "#0e121a", color: "#d6deeb", border: "1px solid var(--rule)", borderRadius: "10px", padding: "1rem", margin: "1.2rem 0", whiteSpace: "pre", overflowX: "auto", fontSize: "12.5px", lineHeight: 1.5 }}>{`shell       kolu-server boot       daemon
+  │              │                    ✗ (not running)
+  │  nix run    │
+  │────────────►│
+  │              │── try connect ────► $KOLU_STATE_DIR/agent.sock
+  │              │   ENOENT
+  │              │
+  │              │── spawn detached ─► ┌──────────┐
+  │              │   kolu --stdio      │ booting  │  ~200ms
+  │              │                     └──────────┘
+  │              │── wait for socket ─►┌──────────┐
+  │              │                     │  ready   │
+  │              │── system.version ──►│          │
+  │              │   ◄── "1.3" ────────│          │
+  │              │── session restore ─►│ attach   │  (or skip if none)
+  │              │   any saved PTYs    │ existing │
+  │              │                     │ PTYs ... │
+  │              │── HTTP/WS up        └──────────┘
+  │  ◄── port ───│   (only NOW does kolu-server serve clients)
+  ▼              ▼                        ▼
+
+Browser opens UI → daemon is already warm
+User clicks "New terminal" → instant (no daemon-bootup wait)`}</pre>
+
+The 200ms daemon-bootup cost is folded into kolu-server startup, not into the first user interaction. _If session restore happens to be empty (first-ever install), the daemon is still spawned and warmed up — the cost is paid once per kolu-server lifetime._ Subsequent kolu-server restarts find an existing daemon (via the `$KOLU_STATE_DIR/agent.sock` connect-or-spawn check) and skip the spawn step entirely.
+
+#### Story 4 — Replaces tmux/zmx, closes <Issue n={671} />
+
+User who currently runs zmx inside kolu (because they want their shell to survive kolu restart) has broken agent detection — zmx shows up as the foreground process so kolu can't see `claude` / `codex` / `opencode` underneath. After R-4, they delete zmx:
+
+<pre style={{ background: "#0e121a", color: "#d6deeb", border: "1px solid var(--rule)", borderRadius: "10px", padding: "1rem", margin: "1.2rem 0", whiteSpace: "pre", overflowX: "auto", fontSize: "12.5px", lineHeight: 1.5 }}>{`Before R-4                       After R-4
+┌──────────────┐                 ┌──────────────┐
+│ kolu-server  │                 │ kolu-server  │
+└──────┬───────┘                 └──────┬───────┘
+       │                                │
+   spawns PTY                       connects to
+       │                                │
+       ▼                                ▼
+   ┌──────┐                        ┌─────────┐
+   │ zmx  │ ◄── foreground         │ daemon  │
+   │      │     ⚠️ kolu sees zmx   └────┬────┘
+   ▼                                    │ spawns PTY
+  bash                                  ▼
+   │                                ┌─────────┐
+   ▼                                │  bash   │
+ claude                              │    │   │
+                                     ▼    │   │
+                                  claude  ◄── ✓ kolu sees claude`}</pre>
+
+Same PTY-persistence benefit, no foreground-process confusion. The structural fix beats the integration workaround.
+
+#### Story 5 — Daemon itself crashes (rare, but defined)
+
+The daemon process dies (OOM, segfault, manual kill). All local PTYs die with it. kolu-server's heartbeat detects the disconnect within 5s; the tile shows the same `DisconnectedOverlay` that R-2 uses for ssh drops, just with a different reason string. Auto-restart attempts the daemon up to 3 times; on persistent failure, the user sees "Local agent unavailable" and can manually restart kolu-server to retry. _This is the failure mode that exists today (whenever kolu-server crashes) — R-4 doesn't make it worse, just rarer._
+
+#### Story 6 — Daemon health at a glance (the status indicator)
+
+<a id="r4-status-indicator" />
+
+The user mostly should not have to think about the daemon. A small dot in the top chrome bar, **alongside the existing kolu-server WebSocket connection indicator**, makes daemon health glanceable without opening any dialog. Five states, mapped onto the same visual vocabulary as the WS indicator:
+
+<pre style={{ background: "#0e121a", color: "#d6deeb", border: "1px solid var(--rule)", borderRadius: "10px", padding: "1rem", margin: "1.2rem 0", whiteSpace: "pre", overflowX: "auto", fontSize: "12.5px", lineHeight: 1.5 }}>{`┌─────────────────────────────────────────────────────────────────────┐
+│  ☵  Cmd-K   Settings              WS ●  Daemon ●        Inspector  │
+└─────────────────────────────────────────────────────────────────────┘
+                                       │       │
+                                       │       └── daemon status (this PR)
+                                       └────────── kolu-server WS (existing)
+
+State              Visual                When
+─────────────────  ──────────────────    ─────────────────────────────────
+Healthy            Daemon ● (green)      Connected, version-compatible,
+                                         heartbeat OK. Default state.
+
+Booting            Daemon ● (gray pulse) kolu-server spawned the daemon
+                                         and is waiting for the socket
+                                         to appear. Lasts ~200ms.
+
+Degraded           Daemon ● (yellow)     Post-upgrade contract skew —
+                                         existing PTYs work, new spawns
+                                         refused. Banner offers restart.
+
+Disconnected       Daemon ● (red blink)  Daemon died or initial spawn
+                                         failed; auto-restart is trying.
+
+WS-down (stale)    Daemon ● (dimmed)     Browser can't reach kolu-server;
+                                         daemon state is unknown. Clears
+                                         when WS reconnects.`}</pre>
+
+Hover for tooltip — PID + uptime + PTY count + contract version + last-heartbeat-ago. Click to open the Debug → Diagnostic info dialog's "Local PTY host" panel (which has the deeper view + the log-tail button + an explicit "Restart daemon" affordance for when the user wants to force a cold restart). On **yellow**, a one-line banner across the top of the chrome bar surfaces the [Restart now] / [Defer] choice from the [upgrade flow](#r4-upgrade); clicking the indicator itself also opens that banner if it's been dismissed.
+
+_Why visible in the chrome (not buried in the dialog):_ the daemon is now a long-lived process the user implicitly depends on. Today's WS indicator follows the same principle — kolu-server is implicit, the green dot is the confirmation that it's still alive. R-4 adds a second implicit dependency; one more dot in the same shape preserves the "everything fine, don't worry about it" UX for the common case while making the rare-but-real bad cases impossible to miss.
+
+### What R-4 delivers
+
+- **New published package `@kolu/pty-host`** — the long-lived multi-client PTY-owner primitive. One socket per the §6.5 calibration:
+
+  ```ts
+  // @kolu/pty-host
+  export interface PtyHost {
+    spawn(opts: PtySpawnOpts): { id: PtyId; pid: number };
+    attach(id: PtyId, signal?: AbortSignal): Promise<{
+      snapshot: Uint8Array;              // current screen + scrollback at attach time
+      deltas: AsyncIterable<Uint8Array>; // live output post-snapshot
+    }>;
+    write(id: PtyId, data: string): void;
+    resize(id: PtyId, cols: number, rows: number): void;
+    kill(id: PtyId, signal?: NodeJS.Signals): void;
+    list(): { id: PtyId; pid: number; cwd: string; lastActivity: number }[];
+  }
+  export function createPtyHost(opts: PtyHostOptions): PtyHost;
+  ```
+
+  _Naming note._ Sibling to `@kolu/solid-xterm` in shape — a Node-side primitive encapsulating xterm-internals (here: `node-pty` + `@xterm/headless` + the `createRequire` shim + subscriber-count + idle-TTL bookkeeping) under one socket. **Not `@kolu/surface-nix-pty-host`** — that prefix in `@kolu/surface-nix-host` signals "extension of the `@kolu/surface` framework"; `@kolu/pty-host` doesn't extend `@kolu/surface`, it's a peer primitive the agent consumes alongside it. The dependency arrows go: `agent` → (`@kolu/pty-host`, `@kolu/surface`), not `@kolu/pty-host` → `@kolu/surface`.
+- **The agent — `kolu --stdio` binary mode.** Same kolu binary, branched on `process.argv.includes("--stdio")` at boot. Serves `agentSurface` through framed messages on its connection (unix socket locally, ssh-piped stdio remotely). Wires the provider DAG against agent-side hooks. Owns one `PtyHost` instance.
+- **`agentSurface.ts`** — the typed wire shape (`defineSurface({ cells, collections, streams, procedures })`) the agent serves and consumers attach to. Includes `terminal.{spawn,kill,write,resize,attach,uploadFile}`, `fs.{listAll,readFile}`, `git.{getDiff,getStatus}`, `system.{heartbeat,version}`, `terminalMetadata` collection keyed by id, `terminalData`/`terminalCommandRun`/`terminalTitle` streams. **`system.version` moves up from R-3 into R-4** — the daemon is long-lived across kolu-server upgrades, so contract-skew detection has to exist from R-4 day one.
+- **`LocalTerminalBackend` rewritten as the loopback-transport client** of one transport-parameterized backend. `HostSession` against the daemon's unix socket; `mirrorRemoteCollection` bridges agent's `terminalMetadata` into the kolu-server's view.
+- **Daemon supervisor** — see the dedicated section below.
+- **Daemon status indicator in the chrome bar** — five-state dot alongside the existing kolu-server WebSocket connection indicator (green / gray-pulse / yellow / red-blink / dimmed). Tooltip carries PID + uptime + PTY count + contract version. Click opens the Diagnostic dialog's "Local PTY host" panel. Yellow state triggers the post-upgrade restart banner. See [Story 6](#r4-status-indicator) for the visual.
+- **Closes <Issue n={671} />** as a structural side effect — kolu is the multiplexer; no zmx layer obscures foreground-process detection.
+
+_What R-4 explicitly does **not** deliver: an in-process fallback (no `KOLU_LOCAL_AGENT=inprocess` env toggle, no retention of the current node-pty-in-kolu-server path). The daemonized path is the only local path after R-4 ships._ Retaining the in-process path would have meant ~200 LoC of legacy + a branching factory + double test surface + ongoing maintenance — and would have re-introduced the asymmetry-blindness pitfall the R-2 retro identified as the #1 process bug class. Same discipline R-1 followed when it dissolved `meta/*.ts` into `LocalTerminalBackend`: the old path got deleted, not flagged off. The R-4 rollback story is "roll back the kolu binary," not "toggle an env var" — the contract-version handshake ([below](#r4-upgrade)) handles the cross-version case mechanically.
+
+### Daemon lifecycle — launch, single-instance, dev/prod coexistence
+
+<a id="r4-supervisor" />
+
+#### How it launches
+
+The daemon is **spawned eagerly during kolu-server boot**, not lazily on first terminal request — see [Story 3](#r4-user-stories) for the timeline. kolu-server's boot sequence is:
+
+1. Try to connect to `$KOLU_STATE_DIR/agent.sock`. If a daemon is already running, reuse it (this is the common path on every kolu-server restart after the first).
+2. If connect fails (ENOENT or ECONNREFUSED), spawn the daemon: `spawn(process.execPath, ["--stdio"], { detached: true, stdio: ["ignore", logFd, logFd] })` + `child.unref()`. Wait for the socket to appear (poll with 50ms backoff, 5s timeout).
+3. Send `system.version` to check contract compatibility (see [Upgrading kolu](#r4-upgrade) below).
+4. Run session restore — any saved local terminals reattach via the daemon's `terminal.attach` during this step.
+5. Only now does kolu-server bind its HTTP/WS port and accept browser connections.
+
+Why eager:
+
+- **Session restore needs the daemon.** If kolu-server has saved terminals from a previous run, they reattach during boot — the daemon must be alive to receive the `terminal.attach` calls.
+- **Predictable startup time.** The ~200ms daemon-bootup cost lands during the "Loading kolu..." moment, not during the first user click. By the time the UI is reachable, the daemon is warm.
+- **Fail-fast on contract skew.** If the daemon's contract version doesn't match the kolu-server's expectation, surface that immediately at boot rather than mid-session.
+
+Detached-spawn discipline (so the daemon survives kolu-server death):
+
+- `detached: true` + `setsid()` equivalent gives it its own process group — no SIGHUP propagation from the parent.
+- `stdio: ['ignore', logFd, logFd]` — closes stdin (no input), pipes stdout + stderr to the daemon's persistent log file (see [logging](#r4-logging) below).
+- `child.unref()` lets the kolu-server event loop exit without waiting on the child.
+
+No systemd / launchd dependency for v1. If a user wants OS-level supervision (e.g., daemon starts at login), that's a v2 enhancement layered on top — the unix-socket protocol stays the same.
+
+#### Max one instance per state dir
+
+The single-instance guarantee is enforced via **advisory file lock on a PID file**:
+
+1. On daemon boot: `open($KOLU_STATE_DIR/agent.pid, O_RDWR | O_CREAT)`, then `flock(LOCK_EX | LOCK_NB)`.
+2. **If flock succeeds** — this is the only daemon. Write own PID to the file, bind to `agent.sock`, serve.
+3. **If flock fails** — another daemon is already alive and holds the lock. Read its PID from the file, verify with `kill -0 <pid>`, abort with exit code 0 (silent — kolu-server will then connect to the existing daemon via the socket).
+4. **Stale-PID recovery** — if flock succeeded but the file had a stale PID inside (the previous daemon crashed without releasing), the OS already released the lock on process death; the new daemon just overwrites the PID. **flock semantics are kernel-managed**, so crash-then-restart works without explicit cleanup.
+
+On kolu-server startup: try to connect to `$KOLU_STATE_DIR/agent.sock`. If the connect fails (ECONNREFUSED or ENOENT), spawn a daemon and retry. If the connect succeeds, send `system.version` immediately — if the version doesn't match the kolu-server's compiled expectation, kill the existing daemon (it's stale from a previous kolu version) and spawn a fresh one.
+
+#### Dev and production coexistence
+
+Different kolu-server instances need different daemons. **The mechanism is `$KOLU_STATE_DIR`** — already the directory kolu-server uses for session storage, preferences, the run-id file. R-4 adds `agent.pid`, `agent.sock`, `agent.log` alongside the existing contents:
+
+<pre style={{ background: "#0e121a", color: "#d6deeb", border: "1px solid var(--rule)", borderRadius: "10px", padding: "1rem", margin: "1.2rem 0", whiteSpace: "pre", overflowX: "auto", fontSize: "12.5px", lineHeight: 1.5 }}>{`$KOLU_STATE_DIR/                   # e.g. ~/.local/state/kolu  (production)
+                                   #   or ./.kolu-state         (just dev)
+├── sessions/                      # existing — auto-saved terminal sessions
+├── preferences.json               # existing — user prefs
+├── state.json                     # existing — server-id, run-id
+├── agent.pid                      # NEW — flocked PID file (single-instance gate)
+├── agent.sock                     # NEW — unix socket the daemon binds to
+├── agent.log                      # NEW — pino-formatted daemon logs
+└── scrollback/                    # NEW — per-PTY ring-buffer caches (optional, may stay in-memory)
+    ├── <pty-id-1>.bin
+    └── <pty-id-2>.bin`}</pre>
+
+Since `just dev` already runs kolu-server with a separate `$KOLU_STATE_DIR` (typically `./.kolu-state` at the repo root), it naturally gets its own daemon. The production install's `~/.local/state/kolu` gets its own daemon. **Two daemons, two sockets, two PID files — zero collision.** Killing one doesn't affect the other; restarting one reattaches to its own.
+
+Edge case: if a user runs two production-mode kolu-servers (unusual but possible — e.g., one on localhost:7681, one on localhost:8080), they'd want them to share PTYs (because they share `$KOLU_STATE_DIR`). The current design supports this: the second kolu-server connects to the existing daemon's socket. Both kolu-servers see the same terminals (any spawn from either appears in the other's listing). _This is the model multi-client implies — feature, not bug, per the `@kolu/pty-host` design._
+
+#### State dir contents (answering "what's in there?")
+
+- **`agent.pid`** — text file with the daemon's PID. The load-bearing artifact for the single-instance gate. Held under `flock(LOCK_EX)` for the daemon's lifetime; OS releases the lock on process death.
+- **`agent.sock`** — unix domain socket the daemon listens on. Mode 0700 (owner-only). kolu-server connects here for every RPC + stream.
+- **`agent.log`** + rotation — daemon's persistent log (see [logging](#r4-logging) below).
+- **`scrollback/`** — optional per-PTY snapshot caches. _v1 keeps scrollback in-memory only._ If we later need PTYs to survive _daemon_ restart (not just kolu-server restart), the cache directory becomes the persistence layer; v1 ships in-memory because daemon restarts are rare and re-snapshotting is cheap.
+
+#### Logging — persisted for later diagnosis
+
+<a id="r4-logging" />
+
+The daemon is detached and runs without a controlling terminal — its stdout/stderr have nowhere to go by default, and a crash leaves no trail. Logs must be persisted to a known location so post-hoc debugging works without the user having had a terminal open at the time of the bug.
+
+##### What goes to disk
+
+- **Lifecycle events** at `info` — daemon boot (PID, pkg version, contract version), `flock` claim/release, every client connect/disconnect (with kolu-server pkg version logged at handshake), `system.version` handshake outcomes, daemon shutdown (graceful vs SIGKILL).
+- **Per-PTY events** at `info` — `spawn` (id, pid, cwd, command), `attach` (which kolu-server, what snapshot byte count), `kill` (id, signal, exit code), idle-TTL eviction.
+- **Errors and warnings** at `warn`/`error` — every caught exception, every dropped channel event, every protocol parse failure, every PTY-spawn-failure (with errno + command attempted), the version-skew degraded-mode transitions.
+- **Debug detail** at `debug` — provider DAG reconciles, channel publish/consume counts, scrollback bookkeeping. _Off by default;_ opt in via `KOLU_LOG_LEVEL=debug` env when reproducing a specific bug.
+
+##### How it's written
+
+- **Format:** pino's JSON-lines format (same shape as kolu-server's existing logger), one event per line, with `ts` / `level` / `msg` / `terminal` / `provider` / `err` fields. Machine-parseable for `jq` / log shippers; `pino-pretty` renders it human-readable on demand.
+- **Destination:** `$KOLU_STATE_DIR/agent.log`. The supervisor opens this file at daemon-spawn time and passes the fd as `stdio: ['ignore', logFd, logFd]` — so anything the daemon prints to stdout/stderr (intended or accidental) ends up in the same file, even before pino is initialized inside the daemon.
+- **Rotation:** the daemon checks log file size at boot and at each lifecycle event boundary. If the file exceeds `KOLU_LOG_MAX_BYTES` (default 16 MiB), rename to `agent.log.1` (and existing `agent.log.1` → `agent.log.2`, up to `.5`; older files get unlinked). Total disk budget: ~80 MiB worst case. The rotation is done inside the daemon process — no external `logrotate` dependency.
+- **Crash trail:** when the daemon dies unexpectedly (SIGSEGV, OOM kill, etc.), the most recent log entries are the last thing on disk. kolu-server's next-boot connect-fail handler reads the tail of `agent.log` and prepends a "Last daemon log before crash:" section to its own error message, so the user sees the post-mortem trail without having to know to look at the state dir.
+
+##### How to surface it to the user
+
+- **Debug → Diagnostic info dialog** (existing UI) — adds a "Local PTY host" panel: daemon PID, uptime, contract version, current PTY count, "Open log directory" button (opens `$KOLU_STATE_DIR` in the OS file manager), "Show last 200 lines" button (renders an in-app log view, pino-prettied).
+- **`kolu daemon log`** CLI subcommand — `kolu daemon log [--follow] [--level=debug]` — tails the log file with `pino-pretty` applied. Mirrors `journalctl -fu` ergonomics.
+- **Bug-report attachment** — when a user files a GitHub issue from kolu's UI, the existing diagnostic-bundle generator (Debug menu) includes the tail of `agent.log` alongside kolu-server's own logs. Privacy: redact paths under `$HOME` to `~`, redact env vars that aren't on a documented allow-list, redact any string matching common secret patterns (basic regex sweep).
+
+### Upgrading kolu while the daemon is running
+
+<a id="r4-upgrade" />
+
+The daemon is long-lived; the kolu binary on disk changes when the user runs `nix --refresh run github:juspay/kolu`. What happens to the user's running PTYs across the upgrade?
+
+**The load-bearing distinction is "what does the version-skew check key on?"** Two wrong answers and one right one:
+
+| Keying choice | Behavior | Verdict |
+|---|---|---|
+| Kolu binary hash | Every `nix run` upgrade restarts the daemon → loses all PTYs. | ❌ Defeats R-4's whole point. |
+| `kolu-pty` npm version | An internal-only `kolu-pty` patch bump (no public API change) would trigger restart. | ❌ Same problem; internal changes shouldn't affect the wire. |
+| **`agentSurface` contract major.minor** | Only triggers a restart when the typed wire shape (procedures, streams, collections, cells) actually changes shape. Internal refactors are invisible. | ✓ The right cut. Most kolu upgrades are _wire-compatible_ by construction. |
+
+So `system.version` returns the contract major.minor (e.g., `"1.3"`), _not_ a build hash. kolu-server has a compiled-in `MIN_AGENT_CONTRACT` semver range it was built against (e.g., `"^1.2"`). At connect time:
+
+```ts
+// At kolu-server startup, before accepting any local-spawn:
+const daemonVersion = await client.system.version({});      // e.g. "1.3"
+if (!semver.satisfies(daemonVersion, MIN_AGENT_CONTRACT)) {
+  enterDegradedMode({ daemonVersion, expected: MIN_AGENT_CONTRACT });
+} else {
+  // Daemon is fine — keep it alive across the upgrade. PTYs survive.
+}
+```
+
+#### Degraded mode (rare path: incompatible contract bump)
+
+1. **Existing PTYs continue to work.** kolu-server keeps its connection to the v1 daemon's socket; `attach`/`write`/`resize`/`kill` on existing PTYs still route through it. The user's `claude` session doesn't notice anything.
+2. **New spawns are refused.** `terminal.spawn` calls return `PRECONDITION_FAILED` with reason `"daemon-upgrade-required"`. The UI surfaces a banner: _"Kolu was upgraded. Local PTY host needs a restart to spawn new terminals. Existing terminals continue working. [Restart now] [Defer]"_
+3. **User clicks [Restart now]** (at whatever moment is convenient — could be minutes or days later) → kolu-server sends `terminal.killAll` to the v1 daemon, waits for the `flock` on `agent.pid` to release (the v1 daemon exits naturally with no PTYs left), spawns the v2 daemon with `process.execPath` (which is now the v2 binary), connects to its socket. The banner clears.
+4. **User clicks [Defer]** → degraded mode persists across kolu-server restarts until the user chooses to upgrade. v1 daemon stays alive serving the v1 PTYs.
+
+_Why not auto-restart on skew?_ The whole value proposition of R-4 is "your terminals survive things you didn't ask for." Auto-killing PTYs on background upgrade would violate that. The degraded-mode banner respects user agency — the user picks the moment for the cutover.
+
+#### What changes the contract version
+
+`defineSurface({ ... })` in `kolu-common/agentSurface.ts` is the schema. Bumps trigger:
+
+- **Patch (1.2.0 → 1.2.1)** — internal-only changes; behavior identical from the wire's point of view. _Auto-bumped if no other change._
+- **Minor (1.2 → 1.3)** — additive: new optional field, new procedure that older kolu-servers don't call, new stream that older kolu-servers don't subscribe to. **Backwards-compatible** — old kolu-server with new daemon works; new kolu-server with old daemon refuses to use the new feature but otherwise works. `MIN_AGENT_CONTRACT`'s caret range tolerates this.
+- **Major (1.x → 2.0)** — breaking: removed field, renamed procedure, changed type shape. Triggers degraded mode + restart prompt.
+
+Internal refactors (e.g., the `kolu-pty` version bump the question raises, or swapping `@xterm/headless` for a different scrollback engine, or rewriting the agent-side provider DAG hook layer) don't touch `defineSurface(...)`, so they don't bump the contract version. **The contract version is the wire shape; the binary is the implementation.**
+
+#### Pragmatic note for v1
+
+R-4's first ship can implement step 1 and step 4 (existing PTYs keep working; user can defer) but skip step 2's "new spawns refused" UX polish — falling back to "all-or-nothing restart" if the engineering cost of routing-during-degraded-mode is too high for the first iteration. The semver-range mechanism in `system.version` is the load-bearing piece; the UX of the cutover is iterable.
+
+### PR shape — four PRs, one per phase (`R4a`–`R4d`)
+
+<a id="r4-slices" />
+
+<Callout kind="warn" title="Superseded as the cadence.">
+This single-PR/four-slice shape was the _original-design_ plan (and the prototype's carve). The actual R-4 is shipping as **four independent PRs** — the [`R4a`–`R4d` phase split](#r4-redo) drawn at the remote-ready boundary — because the retrospective showed the boundary belongs one phase earlier (R4b) than this slicing put it. Slice 1 below corresponds to **R4a, now merged as <PrLink pr={1023} />**; the slices are kept here as a content reference for what each PR carries.
+</Callout>
+
+1. **Slice 1: `@kolu/pty-host` package.** Land the published primitive standalone with tests. No consumer wired yet. Covers `createPtyHost`, the snapshot-then-delta `attach()` semantics, subscriber bookkeeping, idle-TTL. _~400 LoC._
+2. **Slice 2: agent boot + `agentSurface` + `system.version`.** `--stdio` branch in `index.ts`, `agent.ts` wiring the provider DAG through `serveOverStdio`, `system.version` procedure (load-bearing for contract-skew detection between long-lived daemon and upgraded kolu-server), loopback test round-trips heartbeat. _~700 LoC._
+3. **Slice 3: `LocalTerminalBackend` as loopback client + daemon supervisor.** Replace the in-process node-pty path with the unix-socket transport; `mirrorRemoteCollection` bridges metadata; auto-spawn daemon via `spawn(..., { detached: true, stdio: 'ignore' })` + `unref()`; PID file + `flock(LOCK_EX | LOCK_NB)` single-instance gate; version-handshake-on-connect + force-respawn if version-skew detected. _~600 LoC._
+4. **Slice 4: status indicator UI + #671 e2e.** Daemon-state cell exposed through the surface (kolu-server publishes `{status, pid?, uptime?, ptyCount?, contractVersion?, lastHeartbeatAgo?}`); client renders the five-state dot in the chrome bar alongside the WS indicator with tooltip + click-to-open-diagnostic + yellow-state banner integration (see [Story 6](#r4-status-indicator)). New e2e scenario: spawn terminal, kill kolu-server (preserving the daemon), restart kolu-server, verify the same shell reattaches with intact scrollback + the indicator transitions green → dimmed → green across the cutover. _~230 LoC._
+
+### Process discipline (load-bearing)
+
+<a id="r4-asymmetry" />
+
+The R-2 prototype #994's biggest review-cycle cost was _asymmetry blindness_ — half of Codex round-1's catches were "the local backend publishes/disposes X; the remote backend doesn't." R-4 is structurally an _asymmetry-reduction_ phase (both backends become one), but the _migration_ from in-process node-pty to daemon-stdio is itself a place where every event/cleanup/refcount in `LocalTerminalBackend.spawnPty` + `killTerminal` + `killAllTerminals` + `onExit` must be mirrored on the agent side. Diff against `LocalTerminalBackend`'s current shape as an explicit checklist before declaring slice 3 done. The R-2 retro's [process pitfalls](#r2-process-retro) apply verbatim to this migration.
+
+## R-2 — ssh transport variant + remote-only UI <Pill variant="warn">after R-4</Pill>
+
+_📄 Document order note:_ [R-4](#r4) is the prerequisite phase, defined further down. The at-a-glance table and TOC list R-4 → R-2 → R-3 in execution order.
+
+_Scope under the flipped sequencing._ R-4 builds the transport-parameterized `TerminalBackend` (loopback variant for local). R-2 adds the ssh-stdio variant + the remote-only UI surfaces. **No `RemoteTerminalBackend` class to build** — it's a transport configuration of the same backend R-4 built. **No `screenMirror.ts` to build** — `@kolu/pty-host`'s `attach()` provides snapshot-on-attach natively for both transports.
+
+_User outcome:_ **the entire remote feature surface lights up.** Remote terminals work. Branch chip, agent badge, GitHub PR badge, Code tab, file upload, session restore — every rich surface — work identically on remote tiles. The only visible difference is the host chip.
+
+_The prototype <PrLink pr={994} /> is retained for reference only._ Its `RemoteTerminalBackend` + inlined `@xterm/headless` mirror + 4 pumps + fs/git RPC forwarding (~770 LoC in `remote.ts`) become moot — R-4 implements all of that once as the loopback variant of the shared backend. The HostChip + DisconnectedOverlay + SSH picker + session-restore work in the prototype is still useful as content reference.
+
+### R-2 deliverables (post-R-4, ~610 LoC incremental)
+
+Four slices in dependency order, each ~150 LoC:
+
+| # | Slice | Scope |
+|---|---|---|
+| 1 | **SSH transport variant** | Extend `@kolu/surface-nix-host` (or wire its existing ssh path) so the same transport-parameterized backend R-4 built can choose ssh stdio instead of loopback stdio. `drvPath` resolver: `nix eval --raw "$KOLU_AGENT_FLAKE_REF.packages.<remote-system>.default.drvPath"` via one-shot `ssh $host uname -ms`. `KOLU_AGENT_FLAKE_REF` required, no fallback (R-1.5 lesson #5). ~110 LoC. |
+| 2 | **Remote-only backend behavior** | paste/upload `PRECONDITION_FAILED` guard (filesystem-asymmetry concern that only applies to ssh transport; loopback shares the filesystem). Session restore preserves `location` kind through to the right transport choice (R-4 introduced `location` with one variant; R-2 adds the `{kind:"ssh", host}` variant). Sub-terminal inheritance resolves the parent's `location` via `getTerminalBackendForCreate({parentId})`. ~130 LoC. |
+| 3 | **SSH host picker + `DisconnectedOverlay` extension** | SSH host picker enumerates hosts via `ssh -G $host` probes against `~/.ssh/config` aliases (no bespoke parser; ssh-config syntax evolves and a hand-rolled parser drifts). Pre-warm `provisionAgent` for the highlighted host on picker open so first spawn doesn't wait on cold realisation. `DisconnectedOverlay` gains the `copying` state (ssh-specific, doesn't apply to loopback). ~180 LoC. |
+| 4 | **`HostChip` on five surfaces** | Title bar (`TerminalMeta.tsx`), dock pill (`Dock.tsx` — `QuietRowBody`, `AwaitingCardBody`, `WorkingPillBody`), workspace switcher card (`WorkspaceGrid.tsx`), restore card (`EmptyState.tsx`), saved-terminal list. The chip renders nothing when `location.kind === "local"` — common case stays clean. ~190 LoC. |
+
+**One PR, four commits** — the matched-pair contract co-evolution argument that justified one-PR for the original R-2 still applies for the ssh transport's contract additions (e.g., transport-specific connection states); the LoC budget collapses to ~610 because R-4's spine is already on `master`.
+
+The durable rules from the [process retro](#r2-process-retro) remain load-bearing — particularly the "which host owns the filesystem at each step" audit (the paste/upload `PRECONDITION_FAILED` guard is the textbook case).
+
+#### Externalization audit (whole-plan pass) — one new `@kolu/*` package, attributed to R-4
+
+A `/lowy` whole-plan pass with the new [§6 + §6.5 package-coherence calibration](https://github.com/srid/agency/pull/186) identified one package extraction warranted across all phases: **`@kolu/pty-host`**, the long-lived multi-client PTY-owner primitive. It graduates with R-4 (see [R-4 deliverables](#r4-deliverables)). The audit further surfaced that landing R-4 before R-2 + R-3 saves ~1120 LoC and eliminates one transitional concept (a parent-side screen mirror that would have been built in R-2 only to retire in R-4) — driving the sequencing flip. No further packages are warranted by R-2 or R-3 in their own scopes; both encapsulate Kolu-contract-specific knowledge that would invert `@kolu/surface` / `@kolu/surface-nix-host`'s genericity.
+
+#### R-2 inherited constraint (from the whole-plan audit)
+
+One pre-R-2 cleanup carries over from the audit:
+
+| # | Finding | Where it lands |
+|---|---|---|
+| C1 | `HostSession`'s pool key is `${host}::${drvPath}::${binary}`. `drvPath` changes on every flake rebuild during `just dev` — every iteration creates a pool entry that never evicts. **§5 finding**: the key leaks the volatility it's meant to encapsulate. | R-1.5 follow-up: key on `(host, binary)` + destroy on `drvPath` change. Not user-facing on production builds; dev-loop only. Address before R-4 starts since R-4 will be the heaviest `HostSession` consumer during dev iteration. |
+
+_What dropped from the audit's R-2 constraints list after the sequencing flip:_ the prototype's `buildProviderHooks` cast pattern (won't compile against R-1.6's narrowed mutator types) and the §6.5 screen-mirror extraction both moved to R-4's responsibility — R-4 ships the agent and the `buildProviderHooks` impl first; `@kolu/pty-host` subsumes the screen mirror. The two empty `kolu-remote-agent/` + `kolu-remote-client/` shell packages an earlier audit flagged on `master` are still worth deleting (forward attractor for the rejected per-domain architecture) but are operational cleanup, not blocking work.
+
+_→ For the prototype's original six-slice carve — what <PrLink pr={994} /> actually shipped — and the retro on what we'd carve differently, see [History](#history). The slice bodies (2a–2f) below remain as the shape R-2 plugs into._
+
+### Worked instantiation example (the shape R-2 plugs into)
+
+For orientation — the call site that 2a + 2c collapse into, once they consume `@kolu/surface-nix-host` against kolu's agent contract:
+
+```ts
+// packages/server/src/terminalBackend/remote/session.ts (new)
+import { getHostSession, type HostSession } from "@kolu/surface-nix-host";
+import { agentSurface } from "kolu-common/agentSurface";
+
+type AgentContract = typeof agentSurface.contract;
+
+export function getKoluHostSession(host: string): HostSession<AgentContract> {
+  return getHostSession<AgentContract>({
+    host,
+    drvPath: resolveAgentDrvPath(host),   // 2a: nix eval $KOLU_AGENT_FLAKE_REF
+    binary: "kolu",                        // entry point: `kolu --stdio`
+  });
+}
+
+// Consumer (RemoteTerminalBackend.spawnPty's async tail):
+const session = getKoluHostSession(host);
+const client = await session.pin();        // typed: ContractRouterClient<AgentContract, …>
+const result = await client.terminal.spawn({ id, cwd, initialMetadata });
+session.markConnected();                   // ← first RPC roundtripped; heartbeat layer starts
+```
+
+That's the shape. The framework already gives you the typed client; R-2's six slices fill in what runs above and below it.
+
+### 2a — Provisioning glue <Pill variant="ok">mostly done in R-1.5</Pill>
+
+_Originally specified as:_ `installAgent(host)` probes nix; `remoteAgentCommand(host)` returns argv. _What R-1.5 left behind that subsumes it:_ `provisionAgent({ host, drvPath, onProgress })` in `@kolu/surface-nix-host` does the copy + remote realise; `buildAgentCommand({ host, agentPath, binary })` returns the spawn argv. The only Kolu-specific work left for 2a is computing `drvPath` from `KOLU_AGENT_FLAKE_REF`.
+
+- **Flake-ref → drvPath resolver:** `nix eval --raw "$KOLU_AGENT_FLAKE_REF.packages.<remote-system>.default.drvPath"` at HostSession construction time. `<remote-system>` comes from a one-shot `ssh $host uname -ms` probe (same pattern the remote-process-monitor demo uses). The resulting `.drv` path is what gets passed to `HostSession`'s `drvPath` option.
+- **Flake ref source:** `KOLU_AGENT_FLAKE_REF` env var, **required** — no default. R-1.5 already shipped the file-shape twin (`KOLU_AGENT_DRV`, required, no fallback) so this is a known-good pattern. The kolu-server's typed client and the remote agent's router must be built from the same source; a baked-in fallback masks wire-shape drift. Resolver throws at first remote-spawn if unset, error message names the bug class.
+- **Cross-arch:** the `.drv`-ship + remote-realise approach (R-1.5's design) is what enables darwin parent ↔ linux remote and vice versa with no remote-builder config. The original "`ssh $host nix run --refresh <ref>`" approach required Nix on the remote to fetch the flake every time and re-resolve it — viable but slower for repeat connects and harder to debug when something drifts. The R-1.5 approach ships the derivation (small — a build recipe, not a built artifact), the remote realises it once, and subsequent connects skip both the copy and the realise (closure already exists in `/nix/store/`).
+- **R-3 retirement:** contract drift between releases is handled by version handshake in R-3; the matched-pair-by-operator-named-input invariant is what keeps the two halves of the contract aligned during R-2.
+
+### 2b — Agent surface declaration + `--stdio` entry point
+
+_Done when:_ `packages/common/src/agentSurface.ts` declares the agent's wire shape via `defineSurface({ cells, collections, streams, procedures })`; `packages/server/src/index.ts` branches on `process.argv.includes("--stdio")` at boot and routes to a new `packages/server/src/agent.ts` that calls `serveOverStdio`; a loopback test round-trips `system.heartbeat` end-to-end.
+
+- **Wire shape:**
+  - `terminalMetadata` **collection** keyed by terminal id, value is an `AgentTerminalMetadata` subset (cwd, git, agent, pr, foreground, lastAgentCommand, lastActivityAt). Aggregated on the agent side; the kolu-server subscribes once. **NOT 8 parameterized streams** — lesson #2.
+  - `terminalData`, `terminalCommandRun`, `terminalTitle` **streams** keyed by terminal id — high-throughput PTY bytes + OSC streams stay separate from metadata for backpressure isolation.
+  - `fsRepoChange`, `fsFileChange` **streams**.
+  - **Procedures**: `system.heartbeat`; `terminal.{spawn,kill,write,resize,uploadFile}`; `fs.{listAll,readFile}`; `git.{getDiff,getStatus}`.
+- **Narrow contract:** `agentSurface` is NOT the full kolu-server `appRouter`. Exposing `terminal.create` would let an agent spawn another remote terminal-on-a-terminal (recursion). The agent serves what the kolu-server's `RemoteTerminalBackend` needs, nothing else.
+- **The router re-wrap is mandatory.** `implementSurface(agentSurface, …)` returns a _fragment_: `{ surface: t.router(namespaces) }`. Passing it directly to `serveOverStdio({ router })` double-prefixes the matcher tree (`/surface/surface/<key>`) and every request 404s. Wrap once with `implement(agentSurface.contract).router({...fragment.router})` before handing to `serveOverStdio`. `implement` is re-exported from `@kolu/surface/peer-server` so no separate `@orpc/server` import. R-1.5's `implementSurface.test.ts` pins the regression.
+- **Log redirection — `packages/server/src/log.ts`:** at module load, detect `process.argv.includes("--stdio")` and force pino output to fd 2. Must run before the first import-time log call. `serveOverStdio` defensively redirects `console.log` but does not catch pino; this is the kolu-side mitigation. The agent's `--broken-stdout-log` reproducer in the demo is the regression-test template.
+- **Per-terminal aggregator on the agent:** subscribes to the existing per-channel publishers (`terminalChannels.{cwd,git,commandRun,agent,pr,foreground}`) and republishes the aggregated `AgentTerminalMetadata` projection through the surface collection's perKeyBus. Starts at `terminal.spawn`, stops at `terminal.kill`. `title` is intentionally excluded — it's an in-process transient consumed by the agent's own providers, not a field the surface ships.
+
+### 2c — Heartbeat layer above `HostSession` <Pill variant="ok">mostly done in R-1.5</Pill>
+
+_Done when:_ `startHeartbeat(session, surface)` in `packages/server/src/terminalBackend/remote/heartbeat.ts` kicks off a 5-second interval calling `surface.system.heartbeat()`, increments a missed counter on timeout, calls `session.markUnhealthy()` after `MAX_MISSED=5` consecutive misses. The interval does NOT start until `session.markConnected()` has been called (which `RemoteTerminalBackend` does after the first `terminal.spawn` RPC roundtrips). _What R-1.5 already provides:_ the session itself — ref-counting via `pin()`/`acquire()`/`release()`, snapshot-then-delta `onState`, exponential-backoff reconnect, the give-up gate, identity-distinct `currentClient()`, and the `waitForNextClient` reconnect-loop primitive. R-2 instantiates it as `HostSession<typeof agentSurface.contract>` and adds the heartbeat layer above.
+
+- **API names that already exist in `@kolu/surface-nix-host`:** `session.pin()` (parent-lifetime ref + spawn), `session.markConnected()` (transition `connecting → connected` after first RPC), `session.onState(cb)` (snapshot-then-delta listener), `session.currentClient()` (typed client promise or null between respawns), `session.isDestroyed()`, `session.destroy()`. The heartbeat layer in 2c is the only thing R-2 adds; do not re-implement what's already in the package.
+- **Constants ported from Zed** (`/tmp/zed/crates/remote/src/remote_client.rs:149-155`): `HEARTBEAT_INTERVAL=5s`, `HEARTBEAT_TIMEOUT=5s`, `MAX_MISSED=5`, `MAX_RECONNECT_ATTEMPTS=3`. R-1.5 used `MAX_CONSECUTIVE_FAILURES=5` as the give-up gate inside HostSession (consecutive failed _spawns_); Zed's `MAX_RECONNECT_ATTEMPTS` is reconnect-attempts-after-disconnect. Different axes; both apply.
+- **The deferred-heartbeat invariant** (lesson #6): `session.pin()` spawns the ssh subprocess and constructs the client. R-2's heartbeat layer does NOT start its interval until `session.markConnected()` fires — which `RemoteTerminalBackend` calls AFTER the first `terminal.spawn` RPC roundtrips. This survives cold realisation that can take minutes (the demo already exercised this under cross-arch `nix copy --derivation`).
+- **Snapshot-then-delta state listeners** are already in R-1.5's `HostSession.onState` via `inMemoryCell`. `RemoteTerminalBackend`'s connection-state subscriber attaches BEFORE `pin()`'s promise resolves and still sees the initial `copying`/`connecting` state — verified by the demo's "Connecting…" overlay.
+- **Pump-loop pattern is consumer code, not session code.** If R-2's bridge needs to outlive multiple agent respawns (it does), wrap subscriptions in `waitForNextClient(session, last)` — re-binds pumps to the fresh `AgentClient<C>` the session produces post-respawn. Don't try to make a single subscription survive respawns; the stdio streams die with the agent process.
+- **Wire shape:** heartbeat uses `surface.system.heartbeat`, not a hand-rolled `client.heartbeat()` call.
+
+### 2d — `RemoteTerminalBackend`: instant tile + async tail
+
+_Done when:_ clicking "new terminal on `$host`" returns a tile in &lt;50ms with a "Connecting…" overlay; the overlay flips to a live shell once `nix run` realises.
+
+- **Pre-generate the id.** `spawnPty` generates `const id = opts.id ?? crypto.randomUUID()` BEFORE any RPC. The agent honors the same id so kolu-server ↔ agent registries stay in lockstep.
+- **Register the shadow entry synchronously.** Build a `remoteHandle` (PtyHandle-shaped proxy whose `write`/`resize`/`dispose` forward via `session.surfaceClient`), construct the `TerminalProcess` with `meta.connectionState = "connecting"`, call `registerTerminal(id, entry)`. The tile renders immediately. This is the `TerminalBackend.spawnPty` contract from R-1 (invariant #4) put to work.
+- **Start the connection-state subscriber synchronously, metadata subscriber after the typed client is in hand.** Connection-state subscriber wraps `session.onState` — pure in-process listener, no client needed. The metadata subscriber needs a live client; `pin()` resolves with it, then `mirrorRemoteCollection` starts; calling `markConnected()` right after the first `terminal.spawn` RPC unblocks the heartbeat interval.
+- **The async tail** (uses the real R-1.5 API — copy-paste-safe):
+
+```ts
+void (async () => {
+  try {
+    const client = await this.session.pin();    // ← spawn + provision + typed client
+    await client.terminal.spawn({ id, cwd, initialMetadata });
+    this.session.markConnected();               // ← first RPC roundtripped; heartbeat starts
+    const stopMetadata = this.startMetadataSubscriber(id, client);
+    entry.stopProviders = compose(stopState, stopMetadata);
+  } catch (err) {
+    log.error({ host, id, err }, "RemoteTerminalBackend.spawnPty: async tail failed");
+    // HostSession's child-exit handler transitions to "disconnected",
+    // which the state subscriber mirrors into entry.meta.connectionState,
+    // which the DisconnectedOverlay renders. No bespoke failure path needed.
+  }
+})();
+return { id, write: handle.write, resize: handle.resize };
+```
+
+- **`DisconnectedOverlay` covers connecting AND disconnected.** Same component, two states. Connecting shows spinner + "Connecting to `$host`…" + hint about nix realisation; disconnected shows reason + Reconnect / Close-tile buttons.
+
+### 2e — Metadata mirroring via `mirrorRemoteCollection`
+
+_Done when:_ a remote tile's branch chip, agent badge, PR badge, foreground process, cwd, and git info all update from the agent's in-process providers — through one `mirrorRemoteCollection` instance bridging the agent's `terminalMetadata` collection into the kolu-server's local view.
+
+- **Use the helper, don't hand-roll.** R-1.5 shipped `mirrorRemoteCollection<K,V>(opts)` in `@kolu/surface-nix-host` — handles the keys-stream + per-key-stream + abort-on-key-departure choreography. R-2's metadata bridge is a near-verbatim re-use:
+
+```ts
+// packages/server/src/terminalBackend/remote/metadata.ts
+import { mirrorRemoteCollection } from "@kolu/surface-nix-host";
+
+mirrorRemoteCollection<TerminalId, AgentTerminalMetadata>({
+  label: "terminalMetadata",
+  log: (line) => log.warn(line),
+  keys: client.terminalMetadata.keys({}),
+  get: (id, signal) => client.terminalMetadata.get({ key: id }, { signal }),
+  onUpsert: (id, meta) => applyMetadata(id, meta),
+  onRemove: (id) => clearMetadata(id),
+});
+```
+
+- **Per-yield split:** `applyMetadata(id, meta)` splits across `updateServerMetadata` (persisted fields: cwd, git, lastAgentCommand, lastActivityAt — fires `terminals:dirty` for autosave) and `updateServerLiveMetadata` (transient fields: agent, pr, foreground — no autosave fire). The split mirrors what R-1's `LocalTerminalBackend` already does.
+- **No per-field switch in `terminalChannel(kind)`:** when the kolu-server router asks for kind "cwd" / "git" / "agent" / "pr" / "foreground", project from the kolu-server's local metadata store the bridge writes to: `yield localMetadata[id][kind]`. The kind names match `AgentTerminalMetadata` field names exactly — direct indexed access, no switch.
+- **`connectionState` is in-process** — it's the kolu-server's view of `HostSession` state, NOT a thing to fetch from the agent. `RemoteTerminalBackend.terminalChannel(id, "connectionState")` wraps `HostSession.onState` in an AsyncIterable directly.
+- **PTY data and command-run streams stay separate:** `terminalData`, `terminalCommandRun`, `terminalTitle` all flow through their own per-id streams (`client.terminalData.get({key: id})` etc.). High-throughput, latency-sensitive — keeping them out of the metadata collection avoids backpressure interference. Each gets its own pump in the bridge.
+
+### 2f — Host-aware UI plumbing
+
+_Done when:_ every surface that names a terminal also names its host (when remote); session restore preserves location; sub-terminals inherit location.
+
+- **`HostChip` on five surfaces:** title bar (`TerminalMeta.tsx`), dock pill (`Dock.tsx` — `QuietRowBody`, `AwaitingCardBody`, `WorkingPillBody`), workspace switcher card (`WorkspaceGrid.tsx`), restore card (`EmptyState.tsx`), saved-terminal list. The chip renders nothing when `location.kind === "local"` — common case stays clean.
+- **SSH host picker:** command palette lists hosts from `ssh -G $host` probes against `~/.ssh/config` aliases. No bespoke parser — ssh-config syntax evolves and a hand-rolled parser drifts.
+- **Session restore preserves location:** `useSessionRestore.ts`'s call to `handleCreate` threads `t.location` through. e2e test: save a remote session, kill kolu, restart, verify the tile reconnects to the right host.
+- **Sub-terminal inheritance:** `getTerminalBackendForCreate({ parentId })` reads the parent's `meta.location` and resolves the backend by that, regardless of what the create input said. Centralizes inheritance to one resolver — `createTerminal` doesn't pattern-match on parent state.
+
+### PR shape — one PR, six commits
+
+**R-2 lands as a single PR, not a stack.** The slices are conceptual breakdowns for review tractability, not deployable units — no slice ships user-visible value on its own, so splitting introduces transitional states on `master` where remote terminals are half-wired (e.g. session reachable but no metadata). For an in-flight feature with a clean "all or nothing" success criterion (a remote tile actually working end-to-end), the cost of the single big PR is lower than the cost of fanning the agent/server contract changes across multiple round-trips.
+
+- **Commit cadence inside the PR:** one commit per slice (2a, 2b, 2c, 2d, 2e, 2f), in order. Each commit must typecheck and pass tests on its own. Reviewers can step through commit-by-commit; the merge is one revertable unit.
+- **Why not a stacked PR series:** the agent surface contract (2b) is co-evolving with the consumer (2d-2e). Splitting introduces two-way version churn during review. The same reasoning is why R-1.5 shipped as one PR (<PrLink pr={984} />) despite spanning 14+ commits.
+- **Feature-flag the new backend off by default?** No. `getTerminalBackendFor(location)` already pattern-matches on `location.kind` — local terminals continue to resolve to `LocalTerminalBackend`. The new `remote` arm is opt-in via the user explicitly choosing a remote host in the UI; no flag needed.
+- **Slice-level done criteria still serve as commit-message gates:** if 2c's commit doesn't pass its "done when" verification, it doesn't land — review can demand a rebase before continuing.
+
+_→ See [History](#history) for the prototype retro — what <PrLink pr={994} />'s 46-commit landing taught us, what we'd carve differently, and the agent-driven-development process pitfalls from its session log._
+
+## R-3 — Version handshake + session-ID persistence (network-blip resilience)
+
+*User outcome:* laptop sleep / wifi drop / suspend-resume leaves remote terminals alive with full scrollback. This is the axis *Zed itself doesn't solve* — Zed terminals die with the ssh subprocess. Kolu can go further because **the reattach machinery already exists** as `@kolu/pty-host` from R-4. R-3 just persists the session identifier and adds the contract-version handshake on top.
+
+*Most of what was originally R-3 became R-4.* Pre-flip, R-3 owned `attachPty(id)`, stable session IDs, idle-TTL GC, and the snapshot-then-delta semantics on reattach. R-4 now ships all of that inside `@kolu/pty-host` (the same machinery makes local PTYs survive kolu-server restart). R-3's remaining incremental scope is small:
+
+- **Persist `remoteSessionId`.** Add the field to `ServerPersistedTerminalFieldsSchema` + thread it through the kolu-server's saved-terminal record. On reconnect, the kolu-server calls `session.surfaceClient.terminal.attach({ id: remoteSessionId })`; the agent's `PtyHost.attach()` already yields the snapshot-then-delta stream R-3 wanted. ~30 LoC.
+- **Retire the `--refresh` hack.** `system.version` already exists from R-4 (the long-lived local daemon forced it to ship in R-4 — kolu-server-vs-daemon contract skew detection couldn't wait). R-3 just removes the blanket `--refresh` on every spawn at the kolu-server call site, since the version handshake now triggers a single explicit refresh + reconnect on skew with a clear error message. ~50 LoC of call-site cleanup, no new agent-side work.
+- **Pre-warm** on host-picker open: fire-and-forget `provisionAgent({ host, drvPath, onProgress: noop })` for the highlighted host so the first real terminal-spawn doesn't wait on cold realisation. ~20 LoC.
+- **Close the overflow-recovery loop (re-attach on drop).** `@kolu/pty-host`'s bounded `Channel` sheds a slow subscriber by *ending* its attach stream — drop-slow is the correct bounded-memory primitive for a remote agent that outruns the socket (one wedged browser tab can't OOM kolu-server). But a clean stream-end is not a transport error, so today the client's `consumeStream` simply stops: `ClientRetryPlugin`'s `onRetry` fires on reconnect, not on a clean end. R-3 closes the loop — an overflow-drop must drive a fresh re-attach (snapshot-then-delta), made distinguishable from a PTY-exit close so a dead terminal isn't resurrected. **R4a deliberately ships the primitive *without* this consumer-side recovery** (in-process, the 10k-chunk cap is unreachable over a localhost socket); it only becomes load-bearing once a real network sits between agent and kolu-server. ~40 LoC, client-side.
+
+*~130 LoC total* — down from R-3's original ~470 LoC scope. The work isn't smaller because it was less important; it's smaller because R-4 made the structural primitive the reattach was built on into a first-class published one. R-3 is now mostly schema + handshake + UX polish.
+
+**Why keep terminal bytes and metadata on separate streams (vs. one fat stream)?** Terminal bytes are high-throughput, latency-sensitive raw streams; metadata is structured, lower-frequency snapshots. Multiplexing them onto one channel tangles backpressure semantics. The agent surface already gives them separate slots (`terminalData` stream vs. `terminalMetadata` collection); R-3 doesn't change that. The same is true of `PtyHost.attach()`'s `{ snapshot, deltas }` shape — bytes stay bytes, metadata stays in the collection.
+
+## Implementation reference
+
+R-1, R-1.5, and R-1.6 have landed on `master`; R-2 first landed as the working prototype <PrLink pr={994} /> (CI-green, never merged — the retro caught the missing R-1.6 pre-step). The file paths below reference the actual shipped code in each. The earlier exploratory R-2 prototype <PrLink pr={976} /> is now superseded.
+
+### Landed
+
+| PR | What landed |
+|---|---|
+| <Pill variant="ok">shipped</Pill> <PrLink pr={981} /> | **R-1.** `TerminalBackend` interface in `kolu-common`; `LocalTerminalBackend` in `packages/server/src/terminalBackend/local.ts`; `meta/*.ts` orchestrators dissolved into the backend's `spawnPty`. 358 e2e scenarios × 2 lanes / 46 unit tests / 24-of-24 CI nodes green. |
+| <Pill variant="ok">shipped</Pill> <PrLink pr={984} /> | **R-1.5.** `@kolu/surface` grew stdio link, loopback link, peer-server, and the in-memory pub/sub family (`inMemoryChannel`, `inMemoryCell`, `inMemoryPublisher`, `inMemoryChannelByName`). New `@kolu/surface-nix-host` package extracted the ssh + `.drv`-provisioning + lifecycle machinery, generic over the contract type. Validated by the `remote-process-monitor` demo (12/12 falsifiability rows). All 22 required status checks green on darwin + linux. |
+| <Pill variant="ok">shipped</Pill> <PrLink pr={1004} /> | **R-1.6.** Per-terminal provider DAG carved into `packages/server/src/terminalBackend/providers.ts` (510 LoC), parameterized over `ProviderHooks`/`ProviderChannels`/`ProviderRecord`; `local.ts` 763→332 LoC re-wired to consume it. Mutator types narrowed to the canonical `ServerPersistedTerminalFields`/`LiveTerminalFields` fence from `kolu-common/surface` (restores compile-time persisted-vs-live partition). Codex caught the hidden cwd-staleness invariant in review; +1 commit moves cwd source-of-truth into a per-provider channel-fed local var. 5 commits + 1 Codex follow-up; all 24 CI nodes green twice. 360 e2e scenarios / 2885 steps green on linux + darwin. |
+| <Pill variant="warn">prototype</Pill> <PrLink pr={994} /> | **R-2 (superseded by carve).** `kolu --stdio` agent (`packages/server/src/agent.ts`, ~510 LoC); provider DAG extraction (`terminalBackend/providers.ts`, ~490 LoC — _now landed independently as R-1.6_); `RemoteTerminalBackend` (`terminalBackend/remote.ts`, ~770 LoC) with parent-side `@xterm/headless` screen mirror; `HostSession`-driven connection lifecycle + heartbeat; `DisconnectedOverlay` + `HostChip` + SSH host picker + session restore. 46 commits, +3.5k LoC, CI-green after 4 rounds of structural+correctness review. Awaiting rebase against the R-1.6 spine. See the [R-2 retro](#r2-retro) for what we'd carve differently. |
+
+<p style={{ fontSize: "13px", color: "var(--muted)", fontStyle: "italic" }}>→ For superseded prototypes (the earlier R-2 exploration <PrLink pr={976} />), see <a href="#history">History</a>.</p>
+
+### Key APIs in the landed packages
+
+<details open>
+  <summary>`@kolu/surface` — typed reactive primitives</summary>
+
+- `defineSurface({ cells, collections, streams, events, procedures })` in `@kolu/surface/define` — declares the wire shape. Returns `{ spec, contract, descriptors }`; the contract is the oRPC router contract type R-2's agent and client are generic over.
+- `implementSurface(surface, { cells, collections, streams, events, procedures, channel })` in `@kolu/surface/server` — builds the router + ctx fragment. **Returns a fragment** `{ surface: t.router(...) }` that MUST be re-wrapped with `implement(contract).router({...fragment.router})` before handing to `serveOverStdio` / `RPCHandler` — otherwise every request 404s. Regression-test pinned in `packages/surface/src/implementSurface.test.ts`.
+- `serveOverStdio({ router, transport?, handlerOptions?, onFirstRequest? })` in `@kolu/surface/peer-server` — pumps a typed oRPC router through `ServerPeer` over stdio. Defaults `transport` to `process.stdin`/`process.stdout`. Defensively redirects `console.log` to `process.stderr` (lesson #4) but does NOT catch pino — kolu-side `log.ts` needs its own redirect.
+- `implement` re-exported from `@kolu/surface/peer-server` so the re-wrap doesn't need a direct `@orpc/server` import.
+- `StdioRPCLink`, `createStdioCellsClient<C>({ read, write })` in `@kolu/surface/links/stdio` — oRPC client over a `Readable`/`Writable` pair, base64+newline framed.
+- `createLoopbackPair()` in `@kolu/surface/links/loopback` — crossed `PassThrough` streams for unit tests that exercise the same framing without a subprocess.
+- `inMemoryChannel<T>()`, `inMemoryCell<T>(initial)`, `inMemoryPublisher()`, `inMemoryChannelByName()`, `inMemoryStore<T>(initial)` in `@kolu/surface/server` — the single-process pub/sub family. `inMemoryChannelByName()` is the load-bearing factory for `implementSurface`'s `channel` dep; using a fresh `inMemoryChannel()` per-name silently drops every delta.
+
+</details>
+
+<details open>
+  <summary>`@kolu/surface-nix-host` — ssh + Nix + lifecycle</summary>
+
+- `HostSession<C extends ContractRouter>` in `@kolu/surface-nix-host` — one ssh subprocess per `(host, drvPath, binary)`. Public API: `pin()`, `acquire()`, `release()`, `currentClient()`, `onState(cb)`, `markConnected()`, `markUnhealthy()`, `destroy()`, `isDestroyed()`. `pin()` bumps refCount unconditionally (parent-lifetime); `acquire()` bumps only on successful spawn (scoped use, no leak on failure).
+- `getHostSession<C>({ host, drvPath, binary, reconnectDelayMs? })` — pool lookup keyed by `(host, drvPath, binary)`.
+- `destroyAllSessions()` — server-shutdown sweep.
+- `provisionAgent({ host, drvPath, onProgress })` — `nix copy --derivation` + `ssh nix-store --realise`; returns the realised output path on the target. Nix-only, no fallback.
+- `mirrorRemoteCollection<K,V>({ label, log, keys, get, onUpsert, onRemove })` — generic per-key bridge: subscribes to the agent's keys stream, opens per-key get streams, pumps values, aborts on key departure. R-2's `terminalMetadata` bridge is the canonical consumer.
+- `waitForNextClient(session, previous)` — blocks until the session produces a fresh `AgentClient<C>` identity-distinct from `previous`. The reconnect-loop primitive.
+- `buildAgentCommand({ host, agentPath, binary })`, `isLocalHost(host)`, `forEachLine(chunk, onLine)` — small helpers exported for consumers that need to drive their own spawn.
+- **Required env var, no fallback:** the caller computes `drvPath` however they want (typically `nix eval --raw "$REF.packages.<sys>.default.drvPath"`) and passes it in. The package itself doesn't read env.
+
+</details>
+
+<details open>
+  <summary>R-1 (landed in `packages/server/src/terminalBackend/`)</summary>
+
+- `packages/common/src/terminalBackend.ts` — `TerminalBackend` interface, `TerminalChannelMap`, `TerminalBackendFs`, `TerminalBackendGit`, `PtySpawnOpts`, `TerminalHandle` (no `dispose`), `TerminalLocation`.
+- `packages/server/src/terminalBackend/local.ts` — `LocalTerminalBackend`; absorbed providers as private functions; `LocalTerminalRecord` holds per-local-terminal state.
+- `packages/server/src/terminalBackend/index.ts` — `getTerminalBackendFor(location)` resolver; the sole place pattern-matching on `location.kind`. R-2's `getTerminalBackendForCreate({ parentId, location })` resolver lands beside this one.
+- `packages/server/src/terminalBackend/metadata.ts` — `createMetadata` + the three publish-routing mutators with bidirectional type-fence.
+- `packages/server/src/terminalBackend/agentRecency.ts` — `shouldBumpRecencyForAgentChange` pure function (own unit test).
+
+</details>
+
+<details open>
+  <summary>R-2 — new files this PR creates</summary>
+
+- `packages/common/src/agentSurface.ts` — `defineSurface(...)` declaration of the agent's wire shape; `AgentTerminalMetadata` schema.
+- `packages/server/src/agent.ts` — `runAgent()`; instantiates `implementSurface`, re-wraps with `implement(contract).router({...fragment.router})`, hands to `serveOverStdio`. Per-terminal aggregator (subscribes to `terminalChannels.{cwd,git,commandRun,agent,pr,foreground}`, republishes through the surface's `terminalMetadata` collection's perKeyBus). `title` intentionally excluded.
+- `packages/server/src/index.ts` — branches on `process.argv.includes("--stdio")` at boot, routes to `runAgent()`; otherwise normal kolu-server boot.
+- `packages/server/src/log.ts` — at module load, detect `--stdio` in argv and force pino to fd 2. Must execute before any import-time log call.
+- `packages/server/src/terminalBackend/remote/session.ts` — `getKoluHostSession(host)`: resolves `drvPath` via `nix eval --raw "$KOLU_AGENT_FLAKE_REF.packages.<remote-system>.default.drvPath"` (probe remote-system once via `ssh $host uname -ms`), then `getHostSession<AgentContract>({ host, drvPath, binary: "kolu" })`. Throws if `KOLU_AGENT_FLAKE_REF` unset.
+- `packages/server/src/terminalBackend/remote/heartbeat.ts` — `startHeartbeat(session, surface)`; 5s interval calling `surface.system.heartbeat()`; `MAX_MISSED=5` → `session.markUnhealthy()`. Does NOT start its interval until `session.markConnected()` fires.
+- `packages/server/src/terminalBackend/remote/index.ts` — `RemoteTerminalBackend`; instant-tile + async-tail `spawnPty`; uses `mirrorRemoteCollection` for the metadata bridge; per-id streams for `terminalData`, `terminalCommandRun`, `terminalTitle`.
+- `packages/server/src/terminalBackend/remote/handle.ts` — `PtyHandle`-shaped proxy whose `write` / `resize` forward via the typed client (kill flows through `RemoteTerminalBackend.killTerminal`, not the handle).
+- `packages/client/src/terminal/DisconnectedOverlay.tsx` — connecting-spinner + disconnected-buttons; covers both states. Reads `entry.meta.connectionState` as the source-of-truth.
+- `packages/client/src/canvas/HostChip.tsx` — host name chip rendered on five surfaces (title bar, dock pill in three states, workspace switcher card, restore card, saved-terminal list); returns null when `location.kind === "local"`.
+- `.claude/rules/streaming.md` — snapshot-then-delta invariant; carries over the kolu-server ↔ agent hop in R-3.
+
+</details>
+
+## Zed reference (file:line citations)
+
+The patterns ported from Zed v1.5.0 (<Commit sha="3a81f8e9" />). Companion skill `.apm/skills/zed/SKILL.md` has the full study; this is the subset cited by the design above.
+
+<details>
+  <summary>Expand Zed file:line list</summary>
+
+- <Cite file="crates/recent_projects/src/ssh_config.rs" lines="17" /> — `parse_ssh_config_hosts` (we use `ssh -G $host` instead — Zed's parser drifts as ssh-config syntax evolves)
+- <Cite file="crates/recent_projects/src/remote_servers.rs" lines="2895" /> — `spawn_ssh_config_watch`
+- <Cite file="crates/remote/src/protocol.rs" lines="16-52" /> — length-prefixed protobuf `Envelope` (we use base64+newline framing — simpler for stdio, no length prefix needed when newlines are unambiguous)
+- <Cite file="crates/remote/src/remote_client.rs" lines="118-123" /> — `Interactive` enum
+- <Cite file="crates/remote/src/remote_client.rs" lines="149-155" /> — heartbeat constants (ported verbatim)
+- <Cite file="crates/remote/src/remote_client.rs" lines="157-293" /> — connection state machine (port to TypeScript with the deferred-heartbeat addition)
+- <Cite file="crates/remote/src/transport/ssh.rs" lines="785-916" /> — `ensure_server_binary` (kolu uses `ssh nix run` instead — one ssh call replaces Zed's three-strategy ladder)
+- <Cite file="crates/remote/src/transport/ssh.rs" lines="1768-1884" /> — POSIX `ssh` command builder
+- <Cite file="crates/recent_projects/src/disconnected_overlay.rs" lines="17-214" /> — disconnect UI reference (DisconnectedOverlay)
+
+</details>
+
+## History — timestamped log
+
+An append-only log of what shipped and what was tried (including throwaway prototypes and retrospectives); the plan above links here for detail rather than inlining the clutter. Reverse-chronological, newest first.
+
+<table>
+  <thead>
+    <tr><th style={{ width: "11%" }}>Date</th><th>Event</th><th style={{ width: "8%" }}>PR</th><th>Outcome</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2026-05-29</td>
+      <td><strong>R4c</strong> — split into a <code>kolu --stdio</code> daemon + reattach, by daemonizing the R4b in-process agent (pty-host <strong>+ the provider DAG</strong>) behind a unix socket. Deployed to production (macOS). See the <a href="#r4-provider-location">post-deploy retro</a> + <a href="#r4-redo">redesigned R4c</a>.</td>
+      <td><PrLink pr={1031} /></td>
+      <td><Pill variant="bad">dropped — superseded by the redo</Pill>. Green CI (374/374 e2e both platforms) but broken in prod: agent detection dead, repo/branch missing, splits flat. Root cause was <em>not</em> the new code — a <strong>stale daemon</strong> survived ~20h across deploys because the staleness check keyed on a build-invariant <code>pkgVersion</code> (<code>outdated</code> always false). The deeper flaw it exposed: R4b/R4c put the volatile provider DAG <em>inside</em> a daemon designed to survive deploys → stale detection. Corrected design: split <em>only</em> <code>pty-host</code> into the survivor, providers stay fresh in kolu-server. The Codex-review fixes (spawn-readiness gate, await-daemon-kill, NOT_FOUND, e2e harness restart-race) are salvageable for the redo.</td>
+    </tr>
+    <tr>
+      <td>2026-05-29</td>
+      <td><strong>R4b</strong> — draw the agent boundary in-process: the provider DAG moves into an in-process agent (<code>terminalBackend/agent.ts</code>, <code>createAgent</code>) that owns pty-host and emits a per-terminal <code>AgentMetadataEvent</code> stream; kolu-server no longer calls <code>startProviders</code>, it consumes the stream. See <a href="#r4-redo">R4a–R4d split</a>.</td>
+      <td><PrLink pr={1028} /></td>
+      <td><Pill variant="ok">merged</Pill> — pure in-process refactor, byte-identical on screen. hickey/lowy (cross-validated) rejected building the framework surface early; a self-caught restored-recency fix + Codex's P1/P2/P3 (subscription survives a throwing handler, process-scoped activations, quiet <code>dispose()</code>) folded in. Test-hermeticity follow-up: <Issue n={1029} /> (do it in R4c).</td>
+    </tr>
+    <tr>
+      <td>2026-05-29</td>
+      <td><strong>R4a</strong> — extract <code>@kolu/pty-host</code> (the multi-client PTY-owner primitive), still called in-process. See <a href="#r4-redo">R4a–R4d split</a>.</td>
+      <td><PrLink pr={1023} /></td>
+      <td><Pill variant="ok">merged</Pill> — pure in-process refactor; the first phase of the clean R-4 redo.</td>
+    </tr>
+    <tr>
+      <td>2026-05-28</td>
+      <td><strong>R-4 prototype</strong> — whole-daemon prototype (~+3.7k/−760 LoC, 4 slices). Reconciled in <a href="#r4-shipped">what shipped</a> / <a href="#r4-divergences">divergences</a> below.</td>
+      <td><PrLink pr={1010} /></td>
+      <td><Pill variant="warn">never merged — superseded</Pill> by the clean R4a–R4d redo (the systemd survive-premise was falsified in prod).</td>
+    </tr>
+    <tr>
+      <td>2026-05-28</td>
+      <td><strong>R-1.6</strong> shipped — provider DAG extracted into <code>terminalBackend/providers.ts</code> behind <code>ProviderHooks</code>. See <a href="#r1-6">R-1.6</a>.</td>
+      <td><PrLink pr={1004} /></td>
+      <td><Pill variant="ok">merged</Pill> — pure refactor, behavior byte-identical.</td>
+    </tr>
+    <tr>
+      <td>2026-05-27</td>
+      <td><strong>R-2 prototype</strong> — working remote-terminals prototype (46 commits, ~+3.5k LoC). Retro + slice carve below (<a href="#r2-prototype-slices">slices</a>, <a href="#r2-retro">retro</a>, <a href="#r2-process-retro">process retro</a>).</td>
+      <td><PrLink pr={994} /></td>
+      <td><Pill variant="warn">never merged — superseded</Pill> by the R-1.6 carve + the post-R-4 rebased R-2 plan.</td>
+    </tr>
+    <tr>
+      <td>2026-05-27</td>
+      <td><strong>R-1.5</strong> shipped — <code>@kolu/surface</code> framework gaps + new <code>@kolu/surface-nix-host</code> package. See <a href="#r1-5">R-1.5</a>.</td>
+      <td><PrLink pr={984} /></td>
+      <td><Pill variant="ok">merged</Pill> — framework primitives + the falsifiability demo.</td>
+    </tr>
+    <tr>
+      <td>2026-05-26</td>
+      <td><strong>R-2 exploration</strong> — earlier R-2 attempt with a hand-rolled stdio transport (wrong altitude — the adapter belongs in <code>@kolu/surface</code>, lesson #1). See <a href="#impl-superseded">superseded</a> below.</td>
+      <td><PrLink pr={976} /></td>
+      <td><Pill variant="bad">never merged — superseded</Pill> (CLOSED) by R-1.5 (the primitives) + <PrLink pr={994} /> (the prototype).</td>
+    </tr>
+    <tr>
+      <td>2026-05-26</td>
+      <td><strong>R-1</strong> shipped — <code>TerminalBackend</code> abstraction + <code>LocalTerminalBackend</code>; <code>meta/*.ts</code> dissolved in. See <a href="#r1">R-1</a>.</td>
+      <td><PrLink pr={981} /></td>
+      <td><Pill variant="ok">merged</Pill> — pure refactor, behavior byte-identical.</td>
+    </tr>
+  </tbody>
+</table>
+
+<details>
+<summary>R-4 prototype (#1010) — what it shipped &amp; how it diverged</summary>
+
+<a id="r4-shipped" />
+### What the prototype actually shipped
+
+<table>
+  <thead>
+    <tr><th>Slice (commit)</th><th>Delivered</th><th>vs original plan</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>1</strong> <Commit sha="badeae5a" /></td><td><code>@kolu/pty-host</code> primitive (multi-client PTY owner: node-pty + <code>@xterm/headless</code> mirror + bounded <code>Channel&lt;T&gt;</code>) · <code>agentSurface</code> contract + version-compat · <code>$KOLU_STATE_DIR</code> resolver</td><td><Pill variant="ok">as planned</Pill> — the package graduated exactly as the <code>/lowy</code> pass called for</td></tr>
+    <tr><td><strong>2</strong> <Commit sha="746e76c7" /></td><td><code>kolu --stdio</code> daemon process + boot dispatcher; server <code>index.ts</code> split into <code>server.ts</code> + <code>agent/main.ts</code></td><td><Pill variant="ok">as planned</Pill></td></tr>
+    <tr><td><strong>3a</strong> <Commit sha="5c6677fb" /></td><td>Daemon supervisor (spawn-detached, socket poll, <code>system.version</code> handshake, fail-closed) + eager boot + chrome-bar status dot</td><td><Pill variant="warn">simplified</Pill> — see divergences</td></tr>
+    <tr><td><strong>3b</strong> <Commit sha="65dfd7f8" /></td><td><code>LocalTerminalBackend</code> routes every PTY through the daemon socket; reattach-by-id across kolu-server restart</td><td><Pill variant="ok">as planned</Pill> — works in dev/e2e/macOS</td></tr>
+    <tr><td>+</td><td>6 hickey/lowy/police refactors · env-whitelist propagation · 5 Codex correctness fixes · pty-host tests (37) + daemon tests (11) · README architecture · e2e daemon reaping · batch B (nudge + restart command)</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<a id="r4-divergences" />
+### Divergences from the original R-4 design
+
+- <strong>Status indicator simplified.</strong> <a href="#r4-status-indicator">Story 6</a> specced a <em>five-state</em> dot with a Diagnostic "Local PTY host" panel (PID/uptime/PTY-count/log-tail) and a yellow <a href="#r4-upgrade">upgrade banner</a> carrying [Restart now]/[Defer]. Shipped: a <strong>four-tone</strong> dot (starting / ready / outdated / down) + a tooltip + a <em>⌘K → Debug → Restart local PTY daemon</em> command. The diagnostic panel, log-tail button, and top-bar banner are <Pill variant="warn">deferred</Pill>.
+- <strong>Upgrade flow is passive.</strong> Planned an active banner on version skew; shipped a passive amber dot + command. Lower friction to build, lower discoverability — acceptable for a maintenance action.
+- <span style={{ color: "var(--bad)" }}><strong>The premise production falsified.</strong> The original R-4 design assumed a <code>detached</code> child <em>survives kolu-server restart</em> — true on macOS/<code>nix run</code>, <strong>false under systemd</strong> (the daemon shares <code>kolu.service</code>'s cgroup and dies with it). So reattach demos green in dev/e2e/macOS but the headline promise — "survive a deploy" — does <em>not</em> hold on the actual Linux production target. This was never modeled in the design; it surfaced only in prod testing, after all 3.7k lines were written.</span>
+
+</details>
+
+<details>
+<summary>R-2 prototype (#994) — original six-slice carve</summary>
+
+<a id="r2-prototype-slices" />
+### Original prototype slices — what #994 actually shipped (historical reference)
+
+The slices below are the prototype's six-slice carve. They describe what landed in #994 (which is what the rebased R-2 picks up, minus the engine portion). Each is annotated with which retro slice now owns it.
+
+R-2 builds in six self-contained slices. Each slice has a clear "done" criterion you can verify before moving on; in this order, each one's failure mode is bounded by the slice's surface area. <strong>Slices are commits, not PRs</strong> — see <a href="#r2-pr-shape">PR shape</a>.
+
+</details>
+
+<details>
+<summary>R-2 prototype (#994) — retro: what we'd carve differently</summary>
+
+<a id="r2-retro" />
+### Retro — what the prototype taught us, and what we'd carve differently
+
+The plan said "one PR, six commits." The prototype landed as <strong>one PR, 46 commits</strong> — ~7× the plan's cadence. The slice <em>shapes</em> were mostly right; the slice <em>boundaries</em> were wrong in two places and one whole concern was missing from the plan entirely. The lessons below would inform any future agent-style integration (Kolu-on-NixOS hosts, Kolu-on-WSL, MCP-server adapters, sandboxed compute workers).
+
+#### Three things the plan didn't see coming
+
+<table>
+  <thead>
+    <tr><th style={{ width: "24%" }}>Surprise</th><th>What we shipped</th><th>Why the plan missed it</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Provider DAG had to be extracted, not re-used in place.</strong></td>
+      <td>New file <code>packages/server/src/terminalBackend/providers.ts</code> (~490 LoC) holding the per-terminal provider DAG (claude-code/codex/opencode detectors, git watcher, GitHub PR watcher, agent-command tracker, foreground-process observer). Both <code>LocalTerminalBackend</code> AND <code>agent.ts</code> consume it via a <code>ProviderHooks</code> indirection so neither knows which host it's running on.</td>
+      <td>The plan said "the agent runs the unmodified local providers." That's the right <em>intent</em>, but the providers were tangled into <code>LocalTerminalBackend</code> as private functions (R-1's deliberate design — see "<a href="#r1">What dissolves into it</a>"). Reusing them across machines required an explicit extraction step the plan didn't budget for. <strong>This is the load-bearing refactor of R-2</strong> and deserved its own slice.</td>
+    </tr>
+    <tr>
+      <td><strong>Parent-side screen-state mirror leaked from R-3.</strong></td>
+      <td><code>RemoteTerminalBackend</code> runs its own <code>@xterm/headless</code> + <code>SerializeAddon</code> instance fed by the agent's data pump, so the kolu-server's <code>terminal.attach</code> can serve scrollback locally on WebSocket-reconnect without round-tripping back to the agent. Requires <code>createRequire</code> shenanigans for CJS interop.</td>
+      <td>The plan punted scrollback-on-reconnect to R-3 ("PTY ownership + reattach"). In reality, the parent-side reconnect (browser ↔ kolu-server WebSocket drop) hits before the R-3 case (kolu-server ↔ agent ssh drop), and snapshot-then-delta semantics demand <em>some</em> snapshot source. Without a parent-side mirror, every browser refresh re-RPCs the agent — both slow and a denial-of-service risk on cold agents.</td>
+    </tr>
+    <tr>
+      <td><strong>Connection lifecycle has 5+ states and 4 distinct invariants, not the 3 the plan listed.</strong></td>
+      <td>States: <code>copying → connecting → connected → disconnected → destroyed</code>. Invariants added during 4 rounds of Codex review: (a) <code>forceReconnect</code> distinct from <code>destroy</code> (SIGKILL the child but keep the pool entry); (b) <code>sessionPromise</code> clears on reject so a failed first connect doesn't brick the host; (c) parent-side <code>connectedAcked</code> flag waits for first metadata-collection yield, not just first RPC; (d) agent natural-exit calls <code>publishMetadataRemove</code> through the surface bus so the parent sees the removal as a delta.</td>
+      <td>The plan's heartbeat slice (2c) said "5s × 5 misses → markUnhealthy" and called it done. That's the steady-state rule. The real complexity is the <em>edge transitions</em>: cold-start can't trigger heartbeat (lesson #6, planned), but also can't trigger reconnect storm if the child dies during nix-realise (not planned); a destroyed session in the pool needs to be replaced not reused (not planned); an agent exit-via-SIGTERM is different from exit-via-disconnect (not planned).</td>
+    </tr>
+  </tbody>
+</table>
+
+#### How we'd split R-2 differently (now realized)
+
+The prototype's six slices conflated "the shared engine" with "the consumer code" — Codex review kept catching lifecycle holes precisely because the diff didn't isolate the shared boundary. <strong>The cleaner carve is the 5-slice / 2-PR split the rebase plan above adopts</strong>: pull the engine out as <em>its own PR</em> (PR-A = <a href="#r1-6">R-1.6</a>, providers.ts), then ship R-2 (PR-B) as four slices — contract, link (folds 2a's provisioning + 2c's heartbeat into one connection-lifecycle slice), backend (folds 2d's instant tile + 2e's metadata mirror into one slice), UX layer (2f as-is). Slice-by-slice scope and constraints live in <a href="#r2-rebase">R-2 rebase plan</a>; this section just records that the retro's prescription is what's now being executed.
+
+The original "one PR, atomic" judgment was load-bearing in two places (matched-pair invariants, no transitional master) but underweighted review-cycle cost. The 2-PR split addresses both: PR-A is a behavior-preserving refactor with no transitional master state (no remote tiles exist yet, half-wired or otherwise), and PR-B's matched-pair contract co-evolution still happens — just <em>within</em> PR-B's four commits, not across two PRs.
+
+#### What the plan got right (and we'd keep)
+
+- <strong>Single <code>TerminalBackend</code> seam.</strong> R-1's interface absorbed remote with zero domain-knowledge bleed across the transport boundary. The router, surface, restore, and most of the UI never learned that "remote" exists. Vindicated by the 46-commit diff: ~85% of changed lines are in <code>terminalBackend/remote.ts</code>, <code>agent.ts</code>, and adjacent files — the rest of the codebase barely moved.
+- <strong><code>KOLU_AGENT_FLAKE_REF</code> required, no fallback.</strong> Lesson #5 paid off — zero wire-shape-drift bugs in the prototype. Boot validation in <code>httpServer.ts</code> catches misconfigured deployments instantly with a clear error.
+- <strong>Deferred heartbeat via <code>markConnected()</code>.</strong> Lesson #6 paid off — multi-minute cold realisation on fresh hosts surfaced as "Connecting…" overlay, never as spurious disconnect. The acked-connected refinement during review extended this from "first RPC roundtripped" to "first metadata yield received" — a strict tightening.
+- <strong>Surface primitives in <code>@kolu/surface</code> + <code>@kolu/surface-nix-host</code>.</strong> Lesson #1 paid off — zero hand-rolled transport code in <code>packages/server/</code>. <code>mirrorRemoteCollection</code> dropped in as one ~10-line call. <code>provisionAgent</code> + <code>buildAgentCommand</code> didn't need touching.
+
+</details>
+
+<details>
+<summary>R-2 prototype (#994) — process retro: agent-driven development pitfalls</summary>
+
+<a id="r2-process-retro" />
+#### Process retro — agent-driven development pitfalls (from the #994 session log)
+
+Beyond the code-shape lessons, the prototype's session log surfaced six durable patterns about driving an LLM agent through a feature this scope. Captured here because the next remote-style integration (R-3, Kolu-on-NixOS, MCP adapter) will run into the same loops, and the human-in-the-loop cost of these mistakes was substantial — Codex caught 13 bugs across 4 review rounds, and the user had to interrupt 4 distinct premature-"done" stops to push the work forward.
+
+<table>
+  <thead>
+    <tr><th style={{ width: "26%" }}>Pitfall</th><th>What happened on #994</th><th>Durable rule</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Premature "done" on workflow-internal signals</strong></td>
+      <td>The agent declared the work complete <strong>four times</strong> on signals that weren't user-visible success — CI green ("End-to-end transport wired"); <code>do-results</code> step-end recorded ("R-2 ship complete"); a CI retry running in the background ("Standing by"); a <code>just dev</code> port bound + page reloaded ("ready for you to test"). Each required the user to interrupt: "wtf dont stop until you finish", "please finish the PR so it works end to end", "Did you finish everything?", "Why stop? Create a terminal and see what happens in logs".</td>
+      <td>For UI/feature work, the turn ends only after the agent has driven the feature itself (chrome-devtools MCP, or direct CLI invocation) and observed the user-named outcome. If the only way for the user to confirm progress is to test it themselves, the turn is not over. CI-green and step-recorded are <em>necessary</em>, not <em>sufficient</em>.</td>
+    </tr>
+    <tr>
+      <td><strong>Asymmetry blindness on local/remote variants</strong></td>
+      <td>Half of Codex round-1's catches (six bugs) were "the local backend publishes/disposes X; the remote backend doesn't." <code>terminalExit</code> subscription missing, <code>RemotePtyHandle.dispose()</code> never called, <code>KOLU_AGENT_FLAKE_REF</code> validation missing, repo-watch refcount leak, fs-watch refcount leak, kill-on-spawn-fail missing. The agent built the happy path and one error path, then stopped enumerating.</td>
+      <td>When adding a symmetric variant of an existing concept, diff the new file against the existing one as an explicit checklist before declaring done. List every event the original publishes, every cleanup hook it runs, every refcount it manages — confirm each is mirrored. The asymmetry audit is cheap; finding the same gaps via review is expensive.</td>
+    </tr>
+    <tr>
+      <td><strong>Cache invalidation needs an "every reader" sweep</strong></td>
+      <td>Codex round-2: <code>HostSession.destroy()</code> fired, but the destroyed instance still lived in two caches (one inside <code>RemoteTerminalBackend</code>, one inside <code>getHostSession</code>'s pool). Fixing the first left the second returning the corpse. Round-3: a rejected <code>sessionPromise</code> cached without <code>.catch</code>-clearing, bricking the host until restart — while the <em>sibling</em> file <code>remoteSession.ts</code> already did this correctly.</td>
+      <td>When invalidating cached state, grep for every reader of that cache before declaring the fix complete. And look for a sibling pattern that already does it right — copy from that, don't reinvent. "Fix at one site" is the bug.</td>
+    </tr>
+    <tr>
+      <td><strong>Floating promises and sync callbacks must be traced</strong></td>
+      <td>Two crashes from "this looked safe so I didn't read the source": (a) <code>void this.ensureStateSubscription()</code> had no <code>.catch</code>, and on a missing-env path threw an unhandled rejection that killed the HTTP server; (b) <code>waitForDisconnected</code> called <code>unsub()</code> inside a synchronously-fired <code>onState</code> callback before <code>const unsub = …</code> had bound — TDZ <code>ReferenceError</code> on the already-disconnected branch.</td>
+      <td>Whenever you write <code>void someAsync()</code>, open the primitive and confirm the rejection path is bounded. Whenever you attach a callback to an unknown subscription primitive, confirm whether it can fire synchronously on subscribe, and write the closure to tolerate that.</td>
+    </tr>
+    <tr>
+      <td><strong>Harness-injected "Continue from where you left off" means work is unfinished</strong></td>
+      <td>Twice, a <code>Bash</code> command exited 137 (OOM kill of a heavy <code>ssh</code> probe), and Claude Code's harness re-prompted "Continue from where you left off." The agent interpreted this as "user has nothing more for me" and replied "No response requested" + ended the turn — requiring the user to manually re-nudge "Continue".</td>
+      <td>Any harness-injected resume prompt means the prior turn ended mid-action. Treat it as "the work is unfinished — re-establish state from the last tool result and continue." Never respond to it as if it were the user opening a fresh conversation.</td>
+    </tr>
+    <tr>
+      <td><strong>Cross-boundary feature additions need a "which side owns the filesystem?" check</strong></td>
+      <td>Codex round-3 caught: <code>pasteImage</code> / <code>uploadFile</code> wrote bytes to the <em>parent's</em> scratch dir then bracketed-pasted the path into the remote PTY — the path doesn't exist on the agent's host, so Claude/Codex running on the remote read garbage. The feature was added once and assumed location-agnostic.</td>
+      <td>For any feature that writes a file then references it elsewhere, name explicitly which host owns the filesystem at each step. If the writer and reader can sit on different hosts, the feature needs either an explicit "remote not supported" guard (<code>PRECONDITION_FAILED</code>) or an agent-side write path — never a silent path that works locally and silently corrupts remotely.</td>
+    </tr>
+    <tr>
+      <td><strong>API-name spelling: check the library's enum, not training-data convention</strong></td>
+      <td>Codex round-4: used <code>FAILED_PRECONDITION</code> (gRPC convention) for an <code>ORPCError</code> code. oRPC's defined codes only include <code>PRECONDITION_FAILED</code>; the unknown code fell through error-mapping to HTTP 500 instead of the intended 412 — silent dilution from "typed error" to "server crash."</td>
+      <td>For library-defined enums (error codes, MIME types, signal names, HTTP statuses), open the library's source for the enum table rather than pattern-matching from neighbouring libraries. Differences in convention (gRPC vs oRPC, POSIX vs Windows, REST vs RPC) are real and silent.</td>
+    </tr>
+  </tbody>
+</table>
+
+</details>
+
+<details>
+<summary>Superseded prototype — earlier R-2 exploration (#976)</summary>
+
+<a id="impl-superseded" />
+### Superseded
+
+<table>
+  <thead>
+    <tr><th style={{ width: "14%" }}>PR</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>prototype <PrLink pr={976} /></td><td>Earlier R-2 exploration with hand-rolled stdio transport. <em>Wrong altitude</em> — the transport adapter belongs in <code>@kolu/surface</code> (lesson #1). Superseded by R-1.5 (the primitives) + <PrLink pr={994} /> (the working prototype). Kept for archaeological reference only.</td></tr>
+  </tbody>
+</table>
+
+</details>
