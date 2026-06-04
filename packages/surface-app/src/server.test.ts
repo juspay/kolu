@@ -6,8 +6,16 @@
  * rejected async source must surface via `onError` instead of being swallowed.
  */
 
+import { defineSurface } from "@kolu/surface/define";
+import { inMemoryChannel, inMemoryStore } from "@kolu/surface/server";
 import { describe, expect, it, vi } from "vitest";
-import { buildInfoServer } from "./server";
+import { z } from "zod";
+import {
+  buildInfoServer,
+  implementSurfaceApp,
+  surfaceAppServer,
+} from "./server";
+import { composeSurfaces, surfaceAppSurface } from "./surface";
 import type { BuildInfo } from "./surface";
 
 interface ExtBuildInfo extends BuildInfo {
@@ -94,5 +102,68 @@ describe("buildInfoServer — equals (cell dedup)", () => {
     const frag = buildInfoServer({ commit: "abc1234" });
     expect(frag.buildInfo.equals({ commit: "x" }, { commit: "x" })).toBe(true);
     expect(frag.buildInfo.equals({ commit: "x" }, { commit: "y" })).toBe(false);
+  });
+});
+
+describe("implementSurfaceApp — one-call server composition", () => {
+  // A tiny app surface: the surface-app fragment (buildInfo cell + the
+  // `surfaceApp.info` probe) composed with the app's OWN `mine` cell.
+  const surface = defineSurface(
+    composeSurfaces(surfaceAppSurface, {
+      cells: {
+        mine: { schema: z.object({ n: z.number() }), default: { n: 0 } },
+      },
+    }),
+  );
+
+  /** Invoke a wired surface procedure the way the runtime does — through the
+   *  decorated oRPC handler the router fragment exposes. (`@orpc/server`'s
+   *  `call`/`createRouterClient` aren't reachable from this package, so we drive
+   *  the procedure's `~orpc.handler` directly; it's the same fn the wire calls.) */
+  function callProcedure(
+    router: unknown,
+    ns: string,
+    verb: string,
+    input: unknown,
+  ): Promise<unknown> {
+    // biome-ignore lint/suspicious/noExplicitAny: reaching the decorated procedure's runtime handler.
+    const proc = (router as any).surface[ns][verb];
+    return proc["~orpc"].handler({ input, context: {} });
+  }
+
+  function build() {
+    return implementSurfaceApp(
+      surface,
+      surfaceAppServer({ commit: "abc1234", processId: "pid-1" }),
+      {
+        channel: <T>(_name: string) => inMemoryChannel<T>(),
+        // The app passes ONLY its own cell — buildInfo is the fragment's.
+        cells: { mine: { store: inMemoryStore({ n: 7 }) } },
+      },
+    );
+  }
+
+  it("returns { router, ctx }", () => {
+    const result = build();
+    expect(result.router).toBeDefined();
+    expect(result.ctx).toBeDefined();
+  });
+
+  it("wires the fragment's buildInfo cell carrying the commit", () => {
+    const { ctx } = build();
+    expect(ctx.cells.buildInfo).toBeDefined();
+    expect(ctx.cells.buildInfo.get()).toEqual({ commit: "abc1234" });
+  });
+
+  it("wires the app's own `mine` cell alongside the fragment", () => {
+    const { ctx } = build();
+    expect(ctx.cells.mine).toBeDefined();
+    expect(ctx.cells.mine.get()).toEqual({ n: 7 });
+  });
+
+  it("makes the surfaceApp.info probe reachable, returning { processId }", async () => {
+    const { router } = build();
+    const out = await callProcedure(router, "surfaceApp", "info", {});
+    expect(out).toEqual({ processId: "pid-1" });
   });
 });
