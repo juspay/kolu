@@ -21,7 +21,9 @@ A library for a specific class of [@kolu/surface](https://kolu.dev/blog/surface-
 A self-hosted, always-connected app must guarantee that a **returning client converges to the build you deployed**, and must keep the user oriented to **which server it's bound to and whether it's still in step with it** — visibly, and one-tap recoverable. surface-app owns that so the app never re-derives it.
 </Callout>
 
-## The class of app it serves
+## What it is
+
+### The class of app it serves
 
 This is not a library for "any web app that can be installed." It's for a specific, recognizable shape — the one kolu and drishti share:
 
@@ -37,13 +39,15 @@ That class is almost the opposite of a generic PWA (public, multi-tenant, CDN-se
 | **@kolu/surface — the wire** | The Cell / Collection / Stream / Event / Procedure lattice. How _data_ reaches the app. |
 | **@kolu/surface-app — the app shell** | Fresh delivery · server identity · connection & update lifecycle · desktop install. How the _app itself_ reaches the user and stays in step with the server. |
 
-## The unifying insight
+### The unifying insight
 
 <Callout kind="accent">
 For this class, **build-skew, connection status, and server identity are one question**: _"what is my relationship to the server I'm bound to, right now?"_ A generic PWA library treats freshness as a caching detail. surface-app treats it as a facet of the app's identity — and that's why delivery, the `≠ srv` signal, the reconnecting overlay, and the per-host name all belong to one shell.
 </Callout>
 
-## The contract it encodes — five invariants
+## The contract
+
+### Five invariants
 
 **#1 is load-bearing**; the rest are graceful degradation.
 
@@ -55,7 +59,7 @@ For this class, **build-skew, connection status, and server identity are one que
 
 The old triage rule (_normal reload stale, hard reload fresh → a cached shell or a service worker; confirm in the browser, not by reasoning about the origin_) is a debugging heuristic, not an encoded invariant — it lives in the library's README review checklist.
 
-## Scope — the app shell's parts
+### The app shell's parts
 
 1. **Fresh delivery** — cache policy (no-store shell · immutable hashed assets · no-cache `sw.js` · 404 asset-miss) + static-serve + SPA fallback.
 2. **Server & build identity** — which host + which build the client is bound to; per-host name/theme; the `buildInfo` cell (extensible interface).
@@ -64,7 +68,7 @@ The old triage rule (_normal reload stale, hard reload fresh → a cached shell 
 5. **No-offline service-worker stance** — retire legacy workers (`retireServiceWorker()` + self-destructing `sw.js`); never ship one.
 6. **Commit propagation** — one resolver (`SURFACE_APP_COMMIT` env → `git rev-parse --short HEAD` → `"dev"`) feeding a Vite plugin (client define + its type declaration) and the server cell. No app ever writes a sha literal.
 
-## The desktop layer needs a secure context (HTTPS)
+### Secure context for the desktop layer (HTTPS)
 
 Two layers, two requirements. The **freshness core** (delivery, skew over the wire, reload) works on plain HTTP and `ws://` — no secure context needed, so kolu on a plain-HTTP LAN keeps working. The **desktop-feel layer** (install, Badging) is gated on `window.isSecureContext`, which a self-hosted app reached by bare hostname or private/tailnet IP over plain HTTP does _not_ have. The confirmed facts (citations in [cache-bug.md](../../cache-bug.md)):
 
@@ -83,7 +87,7 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 
 **Decisions:** (1) surface-app does _not_ provide TLS — cert acquisition is a different volatility (deployment/infra), so it stays out. surface-app feature-detects `isSecureContext` and, when the desktop layer is unavailable, surfaces an _actionable hint_ (not a hard block — the core still works): "reachable, but install/badge need HTTPS — try `tailscale serve`." (2) kolu's existing self-signed generator (`server/src/tls.ts`, the `selfsigned` package) is to be extracted into a tiny optional `@kolu/dev-tls` for the localhost/dev escape hatch only — a deferred follow-up. (3) The trusted recipes are documented, not implemented. This also closes the saga loop: a real cert via `tailscale serve` gives a genuine secure context — removing any reason for the Chrome insecure-origin flag that orphaned the service worker in the first place.
 
-## The pieces
+### The pieces
 
 | Piece | The question it answers | Entrypoint | Inv. |
 | --- | --- | --- | --- |
@@ -94,7 +98,9 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 | `surfaceApp()` vite plugin · `resolveCommit()` | "Resolve the commit once (env→git→dev); inject `__SURFACE_APP_COMMIT__` + its type. (Nix `withCommitStamp` for nix builds.)" | <Pill variant="md">/vite · build</Pill> | #2 |
 | `cacheControlFor` · `clientIsStale` · `SW_SOURCE` | "The pure, framework-free kernels." | <Pill variant="ok">utils/</Pill> | #1,2 |
 
-## The headless model
+## The design
+
+### The headless model
 
 Everything the app shell knows about its server is one hook; the app renders whatever chrome it wants from it. The library provides the model, the apps (kolu, drishti) define the UI — a future PR may consolidate the UI back into surface-app if a shared shape proves out.
 
@@ -111,7 +117,7 @@ app.setAttention(n) // OS badge if installed, else document.title + canvas favic
 
 Build-skew is one `status` among connection states — the insight made concrete. `status()` is **derived by the library** from the `ws` handle (open/close) + a `processId` probe (reconnected vs restarted) — this is kolu's `rpc.ts` lifecycle, encapsulated, so the WS indicator + dim overlay that kolu renders today drop straight into drishti. The shape is extensible: kolu's `server()` also carries pty-host info (its second staleness axis); drishti's is just `{ host, commit, name }`. As shipped, `createServerLifecycle({ ws, probe })` derives it in-library; the example proves it end-to-end — `live → down → restarted` on a real server restart.
 
-## Build identity is an interface
+### Build identity is an interface
 
 What "the build" means is the one thing apps vary. Default is the commit; kolu adds a pty-host axis; the staleness predicate is part of the interface. Apps extend rather than fork:
 
@@ -128,7 +134,7 @@ defineBuildInfo({ schema: z.object({ commit: z.string(), ptyHost: PtyHostRefSche
 
 The matching _server impl_ is a fragment too: `buildInfoServer()` (commit auto-resolved) spreads into `implementSurface`; kolu passes its pty-host source. Definition ⊕ impl are _composed_, never hand-written in the app.
 
-## Compose, don't hand-wire
+### Compose, don't hand-wire
 
 The spike's failing — fairly called out in review — was making the _example_ re-implement what the _library_ should own: a hand-written `buildInfo` store, a hand-rolled `/sw.js` route, a hardcoded commit string, a per-app `__SURFACE_APP_COMMIT__` define and its type. The fix is the principle surface itself follows: the library ships **fragments**, an app is their **composition**, and there is **no bespoke glue**. Build identity is one concept with composable faces the app stitches together — never re-derives:
 
@@ -171,7 +177,7 @@ plugins: [solid(), surfaceApp()]
 
 Every removed line was the app doing the library's job; every surviving line composes a fragment. That's the whole principle.
 
-## The API — entrypoints
+## The API
 
 One package, sub-path entrypoints mirroring @kolu/surface's `exports` map. Pure kernels under `utils/`.
 
@@ -215,7 +221,7 @@ plugins: [solid(), surfaceApp()]   // resolves git HEAD (or SURFACE_APP_COMMIT, 
 
 A non-Vite build calls `resolveCommit()` and feeds its own bundler define (`Bun.build({ define })`); a nix-built client uses `withCommitStamp`. One resolver, one source of truth.
 
-## Using it — kolu & drishti
+### Using it — kolu & drishti
 
 Both are SolidJS + Hono on `@hono/node-server`, both vendor `@kolu/*` via npins (zero flake inputs), so adding surface-app is one overlay line each. **Same model + same UX**; kolu only differs by extending build identity for its pty-host axis.
 
@@ -236,7 +242,7 @@ retireServiceWorker();
 
 drishti's adoption ([srid/drishti#47](https://github.com/srid/drishti/pull/47)) landed the content-hashed `Bun.build` prerequisite first — its old `Bun.build` emitted unhashed filenames (`main.js`), which can't be cached `immutable` (#1) — then sourced `@kolu/surface-app` hermetically through Nix and ported the identity rail onto the shared model.
 
-## UI — example, not shipped
+### UI — example, not shipped
 
 The library ships the headless model, not styled components. These are the chrome you'd build from `useSurfaceApp()` — kolu in tailwind, drishti in its own CSS. The README carries the wiring.
 
@@ -255,7 +261,9 @@ The library ships the headless model, not styled components. These are the chrom
 
 On mobile the rail collapses to the chip + reload; the prompt becomes a bottom banner. Both are built from the same `useSurfaceApp()` model, so kolu's reflect pty divergence and drishti's reflect commit skew with no change to the library.
 
-## What it absorbs
+## Rationale & status
+
+### What it absorbs
 
 - **The `no-cache`-isn't-enough shell** — a 1970 `Last-Modified` earns years of heuristic freshness and replays on normal reload. → `no-store`.
 - **The asset-miss that becomes HTML** — caches the wrong MIME `immutable` for a year. → 404 the miss.
@@ -263,7 +271,7 @@ On mobile the rail collapses to the chip + reload; the prompt becomes a bottom b
 - **The un-retired worker** — gating new registration leaves an existing SW intercepting navigations. → `retireServiceWorker()` + self-destruct `sw.js`.
 - **The transient update signal** — a "restarted" event a backgrounded tab misses. → the durable skew backstop in the model.
 
-## Why no offline / no service worker
+### Why no offline / no service worker
 
 For this class it's **definitional**, not an opinion — but the rationale ships so the next engineer doesn't re-add one:
 
@@ -272,18 +280,18 @@ For this class it's **definitional**, not an opinion — but the rationale ships
 - **Real downside.** A SW is a second interception layer `no-store` can't reach; owning its lifecycle is a standing liability (the whole saga).
 - **Install survives without it** — Chrome dropped the service-worker requirement for installability (108 mobile / 112 desktop); a valid manifest over a secure context installs. (The automatic in-page prompt is best-effort without a SW — manual browser-menu install always works.)
 
-## Direction
+### Direction
 
 - **Surface-native.** Depends on `@kolu/surface` and rides it for the build-identity model.
 - **Batteries-included behaviour, headless UI.** Owns delivery, identity, commit stamping, SW retirement, install affordance, and the relationship-to-server model; apps render the chrome. The README ships the wiring.
 - **Interfaces where it varies** — build identity (default `{ commit }`; kolu extends).
 - **Settled questions.** Install needs no service worker; cert/TLS lives outside surface-app; the desktop layer is secure-context-gated with graceful degradation. The connection-lifecycle model now ships in-library as `createServerLifecycle`. Two follow-ups remain deferred: whether `@kolu/surface` grows a `composeSurfaces` primitive, and whether `@kolu/dev-tls` is extracted as its own optional package.
 
-## Name
+### Name
 
 <Pill variant="ok">@kolu/surface-app</Pill> — "the app shell for a surface wire." Dropped "pwa": it connotes _offline / installable-for-offline_, the opposite of this always-connected class.
 
-## Phasing
+### Phasing
 
 1. **Build `@kolu/surface-app`** (`packages/surface-app` in the kolu monorepo) — `/server`, `/surface`, `/solid` (behaviour + headless `useSurfaceApp()`), `/lifecycle`, `/vite`, `utils/`, commit-stamp helper, and the desktop-feel affordances behind the secure-context gate. Rewired kolu, extending build identity for pty-host. Shipped the README (no-SW rationale + triage checklist + UI-wiring snippets). Registered in the [electricities tracker](./electricity.html). <Pill variant="done">done</Pill> — kolu <PrLink pr={1154} />.
 2. **Adopt in drishti** (separate PRs, drishti repo) — first a small PR for content-hashed `Bun.build` output; then port drishti onto the library (default identity, same UX). <Pill variant="done">done</Pill> — [srid/drishti#47](https://github.com/srid/drishti/pull/47).
