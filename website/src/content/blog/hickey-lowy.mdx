@@ -7,68 +7,30 @@ author: "Sridhar Ratnakumar"
 
 import Tip from "../../components/Tip.astro";
 
-_Complexity creeps along two axes — space and time. Hickey catches
-one; Löwy catches the other. A single-lens review only audits half
-the code._
+Code can be wrong in two different ways, and for a long time I only checked for one of them.
+
+The first way you can see by looking. Two ideas braided into one thing, a name that means two things, a seam that isn't really a seam. The code, sitting there right now, is tangled. The second way you can't see by looking, because it isn't there yet. Two parts that will come apart later, on clocks you could name if you stopped to think — one revs when the UI changes, the other when a schema changes — bound together today as if they moved as one. The first defect is _spatial_. The second is _temporal_. They aren't the same defect, they don't show up at the same time, and a review that checks for one is blind to the other.
+
+So I run two reviewers, one for each. Rich Hickey's structural-simplicity lens catches the spatial kind. Juval Löwy's volatility lens catches the temporal kind. And the thing that surprised me, the thing this post is about, is how often a finding from one of them is invisible to the other. A review running only Hickey would have looked at the diff and been happy. So would a review running only Löwy. **Different code each time.**
 
 <Tip title="Quick start">
   The reviewer agents in this post are available as `/hickey` and `/lowy` skills from [agency.srid.ca](https://agency.srid.ca/).
 </Tip>
 
-Code goes wrong along two axes, not one. The code as it stands
-right now can be _spatially_ wrong — concepts braided together,
-names that mean two things, seams that aren't really seams. The same code can
-be _temporally_ wrong — parts that will rev on different clocks,
-decisions that will be revisited, volatilities that got bound when
-they should have stayed apart. Two different defects. Two different
-lenses. Most code review runs one.
-
-I run two. Rich Hickey's structural-simplicity lens catches defects
-on the spatial axis. Juval Löwy's volatility-decomposition lens
-catches defects on the temporal one. Each lens sees things the
-other is blind to. A review that only ran one of them would have
-been perfectly satisfied with the diff.
-
-That's the practice this post is arguing for. The framing I'll use
-to justify it is that code has a _spacetime_ — two orthogonal axes
-of complexity creep, not one. **Measure both, or miss half.**
+This matters more than it used to, because I'm not the one typing most of the code anymore. [Claude Code](https://claude.com/claude-code) writes it, from high-level intent, faster than I can read it line by line. So reading it line by line stopped being the useful thing for me to do during review. Reading the structure is the useful thing now. And reading the structure is exactly what two narrow, opinionated reviewers, aimed at a finished diff and run side by side, are good at. My job shrank to three steps: pick the lenses, read what they found, decide.
 
 <div class="tweet-embed">
 <blockquote class="twitter-tweet" data-dnt="true" data-theme="dark"><p lang="en" dir="ltr">I think the biggest productivity boost from AI will come when we can nearly automate the software architect out of existence.<br/><br/>I&#39;m refining both /hickey and /lowy toward that end — so I don&#39;t have to babysit the AI after every PR.</p>&mdash; Sridhar Ratnakumar (@sridca) <a href="https://twitter.com/sridca/status/2044792589119832082?ref_src=twsrc%5Etfw">April 16, 2026</a></blockquote>
 <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
 </div>
 
-I posted that two days ago. This post is where the refinement
-stands today — not the finish line, a snapshot mid-process.
+I posted that two days ago. This is where the refinement stands now — not the finish line, just a snapshot mid-process.
 
-This matters more than it used to. Most of the code I ship is no
-longer typed by hand — [Claude Code](https://claude.com/claude-code)
-writes it from high-level intent, faster than line-by-line human
-review can keep up with. Diff-inspection has quietly stopped being
-the highest-leverage human activity during review; **structural
-review** has. And structural review is exactly what two orthogonal
-agent reviewers, aimed at a finished diff and run in parallel, are
-good at. The human's remaining job is to pick the lenses, read the
-findings, and decide.
-
-I ran both reviewers on [PR #623](https://github.com/juspay/kolu/pull/623)[^1]
-of [Kolu](https://github.com/juspay/kolu), a canvas-only UX redesign.
-I drove the iterations; Claude Code wrote every line piecemeal,
-and the two reviewers are themselves Claude Code subagents spawned
-from the same session. The reviewers
-ran [once before any code was written](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685)
-and then [twice against the committed diff](https://github.com/juspay/kolu/pull/623#issuecomment-4274952616)
-as revisions went in. Across the post-implementation passes, most
-findings hit one axis — with a handful of cases where both lenses
-agreed on a piece of code that would have shipped otherwise. The
-one-axis findings are the story this post is built around.
+I ran both reviewers on [PR #623](https://github.com/juspay/kolu/pull/623)[^1] of [Kolu](https://github.com/juspay/kolu), a redesign of the whole UI down to a single canvas. I drove the iterations; Claude Code wrote every line; the two reviewers are themselves Claude Code subagents spawned from the same session. They ran [once before any code existed](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685) and then [twice against the committed diff](https://github.com/juspay/kolu/pull/623#issuecomment-4274952616) as I revised. Most of what they found sat on one axis or the other. A few times both landed on the same code — code that would have shipped otherwise. The one-axis findings are the story.
 
 ## What the two lenses are
 
-Rich Hickey's _Simple Made Easy_ gives you one question: **is this
-complected?** Are two ideas braided together in one thing, so that
-to touch one you have to touch the other? Hickey is literal about
-the word:
+Hickey's _Simple Made Easy_ hands you one question: is this _complected_? Are two ideas braided together in one thing, so that to touch one you have to touch the other? He's literal about the word:
 
 > Okay. So there's this really cool word called _complect_. I found
 > it. I love it. It means to interleave or entwine or braid. Okay?
@@ -77,15 +39,9 @@ the word:
 >
 > — Rich Hickey, [_Simple Made Easy_](https://www.infoq.com/presentations/Simple-Made-Easy/) (Strange Loop, 2011)
 
-A [Hickey reviewer](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md)
-reads code the way a lockpicker reads a tumbler[^2] — looking for
-concepts that shouldn't be in the same position. The output is
-always "split these apart."
+A [Hickey reviewer](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md) reads code the way a lockpicker reads a lock[^2]: hunting for concepts sitting in the same position that shouldn't be. The output is always the same shape — split these apart.
 
-Juval Löwy's _Righting Software_ (2019) gives you a different
-question: **what changes at a different rate than its neighbors?**
-Löwy builds on David Parnas, who had the rule fifty-four years
-ago:
+Löwy's _Righting Software_ hands you a different question: what changes at a different rate than the things around it? He's building on David Parnas, who wrote the rule down fifty-four years ago:
 
 > We propose instead that one begins with a list of difficult design
 > decisions or design decisions which are likely to change. Each
@@ -94,43 +50,17 @@ ago:
 > — David Parnas, [_On the Criteria To Be Used in Decomposing
 > Systems into Modules_](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf) (1972)
 
-A [Löwy reviewer](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md)
-reads code the way an actuary reads a portfolio[^3] — looking for
-things coupled to unrelated schedules. The output is always "draw
-a boundary that encapsulates this volatility."
+A [Löwy reviewer](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md) reads code the way an actuary reads a portfolio[^3]: hunting for things tied to schedules that have nothing to do with each other. The output is always the same shape too — draw a boundary around this _volatility_.
 
-These sound adjacent. They aren't. Hickey is a _spatial_ question:
-the code, as a static snapshot, has a concept-duplication problem
-or it doesn't. Löwy is a _temporal_
-question: these two things will drift in the future on clocks you
-can name, and the code doesn't know that yet. Defects live on one
-axis, the other, or — rarely — both. A module can be perfectly
-uncomplected and still be a volatility time-bomb. A module can be
-volatility-safe and still be complected. The lenses don't overlap.
-They aren't meant to.
+These sound like the same question asked twice. They aren't. Hickey is asking about the code as it sits still: is there concept-duplication in this snapshot, or isn't there? Löwy is asking about the code as it moves: these two things will drift apart later, on clocks you can name, and the code doesn't know it yet. A module can be perfectly uncomplected and still be a time-bomb. A module can be safe against every future drift and still be a tangle right now. **The lenses don't overlap. They were never meant to.**
 
 ## The spacetime of code
 
-In physics, space and time are not independent. They're two
-projections of one four-dimensional manifold — different observers,
-depending on how they're moving, measure different mixes of the
-two. What looks like pure space from one frame is a blend of space
-_and_ time from another. But the interval between events is the
-same in every frame. The structure is real, prior to any observer's
-view of it.
+Here's the analogy I keep coming back to, and I'll admit up front it's the kind that can stretch too far. In physics, space and time aren't separate things. They're two views of one four-dimensional whole, and two observers moving differently slice it into different amounts of each. What's pure space to me is part space and part time to you. The thing that's actually real is the whole, sitting underneath both our views.
 
-Code has a spacetime too. A module's current shape (what's braided
-with what, what shares a name, what occupies the same scope) is
-one projection. Its evolution (what will rev on what clock, which
-decisions will be revisited, how fast each part drifts) is
-another. A defect can live in one projection without registering
-in the other — and usually does.
+Code has a whole like that too. A module's shape right now — what's braided with what, what shares a name, what sits in the same scope — is one view of it. How it changes over time — what revs on which clock, which decisions get reopened, how fast each part drifts — is another. A defect can sit in one view and leave no trace in the other. Usually it does.
 
-Hickey's lens is a space-like observer. It reads the code as a
-snapshot: what's tangled right now? Löwy's lens is a time-like
-observer. It reads the same code as a world-line: what will pull
-apart, and when? They are measuring different axes. Each is blind
-to what lives only in the other.
+Hickey's lens is the space-like observer. It reads the snapshot: what's tangled right now? Löwy's lens is the time-like observer. It reads the world-line: what's going to pull apart, and when? Same code, different axis, and each is blind to whatever lives only in the other's.
 
 Löwy says as much himself, in an appendix on complexity:
 
@@ -141,23 +71,11 @@ Löwy says as much himself, in an appendix on complexity:
 >
 > — Juval Löwy, _Righting Software_ (Appendix B)
 
-The complexity Löwy warns about is temporal in origin — _diversity
-across customers and points in time_ — but spatial in eventual
-manifestation. Mis-scoped volatilities eventually become complected
-code. Still, the two usually arrive out of phase. The spatial
-defect shows up now; the temporal defect only reveals itself later,
-when the clock it rides changes. That's why a review that runs one
-lens is blind to roughly half of what's actually wrong.
+The complexity he's warning about starts as a temporal thing — variety across customers and across time — and only later turns into tangled code. So the two do meet eventually: a mis-scoped volatility, left alone long enough, becomes a complected mess. But they meet late. The spatial defect is visible today; the temporal one stays hidden until the clock it's riding finally ticks. Which is the whole reason a one-lens review misses half of what's wrong. **It's reading one frame of a two-frame picture.**
 
 ## A spatial defect: `borderClass`
 
-Kolu's UI is an infinite 2D canvas — terminals live as tiles you
-can pan and zoom around, like desktop windows in a workspace with
-no edges. Floating above it is a pill tree: one pill per
-terminal, grouped by repo. Each pill's border carries two concerns: _activity_ (is
-an agent thinking, using tools, waiting?) and _focus_ (is this the
-active terminal?). The first implementation fused them into one
-Cartesian `ts-pattern` match:
+Kolu's screen is one infinite canvas. Terminals are tiles you pan and zoom around, like windows on a desk with no edges. Floating over them is a row of pills, one per terminal, grouped by repo. Each pill's border has to say two things at once: what the agent is doing (thinking, using a tool, waiting) and whether this is the terminal you're looking at. The first version fused them into one match:
 
 ```ts
 const borderClass = () =>
@@ -177,22 +95,11 @@ const borderClass = () =>
     .exhaustive();
 ```
 
-The comment above it, in the committed code, said: _"Single border
-channel: encodes BOTH active-ness and agent state."_ The code was
-honest about what it was doing. It was a single pattern match
-returning a single class string, with two concepts braided into
-every arm.
+The comment above it, in the shipped code, said so out loud: _"Single border channel: encodes BOTH active-ness and agent state."_ The code was honest about what it was doing. One pattern match, returning one string, with two ideas in every arm.
 
-The Hickey pass flagged it. Two concepts — _what the agent is
-doing_ and _whether this terminal is focused_ — were in the same
-pattern match, sharing arms, concatenated into one string. Adding a
-new agent variant (say, `streaming`) forced you to write both an
-active-and-streaming arm and an inactive-and-streaming arm. The
-`active` dimension intruded into every change that had nothing to
-do with focus.
+Hickey's pass flagged it on sight. Two concepts — what the agent is doing, and whether this pill is focused — were sharing arms in one match, concatenated into a single class string. Want to add a new agent state, say `streaming`? Now you write it twice, once for the focused case and once for the unfocused one. The focus dimension had crawled into every change that had nothing to do with focus.
 
-[Commit `fd6f802`](https://github.com/juspay/kolu/commit/fd6f802)
-split them:
+[Commit `fd6f802`](https://github.com/juspay/kolu/commit/fd6f802) split them:
 
 ```ts
 const agentBorderClass = () =>
@@ -208,43 +115,21 @@ const agentBorderClass = () =>
 />
 ```
 
-Two composers, two concerns. Agent state drives the animation;
-`classList` composes the active glow on top. Adding `streaming` now
-touches exactly the agent-state match. The new comment reads:
-_"Two orthogonal border concerns, composed via classList."_ The
-code's own vocabulary flipped from _BOTH_ to _orthogonal_.
+Two composers, two concerns. Agent state picks the animation; `classList` lays the focus glow on top. Adding `streaming` now touches the agent-state match and nothing else. The new comment reads _"Two orthogonal border concerns, composed via classList."_ The code's own vocabulary flipped, from BOTH to orthogonal.
 
-Löwy had nothing to say here. Active-ness and agent state rev on
-the same clock — they're both user-driven UI state that changes at
-interaction speed. No temporal mis-scope, no volatility boundary
-to draw. The defect was purely spatial: two concepts in one match,
-splittable by rewriting, end of story.
+And Löwy? Nothing to say here. Active-ness and agent state rev on the same clock — they're both UI state that changes when you click things. No mismatched schedule, no boundary to draw. The defect was purely spatial: two concepts in one match, fixable by rewriting, and that's the end of it.
 
-Every codebase has a `borderClass`. It's the kind of code that
-gets merged because it works. The Löwy lens is blind to it.
-Without Hickey in rotation, it stays.
+Every codebase has a `borderClass`. It's the code that gets merged because it works. Löwy's lens looks straight at it and sees nothing wrong. **Without Hickey in the rotation, it stays.**
 
 ## A temporal defect: `displaySuffix`
 
-Two terminals can land on the same identity — same git
-`repoName + branch`, or same `cwd` for non-git terminals. The UI
-has to disambiguate them. Kolu does it with a short
-collision-suffix on the label: `main #a3f2`. Cute problem; obvious
-solution.
+Two terminals can end up with the same name — same `repoName + branch` in git, or same `cwd` when there's no git. The UI has to tell them apart, so Kolu tacks a short collision-suffix onto the label: `main #a3f2`. Cute problem, obvious fix.
 
-The first implementation computed the suffix client-side, in
-`terminalDisplay.ts`. Every render, every pill-tree redraw, every
-tile chrome update, the client walked the terminal list, built an
-identity map, counted collisions, and emitted the suffix for any
-id whose identity had duplicates. It worked. Tests passed. The
-suffix showed up.
+The first version computed the suffix on the client, in `terminalDisplay.ts`. Every render, every time the pill tree redrew, every time a tile's chrome updated, the client walked the whole terminal list, built a map of identities, counted the collisions, and emitted a suffix for any id that had a twin. It worked. Tests passed. The suffix showed up.
 
-The Hickey pass had nothing to say. Structurally, the logic was
-cleanly encapsulated in one file, read by two or three consumers,
-using well-named helpers (`identityKey`, `idSuffix`,
-`identityCounts`). Nothing was braided. The snapshot looked fine.
+Hickey's pass had nothing to say. The logic sat cleanly in one file, read by two or three consumers, with well-named helpers (`identityKey`, `idSuffix`, `identityCounts`). Nothing braided. The snapshot was fine.
 
-The Löwy pass said:
+Löwy's pass said this:
 
 > Identity-collision is a business rule about the live terminal
 > set, not a per-render display preference. The volatility — "which
@@ -252,17 +137,9 @@ The Löwy pass said:
 > terminal set lives. The display layer is recomputing what the
 > server already knows.
 
-That's a volatility argument, not a structural one. The collision
-set changes on a specific clock: terminal lifecycle events (create,
-kill, cwd change, git metadata update). Not on render. Not on
-display preferences. Not on anything else. Putting the derivation
-in the display layer means every client, every tab, every render
-independently re-derives what is, in fact, a global property of a
-single set owned by a single service.
+That's a volatility argument, not a structural one. The set of colliding terminals changes on exactly one clock: terminal lifecycle — create, kill, cwd change, git metadata update. Not on render. Not on display preferences. Not on anything else. Computing it in the display layer means every client, every tab, every render independently re-derives what is, in fact, one global property of one set owned by one service.
 
-[Commit `5ac5fe2`](https://github.com/juspay/kolu/commit/5ac5fe2)
-moved it. `recomputeDisplaySuffixes()` runs in
-`packages/server/src/terminals.ts` on every metadata mutation:
+[Commit `5ac5fe2`](https://github.com/juspay/kolu/commit/5ac5fe2) moved it. `recomputeDisplaySuffixes()` now runs in `packages/server/src/terminals.ts`, once, on every metadata mutation:
 
 ```ts
 export function recomputeDisplaySuffixes(): TerminalId[] {
@@ -285,158 +162,55 @@ export function recomputeDisplaySuffixes(): TerminalId[] {
 }
 ```
 
-O(N) sweep, delta gate, fan-out republish for the sibling whose
-collision status flipped. `TerminalMetadata` carries
-`displaySuffix?: string` directly. Clients render `meta.displaySuffix`
-and delete the identity-tracking module entirely.
+One O(N) sweep, a gate so it only republishes the sibling whose collision status actually flipped, and the suffix rides along on `TerminalMetadata` as `displaySuffix?: string`. The client renders `meta.displaySuffix` and deletes its identity-tracking module outright.
 
-Hickey had nothing to say. Structurally, the before-and-after
-diffs look equivalent — a function in one file either way. What
-changed was _where the volatility lives_: with the concern that
-causes it. The Löwy lens is the only one that could see it.
+Hickey, this time, had nothing to say. To a snapshot the before and after look about the same — a function in a file either way. What moved was _where the volatility lives_: next to the thing that causes it. Only Löwy's lens could see that.
 
-Every codebase has a `displaySuffix`. Something derived in the
-wrong layer, because the wrong layer is the easiest place to write
-it. Without Löwy in rotation, it stays — and every future change
-to collision rules has to walk the client layer to find it.
+Every codebase has a `displaySuffix` too. Something computed in the wrong layer, because the wrong layer was the easiest place to type it. **Without Löwy in the rotation, it stays** — and every future change to the collision rule has to go hunting for it in the client.
 
-## When both lenses fire: an aside
+## When both fire
 
-The one case in PR #623 where the two lenses converged on the same
-line was `canvasMaximized` — a piece of state tracking "which tile,
-if any, is currently filling the viewport." The first
-implementation treated it the way every other user preference is
-treated in Kolu: a `Preferences` field, synced through the server,
-persisted in `SavedSession`, hydrated on mount with a careful
-`maxHydrated` sequencing flag to avoid a first-render flash.
+Once in PR #623 the two lenses landed on the same line. The state was `canvasMaximized` — which tile, if any, is currently filling the screen. The first version treated it like every other preference in Kolu: a `Preferences` field, synced through the server, saved into `SavedSession`, hydrated on mount behind a careful `maxHydrated` flag so the first paint wouldn't flash.
 
-Hickey's pass flagged it as three concepts braided into one
-propagation chain: _what's maximized_, _when is the client caught
-up to the server_, _how do we avoid a flash on first paint_. Löwy's
-pass, running independently, flagged it as three volatilities with
-no shared consumer: a client UI signal that revs at interaction
-speed, a server module field that revs on schema changes, and a
-`SavedSession` entry with its own versioning concerns.
+Hickey saw three concepts braided into one chain: what's maximized, whether the client has caught up to the server yet, and how to dodge a flash on first paint. Löwy, running on its own, saw three volatilities with no shared consumer: a client UI signal that revs when you click, a server field that revs on schema changes, and a `SavedSession` entry with its own versioning to worry about.
 
-Different diagnoses. Same line. Same fix. [Commit `99c1c44`](https://github.com/juspay/kolu/commit/99c1c44)
-deleted the server field, the `SavedSession` entry, the hydration
-flag, and the oRPC mutation, and moved the signal to
-`makePersisted` on `localStorage`. Across nine files: 14 insertions,
-90 deletions.
+**Different diagnoses. Same line. Same fix.** [Commit `99c1c44`](https://github.com/juspay/kolu/commit/99c1c44) deleted the server field, the `SavedSession` entry, the hydration flag, and the oRPC mutation, and moved the signal to `makePersisted` over `localStorage`. Nine files: 14 insertions, 90 deletions.
 
-When both lenses fire at the same coordinate, it's because the
-defect registers in both projections of the invariant — the
-factoring is wrong at a level that shows up both spatially (right
-now, in the propagation chain) and temporally (in the mismatched
-clocks the fields were bound to). Call it **binocular agreement**.
-It's a particularly sharp signal when it happens. It's also the
-minority. In PR #623, binocular findings were outnumbered several-
-to-one by single-axis ones across three review passes — and the
-binocular cases that did surface tended to come from later passes,
-because revisions keep introducing the defects both lenses catch
-together. Most findings, including the two centerpieces of this
-post, were single-axis. That's the common shape.
+When both lenses fire on the same spot, it's because the factoring is wrong deep enough to show up in both views at once — tangled right now, and bound to mismatched clocks for later. Call it _binocular agreement_. It's a sharp signal when you get it. It's also the minority. In PR #623 the binocular findings were outnumbered several-to-one by single-axis ones across three passes, and the few that did turn up came mostly from later passes — because revising the code keeps reintroducing the kind of defect both lenses catch together. Most findings, including the two I built this post around, sat on a single axis. That's the normal shape.
 
-## Why the two passes catch different things
+## Why the passes differ
 
-The pre-implementation reviews ran before any code was written,
-against a design sketch. They caught the obvious structural risks
-— terminal identity scattered across `PillTree`, `CanvasTile` and
-`CanvasMinimap`; the mobile-vs-desktop split turning into scattered
-conditionals. All of them got designed around before the first
-line of code.
+The reviews that ran before any code existed, against a design sketch, caught the obvious structural risks: terminal identity smeared across `PillTree`, `CanvasTile`, and `CanvasMinimap`; the mobile-versus-desktop split threatening to become scattered conditionals. We designed around all of it before the first line went in.
 
-The post-implementation reviews ran against the committed diff,
-then again after revisions. They found a completely different set
-of issues — the ones that only emerge after implementation has
-taste-decided its way through twenty design micro-choices. Pre-implementation review is cheap; it
-catches categories. Post-implementation review is expensive; it
-catches what specific design iterations did to the architecture
-while nobody was looking. Both the `borderClass` braid and the
-`displaySuffix` mis-location emerged during implementation.
-Neither existed in the design sketch.
+The reviews that ran against the committed diff, and again after revisions, caught a completely different set of things — the ones that only appear after the implementation has taste-decided its way through twenty little design choices. The early review is cheap and catches categories. The late review is expensive and catches what the design iterations did to the architecture while nobody was watching. Both `borderClass` and `displaySuffix` were born during implementation. Neither was in the sketch.
 
-If you only run these reviewers once, run them at the end. Not the
-beginning.
+So if you only run these reviewers once, **run them at the end. Not the beginning.**
 
-## When to trust a single-lens finding
+## Trusting one lens
 
-Most findings are single-lens. The practical question is how to
-evaluate them.
+Most findings come from one lens alone, so the real question is how to weigh one.
 
-If only Hickey fires, ask: _is this structural duplication actually
-going to hurt, or am I about to DRY up two things that happen to
-look alike but rev independently?_ The `repoColor` helper
-duplicated in `PillTree.tsx` and `MobileChromeSheet.tsx` was a safe
-DRY — one semantic concept ("the canonical color for this repo")
-that happened to have two call sites. Move it to `pillTreeOrder.ts`,
-done. But I've seen Hickey-lens deduplications that collapsed two
-things that _should_ rev on different clocks, and the subsequent
-"now I need to parameterize the helper" spiral is exactly what
-Löwy exists to prevent.
+If only Hickey fires, ask yourself: is this duplication actually going to hurt, or am I about to merge two things that only look alike and will rev apart later? The `repoColor` helper, duplicated in `PillTree.tsx` and `MobileChromeSheet.tsx`, was a safe merge — one idea ("the canonical color for this repo") that happened to have two call sites. Move it to `pillTreeOrder.ts`, done. But I've watched Hickey-style deduplications fuse two things that should have revved on different clocks, and the "well, now I have to parameterize the helper" spiral that follows is exactly what Löwy is there to head off.
 
-If only Löwy fires, ask: _am I drawing a boundary around a real
-volatility, or around something that currently happens to look
-bounded?_ `displaySuffix` was a real Löwy catch — collision
-detection genuinely revs on terminal lifecycle, not display
-preferences. But Löwy-lens module splits drawn for volatility that
-never actually revs are premature abstractions, and that's its own
-failure mode.
+If only Löwy fires, ask: am I drawing a boundary around a real volatility, or around something that just happens to look bounded today? `displaySuffix` was the real thing — collision detection genuinely revs on terminal lifecycle, not display preferences. But a Löwy split drawn for a volatility that never actually revs is a premature abstraction in a nicer hat, and that's its own way of being wrong.
 
-The Hickey failure mode is over-merging: collapsing things that
-should be separate. The Löwy failure mode is over-splitting:
-carving up things that don't need boundaries. Each lens has its
-own way of being wrong. Running the other lens as a counterweight
-helps, but only if you let it — not as a veto, as a second
-opinion.
+Hickey's failure mode is _over-merging_: gluing together things that should be apart. Löwy's is _over-splitting_: carving up things that didn't need a boundary. Each lens has its own way of being wrong. Running the other as a counterweight helps — but only if you treat it as **a second opinion, not a veto.**
 
 ## How to run them
 
-Run them as _independent_ reviewers, not as one pass. If you ask a
-single reader to "check for structural simplicity and volatility,"
-you get a blended answer. Blended answers bias toward whichever
-axis the reader already cares about. Separate the passes. Hickey
-agent reads the diff, writes findings. Löwy agent reads the same
-diff, writes findings. You read both. (Both agents ship in
-[srid/agency](https://github.com/srid/agency) as subagents your
-main Claude Code session can spawn in parallel.)
+Run them as two _separate_ reviewers, not one pass. Ask a single reader to "check for structural simplicity and volatility" and you get a blended answer, and a blended answer leans toward whichever axis that reader already cares about. So split the passes. Hickey reads the diff and writes its findings. Löwy reads the same diff and writes its own. You read both. (Both ship in [srid/agency](https://github.com/srid/agency) as subagents your main Claude Code session can spawn in parallel.)
 
-Don't expect the reviewers to agree on _fixes_. They agree on
-_locations_, occasionally — and on those occasions, they're
-rarely prescribing the same edit. Hickey wants you to decouple
-the concepts. Löwy wants you to encapsulate the volatilities.
-Sometimes those are the same edit. Sometimes Hickey says "split
-the function" and Löwy says "move the boundary," and both are
-right in a way that only the third, synthesizing read — yours —
-can land. The fix you ship is rarely either agent's literal
-proposal.
+Don't expect them to agree on the _fix_. They sometimes agree on the _location_ — and even then they're rarely prescribing the same edit. Hickey wants the concepts decoupled. Löwy wants the volatilities encapsulated. Sometimes that's one edit. Sometimes Hickey says "split the function" and Löwy says "move the boundary," and both are right in a way that only the third read — yours — can resolve. The fix you ship is rarely either agent's literal proposal.
 
-When the passes disagree, don't split the difference. Pick the
-one whose reasoning held under your own pushback, and drop the
-other. Splitting the difference gives you the worst of both —
-neither a clean concept nor a clean volatility boundary, just a
-compromise that fails both tests six months later.
+And when they disagree, **don't split the difference.** Take the one whose reasoning survived your own pushback, and drop the other. Splitting the difference hands you the worst of both: not a clean concept, not a clean boundary, just a compromise that fails both tests six months later.
 
-## In a line
+## Half a review
 
-_A single-lens review is a half-review. Code has a spacetime;
-complexity creeps along both axes._
+**A single-lens review is half a review.** Code has a spacetime, and complexity creeps in along both axes.
 
-Everything above is existence proof for that sentence: the
-`borderClass` braid that Löwy couldn't see, the `displaySuffix`
-mis-location that Hickey couldn't see, the `canvasMaximized` chain
-where both lenses happened to land on the same line. Most findings
-on one axis. A handful on both. A team that had run only Hickey
-would have shipped with `displaySuffix` recomputed per render on
-every client forever. A team that had run only Löwy would have
-shipped with a `borderClass` pattern match that intruded on every
-future agent-state variant.
+Everything above is the existence proof for that one sentence: the `borderClass` braid Löwy couldn't see, the `displaySuffix` in the wrong layer that Hickey couldn't see, the `canvasMaximized` chain where they happened to land together. Run only Hickey and you'd have shipped `displaySuffix` recomputing on every client on every render, forever. Run only Löwy and you'd have shipped a `borderClass` match that taxes every future agent-state variant you ever add.
 
-PR #623 shipped seven refactor commits past the point I would have
-merged on taste. Every one of them made the diff smaller. That's
-the other thing this practice does — the fix removes code, it
-doesn't add it. If a "simplification" is making your diff bigger,
-one of your lenses is broken. Probably both.
+One more thing, and it's the part I trust most. PR #623 shipped seven refactor commits past the point I'd have merged on taste, and every one of them made the diff smaller. That's the tell. The fix removes code, it doesn't add it. If your "simplification" is growing the diff, one of your lenses is broken. Probably both.
 
 **Ship when both lenses go quiet. Not before.**
 
