@@ -21,7 +21,11 @@ import {
   onCleanup,
   useContext,
 } from "solid-js";
-import { type BuildInfoDef, buildInfo as defaultBuildInfo } from "../surface";
+import {
+  type BuildInfoDef,
+  buildInfo as defaultBuildInfo,
+  type ServerProbe,
+} from "../surface";
 
 // The non-component lifecycle calls live in the framework-free `/lifecycle`
 // subpath; re-exported here so `<SurfaceAppProvider>` consumers reach them from
@@ -46,14 +50,12 @@ export type ServerLifecycleEvent =
 
 /** What an identity probe reports: the server process id — a value that changes
  *  when the server restarts (so a reconnect to a *different* process is a restart,
- *  not a transient drop). Kept distinct from build identity (`commit`). This
- *  interface is the canonical probe wire shape; `ServerProbeSchema` from
- *  `@kolu/surface-app/surface` is the runtime validator that mirrors it
- *  (kept hand-equal — no `z.infer` derivation between the two). An app may send
- *  a superset (the provider is generic over the probe response — see `P`). */
-export interface ServerProbe {
-  processId: string;
-}
+ *  not a transient drop). Kept distinct from build identity (`commit`). Re-exported
+ *  from `@kolu/surface-app/surface`, where it is derived (`z.infer`) from
+ *  `ServerProbeSchema` — the single source of the probe's wire shape, so the type
+ *  and the runtime validator can't desync. An app may send a superset (the
+ *  provider is generic over the probe response — see `P`). */
+export type { ServerProbe };
 
 /** The transport surface-app observes — `WebSocket` / `PartySocket` both fit.
  *  `removeEventListener` is optional: when present, `createServerLifecycle`

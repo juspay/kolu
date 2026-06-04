@@ -67,10 +67,15 @@ export const buildInfo: BuildInfoDef = defineBuildInfo({
 
 /** What an identity probe reports: the server's `processId` — a value that
  *  changes when the server restarts, so a reconnect to a *different* process is
- *  a restart, not a transient drop. The runtime validator for the probe's wire
- *  shape; it mirrors the canonical `ServerProbe` interface in `/solid` (kept
- *  hand-equal — there is no `z.infer` derivation between the two). */
+ *  a restart, not a transient drop. This schema is the single source of the
+ *  probe's wire shape: the `ServerProbe` type is derived from it via `z.infer`
+ *  (and re-exported from `/solid`), so the validator and the type can't desync. */
 export const ServerProbeSchema = z.object({ processId: z.string() });
+
+/** The probe's wire shape as a type, derived from `ServerProbeSchema` (the one
+ *  source). An app may send a superset (the `/solid` provider is generic over
+ *  the probe response — see its `P`). */
+export type ServerProbe = z.infer<typeof ServerProbeSchema>;
 
 /** The `surface.surfaceApp.info` identity procedure as a composable fragment —
  *  the restart axis's counterpart to `buildInfo`'s skew axis. Merged into your
