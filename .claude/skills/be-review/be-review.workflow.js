@@ -222,8 +222,15 @@ const CODEX_SKILLDIR = ".claude/skills/codex-debate";
 // The diff base reviewers actually use is the MERGE-BASE (resolved by Setup),
 // not the raw `${base}` tip — see SETUP_SCHEMA.mergeBase. DIFF is an arrow, so it
 // reads `mergeBase` lazily at call time (Tracks phase, after Setup has set it).
-const DIFF = (wt) =>
-  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${mergeBase}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored ${scratchList} scratch dirs if they appear.`;
+const DIFF = (wt, paths) => {
+  // Empty paths => full diff; non-empty => the SAME instruction narrowed to those
+  // pathspecs. One socket, two wires: full-review and touched-files re-review share
+  // the 'status --short / Read ABSOLUTE paths / surrounding code / ignore scratch dirs'
+  // tail so they can't drift. `paths` are already shell-quoted pathspec args.
+  if (paths?.length)
+    return `Inspect the change in the worktree at \`${wt}\` SCOPED to these files: run \`git -C ${wt} diff ${mergeBase} -- ${paths.join(" ")}\`, then Read those files (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge them in context. Ignore the gitignored ${scratchList} scratch dirs if they appear.`;
+  return `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${mergeBase}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored ${scratchList} scratch dirs if they appear.`;
+};
 
 const rationaleBlock = rationale
   ? `\nAuthor's note on deliberate decisions (do not flag these as defects unless the reasoning is itself wrong):\n${rationale}\n`
@@ -549,15 +556,15 @@ async function policeTrack(wt) {
   // regressions converges (typically ~2 sweeps) while keeping the load-bearing "a fix
   // can introduce or only partially resolve an issue" guarantee "until clean" exists for.
   let touchedFiles = [];
+  /** @type {'no-touched-files' | null} */
+  let earlyBreakReason = null;
   for (let policeRound = 0; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
     sweepsRun++; // one review sweep per iteration, counted BEFORE any break/cap exit so the reported count is exact
     const firstSweep = policeRound === 0;
-    const rel = touchedFiles.map((f) =>
-      f.replace(`${wt}/`, "").replace(/^\/+/, ""),
-    );
+    const rel = relPaths(wt, touchedFiles); // unquoted, for the touched-count log
     const scope = firstSweep
       ? DIFF(wt)
-      : `Re-review the fixes the previous sweep just applied. Limit the DIFF to the touched files so you don't re-raise unrelated nits: run \`git -C ${wt} diff ${mergeBase} -- ${rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(" ")}\`. But you are NOT confined to reading only those files — Read freely any surrounding, caller, dependent, contract, or generated-output files you need (ABSOLUTE paths under \`${wt}\`) to judge whether those edits broke something. Raise a finding ONLY when the problem is rooted in the previous sweep's edits (a regression they introduced, or an issue they only partially resolved), even if the breakage surfaces in an untouched file.`;
+      : `Re-review the fixes the previous sweep just applied. Limit the DIFF to the touched files so you don't re-raise unrelated nits: ${DIFF(wt, [relPathspec(wt, touchedFiles)])} But you are NOT confined to reading only those files — Read freely any surrounding, caller, dependent, contract, or generated-output files you need (ABSOLUTE paths under \`${wt}\`) to judge whether those edits broke something. Raise a finding ONLY when the problem is rooted in the previous sweep's edits (a regression they introduced, or an issue they only partially resolved), even if the breakage surfaces in an untouched file.`;
     const reviews = await parallel(
       passes.map(
         (p) => () =>
@@ -598,7 +605,24 @@ async function policeTrack(wt) {
           schema: IMPL_SCHEMA,
         },
       );
-      const files = impl?.filesChanged ?? [];
+      // Normalize+validate `filesChanged` ONCE here — its absolute-under-`wt` shape
+      // is an unenforced cross-agent contract (the schema only types it `string[]`).
+      // Run the shared abs->rel core, then MANDATORILY drop any entry that, after
+      // stripping `${wt}/`, still starts with `/` (an absolute path NOT under wt) or
+      // with `./`/`../` (a relative path that doesn't anchor to wt). Leading-dot dirs
+      // like `.apm/`/`.claude/` are valid wt-relative files this PR edits — keep them.
+      // A stray path that survived would silently scope the next sweep's regression
+      // diff against something git doesn't recognize (reviewing nothing), so dropping
+      // one is logged loudly. The canonical relative list feeds both the touched-file
+      // set and commitFix.
+      const rawFiles = impl?.filesChanged ?? [];
+      const files = relPaths(wt, rawFiles).filter(
+        (rel) => !rel.startsWith("/") && !/^\.\.?\//.test(rel),
+      );
+      if (files.length < rawFiles.length)
+        log(
+          `police: ${f.id} returned a path not under the worktree (${rawFiles.join(", ")}) — regression scope may miss it`,
+        );
       files.forEach((x) => sweepTouched.add(x)); // next sweep re-reviews only these
       let sha = null;
       if (commit && files.length) {
@@ -633,6 +657,7 @@ async function policeTrack(wt) {
     // a regression sweep to re-review, so stop rather than re-run an identical pass.
     if (!touchedFiles.length) {
       noOpApplyExit = true;
+      earlyBreakReason = "no-touched-files";
       break;
     }
   }
@@ -645,12 +670,17 @@ async function policeTrack(wt) {
     : reachedClean
       ? "consensus"
       : "incomplete";
-  if (!reachedClean)
-    log(
-      noOpApplyExit
-        ? `police: stopped early — last sweep's findings produced no file changes to re-review; reporting incomplete with findings still open.`
-        : `police: hit round cap (${POLICE_MAX_ROUNDS}) with findings still open — reporting incomplete.`,
-    );
+  if (!reachedClean) {
+    if (earlyBreakReason === "no-touched-files") {
+      log(
+        `police: stopped early — last sweep's findings produced no file changes to re-review; reporting incomplete with findings still open.`,
+      );
+    } else {
+      log(
+        `police: hit round cap (${POLICE_MAX_ROUNDS}) with findings still open — reporting incomplete.`,
+      );
+    }
+  }
   return {
     status,
     findings: totalFindings,
@@ -660,14 +690,26 @@ async function policeTrack(wt) {
   };
 }
 
+// The single source for the abs->rel->quote transform: turn absolute worktree
+// paths into a git pathspec safe to interpolate into a shell command. `relPaths`
+// strips the worktree prefix (git -C / DIFF want paths relative to `wt`);
+// `relPathspec` additionally single-quotes each (escaping embedded quotes) and
+// joins them. Both the sweep-scope branch and commitFix go through here so a
+// change to the quoting or prefix rule lives in exactly one place.
+const relPaths = (wt, files) =>
+  files.map((f) => f.replace(`${wt}/`, "").replace(/^\/+/, ""));
+const relPathspec = (wt, files) =>
+  relPaths(wt, files)
+    .map((f) => `'${f.replace(/'/g, `'\\''`)}'`)
+    .join(" ");
+
 // Mechanical committer shared by the police track: stages EXACTLY the listed
 // files in worktree `wt` and commits with the given message — all via `git -C`
 // so it never depends on the shell cwd. The workflow can't run git itself, so a
 // thin agent does. (codex/lens commit via their own workflows.)
 async function commitFix(wt, id, subject, body, files) {
   // Files may arrive as absolute worktree paths; git -C wants them relative to wt.
-  const rel = files.map((f) => f.replace(`${wt}/`, "").replace(/^\/+/, ""));
-  const fileArgs = rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(" ");
+  const fileArgs = relPathspec(wt, files);
   const msgPath = `${SCRATCH}/commit-msg-${id}.txt`;
   const message = `${subject}\n\n${body}`;
   const prompt = `${mechanicalPreamble("COMMITTER")} Do exactly these steps and nothing else — do not edit files, do not push, do not stage anything beyond the listed files.
@@ -1328,7 +1370,7 @@ const cleanCheck = liveTracks.length
   ? await agent(
       `${mechanicalPreamble("CLEANLINESS CHECKER")} For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (${trackScratchList}); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines.
 
-ONE NORMALIZATION FIRST (issue #1164): \`apm.lock.yaml\` is a generated lockfile whose \`generated_at:\` timestamp \`just ai::apm\` rewrites on every run, so a track that touched APM skills (which forces a regen) routinely leaves it \` M apm.lock.yaml\` as pure no-op churn. For any track whose status shows \`apm.lock.yaml\` modified (staged OR unstaged), run \`git -C <path> diff HEAD -- apm.lock.yaml\` (the \`HEAD\` form catches a staged churn diff that a plain \`git diff\` would hide): if the ONLY changed content line is \`generated_at:\` (a timestamp), run \`git -C <path> checkout HEAD -- apm.lock.yaml\` to discard that churn from BOTH the index and the working tree, and do NOT count it as dirty. If \`apm.lock.yaml\` has ANY other change (a real dependency edit), keep it as a dirty entry. This \`checkout HEAD\` of the timestamp-only lockfile is the ONLY edit you may make; do not touch anything else. Re-run \`git -C <path> status --short\` after the discard so your verdict reflects the normalized tree.
+ONE NORMALIZATION FIRST (issue #1164): \`apm.lock.yaml\` is a generated lockfile whose \`generated_at:\` timestamp \`just ai::apm\` rewrites on every run, so a track that touched APM skills (which forces a regen) routinely leaves it \` M apm.lock.yaml\` as pure no-op churn. For any track whose status shows \`apm.lock.yaml\` modified (staged OR unstaged), run \`git -C <path> diff HEAD -- apm.lock.yaml\` (the \`HEAD\` form catches a staged churn diff that a plain \`git diff\` would hide): if the ONLY added or removed lines (starting with \`+\` or \`-\`, excluding the \`+++\`/\`---\` file headers) contain \`generated_at:\` (a timestamp), run \`git -C <path> checkout HEAD -- apm.lock.yaml\` to discard that churn from BOTH the index and the working tree, and do NOT count it as dirty. If \`apm.lock.yaml\` has ANY other change (a real dependency edit), keep it as a dirty entry. This \`checkout HEAD\` of the timestamp-only lockfile is the ONLY edit you may make; do not touch anything else. Re-run \`git -C <path> status --short\` after the discard so your verdict reflects the normalized tree.
 
 Report a row for EVERY track listed, even if its worktree looks empty or the command errors (if \`git status\` fails, set clean=false and put the error in dirtyStatus). Tracks and their worktrees:
 ${liveTracks.map((t) => `  - ${t}: ${wtDir(t)}`).join("\n")}
