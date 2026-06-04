@@ -3,7 +3,7 @@ title: Electricity — identified, and their progress
 description: A tracker for kolu's electricities — infrastructure pulled out from beneath the app into its own thing — and where each stands.
 kind: review
 maturity: evergreen
-updated: 2026-06-02
+updated: 2026-06-04
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -22,6 +22,7 @@ Löwy's receptacle — hide the volatility behind a socket you plug into. Three 
 | Electricity | Owns (volatility) | PR | Progress |
 | --- | --- | --- | --- |
 | **@kolu/surface** | Live client↔server state — `Cell`/`Collection`/`Stream`/`Event` over oRPC, reconnect, fine-grained reconcile. | <PrLink pr={805} /> | <Pill variant="done">done</Pill> · 2nd consumer: [drishti](https://github.com/srid/drishti) |
+| **[@kolu/surface-app](./surface-app.html)** | The app shell for surface apps — fresh delivery + server/build identity + the connection/update lifecycle model + desktop-install. | <PrLink pr={1154} /> | <Pill variant="done">done</Pill> · 2nd consumer: [drishti](https://github.com/srid/drishti) |
 | **@kolu/surface-nix-host** | `HostSession` — `nix copy` a closure to a host, realise, run `--stdio` over ssh. | <PrLink pr={984} /> | <Pill variant="done">done</Pill> · also in drishti |
 | **@kolu/artifact-sdk** | Anchoring — core speaks only `Range`/`Document`/`ShadowRoot`. | <PrLink pr={922} /> | <Pill variant="done">done</Pill> |
 | **@kolu/transcript-core** + **transcript-html** | Transcript model + rendering. | <PrLink pr={744} /> | <Pill variant="done">done</Pill> |
