@@ -1222,7 +1222,7 @@ HARD RULES:
 
 STEPS (do EXACTLY these, in order, then stop):
 1. \`mkdir -p ${SCRATCH}\`.
-2. Using the Write tool (NOT a shell heredoc — the body has special characters), create the file \`${file}\` with the full markdown comment body as its content.
+2. [MANDATORY] Write the comment file using the Write tool — do NOT use echo, printf, cat heredoc, or any shell command to create this file. The body contains backticks, dollar signs, and double-quotes that a shell would corrupt. Call the Write tool directly with the full markdown comment body as its content parameter, targeting \`${file}\`.
 3. Report metadata about the file you wrote: \`firstLine\` = its exact first line, and \`bytes\` = its size in bytes (\`wc -c < ${file}\`). Do NOT return the body.`;
   return agent(prompt, {
     label: `report:${slug}`,
