@@ -118,7 +118,9 @@ const mechModel = a.mechModel || "haiku";
 // ---------------------------------------------------------------------------
 const spentTokens = () => {
   try {
-    return (typeof budget !== "undefined" && budget.spent && budget.spent()) || 0;
+    return (
+      (typeof budget !== "undefined" && budget.spent && budget.spent()) || 0
+    );
   } catch {
     /* budget API absent or threw — instrumentation is best-effort, return 0 */
     return 0;
@@ -132,7 +134,9 @@ function markPhaseTokens(phaseName) {
   _tokMark = now;
   // each phase name is called exactly once at its boundary
   tokensByPhase[phaseName] = delta;
-  log(`💸 ${phaseName}: +${delta.toLocaleString()} output tokens (run total ${now.toLocaleString()})`);
+  log(
+    `💸 ${phaseName}: +${delta.toLocaleString()} output tokens (run total ${now.toLocaleString()})`,
+  );
 }
 // The review tracks to run AND the order they consolidate in. codex first (it
 // changes the most — bug fixes), then the structural lenses, then police, so an
@@ -536,6 +540,7 @@ async function policeTrack(wt) {
   let totalFindings = 0;
   let sweepsRun = 0;
   let lastRoundFindings = 0;
+  let noOpApplyExit = false; // true if the loop stopped because a sweep's fixes changed no files (a no-op apply exit, NOT round-cap exhaustion) — keeps the exit log honest
   // Files the PREVIOUS sweep's fixes touched (absolute paths under `wt`). Sweep 1
   // reviews the FULL diff; sweeps 2+ re-review ONLY these files — for regressions or
   // partial fixes the just-applied edits introduced, NOT new pre-existing nits in
@@ -547,10 +552,12 @@ async function policeTrack(wt) {
   for (let policeRound = 0; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
     sweepsRun++; // one review sweep per iteration, counted BEFORE any break/cap exit so the reported count is exact
     const firstSweep = policeRound === 0;
-    const rel = touchedFiles.map((f) => f.replace(`${wt}/`, "").replace(/^\/+/, ""));
+    const rel = touchedFiles.map((f) =>
+      f.replace(`${wt}/`, "").replace(/^\/+/, ""),
+    );
     const scope = firstSweep
       ? DIFF(wt)
-      : `Re-review ONLY the files the previous sweep's fixes just touched: run \`git -C ${wt} diff ${mergeBase} -- ${rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(" ")}\` and Read those files (ABSOLUTE paths under \`${wt}\`).`;
+      : `Re-review the fixes the previous sweep just applied. Limit the DIFF to the touched files so you don't re-raise unrelated nits: run \`git -C ${wt} diff ${mergeBase} -- ${rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(" ")}\`. But you are NOT confined to reading only those files — Read freely any surrounding, caller, dependent, contract, or generated-output files you need (ABSOLUTE paths under \`${wt}\`) to judge whether those edits broke something. Raise a finding ONLY when the problem is rooted in the previous sweep's edits (a regression they introduced, or an issue they only partially resolved), even if the breakage surfaces in an untouched file.`;
     const reviews = await parallel(
       passes.map(
         (p) => () =>
@@ -624,11 +631,14 @@ async function policeTrack(wt) {
     touchedFiles = [...sweepTouched];
     // No fix actually changed a file (all uncommitted/empty) → there's nothing for
     // a regression sweep to re-review, so stop rather than re-run an identical pass.
-    if (!touchedFiles.length) break;
+    if (!touchedFiles.length) {
+      noOpApplyExit = true;
+      break;
+    }
   }
-  // `clean` only if the FINAL sweep found nothing. If we exhausted the round cap
-  // with findings still open, the worktree isn't verified-clean — report
-  // `incomplete` so the caller (and the PR comment) doesn't read it as consensus.
+  // `clean` only if the FINAL sweep found nothing. If we ended with findings still
+  // open, the worktree isn't verified-clean — report `incomplete` so the caller
+  // (and the PR comment) doesn't read it as consensus.
   const reachedClean = lastRoundFindings === 0;
   const status = !totalFindings
     ? "clean"
@@ -637,7 +647,9 @@ async function policeTrack(wt) {
       : "incomplete";
   if (!reachedClean)
     log(
-      `police: hit round cap (${POLICE_MAX_ROUNDS}) with findings still open — reporting incomplete.`,
+      noOpApplyExit
+        ? `police: stopped early — last sweep's findings produced no file changes to re-review; reporting incomplete with findings still open.`
+        : `police: hit round cap (${POLICE_MAX_ROUNDS}) with findings still open — reporting incomplete.`,
     );
   return {
     status,
@@ -713,7 +725,14 @@ const trackThunk = {
   lens: () =>
     workflow(
       { scriptPath: LENS_SCRIPT },
-      { repoPath: wtDir("lens"), base: mergeBase, rationale, model, mechModel, commit },
+      {
+        repoPath: wtDir("lens"),
+        base: mergeBase,
+        rationale,
+        model,
+        mechModel,
+        commit,
+      },
     )
       .then((r) => ({ track: "lens", ...r }))
       .catch((e) => ({
@@ -1068,7 +1087,9 @@ HARD RULES:
     // Don't swallow the thrown agent error: log which slug fell back and why, so a
     // broken reporter is diagnosable instead of silently posting the baseline
     // (police police-r1-rules-1 / police-r1-fact-check-1).
-    log(`Report: ${slug} reporter agent failed (${String(e)}) — falling back to the deterministic baseline.`);
+    log(
+      `Report: ${slug} reporter agent failed (${String(e)}) — falling back to the deterministic baseline.`,
+    );
     return baseline;
   }
 }
@@ -1104,39 +1125,56 @@ async function authorBody(slug, data, baseline, guidance) {
 // in Buffer/TextEncoder, an unpaired surrogate is replaced with U+FFFD so the
 // encoder is total over every JS string and never crashes the Report phase.
 function toBase64(s) {
-  const str = String(s)
-  if (typeof Buffer !== 'undefined') return Buffer.from(str, 'utf8').toString('base64')
+  const str = String(s);
+  if (typeof Buffer !== "undefined")
+    return Buffer.from(str, "utf8").toString("base64");
   // UTF-8 bytes as a binary string, decoding surrogate pairs and substituting
   // U+FFFD for any unpaired surrogate (matching Buffer/TextEncoder semantics).
-  let bin = ''
+  let bin = "";
   const emit = (cp) => {
-    if (cp < 0x80) bin += String.fromCharCode(cp)
-    else if (cp < 0x800) bin += String.fromCharCode(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f))
-    else if (cp < 0x10000) bin += String.fromCharCode(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f))
-    else bin += String.fromCharCode(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f))
-  }
+    if (cp < 0x80) bin += String.fromCharCode(cp);
+    else if (cp < 0x800)
+      bin += String.fromCharCode(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
+    else if (cp < 0x10000)
+      bin += String.fromCharCode(
+        0xe0 | (cp >> 12),
+        0x80 | ((cp >> 6) & 0x3f),
+        0x80 | (cp & 0x3f),
+      );
+    else
+      bin += String.fromCharCode(
+        0xf0 | (cp >> 18),
+        0x80 | ((cp >> 12) & 0x3f),
+        0x80 | ((cp >> 6) & 0x3f),
+        0x80 | (cp & 0x3f),
+      );
+  };
   for (let i = 0; i < str.length; i++) {
-    const c = str.charCodeAt(i)
+    const c = str.charCodeAt(i);
     if (c >= 0xd800 && c <= 0xdbff) {
-      const next = str.charCodeAt(i + 1)
+      const next = str.charCodeAt(i + 1);
       if (next >= 0xdc00 && next <= 0xdfff) {
-        emit(0x10000 + ((c - 0xd800) << 10) + (next - 0xdc00))
-        i++
-      } else emit(0xfffd) // unpaired high surrogate
+        emit(0x10000 + ((c - 0xd800) << 10) + (next - 0xdc00));
+        i++;
+      } else emit(0xfffd); // unpaired high surrogate
     } else if (c >= 0xdc00 && c <= 0xdfff) {
-      emit(0xfffd) // unpaired low surrogate
-    } else emit(c)
+      emit(0xfffd); // unpaired low surrogate
+    } else emit(c);
   }
-  const CH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-  let out = ''
+  const CH = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let out = "";
   for (let i = 0; i < bin.length; i += 3) {
-    const n = Math.min(3, bin.length - i)
-    const a = bin.charCodeAt(i)
-    const b = n > 1 ? bin.charCodeAt(i + 1) : 0
-    const c = n > 2 ? bin.charCodeAt(i + 2) : 0
-    out += CH[a >> 2] + CH[((a & 3) << 4) | (b >> 4)] + (n > 1 ? CH[((b & 15) << 2) | (c >> 6)] : '=') + (n > 2 ? CH[c & 63] : '=')
+    const n = Math.min(3, bin.length - i);
+    const a = bin.charCodeAt(i);
+    const b = n > 1 ? bin.charCodeAt(i + 1) : 0;
+    const c = n > 2 ? bin.charCodeAt(i + 2) : 0;
+    out +=
+      CH[a >> 2] +
+      CH[((a & 3) << 4) | (b >> 4)] +
+      (n > 1 ? CH[((b & 15) << 2) | (c >> 6)] : "=") +
+      (n > 2 ? CH[c & 63] : "=");
   }
-  return out
+  return out;
 }
 
 async function postComment(slug, body) {
@@ -1149,7 +1187,11 @@ async function postComment(slug, body) {
    \`printf %s '${b64}' | base64 -d > ${file}\`
 3. Post it to THIS branch's PR: \`cd ${repoPath} && gh pr comment --body-file ${file}\`. (\`gh\` resolves the PR from the current branch.) If there is NO open PR for the branch, do nothing and report "no PR".
 4. Return the comment URL gh prints, or "no PR".`;
-  return agent(prompt, { label: `comment:${slug}`, phase: "Report", model: mechModel });
+  return agent(prompt, {
+    label: `comment:${slug}`,
+    phase: "Report",
+    model: mechModel,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1165,7 +1207,11 @@ if (!commit) {
     `--no-commit: skipping Consolidate + Cleanup. Per-track fixes are UNCOMMITTED in their worktrees; inspect them there: ${liveTracks.map((t) => `git -C ${wtDir(t)} diff`).join(" ; ")}`,
   );
   markPhaseTokens("Tracks");
-  log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
+  log(
+    `💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase)
+      .map(([k, v]) => `${k}=${v.toLocaleString()}`)
+      .join("  ")}`,
+  );
   return {
     status: "no-commit",
     branchHead,
@@ -1243,7 +1289,11 @@ if (branchMoved || branchDirty) {
     };
   }
   markPhaseTokens("Consolidate");
-  log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
+  log(
+    `💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase)
+      .map(([k, v]) => `${k}=${v.toLocaleString()}`)
+      .join("  ")}`,
+  );
   return {
     status: "consolidation-aborted",
     branchHead,
@@ -1278,7 +1328,7 @@ const cleanCheck = liveTracks.length
   ? await agent(
       `${mechanicalPreamble("CLEANLINESS CHECKER")} For EACH track below, run \`git -C <path> status --short\` against its worktree and report whether it is fully clean. IGNORE only lines under each track's own gitignored debate scratch dirs (${trackScratchList}); ANY other staged, unstaged, or untracked entry means the track left uncommitted work — set clean=false and report those lines.
 
-ONE NORMALIZATION FIRST (issue #1164): \`apm.lock.yaml\` is a generated lockfile whose \`generated_at:\` timestamp \`just ai::apm\` rewrites on every run, so a track that touched APM skills (which forces a regen) routinely leaves it \` M apm.lock.yaml\` as pure no-op churn. For any track whose status shows \`apm.lock.yaml\` modified, run \`git -C <path> diff -- apm.lock.yaml\`: if the ONLY changed content line is \`generated_at:\` (a timestamp), run \`git -C <path> checkout -- apm.lock.yaml\` to discard that churn and do NOT count it as dirty. If \`apm.lock.yaml\` has ANY other change (a real dependency edit), keep it as a dirty entry. This \`checkout\` of the timestamp-only lockfile is the ONLY edit you may make; do not touch anything else. Re-run \`git -C <path> status --short\` after the discard so your verdict reflects the normalized tree.
+ONE NORMALIZATION FIRST (issue #1164): \`apm.lock.yaml\` is a generated lockfile whose \`generated_at:\` timestamp \`just ai::apm\` rewrites on every run, so a track that touched APM skills (which forces a regen) routinely leaves it \` M apm.lock.yaml\` as pure no-op churn. For any track whose status shows \`apm.lock.yaml\` modified (staged OR unstaged), run \`git -C <path> diff HEAD -- apm.lock.yaml\` (the \`HEAD\` form catches a staged churn diff that a plain \`git diff\` would hide): if the ONLY changed content line is \`generated_at:\` (a timestamp), run \`git -C <path> checkout HEAD -- apm.lock.yaml\` to discard that churn from BOTH the index and the working tree, and do NOT count it as dirty. If \`apm.lock.yaml\` has ANY other change (a real dependency edit), keep it as a dirty entry. This \`checkout HEAD\` of the timestamp-only lockfile is the ONLY edit you may make; do not touch anything else. Re-run \`git -C <path> status --short\` after the discard so your verdict reflects the normalized tree.
 
 Report a row for EVERY track listed, even if its worktree looks empty or the command errors (if \`git status\` fails, set clean=false and put the error in dirtyStatus). Tracks and their worktrees:
 ${liveTracks.map((t) => `  - ${t}: ${wtDir(t)}`).join("\n")}
@@ -1416,7 +1466,11 @@ if (currentHead !== branchHead) {
     `Consolidate: ABORTING — branch HEAD is ${sha9(currentHead) || "(unknown)"} but the tracks forked from ${sha9(branchHead)}. The branch has drifted (likely an already-consolidated re-run); cherry-picking now would double-apply every fix. Worktrees PRESERVED.`,
   );
   markPhaseTokens("Consolidate");
-  log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
+  log(
+    `💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase)
+      .map(([k, v]) => `${k}=${v.toLocaleString()}`)
+      .join("  ")}`,
+  );
   return {
     status: "consolidation-precondition-failed",
     branchHead,
@@ -1587,7 +1641,11 @@ if (incompleteTracks.length) {
   );
 }
 markPhaseTokens("Cleanup");
-log(`💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase).map(([k, v]) => `${k}=${v.toLocaleString()}`).join("  ")}`);
+log(
+  `💸 token breakdown (output, by phase): ${Object.entries(tokensByPhase)
+    .map(([k, v]) => `${k}=${v.toLocaleString()}`)
+    .join("  ")}`,
+);
 return {
   status,
   branchHead,
