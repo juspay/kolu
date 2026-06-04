@@ -256,10 +256,20 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
           .then((r) => void fold(r))
           .catch((err) => {
             // A failed boot-time axis leaves the seed in place — the skew axis
-            // still works; the extra axis stays at its default. Surface the
-            // failure (don't swallow it silently) so a broken boot-time probe
-            // is distinguishable from a legitimately absent optional axis.
-            opts.onError?.(err);
+            // still works; the extra axis stays at its default. `ready` still
+            // resolves (the seed IS a valid `T`, and the documented contract is
+            // "settles once any async source has been applied — or fallen back"),
+            // so we DON'T reject it and break every `await ready` boot path.
+            // But the failure must never be silent: route it to `onError` if the
+            // app gave one, else fail LOUD by default — a swallowed boot probe is
+            // indistinguishable from a legitimately absent optional axis, the
+            // exact silent-failure this fragment exists to prevent.
+            if (opts.onError) opts.onError(err);
+            else
+              console.error(
+                "buildInfoServer: async buildInfo source rejected; serving the seeded default. Pass `onError` to handle this.",
+                err,
+              );
           })
       : Promise.resolve();
   return {
@@ -338,6 +348,37 @@ export function implementSurfaceApp<
     procedures?: Partial<NonNullable<ImplementSurfaceDeps<S>["procedures"]>>;
   },
 ) {
+  // The spec-side `composeSurfaces` THROWS on a duplicate cell/procedure key;
+  // the impl-side merge must match it, or a consumer dep silently shadowing the
+  // fragment's `buildInfo` cell / `surfaceApp.info` procedure (an object-spread
+  // override) would break the control plane with no error — the very mismatch
+  // CODEX flagged. Detect collisions against the fragment's own keys and throw.
+  const assertNoOverride = (
+    kind: string,
+    fragment: Record<string, unknown>,
+    app: Record<string, unknown> | undefined,
+  ) => {
+    for (const k of Object.keys(app ?? {})) {
+      if (k in fragment)
+        throw new Error(
+          `implementSurfaceApp: app ${kind} "${k}" collides with the surface-app fragment's own ${kind} — the fragment owns it; remove it from your deps.`,
+        );
+    }
+  };
+  assertNoOverride(
+    "cell",
+    server.cells as unknown as Record<string, unknown>,
+    appDeps.cells as Record<string, unknown> | undefined,
+  );
+  // `procedures` is a namespace map; `surfaceApp.info` lives under the
+  // `surfaceApp` namespace, so a collision is the app reusing that whole
+  // namespace. Throw on a shared top-level namespace key (matching how the
+  // fragment contributes a single `surfaceApp` namespace).
+  assertNoOverride(
+    "procedure namespace",
+    server.procedures as unknown as Record<string, unknown>,
+    appDeps.procedures as Record<string, unknown> | undefined,
+  );
   const result = implementSurface(surface, {
     ...appDeps,
     cells: { ...server.cells, ...(appDeps.cells ?? {}) },

@@ -102,21 +102,25 @@ export function createServerLifecycle<
   const [lifecycle, setLifecycle] = createSignal<ServerLifecycleEvent>({
     kind: "connecting",
   });
-  let connectCount = 0;
+  // Have we ever *successfully* observed a server identity? Classify on this, not
+  // on raw `open` count: if the first WS open is followed by a FAILED probe, no
+  // identity was established, so the next successful probe is still the initial
+  // `connected` — not a spurious `reconnected`. `knownProcessId` is null until a
+  // probe resolves, so its nullness IS that flag.
   let knownProcessId: string | null = null;
   const onOpen = () => {
-    connectCount++;
-    const isFirst = connectCount === 1;
     opts
       .probe()
       .then(({ processId }) => {
-        if (isFirst) {
+        // First *successful* identity (regardless of how many opens preceded it):
+        // the initial connect. Only once an identity is on record does a later
+        // probe become reconnect (same id) / restart (changed id).
+        if (knownProcessId === null) {
           knownProcessId = processId;
           setLifecycle({ kind: "connected", processId });
           return;
         }
-        const restarted =
-          knownProcessId !== null && processId !== knownProcessId;
+        const restarted = processId !== knownProcessId;
         knownProcessId = processId;
         setLifecycle({
           kind: restarted ? "restarted" : "reconnected",
@@ -130,7 +134,9 @@ export function createServerLifecycle<
       });
   };
   const onClose = () => {
-    if (connectCount > 0) setLifecycle({ kind: "disconnected" });
+    // Only report a drop once an identity has been established — a close before
+    // the first successful probe never established a relationship to report lost.
+    if (knownProcessId !== null) setLifecycle({ kind: "disconnected" });
   };
   opts.ws.addEventListener("open", onOpen);
   opts.ws.addEventListener("close", onClose);
@@ -235,7 +241,12 @@ export type SurfaceAppProviderProps<
   children: JSX.Element;
 } & ConnectionSource<P>;
 
-const baseTitle = typeof document !== "undefined" ? document.title : "";
+// The `(<n>) ` count prefix this module writes onto `document.title`. Stripping
+// it recovers the app's own title from the live `document.title` — so the title
+// the app drives (e.g. kolu's async-server-info `<Title>`) is read at call time,
+// not snapshotted at module load. A module-load snapshot would clobber the
+// current title with the import-time one the moment attention clears.
+const ATTENTION_PREFIX = /^\(\d+\) /;
 
 function setAttention(count: number): void {
   // OS app badge — installed Chromium (Win/macOS) etc.; no-op elsewhere. Do not
@@ -248,9 +259,12 @@ function setAttention(count: number): void {
   // the badge is a best-effort decoration; the app functions identically without it.
   if (count > 0) void nav.setAppBadge?.(count).catch(() => {});
   else void nav.clearAppBadge?.().catch(() => {});
-  // Document title — the universal fallback (the in-browser-tab case).
+  // Document title — the universal fallback (the in-browser-tab case). Read the
+  // CURRENT title and strip any prefix we previously applied, so the base is
+  // whatever the app's title source has set since (not a module-load snapshot).
   if (typeof document !== "undefined") {
-    document.title = count > 0 ? `(${count}) ${baseTitle}` : baseTitle;
+    const base = document.title.replace(ATTENTION_PREFIX, "");
+    document.title = count > 0 ? `(${count}) ${base}` : base;
   }
 }
 

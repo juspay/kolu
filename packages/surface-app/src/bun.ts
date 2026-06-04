@@ -178,9 +178,25 @@ export async function buildSurfaceClient(
   // index.html is the no-store SPA shell — it stays UNHASHED at the root and is
   // rewritten to reference the hashed `/assets/*` URLs. The shell is always
   // re-fetched; the assets it names are pinned immutable — the whole contract.
+  // Each placeholder MUST be present: a `replaceAll` that matches nothing is a
+  // silent no-op, so a typo'd or stale template would build "successfully" yet
+  // ship a shell that still points at dev assets (or omits a hashed one) —
+  // exactly the staleness #1 exists to make impossible. Assert, then rewrite.
   let html = await Bun.file(resolve(opts.htmlTemplate)).text();
+  if (!html.includes(opts.entryHtmlPlaceholder))
+    throw new Error(
+      `buildSurfaceClient: entryHtmlPlaceholder ${JSON.stringify(
+        opts.entryHtmlPlaceholder,
+      )} not found in htmlTemplate (${opts.htmlTemplate}) — the shell would still point at dev assets.`,
+    );
   html = html.replaceAll(opts.entryHtmlPlaceholder, `src="${jsHref}"`);
   for (const asset of opts.extraAssets ?? []) {
+    if (!html.includes(asset.htmlPlaceholder))
+      throw new Error(
+        `buildSurfaceClient: htmlPlaceholder ${JSON.stringify(
+          asset.htmlPlaceholder,
+        )} for extra asset ${JSON.stringify(asset.name)} not found in htmlTemplate (${opts.htmlTemplate}) — the hashed asset would never be referenced.`,
+      );
     html = html.replaceAll(
       asset.htmlPlaceholder,
       `href="${assetHrefs[asset.name]}"`,

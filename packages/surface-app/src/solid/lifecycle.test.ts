@@ -63,6 +63,41 @@ describe("createServerLifecycle", () => {
     });
   });
 
+  it("a failed first probe doesn't consume the initial connect — next success is still `connected`", async () => {
+    const t = fakeWs();
+    const errors: unknown[] = [];
+    let fail = true;
+    await createRoot(async (dispose) => {
+      const { lifecycle } = createServerLifecycle({
+        ws: t.ws,
+        probe: () =>
+          fail
+            ? Promise.reject(new Error("probe down"))
+            : Promise.resolve({ processId: "p1" }),
+        onProbeError: (err) => errors.push(err),
+      });
+
+      // First open, probe fails: no identity established, stay put.
+      t.fire("open");
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(lifecycle().kind).toBe("connecting");
+      expect(errors).toHaveLength(1);
+
+      // A close before any identity never reports a drop (no relationship lost).
+      t.fire("close");
+      expect(lifecycle().kind).toBe("connecting");
+
+      // Next open, probe succeeds: this is the INITIAL connect, not a reconnect.
+      fail = false;
+      t.fire("open");
+      await Promise.resolve();
+      expect(lifecycle().kind).toBe("connected");
+
+      dispose();
+    });
+  });
+
   it("reports a failed probe through onProbeError without transitioning", async () => {
     const t = fakeWs();
     const errors: unknown[] = [];

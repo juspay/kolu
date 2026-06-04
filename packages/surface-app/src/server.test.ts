@@ -166,4 +166,36 @@ describe("implementSurfaceApp — one-call server composition", () => {
     const out = await callProcedure(router, "surfaceApp", "info", {});
     expect(out).toEqual({ processId: "pid-1" });
   });
+
+  it("throws if an app cell shadows the fragment's buildInfo (matching composeSurfaces)", () => {
+    expect(() =>
+      implementSurfaceApp(
+        surface,
+        surfaceAppServer({ commit: "abc1234", processId: "pid-1" }),
+        {
+          channel: <T>(_name: string) => inMemoryChannel<T>(),
+          // Shadowing the fragment's own cell must fail loud, not silently win.
+          cells: {
+            // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid override.
+            buildInfo: { store: inMemoryStore({ commit: "evil" }) } as any,
+          },
+        },
+      ),
+    ).toThrow(/buildInfo.*surface-app fragment/i);
+  });
+
+  it("throws if an app reuses the fragment's surfaceApp procedure namespace", () => {
+    expect(() =>
+      implementSurfaceApp(
+        surface,
+        surfaceAppServer({ commit: "abc1234", processId: "pid-1" }),
+        {
+          channel: <T>(_name: string) => inMemoryChannel<T>(),
+          cells: { mine: { store: inMemoryStore({ n: 7 }) } },
+          // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid override.
+          procedures: { surfaceApp: { info: async () => ({}) } } as any,
+        },
+      ),
+    ).toThrow(/surfaceApp.*surface-app fragment/i);
+  });
 });

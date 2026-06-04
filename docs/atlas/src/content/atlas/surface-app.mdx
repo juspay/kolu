@@ -64,7 +64,7 @@ The old triage rule (_normal reload stale, hard reload fresh → a cached shell 
 1. **Fresh delivery** — cache policy (no-store shell · immutable hashed assets · no-cache `sw.js` · 404 asset-miss) + static-serve + SPA fallback.
 2. **Server & build identity** — which host + which build the client is bound to; per-host name/theme; the `buildInfo` cell (extensible interface).
 3. **Connection & update lifecycle** — surface-app _derives_ the lifecycle (`connecting → connected → disconnected → reconnected / restarted`, + `stale-build`) from the WebSocket transport's open/close plus a server-identity probe (`processId` tells a transient drop from a restart) — lifting kolu's generic `rpc.ts` wholesale, so **kolu deletes its lifecycle layer and drishti gets the WS indicator for free**. The app passes the `ws` handle and renders its own chrome (the header dot, the dim overlay) from `useSurfaceApp().status()` — no hand-wired connection state. (Commit (skew) and processId (restart) stay distinct axes — `buildInfo` is commit-only; the restart probe is its own.)
-4. **Desktop install & feel** — the manifest as _app-window identity_ (per-host name/theme/icons), a best-effort install-prompt affordance (manual install always works), and an attention model that fans out to App Badging (installed Chromium, Win/macOS) → document title → favicon. (Install + badging need a trusted secure context; the core works without — see below.)
+4. **Desktop install & feel** — the manifest as _app-window identity_ (per-host name/theme/icons) and an attention model that fans out to App Badging (installed Chromium, Win/macOS) → document title (`setAttention(n)`, best-effort, degrades per browser). The install-prompt affordance and a canvas favicon are documented future affordances — not yet in the shipped `SurfaceAppModel`. (Badging needs a trusted secure context; the core works without — see below.)
 5. **No-offline service-worker stance** — retire legacy workers (`retireServiceWorker()` + self-destructing `sw.js`); never ship one.
 6. **Commit propagation** — one resolver (`SURFACE_APP_COMMIT` env → `git rev-parse --short HEAD` → `"dev"`) feeding a Vite plugin (client define + its type declaration) and the server cell. No app ever writes a sha literal.
 
@@ -95,7 +95,7 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 | `buildInfoServer()` · `surfaceAppServer()` | "The buildInfo cell's server impl (+ the `surfaceApp.info` probe impl) — spread into implementSurface; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
 | `implementSurfaceApp()` | "Implement the whole server side in ONE call (the counterpart to `composeSurfaces`): merge the fragment's cell + probe impls into your own deps, run implementSurface, flow `buildInfo.connect`." | <Pill variant="new">/server</Pill> | #2,5 |
 | `buildInfo` · `defineBuildInfo` | "The buildInfo cell definition — composed into your surface; extensible." | <Pill variant="dx">/surface</Pill> | #2,5 |
-| `useSurfaceApp()` · `SurfaceAppProvider` · `retireServiceWorker()` | "The headless model (status/stale/reload/install) + SW retirement. You render the UI." | <Pill variant="hi">/solid</Pill> | #3,4,5 |
+| `useSurfaceApp()` · `SurfaceAppProvider` · `retireServiceWorker()` | "The headless model (status/stale/server/reload/setAttention) + SW retirement. You render the UI." | <Pill variant="hi">/solid</Pill> | #3,4,5 |
 | `surfaceApp()` vite plugin · `buildSurfaceClient()` · `resolveCommit()` | "Build the client fresh: content-hashed `/assets/*`, the `__SURFACE_APP_COMMIT__` define, the no-store shell rewrite — Vite plugin or Bun helper. Resolve the commit once (env→git→dev)." | <Pill variant="md">/vite · /bun</Pill> | #1,2 |
 | `cacheControlFor` · `clientIsStale` · `SW_SOURCE` | "The pure, framework-free kernels." | <Pill variant="ok">utils/</Pill> | #1,2 |
 
@@ -109,11 +109,10 @@ Everything the app shell knows about its server is one hook; the app renders wha
 const app = useSurfaceApp();   // the relationship to the server you're bound to:
 app.status()        // "live" | "reconnecting" | "restarted" | "down"
 app.stale()         // boolean — running bundle is behind the server's build
+app.server()        // T | undefined — what am I bound to (default { commit }; kolu extends)
+app.clientCommit    // string — this bundle's baked-in commit
 app.reload()        // land the deployed build
-app.server()        // { host, commit, name }  — what am I bound to
-app.standalone()    // launched as an installed app (display-mode / iOS)
-app.install         // { available(), prompt() } when installable (Chromium + secure), else null
-app.setAttention(n) // OS badge if installed, else document.title + canvas favicon — degrades per browser
+app.setAttention(n) // OS app badge if installed (best-effort) + document.title — degrades per browser
 ```
 
 Build-skew is one `status` among connection states — the insight made concrete. `status()` is **derived by the library** from the `ws` handle (open/close) + a `processId` probe (reconnected vs restarted) — this is kolu's `rpc.ts` lifecycle, encapsulated, so the WS indicator + dim overlay that kolu renders today drop straight into drishti. The shape is extensible: kolu's `server()` also carries pty-host info (its second staleness axis); drishti's is just `{ host, commit, name }`. As shipped, `createServerLifecycle({ ws, probe })` derives it in-library; the example proves it end-to-end — `live → down → restarted` on a real server restart.
@@ -221,7 +220,8 @@ export const surface = defineSurface(
 ```tsx
 import { retireServiceWorker, SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
 retireServiceWorker();
-<SurfaceAppProvider controlPlane={app}> …your app… </SurfaceAppProvider>   // pass your control-plane client
+// pass your control-plane client + this bundle's baked commit (the bundler define):
+<SurfaceAppProvider controlPlane={app} clientCommit={__SURFACE_APP_COMMIT__}> …your app… </SurfaceAppProvider>
 // then render your own chrome from useSurfaceApp() — README has the snippets.
 ```
 

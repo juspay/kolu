@@ -438,5 +438,5 @@ were deleted and replaced by the library it motivated:
   (`{ staleKey, navigableCommit }`) to surface-app's `{ commit }` via the generic
   `defineBuildInfo`; the server fills the pty-host column through the cell once the
   in-process pty-host reports its identity at boot. The restart axis (`processId`)
-  is surface-app's `serverIdentity` probe at `surface.server.info`; kolu's raw
+  is surface-app's `serverIdentity` probe at `surface.surfaceApp.info`; kolu's raw
   `server.info` now carries only per-host branding (title / watermark / theme).
