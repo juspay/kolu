@@ -62,6 +62,10 @@ const MODS: readonly Mod[] = [
   { label: "Alt", testId: "alt", armed: stickyAlt, toggle: toggleStickyAlt },
 ];
 
+// Column count derived from the control lists so the "two rows" invariant is
+// mechanical: every modifier and key splits evenly across exactly two rows.
+const COLS = (KEYS.length + MODS.length) / 2;
+
 const KEY_CLASS =
   "px-2 py-1.5 text-xs text-center rounded-md transition-colors cursor-pointer font-mono";
 const KEY_UNARMED_CLASS =
@@ -86,10 +90,11 @@ const MobileKeyBar: Component<{
   return (
     <Show when={isTouch()}>
       <div
-        // grid-cols-6 lays the twelve controls out in exactly two rows of six,
-        // so every key is reachable without the horizontal scroll the old
-        // single overflow-x row forced.
-        class="grid grid-cols-6 gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge"
+        // COLS (derived as half the total control count) lays the controls out
+        // in exactly two rows, so every key is reachable without the horizontal
+        // scroll the old single overflow-x row forced.
+        class="grid gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge"
+        style={{ "grid-template-columns": `repeat(${COLS}, minmax(0, 1fr))` }}
         data-testid="mobile-key-bar"
         // The key bar lives inside MobileTileView's swipe wrapper, whose
         // touchstart/touchend cycle terminals on a horizontal swipe. A
