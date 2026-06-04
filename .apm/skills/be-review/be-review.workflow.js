@@ -1179,6 +1179,19 @@ async function authorAndPost(slug, data, baseline, guidance) {
       return "";
     }
   }
+  if (!url) {
+    log(
+      `Report: ${slug} reporter returned empty url — posting deterministic baseline instead.`,
+    );
+    try {
+      return await postComment(slug, baseline);
+    } catch (e) {
+      log(
+        `Report: ${slug} empty-url fallback poster failed (${String(e)}) — comment will be skipped.`,
+      );
+      return "";
+    }
+  }
   return url;
 }
 
