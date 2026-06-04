@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "esbuild": "^0.25.0",
-    "hono": "^4.6.0",
+    "hono": "^4.12.21",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
