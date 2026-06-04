@@ -1163,23 +1163,6 @@ Then(
   },
 );
 
-// Drive a REAL mouse drag to select text — same code path a user hits,
-// not a synthetic `Selection.addRange`. The earlier synthetic step
-// pretended to work but bypassed `window.getSelection()` shadow-DOM
-// invisibility (per spec, document.getSelection cannot see selections
-// whose anchor/focus is inside a shadow tree — `ShadowRoot.getSelection()`
-// is the Chrome-specific escape hatch). A test that doesn't fire real
-// pointer events doesn't test what the user actually does.
-//
-// Algorithm:
-//   1. Poll Pierre's shadow tree (via `shadowDfs`) until a text node
-//      containing the target appears.
-//   2. Locate the target's bounding-rect ENDPOINTS by creating a Range
-//      in the page and asking `getClientRects()` — this is read-only
-//      shadow-DOM peeking, not a user-facing selection set.
-//   3. Drive `page.mouse.move/down/move/up` across those rect
-//      coordinates so the browser fires the same pointer + selection
-//      events it does for a real drag.
 // Drive a REAL mouse drag to select `target` inside the container matched by
 // `containerSelector`. Walks shadow trees (Pierre's `CodeView` nests one); the
 // Markdown preview is plain light DOM and the same DFS handles it unchanged.
