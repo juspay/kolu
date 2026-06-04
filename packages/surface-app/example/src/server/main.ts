@@ -12,8 +12,12 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { implementSurface, publisherChannel } from "@kolu/surface/server";
-import { installSurfaceApp, surfaceAppServer } from "@kolu/surface-app/server";
+import { publisherChannel } from "@kolu/surface/server";
+import {
+  implementSurfaceApp,
+  installSurfaceApp,
+  surfaceAppServer,
+} from "@kolu/surface-app/server";
 import { resolveCommit } from "@kolu/surface-app/vite";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import { implement } from "@orpc/server";
@@ -53,43 +57,41 @@ const statsStore = {
   },
 };
 
-// The extended build-identity fragment. The `commit` is auto-resolved (env →
-// git → "dev"); the `bootId` axis arrives ASYNCHRONOUSLY — standing in for
-// kolu's pty-host `system.version`, learned over an in-process link a moment
-// after boot. The fragment seeds `{ commit, bootId: "" }` synchronously, folds
-// the resolved patch in when the promise settles, and `connect(...)` (below)
-// republishes it to subscribers — no hand-written second `ctx.cells.buildInfo.set`.
-const surfaceApp = surfaceAppServer<ExampleBuildInfo>({
-  // The schema-valid seed: every required axis at its default. Until the async
-  // source settles, the cell publishes `{ commit, bootId: "" }` — a full
-  // `ExampleBuildInfo`, never a half-shape missing `bootId`.
-  default: exampleBuildInfo.cells.buildInfo.default,
-  buildInfo: async () => {
-    await new Promise((r) => setTimeout(r, 50)); // the link round-trip
-    return { bootId: randomUUID().slice(0, 8) }; // a Partial<T> patch
+// The whole surface-app server side in ONE call — the counterpart to
+// `composeSurfaces` on the surface side. `implementSurfaceApp` merges the
+// surface-app fragment's buildInfo cell + `surfaceApp.info` probe impls into the
+// app's OWN `implementSurface` deps, runs `implementSurface`, AND flows the
+// buildInfo cell's `connect` internally (the async boot axis below). So the app
+// passes only `serverStats` (its own cell) and never hand-spreads the surface-app
+// halves or writes the seed→connect dance.
+//
+// The build-identity fragment EXTENDS the default `{ commit }` with a `bootId`
+// axis the server only learns ASYNCHRONOUSLY at boot — standing in for kolu's
+// pty-host `system.version`, learned over an in-process link a moment after boot.
+// The fragment seeds `{ commit, bootId: "" }` synchronously, folds the resolved
+// patch in when the promise settles, and `implementSurfaceApp` republishes it to
+// subscribers — no hand-written second `ctx.cells.buildInfo.set`.
+const { router: surfaceRouter, ctx } = implementSurfaceApp(
+  surface,
+  surfaceAppServer<ExampleBuildInfo>({
+    // The schema-valid seed: every required axis at its default. Until the async
+    // source settles, the cell publishes `{ commit, bootId: "" }` — a full
+    // `ExampleBuildInfo`, never a half-shape missing `bootId`.
+    default: exampleBuildInfo.cells.buildInfo.default,
+    buildInfo: async () => {
+      await new Promise((r) => setTimeout(r, 50)); // the link round-trip
+      return { bootId: randomUUID().slice(0, 8) }; // a Partial<T> patch
+    },
+    // Surface a failed boot-time probe instead of silently keeping the seed.
+    onError: (err) => console.error("buildInfo boot-time axis failed:", err),
+  }),
+  {
+    channel: <T>(name: string) => publisherChannel<T>(publisher, name),
+    cells: {
+      serverStats: { store: statsStore }, // app-specific: live server stats
+    },
   },
-  // Surface a failed boot-time probe instead of silently keeping the seed.
-  onError: (err) => console.error("buildInfo boot-time axis failed:", err),
-});
-
-const { router: surfaceRouter, ctx } = implementSurface(surface, {
-  channel: <T>(name: string) => publisherChannel<T>(publisher, name),
-  cells: {
-    ...surfaceApp.cells, // surface-app-specific: build identity (commit auto-resolved + async bootId)
-    serverStats: { store: statsStore }, // app-specific: live server stats
-  },
-  procedures: {
-    // surface-app-specific: the identity probe impl (one processId per process,
-    // minted by the library) at `surface.surfaceApp.info`. Restart the server →
-    // new id → status() flips to "restarted". Composed, not hand-written.
-    ...surfaceApp.procedures,
-  },
-});
-
-// Flow the late-arriving bootId axis through the SAME fragment: once the async
-// source settles, `connect` republishes the full value over the cell's channel
-// (deduped by the fragment's `equals`). The app never seeds-then-sets by hand.
-void surfaceApp.cells.buildInfo.connect(ctx.cells.buildInfo);
+);
 
 /** Broadcast a stats patch to every subscriber (snapshot + delta in one call). */
 function pushStats(patch: Partial<ServerStats>): void {
