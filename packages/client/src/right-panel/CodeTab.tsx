@@ -394,7 +394,6 @@ const CodeTab: Component<{
     if (view() === "browse") {
       const local = browseLocalStatus()?.files ?? [];
       const branch = browseBranchStatus()?.files ?? [];
-      if (local.length === 0 && branch.length === 0) return undefined;
       return mergeGitStatusEntries(local, branch);
     }
     const s = status();
