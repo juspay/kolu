@@ -47,6 +47,11 @@ export interface CategoryGroup {
 const toParents = (p: string | string[] | undefined): string[] =>
   p === undefined ? [] : Array.isArray(p) ? p : [p];
 
+// Pin the collation locale so the build is idempotent across machines — a bare
+// localeCompare() follows the host's LANG/LC_COLLATE, which would reorder the
+// index (and churn the committed dist) on a differently-configured box.
+const titleCmp = (a: string, b: string) => a.localeCompare(b, "en-US");
+
 /** Group notes into category sections, nesting `parents` edges *within* a
  *  category (same `kind`). A parent in a different category isn't a tree edge —
  *  it's surfaced as a `related` link instead, so the topical connection survives
@@ -79,7 +84,7 @@ export function buildCategoryGroups(
     node.related = parentIds
       .filter((pid) => noteById.get(pid)!.data.kind !== cat)
       .map((pid) => ({ id: pid, title: noteById.get(pid)!.data.title }))
-      .sort((a, b) => a.title.localeCompare(b.title));
+      .sort((a, b) => titleCmp(a.title, b.title));
     if (sameCat.length === 0) rootsFor(cat).push(node);
     else for (const pid of sameCat) nodes.get(pid)!.children.push(node);
   }
@@ -101,7 +106,7 @@ export function buildCategoryGroups(
   }
 
   const byTitle = (a: CatTreeNode, b: CatTreeNode) =>
-    a.note.data.title.localeCompare(b.note.data.title);
+    titleCmp(a.note.data.title, b.note.data.title);
   for (const node of nodes.values()) node.children.sort(byTitle);
 
   const groups: CategoryGroup[] = [];

@@ -12,9 +12,16 @@ const { note } = Astro.props;
 const { Content, headings } = await render(note);
 const d = note.data;
 
+// Date-only frontmatter (`2026-06-02`) parses to UTC midnight; format in UTC so a
+// build machine in a negative-offset timezone doesn't render the label a day early.
 const fmtDate = (date: Date) =>
   date
-    .toLocaleDateString("en-US", { year: "numeric", month: "short", day: "2-digit" })
+    .toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      timeZone: "UTC",
+    })
     .toUpperCase();
 ---
 
