@@ -9,7 +9,12 @@ argument-hint: "[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]"
 Automate the back-and-forth you'd otherwise courier by hand: **codex** (the
 reviewer) critiques the current change, a **Claude subagent** (the author)
 fixes what it agrees with and disputes what it doesn't, codex re-reviews, and so
-on — round after round, **until they reach consensus**. There is no round cap and
+on — round after round, **until they reach consensus**. codex reviews from a
+**warm session**: round 1 cold-starts the reviewer, and every later round
+*resumes that same codex session* (`codex exec resume`), so codex carries its own
+prior review and reasoning forward instead of reconstructing it from the diff +
+rebuttal each round — when Claude disputes a finding, codex argues from its
+original rationale. There is no round cap and
 no "deadlock" surrender: a debate that quits without agreement defeats the
 purpose, so the two sides keep arguing until one concedes. You stay out of the
 middle: each round lands as its own commit whose
@@ -168,6 +173,17 @@ the per-round commits sit on the local branch for the human to review):
   diffs and could be prompt-injected by file contents. The only writes to the
   tree come from the Claude author rounds. (codex auto-falls-back to its bundled
   bubblewrap when the system one is absent, so read-only works in containers.)
+  Resume rounds enforce the same read-only policy via `-c sandbox_mode=read-only`
+  (the `resume` subcommand has no `--sandbox` flag) — same kernel guard, set
+  through config instead of the flag.
+- **Warm reviewer session.** Round 1 cold-starts `codex exec`; the runner records
+  codex's session id (its `thread_id`, captured from the `--json` event stream)
+  under the scratch dir and every later round `codex exec resume`s it, so codex
+  retains its own prior review across rounds. The session id lives in the
+  gitignored per-worktree `.codex-debate/`, so parallel debates never resume each
+  other's sessions. If the id is ever missing (round-1 capture failed), a later
+  round transparently cold-starts with the full prompt + rebuttal — graceful
+  degradation, never a wedge.
 - **Commits, but never pushes or merges.** Each round is committed locally (unless
   `--no-commit`) so the PR history reads as the debate, but the skill never
   pushes or merges. Consensus means "both AIs agree on the committed code," not
@@ -188,7 +204,8 @@ the per-round commits sit on the local branch for the human to review):
 ## Files
 
 - `debate.workflow.js` — the Workflow script (the loop + consensus logic).
-- `scripts/codex-review.sh` — the canonical, deterministic `codex exec` invocation.
+- `scripts/codex-review.sh` — the canonical, deterministic `codex exec` invocation
+  (cold-starts round 1, `codex exec resume`s the warm session thereafter).
 - `scripts/codex-verdict.schema.json` — the JSON Schema codex's verdict is constrained to.
 
 These are generated from `.apm/skills/codex-debate/`; edit the source there and

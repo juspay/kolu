@@ -27,6 +27,11 @@
 #     headless loop.
 #   * Always emits a schema-valid verdict on stdout, even if codex errors — a
 #     synthesized error verdict (approved:false) so the loop never wedges.
+#   * WARM SESSION: round 1 cold-starts codex and records its session id under the
+#     scratch dir; every later round resumes that same session (`codex exec
+#     resume <id>`) so codex retains its OWN prior review + reasoning across rounds
+#     instead of reconstructing it from the diff + rebuttal each time. If the id
+#     was never captured, a later round cleanly falls back to a cold start.
 set -uo pipefail
 
 base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json>}"
@@ -78,9 +83,70 @@ $rebuttal
 "
 fi
 
-# Unquoted heredoc: only $base and $rebuttal_block expand. No backticks and no
-# other $/$(...) appear in the body, so there is nothing else to interpret.
-prompt="$(cat <<EOF
+# WARM SESSION. codex keeps its OWN review + reasoning across rounds by resuming
+# the same codex session instead of cold-starting `codex exec` each round. The
+# session id (codex's thread_id) is persisted in the scratch dir after round 1
+# and reused on every follow-up round, so when CLAUDE disputes a finding codex
+# re-engages with its original rationale rather than reconstructing it from the
+# diff + rebuttal alone.
+#
+#   * Round 1 (rebuttal_file == "-"): fresh `codex exec`; capture thread_id below.
+#   * Later rounds: `codex exec resume <id>` with just the follow-up (rebuttal +
+#     close-out), relying on codex's retained context.
+#   * Fallback: if no id was captured (round-1 capture failed), a later round
+#     cold-starts with the FULL prompt + rebuttal_block — same as before warm
+#     sessions existed — so a missing id degrades gracefully, never wedges.
+session_id_file="$(dirname "$out")/codex-session.id"
+resume_id=""
+if [ "$rebuttal_file" = "-" ]; then
+  # Round 1 of a fresh debate: start a NEW session and drop any session id left
+  # behind by a previous debate in this worktree, so we never resume a stale one.
+  rm -f "$session_id_file"
+elif [ -s "$session_id_file" ]; then
+  resume_id="$(cat "$session_id_file")"
+fi
+
+# Two prompts: a lean follow-up for the WARM (resume) path that leans on codex's
+# retained context, and the full review prompt for the COLD path (round 1, or the
+# fallback when no session id was captured). Unquoted heredocs: only $base,
+# $rebuttal, and $rebuttal_block expand; their expansions are inserted literally
+# (heredoc results aren't re-scanned), so special chars in $rebuttal stay inert.
+if [ -n "$resume_id" ]; then
+  prompt="$(cat <<EOF
+You are CODEX, continuing the SAME review session you started earlier — you still
+have your own previous review and reasoning in context. The author ("CLAUDE") has
+now responded to that review and changed the working tree.
+
+The tree changed since your last turn, so re-inspect the CURRENT state (READ-ONLY —
+do not modify, create, or delete anything, and run no git write command:
+add/commit/push/stash/checkout):
+
+    git diff $base       (committed + unstaged changes on this branch)
+    git status --short   (untracked/new files — read those too; they aren't in the diff)
+
+Ignore the debate's own scratch dir '.codex-debate/' if it appears.
+
+CLAUDE responded to your previous review as follows:
+$rebuttal
+
+CLOSE OUT the findings already on the table — do NOT re-scan the whole diff for new
+pre-existing issues you didn't raise before (that prevents the debate from ever
+converging). For each existing finding (reuse its stable id): verify CLAUDE's fix
+and mark it resolved, or address CLAUDE's dispute — concede (mark it resolved) or
+hold firm with specific technical reasoning in responseToRebuttal. Raise a NEW
+finding ONLY if CLAUDE's changes THIS round introduced it (a regression).
+
+Return your updated review in the JSON schema:
+  - findings: one entry per issue, each with severity and the stable id you used
+    before. status=resolved once addressed (CLAUDE fixed it, OR you accept CLAUDE's
+    reasoning); else open.
+  - approved: true ONLY when EVERY finding is resolved, at every severity.
+  - responseToRebuttal: address each of CLAUDE's disputes individually — concede or
+    hold firm with specific, technical reasoning. Leave no dispute unanswered.
+EOF
+)"
+else
+  prompt="$(cat <<EOF
 You are CODEX, a rigorous senior code reviewer. Review the changes in this branch
 and give your honest, thorough feedback — exactly as you would on a serious PR.
 You're in a debate with the author ("CLAUDE"), who will fix what they agree with
@@ -115,6 +181,34 @@ Return your review in the JSON schema:
     technical reasoning. Leave no dispute unanswered. Empty on round 1.
 EOF
 )"
+fi
+
+# One codex invocation: warm-resume when we have a session id (carries codex's own
+# prior review), else a cold start. `--json` is added so the run emits a
+# `thread.started` event carrying codex's thread_id, which we capture below to
+# resume next round; it does NOT change the verdict, which `--output-schema`/`-o`
+# still write to "$out". `resume` has no `--sandbox` flag, so read-only is enforced
+# there via `-c sandbox_mode` — the same kernel-enforced policy, set through config
+# instead of the flag.
+run_codex() {
+  if [ -n "$resume_id" ]; then
+    codex exec resume \
+      -c sandbox_mode="read-only" \
+      -c model_reasoning_effort="xhigh" \
+      --json \
+      --output-schema "$schema" \
+      -o "$out" \
+      "$resume_id" "$prompt"
+  else
+    codex exec \
+      --sandbox read-only \
+      -c model_reasoning_effort="xhigh" \
+      --json \
+      --output-schema "$schema" \
+      -o "$out" \
+      "$prompt"
+  fi
+}
 
 # model_reasoning_effort=xhigh is scoped to the debate here (via -c) rather than
 # relying on the user's global ~/.codex/config.toml — review is the one place we
@@ -151,12 +245,7 @@ while :; do
   # verdict's tail_log must reflect ALL attempts' diagnostics — surfacing the exact
   # transient failures this retry loop exists to weather — not just the final one.
   echo "=== attempt $n/$attempts ===" >>"$log"
-  if ! codex exec \
-        --sandbox read-only \
-        -c model_reasoning_effort="xhigh" \
-        --output-schema "$schema" \
-        -o "$out" \
-        "$prompt"</dev/null >>"$log" 2>&1; then
+  if ! run_codex </dev/null >>"$log" 2>&1; then
     echo "codex exec exited non-zero (attempt $n/$attempts; see $log)" >&2
   fi
   # Success the moment codex writes a verdict: the kernel sandbox + --output-schema
@@ -169,6 +258,18 @@ while :; do
   n=$(( n + 1 ))
   sleep "$wait_s"
 done
+
+if [ -s "$out" ]; then
+  # Persist codex's session id so NEXT round can resume this same warm session
+  # (carrying codex's own prior review + reasoning). The successful attempt's
+  # `thread.started` is the last one appended to the log; on a resume round it
+  # echoes the same id, so overwriting is a harmless refresh. Failure to capture
+  # an id just means next round cold-starts via the fallback above — not fatal.
+  sid="$(grep -o '"thread_id":"[^"]*"' "$log" | tail -1 | cut -d'"' -f4)"
+  if [ -n "$sid" ]; then
+    printf '%s\n' "$sid" >"$session_id_file"
+  fi
+fi
 
 if [ ! -s "$out" ]; then
   # codex produced no verdict — synthesize a schema-valid error verdict so the
