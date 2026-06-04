@@ -1,62 +1,35 @@
 ---
 title: "Announcing @kolu/surface: typed reactive state for SolidJS + oRPC"
-description: "A small framework that owns the snapshot+deltas wire protocol so your Solid client and oRPC server stop hand-rolling it. Five primitives, one declaration, contract derived end-to-end."
+description: "I'd written the same dozen lines of subscribe-reconcile-retry code so many times I stopped seeing them. @kolu/surface is what happened when I finally asked what I'd extract before accepting one more copy."
 pubDate: 2026-05-04
 author: "Sridhar Ratnakumar"
 ---
 
-[`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface) is a small framework for SolidJS clients backed by an oRPC streaming server. **Declare the reactive surface of your app once; the framework derives the typed contract, the server router, and the client hooks from a single spec.** It owns the wire protocol — snapshot+deltas, retry-on-reconnect, per-channel pub/sub — so your domain code stops referencing channel names, store keys, retry contexts, or oRPC procedure refs.
+For a few weeks I kept writing the same code. Not similar code. The same code. On the client: subscribe to a streaming RPC, lift the stream of values into something [Solid](https://www.solidjs.com/) can react to, fold each new value into a local store, and send the errors to a toast. On the server, the mirror image — yield the current value, then sit in a `for await` loop yielding the changes, and somewhere else, on every mutation, remember to publish the change so that loop has something to yield. I wrote it for the terminal list. Then for preferences. Then for git status. By the fifth time I could type it without thinking, **which is exactly the problem.**
 
-It was extracted from [Kolu](https://kolu.dev) and now ships as a workspace-private package alongside it. This post walks through why the framework exists, the five primitives it offers, the API for defining and implementing a surface, the runnable example, and how Kolu itself uses it.
+Because here's the thing I was slow to see: none of it was about [Kolu](https://kolu.dev). The schema changed each time. The name of the procedure changed. The pair of channel and payload type changed. And that was all that changed. The order of the frames — full snapshot first, then deltas — was always the same. The retry behavior was the same. The publish-then-subscribe symmetry was the same. The little branch in the store write, reconcile if it's an object and assign if it's a scalar, was the same. I was hand-copying the wiring of a house and changing nothing but which appliance I plugged in.
 
-## Why: electricity
+## Electricity
 
-In [_Righting Software_](https://www.amazon.com/Righting-Software-Method-Engineering-Architecture/dp/0136524036), Juval Löwy argues that infrastructure should feel like the **electricity** in a building: invisible, ubiquitous, plugged into via simple sockets. Domain code is the appliance you swap. The wiring stays put. **Volatility-based decomposition** is the discipline of deciding which is which. (The analogy is also developed in the [InformIT excerpt](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) of Chapter 2 if you want a free read.)
+Juval Löwy has a good way of putting this. In [_Righting Software_](https://www.amazon.com/Righting-Software-Method-Engineering-Architecture/dp/0136524036) he says infrastructure should be like the [electricity](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) in a building. You don't run a new wire every time you buy a toaster. The wiring is in the walls, you plug into a socket, and the toaster is the part you swap. His name for the discipline of sorting the wiring from the toaster is _volatility-based decomposition_, which is a mouthful, but the idea under it is plain. Find the parts that don't vary and bury them in the wall. My subscribe-reconcile-retry dance was wiring. I'd been stapling it to the outside of every wall in the house.
 
-Kolu's client had a dozen call sites doing the same thing: subscribe to an oRPC streaming RPC, lift the AsyncIterable into a Solid `Accessor`, reconcile new values into a local store, dispatch errors to a toast. Its server had the mirror image: hand-rolled `yield current; for await (ev of subscribeSystem(...)) yield ev` loops in every streaming handler, plus the parallel `publishSystem("X:changed", value)` write path threaded through every domain mutation.
+There's a test I've started using for whether something should be pulled out. Not "is this snippet clean?" That question has a bottomless number of yeses. The better question is: what would I be willing to extract as a utility before I'd accept one more per-call-site fix? When I asked it here the answer was everything. All of it. And when the answer is all of it, you're not looking at a snippet that needs tidying. You're looking at a snippet at the wrong _altitude_. **The framework is just the same code, moved up to where it stops repeating.**
 
-The pattern was obvious enough that I'd been writing it for weeks. It also turned out to have **no Kolu-specific decision in any of it.** The schema varied. The procedure name varied. The `(channel, payload type)` pair varied. Everything else — the snapshot-then-deltas frame ordering, the retry context, the publish-then-subscribe symmetry, the reconcile-vs-assign branch on the store write — was electricity.
+## Five shapes
 
-That's the bar for extraction: **what would I extract as utility before I'd accept any of these per-call-site fixes?** When the answer is "all of it," the question stops being _is this snippet clean?_ and becomes _is the snippet at the right altitude?_ The framework is the answer to the second question.
+So I pulled it out into a package, [`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface), and the question became how many kinds of thing it had to know about. The answer turned out to be five, and the five are worth naming, because each one bites you at runtime if you pretend it's one of the others.
 
-## The surface package
+A `Cell` is a single current value. What's the theme right now? One of them, you can read it, you can set it. A `Collection` is the same idea but keyed: what's the current value for each id? Many of them, you set any one by key. A `Stream` is read-only and derived from something the server doesn't own — git, the filesystem, the network. What's the live output for this input? You can read it. You can't set it. An `Event` has no current value at all. Has the thing happened yet? You don't render it; you handle it when it fires. And a `Procedure` is the boring one: run a side-effect on the server, get an answer back. A plain RPC, living in the same namespace as the rest.
 
-`@kolu/surface` exposes **five primitives**. Each captures a structurally distinct shape that bites at runtime if collapsed into a single primitive:
+You might reasonably ask why these aren't one primitive with some flags. I tried that first. It collapses badly. The distinction that finally convinced me is the one between a Cell and a Stream, and it's older than this framework — it comes from [reflex-frp](https://github.com/reflex-frp/reflex), where the shapes are called `Dynamic` and `Incremental` and `Event`. A Cell is an identity over time: the same logical thing, whose value evolves, like your preferences. You can set it because you own it. A Stream isn't a thing at all; it's a function being re-run. The list of files that changed in your repo isn't a value Kolu owns — git owns it, and Kolu is watching. You can't `set` that without quietly becoming the cache, and the moment you're the cache you've signed up to be wrong. So a Stream is read-only, and the type system won't let you forget. Each of the five carries an invariant like that. Collapse them and you move the invariant from something the compiler checks to something you have to remember. **And you will not remember.**
 
-| Primitive | The question it answers | Cardinality | Persistable | Mutable from client | Has current value |
-|-----------|-------------------------|-------------|-------------|---------------------|-------------------|
-| `Cell<T>` | "What's the current X?" | One singleton | Optional | Yes | Yes |
-| `Collection<K,T>` | "What's the current X for each key K?" | Many, keyed | Optional | Yes | Yes (per key) |
-| `Stream<I,T>` | "What's the live output for input I?" | One per input combo | Never | No (read-only) | Yes |
-| `Event<I,T>` | "Has X happened yet?" | Occurrences over time | Never | No (read-only) | **No** — handler-based |
-| `Procedure` | "Run this side-effect on the server" | Per call | n/a | Yes (RPC) | n/a |
+Anything that fits none of the five stays raw [oRPC](https://orpc.unnoq.com/). There's a one-line escape hatch, `streamCall(client.X.Y, input, opts)`, that threads the same retry context the rest of the framework uses, so dropping to the metal doesn't cost you the plumbing you actually wanted. A bidirectional binary stream isn't a Cell. Don't make it one.
 
-Cell, Collection, and Stream are *state* — there's a current value the consumer renders. Event is *occurrence* — a handler fires per yield, no current value to read. Procedure is *imperative* — a request/response RPC bound to the same surface namespace as the reactive primitives.
+## One spec, three places
 
-The vocabulary borrows from [reflex-frp](https://github.com/reflex-frp/reflex)'s `Dynamic` / `Incremental` / `Event` lattice, translated to an oRPC wire boundary. The structural difference between Cell and Stream comes from there directly: **Cells are identities over time** (same logical entity, value evolves; you can `set` one), while **Streams are functions being re-evaluated** (server-derived from external state — git, fs, network — that the framework doesn't own; you can't `set` one without becoming the cache).
+The whole thing is declared once and read from three places. You write a spec — the cells, collections, streams, events, and procedures, each with its [Zod](https://zod.dev/) schema. From that one spec the framework derives the typed contract, the server router, and the client hooks. There's no parallel list to keep in sync, which matters, because the parallel list is the thing that always drifts.
 
-Anything genuinely outside these shapes — bidirectional binary streams, custom retry plumbing — stays as raw oRPC, accessed via a one-line `streamCall(client.X.Y, input, opts)` escape hatch that threads the same retry context the hooks use.
-
-## The API
-
-A surface is declared in three places — common, server, client — each layer derived from the same spec.
-
-```
-common/  defineSurface({ cells, collections, streams, events, procedures })  ─┐
-                                  │                                           │ contract
-                                  ▼                                           │ derived
-server/  implementSurface(surface, { channel, cells, collections, … })  ◀────┘
-                                  │
-                                  ▼
-client/  surfaceClient(surface, { transport })
-                ├─ rpc            (raw oRPC client, retry-wired)
-                ├─ cells          (.use, .upsert, .patch)
-                ├─ collections    (.use, .upsert, .remove)
-                ├─ streams        (.use)
-                └─ events         (.use)
-```
-
-### Define (`common/surface.ts`)
+Here's the spec for a little notes app:
 
 ```ts
 import { defineSurface } from "@kolu/surface/define";
@@ -106,16 +79,11 @@ export const surface = defineSurface({
     },
   },
 });
-
-// `surface.contract` is a typed oRPC router built statically from the
-// spec — no parallel literal to maintain. Use it on both sides:
-//   server: const t = implement(surface.contract);
-//   client: websocketLink<typeof surface.contract>(ws);
 ```
 
-A single mapped helper `SurfaceTypes<typeof surface.spec>` lifts the runtime types out of the spec, so consumers reach for `SF["cells"]["prefs"]["Value"]` instead of maintaining a parallel set of `z.infer` aliases. The spec is the single source of truth for schemas, defaults, and types.
+There's no second copy of the types. `surface.contract` is a real oRPC router built from the spec at compile time, and a mapped helper lifts the runtime types straight out, so on both sides you reach into `SF["cells"]["prefs"]["Value"]` instead of maintaining your own `z.infer` aliases. The spec is the only source of truth for the schemas, the defaults, and the types. **One place.**
 
-### Implement (`server/surface.ts`)
+The server side fills the spec in — how to read all the notes, how to upsert one, how to watch for changes:
 
 ```ts
 import {
@@ -166,19 +134,13 @@ export const { router, ctx } = implementSurface(surface, {
     },
   },
 });
-
-// Spread `router` into a host `t.router({...})` alongside any hand-written
-// raw-oRPC blocks; import `ctx` from domain modules for typed mutations:
-//   ctx.cells.prefs.set(next)
-//   ctx.collections.notes.upsert(id, value)
-//   ctx.events.autosave.publish(noteId, payload)
 ```
 
-`implementSurface` returns `{ router, ctx }`. The `ctx` is the typed mutation surface domain code uses to write through the framework — every mutation flows through one apply+publish chain, so there's no parallel `store.set + bus.publish` path that can drift.
+`implementSurface` hands back `{ router, ctx }`. The `ctx` is the part your domain code writes through — `ctx.cells.prefs.set(next)`, `ctx.collections.notes.upsert(id, value)`. Every mutation goes through one apply-then-publish chain. There's no second path: no place where someone sets the store but forgets to publish, or publishes a value that never made it into the store. That second path was the source of half my reconnect bugs. **Now it doesn't exist.**
 
-For Streams, the framework absorbs two common shapes. The poll-on-event form (above) is for state the server doesn't own — files, git refs, anything that fires "something changed" without telling you what. Provide `read` + `install` + `isEqual` and the framework handles snapshot-then-deltas, equality-suppression, and reconnect. Or provide a raw `source: (input, signal) => AsyncIterable<T>` for cases that don't fit poll-on-event.
+Streams come in two shapes and the framework absorbs both. Most of the time you're watching something you don't own — a file, a git ref — and all you get is a "something changed" nudge with no payload. For that you hand over three functions: how to read the current value, how to install a listener, and how to tell whether two values are equal. The framework does the rest, snapshot then deltas, suppressing the no-op changes, re-reading on reconnect. When that shape doesn't fit, you give it a raw `source` that yields, and it gets out of your way.
 
-### Consume (`client/wire.ts`)
+On the client, each primitive is pre-bound to its wire identity, so the call site never mentions it:
 
 ```ts
 import { surfaceClient } from "@kolu/surface/solid";
@@ -217,76 +179,15 @@ app.events.autosave.use(
 const note = await app.rpc.surface.notes.create({ title: "Untitled" });
 ```
 
-The bound `.use()` shape is the headline ergonomic win. Compared to passing procedure refs at every call site, the surface client pre-binds each primitive to its oRPC entry, drops the wire-identity args, and threads `STREAM_RETRY` context internally. The hooks **own the snapshot+deltas reconcile path**, the per-key reactive lifecycle (via `mapArray`), the local-authority optimistic merge (for cells with `authority: "local"`), and the resubscribe-on-reconnect cleanup.
+The bound `.use()` is the part I'm happiest with. Instead of passing a procedure reference at every call site, the client has already wired each primitive to its oRPC entry, dropped the identity arguments, and threaded the retry context inside. The hooks own the snapshot-and-deltas reconcile, the per-key reactive lifecycle, the optimistic local merge for the cells you mark `authority: "local"`, and the resubscribe-on-reconnect cleanup. You ask for `app.cells.prefs.use(...)` and you get a value that's still correct after a dropped connection, without your having typed the word "reconnect."
 
-## What the framework absorbs
+## What it deleted
 
-So you don't write any of these per call site:
+The easiest way to say what the framework does is to count what it removed. About 800 lines of plumbing across the client and server. But the number that tells the story better is the set of things that now appear zero times in Kolu's code. Zero hand-written `yield current; for await (…) yield ev` loops in the router. Zero `publishSystem("X:changed", value)` calls — every publish goes through a typed channel whose name is derived from the key, so nobody writes the string `"X:changed"` and nobody typos it. Zero hand-threaded retry contexts in client code. Zero `pollOnEvent` wrappers. Zero `AbortController` plumbing in the providers.
 
-- **Snapshot+deltas wire protocol** — every server handler yields a fresh full snapshot first, then deltas; the streaming retry plugin re-invokes the source on every reconnect, so the new iterator's first yield replaces stale client state. Get this wrong and reconnects silently lose state.
-- **Retry context** — `ClientRetryPlugin` parameterized at both `RPCLink` and `ContractRouterClient` so per-call `{ context }` options type-check; the hooks thread `STREAM_RETRY` (infinite retry on transport, propagate `ORPCError`) automatically.
-- **Per-key channels** — `Channel<T>.publish(v)` / `.subscribe(signal)` / `.consume({ onEvent, onError })`. Channel names derive from the surface key; domain code never types `"X:changed"`.
-- **Reconcile vs assign** — primitives get plain assignment; objects/arrays go through Solid's `reconcile` for fine-grained reactivity.
-- **Per-collection lifecycle** — `useCollection` runs `mapArray` over the live key set; each key gets its own reactive owner, automatically disposed when the key leaves.
-- **Local authority's "ignore subsequent echoes"** — `useCell` with `authority: "local"` reconciles the first server yield, then ignores the subscription so an unrelated event piggybacking on the same channel doesn't stomp a just-made client write whose RPC hasn't round-tripped yet.
+And the number I care about most: **adding a new cell to Kolu now touches two files.** The descriptor in one, the wiring in the other. The client gets it for free.
 
-## The runnable example
-
-`packages/surface/example/` is a minimal in-memory notes app demonstrating all five primitives end-to-end. ~500 LOC across server + client + common; single-file `App.tsx` with every hook visible; SolidJS + Tailwind v4. Self-contained — no Kolu-internal imports, just `@kolu/surface/{*}` plus the standard oRPC + Hono + Vite stack.
-
-```sh
-just surface-example
-```
-
-Enters the Nix devshell and starts the Hono server (port 7700) plus Vite dev server (port 5174) in parallel.
-
-| Primitive | What the example demonstrates |
-|---|---|
-| `Cell<EditorPrefs>` | Editor preferences (font size, theme). `authority: "local"` for instant-UI mutation; `applyPatch` defaulted from the spec's `patch` so server and client merge with the same function. |
-| `Collection<NoteId, Note>` | Notes keyed by id. Sidebar list with per-key reactive lifecycle. `notes.upsert` / `notes.delete` are framework-bound; `notes.create` is an imperative procedure that mints the id server-side. |
-| `Stream<{query}, SearchResult>` | Full-text search, one-shot per query. `useStream` re-subscribes on input change; the server runs the source once and closes. Demonstrates the raw `source` shape. |
-| `Event<NoteId, AutosaveEvent>` | "Saved" flash beside the active note title. Per-id channel; the autosave debounce in the server publishes to it; the client's `useEvent` handler triggers the flash. |
-| `Procedure` | `notes.create` — the imperative escape hatch for verbs the primitives can't model (id minting, cross-primitive coordination). |
-
-The example existed first as a tractable substrate for iterating on the framework itself. **The discipline is that any framework change has to land on the example before it touches Kolu.** That keeps the API decisions visible end-to-end at 500 LOC instead of buried in Kolu's hundred-file consumer codebase.
-
-## How Kolu uses it
-
-Kolu has 10 typed primitives plus a handful of imperative procedures and raw streaming shapes. Every server-pushed reactive surface in Kolu maps to one entry in `packages/common/src/surface.ts`.
-
-### Cells
-
-| Descriptor | Backs | Authority | Persistence |
-|---|---|---|---|
-| `preferences` | User preferences (theme, scrollLock, sound, right-panel state, …) | `local` | `confStore("preferences")` |
-| `terminalList` | Live terminal list — drives the pill tree, canvas tile set, mobile swipe order | `server` | `inMemoryStore` (registry is canonical) |
-| `activityFeed` | Recent repos cd'd into + recent agent CLIs spotted via OSC 633;E | `server` | `confStore("activityFeed")` |
-| `session` | Last-persisted snapshot of terminals + active id (drives session restore) | `server` | `confStore("session")` |
-
-### Collections
-
-| Descriptor | Backs |
-|---|---|
-| `terminalMetadata` | Per-terminal metadata (cwd, git, PR, agent state, foreground process) — each terminal's tile chrome and inspector reads its own key |
-
-### Streams
-
-| Descriptor | Backs |
-|---|---|
-| `gitStatus` | Code-view's Local/Branch mode file list (changed files) |
-| `gitDiff` | Code-view's unified diff for the selected file |
-| `fsListAll` | Code-view's All-mode tree (full repo path list) |
-| `fsReadFile` | Code-view's All-mode body (file content) |
-
-### Events
-
-| Descriptor | Backs |
-|---|---|
-| `terminalExit` | Per-terminal one-shot exit notification — drives the exit toast and the active-terminal auto-switch |
-
-### Raw oRPC (everything else)
-
-Shapes that don't fit a primitive stay imperative — terminal lifecycle (`create`/`kill`/`resize`/`sendInput`/...), git mutations (`worktreeCreate`/`worktreeRemove`), screen queries, and the bidirectional binary `terminal.attach` stream. They live in a hand-written `oc.router({...})` alongside `surface.contract`. The composition is one spread:
+In Kolu itself there are four cells — user preferences, the live terminal list, an activity feed of recent repos and agents, and the session snapshot that drives restore. One collection, for the per-terminal metadata each tile reads off its own key. Four streams behind the code view: the changed-file list, the diff for the selected file, the full repo tree, and the contents of one file. One event, for a terminal exiting, which fires the exit toast and the auto-switch. Everything that doesn't fit a shape stays imperative — terminal create, kill, resize, the git worktree mutations, the bidirectional binary attach stream — and lives in a hand-written router right next to the generated one. The two compose with a single spread:
 
 ```ts
 export const contract = oc.router({
@@ -295,39 +196,18 @@ export const contract = oc.router({
 });
 ```
 
-### What disappeared from Kolu
+## What it won't do
 
-The framework absorbed roughly 800 lines of plumbing across client and server:
+Now the part where I tell you what it can't do, which is usually more honest than the feature list. Kolu has one client per session, and the framework is built for exactly that. It doesn't carry the machinery you'd need for a hundred clients watching the same key — no refcounting, no query-cropping, none of the cross-network sharing that reflex-frp grows for that case. That machinery is real and it's good, and Kolu doesn't have the problem it solves, so paying for it would be plumbing with no payback. It also doesn't try to compose primitives into bigger primitives. Solid already has `createMemo` and `on` for that, and the framework's job ends at the wire. I kept wanting to make it cleverer and kept stopping, because every time I looked, **the clever version was solving a problem I didn't have.**
 
-- **Zero** call sites of `createSubscription` / `createReactiveSubscription` outside `@kolu/surface/solid`.
-- **Zero** hand-rolled `yield X; for await (ev of subscribeSystem_(...)) yield ev` loops in `router.ts`.
-- **Zero** `publishSystem("X:changed", value)` or `publishForTerminal(channel, id, v)` calls — every server-side publish flows through a typed `Channel<T>`.
-- **Zero** `import { stream }` or hand-threaded `STREAM_RETRY` in client code — the bound layer threads context internally.
-- **Zero** `pollOnEvent` wrappers per stream — declarative `{ read, install, isEqual }` synthesizes inside the framework.
-- **Zero** `AbortController + consumeChannel` plumbing in meta providers — `Channel.consume` owns the controller and returns the cleanup.
+There's a runnable example in the repo — a tiny in-memory notes app, about 500 lines, with all five primitives visible in a single `App.tsx`. `just surface-example` starts it. I built the example before I built any of the framework, and I keep one rule: a change has to land in the example before it touches Kolu. The example is 500 lines and Kolu is a hundred files, and you can see an API mistake in the first long before you'd find it in the second.
 
-Adding a new cell in Kolu now touches **two files**: the descriptor in `packages/common/src/surface.ts`, the wiring in `packages/server/src/surface.ts`. The client gets it for free via `app.cells.X.use(...)`.
+## Subtraction
 
-## What the framework deliberately doesn't do
+**The work from here is subtraction, not addition.** That sounds like a pose, so here's what's already gone. A consumer escape hatch called `mergeIntoStore`, deleted once the schema shape made it unnecessary. A per-stream `pollOnEvent` wrapper, folded into the three-function declaration. A `consumeChannel` helper, folded into the channel itself. Each one was a thing the framework was half-doing, and the fix in every case was to do it the rest of the way and delete the seam. There's a list of more: some type-oracle helpers that exist only to be `ReturnType`'d and might collapse; a generic parameter that's uglier than it should be because the type checker runs out of patience expanding two big types in one pass; a few schema field names I'd pick differently now and can still change cheaply, because there's exactly one consumer — and the day there are two, the names are frozen.
 
-Kolu is single-client per session. The framework doesn't carry plumbing it doesn't need:
+It's internal-only, by the way. `@kolu/surface` ships inside Kolu, not as its own package, and the API is still moving. Don't reach for it from outside yet.
 
-- **No `Behavior`-style pull-only sampling.** Reflex's `Behavior t a` is a function `t -> a` you sample without subscribing. In a Solid client we have closures and `createMemo`; nothing the framework ships needs to model "value at time t" as a separate concept.
-- **No cross-network query machinery.** Reflex's `Group q` / `crop` / `SelectedCount` story (used in Obelisk / Focus) pays off when 100 clients are watching the same key. Single-client kolu doesn't have that problem; refcounting + crop projections would be plumbing without payback.
-- **No monadic Dynamic composition.** Reflex composes `Dynamic`s into bigger `Dynamic`s monadically (`bind`, `joinDyn`, `holdDyn`). We expose Solid's primitives (`createMemo`, `on`, `derive`) for that — the framework's job stops at the wire boundary.
-- **No one-primitive-fits-all.** Cell/Collection/Stream/Event are split because the type-level distinctions encode domain invariants the type system enforces. A `Stream` is read-only and never persisted; an `Event` has no current value to render; `Cell.default` is one canonical seed shared across consumers. Collapsing those would move invariants from compile-time enforcement to runtime convention.
-
-## Where it goes from here
-
-> **Status: internal-use only.** `@kolu/surface` is workspace-private and shipped alongside Kolu, not as a standalone package. The API is still settling — the recent passes already deleted `mergeIntoStore` (consumer escape hatch absorbed into a flat-shape schema), absorbed `pollOnEvent` (per-stream wrapper became a declarative `{ read, install, isEqual }`), and folded `consumeChannel` into `Channel<T>.consume`. Each was a "thing the framework was half-providing"; expect more of the same. Don't reach for it from outside Kolu yet.
-
-The frame for ongoing work is **subtraction, not addition**. Each iteration tries to remove a concept the consumer needs to know about. The remaining axes:
-
-- **Further simplification.** The `build*` type-oracle helpers in `define.ts` (eight runtime-dead functions kept only for `ReturnType<typeof X>` inference) are still a pattern that could collapse if mapped types could derive from runtime entry-builders directly. The `surfaceClient` generic awkwardness (`Rpc` parameter defaulted because TS's union-resolution budget can't expand both `SurfaceContractFor<S>` and `ContractRouterClient<...>` in the same pass) is another smell that wants resolution. Schema suffix naming (`CellSpec.schema`, `CollectionSpec.keySchema`) survived from the first pass and is cheap to fix in-flight, expensive once a second consumer arrives.
-- **Schema-walking for discriminated-union reconciliation.** Solid's `setStore` deep-merge can't preserve DU variant invariants without a per-path `reconcile` call, which forces consumers to pass a `mergeIntoStore` escape hatch. The framework could walk the cell's Zod schema once at registration, find every `z.discriminatedUnion` subtree, and reconcile those automatically. Kolu's only DU-shaped storage was already flattened (the right-panel `tab` field is now `activeTab` + `codeMode`), so the walker doesn't earn its keep yet.
-- **Derived streams** (`{ from, compute }` over a graph dep) — designed and built once, then deleted because neither Kolu nor the example needed it. The shape is genuinely the right design for server-derived primitives; it just doesn't have a use case yet. A second consumer with a server-side derivation requirement would resurrect it.
-- **Implicit dep tracking via Solid server-side.** The most ambitious axis: run Solid's reactive runtime on the server too, so a stream's `compute` body declares its inputs by reading them — same `createMemo` semantics, no `from:` prelude. That collapses the framework's surface area further but adds a runtime dep both sides have to agree on.
-
-For now: Cell, Collection, Stream, Event, Procedure. Five shapes the framework type-system-enforces, derived from one spec, snapshot+deltas on the wire, retry-resilient. Kolu's domain code stops referencing channel names, store keys, retry contexts, or oRPC procedure refs. The framework's job is to keep shrinking the consumer's API surface, not to grow into a general-purpose library.
+Five shapes, then. Cell, Collection, Stream, Event, Procedure. One spec, derived three ways, snapshot-and-deltas on the wire, and a domain layer that no longer knows the name of a single channel. The job was never to grow a library. It was to get the wiring back into the walls — and then to keep finding the wires I'd left stapled to the outside.
 
 [`@kolu/surface` source](https://github.com/juspay/kolu/tree/master/packages/surface) · [the runnable example](https://github.com/juspay/kolu/tree/master/packages/surface/example) · [Kolu's surface declaration](https://github.com/juspay/kolu/blob/master/packages/common/src/surface.ts)

@@ -12,7 +12,18 @@ argument-hint: "<topic, or a draft to rewrite in PG's style>"
 
 # Write Like Paul Graham
 
-Use this when someone asks for an essay, article, or blog post "like Paul Graham" or "in PG's style." Write the piece in that voice, then revise out the AI tells using the checks below.
+Use this when someone asks for an essay, article, or blog post "like Paul Graham" or "in PG's style." First settle the inline-format house style (below), write the piece in that voice, then revise out the AI tells using the checks further down.
+
+## First, pick an inline-format
+
+PG's own prose uses almost no inline emphasis — but a blog post usually wants a few scan anchors, and how heavy to go is the reader's call, not yours. So before you write (or before a rewrite pass), ask the user with the **AskUserQuestion** tool which house style to apply. Offer these four, in this order, and attach a `preview` of the same short snippet rendered under each so they can compare:
+
+1. **Bold takeaway + italic terms** _(recommended default)_ — one bold punchline per section, the single line the eye should catch, plus `_italic_` on a coined or key term's _first_ mention only. About one bold per section. Stays mostly PG-plain.
+2. **Bold lead-ins (definition style)** — open key sentences and list items with a bold label, so concepts scan down the left edge. Most skimmable, least PG; reads like docs.
+3. **Italics only (PG-light)** — `_italic_` for term-introduction and contrast, no bold at all. Closest to PG's own habit.
+4. **Code spans + structure only** — no bold or italic. Scannability comes from `##` headers, `>` blockquotes, and `` `identifier` `` code spans. Purest PG, lowest skim-ability.
+
+If the user doesn't care, default to option 1. Whichever they pick, apply it consistently and keep it sparing: emphasis on every line is emphasis on none. Never bold a whole paragraph — bold at most one sentence, and make it the takeaway. Italicize a term only on its first use.
 
 ## The voice
 
@@ -129,6 +140,7 @@ An essay is something you write to figure something out, so build it as live rea
 - [ ] Is there at least one blunt or crude word landing against the plain backdrop?
 - [ ] Did I argue from named, first-hand evidence rather than "studies show"?
 - [ ] Did I state a real, falsifiable claim, or did I fence-sit?
+- [ ] Did I apply the agreed inline-format consistently — bold only the section takeaway, italics only on a term's first use, and nothing on every line?
 
 ## Calibration — real PG cadences
 

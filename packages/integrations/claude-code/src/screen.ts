@@ -18,15 +18,19 @@
  *  `schemas.ts`.
  *
  *  ## Signature — one framework-rendered marker (claude-code v2.1.162, captured live)
- *  `AskUserQuestion`'s select footer `↑/↓ to navigate` — framework chrome, not
- *  the model-supplied question/option text, so it survives option-label churn.
- *  Captured ONLY on this prompt; the look-alikes a user might have on screen at
- *  `waiting` all use a *different* footer, so none collide:
+ *  `AskUserQuestion`'s footer, anchored on its trailing `… to navigate · Esc to
+ *  cancel` — framework chrome, not the model-supplied question/option text, so it
+ *  survives option-label churn. Keying on the trailing structure (not the nav
+ *  glyphs) covers both prompt shapes: a single-select renders `↑/↓ to navigate`,
+ *  a multi-select (tabbed form) renders `Tab/Arrow keys to navigate`. The
+ *  look-alikes a user might have on screen at `waiting`/`thinking` all end
+ *  differently, so none collide:
  *   - Claude's own `/fork` agent list → `↑/↓ to select · Enter to view` — "to
  *     select", NOT "to navigate";
- *   - `/model` picker → "Enter to set as default · s to use this session only";
+ *   - `/model` picker → "… s to use this session only · Esc to cancel" — ends in
+ *     "Esc to cancel" but not via "to navigate";
  *   - folder-trust prompt → "Enter to confirm · Esc to cancel";
- *   - slash / `@` menus → no arrow footer at all.
+ *   - slash / `@` menus → no footer of this shape at all.
  *
  *  Deliberately a *single* marker. `ExitPlanMode` is NOT detected in this cut —
  *  its dialog has no arrow footer (`Ready to code?` + `shift+tab to approve…`),
@@ -52,12 +56,18 @@ import type { ClaudeCodeInfo } from "./schemas.ts";
  *  prompt-like words. */
 export const TAIL_REGION_LINES = 40;
 
-/** The one awaiting-user marker: `AskUserQuestion`'s select footer
- *  `↑/↓ to navigate` (whitespace around the slash kept flexible against minor VT
- *  spacing). See the file header for why this single marker, and why the
- *  look-alike footers (`↑/↓ to select` on Claude's `/fork` agent list, the
- *  `/model` and trust pickers) deliberately don't match. */
-const NAV_FOOTER_RE = /↑\s*\/\s*↓\s+to navigate/;
+/** The one awaiting-user marker: `AskUserQuestion`'s footer, anchored on its
+ *  trailing `… to navigate · Esc to cancel`. Keying on the trailing structure
+ *  rather than the nav-hint glyphs makes it cover both observed variants without
+ *  enumerating them — single-select renders `↑/↓ to navigate`, multi-select (a
+ *  tabbed form) renders `Tab/Arrow keys to navigate`. The `· Esc to cancel`
+ *  suffix is what keeps it from colliding with prose ("…arrow keys to navigate
+ *  the file tree") or the look-alike menus that also end in "Esc to cancel" but
+ *  not via "to navigate" (`/model` → "session only · Esc to cancel"; the trust
+ *  prompt → "Enter to confirm · Esc to cancel"; the `/fork` agent list →
+ *  "↑/↓ to select · Enter to view"). The `·` separator is optional so a VT that
+ *  drops the middot still matches. */
+const NAV_FOOTER_RE = /to navigate\s*·?\s*Esc to cancel/;
 
 /** The last block of rendered lines, trailing blank rows trimmed so the "tail"
  *  is the last *painted* content, not the empty rows below a short prompt. */
@@ -69,7 +79,7 @@ function tailRegion(screenText: string): string[] {
 }
 
 /** Whether a Claude `AskUserQuestion` prompt is painted on the rendered screen —
- *  its `↑/↓ to navigate` select footer present in the screen tail. */
+ *  its `… to navigate · Esc to cancel` footer present in the screen tail. */
 export function screenHasClaudePrompt(screenText: string): boolean {
   return NAV_FOOTER_RE.test(tailRegion(screenText).join("\n"));
 }

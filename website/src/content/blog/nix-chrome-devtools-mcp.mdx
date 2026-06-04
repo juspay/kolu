@@ -1,5 +1,5 @@
 ---
-title: "Give your coding agent a browser, on Nix"
+title: "Eyes for the Agent"
 description: "A practical setup guide: install Nix, add one dep to apm.yml, your AI agent (Claude Code / Codex / OpenCode) gets DOM inspection, screenshots, network traces, and heap snapshots."
 pubDate: 2026-05-12
 author: "Sridhar Ratnakumar"
@@ -7,13 +7,11 @@ author: "Sridhar Ratnakumar"
 
 import Tip from "../../components/Tip.astro";
 
-_Install Nix, add one APM dep, and your agent — Claude Code, Codex, or OpenCode — gets a real Chrome to drive: DOM inspection, screenshots, network traces, heap snapshots._
+If you've ever wanted your coding agent to actually see your app running — take a screenshot, dump the DOM, read the network panel, snapshot the JS heap — Google ships an MCP server that does exactly that: [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp). It speaks the [Model Context Protocol](https://modelcontextprotocol.io/), so any agent that speaks it can plug in.
 
-If you've ever wanted your AI coding agent to actually **see your app running** — take a screenshot, dump the DOM, check the network panel, snapshot the JS heap — Google ships an MCP server for exactly that: [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp). It speaks the [Model Context Protocol](https://modelcontextprotocol.io/), so any compliant agent harness can plug into it.
+Wiring it into a project used to be a chore. You needed a Chrome binary, a launcher script, and a separate config block for each runtime — one for Claude Code, another for Codex, another for OpenCode. This guide skips all of that by leaning on two tools you may not be using together yet: Nix and APM.
 
-Wiring it into your project used to be irritating — you needed a Chrome binary, a launcher script, and a per-runtime config block (one for Claude Code, another for Codex, another for OpenCode). This guide gets you to a working setup by leaning on two tools you may not yet be using together: **Nix** and **APM**.
-
-> One-sentence pitches: **[Nix](https://nixos.org/)** gives you reproducible binaries — Chrome, Node, anything — without manual installers. **[APM](https://microsoft.github.io/apm/)** is the package manager for AI agent context: like `npm`, but the things you install are skills and MCP servers rather than libraries.
+> One-sentence pitches: **[Nix](https://nixos.org/)** gives you reproducible binaries — Chrome, Node, anything — with no manual installers. **[APM](https://microsoft.github.io/apm/)** is a package manager for AI-agent context: like `npm`, except the things you install are skills and MCP servers instead of libraries.
 
 ## Step 1 — Install Nix
 
@@ -31,7 +29,7 @@ experimental-features = nix-command flakes
 
 ## Step 2 — Drop one dep into apm.yml
 
-APM is a Python tool. You don't need to install it — Nix can pull [`uvx`](https://docs.astral.sh/uv/) on demand, and `uvx` in turn fetches APM from its Python package on first run:
+APM is a Python tool, but you don't have to install it. Nix can pull [`uvx`](https://docs.astral.sh/uv/) on demand, and `uvx` in turn fetches APM from its Python package on first run:
 
 ```sh
 nix shell nixpkgs#uv -c uvx --from apm-cli apm --version
@@ -58,7 +56,7 @@ Keep only the `targets` you actually use. Then install:
 nix shell nixpkgs#uv -c uvx --from apm-cli apm install --target claude,codex,opencode
 ```
 
-APM clones [`juspay/nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp), deploys its launcher into `.agents/skills/nix-chrome-devtools-mcp/bin/serve`, and writes a per-runtime MCP config for each target — `.mcp.json` for Claude Code, `.codex/config.toml` for Codex, `opencode.json` for OpenCode.
+APM clones [`juspay/nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp), drops its launcher into `.agents/skills/nix-chrome-devtools-mcp/bin/serve`, and writes a per-runtime MCP config for each target — `.mcp.json` for Claude Code, `.codex/config.toml` for Codex, `opencode.json` for OpenCode.
 
 ## Step 3 — Verify
 
@@ -80,7 +78,7 @@ Launch your agent and ask:
 
 > Open https://kolu.dev in a fresh page and tell me what's in the H1.
 
-Under the hood the agent calls `mcp__chrome-devtools__new_page`, then `mcp__chrome-devtools__take_snapshot`, and inspects the DOM tree. A non-exhaustive shopping list of what's now available:
+Under the hood the agent calls `mcp__chrome-devtools__new_page`, then `mcp__chrome-devtools__take_snapshot`, and reads the DOM tree. A partial list of what you now have:
 
 - `new_page`, `navigate_page`, `close_page` — page lifecycle
 - `take_snapshot`, `take_screenshot` — DOM + image capture
@@ -94,19 +92,21 @@ Under the hood the agent calls `mcp__chrome-devtools__new_page`, then `mcp__chro
 
 ## What we actually use it for
 
-The first use is **iteration**. The agent opens the page it just changed, takes a snapshot or screenshot, sees whether the output matches what it intended, and adjusts before moving on. It pulls console errors with `list_console_messages`, runs assertions through `evaluate_script`, checks network behavior with `list_network_requests` — the same DevTools panels a human would reach for, the agent reaches for too, on its own work. The feedback loop closes inside the agent's own turn.
+Two things, mostly.
 
-The second use is **PR evidence**. Our [`/do`](https://agency.srid.ca/) workflow (from [`srid/agency`](https://github.com/srid/agency)) ends with an `evidence` step: spawn a dev server on a free port, point `chrome-devtools-mcp` at the relevant routes, run `take_screenshot`, upload to a long-lived [`evidence-assets`](https://github.com/juspay/kolu/releases/tag/evidence-assets) GitHub release, embed the URLs in the PR comment. The reviewer sees exactly what changed without checking out the branch.
+The first is iteration. The agent opens the page it just changed, takes a snapshot or a screenshot, and checks whether the output matches what it meant to do — before it moves on. It pulls console errors with `list_console_messages`, runs assertions through `evaluate_script`, watches the network with `list_network_requests`. The same panels a human would open, the agent opens on its own work. **The loop closes inside the agent's own turn** — which is the whole point. An agent that can't see what it built is working blind.
 
-Here's what an evidence comment looks like, lifted from [Kolu PR #835](https://github.com/juspay/kolu/pull/835#issuecomment-4393613826):
+The second is PR evidence. Our [`/do`](https://agency.srid.ca/) workflow (from [`srid/agency`](https://github.com/srid/agency)) ends with an `evidence` step: spin up a dev server on a free port, point `chrome-devtools-mcp` at the routes that changed, run `take_screenshot`, upload to a long-lived [`evidence-assets`](https://github.com/juspay/kolu/releases/tag/evidence-assets) GitHub release, and drop the URLs into the PR comment. **The reviewer sees exactly what changed without checking out the branch.**
+
+Here's what one of those evidence comments looks like, lifted from [Kolu PR #835](https://github.com/juspay/kolu/pull/835#issuecomment-4393613826):
 
 ![Worktree-naming leaf with prefilled `peaked-rank` suggestion](/blog/kolu-evidence-worktree-name-leaf.png)
 
-(See also [#866](https://github.com/juspay/kolu/pull/866#issuecomment-4430710269) for a cross-palette icon check, and [#867](https://github.com/juspay/kolu/pull/867#issuecomment-4432265073) for a three-step diagnostic table comparing `master` vs the fix.)
+(See also [#866](https://github.com/juspay/kolu/pull/866#issuecomment-4430710269) for a cross-palette icon check, and [#867](https://github.com/juspay/kolu/pull/867#issuecomment-4432265073) for a three-step diagnostic table comparing `master` against the fix.)
 
 ## Overrides (optional)
 
-The launcher honours two env vars, set before you launch the agent:
+The launcher honors two env vars, set before you launch the agent:
 
 | Var | Default | Effect |
 |---|---|---|
@@ -115,7 +115,7 @@ The launcher honours two env vars, set before you launch the agent:
 
 ## What's actually happening
 
-`bin/serve` is twenty lines of bash. It runs `nix build nixpkgs#playwright-driver.browsers` to materialise Chrome-for-Testing (the same Chrome binary the Playwright project bundles), then `nix shell nixpkgs#nodejs --command npx -y chrome-devtools-mcp@latest --executable-path=$chrome` to start the server. All inputs are resolved through Nix; nothing gets dropped into your project tree as a side-effect.
+`bin/serve` is twenty lines of bash. It runs `nix build nixpkgs#playwright-driver.browsers` to materialise Chrome-for-Testing — the same Chrome binary the Playwright project bundles — then `nix shell nixpkgs#nodejs --command npx -y chrome-devtools-mcp@latest --executable-path=$chrome` to start the server. Every input is resolved through Nix, and nothing gets dropped into your project tree as a side-effect.
 
 <Tip title="Provenance">
   This package was extracted from [Kolu](https://kolu.dev)'s own `/perf-diagnose` skill — see [the WebGL-leak debugging post](/blog/xtermjs-perf/) for what we use it for. After iterating on the shape inside Kolu, we lifted it into its own repo under Apache 2.0 ([juspay/nix-chrome-devtools-mcp#1](https://github.com/juspay/nix-chrome-devtools-mcp/pull/1)) so any Nix-using AI-agent project can drop it in.

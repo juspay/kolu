@@ -30,6 +30,29 @@ Which database do you prefer?
 
 Enter to select · ↑/↓ to navigate · Esc to cancel`;
 
+/** AskUserQuestion — the multi-select (tabbed form) variant, captured live. Its
+ *  nav hint is `Tab/Arrow keys to navigate`, not `↑/↓ to navigate`, so a marker
+ *  keyed on the arrow glyphs alone would miss it; the trailing
+ *  `… to navigate · Esc to cancel` is what both shapes share. */
+const ASK_USER_QUESTION_MULTISELECT = `←  □ xterm title   □ Nix title   □ Nix depth   ✔ Submit  →
+
+Title for the xterm.js memory-leak post? It's a war story: I optimized the
+Chrome heap-count proxy; the real 220MB leak was in native ArrayBuffers.
+
+❯ 1. Measuring the Wrong Thing
+     Leads with the actual lesson — the proxy metric lied. Plain PG-ish.
+  2. Keep: The leak that wasn't in any Context
+     Current title. Already PG-ish — a plain, slightly mysterious phrase.
+  3. Off by Three Orders of Magnitude
+     Uses the concrete number (PG likes a surprising figure).
+  4. The Proxy Lies
+     Short and punchy; names the villain directly.
+  5. Type something.
+
+  6. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel`;
+
 /** Adversarial NEGATIVE — Claude's own `/fork` background-agent list (captured
  *  live from a real session). Its footer is `↑/↓ to select` — "to select", NOT
  *  "to navigate" — so the marker must NOT fire while a user browses it. This is
@@ -86,8 +109,12 @@ const PLAIN_ASSISTANT_TEXT = `● The function returns null when the file is
   missing, so the caller treats it as "retry".`;
 
 describe("screenHasClaudePrompt — AskUserQuestion", () => {
-  it("detects the live '↑/↓ to navigate' select footer", () => {
+  it("detects the single-select '↑/↓ to navigate' footer", () => {
     expect(screenHasClaudePrompt(ASK_USER_QUESTION)).toBe(true);
+  });
+
+  it("detects the multi-select 'Tab/Arrow keys to navigate' footer", () => {
+    expect(screenHasClaudePrompt(ASK_USER_QUESTION_MULTISELECT)).toBe(true);
   });
 });
 
