@@ -54,6 +54,7 @@ import ScrollToBottom from "./ScrollToBottom";
 import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
+import { isTerminalQueryResponse } from "./terminalResponseFilter";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
@@ -735,14 +736,10 @@ const Terminal: Component<{
 
           // Filter terminal query responses from onData before sending to PTY.
           // The server's headless xterm already answers these; duplicates arriving
-          // late over the network get printed as visible garbage.
-          const csiResponse = /\x1b\[[?>=]?[\d;]*[cnRyt]/; // DA1/DA2/DSR/CPR/DECRPM/window-reports
+          // late over the network get printed as visible garbage. See
+          // terminalResponseFilter.ts for the exact response classes suppressed.
           term.onData((data: string) => {
-            if (
-              csiResponse.test(data) ||
-              data.startsWith("\x1b]") || // OSC responses
-              (data.startsWith("\x1bP") && data.endsWith("\x1b\\")) // DCS (XTVERSION)
-            ) return;
+            if (isTerminalQueryResponse(data)) return;
             // Fold any sticky Ctrl/Alt armed on the mobile key bar into this
             // keystroke (no-op on desktop, where nothing is ever armed).
             void client.terminal.sendInput({
