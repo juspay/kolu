@@ -823,7 +823,7 @@ ${rounds}`;
 
 function lensComment(t) {
   if (!t || t.status === "track-error")
-    return `## ⚖️ Lowy ⇄ Hickey lens debate\n\n**Track error:** ${esc(t?.error) || "did not run"}.`;
+    return `## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)\n\n**Track error:** ${esc(t?.error) || "did not run"}.`;
   const appliedFor = (id) => (t.applied || []).find((x) => x.id === id)?.commit;
   const rows = (t.settled || [])
     .map(
@@ -837,7 +837,7 @@ function lensComment(t) {
         .map((u) => `- ${esc(u.title)} (${esc(u.location)})`)
         .join("\n")
     : "";
-  return `## ⚖️ Lowy ⇄ Hickey lens debate
+  return `## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)
 
 **Outcome:** \`${t.status}\` after ${t.rounds || 0} round(s). Independent review: ${
     Object.entries(t.reviews || {})
@@ -852,14 +852,14 @@ ${rows || "| — | — | — | — | — |"}${un}`;
 
 function policeComment(t) {
   if (!t || t.status === "track-error")
-    return `## 👮 Code-police\n\n**Track error:** ${esc(t?.error) || "did not run"}.`;
+    return `## [👮 Code-police](https://agency.srid.ca/)\n\n**Track error:** ${esc(t?.error) || "did not run"}.`;
   const rows = (t.applied || [])
     .map(
       (x) =>
         `| ${esc(x.severity)} | ${esc(x.title)} | ${esc((x.files || []).join(", "))} | ${sha9(x.commit)} |`,
     )
     .join("\n");
-  return `## 👮 Code-police
+  return `## [👮 Code-police](https://agency.srid.ca/)
 
 **${t.findings || 0} finding(s)** across the ${(t.passes || []).join(" / ") || "code-police"} passes over ${t.rounds || 1} review sweep(s)${t.status === "clean" ? " — clean diff" : ""}.${t.status === "incomplete" ? ` ⚠️ **Did not reach a clean sweep within the round cap** — the worktree may still have open issues; re-run /code-police on it.` : ""}${preservedBanner(t)}
 
