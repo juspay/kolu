@@ -248,14 +248,15 @@ Both are SolidJS + Hono on `@hono/node-server`, both vendor `@kolu/*` via npins 
 ```tsx
 // drishti — surface: ONE merge of surface-app's fragment (cell + surfaceApp.info probe) + its own
 export const adminSurface = defineSurface(composeSurfaces(surfaceAppSurface, { collections: { hosts }, procedures: { hosts } }));
-// drishti — server: compose the impl + serve the shell (commit auto-resolved; /sw.js served by the lib)
-implementSurface(adminSurface, { channel, cells: { ...buildInfoServer() } });
+// drishti — server: ONE call composes the surface-app impls (buildInfo cell + surfaceApp.info probe)
+// into the app's own deps, runs implementSurface, and flows the cell's connect (commit auto-resolved; /sw.js served by the lib)
+const { router, ctx } = implementSurfaceApp(adminSurface, surfaceAppServer(), { channel, collections: { hosts }, procedures: { hosts } });
 installSurfaceApp(app, { clientDist, manifest: { name: "drishti", themeColor: "#0e7490", icons } });
 // drishti — vite: one plugin resolves + injects the commit
 plugins: [solid(), surfaceApp()]
-// drishti — client: provider + your own chrome from useSurfaceApp()
+// drishti — client: provider (this bundle's baked commit) + your own chrome from useSurfaceApp()
 retireServiceWorker();
-<SurfaceAppProvider controlPlane={adminClient}> <Header>drishti <DrishtiStatus/></Header> </SurfaceAppProvider>
+<SurfaceAppProvider controlPlane={adminClient} clientCommit={__SURFACE_APP_COMMIT__}> <Header>drishti <DrishtiStatus/></Header> </SurfaceAppProvider>
 ```
 
 **Zero hardcoded commits, defines, stores, or `/sw.js` routes** — every line composes a library fragment. kolu is identical but passes its pty-host source to `buildInfoServer` + the extended `defineBuildInfo`. To _see_ skew in dev, boot the server with `SURFACE_APP_COMMIT=<other>` — a real deploy-simulating override, not a sha baked into the client.
