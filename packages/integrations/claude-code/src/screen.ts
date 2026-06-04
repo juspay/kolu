@@ -133,9 +133,11 @@ export function isScreenPollable(info: ClaudeCodeInfo): boolean {
   return PROMOTABLE_STATES.has(info.state);
 }
 
-/** Merge the JSONL-derived `info` with a rendered-screen snapshot: lift
- *  `waiting → awaiting_user` when an `AskUserQuestion`/`ExitPlanMode` prompt is
- *  on screen, otherwise return `info` unchanged (same reference). Promote-only —
+/** Merge the JSONL-derived `info` with a rendered-screen snapshot: lift the
+ *  active pollable state (`thinking`/`tool_use`/`waiting`) → `awaiting_user` when
+ *  any `PROMPT_MARKERS` entry (the `AskUserQuestion` footer or a tool-permission
+ *  gate) is on screen, otherwise return `info` unchanged (same reference).
+ *  Promote-only —
  *  it never lowers a state; a genuine state change flows back through the JSONL
  *  watcher. The returned reference identity is the "did anything change?" signal
  *  the poller checks. */
