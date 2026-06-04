@@ -39,9 +39,14 @@ build: install
 # CI gate (wired in as ci::atlas-sync): full check (types + build) + fail if the
 # committed dist/ is stale — i.e. a note changed but the generated HTML wasn't
 # regenerated and committed. Depends on `check` so the gate catches type AND
-# MDX/build errors, not just staleness. The build is deterministic, so a clean
-# working tree means dist/ matches source. This is the enforcement behind the
-# .apm Atlas rule.
+# MDX/build errors, not just staleness. This is the enforcement behind the .apm
+# Atlas rule.
+#
+# It then enforces a second invariant: HTML generation must be IDEMPOTENT — a
+# pure function of source, not of the build host. The gate rebuilds under a
+# scrambled timezone + locale; if any output moves, the build leaked a
+# host-dependent value (a TZ-formatted date, a LANG-ordered sort, …) and would
+# render differently per machine — churning dist/ and producing spurious diffs.
 check-sync: check
     #!/usr/bin/env bash
     set -euo pipefail
@@ -51,5 +56,15 @@ check-sync: check
     else
       echo "✗ docs/atlas/dist is out of sync — run 'just atlas::build' and commit docs/atlas/dist/ in the same change."
       git --no-pager diff --stat -- docs/atlas/dist
+      exit 1
+    fi
+    echo "→ idempotency: rebuilding under a scrambled TZ + locale…"
+    ( cd "{{ here }}" && {{ nix_shell }} sh -c 'TZ=America/Los_Angeles LANG=de_DE.UTF-8 LC_ALL=de_DE.UTF-8 pnpm build' )
+    if git diff --quiet -- docs/atlas/dist; then
+      echo "✓ docs/atlas/dist is idempotent (host-independent)"
+    else
+      echo "✗ non-idempotent build — dist/ depends on the host TZ/locale. Make HTML generation a pure function of source (pin timeZone/locale)."
+      git --no-pager diff --stat -- docs/atlas/dist
+      git checkout -- docs/atlas/dist
       exit 1
     fi

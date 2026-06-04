@@ -12,9 +12,15 @@ const atlas = defineCollection({
   schema: z.object({
     title: z.string(),
     description: z.string(),
+    // The category that groups a note in the index. `bug` = a diagnosed defect +
+    // fix direction; `feature` = a proposed capability not yet built; `analysis`
+    // = an investigation into how the system behaves; `reference` = durable
+    // knowledge (designs, decisions, how-it-works). The index renders one section
+    // per category (see src/lib/indexTree.ts), so this axis is the primary
+    // skeleton — `parents` only nests notes *within* a category.
     kind: z
-      .enum(["plan", "design", "review", "retro", "research", "decision"])
-      .default("plan"),
+      .enum(["bug", "feature", "analysis", "reference"])
+      .default("reference"),
     maturity: z.enum(["seedling", "budding", "evergreen"]).default("budding"),
     status: z
       .enum(["proposed", "accepted", "implemented", "superseded"])
