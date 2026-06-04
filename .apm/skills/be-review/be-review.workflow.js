@@ -1118,18 +1118,20 @@ async function authorAndPost(slug, data, baseline, guidance) {
     // Don't swallow the throw: log which slug fell back and why, then honor the
     // never-blank contract by posting the deterministic baseline through the cheap
     // base64 poster so the track still gets its one comment (police police-r1).
-    try {
-      const url = await postComment(slug, baseline);
-      log(
-        `Report: ${slug} reporter agent failed (${String(e)}) — posted the deterministic baseline instead.`,
-      );
-      return url;
-    } catch (e2) {
-      log(
-        `Report: ${slug} reporter agent failed (${String(e)}) — baseline poster also failed (${String(e2)}) — comment will be skipped.`,
-      );
-      return "";
-    }
+    // Log only fires after postComment resolves so it reflects actual outcome.
+    return postComment(slug, baseline)
+      .then((url) => {
+        log(
+          `Report: ${slug} reporter agent failed (${String(e)}) — posted deterministic baseline instead.`,
+        );
+        return url;
+      })
+      .catch((e2) => {
+        log(
+          `Report: ${slug} reporter AND baseline poster both failed (${String(e2)}) — comment skipped.`,
+        );
+        return "";
+      });
   }
   // STAGE 1.5a — cheap early-out on the agent's SELF-REPORTED metadata. This is NOT
   // the real guarantee (the agent that wrote the file also computed these numbers, so
