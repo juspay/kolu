@@ -1332,7 +1332,7 @@ async function postComment(slug, body) {
 3. Post it to THIS branch's PR: \`cd ${repoPath} && gh pr comment --body-file ${file}\`. (\`gh\` resolves the PR from the current branch.) If there is NO open PR for the branch, do nothing and report "no PR".
 4. Return the comment URL gh prints, or "no PR".`;
   return agent(prompt, {
-    label: `comment:${slug}`,
+    label: `comment-baseline:${slug}`,
     phase: "Report",
     model: mechModel,
   });
