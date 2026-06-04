@@ -251,6 +251,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           {withComments(
             "prose",
             file,
+            // TruncatedBanner above owns the truncation chrome — keeps it
+            // outside the commentable host so users can't anchor a comment
+            // to UI copy the agent can't find in the file.
             <MarkdownRenderer
               markdown={file.source?.content ?? ""}
               resolveImageSrc={(src) =>
