@@ -1071,8 +1071,13 @@ Then(
   "the Code tab file {string} should have no git status",
   async function (this: KoluWorld, path: string) {
     // Browse lists every file, so a clean file's row is present but
-    // undecorated. Wait for the row, then assert the attribute is absent —
-    // guards against blanket-coloring unchanged files.
+    // undecorated. A point-in-time check is sound here: the gitStatus stream
+    // delivers one atomic snapshot, and callers assert the *positive*
+    // decorations (`… should have git status …`) before this step — so by the
+    // time we read a clean row, that same snapshot has already settled every
+    // row. Read through the Playwright locator (which pierces Pierre's open
+    // shadow root); a raw `document.querySelector` inside `waitForFunction`
+    // would not cross the shadow boundary — see SHADOW_DFS_FN_SRC below.
     const row = this.page.locator(fileRow(path));
     await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const value = await row.getAttribute("data-item-git-status");

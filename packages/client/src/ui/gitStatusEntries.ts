@@ -27,12 +27,15 @@ export function mergeGitStatusEntries(
   primary: { path: string; status: GitChangeStatus }[],
   fallback: { path: string; status: GitChangeStatus }[],
 ): GitStatusEntry[] {
-  const byPath = new Map<string, GitStatusEntry>();
-  for (const f of fallback) {
-    byPath.set(f.path, { path: f.path, status: GIT_STATUS_WORD[f.status] });
-  }
+  const toEntry = (f: {
+    path: string;
+    status: GitChangeStatus;
+  }): GitStatusEntry => ({ path: f.path, status: GIT_STATUS_WORD[f.status] });
+  const byPath = new Map<string, GitStatusEntry>(
+    fallback.map((f) => [f.path, toEntry(f)]),
+  );
   for (const f of primary) {
-    byPath.set(f.path, { path: f.path, status: GIT_STATUS_WORD[f.status] });
+    byPath.set(f.path, toEntry(f));
   }
   return [...byPath.values()];
 }
