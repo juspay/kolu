@@ -22,8 +22,8 @@ Backlog of post ideas mined from merged PRs. Voice: Paul Graham via the `/pg` sk
 - The pill that wouldn't stop spinning — inferring an opaque agent's state by
   screen-scraping + journals (#1160, #1166, #1157, #1124, #1119, #1115, #1109).
 - Leaf extractions, the electricity sweep continued — `@kolu/log`, `@kolu/html-escape`
-  (#1089; plan in `docs/plans/electricity.html`).
+  (#1089; plan in `docs/atlas/src/content/atlas/electricity.mdx`).
 - Video PR evidence — record a flow off the Cucumber/Playwright harness (#1033, #1099,
-  #1037; plan in `docs/plans/video-evidence.html`). Extends *Eyes for the Agent*.
+  #1037; plan in `docs/atlas/src/content/atlas/video-evidence.mdx`). Extends *Eyes for the Agent*.
 - Two more leaks not in the heap — Linux fd leak (#1127), exit-subscription leak (#1105).
 - The Code tab learns to render — Markdown GFM/HTML/highlight, Source⇄Rendered (#1155, #1093).
