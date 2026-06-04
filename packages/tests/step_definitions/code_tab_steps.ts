@@ -1054,6 +1054,36 @@ Then(
   },
 );
 
+/** Git-status decoration assertion. Pierre stamps `data-item-git-status`
+ *  (word form: `modified` / `added` / `untracked` / `renamed` / `deleted`)
+ *  on a decorated row — see `@pierre/trees` `render/rowAttributes`. The
+ *  selector pierces Pierre's shadow root like the other row selectors. */
+Then(
+  "the Code tab file {string} should have git status {string}",
+  async function (this: KoluWorld, path: string, status: string) {
+    await this.page
+      .locator(`${fileRow(path)}[data-item-git-status="${status}"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Code tab file {string} should have no git status",
+  async function (this: KoluWorld, path: string) {
+    // Browse lists every file, so a clean file's row is present but
+    // undecorated. Wait for the row, then assert the attribute is absent —
+    // guards against blanket-coloring unchanged files.
+    const row = this.page.locator(fileRow(path));
+    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const value = await row.getAttribute("data-item-git-status");
+    if (value !== null) {
+      throw new Error(
+        `Expected "${path}" to carry no git status, got "${value}"`,
+      );
+    }
+  },
+);
+
 /** Mode-agnostic content assertion. Diff modes render
  *  `[data-testid="pierre-diff-view"]`; browse mode renders
  *  `[data-testid="pierre-file-view"]`. Either is fine — the assertion

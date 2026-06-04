@@ -38,9 +38,10 @@ import { isMobile, isTouch } from "../useMobile";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
 import {
-  renderTreeContextMenu,
+  mergeGitStatusEntries,
   toGitStatusEntries,
-} from "../ui/pierreAdapters";
+} from "../ui/gitStatusEntries";
+import { renderTreeContextMenu } from "../ui/pierreAdapters";
 import { pierreIconConfig, pierreTreesStyle } from "../ui/pierreTheme";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { app } from "../wire";
@@ -181,6 +182,39 @@ const CodeTab: Component<{
     },
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
+    },
+  );
+
+  // Browse decorates the full-repo tree with git status too — overlaying local
+  // status (primary) on branch status (fallback) in `treeGitStatus` below.
+  // Both inert outside browse (input fn → null), so Local/Branch modes — which
+  // read decoration straight off the `status` stream — pay nothing for these.
+  const browseLocalStatus = app.streams.gitStatus.use(
+    () => {
+      const p = repoPath();
+      return p && view() === "browse"
+        ? { repoPath: p, mode: "local" as const }
+        : null;
+    },
+    {
+      onError: (err) => toast.error(`Git status stream: ${err.message}`),
+    },
+  );
+  // Best-effort branch layer: a repo with no `origin/<default>` errors with
+  // BASE_BRANCH_NOT_FOUND (review.ts `resolveBase`) — an expected, not broken,
+  // state in this passive overlay. Swallow it (no toast): the merge falls back
+  // to the always-available local layer. The explicit Branch *mode* still
+  // surfaces the same error via its own `status` subscription, where it's
+  // actionable ("run git fetch").
+  const browseBranchStatus = app.streams.gitStatus.use(
+    () => {
+      const p = repoPath();
+      return p && view() === "browse"
+        ? { repoPath: p, mode: "branch" as const }
+        : null;
+    },
+    {
+      onError: () => {},
     },
   );
 
@@ -358,6 +392,14 @@ const CodeTab: Component<{
   );
 
   const treeGitStatus = createMemo(() => {
+    // Browse overlays both layers (local primary, branch fallback). Outside
+    // browse, decoration comes straight off the active mode's `status` stream.
+    if (view() === "browse") {
+      const local = browseLocalStatus()?.files ?? [];
+      const branch = browseBranchStatus()?.files ?? [];
+      if (local.length === 0 && branch.length === 0) return undefined;
+      return mergeGitStatusEntries(local, branch);
+    }
     const s = status();
     return s ? toGitStatusEntries(s.files) : undefined;
   });

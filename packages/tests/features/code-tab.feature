@@ -394,6 +394,26 @@ Feature: Code tab (review + browse)
     Then the file content should contain "prefix-"
     And the file content should wrap long lines
 
+  # ── Browse mode: git-status decoration ──
+  # "All files" overlays local status (primary) on branch status (fallback),
+  # so a browsed file shows whether it's changed — the same signal Local and
+  # Branch modes give, now without leaving the whole-repo view. Pierre stamps
+  # `data-item-git-status="<word>"` on a decorated row; a clean committed file
+  # carries no such attribute. (This repo has no `origin/<default>`, so the
+  # branch layer resolves to nothing and the local layer alone decorates —
+  # exercising the best-effort fallback without an error toast.)
+  Scenario: Browse mode decorates changed files with git status
+    When I run "rm -rf /tmp/kolu-browse-gitstatus && git init /tmp/kolu-browse-gitstatus && cd /tmp/kolu-browse-gitstatus"
+    And I run "printf 'tracked\n' > tracked.txt && printf 'stable\n' > stable.txt && git add . && git commit -m init"
+    And I run "printf 'edited\n' > tracked.txt"
+    And I run "printf 'brand new\n' > fresh.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab should show file "stable.txt"
+    And the Code tab file "tracked.txt" should have git status "modified"
+    And the Code tab file "fresh.txt" should have git status "untracked"
+    And the Code tab file "stable.txt" should have no git status
+
   # ── Browse mode: route-served preview for .html / .svg / .pdf / images ──
   # Files whose extension matches `isBinaryPreviewable` (see
   # `kolu-git/previewable`) render in `BrowsePreviewView` from the per-terminal

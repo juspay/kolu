@@ -1,38 +1,16 @@
-/** Kolu-specific adapters around `@kolu/solid-pierre`'s generic primitives.
+/** Kolu-specific adapter around `@kolu/solid-pierre`'s context-menu hook.
  *
- *  - `toGitStatusEntries`: maps kolu-git's single-letter porcelain status
- *    to Pierre's word-form `GitStatusEntry` shape.
- *  - `renderTreeContextMenu`: builds the file-tree right-click menu using
- *    kolu's CSS variables and `solid-sonner` toast for clipboard feedback. */
+ *  `renderTreeContextMenu` builds the file-tree right-click menu using kolu's
+ *  CSS variables and `solid-sonner` toast for clipboard feedback. (The pure
+ *  porcelain→word git-status mapping lives in `gitStatusEntries.ts`, kept
+ *  toast-free so it stays unit-testable in a plain node env.) */
 
 import type {
   ContextMenuItem,
   ContextMenuOpenContext,
-  GitStatusEntry,
 } from "@kolu/solid-pierre";
-import type { GitChangeStatus } from "kolu-git/schemas";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "./clipboard";
-
-const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
-  M: "modified",
-  A: "added",
-  D: "deleted",
-  R: "renamed",
-  C: "renamed",
-  U: "modified",
-  T: "modified",
-  "?": "untracked",
-};
-
-export function toGitStatusEntries(
-  files: { path: string; status: GitChangeStatus }[],
-): GitStatusEntry[] {
-  return files.map((f) => ({
-    path: f.path,
-    status: GIT_STATUS_WORD[f.status],
-  }));
-}
 
 /** Pierre wraps the rendered element in a `display:flex; align-items:center`
  *  anchor positioned at the cursor — letting the menu lay out normally
