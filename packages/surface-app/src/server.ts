@@ -275,16 +275,33 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
   };
 }
 
-/** The `server.info` identity procedure's server implementation, as a
- *  composable fragment: `implementSurface(surface, { …, procedures: { ...serverIdentity() } })`.
+/** The `surface.surfaceApp.info` identity procedure's server implementation, as
+ *  a composable fragment: `implementSurface(surface, { …, procedures: { ...serverIdentity() } })`.
  *  Mints one `processId` per process (so a reconnect to a *different* process
  *  reads as a restart) — the restart axis's turnkey counterpart to
  *  `buildInfoServer()`. Pass `processId` to override (e.g. a stable id in
- *  tests). Pair with `serverIdentity.procedures` on the surface and with the
- *  provider's `probe={() => app.rpc.surface.server.info({})}`. */
+ *  tests). Pairs with `serverIdentity.procedures` (now `surfaceApp.info`) on the
+ *  surface and with the provider's `probe={() => client.rpc.surface.surfaceApp.info({})}`. */
 export function serverIdentity(opts: { processId?: string } = {}): {
-  server: { info: () => Promise<{ processId: string }> };
+  surfaceApp: { info: () => Promise<{ processId: string }> };
 } {
   const processId = opts.processId ?? randomUUID();
-  return { server: { info: async () => ({ processId }) } };
+  return { surfaceApp: { info: async () => ({ processId }) } };
+}
+
+/** The whole surface-app server fragment in one call — the `buildInfo` cell impl
+ *  AND the `surfaceApp.info` probe impl, so a consumer spreads `cells` and
+ *  `procedures` once each into `implementSurface`. The buildInfo connect handle
+ *  is `result.cells.buildInfo.connect(ctx.cells.buildInfo)`. The turnkey
+ *  counterpart to `surfaceAppSurfaceWith` on the surface side. */
+export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
+  opts: Parameters<typeof buildInfoServer<T>>[0] & { processId?: string } = {},
+): {
+  cells: BuildInfoServerFragment<T>;
+  procedures: { surfaceApp: { info: () => Promise<{ processId: string }> } };
+} {
+  return {
+    cells: buildInfoServer<T>(opts),
+    procedures: serverIdentity({ processId: opts.processId }),
+  };
 }

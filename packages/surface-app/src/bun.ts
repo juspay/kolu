@@ -147,7 +147,9 @@ export async function buildSurfaceClient(
   });
   if (!jsResult.success) {
     const detail = jsResult.logs.map((l) => l.message).join("\n");
-    throw new Error(`buildSurfaceClient: Bun.build failed for client\n${detail}`);
+    throw new Error(
+      `buildSurfaceClient: Bun.build failed for client\n${detail}`,
+    );
   }
   // The entrypoint output is the one `.js` whose kind isn't a chunk; find it by
   // `kind` to stay correct even if splitting is later enabled.
@@ -155,7 +157,9 @@ export async function buildSurfaceClient(
     (o) => o.kind === "entry-point" && o.path.endsWith(".js"),
   );
   if (!jsEntry)
-    throw new Error("buildSurfaceClient: Bun.build produced no JS entry output");
+    throw new Error(
+      "buildSurfaceClient: Bun.build produced no JS entry output",
+    );
   const jsHref = `/${ASSET_DIR}/${basename(jsEntry.path)}`;
 
   // Extra assets (e.g. Tailwind CSS): the app builds the bytes; we hash them on
@@ -189,7 +193,9 @@ export async function buildSurfaceClient(
   if (opts.publicDir) {
     const publicDir = resolve(opts.publicDir);
     if (!existsSync(publicDir))
-      throw new Error(`buildSurfaceClient: publicDir does not exist: ${publicDir}`);
+      throw new Error(
+        `buildSurfaceClient: publicDir does not exist: ${publicDir}`,
+      );
     await cp(publicDir, distDir, { recursive: true });
   }
 
