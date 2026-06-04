@@ -68,7 +68,10 @@ export function buildCategoryGroups(
   const rootsByCat = new Map<Category, CatTreeNode[]>();
   const rootsFor = (c: Category) => {
     let r = rootsByCat.get(c);
-    if (!r) rootsByCat.set(c, (r = []));
+    if (!r) {
+      r = [];
+      rootsByCat.set(c, r);
+    }
     return r;
   };
 
