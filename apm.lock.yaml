@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-04T00:41:01.366308+00:00'
+generated_at: '2026-06-04T01:13:58.185843+00:00'
 apm_version: 0.16.1
 dependencies:
 - repo_url: anthropics/skills
@@ -56,6 +56,16 @@ dependencies:
   - .agents/skills/nix-typescript
   - .claude/skills/nix-typescript
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
+- repo_url: juspay/skills
+  host: github.com
+  resolved_commit: 84d6c6f102151246fb1da96ce39996757c11179c
+  virtual_path: skills/pg
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/pg
+  - .claude/skills/pg
+  content_hash: sha256:55aa91acea2f65028147786dffec979d5c2f1b18f402ee441353dada10ffbb2a
 - repo_url: srid/agency
   host: github.com
   resolved_commit: 6d53751b5fb42cc2c55b9072b314f3cdd0449ecb
@@ -110,7 +120,6 @@ local_deployed_files:
 - .agents/skills/lens-debate
 - .agents/skills/parcel
 - .agents/skills/perf-diagnose
-- .agents/skills/pg
 - .agents/skills/pierre
 - .agents/skills/test
 - .claude/skills/be
@@ -120,6 +129,5 @@ local_deployed_files:
 - .claude/skills/lens-debate
 - .claude/skills/parcel
 - .claude/skills/perf-diagnose
-- .claude/skills/pg
 - .claude/skills/pierre
 - .claude/skills/test
