@@ -226,10 +226,6 @@ export type SurfaceAppProviderProps<
   /** The build-identity fragment — defaults to `{ commit }`. Pass your extended
    *  one (e.g. kolu's pty-host axis) to drive `stale` off it. */
   buildInfo?: BuildInfoDef<T>;
-  /** Override the stale predicate at render time. Defaults to the fragment's
-   *  `isStale` (`buildInfo.isStale`); pass this to vary staleness per UI section
-   *  (e.g. a stricter rail vs. a lenient badge) without redefining the fragment. */
-  isStale?: (server: T | undefined, clientCommit: string) => boolean;
   /** Surface a failed `buildInfo` subscription. The cell is a server stream; if
    *  it dies, `stale()` silently falls back to the default and the user sees no
    *  error. Pass this to toast / log the drop. In the turnkey `{ ws, probe }`
@@ -293,12 +289,10 @@ export function SurfaceAppProvider<
             ),
         }).status
       : () => "live";
-  // Render-time override beats the fragment's predicate; the fragment's
+  // Staleness is a property of the build-identity fragment; the fragment's
   // `isStale` wants a concrete value, so fall back to the schema default.
   const isStale = (srv: T | undefined): boolean =>
-    props.isStale
-      ? props.isStale(srv, props.clientCommit)
-      : def.isStale(srv ?? def.cells.buildInfo.default, props.clientCommit);
+    def.isStale(srv ?? def.cells.buildInfo.default, props.clientCommit);
   const model: SurfaceAppModel<T> = {
     status,
     stale: () => isStale(server()),
