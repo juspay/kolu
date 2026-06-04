@@ -96,33 +96,12 @@
     <span class="d">An in-process terminal client. <span class="muted">Relates to both <em>pty-daemon</em> and <em>chrome-bar</em> — the "one true parent" conflict the flat-slug rename resolves.</span></span>
   </a>
 </div>
-<a class="entry" href="./code-browser-preview.solid-fileview.html">
-  <span class="t">Code browser preview → @kolu/solid-fileview</span> <span class="tag budding">budding</span> <span class="tag accent">#1093</span>
-  <span class="f">code-browser-preview.solid-fileview.html → solid-fileview.html</span>
-  <span class="d">"Invent the grid, slim the house" — a Source ⇄ Rendered file-view toggle built on reusable leaf packages. Phases 1–3 shipped (#1079 solid-markdown, #1082 solid-fileview, #1093 the Markdown toggle); rendered-comments (3a), HTML/SVG source, and code-fence highlighting next.</span>
-</a>
-<a class="entry" href="./phantom-running-background.html">
-  <span class="t">Phantom <code>running_background</code> — Claude shows “running” forever</span> <span class="tag budding">budding</span> <span class="tag accent">#1109</span> <span class="tag accent">#1017</span>
-  <span class="f">phantom-running-background.html</span>
-  <span class="d">Why the spinner survives a Claude restart: an orphaned background-launch marker has no completion, so the <code>waiting→running_background</code> promotion never decays. Traces the bug to its introducing PR (#1015, which predicted it as #1017) and inverts #1017’s “staleness must not override the bg signal” assumption. Diagnosis against the live transcript, four fix candidates with adversarial verdicts (the two “obvious” process-liveness fixes are traps), and a recommended one-line fix — promote only <em>backed</em> tasks (<code>runId != null</code> Workflow runs), with a layered transcript-only veto held in reserve — plus why e2e mocked the state instead of deriving it. Sibling of the workflow viewer above.</span>
-</a>
 <a class="entry" href="./web-delivery.html">
   <span class="t">Web delivery — the freshness contract</span> <span class="tag seedling">seedling</span> <span class="tag accent">#1149</span>
   <span class="f">web-delivery.html</span>
   <span class="d">A skill + <code>@kolu/web-delivery</code> library so every kolu-shaped web/PWA app ships the <em>deployed</em> client to returning users by construction — one never-cached shell, everything else immutable, version-skew made visible &amp; one-tap recoverable. The next <em>electricity</em> (graduates to <a href="https://github.com/srid/drishti">drishti</a>); generalizes the four-times-relitigated stale-client bug (#696/#1125/#1135/#1149). <span class="muted">Sibling: the Atlas <code>electricity</code> note.</span></span>
 </a>
 
-<h2>Reviews <span class="muted" style="font-size:.8rem; font-weight:400">— Hickey / Lowy structural audits</span></h2>
-<a class="entry" href="./mobile-architecture-review.html">
-  <span class="t">Is Mobile Electricity?</span> <span class="tag evergreen">evergreen</span>
-  <span class="f">mobile-architecture-review.html</span>
-  <span class="d">A Hickey/Lowy review of kolu's mobile support. <span class="muted">Sibling: the Atlas <code>electricity</code> note (the electricity tracker).</span></span>
-</a>
-<a class="entry" href="./correctness-review.html">
-  <span class="t">Whole-codebase correctness review</span> <span class="tag seedling">seedling</span>
-  <span class="f">correctness-review.html</span>
-  <span class="d">Static audit of path authority, terminal lifecycle, channel cancellation, session restore fidelity, parser failures, and kill confirmation.</span>
-</a>
 
 <h2>Talks &amp; research <span class="muted" style="font-size:.8rem; font-weight:400">— /talk captures, no repo changes</span></h2>
 <a class="entry" href="./talk-nix-typecheck-gate.html">

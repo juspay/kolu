@@ -1,0 +1,248 @@
+---
+title: Code browser preview → @kolu/solid-fileview
+description: Invent the grid, slim the house — a Source ⇄ Rendered file-view toggle built on reusable leaf packages. Markdown is the first lit toggle; HTML/SVG next.
+kind: design
+maturity: budding
+updated: 2026-06-02
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+
+The Code tab can *open* any file, but "open" means two things: show its
+**source** (syntax-highlighted text) or its **rendered form** (the image, the
+page, the document). Markdown sat in the gap — a `README.md` opened as source,
+never as a rendered document. The organizing idea is a **Source ⇄ Rendered
+toggle**: for any file with *both* forms, the user picks. Markdown is the first
+lit toggle (<PrLink pr={1093} />, shipped); HTML and SVG join next.
+
+<Callout kind="note" title="The one-line summary">
+Previewing is decided at a single seam — a file is classified, the `fsReadFile`
+wire carries a `kind` discriminator, and a dispatcher routes `kind` to a
+presenter. The toggle is available exactly when a file has *both* a source and a
+rendered form. Markdown is the easy case (already `text` on the wire); HTML/SVG
+are the instructive case (text-backed but delivered as `binary`/URL today).
+</Callout>
+
+<Callout kind="accent" title="The thesis — invent electricity, don't wire the house">
+Lowy's electricity analogy: a home shouldn't generate its own power per appliance;
+a utility encapsulates the volatility of *generation* behind a stable interface
+(the outlet), and appliances just plug in. Today kolu is pre-electricity — each
+preview format would wire its own rendering into the right-panel. This plan
+**extracts the preview capability into standalone, kolu-agnostic packages** — a
+generic file-viewer "grid" and pluggable renderer "appliances" — and leaves kolu
+plugging into the outlet. The payoff is counterintuitive: even though we *add* a
+feature (the toggle + Markdown + HTML/SVG source), **the kolu app code gets
+smaller**, because the render mechanics move out to reusable libraries beside
+`@kolu/solid-pierre`.
+</Callout>
+
+## What can be previewed today
+
+Three render strategies, chosen below the `fsReadFile` wire boundary by file
+extension. The classifier is deliberately node-free so server and client import
+the *same* lists.
+
+| Strategy | Wire `kind` | Renderer | Extensions |
+| --- | --- | --- | --- |
+| **Source text** (default) | `text` | `BrowseFileView` → Pierre `CodeView` (Shiki), wrapped in `CommentTextSurface` for line/range comments. | *Everything not listed below.* Truncated past 1 MB. |
+| **Raster image** | `binary` | `BrowsePreviewView` → plain `<img>` on a checkerboard. No iframe — image bytes can't execute. | `.png .jpg .jpeg .gif .webp .ico` |
+| **Sandboxed document** | `binary` | `BrowsePreviewView` → `allow-scripts`, opaque-origin `<iframe>`. HTML gets the artifact-sdk comment bridge; SVG/PDF verbatim. | `.html .htm .svg .pdf` |
+
+The two binary sets are disjoint; their union is `BINARY_PREVIEWABLE_EXTENSIONS` —
+the partition is structural, so a new previewable format lands in exactly one
+category.
+
+### The hidden insight: `kind` conflates two independent questions
+
+The `text`/`binary` discriminator answers "how do I fetch and render this by
+default." The *real* structure is two orthogonal yes/no axes — and the toggle is
+meaningful exactly at their intersection.
+
+| Format | Has a source? | Has a rendered form? | What the user gets |
+| --- | --- | --- | --- |
+| plain code `.ts .rs .py` | ✓ | ✗ | Source only (today's default — correct) |
+| **Markdown** `.md` | ✓ | ✓ (client md render) | **Toggle** — default Rendered |
+| **HTML** `.html .htm` | ✓ | ✓ (iframe) | **Toggle** — default Rendered |
+| **SVG** `.svg` | ✓ | ✓ (iframe) | **Toggle** — default Rendered |
+| images `.png .jpg` | ✗ | ✓ (`<img>`) | Rendered only — *no source exists* |
+| PDF `.pdf` | ✗ | ✓ (iframe) | Rendered only — *no source exists* |
+
+The toggle is offered **iff both columns are ✓**. This is a property of the
+format, not a per-presenter convention.
+
+```
+  fsReadFile (server)                     wire kind          BrowseFileDispatcher (client)
+  ┌───────────────────────┐   text   ┌───────────────┐   →  BrowseFileView   (Pierre CodeView)
+  │ isBinaryPreviewable(p) │ ───────▶ │ {kind:"text"} │
+  │   in previewable.ts    │   binary │ {kind:"binary"}│  →  BrowsePreviewView (<img> | sandboxed iframe)
+  └───────────────────────┘ ───────▶ └───────────────┘
+                                       ▲ the single switch point — add a kind here
+```
+
+## What cannot yet be previewed — but should be
+
+Ranked by value ÷ cost.
+
+| Format | Today | Should be | Cost / seam |
+| --- | --- | --- | --- |
+| **Markdown** `.md` <Pill variant="todo">this plan</Pill> | Syntax-highlighted source. | Rendered document, with a source⇄rendered toggle. | **Low.** Text already on the wire — no new `kind`. |
+| **HTML / SVG source** <Pill variant="todo">toggle set</Pill> | Rendered in sandbox only. | Same toggle as Markdown (text-backed). | **Low-medium.** Wire must carry text alongside the URL. |
+| **More raster** `.avif .jxl .bmp .apng` | Source text (garbage). | Plain `<img>`. | Trivial — append to `RASTER_IMAGE_EXTENSIONS`. |
+| **Jupyter** `.ipynb` | Raw JSON. | Rendered cells. | **Medium-high.** A notebook renderer appliance. Defer. |
+| **CSV / TSV** | Source text. | Optional rendered table (toggle). | Medium — a virtualized table presenter. |
+| **Fonts** `.woff .ttf .otf` | Garbage. | A specimen sheet. | Low-medium; niche, defer. |
+| **Audio / video** `.mp3 .mp4` | Garbage. | `<audio>`/`<video>` at the URL. | Low — a `media` renderer appliance. Defer. |
+
+**Non-goal:** Office formats, archives — they belong to a "download / open
+externally" affordance, not in-pane preview.
+
+## The feature — a Source ⇄ Rendered toggle, Markdown first
+
+### Markdown needs no new wire `kind` <Pill variant="ok">confirmed by P3</Pill>
+
+Markdown *is* text — it arrives as `{kind: "text", content, truncated}`. The
+render decision is purely client-side and reversible: default **rendered**, one
+flip to **source**. So Markdown is a renderer appliance plugged into the grid,
+above the wire. *P3 confirmed it:* no new `kind`, no `defaultMode` — the
+dispatcher passed a one-entry `rendered={[markdownRenderer]}` matched by
+`isMarkdown`; `FileView`'s "both forms → default Rendered, show the toggle" rule
+did the rest.
+
+### 3a · Comments on rendered Markdown — the way through
+
+v1 shipped comments only in **source** view (`CommentTextSurface` wraps Pierre's
+`CodeView`); the rendered document is read-only. kolu already has *one* anchoring
+model in two surfaces: the W3C **`TextQuoteSelector`** (`{quote, prefix, suffix}`)
++ `extractQuote`/`findQuote` in `@kolu/artifact-sdk/core`. Rendered Markdown is the
+third surface — and the *simplest*, because:
+
+- Markdown renders **inline in the parent document**, not in a sandboxed iframe — so there's **no postMessage bridge**. A plain DOM `Range` feeds `extractQuote` directly; `findQuote` re-locates on rehydrate.
+- The locator is durable across re-renders by construction (text + context, not a DOM path).
+
+Volatility split (Lowy): the *generic mechanism* (selection → locator, locator →
+highlight) is a **rendered-annotation hook in `@kolu/solid-fileview`**; the
+*comment feature* (tray, threads, persistence) stays kolu's. One anchoring model
+across all three surfaces, not a fourth invented for Markdown.
+
+### 3c · More Markdown features — appliances on the grid
+
+Each lives *inside the appliance* (`@kolu/solid-markdown`); the host never changes.
+Grounded against what `marked` ships (`{gfm: true, breaks: true}`):
+
+| Feature | Status today | The work |
+| --- | --- | --- |
+| GFM tables / task lists | `marked` parses; renderer emits `<table>` + checkbox nodes. | Styling polish for `document`; verify checkboxes read as decorative. |
+| Strikethrough / autolinks | Parsed by GFM. | Confirm a `del` case + bare URLs through `safeHref`; style if missing. |
+| Syntax-highlighted code fences | Plain `<pre><code>`. | **3b** — Shiki on the `code` token; highlighter in-repo via `@kolu/solid-pierre`. |
+| Heading anchor links | No ids. | Slug-id each heading + clickable `#` permalink. |
+| Relative *file* links | `safeHref` allows; clicking does nothing. | Resolve a relative path to *opening that file in the Code tab* (kolu link policy, injected). |
+| Frontmatter | Renders as a literal block. | Strip-and-ignore by default. |
+| KaTeX math · Mermaid | Not handled. | *Optional appliances* plugged into the same outlet later — no host changes. Demand-gated. |
+
+## Invent the grid — extract three packages, slim kolu
+
+The naïve build wires each format into kolu's `right-panel/` as a `Switch` arm —
+the pre-electricity house. Two things vary independently and must be encapsulated
+apart (Lowy), and neither is *about kolu*:
+
+- **How a document renders** (marked → safe Solid nodes) — volatile in its own right (the spec, sanitization).
+- **The source ⇄ rendered viewer** (the toggle, mode-availability, renderer match) — a generic mechanism any file viewer needs, with *zero* kolu knowledge.
+
+```
+  ── kolu app (the house) ───────────┐    ── the grid: reusable packages ──────────────────────
+   fsReadFile wire {kind, …}         │
+        │ thin adapter (wire→props)  │     @kolu/solid-fileview  ── the outlet ──
+        ▼                            │       <FileView source={…} rendered={[…]} />
+   <FileView                         │         owns: the Source ⇄ Rendered toggle,
+      source={pierreRenderer}  ──────┼──▶       which modes exist, registry.pick(path)
+      rendered={[md, img, iframe]} ──┼──▶     RenderedRenderer = { match, render }  ← appliances
+   />                                │
+        ▲ kolu injects its renderers │     @kolu/solid-markdown  ── an appliance ──
+          (theme, comment bridge)    │       <Markdown variant="document" />  (marked + sanitize)
+  ───────────────────────────────────┘     @kolu/solid-pierre   ── already a package (source) ──
+```
+
+### The three packages (Lowy: each encapsulates one volatility)
+
+| Package | Encapsulates | The outlet | What it obviates in kolu |
+| --- | --- | --- | --- |
+| `@kolu/solid-markdown` <Pill variant="todo">new</Pill> | marked + GFM + `safeHref` + md→Solid styling. Volatile: the spec, the sanitizer. | `<Markdown markdown variant="inline"\|"document" />` | The ~250 LOC token-walk core inside `intent/IntentMarkdown.tsx`. |
+| `@kolu/solid-fileview` <Pill variant="todo">new</Pill> | The toggle, mode-availability, renderer-registry pick. Knows nothing of oRPC, git, comments. | `<FileView path source? renderedUrl? source={Renderer} rendered={Renderer[]} />` | The render *mechanics* of `BrowseFileView` + `BrowsePreviewView` + `BrowseFileDispatcher`. |
+| `@kolu/solid-fileview/renderers/{markdown,image,iframe}` | Each strategy as an independent appliance. Generic, kolu-free. | Each is a `RenderedRenderer` value. | The strategy code hand-written in `BrowsePreviewView`. |
+
+**Decoupling the source renderer too.** `FileView` does *not* hard-depend on a
+highlighter — the source view is an injected renderer like any other. kolu passes
+one backed by `@kolu/solid-pierre` carrying kolu's theme. So `@kolu/solid-fileview`
+has no rendering deps at all: pure mechanism, every concrete renderer an appliance.
+
+### HTML / SVG need the wire to carry both source and URL
+
+HTML/SVG are text on disk but render in an `allow-scripts` opaque-origin iframe at
+a server-built URL (and HTML splices the comment bridge at that route) — the
+render path genuinely needs the URL. To *also* show source, the client needs the
+text the iframe path never carried. A third `fsReadFile` variant:
+
+```ts
+{ kind: "renderable", content, truncated, url }
+//        ^source view ──────────┘          └── iframe render
+```
+
+Markdown stays `kind:"text"` (no URL); images/PDF stay `kind:"binary"` (no
+content). The discriminator now reads off the same two axes: `text` =
+source-only, `binary` = rendered-only, `renderable` = both.
+
+## Phasing — invent the grid, then plug in
+
+The first two phases are pure extraction: no new feature, no wire change, kolu
+working throughout — and kolu's LOC drops at each.
+
+| Phase | Ships | Net kolu LOC | Risk |
+| --- | --- | --- | --- |
+| **1 · Extract `@kolu/solid-markdown`** <Pill variant="ok">shipped</Pill> <PrLink pr={1079} /> | Lift the token-walk core out of `IntentMarkdown.tsx` (257→30 LOC) into a package with `inline`/`compact`/`document` variants; migrate the intent surface. Behavior-preserving. | ↓ | Low — mechanical, one call-site. |
+| **2 · Extract `@kolu/solid-fileview`** <Pill variant="ok">shipped</Pill> <PrLink pr={1082} /> | The toggle host + mode logic + registry + `image`/`iframe` renderers. Rewrote `right-panel/` preview as a thin `fsReadFile`→`FileView` adapter. Renders *exactly today's formats*. As-built: `BrowseFileView.tsx` kept (injected as `SourceRenderer`); only `BrowsePreviewView.tsx` went. | ↓↓ (3 presenters → 1 adapter) | Medium — live-surface refactor, e2e-covered. *(One defect caught only by the Nix build: the new package was missing from `default.nix`'s fileset.)* |
+| **3 · Light the Markdown toggle** <Pill variant="ok">shipped</Pill> <PrLink pr={1093} /> | The first user-visible win. The `markdown` renderer landed *in the library* as `@kolu/solid-fileview/renderers/markdown` (wrapping the `document` variant). No new wire `kind`, no `defaultMode` — `FileView` defaults to Rendered + shows the toggle whenever a file has both renderers. Server classification relocated out of `kolu-git/previewable.ts` into node-free `kolu-common/preview.ts`; `kolu-common` gained a `test:unit` runner. A tip + README landed. | flat | Low — the grid did the work. Hickey: 0; Lowy: 2 No-op. |
+| **3a · Comments on rendered Markdown** <Pill variant="todo">next</Pill> | Close the v1 seam via the shared `TextQuoteSelector` model over a DOM `Range` (no iframe/bridge since Markdown renders inline). Splits as a generic rendered-annotation hook in `@kolu/solid-fileview` + kolu's comment-tray wiring. | flat | Medium — anchoring to a char range in rendered output is the open problem; the selector model is the way through. |
+| **3b · Syntax-highlighted code fences** <Pill variant="todo">next</Pill> | Fenced code in rendered Markdown via Shiki, *inside `@kolu/solid-markdown`*. Highlighter already in-repo via `@kolu/solid-pierre` — wiring, not a new dep. | flat | Low. |
+| **3c · More Markdown features** <Pill variant="todo">grid</Pill> | The appliance evolves; the host doesn't (GFM polish, heading anchors, relative file/image links, frontmatter, optional KaTeX/Mermaid). | flat | Low; each independent. |
+| **4 · HTML / SVG source** | Add the `kind:"renderable"` wire variant (`content + url`); the iframe renderer gains a source side. Toggle lights for `.html .htm .svg` with zero new components. | flat | Low-medium. |
+| **5 · Polish** | Persisted per-session toggle choice (`makePersisted`). | flat | Low. |
+| **6 · Cheap binary wins** | Append `.avif`/`.bmp` to the image renderer; add a `media` renderer. | flat | Low. |
+| **Later** | Notebooks, CSV/TSV table, font specimens — each a new appliance; none touches the host. | flat | Medium; demand-gated. |
+
+## Files this touches
+
+**The grid — new reusable packages:**
+
+| Package | Contents |
+| --- | --- |
+| `packages/solid-markdown` <Pill variant="ok">shipped</Pill> <PrLink pr={1079} /> | The token-walk core (`marked` + `safeHref`) + `inline`/`compact`/`document` variants. Its `document` variant now also backs the Code-tab markdown appliance. |
+| `packages/solid-fileview` <Pill variant="ok">shipped</Pill> <PrLink pr={1082} /> <PrLink pr={1093} /> | `FileView` host (toggle, mode-availability, registry) + the `SourceRenderer`/`RenderedRenderer` contracts. Core entry has no rendering deps. Sub-path renderers `/renderers/{image,iframe,markdown}`. |
+
+**kolu — the net shrink:**
+
+| File | Change |
+| --- | --- |
+| `intent/IntentMarkdown.tsx` | <Pill variant="ok">−~250 LOC</Pill> A thin consumer of `@kolu/solid-markdown`. |
+| `right-panel/BrowsePreviewView.tsx` | <Pill variant="ok">deleted</Pill> Its img/iframe mechanics moved into the library + renderers. |
+| `right-panel/BrowseFileView.tsx` | <Pill variant="warn">kept</Pill> Not deleted — wrapped as the injected pierre `SourceRenderer` (carries kolu's comment surface). |
+| `right-panel/BrowseIframeRenderer.tsx` | <Pill variant="ok">new</Pill> kolu's iframe appliance: the library `IframeRenderer` + the artifact-sdk comment bridge. Comments are kolu's volatility. |
+| `right-panel/BrowseFileDispatcher.tsx` | <Pill variant="ok">slimmed</Pill> The `fsReadFile`→`FileView` adapter; #1093 added a one-entry `rendered={[markdownRenderer]}` on the text path. A projection, not logic. |
+| `kolu-common/preview.ts` (was `kolu-git/previewable.ts`) | <Pill variant="ok">relocated</Pill> Server-side wire classification moved to node-free `kolu-common/preview` — out of `kolu-git`. Gained `isMarkdown`/`MARKDOWN_EXTENSIONS`. P4 adds the `renderable` set here. |
+| `settings/tips.ts` | <Pill variant="ok">+1</Pill> New `amb-markdown-preview` tip surfacing the toggle. |
+| `default.nix` | <Pill variant="ok">+1</Pill> *As-built:* each new package must be added to the Nix build fileset or the Vite build fails to resolve it. |
+
+**The accounting:** two packages and a feature added, yet the kolu app tree ends
+up with *fewer* lines and one fewer responsibility — the electricity payoff. The
+complexity didn't vanish; it moved behind an outlet and stopped being kolu's to
+maintain.
+
+---
+
+*Bottom line: the feature is a **Source ⇄ Rendered toggle**, offered wherever a
+file has both forms. Markdown is the first lit toggle (<PrLink pr={1093} />) — it
+cost a single library appliance plus a one-entry renderer list, because the grid
+was already built. As-built footnote (P3): Hickey 0 findings; Lowy 2, both No-op
+(keeping `FsReadFileOutputSchema` in `kolu-git` is volatility-correct; the
+host-overridable `testId` was rejected as configuration-as-complexity).*
