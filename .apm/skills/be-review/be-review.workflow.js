@@ -603,7 +603,24 @@ async function policeTrack(wt) {
           schema: IMPL_SCHEMA,
         },
       );
-      const files = impl?.filesChanged ?? [];
+      // Normalize+validate `filesChanged` ONCE here — its absolute-under-`wt` shape
+      // is an unenforced cross-agent contract (the schema only types it `string[]`).
+      // Run the shared abs->rel core, then MANDATORILY drop any entry that, after
+      // stripping `${wt}/`, still starts with `/` (an absolute path NOT under wt) or
+      // with `./`/`../` (a relative path that doesn't anchor to wt). Leading-dot dirs
+      // like `.apm/`/`.claude/` are valid wt-relative files this PR edits — keep them.
+      // A stray path that survived would silently scope the next sweep's regression
+      // diff against something git doesn't recognize (reviewing nothing), so dropping
+      // one is logged loudly. The canonical relative list feeds both the touched-file
+      // set and commitFix.
+      const rawFiles = impl?.filesChanged ?? [];
+      const files = relPaths(wt, rawFiles).filter(
+        (rel) => !rel.startsWith("/") && !/^\.\.?\//.test(rel),
+      );
+      if (files.length < rawFiles.length)
+        log(
+          `police: ${f.id} returned a path not under the worktree (${rawFiles.join(", ")}) — regression scope may miss it`,
+        );
       files.forEach((x) => sweepTouched.add(x)); // next sweep re-reviews only these
       let sha = null;
       if (commit && files.length) {
