@@ -1089,6 +1089,65 @@ Then(
   },
 );
 
+// ── Folder roll-up: ancestor directories of a change ──
+// Pierre marks every ancestor of a changed file with
+// `data-item-contains-git-change="true"`. kolu injects a shadow-root rule
+// (FileTree.shadowCss) that tints those folders' names; these steps assert the
+// roll-up attribute and that the tint actually lands (computed color differs
+// from a clean sibling).
+
+Then(
+  "the Code tab directory {string} should be marked as containing a change",
+  async function (this: KoluWorld, path: string) {
+    await this.page
+      .locator(`${dirRow(path)}[data-item-contains-git-change="true"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Code tab directory {string} should not be marked as containing a change",
+  async function (this: KoluWorld, path: string) {
+    const row = this.page.locator(dirRow(path));
+    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const value = await row.getAttribute("data-item-contains-git-change");
+    if (value !== null) {
+      throw new Error(
+        `Expected directory "${path}" to carry no contained-change mark, got "${value}"`,
+      );
+    }
+  },
+);
+
+/** Proves the injected shadow-root tint actually lands: the changed folder's
+ *  name (`[data-item-section='content']`) must compute a different color than a
+ *  clean sibling folder's name. Reading the computed color (not a fixed value)
+ *  keeps the assertion robust to palette changes. */
+Then(
+  "the Code tab directory {string} name should be tinted differently from directory {string}",
+  async function (this: KoluWorld, changed: string, clean: string) {
+    const nameColor = async (path: string): Promise<string> => {
+      const name = this.page
+        .locator(`${dirRow(path)} [data-item-section="content"]`)
+        .first();
+      await name.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+      return name.evaluate((el) => getComputedStyle(el).color);
+    };
+    // Wait for the roll-up to land on the changed folder before sampling, so
+    // the tint has been applied by the time we read its color.
+    await this.page
+      .locator(`${dirRow(changed)}[data-item-contains-git-change="true"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const changedColor = await nameColor(changed);
+    const cleanColor = await nameColor(clean);
+    if (changedColor === cleanColor) {
+      throw new Error(
+        `Expected "${changed}" name (${changedColor}) to be tinted differently from clean "${clean}" (${cleanColor})`,
+      );
+    }
+  },
+);
+
 /** Mode-agnostic content assertion. Diff modes render
  *  `[data-testid="pierre-diff-view"]`; browse mode renders
  *  `[data-testid="pierre-file-view"]`. Either is fine — the assertion

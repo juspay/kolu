@@ -39,7 +39,11 @@ import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import { renderTreeContextMenu } from "../ui/pierreAdapters";
-import { pierreIconConfig, pierreTreesStyle } from "../ui/pierreTheme";
+import {
+  pierreIconConfig,
+  pierreTreesShadowCss,
+  pierreTreesStyle,
+} from "../ui/pierreTheme";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { app } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
@@ -590,6 +594,7 @@ const CodeTab: Component<{
                       search={false}
                       expandPaths={treeSearch().expandedAncestors}
                       icons={pierreIconConfig}
+                      shadowCss={pierreTreesShadowCss}
                       contextMenu={{
                         enabled: true,
                         triggerMode: "both",

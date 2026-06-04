@@ -414,6 +414,23 @@ Feature: Code tab (review + browse)
     And the Code tab file "fresh.txt" should have git status "untracked"
     And the Code tab file "stable.txt" should have no git status
 
+  # Pierre marks every ancestor of a changed file with
+  # `data-item-contains-git-change` but only paints a faint dot; kolu injects a
+  # shadow-root rule (FileTree.shadowCss) that tints the ancestor folder names
+  # in the modified color, so a changed subtree reads at a glance. A clean
+  # sibling directory stays unmarked and untinted. (`src` carries two children
+  # so single-child flattening doesn't fold it into `src/feature`.)
+  Scenario: Browse mode tints ancestor folders that contain a change
+    When I run "rm -rf /tmp/kolu-browse-foldertint && git init /tmp/kolu-browse-foldertint && cd /tmp/kolu-browse-foldertint"
+    And I run "mkdir -p src/feature lib && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && git add . && git commit -m init"
+    And I run "printf 'edited\n' > src/feature/a.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab should show a directory node "src"
+    And the Code tab directory "src" should be marked as containing a change
+    And the Code tab directory "lib" should not be marked as containing a change
+    And the Code tab directory "src" name should be tinted differently from directory "lib"
+
   # ── Browse mode: route-served preview for .html / .svg / .pdf / images ──
   # Files whose extension matches `isBinaryPreviewable` (see
   # `kolu-git/previewable`) render in `BrowsePreviewView` from the per-terminal

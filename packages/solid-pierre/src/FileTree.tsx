@@ -74,6 +74,16 @@ export type FileTreeProps = {
   icons?: FileTreeIconConfig;
   /** Pierre's typed contextmenu hook. */
   contextMenu?: FileTreeContextMenu;
+  /** Extra CSS injected into Pierre's shadow root, for styling Pierre
+   *  exposes no `--trees-*` theme variable for — e.g. tinting a directory
+   *  that contains a change, which Pierre only renders as a half-opacity dot.
+   *  Pierre owns its shadow DOM, so a host stylesheet can't reach inside;
+   *  this is the escape hatch. Snapshot at mount via a constructable sheet
+   *  appended to the shadow root's `adoptedStyleSheets` (so Pierre's own row
+   *  re-renders never wipe it) — **not reactive**, re-mount to change it. The
+   *  rule's selectors are Pierre's internal row anatomy, so the rule belongs
+   *  to the host theme, not here. */
+  shadowCss?: string;
   /** Surface construction or render throws to the host. Required because
    *  silent failure produces a blank pane indistinguishable from "no
    *  files" — bad UX, hard to debug. */
@@ -83,6 +93,31 @@ export type FileTreeProps = {
   /** Forwarded to the container `<div>` — host theming lives here. */
   style?: JSX.CSSProperties;
 };
+
+/** Pierre renders its rows under an open shadow root nested somewhere in the
+ *  host container. Find the first shadow root in that subtree so the host can
+ *  reach Pierre's internal styles. */
+function findShadowRoot(el: Element): ShadowRoot | null {
+  if (el.shadowRoot) return el.shadowRoot;
+  for (const child of el.children) {
+    const found = findShadowRoot(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Append `css` to Pierre's shadow root as a constructable stylesheet —
+ *  `adoptedStyleSheets` survives Pierre's row re-renders (a `<style>` child
+ *  could be cleared by a virtualizer pass) and stacks after Pierre's own
+ *  sheet, so the host rule wins on equal specificity. No-op if the shadow
+ *  root isn't found (defensive — Pierre always mounts one). */
+function injectShadowCss(container: HTMLElement, css: string): void {
+  const shadowRoot = findShadowRoot(container);
+  if (!shadowRoot) return;
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(css);
+  shadowRoot.adoptedStyleSheets = [...shadowRoot.adoptedStyleSheets, sheet];
+}
 
 export const FileTree: Component<FileTreeProps> = (props) => {
   let container!: HTMLDivElement;
@@ -143,6 +178,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // request in the same render tick as its own first-mount scroll.
       if (props.selectedPath) tree.scrollToPath(props.selectedPath);
       appliedPaths = props.paths;
+      if (props.shadowCss) injectShadowCss(container, props.shadowCss);
     }, props.onError);
   });
 
