@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>kolu#951 R-4 — Local PTY daemon (@kolu/pty-host) — design + phases</title>
+<style>
+  :root {
+    --fg: #1a1c20;
+    --muted: #5b6470;
+    --bg: #fafaf7;
+    --panel: #ffffff;
+    --edge: #e6e2d6;
+    --accent: #6b4eff;
+    --accent-soft: #efebff;
+    --code-bg: #f4f1e8;
+    --code-fg: #2a2d33;
+    --ok: #1b7a3a;
+    --warn: #a96400;
+    --bad: #a02a2a;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, sans-serif;
+  }
+  body {
+    margin: 0;
+    font: 15px/1.55 var(--sans);
+    color: var(--fg);
+    background: var(--bg);
+  }
+  main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  h2 {
+    font-size: 19px;
+    margin: 36px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--edge);
+  }
+  h3 {
+    font-size: 15.5px;
+    margin: 20px 0 6px;
+    color: var(--accent);
+  }
+  h4 {
+    font-size: 14px;
+    margin: 14px 0 4px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  p, ul, ol { margin: 8px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, kbd, samp {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  pre {
+    font-family: var(--mono);
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 12px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.5;
+    border: 1px solid var(--edge);
+  }
+  pre code { background: transparent; padding: 0; }
+  .lead {
+    color: var(--muted);
+    font-size: 14.5px;
+    margin: 4px 0 18px;
+  }
+  .pill {
+    display: inline-block;
+    font-size: 11px;
+    font-family: var(--mono);
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid #d4cbff;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+  .pill.ok   { background: #e3f4e9; color: var(--ok);  border-color: #b9e1c6; }
+  .pill.warn { background: #f8efd9; color: var(--warn);border-color: #e7d2a0; }
+  .pill.bad  { background: #f7e0e0; color: var(--bad); border-color: #e6b9b9; }
+  /* Standalone callout classes (not pills) — colour the text of a
+     <p>/<li> to flag a warning or a falsified-assumption note. */
+  p.warn, li.warn { color: var(--warn); }
+  p.bad,  li.bad  { color: var(--bad); }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 12px 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 7px 9px;
+    border-bottom: 1px solid var(--edge);
+    vertical-align: top;
+  }
+  th { background: var(--code-bg); font-weight: 600; }
+  td code { font-size: 12px; }
+  .cite {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  hr {
+    border: 0;
+    border-top: 1px dashed var(--edge);
+    margin: 32px 0;
+  }
+  .toc {
+    columns: 2;
+    column-gap: 28px;
+    font-size: 13.5px;
+    margin: 14px 0 28px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+  }
+  .toc a { color: var(--fg); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+  .toc ol { margin: 0; padding-left: 18px; }
+  .meta-row {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 18px;
+  }
+  details > summary {
+    cursor: pointer;
+    font-weight: 600;
+    margin: 8px 0 4px;
+  }
+  /* Collapsed phase sections — summary is styled as the h2 it wraps. */
+  details.phase {
+    margin: 36px 0 10px;
+  }
+  details.phase > summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 19px;
+    font-weight: 600;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--edge);
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 0;
+  }
+  details.phase > summary::-webkit-details-marker { display: none; }
+  details.phase > summary::before {
+    content: "▶";
+    font-size: 12px;
+    color: var(--muted);
+    flex-shrink: 0;
+    width: 14px;
+    transition: transform 0.12s ease;
+  }
+  details.phase[open] > summary::before {
+    content: "▼";
+  }
+  details.phase > summary > h2 {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: inherit;
+    font-weight: inherit;
+    display: inline;
+  }
+  details.phase[open] {
+    margin-bottom: 28px;
+  }
+</style>
+</head>
+<body>
+<main>
+<h1>R-4 — Local PTY daemonization + <code>@kolu/pty-host</code></h1>
+<p class="lead">Split out of <a href="remote-terminals.html">remote-terminals.html</a> on 2026-05-30 so the R-4 phases can be redesigned around the production restart failure below. R-1 / R-1.5 / R-1.6 (shipped) and R-2 / R-3 (post-R-4) stay in the <a href="remote-terminals.html">parent plan</a>; this file owns R-4 end-to-end. <strong>Read the constraints first — they supersede any conflicting detail in the historical sections that follow.</strong></p>
+
+<h2 id="fresh-approach">Fresh approach: phased <span class="pill">/lowy + /hickey</span></h2>
+<p class="lead">Everything below this section is the <em>as-built</em> record — the production failure, the hard constraints, the salvage of <a href="https://github.com/juspay/kolu/pull/1034">#1034</a>. This section is the plan now being <em>executed</em> — <strong>A1 (<a href="https://github.com/juspay/kolu/pull/1055">#1055</a>) and A2 (<a href="https://github.com/juspay/kolu/pull/1063">#1063</a>) have landed; B — the daemon, the one-way door — is all that remains.</strong> It began as the counterfactual: <strong>if we discarded that PR and built R-4 afresh knowing all of it</strong>, how would we decompose and phase it? It is the output of a fresh <code>/lowy</code> (Lowy / Parnas volatility-based decomposition) and <code>/hickey</code> (<em>Simple Made Easy</em>) pass over the <em>whole</em> feature — every user-facing behaviour, the correctness semantics, and the four production failure modes — taking nothing about the shipped decomposition for granted.</p>
+
+<div class="panel">
+  <p><strong>The thesis.</strong> Decompose by <em>concept</em>, not by package or process-lifecycle; rank the concepts <em>most-stable&nbsp;→&nbsp;most-volatile</em> (the axes below). But the <em>build</em> order is set by a different fact: the process decouple is the only <strong>one-way door</strong> — the single step that changes runtime topology (IPC, a surviving process, single-instance, reattach), so the only one that's genuinely risky and hard to bisect. Everything is either <em>before</em> the door or <em>part of</em> it. So the work collapses into a low-risk in-process foundation — <strong>A1</strong> (the structural refactor) then <strong>A2</strong> (the build/commit identity + the staleness-key hash, isolated for its own review) — whose only job is to shrink the door, and the door itself (<strong>B</strong>), shipped with its <em>entire</em> safety and honest-state surface.</p>
+  <p><strong>What's allowed to be a separate phase is decided by hazard, not by module or convenience.</strong> The door <em>creates</em> the hazards — a dead daemon (the empty-canvas lie), a wire-incompatible one (a bricked server), a live restart that can lose the session (#1034), an outdated daemon the user can neither see nor act on. Everything that defuses or honestly surfaces those hazards is hazard-coupled to the door and ships <em>with</em> it; nothing in that surface may drift to a follow-up — that drift <em>is</em> the bug #1034 paid for. Only what is neither hazardous nor meaningless-without-the-door can live before it, and that is exactly the in-process foundation. The one move that still matters most: identity/staleness is designed <em>in</em> as <strong>A2</strong>, before any daemon exists — a typed, build-enforced wire+behaviour closure — so a wire change can't escape the staleness key by construction; currency is then a read-site derivation (<code>staleKey !== currentBuildId()</code>), never a stored boolean. <strong>Lowy supplies the volatility ranking; Hickey supplies the within-unit shape</strong> ("restart" and "status" are compositions and single-owner projections, not god-functions).</p>
+</div>
+
+<h3 id="fresh-axes">The axes — most stable to most volatile</h3>
+<p>Both lenses converge on one spine: eight concerns, ranked by how often they change. The survivor holds only the slow end; everything per-deploy rides kolu-server's lifecycle. The boundary is <em>where the change is encapsulated</em>.</p>
+<table>
+  <tr><th>Axis</th><th>Rate</th><th>Boundary that owns it</th><th>Why both lenses land here</th></tr>
+  <tr><td><strong>PTY ownership</strong> (the survivor core)</td><td><span class="pill">rarely</span></td><td><code>@kolu/pty-host</code> + the <code>daemonMain</code> process: node-pty + the <code>@xterm/headless</code> mirror + the raw VT taps; the single-instance pid-gate; cgroup-escape spawn.</td><td>The lowest-change concept in the longest-lived process, knowing nothing of git / PR / agents / wire. Zero providers in the survivor <em>is</em> the whole correction over <a href="https://github.com/juspay/kolu/pull/1031">#1031</a>.</td></tr>
+  <tr><td><strong>Wire contract</strong> + compat rule + self-declared identity closure</td><td><span class="pill">per wire change</span></td><td><code>ptyHostSurface</code> (+ <code>PTY_HOST_CONTRACT_VERSION</code> + <code>isPtyHostContractCompatible</code>) co-located with a typed <code>PtyHostIdentity</code>, all <em>inside</em> <code>@kolu/pty-host</code>.</td><td>Encapsulate the contract <em>with</em> its version + compat predicate + identity inside the survivor package, so its source hash provably covers the wire+behaviour closure; a build-time guard fails if the contract reaches a wire/behaviour module outside the package. Kills the mis-scoped key.</td></tr>
+  <tr><td><strong>Identity values</strong>: staleness key vs navigable commit</td><td><span class="pill">key: per wire change · commit: per deploy</span></td><td><code>buildId.ts</code>: <code>currentBuildId</code> (staleKey) vs <code>currentCommitHash</code> (navigable ref), surfaced as one typed pair.</td><td>Never conflate the human-clickable commit with the staleness key. The value split is clean; the encoding is one pair, not four loose <code>z.string()</code> fields.</td></tr>
+  <tr><td><strong>Connection liveness</strong> (is-this-socket-usable)</td><td><span class="pill">per deploy</span></td><td><code>DaemonHandle.state(): live|closed</code> (raw connection + raw reported ids); <code>getDaemonHandle</code> throws on closed, <code>daemonStatusSnapshot</code> never throws.</td><td>Liveness-for-RPC vs liveness-for-display, kept distinct (the PR got this right). But currency must <em>not</em> be frozen onto this connection value.</td></tr>
+  <tr><td><strong>Provider DAG</strong> (fresh detection)</td><td><span class="pill">per deploy — most-edited code</span></td><td><code>packages/server</code> <code>providers.ts</code>: a transport-agnostic <code>ProviderRecord {pid, meta, currentAgent}</code> over plain channels seeded from the taps — never a <code>PtyHandle</code>.</td><td>The highest-change concept must ride a different process than the lowest; its zero synchronous dependency on the host <em>is</em> the freshness guarantee.</td></tr>
+  <tr><td><strong>Recovery sequence</strong> (atomic, recoverable restart)</td><td><span class="pill">per deploy</span></td><td>One orchestration unit of step-values (<code>captureSession → drainTerminals → respawn → finalize</code>), shared by the forced + user paths.</td><td>Sequence-volatility: encapsulate the <em>order</em> once so neither destructive path can be written kill-then-pray (the <a href="#r4ui-postmortem">#1034 loss</a>).</td></tr>
+  <tr><td><strong>Kill vs natural-exit</strong> discrimination</td><td><span class="pill">per deploy</span></td><td>One order-safe <code>killAndUnwatch(id)</code> (abort the exit tap <em>then</em> kill); every kill caller uses it.</td><td>Mechanise the teardown-before-kill invariant that today lives in comments replicated across <code>killTerminal</code> / <code>killAllTerminals</code> — a third kill path would silently double-publish <code>terminalExit</code>.</td></tr>
+  <tr><td><strong>Health → UI projection</strong> (honest state)</td><td><span class="pill">per UX tweak</span></td><td>One projection read by <code>ChromeBar</code> + <code>DegradedCanvas</code> + <code>DaemonRestartConfirm</code>; the cell carries only the <code>state</code> enum, identity rides separately.</td><td>Today smeared across four files with no owner (<code>canvasEmptyKind</code>, <code>ptyChipStyles</code>, the degraded branch, the <code>connecting</code> default); adding an R-3 <code>reconnecting</code> state shouldn't mean editing four.</td></tr>
+</table>
+
+<p>These eight axes collapse into <strong>three build units</strong>, split by the one-way door (the process decouple). Before the door, in-process: the structural foundation — PTY ownership, the contract, and the DAG seam (<strong>A1</strong>) — and the build/commit identity + staleness key, carved out for its own review (<strong>A2</strong>). The door itself — connection liveness, currency, recovery, the kill/exit invariant, and the health→UI projection — is <strong>B</strong>.</p>
+
+<h3 id="fresh-phases-list">Three units: the foundation (A1 · A2), and the door (B)</h3>
+<p>No feature flags — each unit ships complete to <code>master</code> and leaves Kolu working. The in-process foundation comes first, as two separately-reviewable PRs: <strong>A1</strong> (the structural refactor — extract, contract, serve-in-process, DAG) and <strong>A2</strong> (the build/commit identity + the staleness-key hash). Their only job is to make <strong>B</strong> — the one-way decouple — as small as a topology change can be. <strong>B</strong> then ships the decouple <em>together with its entire safety and honest-state surface</em>, because shipping it without the canvas / forced-restart / recovery / chip reintroduces the failures the postmortem below catalogues. The boundary rule is <strong>asymmetric</strong>: <em>hazard-coupled</em> work must stay together (so B is one PR despite its size, and nothing in it may drift to a follow-up), but <em>hazard-free</em> work may be split however helps review — which is exactly why A1/A2 is a clean cut (both are safe and in-process; neither gates the other's safety). Each unit names its <strong>LOC estimate</strong> (grounded in the analogous code on this branch; excludes one-time relocation), its <strong>risk of breaking Kolu</strong>, and its <strong>user-visible change</strong>.</p>
+
+<div class="panel">
+  <p><strong>A1 · In-process structural foundation</strong> <span class="pill">~720 + ~450 relocated · L</span> <span class="pill ok">risk: low</span> <span class="pill ok">landed <a href="https://github.com/juspay/kolu/pull/1055">#1055</a></span></p>
+  <p class="warn"><em>Naming update (<a href="https://github.com/juspay/kolu/pull/1059">#1059</a>, landed): the in-process serving below is now <code>servePtyHost(deps)</code> (transport-agnostic, returns the router) + <code>directLink(router)</code> (the no-wire member of the surface <em>link family</em> — <code>websocketLink</code> / <code>stdioLink</code> / <code>directLink</code>). <code>createInProcessPtyHostClient = directLink(servePtyHost(deps).router)</code>; <code>inProcessSurfaceClient</code> was dissolved. Read the names below as the concepts; the live symbols are these.</em></p>
+  <p><strong>Encapsulates.</strong> The three structural moves, all in-process and identity-free. <strong>(1) Extract</strong> the multi-client <code>@kolu/pty-host</code> primitive (node-pty + the <code>@xterm/headless</code> mirror + the raw VT taps: cwd · title · command-run · exit · foreground). <strong>(2) Define the wire contract <em>and serve it in-process</em>, both inside <code>@kolu/pty-host</code></strong> — <code>ptyHostSurface</code> (RPCs / streams / schemas) + the <code>major.minor</code> compat rule (<code>isPtyHostContractCompatible</code>), and the serving (<code>createInProcessPtyHostClient</code>) that fulfils it over <code>createPtyHost</code> (env/shell-init prep included — the host owns the shells it forks). The link is the <em>identity</em> one: <code>inProcessSurfaceClient</code> = <code>implementSurface</code> ∘ <code>createRouterClient</code>, a plain composition with no transport, so kolu-server already talks to the pty-host through the exact contract the socket will later carry. <strong>(3) Decouple the provider DAG</strong> over <code>ProviderChannels</code> / <code>ProviderHooks</code> / <code>ProviderRecord {pid, meta, currentAgent}</code> — never a <code>PtyHandle</code>.</p>
+  <p><strong>Builds on.</strong> Nothing — the root. (1) is a relocation, (2) is additive, (3) is a refactor of the detection hot path; all in-process. <em>The serving's <strong>home</strong> is a structural decision, so it belongs to A1, not B: it lives <em>with</em> its contract + primitive in <code>@kolu/pty-host</code>, with host-specific paths (the shell-rc dir, the version string) <strong>injected</strong> rather than imported — so there's no <code>server&nbsp;→&nbsp;pty-host</code> cycle, no hazard, and B's diff is a near-pure link-swap rather than a file relocation. The one move A1 leaves for B is <code>koluRoot</code>&nbsp;→&nbsp;<code>kolu-shared</code>, which is only needed once the daemon is a separate process computing its own root (see B · Topology).</em></p>
+  <p><strong>User-visible change.</strong> <em>None</em> — byte-identical or additive throughout; kolu-server still owns the PTYs.</p>
+  <p><strong>Why low-risk <em>and</em> high-leverage.</strong> Nothing changes runtime topology, so the full feature suite is the safety net. And by serving the contract in-process, two of the door's scariest surfaces are absorbed <em>here</em>: the <strong>contract boundary</strong> itself (the consumer speaks <code>ptyHostSurface</code>, not <code>createPtyHost</code>, so it survives the transport swap untouched) and the <strong>sync→async spawn race</strong> (spawn becomes an async call, so the <code>ready</code>-gate on attach/write is proven before any socket exists). <em>Serialization is the one door-surface A1 does <strong>not</strong> pre-absorb — the identity link is plain composition with no wire; B's socket adds it.</em></p>
+  <p><strong>Review focus.</strong> "Nothing changed behaviourally." A big, mostly-mechanical diff (a package move + a transport-shaped refactor) where the question is parity, caught by the full feature suite.</p>
+  <p><strong>Verify.</strong> The full terminal / git / agent feature suites pass unchanged; the in-process contract round-trips (the version handshake is trivially compatible); the DAG compiles with a stub channel set and <em>no</em> <code>PtyHost</code> import, and runs green against an <em>async</em> channel stub.</p>
+  <p class="warn"><strong>Cutover (one-time, observed in prod 2026-05-30).</strong> Deploying A1 over a running <a href="https://github.com/juspay/kolu/pull/1034">#1034</a> daemon does <em>not</em> reap it: that daemon survives <code>systemctl --user restart kolu</code> in its own transient cgroup (its whole purpose), but A1 has no daemon client, so it is left <em>orphaned</em> — still holding live PTYs the in-process server can neither see nor reattach (on the prod cutover: 4 running agent sessions + 1 idle shell). So the A1 cutover carries a manual migration step: <code>systemctl --user stop kolu-pty-host.service</code> to reap the orphan + its cgroup. A clean install has no prior daemon, so this is purely a #1034→A1 migration artifact, not part of the steady state.</p>
+</div>
+
+<div class="panel">
+  <p><strong>A2 · Build/commit identity + the staleness-key hash</strong> <span class="pill">~330 · S–M</span> <span class="pill ok">risk: low</span> <span class="pill">highest-stakes review</span> <span class="pill ok">landed <a href="https://github.com/juspay/kolu/pull/1063">#1063</a></span></p>
+  <p class="lead"><strong>Companion UI prototype →</strong> the consolidated <code>srv · pty</code> ChromeBar rail this phase ships — mocked up with live theme tokens and every state (connected · connecting · dead · the B-phase divergence) — lives in <a href="remote-terminals.pty-daemon.chrome-bar.html">remote-terminals.pty-daemon.chrome-bar.html</a>.</p>
+  <p><strong>Landed (<a href="https://github.com/juspay/kolu/pull/1063">#1063</a>).</strong> Built fresh on A1 + the <a href="https://github.com/juspay/kolu/pull/1059">#1059</a> link family. <em>Prod-verified on macOS + Linux.</em> A post-merge break (<a href="https://github.com/juspay/kolu/pull/1068">#1068</a>) surfaced an <em>unrelated</em> migration bug — #1065's required <code>unpushedCommitCount</code> on the persisted <code>GitInfoSchema</code> (embedded in <code>SavedSessionSchema</code>) made existing saved sessions fail <code>session.get</code> output validation on deploy; fixed with <code>.default(0)</code>, a reminder that any required field on a persisted+streamed schema needs a migration/default. The three deliverables, as shipped:</p>
+  <ol>
+    <li class="warn"><strong>Extend <code>system.version</code>.</strong> It currently returns <code>{contractVersion, pid, startedAt}</code> — see <code>SystemVersionOutputSchema</code> in <code>packages/pty-host/src/ptyHostSurface.ts</code>, served in <code>packages/pty-host/src/inProcessPtyHost.ts</code> (the <code>servePtyHost</code> handlers). Add the typed <code>PtyHostIdentity {staleKey, navigableCommit}</code>.</li>
+    <li class="warn"><strong>Add the identity values + the closure-hash guard.</strong> <code>currentBuildId</code> (the <strong>staleKey</strong>) and <code>currentCommitHash</code> (the navigable git ref) are <strong>nix-injected env</strong> (<code>KOLU_PTY_HOST_BUILD_ID</code> + <code>KOLU_COMMIT_HASH</code> baked on the koluBin wrapper) — <em>no dev fallback</em>; kolu and the pty-host run only under nix. The staleKey is the nix hash of the package's own source closure (<code>packages/pty-host/src/*.ts</code> minus tests + <code>package.json</code>): <em>tight</em> (provider churn in <code>kolu-common</code> can't over-prompt) and <em>complete</em> for the package's own wire+behaviour. The build-time test guards the one regression that matters — a wire/behaviour module landing <em>outside</em> the hashed package (the #1034 mis-scope): it walks <code>index.ts</code>'s imports and fails on any reached module that's neither in-package nor on a small allowlist of stable deps (<code>zod</code>, <code>@kolu/surface</code>, the <code>kolu-common</code> leaf, <code>node-pty</code>/<code>@xterm</code> via the pin). No dependency is severed.</li>
+    <li class="warn"><strong>ChromeBar identity rail (client).</strong> A consolidated two-column <code>srv · pty</code> rail that <em>absorbs the WebSocket status dot</em> (the dot is "srv" liveness). <code>srv</code> = the server's own commit; <code>pty</code> = the pty-host's <code>navigableCommit</code> + <code>staleKey</code>. Build it in its <em>final two-column shape</em>: in A2 the columns coincide (in-process) and that match <em>is</em> the acceptance signal; B only lets the <code>pty</code> column <em>diverge</em> (outdated/dead). See the <a href="remote-terminals.pty-daemon.chrome-bar.html">rail prototype</a>.</li>
+  </ol>
+  <p class="warn">The client speaks <em>kolu-server's</em> surface, not the pty-host's — so kolu-server fetches <code>system.version.identity</code> once at boot and <strong>relays it onto <code>server.info</code></strong> (beside its own commit); the rail reads that. Nothing here needs a daemon (the running build is an in-process fact), and nothing depends on B. The detail below is the full spec.</p>
+  <p><strong>Encapsulates.</strong> All the identity / hashing, isolated. <code>currentBuildId</code> (the <strong>staleKey</strong> — the nix hash of the package's source closure) + <code>currentCommitHash</code> (the navigable ref), both nix-injected, surfaced as a typed <code>PtyHostIdentity {staleKey, navigableCommit}</code> on A1's <code>system.version</code>; the <strong>build-time closure-hash guard</strong> (a wire/behaviour module can't escape the key by landing outside the hashed package); and the consolidated <code>srv · pty</code> ChromeBar identity rail — absorbing the WebSocket dot, built in its final two-column shape, with <code>pty</code> fed from <code>system.version.identity</code> relayed via <code>server.info</code>.</p>
+  <p><strong>Builds on.</strong> A1 (the package whose source closure the hash covers + whose import graph the guard walks; the <code>system.version</code> shape it extends). Nothing here needs a daemon — the running build is a fact in-process, so it's pre-door <em>by nature</em>.</p>
+  <p><strong>User-visible change.</strong> The ChromeBar's WebSocket dot grows into a consolidated <code>srv · pty</code> identity rail (connection liveness + build/commit). In A2 the two columns coincide (in-process); B lets <code>pty</code> diverge (outdated / dead).</p>
+  <p><strong>Why split from A1.</strong> Low risk to ship (purely additive + a build-time test + an inert readout), but it is the single most <em>load-bearing correctness mechanism</em> in the plan — the closure-hash key is what makes the mis-scoped-key and over-prompting failures impossible. Reviewing it buried inside A1's package-move diff would drown the one thing that most needs scrutiny; alone, the review question is sharp and total: <em>does the hash cover exactly the wire+behaviour closure, and does <code>isStale</code> flip iff a restart would gain terminal-host code?</em> The cut is safe precisely because A2 is hazard-free — it gates nothing, so splitting costs only a PR boundary.</p>
+  <p><strong>Verify.</strong> Mutating any pty-host source file (add an RPC, change a schema, touch the primitive) flips the staleKey; a server/client-only change leaves it unchanged (no over-prompt). The build-time guard fails if the contract reaches a wire/behaviour module <em>outside</em> the hashed package (an allowlisted external dep doesn't trip it) — <em>the mis-scoped-key bug is a failing test from day one</em>. The <code>srv · pty</code> rail's columns match in-process (the acceptance signal). Identity <em>values</em> (<code>currentBuildId</code> / <code>currentCommitHash</code>) re-export as values, not type-only (the regression that collapsed the typed client to <code>unknown</code>).</p>
+</div>
+
+<div class="panel">
+  <p><strong>B · The daemon — complete and safe</strong> <span class="pill">~2800–3100 · XL</span> <span class="pill bad">risk: high — the one-way door</span> <span class="pill">next — A1 + A2 landed</span></p>
+  <p class="lead"><strong>Companion designs →</strong> <code>kolu-tui</code> — a CLI terminal client of kolu-server's <em>in-process</em> pty-host (over a unix socket; the seed of a <code>tmux</code> replacement, shipped beta-phased on the in-process server — a <strong>separate plan, not the daemon</strong>) — lives in <a href="remote-terminals.pty-daemon.tui.html">remote-terminals.pty-daemon.tui.html</a>. It dovetails with B only later: when B daemonizes the pty-host, kolu-tui's socket retargets the daemon with no contract change. The <code>srv · pty</code> rail whose outdated/dead <em>divergence</em> B activates is in <a href="remote-terminals.pty-daemon.chrome-bar.html">remote-terminals.pty-daemon.chrome-bar.html</a>.</p>
+  <p class="warn"><strong>Start here (current state — A1 (<a href="https://github.com/juspay/kolu/pull/1055">#1055</a>) + A2 (<a href="https://github.com/juspay/kolu/pull/1063">#1063</a>) landed; B is the only phase left).</strong> The foundation is in <code>master</code>: <code>ptyHostSurface</code> is served in-process via <code>servePtyHost</code> + <code>directLink</code> — B's topology bullet is swapping that link for a unix socket, the serving body reused unchanged. <code>system.version</code> already carries the typed <code>PtyHostIdentity {staleKey, navigableCommit}</code> + <code>currentBuildId()</code> (nix-baked), so currency is a read-site <code>staleKey !== currentBuildId()</code> derivation with no new identity work. And the <code>srv · pty</code> ChromeBar rail ships with its <strong>outdated/dead branches dormant</strong> — B makes them reachable by giving <code>pty</code> a separate surviving process; no re-layout, no new component. So B is: the topology decouple + reattach-by-id + the composed recovery mechanism (incl. the #1034 fix) + activating those dormant honest-state branches — one hazard-coupled unit, detailed below.</p>
+  <p class="warn"><strong>Cutover &amp; rollback (the inverse of A1's orphan).</strong> Deploying B onto today's prod is <em>clean</em> — A2 runs in-process, so there's no prior daemon; the first B boot just spawns one. But the symmetric hazard A1 documented runs the other way for a <em>downgrade</em>: roll B back to A2 (or any in-process build) and the surviving B daemon is <strong>orphaned</strong> — still holding live PTYs the in-process server can neither see nor reattach (exactly A1's #1034→A1 orphan, mirrored). So a B→A2 rollback carries the same manual step A1 named: <code>systemctl --user stop kolu-pty-host.service</code> to reap the orphan + its cgroup before (or right after) the downgrade. A clean install never hits this; it is purely a daemon↔in-process migration artifact in <em>either</em> direction.</p>
+  <p><strong>Encapsulates.</strong> The decouple <em>and everything its new failure modes require</em>, as one cohesive unit:</p>
+  <ul>
+    <li><strong>Topology</strong> — swap A's in-memory link (<code>createRouterClient</code>) for a unix socket (<code>serveOverStdio</code>): A's <code>createInProcessPtyHostClient</code> serving body is <em>reused unchanged</em> — only the link differs, because A1 already put the serving in its final home (<code>@kolu/pty-host</code>). The one structural move A1 deferred lands here: relocate <code>koluRoot</code> / <code>koluShellDir</code> → <code>kolu-shared</code> so the daemon computes its <em>own</em> root (it only matters once the daemon is a separate process — no in-process reason to do it earlier). Plus the <code>kolu --stdio</code> daemon in its own cgroup (survives <code>systemctl --user restart kolu</code>); the single-instance pid-gate (<code>tryAcquirePidFile</code>, <code>O_EXCL</code> held-until-death); the dev-flag exec-arg filter.</li>
+    <li><strong>Reattach-by-id</strong> — server mints the UUID == daemon PTY id; on boot, list + join the saved session, no-spawn re-register, <code>publishMetadataSnapshot</code> for grouping; A's decoupled DAG now runs fresh in kolu-server against the surviving taps over <code>bridgeStream</code>.</li>
+    <li><strong>Currency</strong> — a read-site derivation <code>staleKey !== currentBuildId()</code>, never a stored boolean.</li>
+    <li><strong>The recovery mechanism</strong> — one <code>killAndUnwatch</code> (abort the exit tap <em>then</em> kill, order-safe) and one composed restart (<code>captureSession → drainTerminals → respawn</code>, with the <code>waitForPidGone</code> lock-release barrier + load-aware timeouts, <code>→ finalize</code>), shared by the forced (incompatible) and user paths. Includes the <strong>#1034 fix</strong>: snapshot-before-kill + <code>setSavedSession</code> winning the autosave-cancel race, so a failed respawn leaves a restorable session, never a void. <em>The <code>cancelPendingAutosave</code> fix makes this robust to the autosave <strong>race</strong>, and the load risk that aggravated it — the <a href="https://github.com/juspay/kolu/issues/1041">#1041</a> rightPanel-preference storm (200+ patches/min) that contended with the autosave the restart relies on — is <strong>already fixed</strong> (<a href="https://github.com/juspay/kolu/pull/1050">#1050</a>, coalesced writes via <code>@solid-primitives/scheduled</code>), so it is <em>not</em> a B prerequisite — both axes of the #1034 restart-loss condition are now closed.</em></li>
+    <li><strong>The daemon-state surface</strong> — the <code>DaemonStatus</code> cell (state enum only) + a one-shot <code>buildInfo</code> RPC; the update-pending nudge, the degraded canvas (no empty-canvas lie), the restart dialog, and the <em>divergence</em> of A2's <code>srv · pty</code> rail — its <code>pty</code> column flipping <strong>outdated</strong> (amber) / <strong>dead</strong> (red) via the read-site derivation <code>staleKey !== currentBuildId()</code>. <em>The rail itself ships in A2</em> — the identity + connection readout is a pre-door fact, and in-process the <code>pty</code> column is honest (a live same-build fact, not an absent-daemon lie). What lands in B is only the <strong>divergence semantics</strong>: those states are wired-but-inert in A2 (nothing can diverge from itself) and become reachable once <code>pty</code> is a separate surviving process. No re-layout, no new component — B fills in branches A2 left dormant.</li>
+  </ul>
+  <p class="bad"><strong>Why it's all one unit, not a door plus follow-ups.</strong> Every bullet after <em>Topology</em> is hazard-coupled to it: the decouple is what creates the dead / incompatible / outdated / restart-loss states, so shipping the door without the canvas, the forced-restart, the recovery mechanism, or the chip reintroduces exactly the postmortem's failures — that drift <em>is</em> the seam #1034 fell through. The honest-state surface is also <em>one concept with one owner</em>: you cannot ship half a chip (dead but not outdated). So it lands whole.</p>
+  <p><strong>Builds on.</strong> All of A, and <em>only</em> A's published boundaries — the contract (now over a socket), the identity (currency derives from <code>staleKey</code>), the in-process-proven DAG (now fed via <code>bridgeStream</code>), and the already-absorbed async-spawn gate. <em>B writes the socket-serving glue — <code>serveOverStdio</code> over a unix socket, the stdio link, and <code>bridgeStream</code> — <strong>package-locally</strong>; whether any of it upstreams into <code>@kolu/surface</code> (the stdio-serve glue, the version/build-id handshake pattern, contract-compat helpers) is a deliberate <strong>post-B</strong> evaluation (the <a href="#r4-todo">open follow-up</a>), not folded into the door's diff.</em></p>
+  <p><strong>User-visible change.</strong> <strong>Terminals survive a kolu-server restart / deploy</strong> (scrollback + git/agent context intact), <em>and</em> the daemon-health surface comes alive: the <code>srv · pty</code> rail's <code>pty</code> column starts diverging (outdated / dead), plus the update-pending nudge, the honest degraded canvas, and the restart dialog.</p>
+  <p class="bad"><strong>Why this is the risk spike — and can't be smaller.</strong> The core terminal I/O path now crosses a socket to a separate surviving process; survival, single-instance, reattach, and the async race are new failure surfaces. It's the only step where "type into a terminal" can break, and it can't be reordered because every part of it operates on the daemon. A's job was to shrink it to a transport swap plus survival; it cannot be split further without shipping a known-unsafe intermediate — a door with no honest state or recovery, which <em>is</em> the #1034 regression.</p>
+  <p><strong>Verify.</strong> <em>Gate the build in three stages, not just at the end.</em> <strong>(0) De-risk first:</strong> a throwaway cgroup-survival + socket-reattach spike on a <code>pu</code> systemd box re-proves the door's core mechanic on <em>current</em> master (the <a href="https://github.com/juspay/kolu/pull/1059">#1059</a> link family + <code>serveOverStdio</code>) <em>before</em> the ~1500 LOC build — the original "cgroup spike-verified" proof predates #1059 and the in-process relocation. <em>(Run 2026-05-31 on a <code>pu</code> box, kernel 6.12 / cgroup-v2: a <code>systemd-run --user --unit=</code> survivor and its child PTY outlived a <code>systemctl --user restart</code> of the parent, the in-parent-cgroup control child was killed, and a fresh client reattached to the survivor's socket with in-memory state intact — passed.)</em> <strong>(1) Test-first:</strong> the two feature files below are written <em>red</em> before topology lands. <strong>(2) The acceptance signal is the <em>second</em> deploy, not the first</strong> — today's prod runs A2 in-process, so the first B deploy merely spawns a daemon (nothing to survive or reattach yet); survival, reattach, and the restart race are first exercised only when B is redeployed over a <em>live</em> B daemon with running agents. Then the suite: <code>daemon-reattach.feature</code> passes through a real mid-scenario server restart (all four scenarios before <em>and</em> after; an idle shell stays agentless). <code>daemon-update.feature</code> via <code>KOLU_BUILD_ID_OVERRIDE</code>: the nudge appears after a newer-build restart and clears after restart-via-nudge. Inject a throwing respawn → the pre-restart session is intact on disk, status is <code>dead</code>, the error rethrows. <code>kill -TERM</code> kolu-server leaves the daemon alive in its own cgroup; a second daemon against a held pid-file <code>exit(0)</code>s. The <code>daemonStatus</code> payload contains <em>only</em> <code>{state}</code>; a hypothetical <code>reconnecting</code> state touches one module.</p>
+</div>
+
+<p><em>Three PRs: A1, A2, B.</em> A1 and A2 are split purely for review clarity — both are safe and in-process, and neither gates the other (the asymmetric rule: hazard-free work splits freely). B stays <em>one</em> PR despite its size — hazard, not convenience — built as ordered commits (topology → reattach → recovery → honest-state UI) that land together because no part of its safety surface may ship without the rest. Work genuinely beyond R-4 — the ssh transport (R-2), mid-session reconnect resilience (R-3), session export/import (already shipped, <a href="https://github.com/juspay/kolu/pull/1046">#1046</a>) — builds on B afterward.</p>
+
+<h3 id="fresh-impossible">What this makes impossible by construction</h3>
+<p>The four production failures stop being review-time vigilance and become a <em>failing unit test at the phase that owns the concept</em>:</p>
+<table>
+  <tr><th>Production failure</th><th>Lens diagnosis</th><th>Killed at</th><th>How</th></tr>
+  <tr><td>Mis-scoped staleness key (a wire change didn't flip it)</td><td>Lowy: boundary leaked across packaging · Hickey: concept inferred from a directory accident</td><td><strong>A2</strong></td><td>The survivor's closure <em>is</em> the package; the staleKey hashes its source, and a build-time guard fails if the contract reaches a wire/behaviour module outside that package. The mis-scope can't recur.</td></tr>
+  <tr><td>Over-prompting (whole-binary hash nudged every deploy)</td><td>Lowy: keyed on the wrong volatility axis</td><td><strong>A2</strong></td><td>The closure-scoped key flips iff a restart gains terminal-host code; a server-only change leaving the key unchanged is a falsifiable test, not a tuning regret.</td></tr>
+  <tr><td>Data-loss restart (kill-then-pray)</td><td>Lowy: un-encapsulated sequence-volatility · Hickey: a 7-concern god-function</td><td><strong>B</strong></td><td>The recovery mechanism — one composed restart shared by the forced + user paths — ships <em>with</em> the door, so "kill before snapshot" is structurally impossible and two destructive code paths collapse to one.</td></tr>
+  <tr><td>Empty-canvas lie (dead daemon → "you have no terminals")</td><td>Lowy: failure presentation had no owning boundary · Hickey: place-over-value</td><td><strong>B</strong></td><td>Honest liveness as a value and a single owned health→UI projection both ship with the door, so the canvas cannot get it wrong — the honest state is part of B, never a follow-up.</td></tr>
+</table>
+<p>Three further structural braids dissolve with them: currency-stored-not-derived (a frozen <code>outdated</code> on the connection) → a read-site derivation in <strong>B</strong>; identity-with-no-typed-receptacle (four loose strings, an inlined <code>!==</code>, a copy-pasted <code>BuildRef</code>) → one <code>PtyHostIdentity</code> defined in <strong>A2</strong>, rendered through one shared <code>srv · pty</code> rail (both columns + the server proxy in <strong>A2</strong>, the divergence semantics in <strong>B</strong>); and the health cell over-streaming four diagnostic ids to every browser → a <strong>B</strong> cell that carries only <code>{state}</code>, provenance via a one-shot <code>buildInfo</code>.</p>
+
+<h3 id="fresh-tensions">Where Lowy and Hickey disagreed</h3>
+<ul>
+  <li><strong>Health cell vs provenance (in B).</strong> Lowy would tolerate keeping the identity pair <em>on</em> the status cell (one wider value vs an extra round-trip); Hickey insists on splitting (different concepts, change-rates, consumers). <em>Resolved:</em> split, but provenance is a <em>one-shot</em> <code>buildInfo</code> RPC into a signal — not a streaming cell — so the extra wire surface is a single connect-time call, satisfying Lowy's own "keep the cell minimal" warning too.</li>
+  <li><strong>Recovery as one mechanism (in B).</strong> Lowy wants the restart <em>sequence</em> encapsulated once; Hickey warns that forcing the forced-restart (nothing to preserve, PTYs already doomed) and the user-restart (session must survive) through one body risks complecting two failure semantics — easiness masquerading as simplicity. <em>Resolved:</em> one composed mechanism whose step-values <em>parameterise</em> what-to-preserve (<code>captureSession</code> returns an empty context on the forced path) — one ordering owner, no tangled body.</li>
+  <li><strong>Identity shape.</strong> Both agree the key-vs-commit <em>value</em> split is correct; the residual tension is encoding + storage. <em>Resolved:</em> <code>PtyHostIdentity</code> is the single emitted value (Lowy's receptacle); currency is <em>derived</em> from its <code>staleKey</code> at the read site (Hickey's derivation); the browser receives only the readout projection, so identity-for-staleness never leaves the server.</li>
+  <li><strong>Live currency's new transition.</strong> A read-site derivation introduces a <code>connected→outdated</code> mid-session flip the frozen design never had. <em>Resolved:</em> B scopes <code>currentBuildId</code> as memoised / process-stable and adds the two-snapshot test; a genuinely runtime-changing key is deferred to R-3 with its own UI-transition test, not silently assumed.</li>
+</ul>
+
+<h3 id="fresh-why-order">The risk profile</h3>
+<p>Two risk levels: <strong>A1</strong> and <strong>A2</strong> are <span class="pill ok">low</span> — byte-identical or additive, user-invisible, the full feature suite as their net; <strong>B</strong> is <span class="pill bad">high</span> — the one-way door. There is no middle. The whole point of A1 and A2 is to be the cheap, confidence-building work you land first so that B, when it comes, is the <em>only</em> variable in play and arrives against an unchanged-behaviour codebase that already speaks the contract. B is an irreducible spike — with no flags, moving PTYs into a surviving process is one atomic step — and it carries its entire safety + honest-state surface, because every part of that surface is hazard-coupled to the door (a dead / incompatible / outdated / restart-loss state the door itself creates). You shrink everything <em>around</em> the door; you do not pretend the door is small, and you do not let its safety surface drift out.</p>
+<p>This split is derived from the <em>end-state architecture</em>, not from how the work actually shipped. For reference, the incident-driven path that was taken — extract → parameterise → daemonise → re-cut the UI after a production failure — is the as-built record below; its defining mistake was letting the door's safety surface (honest state + recovery) drift into a follow-up, which is the seam <a href="#r4ui-postmortem">#1034</a> fell through. Here that surface is, <em>by the hazard rule</em>, part of B; and identity/staleness is a first-class boundary (A2), build-time enforced, so the mis-scoped-key and over-prompting failures are unit tests on day one rather than late retrofits.</p>
+
+<div class="panel">
+  <p><strong>Net.</strong> Three units, no feature flags, split by the one-way door. The in-process foundation — <strong>A1</strong> (extract the primitive · define + serve the contract in-process · decouple the DAG) and <strong>A2</strong> (the build/commit identity + the staleness-key hash, carved out for focused review) — is low-risk, user-invisible, and exists only to shrink the door. <strong>B — the decouple</strong> ships the daemon <em>complete</em>: topology, reattach, currency, the full recovery mechanism (including the #1034 fix), and the entire honest-state UI — because every piece is hazard-coupled to the door and none may drift out. The boundary rule: <em>what's allowed to be a separate phase is decided by hazard, not by module or convenience.</em> The deepest things already proven right — reattach-by-id collapsing two identities into one, the zero-provider survivor, <code>getDaemonHandle</code> refusing a dead client, the metadata write-fence partition — carry over verbatim.</p>
+</div>
+
+<hr/>
+
+<div class="panel">
+  <p class="bad"><strong>⚠ Everything below this point is the DISCARDED <a href="https://github.com/juspay/kolu/pull/1034">#1034</a> lineage — the as-built record of the path we walked back, NOT the live design.</strong></p>
+  <p>The incident-driven path (extract → parameterise → daemonise → re-cut the UI after the production failure) shipped, then was <strong>superseded by the fresh approach above</strong>. <strong><a href="https://github.com/juspay/kolu/pull/1055">#1055</a> (A1) reverted production to a pure in-process server</strong> and surgically removed <em>all</em> of #1034's daemon machinery — the <code>--stdio</code> daemon, <code>systemd-run</code> spawn, recoverable restart (<code>waitForPidGone</code>), the build-id/staleness key (<code>KOLU_PTY_HOST_BUILD_ID</code>, <code>buildId.ts</code>), and the daemon-state UI (status chip, <code>DegradedCanvas</code>). <strong>There is no daemon in the codebase today.</strong> What survives is the contract seam: <code>ptyHostSurface</code> served in-process via <code>servePtyHost</code> + <code>directLink</code> (the <a href="https://github.com/juspay/kolu/pull/1059">#1059</a> link-family refactor). So read the sections below for the postmortem, the <a href="#r4ui-constraints">hard constraints</a>, and the <a href="#r4-redo-rules">execution learnings</a> — but treat every "phase table that shipped" / "prod-verified" note as history, not current state. The live plan is <strong>A1 (landed) → A2 → B</strong> above.</p>
+</div>
+
+<h2 id="r4ui-postmortem">⚠ Production failure (2026-05-30) — the R4c-UI restart that lost a session</h2>
+<p>The first R4c-UI build (the build-mismatch "update pending" nudge + a <em>Restart local PTY daemon</em> command — <a href="https://github.com/juspay/kolu/pull/1034">#1034</a>) shipped to production (Linux/systemd). The nudge fired correctly on a deploy; clicking restart then <strong>destroyed a live 20-terminal session and could not bring the daemon back</strong>. macOS was unaffected. Timeline from the user-service journal:</p>
+<pre><code>08:26  terminal created, total:20            &larr; 20 live terminals (Claude Code agents)
+08:29  "restarting local PTY-host daemon (user-triggered)"
+08:29  "killing all terminals" count:20       &larr; killAll drains ALL 20 first
+08:29  daemon socket closed / old daemon SIGTERM
+08:29  (old daemon: 13.5h old, 25G RAM / 40.6G swap &mdash; box thrashing)
+08:29  "Daemon failed to start: socket did not appear within 30s"  &larr; RESPAWN TIMED OUT
+08:31  new daemon finally binds (~2 min after SIGTERM)</code></pre>
+<p class="bad"><strong>Net effect:</strong> killAll ran <em>before</em> the new daemon was confirmed up; the respawn timed out at 30s while the overloaded box took ~2&nbsp;min to release the old daemon's pid-file + socket. The user was left with <strong>zero terminals and a dead daemon handle</strong>, and the canvas rendered <strong>empty</strong> — indistinguishable from "you have no terminals." The 20 PTYs (running agents + scrollback) were gone; restore re-created only fresh empty shells. No second daemon ever ran — single-instance held (pid-file <code>O_EXCL</code> + liveness probe, plus the systemd unit name); the failure was the respawn losing the race against the slow old-daemon exit.</p>
+
+<h3 id="r4ui-constraints">Hard constraints for the redo</h3>
+<ol>
+  <li class="bad"><strong>Restart must be recoverable, never kill-then-pray.</strong> <code>restartLocalPtyHostDaemon</code> drained all 20 terminals before confirming the new daemon could bind; the respawn then failed with no rollback. A daemon restart inherently loses the PTYs (accepted, confirmed cost) — but the <em>failure mode</em> must not be silent loss. Snapshot the session first; after respawn, auto-reattach / offer restore; if respawn fails, surface a loud, recoverable degraded state with the session preserved — never an empty canvas.</li>
+  <li><strong>Wait for the old daemon to fully exit — the single-instance lock fights the restart.</strong> SIGTERM-then-immediately-respawn races the pid-file (<code>O_EXCL</code> + liveness probe) and the <code>--unit=kolu-pty-host</code> name; the new daemon can't acquire until the old one is gone. <code>restartDaemon</code> waited 5s for the socket and polled 30s for the respawn — both far too short. Wait on the actual process exit (pid gone via <code>kill(pid,0)</code>) before spawning, with a generous, load-aware ceiling (prefer event-driven waits over fixed polls).</li>
+  <li><strong>Timeouts must fit a loaded production box, not an idle dev one.</strong> 20 heavy PTYs tearing down + a tsx cold-start under swap pressure &gt;&gt; 30s. macOS passed only because it was fast. Every restart / spawn deadline needs real headroom.</li>
+  <li class="bad"><strong>Never lie about state — show "Connecting…/degraded", not an empty canvas.</strong> A dead/absent daemon handle (<code>getDaemonHandle()</code> throwing) rendered as silent emptiness. It must surface as an explicit connecting / degraded UI state. The empty canvas is what made the user believe the session was permanently lost.</li>
+  <li><strong>A persistent PTY status indicator — always visible.</strong> The only daemon signal today is the amber nudge, shown <em>only</em> when <code>outdated</code>. There must always be a PTY status chip (distinct from the WebSocket dot) with explicit states — <strong>connected · connecting · degraded/dead · update-pending</strong> — so the daemon's health is always glanceable, exactly like the WS connection dot. <em>(Being implemented onto #1034 as a first cut.)</em></li>
+  <li><strong>Key staleness on pty-host, not the whole binary.</strong> <code>currentBuildId()</code> keys on the <code>/nix/store/&lt;hash&gt;-kolu-stamped</code> path = the <em>entire</em> kolu build, so <em>every</em> deploy (even server/client-only, pty-host untouched) fires the nudge — and acting on it costs a terminal-losing restart for <em>zero</em> benefit. Hash the <code>@kolu/pty-host</code> source/closure (or bake a pty-host-specific rev) so the soft nudge only fires when a restart actually gains something. Wire-incompatible contract changes stay on the forced-restart path. <em>(This trade-off was not surfaced at planning — it should have been.)</em></li>
+  <li><strong>Back up the session before a destructive restart.</strong> The saved session survived here only by luck (6 terminals on disk). Snapshot it to a backup before any kill-all / restart so a botched restart is recoverable. <em>(Done — <a href="https://github.com/juspay/kolu/pull/1046">#1046</a> shipped Export/Import session commands (<code>sessionTransfer.ts</code> in <code>packages/client/src/</code> — a ⌘K palette feature): a user-triggered backup/restore hatch for the <code>SavedSession</code> blob. The in-restart snapshot/auto-restore also landed with constraints #1&ndash;3. Issue <a href="https://github.com/juspay/kolu/issues/1040">#1040</a> closed.)</em></li>
+  <li><strong>Fix the preferences storm.</strong> During the churn the client emitted 200+ <code>rightPanel</code> <code>size</code>/<code>codeTabTreeSize</code> patches (bursts ~100–230/min) — a ResizeObserver-style feedback loop that saturated the server and contended with the autosave the restart relies on. Debounce / guard it (pre-existing, not introduced by #1034). <em>(Filed as <a href="https://github.com/juspay/kolu/issues/1041">#1041</a>.)</em></li>
+</ol>
+
+<h3 id="r4-redo-rules">Execution postmortem — mistakes made building this PR (don't repeat them)</h3>
+<p>The <a href="#r4ui-constraints">Hard constraints</a> above are about the <em>product</em> behaviour to build. This section is a different thing: a <strong>postmortem of the build process itself</strong> — every mistake the salvage of <a href="https://github.com/juspay/kolu/pull/1034">#1034</a> made and had to correct mid-flight (production scares, broken builds, duplicate artifacts, git mishaps). If you are re-cutting this PR, treat each as a pre-committed rule. Grouped by kind.</p>
+
+<h4>Architecture / scoping</h4>
+<ol>
+  <li class="bad"><strong>The staleness hash must cover the daemon's <em>entire</em> closure, not just <code>packages/pty-host/</code>.</strong> <code>KOLU_PTY_HOST_BUILD_ID</code> hashes only <code>packages/pty-host/**</code>, but the surviving daemon's wire contract (<code>ptyHostSurface.ts</code> + <code>PTY_HOST_CONTRACT_VERSION</code>), its entrypoint (<code>agent/main.ts</code>), and its startup utils (<code>daemonUtils.ts</code>, <code>buildId.ts</code>) all live under <code>packages/server/src/</code> — <em>outside</em> the hash. So an Axis-2 wire-shape change does <strong>not</strong> flip <code>outdated</code>; it's caught only if you also remember to bump the contract version. Mis-scoped key = the exact silent-skew bug #6 was meant to kill. <strong>Fix = encapsulation, not a wider fileset glob:</strong> move the whole daemon closure <em>into</em> <code>@kolu/pty-host</code> so "the survivor" <em>is</em> the package and "hash the package" is correct by construction. A glob re-introduces drift the next time a daemon file lands under a new path. Verification test: "if I edit the wire schema, does the build id change?" — if no, the key is wrong. <em>(Found in prod review; <strong>fixed</strong> in this PR — the closure now lives in <code>@kolu/pty-host</code>, bar the thin <code>--stdio</code> dispatch shim in <code>index.ts</code> which carries no wire shape and stays outside by design; see the <a href="#r4-prod-verify">follow-on work</a>.)</em></li>
+  <li><strong>Two staleness axes — both must be independently detectable.</strong> <em>Axis 1, build drift</em> (pty-host source changed, wire still compatible) → soft "update pending" nudge, user restarts when convenient. <em>Axis 2, wire-incompatible</em> (schema shape changed) → forced restart at connect (output-validation throw → <code>IncompatibleDaemonError</code>), terminals lost. A schema change with <em>no</em> contract-version bump must still be caught — which only works once rule 1 is fixed (the hash covers the contract). Don't rely on humans remembering the bump.</li>
+  <li><strong>Additive wire fields are <code>optional</code> + no contract bump.</strong> A required new field makes a surviving (older) daemon's <code>system.version</code> fail the new server's schema validation → forced restart → terminals lost, <em>just to add a diagnostic</em>. <code>commitHash</code> was added optional for exactly this reason: the live prod daemon kept running; its <code>pty</code> readout simply showed the non-linked fallback until next restart. Reserve breaking (required) changes — and the <code>PTY_HOST_CONTRACT_VERSION</code> bump — for shapes that genuinely can't interoperate.</li>
+  <li><strong>Identity surfaced to the user must be the navigable one.</strong> The build-id readout first shipped the pty-host <em>source hash</em> (<code>b72d6da</code>) — not a git SHA, so it wasn't clickable to a commit. Bake <code>KOLU_COMMIT_HASH</code> (server + daemon) and link <em>that</em>; keep the source hash as the staleness key only. Don't conflate "the staleness key" with "the thing a human clicks".</li>
+</ol>
+
+<h4>Process / git discipline</h4>
+<ol>
+  <li class="bad"><strong>Typecheck every package <em>before</em> commit/push — never after.</strong> Two commits (<code>3fd7ea63</code>, <code>b21404ab</code>) shipped a broken server build because <code>Edit</code>s had <em>silently failed</em> (file-changed-since-read) and the missing symbols weren't caught until a later sweep. After any edit, re-grep that the change actually landed, then run <code>tsc --noEmit</code> across <code>common</code> + <code>server</code> + <code>client</code> before committing. <code>nix build</code> + <code>tsc</code> tolerate import cycles that full CI (<code>just check</code>'s Biome <code>noImportCycles</code>) rejects — so a clean <code>nix build</code> is <em>not</em> proof CI passes.</li>
+  <li class="bad"><strong>Never <code>git stash</code> in this worktree.</strong> A <code>stash</code>/<code>switch</code>/<code>stash pop</code> dance to check whether a lint error pre-existed popped an <em>unrelated</em> stash into the tree and produced phantom merge conflicts (<code>CanvasMinimap.tsx</code>, <code>Dock.tsx</code>) that had nothing to do with the work. To check history, use <code>git show &lt;ref&gt;:&lt;path&gt;</code> or a throwaway <code>git worktree</code>, not stash.</li>
+  <li class="bad"><strong>Resolve <em>all</em> conflict markers before committing a merge.</strong> The <code>origin/master</code> merge (#1046) was committed with unresolved <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> markers still in <code>commands.tsx</code> because one resolving <code>Edit</code> had failed on a string mismatch — which broke <code>nix build</code> in production with "Unexpected token". After resolving, <code>git grep -nE '^(&lt;&lt;&lt;&lt;&lt;&lt;&lt;|=======|&gt;&gt;&gt;&gt;&gt;&gt;&gt;)'</code> must return nothing before the merge commit.</li>
+  <li><strong>Confirm an <code>Edit</code> actually applied.</strong> Several edits silently no-op'd because the file had changed since the last read; the duplicate-line and missing-symbol fallout cost extra commits. Re-read or grep after editing; don't assume success.</li>
+</ol>
+
+<h4>Issue / artifact hygiene</h4>
+<ol>
+  <li class="bad"><strong>Don't double-create GitHub issues on a flaky tool.</strong> A buffering shell made <code>gh issue create</code> look like it failed; retries created <em>six</em> issues for two topics (#1040–#1045). Verify with <code>gh issue list</code> before retrying; if dupes happen, close the extras pointing at the kept one. <em>(Cleaned up: kept #1040/#1041, closed #1042–#1045.)</em></li>
+  <li><strong>Never defer with a someday-issue.</strong> Every gap goes into <em>this</em> plan and is done in this PR after explicit approval — not filed and forgotten. (Exceptions are genuinely-separate, pre-existing work: the preferences storm #1041, which predates this PR.) Issues filed mid-flight as "follow-ups" (#1040 session-backup, #1047 build-id readout) were in fact pulled back into the PR and completed; the issues were closed, not left open.</li>
+  <li><strong>Don't trust your own tool transcript over ground truth.</strong> A glitching shell made a file look corrupted (<code>index.ts</code> appeared to start with a stray <code>git diff</code> line) and made committed work look uncommitted. When the terminal contradicts itself, confirm via an independent path (<code>node -e</code> read, a sub-agent, <code>git show</code>) before acting — do <em>not</em> "fix" a phantom.</li>
+</ol>
+
+<h2 id="r4-salvage">Salvage scorecard — this PR (<a href="https://github.com/juspay/kolu/pull/1034">#1034</a>) vs. the constraints</h2>
+<p>Where the shipped PR stands against the constraints above — the salvage-vs-redo decision. The constraint numbers match the list in <a href="#r4ui-constraints">Hard constraints</a>.</p>
+<table>
+  <tr><th>Constraint</th><th>Status</th><th>Resolution</th></tr>
+  <tr><td><strong>5. Always-on PTY status chip</strong></td><td><span class="pill ok">done</span></td><td>The chip ships connected/outdated/dead (the server-side <code>DaemonStatus</code> enum) plus a client-side <code>connecting</code> fallback shown until the first server yield. <a href="https://github.com/juspay/kolu/commit/383a26a5d7929e4e2c2f86d7e2e92d8e51a76fcc" class="cite">383a26a5</a></td></tr>
+  <tr><td><strong>6. pty-host-keyed staleness</strong> (stop over-prompting)</td><td><span class="pill ok">done</span> <span class="pill ok">prod-verified</span></td><td>Keyed on a build-time hash of the <code>@kolu/pty-host</code> source (<code>KOLU_PTY_HOST_BUILD_ID</code>) instead of the whole-binary <code>/nix/store</code> hash. Verified live: the deploy correctly flagged the pre-#6 daemon stale, and the restart cleared it (<code>outdated: false</code>). <a href="https://github.com/juspay/kolu/commit/9d45adbb" class="cite">9d45adbb</a></td></tr>
+  <tr><td><strong>1–3. Atomic / recoverable restart</strong> (the data-loss bug)</td><td><span class="pill ok">done</span> <span class="pill ok">prod-verified</span></td><td>Wait for the old daemon's real process exit (<code>waitForPidGone</code>) → confirm respawn → re-assert the persisted session; load-aware 60s/90s timeouts. Live restart completed in ~600&nbsp;ms with no hang. <a href="https://github.com/juspay/kolu/commit/a427891b" class="cite">a427891b</a></td></tr>
+  <tr><td><strong>4. Honest state — no empty-canvas lie</strong></td><td><span class="pill ok">done</span> <span class="pill ok">prod-verified</span></td><td>New <code>DegradedCanvas</code> surfaces degraded/connecting + restore at the canvas, not only the chip. Restore worked live; canvas never blanked. <a href="https://github.com/juspay/kolu/commit/2e1d23c8" class="cite">2e1d23c8</a></td></tr>
+  <tr><td><strong>7. Session backup before a destructive restart</strong></td><td><span class="pill ok">done</span></td><td>Shipped in <a href="https://github.com/juspay/kolu/pull/1046">#1046</a> (Export/Import session — <code>sessionTransfer.ts</code> in <code>packages/client/src/</code>, a user-triggered <code>SavedSession</code> backup/restore hatch); the in-restart snapshot + auto-restore also landed here with #1&ndash;3. <a href="https://github.com/juspay/kolu/issues/1040">#1040</a> closed.</td></tr>
+  <tr><td><strong>8. Preferences storm</strong></td><td><span class="pill warn">deferred</span></td><td>Split out as <a href="https://github.com/juspay/kolu/issues/1041">#1041</a> — debounce the rightPanel resize loop (pre-existing, not this PR's).</td></tr>
+</table>
+<p><strong>Salvage-critical pair: #6 + #1–3.</strong> Together they stop both the unnecessary prompt <em>and</em> the destructive restart. #4 makes failures honest; #5 is in; #7/#8 are split out as follow-up issues (<a href="https://github.com/juspay/kolu/issues/1040">#1040</a>, <a href="https://github.com/juspay/kolu/issues/1041">#1041</a> — #8 is genuinely pre-existing, not this PR's). If #6 + #1–3 land cleanly, salvage; if the restart rework proves deeper than expected, redo.</p>
+<p><strong>Decision — salvaged, and verified in production (2026-05-30).</strong> All four salvage-critical constraints shipped onto this PR and were confirmed on the live deploy:</p>
+<ul>
+  <li class="ok"><strong>#5</strong> always-on PTY status chip — shipped earlier (<a href="https://github.com/juspay/kolu/commit/383a26a5d7929e4e2c2f86d7e2e92d8e51a76fcc"><code>383a26a5</code></a>).</li>
+  <li class="ok"><strong>#6</strong> pty-host-scoped staleness — keyed on a build-time hash of the <code>@kolu/pty-host</code> source (<code>KOLU_PTY_HOST_BUILD_ID</code>, baked by nix, inherited identically by server + daemon); the wire-incompatible contract path (<code>PTY_HOST_CONTRACT_VERSION</code>) is untouched. (<a href="https://github.com/juspay/kolu/commit/9d45adbb">9d45adbb</a>)</li>
+  <li class="ok"><strong>#1–3</strong> recoverable restart — wait for the old daemon's <em>real process exit</em> (<code>waitForPidGone</code> → <code>kill(pid,0)</code>/ESRCH) before respawn; load-aware timeouts (60s exit / 90s spawn); capture &amp; re-assert the persisted session around the destructive kill so a failed respawn leaves a restorable session, never a void; a failed respawn rethrows (client toasts it). (<a href="https://github.com/juspay/kolu/commit/a427891b">a427891b</a>)</li>
+  <li class="ok"><strong>#4</strong> honest degraded canvas — <code>DegradedCanvas</code> (keyed purely on <code>daemonState()</code>) replaces the empty-canvas lie with a loud, recoverable "Terminals temporarily unavailable — your session is preserved" + restart/restore. (<a href="https://github.com/juspay/kolu/commit/2e1d23c8">2e1d23c8</a>)</li>
+</ul>
+<p>#7 shipped via <a href="https://github.com/juspay/kolu/pull/1046">#1046</a> (Export/Import session — <a href="https://github.com/juspay/kolu/issues/1040">#1040</a> closed); #8 is deferred to <a href="https://github.com/juspay/kolu/issues/1041">#1041</a>; the always-visible build-id readout (ChromeBar + restart dialog) shipped via <a href="https://github.com/juspay/kolu/issues/1047">#1047</a> (<a href="https://github.com/juspay/kolu/commit/67567d0e"><code>67567d0e</code></a>).</p>
+
+<h3 id="r4-prod-verify">Production verification (2026-05-30)</h3>
+<p>The PR (at <a href="https://github.com/juspay/kolu/commit/edb3fc60"><code>edb3fc60</code></a>, build id <code>b72d6da9…</code>) was deployed to the production box (Linux/systemd) and exercised live. Two events, both from the user-service journal:</p>
+<p><strong>1. Deploy — daemon survives, terminals reattach, nudge fires correctly (the #6 cutover).</strong> The new kolu-server booted on the new build, reattached the 3 surviving terminals from the daemon that outlived the restart, and bound the port. The surviving daemon predated #6 (no <code>KOLU_PTY_HOST_BUILD_ID</code>, so it reported its old whole-store-path id), so the server correctly flagged it stale — the one-time migration cutover onto the new staleness regime, <em>not</em> a false alarm:</p>
+<pre><code>10:42:38  daemon connected but running stale code — restart to apply update
+          daemonBuildId: xnaaqv0…-kolu-stamped   serverBuildId: b72d6da9…   outdated: true
+10:42:38  reattached × 3  →  reattached terminals from surviving daemon  count:3
+10:42:38  kolu listening</code></pre>
+<p><strong>2. User-triggered restart — recoverable, sub-second, nudge clears.</strong> Clicking <em>Restart daemon</em> then <em>Restore session</em>: the old daemon exited, the new one bound and was version-verified in ~600&nbsp;ms (no kill-then-pray hang; the 60s/90s ceilings were headroom, unneeded on an unloaded box), and <code>outdated</code> went <strong>false</strong> — server and daemon now share <code>b72d6da9…</code>. The canvas never blanked; the saved session restored.</p>
+<pre><code>10:49:53  restarting local PTY-host daemon (user-triggered)
+10:49:53  killing all terminals  count:3
+10:49:54  daemon connected  daemonBuildId: b72d6da9…  serverBuildId: b72d6da9…  outdated: false</code></pre>
+<p>The accepted, designed cost — the 3 live PTYs are lost on the restart — held; restore brought the session back. The data-loss / empty-canvas / over-prompting failure modes from the <a href="#r4ui-postmortem">postmortem</a> did not recur.</p>
+<p><strong>3. The over-prompting fix, proven in the other direction — a server-only deploy does NOT nudge.</strong> After the follow-on work landed (encapsulation + clickable commits, daemon now on build <code>d801286</code> / commit <code>c402a50</code>), a deliberate <em>server-only</em> change (<a href="https://github.com/juspay/kolu/commit/21a75401"><code>21a75401</code></a>, a doc comment in <code>packages/server/</code> — <code>packages/pty-host/</code> untouched) was deployed. The surviving daemon kept running and the chip stayed green: build ids equal &rarr; <code>outdated: false</code> &rarr; <strong>no nudge</strong>, even though the git commits differ. The ChromeBar correctly read <code>srv 21a7540 · pty c402a50</code> (two clickable commits, not amber). This is the original over-prompting bug fixed and confirmed live: before #6, this deploy would have flipped the whole-binary hash and demanded a pointless terminal-losing restart.</p>
+<pre><code>server  build=d801286…  commit=21a7540   (fresh)
+daemon  build=d801286…  commit=c402a50   (survived; build id matches → outdated:false, no nudge)</code></pre>
+<p><strong>Post-prod follow-on work (all landed in this PR):</strong></p>
+<ul>
+  <li><strong>One package, one hash</strong> — the daemon's closure (wire contract <code>ptyHostSurface</code>, daemon body <code>daemonMain</code>, <code>buildId</code>, startup utils) moved <em>into</em> <code>@kolu/pty-host</code>, so <code>KOLU_PTY_HOST_BUILD_ID</code> (which hashes <code>packages/pty-host/</code>) now covers everything that defines the daemon's wire + behavior — closing the <a href="#r4-redo-rules">scoping bug</a> where an Axis-2 wire change didn't flip the staleness key. The one residual piece is the thin <code>--stdio</code> dispatch shim in <code>packages/server/src/index.ts</code> (the <code>if (argv has --stdio) → @kolu/pty-host.runAgent()</code> branch): it carries no wire shape, so it sits <em>outside</em> the hash by design (documented in code by <a href="https://github.com/juspay/kolu/commit/21a75401"><code>21a75401</code></a>) — a change there bumps the server's git commit but not the pty-host build id, so a surviving daemon stays current. <code>daemonPaths</code>/<code>koluRoot</code> relocated to <code>kolu-shared</code> to avoid a daemon→server cycle; the daemon builds its own logger.</li>
+  <li><strong>Build ids are clickable</strong> — the ChromeBar readout (<code>srv … · pty …</code>, always visible) and the restart dialog now link to the GitHub commit: server + daemon report <code>KOLU_COMMIT_HASH</code> (the <code>commitHash</code> field is <em>optional</em> on the wire, so a surviving older daemon isn't force-restarted just to add it).</li>
+  <li><strong>Import cycle fixed</strong> — <code>restartLocalPtyHostDaemon</code> now captures/restores the session via <code>getSavedSession</code>/<code>setSavedSession</code> from <code>session.ts</code> (no <code>terminals.ts</code> cycle); <code>just check</code> is green.</li>
+  <li class="warn"><strong>Discovered:</strong> <code>nix build</code> succeeds even when the server package fails <code>tsc</code> (it bundles the client via vite + runs the server/daemon under tsx, never type-checking them). Filed as <a href="https://github.com/juspay/kolu/issues/1049">#1049</a>; the deploy gate is full CI, not <code>nix build</code>. <em>(<code>c402a50a</code>'s message mis-cited this as #1048 — that number was already a merged PR; the issue landed at #1049.)</em></li>
+</ul>
+
+<hr/>
+
+<h2 id="r4-design">The design (forward)</h2>
+<p>The long-lived survivor is <strong><code>@kolu/pty-host</code> only</strong> — node-pty fds + the <code>@xterm/headless</code> mirror + the raw VT taps (cwd · title+fgPid · command-run · exit) + a unix socket. Everything volatile — the provider DAG (git context, agent detection, PR status, the most-edited code in the repo) — runs <strong>fresh in kolu-server</strong>, consuming the daemon's taps over the socket. That split is the whole point: a kolu-server restart (every deploy) re-runs the providers against the <em>surviving</em> PTYs, so detection is never stale, while the PTYs themselves persist. Only a change to <code>pty-host</code>'s own (rarely-changing) wire contract forces terminal loss; a provider change (frequent) restarts the cheap in-server layer with PTYs untouched. This corrects <a href="https://github.com/juspay/kolu/pull/1031">#1031</a>, which daemonized a survivor that <em>held</em> the providers and therefore served stale detection on every deploy.</p>
+
+<h3 id="r4-survive">Surviving a deploy — the cgroup mechanism <span class="pill ok">spike-verified</span></h3>
+<p>On Linux/systemd, kolu-server spawns the daemon via <code>systemd-run --user --unit=kolu-pty-host</code> (gated on <code>INVOCATION_ID</code>), landing it in its <strong>own transient cgroup</strong> — so <code>systemctl --user restart kolu</code> (a deploy) does <em>not</em> kill it. A plain detached / <code>setsid</code> child does <strong>not</strong> survive on cgroup-v2: the default <code>KillMode=control-group</code> walks <em>cgroup membership</em>, not the session, so the child stays in kolu-server's cgroup and dies with it — the #1031 Linux failure. On macOS the detached spawn already survives launchd; off-systemd (dev) it's a plain detached child. Single-instance is guaranteed two independent ways: the systemd unit name, plus a pid-file (<code>O_EXCL</code> create + liveness probe) the daemon acquires on start.</p>
+
+<h3 id="r4-phases-table">Phase plan</h3>
+<table>
+  <tr><th>Phase</th><th>Scope</th><th>Status</th></tr>
+  <tr><td><strong>R4a</strong></td><td>Extract <code>@kolu/pty-host</code> — the multi-client PTY-owner primitive (in-process).</td><td><span class="pill ok">shipped</span> <a href="https://github.com/juspay/kolu/pull/1023">#1023</a></td></tr>
+  <tr><td><strong>R4b</strong></td><td>Parameterize <code>providers.ts</code> over <code>ProviderHooks</code> so the DAG runs against any pty-host.</td><td><span class="pill ok">shipped</span> <a href="https://github.com/juspay/kolu/pull/1028">#1028</a></td></tr>
+  <tr><td><strong>R4c</strong></td><td>Move <em>only</em> <code>pty-host</code> into a <code>kolu --stdio</code> daemon (own cgroup, survives a deploy); providers stay fresh in kolu-server; reattach-by-id at boot.</td><td><span class="pill ok">prod-verified</span> <a href="https://github.com/juspay/kolu/pull/1034">#1034</a></td></tr>
+  <tr><td><strong>R4c-UI</strong></td><td>Always-on PTY status chip + a <em>safe</em> (recoverable) restart + pty-host-keyed staleness — re-cut against the <a href="#r4ui-constraints">constraints</a>.</td><td><span class="pill ok">prod-verified</span> <a href="https://github.com/juspay/kolu/pull/1034">#1034</a> — see <a href="#r4-prod-verify">verification</a></td></tr>
+</table>
+<p><em>Then R-2 = "add the ssh transport" (a remote pty-host + a re-provisioned remote provider process running the same engine); R-3 = version handshake + session-ID persistence. Both stay in the <a href="remote-terminals.html">parent plan</a>.</em></p>
+
+<h2 id="r4-todo">Open follow-ups</h2>
+<ul>
+  <li>[ ] <strong>Evaluate <code>surface</code> ↔ pty-host upstreaming / changes.</strong> Now that the daemon's full closure lives in <code>@kolu/pty-host</code> (contract + entrypoint + build-id + startup utils) and it depends on <code>@kolu/surface</code>, review what — if anything — should move into <code>@kolu/surface</code> itself vs. stay package-local: e.g. the daemon's stdio-serve glue, the version/build-id handshake pattern, or contract-compat helpers that any surface-over-stdio consumer would want. Decide upstream vs. keep, and what API changes that implies.</li>
+</ul>
+
+<h2 id="r4-learnings">History, summarized</h2>
+<ul>
+  <li><strong>R4a (<a href="https://github.com/juspay/kolu/pull/1023">#1023</a>) + R4b (<a href="https://github.com/juspay/kolu/pull/1028">#1028</a>) shipped clean</strong> as pure in-process refactors (byte-identical on screen).</li>
+  <li><strong>Two prototypes seeded the design:</strong> <a href="https://github.com/juspay/kolu/pull/994">#994</a> (the R-2 <em>remote</em> prototype) proved "providers in the agent", re-provisioned fresh per version; <a href="https://github.com/juspay/kolu/pull/1010">#1010</a> was a <em>local</em> PTY-only daemon — the thin-survivor model. The redo is their correct combination: #1010's thin survivor (pty-host only) + #994's providers-in-agent, but kept <em>fresh</em> in kolu-server rather than carried by the survivor.</li>
+  <li><strong>R4c first attempt — <a href="https://github.com/juspay/kolu/pull/1031">#1031</a> — was dropped</strong> after a macOS prod failure: it daemonized the R4b in-process agent (pty-host <em>plus</em> the provider DAG), combining the two prototypes <em>wrong</em>, so the survivor served stale detection on every deploy — and the staleness check keyed on the inert <code>pkgVersion="0.1.0"</code> constant, so <code>outdated</code> was <em>always false</em> and a 20-hour-old daemon was reused across deploys. Two fixes fell out: split <em>only</em> pty-host into the survivor, and key staleness on real <strong>build identity</strong>.</li>
+  <li><strong>The volatility insight</strong> (Parnas / Lowy — encapsulate what changes; surfaced by the whole-plan <code>/lowy</code> pass under <a href="https://github.com/srid/agency/pull/186">agency#186</a>): "no legacy agent" ⊗ "tmux feel" conflict <em>only</em> when the long-lived component's code changes, so the survivor must be the stable thin core (pty-host), never the volatile providers.</li>
+  <li><strong>R4c redo — <a href="https://github.com/juspay/kolu/pull/1034">#1034</a> — 2026-05-30 (the postmortem above):</strong> build-keyed staleness + the nudge shipped, but the restart was non-atomic and the staleness key was the whole binary (over-prompting). That drove the rethink — the <a href="#r4ui-constraints">constraints</a> are the result.</li>
+  <li><strong>The fresh-approach redo — executed 2026-05-30/31:</strong> #1034 was <strong>discarded entirely</strong> and R-4 re-decomposed from scratch (the <a href="#fresh-approach">/lowy + /hickey pass</a> at the top). <a href="https://github.com/juspay/kolu/pull/1055">#1055</a> (A1) landed the in-process structural foundation — the <code>ptyHostSurface</code> wire contract served in-process, the provider DAG decoupled from <code>PtyHandle</code> — and <strong>reverted production to a pure in-process server, removing every #1034 daemon artifact</strong> (spawn / restart / build-id / status-UI; no daemon in the tree today). <a href="https://github.com/juspay/kolu/pull/1059">#1059</a> then unified <code>@kolu/surface</code>'s transports into a coherent <em>link family</em> (<code>websocketLink</code> / <code>stdioLink</code> / <code>directLink</code>), so the in-process serving is <code>servePtyHost</code> + <code>directLink</code>. <a href="https://github.com/juspay/kolu/pull/1063">#1063</a> (A2) then landed the build/commit identity — <code>PtyHostIdentity {staleKey, navigableCommit}</code> on <code>system.version</code>, the nix-baked closure-hash staleKey with its build-time import guard, and the consolidated <code>srv · pty</code> ChromeBar rail (its outdated/dead divergence dormant until B). A post-merge prod break — #1065's required <code>unpushedCommitCount</code> on the persisted <code>GitInfoSchema</code> failed <code>session.get</code> validation for pre-existing saved sessions — was fixed in <a href="https://github.com/juspay/kolu/pull/1068">#1068</a> (<code>.default(0)</code>). <strong>Next: B</strong> — the daemon, shipped complete with its safety surface; it is the only phase left. The <a href="#r4ui-postmortem">as-built record</a> below is now purely historical — the discarded #1034 lineage, retained for its postmortem + constraints + learnings.</li>
+</ul>
+</main>
+<script>
+  // Auto-expand collapsed phase sections when navigated to via #anchor
+  // (TOC link, direct URL, hashchange). Modern browsers do this for
+  // <details> in some cases but not consistently — explicit handler is
+  // cheaper than tracking the spec churn.
+  function expandFromHash() {
+    if (!location.hash) return;
+    const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (!target) return;
+    target.closest("details")?.setAttribute("open", "");
+    target.scrollIntoView({ block: "start" });
+  }
+  window.addEventListener("DOMContentLoaded", expandFromHash);
+  window.addEventListener("hashchange", expandFromHash);
+</script>
+</body>
+</html>

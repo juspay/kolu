@@ -74,6 +74,28 @@
 <p class="muted">The <strong>Atlas</strong> now lives as a self-contained Astro project at <code>docs/atlas/</code> — authored as MDX at <code>docs/atlas/src/content/atlas/second-brain.mdx</code> and rendered to <code>docs/atlas/dist/second-brain.html</code> (decoupled from the public website, not published). New Atlas notes are authored there, not here; <code>release-workflow</code> was removed. This <code>docs/plans</code> index covers the not-yet-migrated plans below.</p>
 
 <h2>Plans &amp; specs <span class="muted" style="font-size:.8rem; font-weight:400">— forward-looking design &amp; phases</span></h2>
+<a class="entry" href="./remote-terminals.html">
+  <span class="t">Remote terminals over SSH</span> <span class="tag evergreen">evergreen</span> <span class="tag accent">#951</span>
+  <span class="f">remote-terminals.html · 208 KB</span>
+  <span class="d">The implementation plan. Anchors worth knowing: <code>#lessons</code>, <code>#r4-lessons</code>, <code>#r4ui-postmortem</code> — learnings captured inline (the proto-<code>/retro</code>). <span class="muted">Candidate for the §"split monoliths" treatment.</span></span>
+</a>
+<div class="nest">
+  <a class="entry" href="./remote-terminals.pty-daemon.html">
+    <span class="t">R-4 — Local PTY daemon (@kolu/pty-host)</span> <span class="tag budding">budding</span>
+    <span class="f">remote-terminals.pty-daemon.html → pty-daemon.html</span>
+    <span class="d">Design + phases for extracting the PTY host into its own process.</span>
+  </a>
+  <a class="entry" href="./remote-terminals.pty-daemon.chrome-bar.html">
+    <span class="t">R-4 A2 — ChromeBar identity rail (srv · pty)</span> <span class="tag budding">budding</span>
+    <span class="f">remote-terminals.pty-daemon.chrome-bar.html → chrome-bar.html</span>
+    <span class="d">UI prototype for the build/commit identity rail — the surface the release version stamp lands on.</span>
+  </a>
+  <a class="entry" href="./remote-terminals.pty-daemon.tui.html">
+    <span class="t">R-4 — kolu-tui: a CLI client for kolu-server</span> <span class="tag seedling">seedling</span>
+    <span class="f">remote-terminals.pty-daemon.tui.html → pty-daemon-tui.html</span>
+    <span class="d">An in-process terminal client. <span class="muted">Relates to both <em>pty-daemon</em> and <em>chrome-bar</em> — the "one true parent" conflict the flat-slug rename resolves.</span></span>
+  </a>
+</div>
 <a class="entry" href="./web-delivery.html">
   <span class="t">Web delivery — the freshness contract</span> <span class="tag seedling">seedling</span> <span class="tag accent">#1149</span>
   <span class="f">web-delivery.html</span>

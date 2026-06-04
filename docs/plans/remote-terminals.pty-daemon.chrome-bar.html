@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>R-4 A2 — ChromeBar identity rail (srv · pty) — UI prototype</title>
+<style>
+  :root {
+    --fg: #1a1c20;
+    --muted: #5b6470;
+    --bg: #fafaf7;
+    --panel: #ffffff;
+    --edge: #e6e2d6;
+    --accent: #6b4eff;
+    --accent-soft: #efebff;
+    --code-bg: #f4f1e8;
+    --code-fg: #2a2d33;
+    --ok: #1b7a3a;
+    --warn: #a96400;
+    --bad: #a02a2a;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, sans-serif;
+  }
+  body { margin: 0; font: 15px/1.55 var(--sans); color: var(--fg); background: var(--bg); }
+  main { max-width: 920px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 19px; margin: 36px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--edge); }
+  h3 { font-size: 15.5px; margin: 22px 0 6px; color: var(--accent); }
+  h4 { font-size: 13px; margin: 14px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  p, ul, ol { margin: 8px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, kbd, samp {
+    font-family: var(--mono); font-size: 0.88em;
+    background: var(--code-bg); color: var(--code-fg);
+    padding: 1px 5px; border-radius: 3px;
+  }
+  .lead { color: var(--muted); font-size: 14.5px; margin: 4px 0 18px; }
+  .meta-row { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 22px; }
+  .meta-row a { color: var(--accent); text-decoration: none; }
+  .meta-row a:hover { text-decoration: underline; }
+  .pill {
+    display: inline-block; font-size: 11px; font-family: var(--mono);
+    padding: 1px 7px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); border: 1px solid #d4cbff;
+    vertical-align: middle; margin-left: 6px;
+  }
+  .pill.ok   { background: #e3f4e9; color: var(--ok);  border-color: #b9e1c6; }
+  .pill.warn { background: #f8efd9; color: var(--warn);border-color: #e7d2a0; }
+  .pill.bad  { background: #f7e0e0; color: var(--bad); border-color: #e6b9b9; }
+  p.warn, li.warn { color: var(--warn); }
+  p.bad,  li.bad  { color: var(--bad); }
+  .panel { background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--edge); vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; }
+  td code { font-size: 12px; }
+  hr { border: 0; border-top: 1px dashed var(--edge); margin: 32px 0; }
+  pre {
+    font-family: var(--mono); background: var(--code-bg); color: var(--code-fg);
+    padding: 12px 14px; border-radius: 6px; overflow-x: auto;
+    font-size: 12.5px; line-height: 1.5; border: 1px solid var(--edge);
+  }
+  pre code { background: transparent; padding: 0; }
+
+  /* ─────────────────────────────────────────────────────────────
+     The app mock. A faithful dark slice of kolu's workspace using the
+     REAL design tokens from packages/client/src/index.css (dark
+     palette). The chrome bar floats over the canvas grid exactly as it
+     does in tiled mode (transparent surface, grid reads through).
+     ───────────────────────────────────────────────────────────── */
+  .stage {
+    --c-surface-0: #0c0c0e;
+    --c-surface-1: #161618;
+    --c-surface-2: #1f1f23;
+    --c-surface-3: #2a2a30;
+    --c-edge: #27272c;
+    --c-edge-bright: #3a3a42;
+    --c-fg: #e4e4e8;
+    --c-fg-2: #a0a0a8;
+    --c-fg-3: #838390;
+    --c-accent: #5a9ea0;
+    --c-alert: #a78bfa;
+    --c-ok: #4ade80;
+    --c-warning: #facc15;
+    --c-danger: #f87171;
+    --c-busy: #d97757;
+    --c-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    position: relative;
+    margin: 16px 0 4px;
+    border-radius: 12px;
+    border: 1px solid var(--edge);
+    overflow: hidden;
+    box-shadow: 0 12px 34px rgba(20, 18, 40, 0.16);
+  }
+  .stage .canvas {
+    background-color: var(--c-surface-0);
+    background-image:
+      linear-gradient(to right, color-mix(in oklch, var(--c-edge) 60%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklch, var(--c-edge) 60%, transparent) 1px, transparent 1px);
+    background-size: 24px 24px;
+    min-height: 132px;
+  }
+  .chrome {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px;
+    background: linear-gradient(to bottom, rgba(12,12,14,0.55), rgba(12,12,14,0.0));
+    backdrop-filter: blur(2px);
+    font-family: var(--sans);
+  }
+  .chrome .ident { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .logo {
+    width: 20px; height: 20px; border-radius: 6px;
+    background: linear-gradient(140deg, var(--c-accent), #3d8486);
+    display: flex; align-items: center; justify-content: center;
+    color: #0c0c0e; font: 800 12px/1 var(--c-mono); flex-shrink: 0;
+  }
+  @keyframes ws-pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Identity rail — consolidated connection + provenance (A2) ──
+     Replaces the standalone WebSocket dot. Two columns (srv · pty),
+     each carrying a liveness dot + the navigable commit; pty also
+     carries the closure build (staleKey). In A2 the two coincide
+     (same process) so a "≡ in-process" tag links them. */
+  .idrail {
+    display: inline-flex; align-items: stretch; flex-shrink: 0;
+    font-family: var(--c-mono);
+    border: 1px solid var(--c-edge); border-radius: 9px;
+    background: color-mix(in oklch, var(--c-surface-2) 55%, transparent);
+    padding: 2px; gap: 0;
+  }
+  .idcol { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 7px; white-space: nowrap; }
+  .idcol-sep { width: 1px; align-self: center; height: 16px; background: var(--c-edge-bright); opacity: .7; margin: 0 1px; }
+  .col-label { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; color: var(--c-fg-3); }
+  .live { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
+  .live-ok { background: var(--c-ok); }
+  .live-connecting { background: var(--c-warning); animation: ws-pulse 1.4s ease-in-out infinite; }
+  .live-closed { background: var(--c-danger); }
+  .live-unknown { background: var(--c-fg-3); opacity: .55; }
+  .live-outdated { background: var(--c-warning); }
+  .live-dead { background: var(--c-danger); }
+  .idcol.is-outdated .col-label, .idcol.is-outdated .rail-status { color: var(--c-warning); }
+  .idcol.is-dead .col-label, .idcol.is-dead .rail-status { color: var(--c-danger); }
+  .rail-commit { color: var(--c-fg-2); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; }
+  .rail-commit:hover { color: var(--c-fg); }
+  .rail-commit:hover .br-sha { text-decoration: underline; text-underline-offset: 2px; }
+  .rail-build { color: var(--c-fg-3); font-size: 10.5px; cursor: help; border-bottom: 1px dotted color-mix(in oklch, var(--c-fg-3) 55%, transparent); }
+  .rail-status { font-size: 10px; letter-spacing: .02em; }
+  .rail-dim { color: var(--c-fg-3); opacity: .6; font-size: 11px; }
+  .br-sha { font-variant-ligatures: none; }
+  .br-ext { width: 9px; height: 9px; opacity: .65; }
+  .tag-inproc {
+    align-self: center; margin-left: 4px;
+    font-size: 9px; letter-spacing: .04em; color: var(--c-accent);
+    border: 1px solid color-mix(in oklch, var(--c-accent) 45%, var(--c-edge));
+    border-radius: 999px; padding: 0 7px; line-height: 16px;
+  }
+
+  .spacer { flex: 1 1 auto; min-width: 14px; }
+  .cluster { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+  .ctl { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--c-fg-3); }
+  .ctl svg { width: 14px; height: 14px; }
+  .ctl.rec { color: var(--c-danger); }
+  .kbd {
+    height: 26px; padding: 0 8px; border-radius: 8px;
+    border: 1px solid var(--c-edge); background: var(--c-surface-2);
+    color: var(--c-fg-2); font: 600 11px/26px var(--c-mono);
+    display: inline-flex; align-items: center;
+  }
+
+  .anno { font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 6px 0 0; display: flex; gap: 8px 14px; flex-wrap: wrap; }
+  .anno b { color: var(--accent); font-weight: 600; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  .statecard { background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; overflow: hidden; }
+  .statecard .cap { font: 600 12px var(--sans); color: var(--muted); padding: 8px 12px 0; }
+  .statecard .desc { font-size: 12.5px; color: var(--muted); padding: 4px 12px 10px; }
+  .statecard .stage { margin: 6px 12px 12px; border-radius: 8px; }
+  .statecard .canvas { min-height: 0; }
+  .latent { opacity: .96; }
+  .latent-tag { display: inline-block; font: 600 10px var(--mono); color: var(--bad); border: 1px solid #e6b9b9; background: #f7e0e0; border-radius: 4px; padding: 0 5px; margin-left: 6px; vertical-align: middle; }
+  figcaption { font-size: 12.5px; color: var(--muted); margin: 4px 2px 0; font-style: italic; }
+  .ico { width: 12px; height: 12px; }
+</style>
+</head>
+<body>
+<main>
+<h1>ChromeBar identity rail — <code>srv · pty</code> <span class="pill">A2 · deliverable #3</span></h1>
+<p class="lead">UI prototype for the consolidated <strong>connection + build/commit</strong> readout introduced in R-4
+phase <strong>A2</strong>. Built in its <em>final two-column shape</em> from day one — <code>srv</code> (the server
+you're connected to) and <code>pty</code> (the pty-host serving your terminals) — even though in A2 they're the
+<em>same process</em>. That coincidence is the point: it's the live proof A2's identity plumbing works, and it means
+phase <strong>B</strong> only has to let the columns <em>diverge</em>, never re-lay-out. Companion to
+<a href="remote-terminals.pty-daemon.html#fresh-phases-list">remote-terminals.pty-daemon.html</a>; rendered with the
+live dark-theme tokens from <code>packages/client/src/index.css</code> and the real <code>ChromeBar.tsx</code> layout.</p>
+<div class="meta-row">
+  scope: client rail + server proxy of <code>system.version.identity</code> ·
+  absorbs the standalone WebSocket dot ·
+  status: <a href="remote-terminals.pty-daemon.html#fresh-phases-list">A2 not yet built</a> · theme: dark
+</div>
+
+<div class="panel">
+  <p><strong>The design call (revised).</strong> The R-4 plan originally deferred the daemon chip to B, reasoning that
+  an always-green "daemon connected" chip would <em>lie</em> about an absent daemon. But in A2 the pty-host isn't
+  absent — it's <strong>in-process</strong>. So a two-column <code>srv · pty</code> readout where the columns coincide
+  is the literal truth, not a lie. Better still, it's the cleanest <strong>acceptance signal</strong> A2 could have:
+  the <code>srv</code> column is the server's own commit (from the existing <code>server.info</code>), the
+  <code>pty</code> column is sourced from the <em>new</em> <code>system.version.identity</code> field A2 adds and the
+  server relays. <em>If they don't match in A2, the wiring is broken.</em> And since the WebSocket status dot already
+  <em>is</em> "srv liveness," it folds into the <code>srv</code> column rather than floating beside it as a bare dot.</p>
+  <p class="warn"><strong>What's genuinely inert until B:</strong> only the <em>divergence</em> — the
+  <code>outdated</code> / <code>dead</code> states — because nothing can diverge from itself. Those branches get wired
+  in A2 (the rail is divergence-capable) but cannot fire until <code>pty</code> is a separate surviving process.</p>
+</div>
+
+<h2 id="primary">The rail, in context</h2>
+<p>The full chrome band in tiled mode — floating transparently over the canvas grid. The rail sits in the
+<strong>left identity cluster</strong> where the bare WebSocket dot used to be (confirmed against #1034's
+<code>BuildRef</code> mount point, recovered from <code>3fd7ea63</code>): it's identity + liveness, not an action, so
+it groups with the logo, not the right-hand control cluster.</p>
+
+<div class="stage">
+  <div class="canvas">
+    <div class="chrome">
+      <div class="ident"><span class="logo">k</span></div>
+      <span class="idrail">
+        <span class="idcol">
+          <span class="col-label">srv</span>
+          <span class="live live-ok" title="WebSocket: connected"></span>
+          <a class="rail-commit" href="https://github.com/juspay/kolu/commit/a161ae14" target="_blank" rel="noopener" title="server commit a161ae14 — open on GitHub">
+            <span class="br-sha">a161ae1</span>
+            <svg aria-hidden="true" class="br-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M7 17L17 7M17 7H9M17 7V15"/></svg>
+          </a>
+        </span>
+        <span class="idcol-sep"></span>
+        <span class="idcol">
+          <span class="col-label">pty</span>
+          <span class="live live-ok" title="pty-host: in-process (same process as srv)"></span>
+          <a class="rail-commit" href="https://github.com/juspay/kolu/commit/a161ae14" target="_blank" rel="noopener" title="pty-host commit a161ae14 — open on GitHub">
+            <span class="br-sha">a161ae1</span>
+            <svg aria-hidden="true" class="br-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M7 17L17 7M17 7H9M17 7V15"/></svg>
+          </a>
+          <span class="rail-build" title="build 3f9ac2e1… — closure hash of the @kolu/pty-host package (the staleness key)">3f9ac2</span>
+        </span>
+        <span class="tag-inproc" title="In A2 srv and pty are the same process — the columns coincide by construction">≡ in-process</span>
+      </span>
+      <span class="spacer"></span>
+      <div class="cluster">
+        <span class="ctl rec" title="Record"><svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg></span>
+        <span class="ctl" title="Maximize"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></span>
+        <span class="ctl" title="Dock"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg></span>
+        <span class="ctl" title="Inspector"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="15" y1="4" x2="15" y2="20"/></svg></span>
+        <span class="ctl" title="Settings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 00-1.7-1l-.3-2.5h-4l-.3 2.5a7 7 0 00-1.7 1l-2.4-1-2 3.5 2 1.5a7 7 0 000 2l-2 1.5 2 3.5 2.4-1a7 7 0 001.7 1l.3 2.5h4l.3-2.5a7 7 0 001.7-1l2.4 1 2-3.5-2-1.5a7 7 0 00.1-1z"/></svg></span>
+        <span class="kbd">⌘K</span>
+      </div>
+    </div>
+    <div style="height:84px"></div>
+  </div>
+</div>
+<p class="anno">
+  <span><b>srv ●</b> = WebSocket status (the consolidated dot)</span>
+  <span><b>srv sha</b> = server's own commit</span>
+  <span><b>pty ●</b> = in-process (A2) → daemon-handle (B)</span>
+  <span><b>pty sha</b> = via <code>system.version.identity</code> (A2's new field)</span>
+  <span><b>build</b> = closure staleKey, hover for full hash</span>
+  <span><b>≡ in-process</b> = same process, columns coincide</span>
+</p>
+
+<h2 id="why">Why both columns in A2</h2>
+<div class="grid2">
+  <div>
+    <h4>It's the acceptance test</h4>
+    <p>A one-sided readout would show the server's commit and call it done — exercising none of A2's actual wire work.
+    The two-column rail forces the whole path to light up: server boots → fetches <code>ptyHostClient.surface.system.version()</code>
+    → relays <code>.identity</code> onto <code>server.info</code> → client renders the <code>pty</code> column. <strong>The
+    columns matching is the green test;</strong> a mismatch in A2 means the plumbing B depends on is broken.</p>
+    <h4>The dot was already "srv"</h4>
+    <p>The standalone WebSocket dot represents the client↔server link — i.e. <code>srv</code> liveness. Consolidating it
+    into the rail removes a redundant indicator and gives <code>pty</code> a parallel slot for <em>its</em> liveness
+    (in-process now, daemon-handle in B).</p>
+  </div>
+  <div>
+    <h4>The two columns' data sources</h4>
+    <table>
+      <tr><th></th><th><code>srv</code></th><th><code>pty</code></th></tr>
+      <tr><td>liveness dot</td><td>WebSocket status</td><td>in-process (A2) → daemon handle (B)</td></tr>
+      <tr><td>commit</td><td>server's <code>KOLU_COMMIT_HASH</code></td><td><code>identity.navigableCommit</code></td></tr>
+      <tr><td>build</td><td>—</td><td><code>identity.staleKey</code> (closure hash)</td></tr>
+      <tr><td>source</td><td><code>server.info</code> (existing)</td><td><code>system.version</code> → relayed</td></tr>
+    </table>
+    <p style="font-size:12.5px">Only <code>pty</code> carries a <strong>build</strong>: the staleKey is the
+    <code>@kolu/pty-host</code> closure hash, and it's the only thing whose staleness matters across a restart. The
+    server always restarts on deploy, so it has no "survives" staleness — just a commit.</p>
+  </div>
+</div>
+
+<h2 id="states-live">States — live in A2 <span class="pill ok">WS-driven, reachable today</span></h2>
+<p>In A2 the rail's live axis is the WebSocket connection (the dot the rail absorbed). <code>pty</code> follows
+<code>srv</code> because it's the same process — when the link is down the client can't know anything, so
+<code>pty</code> reads <em>unknown</em>, not a false green.</p>
+
+<div class="grid2">
+  <div class="statecard">
+    <div class="cap">Connected</div>
+    <div class="desc">WebSocket open · srv ≡ pty · both commits + build resolved.</div>
+    <div class="stage"><div class="canvas"><div class="chrome">
+      <div class="ident"><span class="logo">k</span></div>
+      <span class="idrail">
+        <span class="idcol"><span class="col-label">srv</span><span class="live live-ok"></span><a class="rail-commit"><span class="br-sha">a161ae1</span></a></span>
+        <span class="idcol-sep"></span>
+        <span class="idcol"><span class="col-label">pty</span><span class="live live-ok"></span><a class="rail-commit"><span class="br-sha">a161ae1</span></a><span class="rail-build">3f9ac2</span></span>
+        <span class="tag-inproc">≡ in-process</span>
+      </span>
+    </div><div style="height:36px"></div></div></div>
+  </div>
+
+  <div class="statecard">
+    <div class="cap">Connecting / reconnecting</div>
+    <div class="desc">WebSocket re-handshaking — both dots pulse amber, identity dimmed until the first yield.</div>
+    <div class="stage"><div class="canvas"><div class="chrome">
+      <div class="ident"><span class="logo">k</span></div>
+      <span class="idrail">
+        <span class="idcol"><span class="col-label">srv</span><span class="live live-connecting"></span><span class="rail-dim">connecting…</span></span>
+        <span class="idcol-sep"></span>
+        <span class="idcol"><span class="col-label">pty</span><span class="live live-connecting"></span><span class="rail-dim">—</span></span>
+      </span>
+    </div><div style="height:36px"></div></div></div>
+  </div>
+
+  <div class="statecard">
+    <div class="cap">Disconnected</div>
+    <div class="desc">srv dot red; pty <em>unknown</em> (grey) — honest: with the link down we can't claim pty state.</div>
+    <div class="stage"><div class="canvas"><div class="chrome">
+      <div class="ident"><span class="logo">k</span></div>
+      <span class="idrail">
+        <span class="idcol"><span class="col-label">srv</span><span class="live live-closed"></span><span class="rail-dim">offline</span></span>
+        <span class="idcol-sep"></span>
+        <span class="idcol"><span class="col-label">pty</span><span class="live live-unknown"></span><span class="rail-dim">unknown</span></span>
+      </span>
+    </div><div style="height:36px"></div></div></div>
+  </div>
+
+</div>
+<p style="font-size:12.5px; color: var(--muted)"><em>No "dev / no-commit" state exists — kolu and the pty-host run
+<strong>only</strong> under nix, which always bakes both <code>KOLU_COMMIT_HASH</code> and
+<code>KOLU_PTY_HOST_BUILD_ID</code>. There is no off-nix fallback to render.</em></p>
+
+<h2 id="states-b">States — the columns diverge <span class="pill bad">phase B · wired in A2, inert until B</span></h2>
+<p class="bad">These are the <em>same</em> rail. Nothing here is a new component — the divergence states are wired in A2 but
+cannot fire while <code>pty</code> is in-process (it can't differ from itself). Phase B gives <code>pty</code> a
+separate surviving process; <em>then</em> the read-site derivation <code>staleKey !== currentBuildId()</code> can flip
+the <code>pty</code> column amber (a restart would gain terminal-host code) or red (the daemon handle is dead).</p>
+
+<div class="grid2">
+  <div class="statecard latent">
+    <div class="cap">B — update pending <span class="latent-tag">inert in A2</span></div>
+    <div class="desc">pty build ≠ srv's expected build → amber. The nudge #1034 over-fired now fires <em>only</em> here.</div>
+    <div class="stage"><div class="canvas"><div class="chrome">
+      <div class="ident"><span class="logo">k</span></div>
+      <span class="idrail">
+        <span class="idcol"><span class="col-label">srv</span><span class="live live-ok"></span><a class="rail-commit"><span class="br-sha">a161ae1</span></a></span>
+        <span class="idcol-sep"></span>
+        <span class="idcol is-outdated"><span class="col-label">pty</span><span class="live live-outdated"></span><a class="rail-commit"><span class="br-sha">c402a50</span></a><span class="rail-status">update pending</span></span>
+      </span>
+    </div><div style="height:36px"></div></div></div>
+  </div>
+
+  <div class="statecard latent">
+    <div class="cap">B — daemon dead <span class="latent-tag">inert in A2</span></div>
+    <div class="desc">pty handle closed → red. Pairs with the honest degraded canvas; never the empty-canvas lie.</div>
+    <div class="stage"><div class="canvas"><div class="chrome">
+      <div class="ident"><span class="logo">k</span></div>
+      <span class="idrail">
+        <span class="idcol"><span class="col-label">srv</span><span class="live live-ok"></span><a class="rail-commit"><span class="br-sha">a161ae1</span></a></span>
+        <span class="idcol-sep"></span>
+        <span class="idcol is-dead"><span class="col-label">pty</span><span class="live live-dead"></span><span class="rail-status">daemon dead — restart</span></span>
+      </span>
+    </div><div style="height:36px"></div></div></div>
+  </div>
+</div>
+<p style="font-size:13px">The only A2 cost of wiring these now is a few dead <code>classList</code> branches and a status
+string the rail can't yet reach — paid down to zero the moment B lands, with no re-layout and no migration of the
+client component. That's the whole reason to build the final shape in A2.</p>
+
+<h2 id="wiring">How it's wired (A2)</h2>
+<p>The rail is thin presentation, but the data takes <strong>three hops</strong> — because the client speaks
+<em>kolu-server's</em> surface (<code>kolu-common/contract</code> over the WebSocket), <strong>not</strong> the
+pty-host's. So A2 adds identity to <code>system.version</code>, kolu-server reads it once at boot and
+<strong>relays it onto its existing <code>server.info</code></strong> (the same readout that already carries
+<code>serverProcessId</code>), and the rail renders both columns from one client fact.</p>
+<pre><code>// 1. pty-host contract — additive, OPTIONAL field, NO version bump
+//    packages/pty-host/src/ptyHostSurface.ts
+PtyHostIdentitySchema = z.object({
+  staleKey:        z.string(),   // nix hash of the @kolu/pty-host source closure
+  navigableCommit: z.string(),   // git commit SHA (nix-baked; no off-nix mode)
+})
+SystemVersionOutputSchema = z.object({
+  contractVersion: z.string(), pid: z.number(), startedAt: z.number(),
+  identity: PtyHostIdentitySchema.optional(),  // ← optional so a B-phase
+})                                              //   older daemon still validates
+
+// 2. kolu-server RELAYS pty identity onto its own surface, beside its OWN
+//    commit. packages/common/src/contract.ts + packages/server/src/router.ts
+ServerInfoSchema = z.object({
+  // …existing fields (serverProcessId, …)
+  commit:  z.string(),                         // srv column (already baked)
+  ptyHost: PtyHostIdentitySchema.optional(),   // pty column (relayed)
+})
+//    server.info handler fills ptyHost once at boot (in-process = always fresh):
+//      ptyHost: (await ptyHostClient.surface.system.version({})).identity
+
+// 3. client — one rail component, both columns, reused by B for divergence
+//    packages/client/src/ui/IdentityRail.tsx   (rebuilt fresh; #1034's was removed)
+const info = await client.server.info();        // the existing one-shot
+&lt;IdentityRail
+  srv={{ commit: info.commit, live: wsStatus() }}              // dot ← WS
+  pty={{ commit: info.ptyHost?.navigableCommit,
+         build:  info.ptyHost?.staleKey,
+         live:  "inprocess" /* B: derive connected|outdated|dead */ }} /&gt;
+//    commit link → github.com/juspay/kolu/commit/&lt;FULL sha&gt;, display sha.slice(0,7)</code></pre>
+<p class="warn"><strong>Three constraints baked in.</strong> (1) <code>identity</code> is <em>optional</em> on the wire
+so a B-phase older daemon isn't force-restarted just to add a diagnostic; <code>PTY_HOST_CONTRACT_VERSION</code> stays
+<code>2.0</code>. (2) <code>currentBuildId</code>/<code>currentCommitHash</code> re-export as <em>values</em>, not
+<code>import type</code> — the regression that collapsed the typed client to <code>unknown</code>. (3) The commit
+<code>href</code> is the <em>full</em> SHA (display <code>slice(0,7)</code>) — matching the recovered
+<code>3fd7ea63</code> renderer, avoiding ambiguous-prefix edge cases.</p>
+
+<div class="panel">
+  <p><strong>Decisions</strong> (resolved with the maintainer; the load-bearing items came out of the A2 readiness map):</p>
+  <ul>
+    <li class="ok"><strong>Coincidence rendering — DECIDED:</strong> always two explicit columns + the
+    <code>≡ in-process</code> tag. Verbose/explicit is favoured until the feature stabilizes; no collapse-when-equal.</li>
+    <li class="ok"><strong>Labels — DECIDED:</strong> <code>srv</code> / <code>pty</code>.</li>
+    <li class="ok"><strong>Identity values — DECIDED: nix is first-class, no fallback.</strong>
+    <code>KOLU_PTY_HOST_BUILD_ID</code> (staleKey) and <code>KOLU_COMMIT_HASH</code> (commit) are both nix-injected on
+    the koluBin wrapper. Kolu and the pty-host never run outside nix, so there is no dev-derivation, no placeholder
+    dance, and no <code>|| ""</code> softening — the values are always present.</li>
+    <li class="ok"><strong>Closure scope — DECIDED: no severing, no excluded deps.</strong> The staleKey is the nix
+    hash of the pty-host package's own source closure (<code>packages/pty-host/src/*.ts</code> minus tests +
+    <code>package.json</code>). That is naturally <em>tight</em> — a provider-DAG change in <code>kolu-common</code>
+    doesn't touch these files, so it can't over-prompt — and <em>complete</em> for the package's own wire+behaviour.
+    The build-time test guards the one real regression: a wire/behaviour dependency landing <em>outside</em> the
+    hashed package (the #1034 mis-scope). It walks <code>index.ts</code>'s transitive imports and fails if any reached
+    module is neither in <code>packages/pty-host/src</code> nor on a small allowlist of stable framework/leaf deps
+    (<code>zod</code>, <code>@kolu/surface</code>, the <code>kolu-common</code> leaf, <code>node-pty</code>/<code>@xterm</code>
+    via the pinned <code>package.json</code>). Every dependency is kept; the test merely <em>notices</em> when the
+    closure grows a new external wire edge.</li>
+  </ul>
+</div>
+
+<hr/>
+<p class="lead">Prototype rendered with kolu's live dark-theme tokens (<code>packages/client/src/index.css</code>) and the
+<code>ChromeBar.tsx</code> layout. SHAs/hashes are illustrative. Companion to the
+<a href="remote-terminals.pty-daemon.html">R-4 daemon plan</a> — this design revises the plan's "daemon chip lands in
+B" stance: the <em>identity + connection rail</em> consolidates in A2 (honest, in-process), and B adds only the
+<em>divergence</em> semantics to the existing <code>pty</code> column.</p>
+</main>
+</body>
+</html>
