@@ -11,10 +11,10 @@ export type Locator = {
 };
 
 /** A root within which a quote is extracted and re-found. Three shapes,
- *  one contract: each exposes `textContent` and an owning document — itself
- *  when it IS a `Document`, else its `ownerDocument` — from which a
- *  `TreeWalker` is created (`Element`/`ShadowRoot` have no `createTreeWalker`
- *  of their own, so the core always builds the walker off the owner doc):
+ *  one contract: all expose `textContent`; ShadowRoot and Element
+ *  additionally expose `ownerDocument` — the Document the TreeWalker is
+ *  created from (`Element`/`ShadowRoot` have no `createTreeWalker` of their
+ *  own, so the core always goes through the owner doc):
  *    - `Document`    — the in-iframe SDK, anchoring against the iframe's doc
  *    - `ShadowRoot`  — Pierre's `CodeView` (source / diff) lives in one
  *    - `Element`     — a light-DOM host subtree (the rendered Markdown
