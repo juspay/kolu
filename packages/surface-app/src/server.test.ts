@@ -65,7 +65,10 @@ describe("buildInfoServer — async sources", () => {
     });
     const set = vi.fn();
     await frag.buildInfo.connect({ set });
-    expect(set).toHaveBeenCalledWith({ commit: "abc1234", bootId: "boot-late" });
+    expect(set).toHaveBeenCalledWith({
+      commit: "abc1234",
+      bootId: "boot-late",
+    });
   });
 
   it("surfaces a rejected async source via onError and keeps the seed", async () => {
