@@ -8,7 +8,7 @@
  *  silently — comments still appear in the tray, just without in-place
  *  highlights. */
 
-import type { Locator } from "../types";
+import type { Locator, QuoteRoot } from "../types";
 import { rootTextContent } from "./extractQuote";
 import { findQuote, rangeFromOffsets } from "./findQuote";
 
@@ -38,7 +38,7 @@ export interface HighlightInputComment {
  *  or when none of the quotes resolve to a Range. */
 export function applyHighlights(
   win: Window,
-  root: Document | ShadowRoot,
+  root: QuoteRoot,
   comments: HighlightInputComment[],
   name: string,
 ): void {

@@ -675,24 +675,19 @@ Then(
   },
 );
 
-// A >1 MB Markdown file is read back truncated; the rendered preview must
-// surface the same "File truncated" banner the source view shows, otherwise a
-// partial document renders with no warning. Scoped to the markdown preview
-// testid so it doesn't accidentally match the source-view banner.
+// A >1 MB Markdown file is read back truncated; the preview must surface the
+// same "File truncated" banner the source view shows, otherwise a partial
+// document renders with no warning. The banner is a sibling ABOVE the
+// commentable preview (not inside it — see `truncationBanner` in
+// BrowseFileDispatcher: keeping it out of the comment surface stops it being
+// selected as an un-findable comment quote), so this targets its testid.
 Then(
   "the markdown preview should show the truncation warning",
   async function (this: KoluWorld) {
-    const md = this.page.locator('[data-testid="browse-preview-markdown"]');
-    await pollFor({
-      observe: () => md.textContent({ timeout: 1_000 }).catch(() => null),
-      isDone: (text) =>
-        text !== null && text.includes("File truncated (exceeds 1 MB)"),
-      onTimeout: (last) =>
-        new Error(
-          `markdown preview never showed the truncation warning; last text: ${JSON.stringify(last)}`,
-        ),
-      timeoutMs: POLL_TIMEOUT,
-    });
+    const banner = this.page.locator(
+      '[data-testid="browse-truncation-banner"]',
+    );
+    await banner.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -1168,97 +1163,104 @@ Then(
   },
 );
 
-// Drive a REAL mouse drag to select text — same code path a user hits,
-// not a synthetic `Selection.addRange`. The earlier synthetic step
-// pretended to work but bypassed `window.getSelection()` shadow-DOM
-// invisibility (per spec, document.getSelection cannot see selections
-// whose anchor/focus is inside a shadow tree — `ShadowRoot.getSelection()`
-// is the Chrome-specific escape hatch). A test that doesn't fire real
-// pointer events doesn't test what the user actually does.
-//
-// Algorithm:
-//   1. Poll Pierre's shadow tree (via `shadowDfs`) until a text node
-//      containing the target appears.
-//   2. Locate the target's bounding-rect ENDPOINTS by creating a Range
-//      in the page and asking `getClientRects()` — this is read-only
-//      shadow-DOM peeking, not a user-facing selection set.
-//   3. Drive `page.mouse.move/down/move/up` across those rect
-//      coordinates so the browser fires the same pointer + selection
-//      events it does for a real drag.
+// Drive a REAL mouse drag to select `target` inside the container matched by
+// `containerSelector`. Walks shadow trees (Pierre's `CodeView` nests one); the
+// Markdown preview is plain light DOM and the same DFS handles it unchanged.
+async function dragSelectText(
+  world: KoluWorld,
+  containerSelector: string,
+  target: string,
+): Promise<void> {
+  // (1) Wait for the target to be present in the rendered DOM.
+  await world.page.waitForFunction(
+    `(() => {
+      ${SHADOW_DFS_FN_SRC}
+      const view = document.querySelector(${JSON.stringify(containerSelector)});
+      if (!view) return false;
+      const target = ${JSON.stringify(target)};
+      let found = false;
+      shadowDfs(view, (n) => {
+        if (n.nodeType === 3 && (n.nodeValue || "").indexOf(target) !== -1) {
+          found = true;
+          return true;
+        }
+      });
+      return found;
+    })()`,
+    undefined,
+    { timeout: POLL_TIMEOUT },
+  );
+
+  // (2) Get the bounding rect of the target's range in viewport coords.
+  //     The Range itself is throwaway — used only to compute pixel
+  //     coordinates for the mouse drag.
+  const rect = (await world.page.evaluate(
+    `(() => {
+      ${SHADOW_DFS_FN_SRC}
+      const view = document.querySelector(${JSON.stringify(containerSelector)});
+      if (!view) return null;
+      const target = ${JSON.stringify(target)};
+      let foundNode = null;
+      let foundOffset = -1;
+      shadowDfs(view, (n) => {
+        if (n.nodeType === 3) {
+          const txt = n.nodeValue || "";
+          const idx = txt.indexOf(target);
+          if (idx !== -1) { foundNode = n; foundOffset = idx; return true; }
+        }
+      });
+      if (!foundNode || foundOffset < 0) return null;
+      const range = document.createRange();
+      range.setStart(foundNode, foundOffset);
+      range.setEnd(foundNode, foundOffset + target.length);
+      const rects = range.getClientRects();
+      const first = rects[0];
+      const last = rects[rects.length - 1];
+      if (!first || !last) return null;
+      return {
+        startX: first.left,
+        startY: first.top + first.height / 2,
+        endX: last.right,
+        endY: last.top + last.height / 2,
+      };
+    })()`,
+  )) as { startX: number; startY: number; endX: number; endY: number } | null;
+  if (!rect) {
+    throw new Error(
+      `Could not locate "${target}" in ${containerSelector}'s rendered DOM`,
+    );
+  }
+
+  // (3) Drag from the start of the target to the end. Three move steps
+  //     keep the browser's selection model awake for short ranges;
+  //     a single `move + down + up` sometimes collapses on Chromium.
+  await world.page.mouse.move(rect.startX, rect.startY);
+  await world.page.mouse.down();
+  await world.page.mouse.move(
+    (rect.startX + rect.endX) / 2,
+    (rect.startY + rect.endY) / 2,
+    { steps: 3 },
+  );
+  await world.page.mouse.move(rect.endX, rect.endY, { steps: 3 });
+  await world.page.mouse.up();
+  await world.waitForFrame();
+}
+
 When(
   "I select text {string} in the file content",
   async function (this: KoluWorld, target: string) {
-    // (1) Wait for the target to be present in the rendered shadow DOM.
-    await this.page.waitForFunction(
-      `(() => {
-        ${SHADOW_DFS_FN_SRC}
-        const view = document.querySelector('[data-testid="pierre-file-view"]');
-        if (!view) return false;
-        const target = ${JSON.stringify(target)};
-        let found = false;
-        shadowDfs(view, (n) => {
-          if (n.nodeType === 3 && (n.nodeValue || "").indexOf(target) !== -1) {
-            found = true;
-            return true;
-          }
-        });
-        return found;
-      })()`,
-      undefined,
-      { timeout: POLL_TIMEOUT },
-    );
+    await dragSelectText(this, '[data-testid="pierre-file-view"]', target);
+  },
+);
 
-    // (2) Get the bounding rect of the target's range in viewport coords.
-    //     The Range itself is throwaway — used only to compute pixel
-    //     coordinates for the mouse drag.
-    const rect = (await this.page.evaluate(
-      `(() => {
-        ${SHADOW_DFS_FN_SRC}
-        const view = document.querySelector('[data-testid="pierre-file-view"]');
-        if (!view) return null;
-        const target = ${JSON.stringify(target)};
-        let foundNode = null;
-        let foundOffset = -1;
-        shadowDfs(view, (n) => {
-          if (n.nodeType === 3) {
-            const txt = n.nodeValue || "";
-            const idx = txt.indexOf(target);
-            if (idx !== -1) { foundNode = n; foundOffset = idx; return true; }
-          }
-        });
-        if (!foundNode || foundOffset < 0) return null;
-        const range = document.createRange();
-        range.setStart(foundNode, foundOffset);
-        range.setEnd(foundNode, foundOffset + target.length);
-        const rects = range.getClientRects();
-        const first = rects[0];
-        const last = rects[rects.length - 1];
-        if (!first || !last) return null;
-        return {
-          startX: first.left,
-          startY: first.top + first.height / 2,
-          endX: last.right,
-          endY: last.top + last.height / 2,
-        };
-      })()`,
-    )) as { startX: number; startY: number; endX: number; endY: number } | null;
-    if (!rect) {
-      throw new Error(`Could not locate "${target}" in Pierre's rendered DOM`);
-    }
-
-    // (3) Drag from the start of the target to the end. Three move steps
-    //     keep the browser's selection model awake for short ranges;
-    //     a single `move + down + up` sometimes collapses on Chromium.
-    await this.page.mouse.move(rect.startX, rect.startY);
-    await this.page.mouse.down();
-    await this.page.mouse.move(
-      (rect.startX + rect.endX) / 2,
-      (rect.startY + rect.endY) / 2,
-      { steps: 3 },
+When(
+  "I select text {string} in the markdown preview",
+  async function (this: KoluWorld, target: string) {
+    await dragSelectText(
+      this,
+      '[data-testid="browse-preview-markdown"]',
+      target,
     );
-    await this.page.mouse.move(rect.endX, rect.endY, { steps: 3 });
-    await this.page.mouse.up();
-    await this.waitForFrame();
   },
 );
 
@@ -1274,6 +1276,31 @@ Then(
     await this.page
       .locator(COMMENT_PILL)
       .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+// The in-place comment highlight rides the CSS Custom Highlight API: the
+// overlay registers ranges under the "kolu-comment" highlight name. A non-zero
+// range count proves the overlay re-anchored against the live DOM — the
+// regression this guards is the rendered Markdown preview swapping its subtree
+// after mount (lazy Shiki re-render), which detaches any earlier ranges; the
+// overlay's MutationObserver must re-apply so the highlight doesn't silently
+// vanish. Polled because Shiki warms a frame or two after the preview mounts.
+Then(
+  "the comment highlight should be present",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () =>
+        this.page
+          .evaluate("window.CSS?.highlights?.get('kolu-comment')?.size ?? 0")
+          .catch(() => 0),
+      isDone: (size) => typeof size === "number" && size > 0,
+      onTimeout: (last) =>
+        new Error(
+          `comment highlight never registered any ranges; last size: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
@@ -1344,6 +1371,40 @@ When(
     await btn.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await btn.first().click();
     await this.waitForFrame();
+  },
+);
+
+// Click a tray item's body button to jump to its anchor. The body button
+// carries the comment text; clicking it fires `onJumpTo`, which navigates the
+// browse view (and, for a multi-surface file, flips the Source ⇄ Rendered
+// toggle back to the surface the comment was made on).
+When(
+  "I click the tray comment {string}",
+  async function (this: KoluWorld, body: string) {
+    const item = this.page
+      .locator(COMMENTS_TRAY)
+      .locator('[data-testid="kolu-tray-item"]', { hasText: body });
+    await item.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await item.first().click();
+    await this.waitForFrame();
+  },
+);
+
+// Assert which Source ⇄ Rendered surface is active by reading the toggle's
+// `aria-pressed`. Used to verify a tray jump flipped back to the right surface.
+Then(
+  "the file view should be showing {string}",
+  async function (this: KoluWorld, mode: string) {
+    const btn = this.page.locator(`[data-testid="fileview-toggle-${mode}"]`);
+    await pollFor({
+      observe: () => btn.getAttribute("aria-pressed").catch(() => null),
+      isDone: (pressed) => pressed === "true",
+      onTimeout: (last) =>
+        new Error(
+          `file view never showed "${mode}"; toggle aria-pressed was ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 

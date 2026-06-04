@@ -10,6 +10,20 @@ export type Locator = {
   suffix: string;
 };
 
+/** A root within which a quote is extracted and re-found. Three shapes,
+ *  one contract: all expose `textContent`; ShadowRoot and Element
+ *  additionally expose `ownerDocument` — the Document the TreeWalker is
+ *  created from (`Element`/`ShadowRoot` have no `createTreeWalker` of their
+ *  own, so the core always goes through the owner doc):
+ *    - `Document`    — the in-iframe SDK, anchoring against the iframe's doc
+ *    - `ShadowRoot`  — Pierre's `CodeView` (source / diff) lives in one
+ *    - `Element`     — a light-DOM host subtree (the rendered Markdown
+ *                      preview), so the haystack is the preview, not the
+ *                      whole app page.
+ *  Scoping to the narrowest of these is what keeps a comment's prefix/suffix
+ *  context (and the highlight re-find) bounded to the view it was made in. */
+export type QuoteRoot = Document | ShadowRoot | Element;
+
 /** Pixel rect for placing a composer popover next to the captured selection.
  *  Coordinates are in the SDK's local viewport — the parent translates
  *  through the iframe's bounding rect before placing the composer. */

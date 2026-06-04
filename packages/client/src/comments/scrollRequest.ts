@@ -11,7 +11,18 @@
 
 import { createSignal } from "solid-js";
 
-export type ScrollRequest = { commentId: string };
+export type ScrollRequest = {
+  commentId: string;
+  /** Repo-relative path of the target comment — lets a surface decide whether
+   *  a pending request is for the file it's showing before acting on it. */
+  path: string;
+  /** Which browse surface the target comment lives on, when the file is
+   *  multi-surface (Markdown's Source ⇄ Rendered). The dispatcher flips the
+   *  toggle to this surface before the overlay re-finds the quote, so a jump
+   *  to a prose comment can't land on the source view (where the rendered
+   *  quote may not exist). Absent for single-surface comments. */
+  surface?: "source" | "prose";
+};
 
 const [scrollReq, setScrollReq] = createSignal<ScrollRequest | null>(null);
 

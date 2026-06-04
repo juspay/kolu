@@ -24,6 +24,11 @@ export type ComposerTarget = {
    *  `openInCodeTab` to land Pierre's line-selection highlight on
    *  the right row. */
   lineRange?: { start: number; end: number };
+  /** Which browse surface the selection was made on, when the file offers
+   *  more than one (Markdown's Source ⇄ Rendered). Passed through to
+   *  `Comment.surface` so the tray jump can flip the toggle back to it.
+   *  Absent for single-surface captures (plain source, diff, HTML iframe). */
+  surface?: "source" | "prose";
   /** Viewport rect (parent-local coordinates) of the selection — the
    *  composer is positioned next to it. */
   rect: SelectionRect;
