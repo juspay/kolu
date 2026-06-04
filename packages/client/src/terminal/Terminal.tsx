@@ -736,9 +736,13 @@ const Terminal: Component<{
           // Filter terminal query responses from onData before sending to PTY.
           // The server's headless xterm already answers these; duplicates arriving
           // late over the network get printed as visible garbage.
-          const csiResponse = /\x1b\[[?>=]?[\d;]*[cnRy]/; // DA1/DA2/DSR/CPR/DECRPM
+          const csiResponse = /\x1b\[[?>=]?[\d;]*[cnRyt]/; // DA1/DA2/DSR/CPR/DECRPM/window-reports
           term.onData((data: string) => {
-            if (csiResponse.test(data) || data.startsWith("\x1b]")) return;
+            if (
+              csiResponse.test(data) ||
+              data.startsWith("\x1b]") || // OSC responses
+              (data.startsWith("\x1bP") && data.endsWith("\x1b\\")) // DCS (XTVERSION)
+            ) return;
             // Fold any sticky Ctrl/Alt armed on the mobile key bar into this
             // keystroke (no-op on desktop, where nothing is ever armed).
             void client.terminal.sendInput({
