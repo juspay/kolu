@@ -16,6 +16,7 @@ import {
   extractOffsets,
   extractQuote,
   type QuoteRoot,
+  rootTextContent,
   type SelectionRect,
 } from "@kolu/artifact-sdk/client";
 import {
@@ -92,10 +93,7 @@ function lineRangeForSelection(
 ): { start: number; end: number } | undefined {
   const offsets = extractOffsets(root, range);
   if (!offsets) return undefined;
-  const text =
-    root instanceof Document
-      ? (root.body?.textContent ?? "")
-      : (root.textContent ?? "");
+  const text = rootTextContent(root);
   // 1-based lines — newline count up to the offset + 1.
   const lineAt = (off: number): number => {
     let n = 1;
