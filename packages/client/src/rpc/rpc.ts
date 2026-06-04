@@ -27,12 +27,20 @@ export type { ServerLifecycleEvent };
 // The library derives the lifecycle from kolu's transport + identity probe.
 // The probe is surface-app's `serverIdentity` fragment, surfaced at
 // `surface.server.info` (returns `{ processId }`) — composed, not hand-written.
-const { lifecycle, serverProcessId } = createServerLifecycle({
+const { lifecycle, serverProcessId, status } = createServerLifecycle({
   ws,
   probe: () => app.rpc.surface.server.info({}),
+  // A persistently-broken probe would otherwise silently leave the UI stuck in
+  // its prior connection state. Log it (the next open retries) — same as the
+  // pre-extraction rpc.ts.
+  onProbeError: (err) => console.warn("server.info probe failed:", err),
 });
 
-export { lifecycle, serverProcessId };
+// `status` is the surface-app `ConnectionStatus` projection of the same
+// lifecycle — handed to `<SurfaceAppProvider status=...>` so the provider reads
+// THIS source instead of attaching a second listener/probe pair (one lifecycle,
+// no double `server.info` probe per reconnect, no observer disagreement).
+export { lifecycle, serverProcessId, status };
 
 /** Transport status for the header dot. */
 const wsStatus = createMemo<WsStatus>(() =>

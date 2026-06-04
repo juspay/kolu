@@ -5,7 +5,7 @@
  * `/server` and `/solid` entrypoints (and your app) build on, and the only bits
  * worth unit-testing in isolation. The freshness contract they encode is the
  * hard-won lesson of the four-times-relitigated stale-client bug — see
- * `docs/cache-bug.md` and `docs/plans/surface-app.html`.
+ * `docs/cache-bug.md` and the Atlas note `docs/atlas/src/content/atlas/surface-app.mdx`.
  */
 
 /** Where the immutable, content-hashed assets live, and which paths are the

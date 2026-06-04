@@ -196,8 +196,9 @@ curl -s -o /dev/null -w '%{http_code}\n' "http://$HOST:7692/assets/index-DEADBEE
   turn here came from guessing the deployment (HTTPS? proxy? SW?) instead of
   reading it off the box. (The one fact that stayed un-gettable from the box: the
   user's *browser* state — which is exactly where the bug lived.)
-- This is why the [`web-delivery`](./plans/web-delivery.html) skill + library
-  exists: encode the freshness contract once so the next app doesn't relitigate it.
+- This is why the [`surface-app`](./atlas/src/content/atlas/surface-app.mdx)
+  library exists: encode the freshness contract once so the next app doesn't
+  relitigate it.
 
 ## Resolution — it WAS a service worker (the flag was the missing fact)
 

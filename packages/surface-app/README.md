@@ -2,7 +2,7 @@
 
 The **app shell** for [`@kolu/surface`](../surface) apps — the ones that are really *desktop applications you run against your own server* (kolu, [drishti](https://github.com/srid/drishti), the next one). Where surface is the live reactive **wire**, surface-app is the static shell delivered *around* it: served fresh, installable like a desktop app, and always aware of its relationship to the server it's bound to.
 
-It exists because the same property — *a returning client converges to the build you deployed* — was re-derived from scratch four times across kolu PRs (#696 / #1125 / #1135 / #1149), slightly differently each time, leaving a gap each time. The full saga is in [`docs/cache-bug.md`](../../docs/cache-bug.md); the design in [`docs/plans/surface-app.html`](../../docs/plans/surface-app.html).
+It exists because the same property — *a returning client converges to the build you deployed* — was re-derived from scratch four times across kolu PRs (#696 / #1125 / #1135 / #1149), slightly differently each time, leaving a gap each time. The full saga is in [`docs/cache-bug.md`](../../docs/cache-bug.md); the design in the Atlas note [`surface-app`](../../docs/atlas/src/content/atlas/surface-app.mdx) ([rendered](../../docs/atlas/dist/surface-app.html)).
 
 ## The class of app it serves
 
@@ -54,6 +54,12 @@ Workspace-private. Wire it into the server and client packages:
 // packages/{server,client}/package.json
 { "dependencies": { "@kolu/surface-app": "workspace:*" } }
 ```
+
+The `/server` entry serves your shell through **Hono** — `hono` and
+`@hono/node-server` are declared as **optional peer dependencies**. The server
+package that imports `@kolu/surface-app/server` must have them installed (a Hono
+app is the consumer's own, so you bring your own copy); the `/solid`, `/surface`,
+and `/lifecycle` entries pull neither.
 
 ### Consumer tsconfig: no special flags
 
@@ -186,9 +192,17 @@ retireServiceWorker();   // unregister any worker an earlier build left + drop i
   ws={ws}                                          // open/close → connecting/live/down
   probe={() => app.rpc.surface.server.info({})}    // { processId } → reconnected vs restarted
   // isStale={(srv, cli) => …}                      // optional: override the predicate per section
+  // onError={(err) => toast.error(err.message)}    // optional: surface a dead buildInfo stream
 >
   …your app…
 </SurfaceAppProvider>
+
+// The connection source is a union — pass EITHER { ws, probe } (turnkey: the
+// provider derives the lifecycle itself) OR { status } (you already derived it
+// once via createServerLifecycle and share it with the rest of the UI — the
+// provider reads YOUR accessor instead of attaching a second listener/probe
+// pair). Passing only half of ws/probe is not representable. kolu uses { status }
+// because its rpc.ts already owns the single module-level lifecycle.
 
 // anywhere inside — render your OWN badge/rail/prompt from the model:
 const pwa = useSurfaceApp();

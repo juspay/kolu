@@ -6,7 +6,9 @@ import { MetaProvider } from "@solidjs/meta";
 import { koluBuildInfo } from "kolu-common/surface";
 import { render } from "solid-js/web";
 import App from "./App";
-import { app, ws } from "./wire";
+import { toast } from "solid-sonner";
+import { status } from "./rpc/rpc";
+import { app } from "./wire";
 import "./index.css";
 
 // kolu does not use a service worker. Retire any one a previous build left
@@ -23,17 +25,19 @@ if (import.meta.env.DEV) {
 
 render(
   () => (
-    // surface-app's headless app-shell model: the connection lifecycle (derived
-    // from `ws` + the `surface.server.info` probe), build-skew staleness (driven
-    // by `koluBuildInfo`'s extended cell), and the reload affordance. kolu reads
-    // it via `useSurfaceApp()` and renders its own tailwind chrome (IdentityRail,
+    // surface-app's headless app-shell model: the connection status (the SINGLE
+    // module-level lifecycle from rpc.ts — the provider reads it rather than
+    // re-deriving its own, so there's one `server.info` probe per reconnect and
+    // every UI path agrees), build-skew staleness (driven by `koluBuildInfo`'s
+    // extended cell), and the reload affordance. kolu reads it via
+    // `useSurfaceApp()` and renders its own tailwind chrome (IdentityRail,
     // StaleBadge, TransportOverlay, the mobile sheet).
     <SurfaceAppProvider
       controlPlane={app}
       clientCommit={__SURFACE_APP_COMMIT__}
       buildInfo={koluBuildInfo}
-      ws={ws}
-      probe={() => app.rpc.surface.server.info({})}
+      status={status}
+      onError={(err) => toast.error(`Build identity error: ${err.message}`)}
     >
       <MetaProvider>
         <App />

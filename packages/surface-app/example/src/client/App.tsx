@@ -22,7 +22,10 @@ function Shell() {
   const pwa = useSurfaceApp<ExampleBuildInfo>();
   // app-specific cell — composed alongside surface-app's buildInfo, same wire,
   // same client. The server pushes it live; Solid re-renders on each delta.
-  const stats = app.cells.serverStats.use({ authority: "server" });
+  const stats = app.cells.serverStats.use({
+    authority: "server",
+    onError: (err) => console.error("serverStats subscription error:", err),
+  });
   const uptime = () => {
     const s = stats.value();
     return s?.startedAt ? `${Math.floor((s.now - s.startedAt) / 1000)}s` : "…";
@@ -133,6 +136,7 @@ export default function App() {
       buildInfo={buildInfo}
       ws={ws}
       probe={() => app.rpc.surface.server.info({})}
+      onError={(err) => console.error("buildInfo subscription error:", err)}
     >
       <Shell />
     </SurfaceAppProvider>

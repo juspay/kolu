@@ -26,6 +26,7 @@ import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 import {
+  buildInfo as exampleBuildInfo,
   EMPTY_STATS,
   type ExampleBuildInfo,
   type ServerStats,
@@ -62,10 +63,16 @@ const statsStore = {
 // the resolved patch in when the promise settles, and `connect(...)` (below)
 // republishes it to subscribers — no hand-written second `ctx.cells.buildInfo.set`.
 const build = buildInfoServer<ExampleBuildInfo>({
+  // The schema-valid seed: every required axis at its default. Until the async
+  // source settles, the cell publishes `{ commit, bootId: "" }` — a full
+  // `ExampleBuildInfo`, never a half-shape missing `bootId`.
+  default: exampleBuildInfo.cells.buildInfo.default,
   buildInfo: async () => {
     await new Promise((r) => setTimeout(r, 50)); // the link round-trip
     return { bootId: randomUUID().slice(0, 8) }; // a Partial<T> patch
   },
+  // Surface a failed boot-time probe instead of silently keeping the seed.
+  onError: (err) => console.error("buildInfo boot-time axis failed:", err),
 });
 
 const { router: surfaceRouter, ctx } = implementSurface(surface, {

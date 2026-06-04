@@ -176,9 +176,10 @@ export interface BuildInfoServerFragment<T extends BuildInfo> {
  *  absent/empty), so the single-source-of-truth resolver still owns the sha.
  *
  *  `buildInfo` may be a plain value, a sync thunk, OR an async thunk. An async
- *  thunk is the boot-time axis: the cell is seeded synchronously with `{ commit }`
- *  (plus any other sync fields the app passes), the resolved value (full `T` or
- *  a `Partial<T>` patch) is folded into the store as soon as the promise
+ *  thunk is the boot-time axis: the cell is seeded synchronously with the
+ *  schema-valid `default` (every required axis present — pass `default` when `T`
+ *  extends `{ commit }`), the resolved value (full `T` or a `Partial<T>` patch)
+ *  is folded into the store as soon as the promise
  *  settles, and `connect(ctx.cells.buildInfo)` (called once at boot) republishes
  *  it to subscribers — so the late half flows through the *same* fragment
  *  instead of a hand-written second `ctx.cells.buildInfo.set`.
@@ -191,16 +192,36 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
   opts: {
     commit?: string;
     buildInfo?: BuildInfoSource<T>;
+    /** The schema-valid base the store is seeded with — every required axis
+     *  the schema declares, at its default. REQUIRED when `T` extends the
+     *  default `{ commit }` with more required fields (e.g. the example's
+     *  `bootId`): the first snapshot rides the wire as a full `T`, so an async
+     *  source resolving only a `Partial<T>` patch can't leave a required field
+     *  absent until the promise settles (which would fail the cell's output
+     *  schema). Pass your fragment's `default` (`buildInfo.cells.buildInfo.default`).
+     *  Omit only for the bare `{ commit }` default. */
+    default?: T;
     equals?: (a: T, b: T) => boolean;
+    /** Surface a failed async boot-time axis. A rejected `buildInfo` source
+     *  leaves the seed in place (the skew axis still works), but the failure is
+     *  no longer indistinguishable from a legitimately absent optional axis —
+     *  this fires with the rejection so the app can log it / alert. */
+    onError?: (err: unknown) => void;
   } = {},
 ): BuildInfoServerFragment<T> {
   const equals =
     opts.equals ?? ((a, b) => JSON.stringify(a) === JSON.stringify(b));
-  // The seed is whatever the source gives synchronously: a plain value, a sync
-  // thunk's result, or — for an async source — nothing (just `{ commit }`) until
-  // it lands.
-  const seed =
+  // The seed is the schema-valid `default` (every required axis present),
+  // overlaid with whatever the source gives synchronously: a plain value, a
+  // sync thunk's result, or — for an async source — nothing until it lands.
+  // Seeding the full `default` (not just `{ commit }`) keeps the first wire
+  // snapshot a valid `T` while an async axis is still pending.
+  const syncSeed =
     typeof opts.buildInfo === "function" ? undefined : opts.buildInfo;
+  const seed =
+    opts.default !== undefined || syncSeed !== undefined
+      ? ({ ...opts.default, ...syncSeed } as Partial<T>)
+      : undefined;
   const stamp = (partial: Partial<T> | undefined): T => {
     const commit = opts.commit ?? (partial?.commit || resolveCommit());
     return { ...(partial ?? ({} as Partial<T>)), commit } as T;
@@ -231,9 +252,12 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
     pending !== undefined
       ? pending
           .then((r) => void fold(r))
-          .catch(() => {
-            // A failed boot-time axis leaves the `{ commit }` seed in place — the
-            // skew axis still works; the extra axis stays at its default.
+          .catch((err) => {
+            // A failed boot-time axis leaves the seed in place — the skew axis
+            // still works; the extra axis stays at its default. Surface the
+            // failure (don't swallow it silently) so a broken boot-time probe
+            // is distinguishable from a legitimately absent optional axis.
+            opts.onError?.(err);
           })
       : Promise.resolve();
   return {

@@ -18,9 +18,21 @@ export interface BuildInfo {
 
 /** A composable build-identity fragment: a `cells` map to spread into your
  *  `defineSurface({ cells: { ...buildInfo.cells } })`, plus the `isStale`
- *  predicate the UI reads. */
+ *  predicate the UI reads.
+ *
+ *  The cell is `verbs: ["get"]` — server build identity is read-only on the
+ *  wire. Without this the default `["get", "set"]` would publish a `set`
+ *  procedure, letting any client overwrite `{ commit, … }` and fabricate or
+ *  hide stale-client state. The server still mutates it via the internal
+ *  `ctx.cells.buildInfo.set` (independent of the wire verbs). */
 export interface BuildInfoDef<T extends BuildInfo = BuildInfo> {
-  cells: { buildInfo: { schema: z.ZodType<T>; default: T } };
+  cells: {
+    buildInfo: {
+      schema: z.ZodType<T>;
+      default: T;
+      verbs: readonly ["get"];
+    };
+  };
   isStale: (server: T, clientCommit: string | undefined) => boolean;
 }
 
@@ -33,7 +45,13 @@ export function defineBuildInfo<T extends BuildInfo>(opts: {
   isStale?: (server: T, clientCommit: string | undefined) => boolean;
 }): BuildInfoDef<T> {
   return {
-    cells: { buildInfo: { schema: opts.schema, default: opts.default } },
+    cells: {
+      buildInfo: {
+        schema: opts.schema,
+        default: opts.default,
+        verbs: ["get"] as const,
+      },
+    },
     isStale:
       opts.isStale ??
       ((server, clientCommit) => clientIsStale(server.commit, clientCommit)),

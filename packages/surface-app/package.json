@@ -17,17 +17,31 @@
     "./client": "./src/client.d.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "solid-js": "^1.9.0",
     "zod": "^4.3.6"
   },
+  "peerDependencies": {
+    "@hono/node-server": "^1.19.13",
+    "hono": "^4.12.16"
+  },
+  "peerDependenciesMeta": {
+    "@hono/node-server": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@hono/node-server": "^1.19.13",
     "@types/node": "^22.0.0",
     "hono": "^4.12.16",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.0"
   }
 }

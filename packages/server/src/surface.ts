@@ -100,6 +100,14 @@ const build = buildInfoServer<KoluBuildInfo>({
     return identity ? { ptyHost: identity } : {};
   },
   commit: serverCommit,
+  // Surface a failed boot-time pty-host probe — `ptyHost` legitimately stays
+  // undefined when the probe resolves empty, but a *rejection* is a fault we
+  // log rather than swallow (the rail's column shows `—` either way).
+  onError: (err) =>
+    log.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      "buildInfo pty-host axis failed",
+    ),
 });
 
 const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
