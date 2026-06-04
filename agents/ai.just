@@ -6,14 +6,15 @@ set working-directory := '..'
 # these recipes need to enter it when invoked from a bare shell.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
-# TEMPORARY: build apm-cli from srid/apm's #1662 fix branch. It forks upstream
-# `main` — so it already carries the compile-hang fix (#1576, released in 0.18.0)
-# — AND adds the fix that keeps format-transformed rule files (`.claude/rules/*`)
-# tracked + in sync; without it, `apm install` silently leaves edited rules stale
-# (it updates AGENTS.md but not `.claude/rules/`, masking the drift). Revert to
-# `--from apm-cli` once #1662 merges upstream and a release ships.
-# Upstream: microsoft/apm#1576 (merged, 0.18.0) · microsoft/apm#1662 (pending).
-apm_cmd := nix_shell + ' uvx --from git+https://github.com/srid/apm@fix/instruction-rules-tracking apm'
+# TEMPORARY: build apm-cli from the head of microsoft/apm#1665 — the fix that
+# keeps format-transformed rule files (`.claude/rules/*`) tracked + in sync;
+# without it, `apm install` silently leaves edited rules stale (updates AGENTS.md
+# but not `.claude/rules/`, masking the drift). The PR forks upstream `main`, so
+# it also carries the compile-hang fix (#1576, released in 0.18.0).
+# `refs/pull/1665/head` tracks the PR head on the base repo. Revert to
+# `--from apm-cli` once it merges and a release ships.
+# PR: https://github.com/microsoft/apm/pull/1665 (closes #1662).
+apm_cmd := nix_shell + ' uvx --from git+https://github.com/microsoft/apm@refs/pull/1665/head apm'
 apm_targets := 'claude,codex,opencode'
 apm_compile_targets := 'codex,opencode'
 
