@@ -1097,7 +1097,14 @@ async function authorAndPost(slug, data, baseline, guidance) {
   // its token cost was never the waste (the LARGE rich body was); routing it here
   // keeps `postComment` as the single fallback path for non-rich slugs.
   if (!richComment || !hasRichContent(slug, data)) {
-    return postComment(slug, baseline);
+    try {
+      return await postComment(slug, baseline);
+    } catch (e) {
+      log(
+        `Report: ${slug} baseline poster failed (${String(e)}) — comment will be skipped.`,
+      );
+      return "";
+    }
   }
   const file = `${SCRATCH}/comment-${slug}.md`;
   const header = String(baseline).split("\n")[0];
@@ -1108,10 +1115,21 @@ async function authorAndPost(slug, data, baseline, guidance) {
   try {
     meta = await authorDraft(slug, data, baseline, guidance, file, header);
   } catch (e) {
-    log(
-      `Report: ${slug} reporter agent failed (${String(e)}) — posting the deterministic baseline instead.`,
-    );
-    return postComment(slug, baseline);
+    // Don't swallow the throw: log which slug fell back and why, then honor the
+    // never-blank contract by posting the deterministic baseline through the cheap
+    // base64 poster so the track still gets its one comment (police police-r1).
+    try {
+      const url = await postComment(slug, baseline);
+      log(
+        `Report: ${slug} reporter agent failed (${String(e)}) — posted the deterministic baseline instead.`,
+      );
+      return url;
+    } catch (e2) {
+      log(
+        `Report: ${slug} reporter agent failed (${String(e)}) — baseline poster also failed (${String(e2)}) — comment will be skipped.`,
+      );
+      return "";
+    }
   }
   // STAGE 1.5a — cheap early-out on the agent's SELF-REPORTED metadata. This is NOT
   // the real guarantee (the agent that wrote the file also computed these numbers, so
@@ -1128,7 +1146,14 @@ async function authorAndPost(slug, data, baseline, guidance) {
     log(
       `Report: ${slug} reporter self-reported an unusable draft (bytes=${bytes}, headerOk=${firstLine.trim() === header.trim()}) — posting the deterministic baseline instead.`,
     );
-    return postComment(slug, baseline);
+    try {
+      return await postComment(slug, baseline);
+    } catch (e) {
+      log(
+        `Report: ${slug} self-report fallback poster failed (${String(e)}) — comment will be skipped.`,
+      );
+      return "";
+    }
   }
   // STAGE 2 — post the validated draft by PATH through the narrow mechanical poster.
   // The poster MECHANICALLY re-validates the actual file (nonempty, exact header as
@@ -1143,7 +1168,14 @@ async function authorAndPost(slug, data, baseline, guidance) {
     log(
       `Report: ${slug} draft failed the poster's mechanical file check — posting the deterministic baseline instead.`,
     );
-    return postComment(slug, baseline);
+    try {
+      return await postComment(slug, baseline);
+    } catch (e) {
+      log(
+        `Report: ${slug} invalid-draft fallback poster failed (${String(e)}) — comment will be skipped.`,
+      );
+      return "";
+    }
   }
   return url;
 }
