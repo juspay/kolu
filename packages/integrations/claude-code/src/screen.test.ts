@@ -108,6 +108,17 @@ const PROSE_NAVIGATE = `● Use the arrow keys to navigate the file tree, then p
 const PLAIN_ASSISTANT_TEXT = `● The function returns null when the file is
   missing, so the caller treats it as "retry".`;
 
+/** Adversarial NEGATIVE — model prose / tool output that mentions the bare
+ *  phrases "Tab to amend" and "don't ask again" outside any permission UI. The
+ *  markers are anchored on the surrounding chrome (full footer / numbered option
+ *  line), so the bare words must NOT promote. */
+const PROSE_TAB_TO_AMEND = `● Git's interactive rebase opens an editor; press
+  Tab to amend the commit message before saving.`;
+
+const PROSE_DONT_ASK_AGAIN = `● I'll remember that preference and won't ask
+  again for this project — let me know if you change your mind, and don't ask
+  again about the linter config either.`;
+
 /** Edit-family permission gate (Write/Edit/NotebookEdit), captured live. Marker:
  *  the `Tab to amend` footer. */
 const WRITE_PERMISSION = `● Write(notes.txt)
@@ -182,6 +193,14 @@ describe("screenHasClaudePrompt — negatives", () => {
 
   it("ignores ordinary assistant prose", () => {
     expect(screenHasClaudePrompt(PLAIN_ASSISTANT_TEXT)).toBe(false);
+  });
+
+  it("ignores prose mentioning 'Tab to amend' outside the gate footer", () => {
+    expect(screenHasClaudePrompt(PROSE_TAB_TO_AMEND)).toBe(false);
+  });
+
+  it("ignores prose mentioning 'don't ask again' outside a numbered gate option", () => {
+    expect(screenHasClaudePrompt(PROSE_DONT_ASK_AGAIN)).toBe(false);
   });
 });
 

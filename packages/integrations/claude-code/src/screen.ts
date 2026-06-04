@@ -22,11 +22,15 @@
  *  three awaiting-user prompts are recognized, each by chrome no idle menu or
  *  ordinary output carries: `AskUserQuestion` (its `… to navigate · Esc to cancel`
  *  footer, covering both the single-select and multi-select tabbed shapes), the
- *  edit-family permission gate (Write/Edit/NotebookEdit — its `Tab to amend`
- *  footer), and the other permission gates (Bash/WebFetch/… — their `… don't ask
- *  again for <x>` remember-option). The look-alikes that share a word or two —
- *  `/model` and the trust prompt end in "Esc to cancel"; the `/fork` agent list
- *  says "to select" — are excluded by anchoring on the full distinctive phrase.
+ *  edit-family permission gate (Write/Edit/NotebookEdit — its full
+ *  `Esc to cancel · Tab to amend` footer), and the other permission gates
+ *  (Bash/WebFetch/… — their numbered `<n>. Yes, and don't ask again for <x>`
+ *  remember-option line). Each marker is anchored on the full surrounding chrome
+ *  (whole footer / whole numbered option line), not a bare phrase, so the words
+ *  alone in Bash output, a diff, or model prose can't false-promote. The
+ *  look-alikes that share a word or two — `/model` and the trust prompt end in
+ *  "Esc to cancel"; the `/fork` agent list says "to select" — are excluded the
+ *  same way.
  *
  *  `ExitPlanMode` is still NOT detected — its dialog has no arrow footer
  *  (`Ready to code?` + `shift+tab to approve…`), so it needs a separate, more
@@ -67,18 +71,25 @@ export const TAIL_REGION_LINES = 40;
  *      Esc to cancel"; `/fork` list → "↑/↓ to select · Enter to view").
  *   2. **Edit-family permission gate** (Write / Edit / NotebookEdit) — the
  *      "Do you want to create/edit X?" approval, whose footer is
- *      `Esc to cancel · Tab to amend`. `Tab to amend` is unique to it.
+ *      `Esc to cancel · Tab to amend`. Anchored on the *whole footer* (both
+ *      halves, `·` optional) rather than the bare `Tab to amend` words, so the
+ *      phrase appearing alone in Bash output, a diff, or model prose can't fire —
+ *      it's the framework footer pairing that's the signal.
  *   3. **Other permission gates** (Bash / WebFetch / …) — the "remember my
- *      choice" option `Yes, and don't ask again for <x>`. These gates have no
- *      `Tab to amend` footer, so they need their own marker; `don.t ask again`
- *      (apostrophe-agnostic) is the framework-stable part.
+ *      choice" option line `<n>. Yes, and don't ask again for <x>`. These gates
+ *      have no `Tab to amend` footer, so they need their own marker. Anchored on
+ *      the full numbered option line (start-of-line `<n>. Yes, and don't ask
+ *      again for`, apostrophe-agnostic) rather than the bare `don't ask again`
+ *      words — that bare phrase is plausible English prose Claude might write or
+ *      tool output might carry, but the numbered-option framing is chrome only
+ *      the gate paints.
  *
  *  Permission gates fire while the tool call is on disk, so the session reads as
  *  `tool_use` (already pollable) — only the marker is new, not the state gate. */
 const PROMPT_MARKERS: readonly RegExp[] = [
   /to navigate\s*·?\s*Esc to cancel/, // AskUserQuestion (single + multi-select)
-  /Tab to amend/, // Write/Edit/NotebookEdit permission gate footer
-  /don.t ask again/, // Bash/WebFetch/etc. permission "remember" option
+  /Esc to cancel\s*·?\s*Tab to amend/, // Write/Edit/NotebookEdit gate footer
+  /^\s*\d+\.\s*Yes, and don.t ask again for\b/m, // Bash/WebFetch/etc. gate option
 ];
 
 /** The last block of rendered lines, trailing blank rows trimmed so the "tail"
