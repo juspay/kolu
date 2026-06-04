@@ -102,20 +102,25 @@ to `cd`.
   deterministic string-builder comments. By **default** (`richComment: true`) each
   comment is authored by a per-track **reporter agent** (narrative + tables +
   reasoning, synthesized from the track's full structured result) rather than the
-  terse builders. That agent **writes its own body and posts it** in one shot, so
-  the large body never crosses a second agent as a base64 blob. The builders remain
-  the **baseline** the agent improves and the **fallback** if the agent throws; a
-  trivial track (track-error / clean / no findings) skips the agent and posts the
-  baseline directly. Use this flag when you want the fast, no-agent comments.
+  terse builders. That agent **writes only a DRAFT FILE** (it never runs `gh`) and
+  returns metadata; the workflow then **mechanically validates the draft file**
+  (nonempty, exact header line, byte cap) and a **narrow mechanical poster** posts it
+  by path — so the large body never crosses a second agent as a base64 blob, and the
+  side-effecting `gh` is split off from the fallible authoring step. The builders
+  remain the **baseline** the agent improves and the **fallback** if the agent
+  throws or the draft fails validation; a trivial track (track-error / clean / no
+  findings) skips the agent and posts the baseline directly. Use this flag when you
+  want the fast, no-agent comments.
 - **Cost / model tiers** (`model` / `synthModel` / `mechModel`): the orchestrator
   and child workflows run each agent on the cheapest model that does its job, so a
   run doesn't pay Opus rates for `git`/`gh` shuffling. Defaults: **`model: opus`**
   for deep reasoning (the lens lenses — load-bearing — + claude-author + lens
   apply), **`synthModel: sonnet`** for synthesis (the reporter agents — which now
-  author AND post their own comment — the cherry-pick/reconcile, the police
-  review/apply passes — code-police is natively Sonnet anyway), **`mechModel:
-  haiku`** for mechanical agents (setup, every commit, cleanup, the baseline-
-  fallback comment poster, status/HEAD checks, merge-base + codex runner).
+  author a draft FILE only, leaving the `gh` post to a mechanical poster — the
+  cherry-pick/reconcile, the police review/apply passes — code-police is natively
+  Sonnet anyway), **`mechModel: haiku`** for mechanical agents (setup, every commit,
+  cleanup, the draft-validating rich-comment poster and the baseline-fallback
+  poster, status/HEAD checks, merge-base + codex runner).
   Override any tier via args. The run reports a **`tokensByPhase`** breakdown
   (output tokens, from `budget.spent()` on the shared turn counter) bucketed by
   each phase's wall-clock window — NOT isolated to that phase's agents: concurrent
@@ -171,10 +176,10 @@ It runs five phases the user can watch via `/workflows`: **Setup** (fan out one
 detached worktree per track under `.worktrees/`), **Tracks** (the three gauntlets
 run concurrently to consensus), **Consolidate** (cherry-pick each track's commits
 onto the branch, reconciling overlap), **Report** (a per-track **reporter agent**
-authors a detailed PR comment from each track's structured result — narrative +
-tables + reasoning — plus the consolidation ledger; `richComment: false` falls back
-to the terse deterministic builders), **Cleanup** (tear down the worktrees). It
-returns:
+authors a detailed PR comment as a DRAFT FILE from each track's structured result —
+narrative + tables + reasoning — which the workflow validates and a mechanical poster
+posts by path, plus the consolidation ledger; `richComment: false` falls back to the
+terse deterministic builders), **Cleanup** (tear down the worktrees). It returns:
 
 ```
 { status,                  // 'done' | 'consolidation-incomplete' | 'consolidation-aborted' | 'no-commit' | 'setup-failed'
