@@ -95,7 +95,7 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 | `buildInfoServer()` | "The buildInfo cell's server impl — spread into implementSurface; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
 | `buildInfo` · `defineBuildInfo` | "The buildInfo cell definition — composed into your surface; extensible." | <Pill variant="dx">/surface</Pill> | #2,5 |
 | `useSurfaceApp()` · `SurfaceAppProvider` · `retireServiceWorker()` | "The headless model (status/stale/reload/install) + SW retirement. You render the UI." | <Pill variant="hi">/solid</Pill> | #3,4,5 |
-| `surfaceApp()` vite plugin · `resolveCommit()` | "Resolve the commit once (env→git→dev); inject `__SURFACE_APP_COMMIT__` + its type. (Nix `withCommitStamp` for nix builds.)" | <Pill variant="md">/vite · build</Pill> | #2 |
+| `surfaceApp()` vite plugin · `buildSurfaceClient()` · `resolveCommit()` | "Build the client fresh: content-hashed `/assets/*`, the `__SURFACE_APP_COMMIT__` define, the no-store shell rewrite — Vite plugin or Bun helper. Resolve the commit once (env→git→dev)." | <Pill variant="md">/vite · /bun</Pill> | #1,2 |
 | `cacheControlFor` · `clientIsStale` · `SW_SOURCE` | "The pure, framework-free kernels." | <Pill variant="ok">utils/</Pill> | #1,2 |
 
 ## The design
@@ -143,7 +143,7 @@ The spike's failing — fairly called out in review — was making the _example_
 | definition | `buildInfo` (cell schema) | into `defineSurface` |
 | server impl | `buildInfoServer()` | into `implementSurface` |
 | client model | `useSurfaceApp()` | under `<SurfaceAppProvider>` |
-| commit source | `surfaceApp()` Vite plugin / `resolveCommit()` | into vite.config & server boot |
+| client build + commit | `surfaceApp()` Vite plugin · `buildSurfaceClient()` (Bun) · `resolveCommit()` | into the client build & server boot |
 
 And the commit is **resolved once** — `SURFACE_APP_COMMIT` env, else `git rev-parse --short HEAD`, else `"dev"` (which `clientIsStale` already treats as never-stale) — then fed to both the client define and the server cell. No app writes a sha.
 
@@ -211,15 +211,19 @@ retireServiceWorker();
 
 No styled components ship: a tailwind app (kolu) and a different-CSS app (drishti) render their own from the same model. `controlPlane` takes one client; a many-client app passes its control-plane client, since the model is global.
 
-### /vite — the commit, resolved once <Pill variant="md">@kolu/surface-app/vite</Pill>
+### /vite · /bun — the client build, owned upstream <Pill variant="md">@kolu/surface-app/vite · /bun</Pill>
 
 ```ts
+// Vite path — the plugin resolves + injects the commit
 import { surfaceApp } from "@kolu/surface-app/vite";
-plugins: [solid(), surfaceApp()]   // resolves git HEAD (or SURFACE_APP_COMMIT, or "dev"),
-                                   // injects __SURFACE_APP_COMMIT__ + ships its type — no define, no env.d.ts, no sha literal.
+plugins: [solid(), surfaceApp()]   // injects __SURFACE_APP_COMMIT__ + ships its type — no define, no env.d.ts, no sha literal.
+
+// Bun path — buildSurfaceClient owns hash-naming + the define + the no-store shell rewrite
+import { buildSurfaceClient } from "@kolu/surface-app/bun";
+await buildSurfaceClient({ entrypoint, distDir, htmlTemplate, entryHtmlPlaceholder, plugins, extraAssets, publicDir });
 ```
 
-A non-Vite build calls `resolveCommit()` and feeds its own bundler define (`Bun.build({ define })`); a nix-built client uses `withCommitStamp`. One resolver, one source of truth.
+Both stamp the same commit via `resolveCommit` (env → git → `"dev"`). The Bun consumer (drishti) *composes* `buildSurfaceClient` rather than hand-rolling `Bun.build` + hashing + shell rewrite — the content-hashed `/assets/*` layout (the prerequisite for `immutable`) is the library's job, not the app's. One resolver, one source of truth.
 
 ### Using it — kolu & drishti
 

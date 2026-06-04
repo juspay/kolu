@@ -34,7 +34,7 @@ The library ships **fragments**; an app is their **composition**, with no bespok
 | definition | `buildInfo` (cell schema) | into `defineSurface` |
 | server impl | `buildInfoServer()` | into `implementSurface` |
 | client model | `useSurfaceApp()` | under `<SurfaceAppProvider>` |
-| commit source | `surfaceApp()` Vite plugin / `resolveCommit()` | into vite.config & server boot |
+| commit source | `surfaceApp()` Vite plugin · `buildSurfaceClient()` (Bun) · `resolveCommit()` | into the client build & server boot |
 | restart axis | `serverIdentity` (procedure) + `serverIdentity()` (impl) | into `defineSurface` & `implementSurface` |
 
 The **restart axis** is the counterpart to the skew axis: the `server.info`
@@ -88,7 +88,8 @@ extension-carrying package would impose.
 | `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo`, `serverIdentity`, `ServerProbeSchema` — the composable fragments | common |
 | `@kolu/surface-app/solid` | `retireServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider`, `useSurfaceApp`, `createServerLifecycle` | client |
 | `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `reloadForUpdate` — framework-free, for root setup before any component | client |
-| `@kolu/surface-app/vite` | `surfaceApp()` plugin, `resolveCommit()` | build |
+| `@kolu/surface-app/vite` | `surfaceApp()` plugin, `resolveCommit()` | build (Vite) |
+| `@kolu/surface-app/bun` | `buildSurfaceClient()`, `ASSET_DIR` — the content-hashed Bun client build | build (Bun) |
 | `@kolu/surface-app/client` | the `__SURFACE_APP_COMMIT__` type, via `/// <reference>` | client types |
 
 ## Usage — composition at each layer
@@ -151,28 +152,30 @@ export default defineConfig({ plugins: [solid(), surfaceApp()] });
 /// <reference types="@kolu/surface-app/client" />
 ```
 
-A non-Vite build (e.g. `Bun.build`) calls `resolveCommit()` and feeds its own `define`; a nix-built client stamps the same value. One resolver, one source of truth.
+A nix-built client stamps the same value into `SURFACE_APP_COMMIT`. The Vite plugin above is the Vite path; the Bun path is `@kolu/surface-app/bun` below. One resolver (`resolveCommit`), one source of truth.
 
-#### Bun.build consumers
+#### Bun.build consumers — `buildSurfaceClient`
 
-The freshness contract's load-bearing property is **content-hashed asset filenames** — `immutable` is only correct because a changed bundle gets a new URL. Vite hashes by default; with `Bun.build` you opt in via `naming`, then point the shell at the hashed URLs:
+The freshness contract's load-bearing property is **content-hashed asset filenames** — `immutable` is only correct because a changed bundle gets a new URL. With Vite that's automatic (the plugin above). For a `Bun.build` client, **don't hand-roll it** — compose `buildSurfaceClient` from `@kolu/surface-app/bun`, which owns the hash-naming, the `__SURFACE_APP_COMMIT__` define (via `resolveCommit`), content-hashing of extra assets, and the no-store shell rewrite. You supply only what's genuinely yours — bundler plugins, your CSS toolchain, your public dir:
 
 ```ts
 // build.ts
-const result = await Bun.build({
-  entrypoints: ["src/client/main.tsx"],
-  outdir: "dist/assets",                       // emit under the default /assets/ prefix
-  naming: "[dir]/[name]-[hash].[ext]",         // <-- the hashing that makes `immutable` correct
-  define: { __SURFACE_APP_COMMIT__: JSON.stringify(resolveCommit()) },
-});
+import { buildSurfaceClient } from "@kolu/surface-app/bun";
 
-// Rewrite the hand-templated index.html to the emitted hashed URLs (don't hard-code
-// `/assets/main.js`): take each output's path and point the <script>/<link> at it.
-const entry = result.outputs.find((o) => o.kind === "entry-point");
-// → write dist/index.html with <script src="/assets/main-<hash>.js"> (and the css link)
+await buildSurfaceClient({
+  entrypoint: "src/client/main.tsx",
+  distDir: "dist",
+  htmlTemplate: "src/client/index.html",
+  entryHtmlPlaceholder: `src="./main.tsx"`,      // the dev ref the shell rewrite replaces
+  plugins: [solidJsxPlugin],                      // your bundler plugins (e.g. Solid JSX)
+  extraAssets: [                                  // your CSS toolchain → hashed /assets/styles-<hash>.css
+    { name: "styles", ext: "css", build: buildTailwindCss, htmlPlaceholder: `href="./styles.css"` },
+  ],
+  publicDir: "src/client/public",                 // icons etc., copied verbatim outside /assets/
+});
 ```
 
-Two checks: the emitted files must fall **under the asset prefix** `installFreshStatic` pins as `immutable` (default `/assets/`; override via `assetPrefix` to match your `outdir`), and the shell's references must be the **hashed** URLs — an unhashed reference would be served `no-cache` (correct, but defeats long-term caching). The shell itself (`index.html`) stays `no-store` and is never hashed.
+It emits the hashed JS + extra assets under `/assets/` (the `ASSET_DIR` the server pins `immutable`), stamps the commit, and rewrites `index.html` to the hashed URLs — the shell itself stays unhashed at the root and is served `no-store`. The drishti adoption (PR #47) is the reference consumer. `resolveCommit` and `ASSET_DIR` are exported if you need to compose more by hand.
 
 ### client — the headless model; you render the chrome
 
