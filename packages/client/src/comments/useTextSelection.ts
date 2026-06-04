@@ -210,7 +210,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     // quote's prefix/suffix haystack (and the highlight re-find) the
     // entire app page, which is garbage for an inline-rendered surface.
     const rootNode = lastRange.commonAncestorContainer.getRootNode();
-    const resolvedRoot: ShadowRoot | HTMLElement =
+    const resolvedRoot: QuoteRoot =
       rootNode instanceof ShadowRoot ? rootNode : host;
     const locator = extractQuote(lastRange, resolvedRoot);
     // Rendered surfaces (Markdown preview) opt out of line anchoring — a
