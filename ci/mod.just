@@ -54,7 +54,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix home-manager e2e smoke fmt biome unit surface-example-build pnpm-hash-fresh atlas-sync
+default: nix home-manager e2e smoke fmt biome unit surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -128,6 +128,14 @@ unit: install
 # imports in the production bundle. Cheap (~1s).
 surface-example-build: install
     {{ nix_shell }} pnpm --filter @kolu/surface-example build:client
+
+# Build the @kolu/surface-app library's example app (vite client). Same purpose
+# as surface-example-build but for surface-app: catches example-only regressions
+# the workspace-wide typecheck misses — broken composition (installSurfaceApp,
+# composeSurfaces, implementSurfaceApp), Tailwind/JSX errors, missing bundle
+# imports. Cheap (~1s).
+surface-app-example-build: install
+    {{ nix_shell }} pnpm --filter @kolu/surface-app-example build:client
 
 fmt: install
     {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
