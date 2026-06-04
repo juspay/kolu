@@ -416,6 +416,18 @@ function nudgeMockFiles() {
   nudgeFiles([mockSessionFile, mockTranscriptPath]);
 }
 
+/** Paint a block of lines into the live PTY via a single `printf` invocation.
+ *  Used by step definitions that simulate Claude prompts on screen so the
+ *  server-side screen-scrape poll sees the rendered chrome. */
+async function paintLinesToTerminal(
+  page: KoluWorld["page"],
+  lines: string[],
+): Promise<void> {
+  const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
+  await page.keyboard.type(printf);
+  await page.keyboard.press("Enter");
+}
+
 When(
   "a newer stale previous-session JSONL exists in the same project dir",
   async function (this: KoluWorld) {
@@ -468,17 +480,14 @@ When(
     // Paint the prompt's real v2.1.162 signature — the `↑/↓ to navigate` select
     // footer — into the live PTY so the screen-scrape poll (which reads
     // `getScreenText` off the buffer) sees exactly what Claude paints.
-    const lines = [
+    await paintLinesToTerminal(this.page, [
       " Which database do you prefer?",
       "",
       "❯ 1. Postgres",
       "  2. SQLite",
       "",
       " Enter to select · ↑/↓ to navigate · Esc to cancel",
-    ];
-    const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
-    await this.page.keyboard.type(printf);
-    await this.page.keyboard.press("Enter");
+    ]);
   },
 );
 
@@ -488,16 +497,13 @@ When(
     // A tool-permission gate (here the edit-family one) is on screen while the
     // tool call sits on disk — so the session reads as `tool_use`. Paint its real
     // v2.1.162 signature — the `Tab to amend` footer — into the live PTY.
-    const lines = [
+    await paintLinesToTerminal(this.page, [
       " Do you want to create notes.txt?",
       "❯ 1. Yes",
       "  2. Yes, allow all edits during this session (shift+tab)",
       "  3. No",
       " Esc to cancel · Tab to amend",
-    ];
-    const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
-    await this.page.keyboard.type(printf);
-    await this.page.keyboard.press("Enter");
+    ]);
   },
 );
 

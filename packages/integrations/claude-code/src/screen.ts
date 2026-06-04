@@ -1,16 +1,18 @@
 /** Screen-scrape detection of Claude Code's awaiting-user prompts (#905).
  *
- *  Claude's `AskUserQuestion` / `ExitPlanMode` dialogs are the one
- *  awaiting-user signal the JSONL classifier (`core.ts`'s
- *  `AWAITING_USER_TOOLS`) can't see: the Claude Agent SDK buffers the in-flight
- *  assistant message carrying the `tool_use` block in memory and flushes it to
- *  the transcript only *after* the user answers, so throughout the wait
- *  `deriveState` reads the prior `end_turn` and reports `waiting`. The prompt
- *  is, however, already painted on the terminal — so we recognize it on the
- *  rendered screen instead of waiting for JSONL that arrives too late.
+ *  Three prompt types block the user without producing a detectable JSONL
+ *  signal while they're pending: `AskUserQuestion` / `ExitPlanMode` (the Claude
+ *  Agent SDK buffers the in-flight assistant message in memory and flushes it to
+ *  the transcript only *after* the user answers, so `deriveState` reads the
+ *  prior entry — `thinking` or `waiting`), and tool-permission gates
+ *  (Write/Edit/Bash/WebFetch — the tool call IS on disk so the tail reads
+ *  `tool_use`, but the approval decision is screen-only). All three are already
+ *  painted on the terminal — so we recognize them on the rendered screen
+ *  instead of waiting for JSONL that arrives too late or not at all.
  *
  *  This file is the Claude-specific *detector* + the promote-only *policy* that
- *  lifts `waiting → awaiting_user` when a prompt is on screen. It is pure and
+ *  lifts the active pollable state → `awaiting_user` when a prompt is on
+ *  screen. It is pure and
  *  stateless: a VT-resolved screen snapshot (and the JSONL-derived info) in, a
  *  decision out. Zero `node:*` imports, zero filesystem — the server's poller
  *  feeds it `getScreenText`; `screen.test.ts` feeds it fixtures. The
