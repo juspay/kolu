@@ -280,7 +280,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     },
 
     procedures: {
-      // surface-app's identity probe (restart axis) — `surface.server.info`.
+      // surface-app's identity probe (restart axis) — `surface.surfaceApp.info`.
       // Mints one `processId` per process; kolu pins it to the existing boot
       // UUID (`serverProcessId`) so the value is stable within a process and
       // changes on restart. Composed, not hand-written.

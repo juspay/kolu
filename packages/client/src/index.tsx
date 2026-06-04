@@ -27,7 +27,7 @@ render(
   () => (
     // surface-app's headless app-shell model: the connection status (the SINGLE
     // module-level lifecycle from rpc.ts — the provider reads it rather than
-    // re-deriving its own, so there's one `server.info` probe per reconnect and
+    // re-deriving its own, so there's one `surfaceApp.info` probe per reconnect and
     // every UI path agrees), build-skew staleness (driven by `koluBuildInfo`'s
     // extended cell), and the reload affordance. kolu reads it via
     // `useSurfaceApp()` and renders its own tailwind chrome (IdentityRail,

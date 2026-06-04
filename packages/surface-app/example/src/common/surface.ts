@@ -8,7 +8,11 @@
 
 import { clientIsStale } from "@kolu/surface-app";
 import { defineSurface } from "@kolu/surface/define";
-import { defineBuildInfo, serverIdentity } from "@kolu/surface-app/surface";
+import {
+  composeSurfaces,
+  defineBuildInfo,
+  surfaceAppSurfaceWith,
+} from "@kolu/surface-app/surface";
 import { z } from "zod";
 
 /** The example EXTENDS the default `{ commit }` build identity with a `bootId`
@@ -41,19 +45,19 @@ export const EMPTY_STATS: ServerStats = {
   connections: 0,
 };
 
-export const surface = defineSurface({
-  cells: {
-    ...buildInfo.cells, // surface-app-specific — the shell's build identity
-    serverStats: {
-      // app-specific — live server stats
-      schema: ServerStatsSchema,
-      default: EMPTY_STATS,
+// One surface, composed in a single call: surface-app's fragment (the shell's
+// build identity `buildInfo` cell — extended here with `bootId` — plus the
+// `surface.surfaceApp.info` restart probe) merged with the app's OWN spec
+// (`serverStats`). No separate `...buildInfo.cells` + `...serverIdentity.procedures`
+// spreads — `surfaceAppSurfaceWith(buildInfo)` carries both halves.
+export const surface = defineSurface(
+  composeSurfaces(surfaceAppSurfaceWith(buildInfo), {
+    cells: {
+      serverStats: {
+        // app-specific — live server stats
+        schema: ServerStatsSchema,
+        default: EMPTY_STATS,
+      },
     },
-  },
-  procedures: {
-    // surface-app-specific — the `server.info` identity probe, composed (not
-    // hand-written): surface-app reads `processId` on each (re)connect to tell a
-    // transient drop from a server restart (drives the connection status).
-    ...serverIdentity.procedures,
-  },
-});
+  }),
+);

@@ -123,7 +123,7 @@ export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
 
 // The `processId` (restart axis) and `commit` + `ptyHost` (build-identity /
 // skew axis) that used to ride this probe now live on the surface, owned by
-// @kolu/surface-app: `processId` is the `surface.server.info` identity probe
+// @kolu/surface-app: `processId` is the `surface.surfaceApp.info` identity probe
 // (`serverIdentity`), and `commit` + `ptyHost` are the server-pushed `buildInfo`
 // cell (`koluBuildInfo`). This raw probe keeps only the per-host BRANDING the
 // shell needs synchronously at boot (document title, watermark, PWA theme).

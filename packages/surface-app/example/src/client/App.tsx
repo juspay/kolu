@@ -135,7 +135,7 @@ export default function App() {
       clientCommit={__SURFACE_APP_COMMIT__}
       buildInfo={buildInfo}
       ws={ws}
-      probe={() => app.rpc.surface.server.info({})}
+      probe={() => app.rpc.surface.surfaceApp.info({})}
       // Turnkey `{ ws, probe }` mode: `onError` covers BOTH the buildInfo
       // stream and a failed identity probe (a broken probe would otherwise
       // leave the connection status stuck silently).

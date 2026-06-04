@@ -1,8 +1,9 @@
 /**
  * Hello-world server for @kolu/surface-app — pure composition, no bespoke glue.
  *
- * The buildInfo cell's server impl is composed from `buildInfoServer()` (commit
- * auto-resolved); `installSurfaceApp` serves the shell fresh + the manifest +
+ * The buildInfo cell's server impl + the `surfaceApp.info` probe impl are
+ * composed from `surfaceAppServer()` in one call (commit auto-resolved);
+ * `installSurfaceApp` serves the shell fresh + the manifest +
  * the `/sw.js` retirement worker. The example writes no cell store, no `/sw.js`
  * route, and no commit literal. To see skew in dev, boot with
  * `SURFACE_APP_COMMIT=<other>` — a real deploy-simulating override.
@@ -12,11 +13,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { implementSurface, publisherChannel } from "@kolu/surface/server";
-import {
-  buildInfoServer,
-  installSurfaceApp,
-  serverIdentity,
-} from "@kolu/surface-app/server";
+import { installSurfaceApp, surfaceAppServer } from "@kolu/surface-app/server";
 import { resolveCommit } from "@kolu/surface-app/vite";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import { implement } from "@orpc/server";
@@ -62,7 +59,7 @@ const statsStore = {
 // after boot. The fragment seeds `{ commit, bootId: "" }` synchronously, folds
 // the resolved patch in when the promise settles, and `connect(...)` (below)
 // republishes it to subscribers — no hand-written second `ctx.cells.buildInfo.set`.
-const build = buildInfoServer<ExampleBuildInfo>({
+const surfaceApp = surfaceAppServer<ExampleBuildInfo>({
   // The schema-valid seed: every required axis at its default. Until the async
   // source settles, the cell publishes `{ commit, bootId: "" }` — a full
   // `ExampleBuildInfo`, never a half-shape missing `bootId`.
@@ -78,21 +75,21 @@ const build = buildInfoServer<ExampleBuildInfo>({
 const { router: surfaceRouter, ctx } = implementSurface(surface, {
   channel: <T>(name: string) => publisherChannel<T>(publisher, name),
   cells: {
-    ...build, // surface-app-specific: build identity (commit auto-resolved + async bootId)
+    ...surfaceApp.cells, // surface-app-specific: build identity (commit auto-resolved + async bootId)
     serverStats: { store: statsStore }, // app-specific: live server stats
   },
   procedures: {
     // surface-app-specific: the identity probe impl (one processId per process,
-    // minted by the library). Restart the server → new id → status() flips to
-    // "restarted". Composed, not hand-written.
-    ...serverIdentity(),
+    // minted by the library) at `surface.surfaceApp.info`. Restart the server →
+    // new id → status() flips to "restarted". Composed, not hand-written.
+    ...surfaceApp.procedures,
   },
 });
 
 // Flow the late-arriving bootId axis through the SAME fragment: once the async
 // source settles, `connect` republishes the full value over the cell's channel
 // (deduped by the fragment's `equals`). The app never seeds-then-sets by hand.
-void build.buildInfo.connect(ctx.cells.buildInfo);
+void surfaceApp.cells.buildInfo.connect(ctx.cells.buildInfo);
 
 /** Broadcast a stats patch to every subscriber (snapshot + delta in one call). */
 function pushStats(patch: Partial<ServerStats>): void {

@@ -1,7 +1,7 @@
 /**
  * Surface client bundle. `app` is the control-plane surface client; `ws` is the
  * raw transport. surface-app derives the connection lifecycle from `ws` + the
- * `server.info` probe (passed to <SurfaceAppProvider> in App.tsx) — the example
+ * `surfaceApp.info` probe (passed to <SurfaceAppProvider> in App.tsx) — the example
  * no longer hand-derives a connection status.
  */
 
