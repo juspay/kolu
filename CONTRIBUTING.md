@@ -15,13 +15,27 @@ No proposal needed for: bug fixes that restore obvious behavior, build/packaging
 
 Anything user-facing — new shortcuts, settings, UI, defaults, persisted data, or new runtime dependencies — needs a merged proposal before any implementation PR.
 
-A proposal is a short markdown file in [`docs/proposals/`](./docs/proposals/). Copy [`0000-template.md`](./docs/proposals/0000-template.md) to `NNNN-your-slug.md`, fill it in, and open a PR adding only that file. Discuss on the PR; once accepted, it merges and *anyone* — including a maintainer running `/do` — can write the implementation in a follow-up. The merged proposal is a frozen historical record; only status edits are allowed afterward.
+A proposal is an **Atlas note** — a markdown/MDX file in [`docs/atlas/src/content/atlas/`](./docs/atlas/src/content/atlas/) with `kind: proposal`. Create `<your-slug>.mdx` with this frontmatter:
 
-Implementation details are optional. The template has an "Implementation notes" slot for hints; skip it if you don't have an opinion. The implementer figures out the *how*.
+```yaml
+---
+title: Your proposal, in Title Case
+description: One line — what changes from the user's perspective.
+kind: proposal
+status: proposed   # proposed → accepted → implemented (or superseded)
+maturity: seedling
+---
+```
+
+Then write the body — *Summary · Motivation · User-facing behavior · Prototype (optional) · Implementation notes (optional)* — run `just atlas::build` to render it, and open a PR adding the `.mdx` **and** its generated `docs/atlas/dist/<slug>.html` (the `ci::atlas-sync` gate checks the two stay in sync). Your note shows up in the **Incoming proposals** section of the [Atlas index](./docs/atlas/dist/index.html) automatically — nothing to wire up, and authorship is just the git history.
+
+Discuss on the PR. Once **accepted**, a maintainer re-files it under its real kind (`feature`/`bug`/…) so it graduates out of the intake queue; *anyone* — including a maintainer running `/be` — can then write the implementation in a follow-up. The note stays a *living* document afterward (git is its record — there is no frozen copy).
+
+Implementation details are optional — the "Implementation notes" section is for hints; skip it if you don't have an opinion. The implementer figures out the *how*.
 
 ### Proposal + prototype is the strongest form
 
-A working prototype turns *"I have an opinion about a feature"* into *"look, here's what it could feel like."* Drop HTML mockups, UI screenshots, SVGs, or screen recordings into a sibling directory `docs/proposals/<your-slug>/` and link them from the proposal markdown — reviewers can then interact with the idea instead of reverse-engineering it from prose. The combination is far more compelling than either alone.
+A working prototype turns *"I have an opinion about a feature"* into *"look, here's what it could feel like."* Because an Atlas note renders to a **self-contained HTML page you can open right in kolu's Code tab** (no dev server), it's the ideal home for one: reach for the component kit in [`docs/atlas/src/components/`](./docs/atlas/src/components/) — callouts, faux terminals, an `<AtlasMockup>` for inline HTML/SVG — or commit screenshots / screen recordings and link them. Reviewers interact with the idea instead of reverse-engineering it from prose. The combination is far more compelling than either alone.
 
 ### Drafts welcome
 

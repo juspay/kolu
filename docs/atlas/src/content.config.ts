@@ -12,14 +12,16 @@ const atlas = defineCollection({
   schema: z.object({
     title: z.string(),
     description: z.string(),
-    // The category that groups a note in the index. `bug` = a diagnosed defect +
-    // fix direction; `feature` = a proposed capability not yet built; `analysis`
-    // = an investigation into how the system behaves; `reference` = durable
-    // knowledge (designs, decisions, how-it-works). The index renders one section
-    // per category (see src/lib/indexTree.ts), so this axis is the primary
-    // skeleton — `parents` only nests notes *within* a category.
+    // The category that groups a note in the index. `proposal` = a contributor's
+    // not-yet-accepted proposal (the intake queue — see CONTRIBUTING.md); `bug` =
+    // a diagnosed defect + fix direction; `feature` = a proposed capability not
+    // yet built; `analysis` = an investigation into how the system behaves;
+    // `reference` = durable knowledge (designs, decisions, how-it-works). The
+    // index renders one section per category (see src/lib/indexTree.ts), so this
+    // axis is the primary skeleton — `parents` only nests notes *within* a
+    // category. Accepting a proposal = re-filing it under its real kind.
     kind: z
-      .enum(["bug", "feature", "analysis", "reference"])
+      .enum(["proposal", "bug", "feature", "analysis", "reference"])
       .default("reference"),
     maturity: z.enum(["seedling", "budding", "evergreen"]).default("budding"),
     status: z
