@@ -556,6 +556,8 @@ async function policeTrack(wt) {
   // regressions converges (typically ~2 sweeps) while keeping the load-bearing "a fix
   // can introduce or only partially resolve an issue" guarantee "until clean" exists for.
   let touchedFiles = [];
+  /** @type {'cap' | 'no-touched-files' | null} */
+  let earlyBreakReason = null;
   for (let policeRound = 0; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
     sweepsRun++; // one review sweep per iteration, counted BEFORE any break/cap exit so the reported count is exact
     const firstSweep = policeRound === 0;
@@ -655,6 +657,7 @@ async function policeTrack(wt) {
     // a regression sweep to re-review, so stop rather than re-run an identical pass.
     if (!touchedFiles.length) {
       noOpApplyExit = true;
+      earlyBreakReason = "no-touched-files";
       break;
     }
   }
@@ -667,12 +670,17 @@ async function policeTrack(wt) {
     : reachedClean
       ? "consensus"
       : "incomplete";
-  if (!reachedClean)
-    log(
-      noOpApplyExit
-        ? `police: stopped early — last sweep's findings produced no file changes to re-review; reporting incomplete with findings still open.`
-        : `police: hit round cap (${POLICE_MAX_ROUNDS}) with findings still open — reporting incomplete.`,
-    );
+  if (!reachedClean) {
+    if (earlyBreakReason === "no-touched-files") {
+      log(
+        `police: stopped early — last sweep's findings produced no file changes to re-review; reporting incomplete with findings still open.`,
+      );
+    } else {
+      log(
+        `police: hit round cap (${POLICE_MAX_ROUNDS}) with findings still open — reporting incomplete.`,
+      );
+    }
+  }
   return {
     status,
     findings: totalFindings,
