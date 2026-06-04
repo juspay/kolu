@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-04T00:57:10.919440+00:00'
+generated_at: '2026-06-04T01:00:37.699941+00:00'
 apm_version: 0.16.1
 dependencies:
 - repo_url: anthropics/skills
