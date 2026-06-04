@@ -257,7 +257,9 @@ origin = clean slate, and keep the SW). Decide it independently of the SW kill.
 > This section logs the *design* phase that follows the bugfix: turning the
 > hard-won freshness contract into reusable infrastructure. Kept for the eventual
 > blog post — the bug is the story's first act; this generalization is the second.
-> The living plan is `docs/plans/surface-pwa.html`.
+> The living design (formerly the `surface-pwa` plan) was migrated to the Atlas:
+> `docs/atlas/src/content/atlas/surface-app.mdx` (rendered to
+> `docs/atlas/dist/surface-app.html`).
 
 ### Why generalize at all
 The same property — "a returning client converges to the deployed build" — has now

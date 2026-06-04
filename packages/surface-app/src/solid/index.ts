@@ -203,7 +203,8 @@ const SurfaceAppContext = createContext<SurfaceAppModel>();
  *      The right shape when other UI (a header dot, a restart gate) reads the
  *      same lifecycle — one source, no disagreement, no double probe.
  *    - `{ ws, probe }` — the provider derives the lifecycle itself (the turnkey
- *      shape for an app with no other lifecycle consumer).
+ *      shape for an app with no other lifecycle consumer); a failed identity
+ *      probe is reported through the provider's `onError` prop.
  *    - neither — `status()` is permanently `"live"` (build-skew only). */
 export type ConnectionSource<P extends ServerProbe = ServerProbe> =
   | { status: Accessor<ConnectionStatus>; ws?: undefined; probe?: undefined }
@@ -231,7 +232,10 @@ export type SurfaceAppProviderProps<
   isStale?: (server: T | undefined, clientCommit: string) => boolean;
   /** Surface a failed `buildInfo` subscription. The cell is a server stream; if
    *  it dies, `stale()` silently falls back to the default and the user sees no
-   *  error. Pass this to toast / log the drop. */
+   *  error. Pass this to toast / log the drop. In the turnkey `{ ws, probe }`
+   *  connection mode this also receives identity-probe failures (a broken
+   *  `probe` otherwise leaves `status()` stuck with no diagnostic) — so a single
+   *  handler covers both the build-identity stream and the lifecycle probe. */
   onError?: (err: Error) => void;
   children: JSX.Element;
 } & ConnectionSource<P>;
@@ -276,7 +280,18 @@ export function SurfaceAppProvider<
   const status: Accessor<ConnectionStatus> = props.status
     ? props.status
     : props.ws && props.probe
-      ? createServerLifecycle({ ws: props.ws, probe: props.probe }).status
+      ? createServerLifecycle({
+          ws: props.ws,
+          probe: props.probe,
+          // Route probe failures through the same `onError` the buildInfo
+          // stream uses — a turnkey caller has no separate `createServerLifecycle`
+          // to attach `onProbeError` to, so a broken probe would otherwise be
+          // swallowed and leave `status()` stuck with no diagnostic.
+          onProbeError: (err) =>
+            props.onError?.(
+              err instanceof Error ? err : new Error(String(err)),
+            ),
+        }).status
       : () => "live";
   // Render-time override beats the fragment's predicate; the fragment's
   // `isStale` wants a concrete value, so fall back to the schema default.

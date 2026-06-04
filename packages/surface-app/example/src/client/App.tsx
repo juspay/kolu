@@ -136,7 +136,10 @@ export default function App() {
       buildInfo={buildInfo}
       ws={ws}
       probe={() => app.rpc.surface.server.info({})}
-      onError={(err) => console.error("buildInfo subscription error:", err)}
+      // Turnkey `{ ws, probe }` mode: `onError` covers BOTH the buildInfo
+      // stream and a failed identity probe (a broken probe would otherwise
+      // leave the connection status stuck silently).
+      onError={(err) => console.error("surface-app error:", err)}
     >
       <Shell />
     </SurfaceAppProvider>
