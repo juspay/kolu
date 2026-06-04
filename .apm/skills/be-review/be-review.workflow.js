@@ -556,7 +556,7 @@ async function policeTrack(wt) {
   // regressions converges (typically ~2 sweeps) while keeping the load-bearing "a fix
   // can introduce or only partially resolve an issue" guarantee "until clean" exists for.
   let touchedFiles = [];
-  /** @type {'cap' | 'no-touched-files' | null} */
+  /** @type {'no-touched-files' | null} */
   let earlyBreakReason = null;
   for (let policeRound = 0; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
     sweepsRun++; // one review sweep per iteration, counted BEFORE any break/cap exit so the reported count is exact
