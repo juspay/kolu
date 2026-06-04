@@ -162,6 +162,17 @@ export default defineConfig({ plugins: [solid(), surfaceApp()] });
 
 A nix-built client stamps the same value into `SURFACE_APP_COMMIT`. The Vite plugin above is the Vite path; the Bun path is `@kolu/surface-app/bun` below. One resolver (`resolveCommit`), one source of truth.
 
+**Nix consumers** — don't hardcode the env-var name or the rev logic. `nix/commit-stamp.nix` is the upstream single source (the name is kept equal to `resolveCommit`'s `DEFAULT_COMMIT_ENV_VAR`); import it from the pinned surface-app tree and compose:
+
+```nix
+let stamp = import "${kolu-surface-app}/nix/commit-stamp.nix" { }; in
+# flake: rev = stamp.revFromSelf self;          (short self.rev, else "dev")
+# client derivation buildPhase:  ${stamp.exportLine rev}      (so resolveCommit reads it — sandbox has no git)
+# server wrapper (makeWrapper):  stamp.wrapperArgs rev        (--set SURFACE_APP_COMMIT <rev>)
+```
+
+The client bundle and the server cell then read the same var from one place — drishti (PR #47) is the reference. `resolveCommit` and `ASSET_DIR` are exported on the TS side for the rest.
+
 #### Bun.build consumers — `buildSurfaceClient`
 
 The freshness contract's load-bearing property is **content-hashed asset filenames** — `immutable` is only correct because a changed bundle gets a new URL. With Vite that's automatic (the plugin above). For a `Bun.build` client, **don't hand-roll it** — compose `buildSurfaceClient` from `@kolu/surface-app/bun`, which owns the hash-naming, the `__SURFACE_APP_COMMIT__` define (via `resolveCommit`), content-hashing of extra assets, and the no-store shell rewrite. You supply only what's genuinely yours — bundler plugins, your CSS toolchain, your public dir:
