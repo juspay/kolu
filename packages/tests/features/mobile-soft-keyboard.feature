@@ -14,6 +14,16 @@ Feature: Mobile soft keyboard
     And there should be no page errors
 
   @mobile
+  Scenario: The soft key bar lays its keys out in two rows without horizontal scroll
+    # The twelve controls sit in a grid-cols-6 grid → exactly two rows of six,
+    # so every key is reachable without the sideways scroll the old overflow-x
+    # row forced. Guards against a regression back to a single scrolling row.
+    Then the mobile soft key bar should be visible
+    And the mobile soft key bar should not scroll horizontally
+    And the mobile soft key bar keys should occupy two rows
+    And there should be no page errors
+
+  @mobile
   Scenario: Tapping the slash key sends slashes to the active terminal
     When I tap the mobile key "slash"
     And I tap the mobile key "slash"

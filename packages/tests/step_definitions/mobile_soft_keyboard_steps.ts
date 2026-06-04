@@ -90,6 +90,46 @@ Then(
   },
 );
 
+Then(
+  "the mobile soft key bar should not scroll horizontally",
+  async function (this: KoluWorld) {
+    const overflows = await this.page.evaluate((sel) => {
+      const bar = document.querySelector(sel) as HTMLElement | null;
+      if (!bar) throw new Error("No mobile key bar");
+      // +1 tolerates sub-pixel rounding; a real overflow is the full key width.
+      return bar.scrollWidth > bar.clientWidth + 1;
+    }, KEY_BAR);
+    assert.ok(
+      !overflows,
+      "Expected the key bar to fit without horizontal scroll (scrollWidth <= clientWidth)",
+    );
+  },
+);
+
+Then(
+  "the mobile soft key bar keys should occupy two rows",
+  async function (this: KoluWorld) {
+    // grid-cols-6 lays the twelve controls into two rows, so their keys resolve
+    // to exactly two distinct offsetTop baselines. The querySelectorAll is
+    // scoped to the bar's descendants, so the bar element itself (whose testid
+    // also starts "mobile-key-") is excluded — only the buttons are counted.
+    const rowTops = await this.page.evaluate((sel) => {
+      const bar = document.querySelector(sel);
+      if (!bar) throw new Error("No mobile key bar");
+      const keys = Array.from(
+        bar.querySelectorAll('[data-testid^="mobile-key-"]'),
+      ) as HTMLElement[];
+      if (keys.length === 0) throw new Error("No keys in the mobile key bar");
+      return [...new Set(keys.map((k) => k.offsetTop))].length;
+    }, KEY_BAR);
+    assert.strictEqual(
+      rowTops,
+      2,
+      `Expected the key bar's keys to occupy exactly two rows, got ${rowTops}`,
+    );
+  },
+);
+
 When(
   "I type {string} on the soft keyboard",
   async function (this: KoluWorld, text: string) {
