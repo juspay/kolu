@@ -37,10 +37,7 @@ import { useColorScheme } from "../settings/useColorScheme";
 import { isMobile, isTouch } from "../useMobile";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
-import {
-  mergeGitStatusEntries,
-  toGitStatusEntries,
-} from "../ui/gitStatusEntries";
+import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import { renderTreeContextMenu } from "../ui/pierreAdapters";
 import { pierreIconConfig, pierreTreesStyle } from "../ui/pierreTheme";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
@@ -401,7 +398,7 @@ const CodeTab: Component<{
       return mergeGitStatusEntries(local, branch);
     }
     const s = status();
-    return s ? toGitStatusEntries(s.files) : undefined;
+    return s ? mergeGitStatusEntries(s.files, []) : undefined;
   });
 
   const handleSelect = (path: string | null) => {

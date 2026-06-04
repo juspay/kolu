@@ -17,15 +17,6 @@ const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
   "?": "untracked",
 };
 
-export function toGitStatusEntries(
-  files: { path: string; status: GitChangeStatus }[],
-): GitStatusEntry[] {
-  return files.map((f) => ({
-    path: f.path,
-    status: GIT_STATUS_WORD[f.status],
-  }));
-}
-
 /** Overlay two git-status layers into one decoration set, keyed by path.
  *  `fallback` is laid down first, then `primary` overwrites on conflict — so a
  *  path present in both takes its `primary` word. The Code-tab "All files" view
