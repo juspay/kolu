@@ -222,8 +222,15 @@ const CODEX_SKILLDIR = ".claude/skills/codex-debate";
 // The diff base reviewers actually use is the MERGE-BASE (resolved by Setup),
 // not the raw `${base}` tip — see SETUP_SCHEMA.mergeBase. DIFF is an arrow, so it
 // reads `mergeBase` lazily at call time (Tracks phase, after Setup has set it).
-const DIFF = (wt) =>
-  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${mergeBase}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored ${scratchList} scratch dirs if they appear.`;
+const DIFF = (wt, paths) => {
+  // Empty paths => full diff; non-empty => the SAME instruction narrowed to those
+  // pathspecs. One socket, two wires: full-review and touched-files re-review share
+  // the 'status --short / Read ABSOLUTE paths / surrounding code / ignore scratch dirs'
+  // tail so they can't drift. `paths` are already shell-quoted pathspec args.
+  if (paths?.length)
+    return `Inspect the change in the worktree at \`${wt}\` SCOPED to these files: run \`git -C ${wt} diff ${mergeBase} -- ${paths.join(" ")}\`, then Read those files (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge them in context. Ignore the gitignored ${scratchList} scratch dirs if they appear.`;
+  return `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${mergeBase}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored ${scratchList} scratch dirs if they appear.`;
+};
 
 const rationaleBlock = rationale
   ? `\nAuthor's note on deliberate decisions (do not flag these as defects unless the reasoning is itself wrong):\n${rationale}\n`
@@ -552,12 +559,11 @@ async function policeTrack(wt) {
   for (let policeRound = 0; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
     sweepsRun++; // one review sweep per iteration, counted BEFORE any break/cap exit so the reported count is exact
     const firstSweep = policeRound === 0;
-    const rel = touchedFiles.map((f) =>
-      f.replace(`${wt}/`, "").replace(/^\/+/, ""),
-    );
+    const rel = touchedFiles.map((f) => f.replace(`${wt}/`, "").replace(/^\/+/, ""));
+    const relArgs = rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`);
     const scope = firstSweep
       ? DIFF(wt)
-      : `Re-review the fixes the previous sweep just applied. Limit the DIFF to the touched files so you don't re-raise unrelated nits: run \`git -C ${wt} diff ${mergeBase} -- ${rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(" ")}\`. But you are NOT confined to reading only those files — Read freely any surrounding, caller, dependent, contract, or generated-output files you need (ABSOLUTE paths under \`${wt}\`) to judge whether those edits broke something. Raise a finding ONLY when the problem is rooted in the previous sweep's edits (a regression they introduced, or an issue they only partially resolved), even if the breakage surfaces in an untouched file.`;
+      : `Re-review the fixes the previous sweep just applied. Limit the DIFF to the touched files so you don't re-raise unrelated nits: ${DIFF(wt, relArgs)} But you are NOT confined to reading only those files — Read freely any surrounding, caller, dependent, contract, or generated-output files you need (ABSOLUTE paths under \`${wt}\`) to judge whether those edits broke something. Raise a finding ONLY when the problem is rooted in the previous sweep's edits (a regression they introduced, or an issue they only partially resolved), even if the breakage surfaces in an untouched file.`;
     const reviews = await parallel(
       passes.map(
         (p) => () =>
