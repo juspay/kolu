@@ -1063,6 +1063,20 @@ function hasRichContent(slug, data) {
 // caller can tell "draft was bad, fall back to baseline" from "there is no PR".
 const INVALID_DRAFT = "invalid draft";
 
+// Shared fallback helper: post the deterministic baseline and log the reason.
+// Extracted to honor DRY — the same try/catch pattern appeared three times in
+// `authorAndPost` (trivial path, self-report bad, invalid-draft/empty-url).
+async function fallbackToBaseline(slug, baseline, reason) {
+  try {
+    return await postComment(slug, baseline);
+  } catch (err) {
+    log(
+      `Report: ${slug} ${reason} — baseline poster also failed (${String(err)}) — skipping.`,
+    );
+    return "";
+  }
+}
+
 // Author one rich comment body to a DRAFT FILE and post it — but as TWO agents
 // split at the side-effect boundary, NOT one. The rich body is the expensive
 // artifact (up to 60 KB), so we want it to cross an agent boundary exactly once
@@ -1097,7 +1111,11 @@ async function authorAndPost(slug, data, baseline, guidance) {
   // its token cost was never the waste (the LARGE rich body was); routing it here
   // keeps `postComment` as the single fallback path for non-rich slugs.
   if (!richComment || !hasRichContent(slug, data)) {
-    return postComment(slug, baseline);
+    return fallbackToBaseline(
+      slug,
+      baseline,
+      "baseline poster failed — comment will be skipped.",
+    );
   }
   const file = `${SCRATCH}/comment-${slug}.md`;
   const header = String(baseline).split("\n")[0];
@@ -1111,7 +1129,7 @@ async function authorAndPost(slug, data, baseline, guidance) {
     log(
       `Report: ${slug} reporter agent failed (${String(e)}) — posting the deterministic baseline instead.`,
     );
-    return postComment(slug, baseline);
+    return fallbackToBaseline(slug, baseline, "reporter agent failed");
   }
   // STAGE 1.5a — cheap early-out on the agent's SELF-REPORTED metadata. This is NOT
   // the real guarantee (the agent that wrote the file also computed these numbers, so
@@ -1128,7 +1146,7 @@ async function authorAndPost(slug, data, baseline, guidance) {
     log(
       `Report: ${slug} reporter self-reported an unusable draft (bytes=${bytes}, headerOk=${firstLine.trim() === header.trim()}) — posting the deterministic baseline instead.`,
     );
-    return postComment(slug, baseline);
+    return fallbackToBaseline(slug, baseline, "reporter self-reported unusable draft");
   }
   // STAGE 2 — post the validated draft by PATH through the narrow mechanical poster.
   // The poster MECHANICALLY re-validates the actual file (nonempty, exact header as
@@ -1143,7 +1161,13 @@ async function authorAndPost(slug, data, baseline, guidance) {
     log(
       `Report: ${slug} draft failed the poster's mechanical file check — posting the deterministic baseline instead.`,
     );
-    return postComment(slug, baseline);
+    return fallbackToBaseline(slug, baseline, "draft failed the mechanical file check");
+  }
+  if (!url) {
+    log(
+      `Report: ${slug} reporter returned empty url — posting deterministic baseline instead.`,
+    );
+    return fallbackToBaseline(slug, baseline, "reporter returned empty url");
   }
   return url;
 }
@@ -1175,7 +1199,7 @@ HARD RULES:
 
 STEPS (do EXACTLY these, in order, then stop):
 1. \`mkdir -p ${SCRATCH}\`.
-2. Using the Write tool (NOT a shell heredoc — the body has special characters), create the file \`${file}\` with the full markdown comment body as its content.
+2. [MANDATORY] Write the comment file using the Write tool — do NOT use echo, printf, cat heredoc, or any shell command to create this file. The body contains backticks, dollar signs, and double-quotes that a shell would corrupt. Call the Write tool directly with the full markdown comment body as its content parameter, targeting \`${file}\`.
 3. Report metadata about the file you wrote: \`firstLine\` = its exact first line, and \`bytes\` = its size in bytes (\`wc -c < ${file}\`). Do NOT return the body.`;
   return agent(prompt, {
     label: `report:${slug}`,
