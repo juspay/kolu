@@ -12,9 +12,17 @@ const { note } = Astro.props;
 const { Content, headings } = await render(note);
 const d = note.data;
 
+// Date-only frontmatter parses to UTC midnight; format in UTC too so the
+// visible date matches the ISO `datetime` attribute regardless of the build
+// machine's local timezone (otherwise a negative offset shifts it a day back).
 const fmtDate = (date: Date) =>
   date
-    .toLocaleDateString("en-US", { year: "numeric", month: "short", day: "2-digit" })
+    .toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      timeZone: "UTC",
+    })
     .toUpperCase();
 ---
 
