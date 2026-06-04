@@ -6,7 +6,6 @@
  * the example exists to show.
  */
 
-import { clientIsStale } from "@kolu/surface-app";
 import { defineSurface } from "@kolu/surface/define";
 import {
   composeSurfaces,
@@ -20,13 +19,12 @@ import { z } from "zod";
  *  kolu's pty-host `system.version`, which settles over an in-process link after
  *  the cell is already seeded. This is the interface in action: drishti takes
  *  the default `{ commit }`, the example (like kolu) adds an axis, both ride the
- *  same fragment. `isStale` still defaults to the commit comparison; the bootId
- *  is informational here (rendered in the rail), so we keep the default
- *  predicate. */
+ *  same fragment. isStale omitted: the library default IS the clean-ref commit
+ *  comparison, which is exactly what we want; bootId is informational (rendered
+ *  in the rail), not a staleness axis. */
 export const buildInfo = defineBuildInfo({
   schema: z.object({ commit: z.string(), bootId: z.string() }),
   default: { commit: "", bootId: "" },
-  isStale: (server, clientCommit) => clientIsStale(server.commit, clientCommit),
 });
 export type ExampleBuildInfo = z.infer<typeof buildInfo.cells.buildInfo.schema>;
 
