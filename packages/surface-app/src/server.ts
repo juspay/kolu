@@ -50,10 +50,7 @@ export function installFreshStatic(
   // The retirement worker, served no-cache — registered first so the static
   // catch-all never shadows it, and so the app never hand-rolls this route.
   app.get("/sw.js", (c) => {
-    c.header(
-      "Cache-Control",
-      cacheControlFor("/sw.js") ?? "no-cache, must-revalidate",
-    );
+    c.header("Cache-Control", cacheControlFor("/sw.js")!);
     return c.body(SW_SOURCE, 200, {
       "content-type": "text/javascript; charset=utf-8",
     });
