@@ -5,8 +5,7 @@ paths:
 
 ## docs/ knowledge base
 
-`docs/plans/index.html` is a **hand-curated Map of Content** (deliberately no generator). When you **add, rename, or remove** any file under `docs/plans/`, add or refresh its one-line entry in `index.html` — under the right section, in the **same commit**.
+kolu's in-repo knowledge base is the **Atlas** at `docs/atlas/` — authored as markdown/MDX in `docs/atlas/src/content/atlas/` and rendered to `docs/atlas/dist/`. New plans, designs, reviews, research, and retros go there. The design + taxonomy (what lives in the Atlas vs GitHub Issues vs the blog) live in `docs/atlas/src/content/atlas/second-brain.mdx`.
 
-- Prefer flat, ancestry-free slugs (`pty-daemon-tui.html`) over dotted names (`remote-terminals.pty-daemon.tui.html`).
-- New design/research docs are `.html` in the repo's house style (light "paper" palette), so they render and annotate inside kolu's own Code tab.
-- The taxonomy (what lives in `docs/` vs GitHub Issues vs the blog) and the rationale live in the Atlas design — `docs/atlas/src/content/atlas/second-brain.mdx` (rendered to `docs/atlas/dist/second-brain.html`).
+- **`docs/plans/` is deprecated** — see `docs/plans/README.md`. It holds only not-yet-migrated legacy HTML; do not add new docs there. There is no longer an `index.html` Map of Content or a `docs-moc` CI gate.
+- Prefer flat, ancestry-free slugs (`pty-daemon-tui` over `remote-terminals.pty-daemon.tui`).
