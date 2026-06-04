@@ -130,6 +130,17 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "awaiting_user"
     And there should be no page errors
 
+  Scenario: A tool-permission prompt on screen promotes tool_use to awaiting (screen scrape, #905)
+    # A permission gate (Write/Edit/Bash/WebFetch approval) is on screen while the
+    # tool call sits on disk, so the session reads as `tool_use`. kolu recognizes
+    # the gate's footer (`Tab to amend`) on the rendered screen and promotes to
+    # awaiting_user — same pipeline as AskUserQuestion, from the tool_use state.
+    When a Claude Code session is mocked with state "tool_use"
+    Then the tile chrome should show an agent indicator with state "tool_use"
+    When the terminal renders a Claude permission prompt
+    Then the tile chrome should show an agent indicator with state "awaiting_user"
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the tile chrome should show an agent indicator with state "thinking"

@@ -482,6 +482,25 @@ When(
   },
 );
 
+When(
+  "the terminal renders a Claude permission prompt",
+  async function (this: KoluWorld) {
+    // A tool-permission gate (here the edit-family one) is on screen while the
+    // tool call sits on disk — so the session reads as `tool_use`. Paint its real
+    // v2.1.162 signature — the `Tab to amend` footer — into the live PTY.
+    const lines = [
+      " Do you want to create notes.txt?",
+      "❯ 1. Yes",
+      "  2. Yes, allow all edits during this session (shift+tab)",
+      "  3. No",
+      " Esc to cancel · Tab to amend",
+    ];
+    const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
+    await this.page.keyboard.type(printf);
+    await this.page.keyboard.press("Enter");
+  },
+);
+
 When("the Claude Code session ends", async function (this: KoluWorld) {
   cleanup();
 });

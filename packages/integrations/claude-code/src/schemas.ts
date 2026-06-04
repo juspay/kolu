@@ -43,10 +43,11 @@ export const ClaudeCodeInfoSchema = z.object({
    *    prompt on the *rendered screen* (`screen.ts`): the server's screen-scrape
    *    poll promotes `waiting → awaiting_user` while the dialog is visible, and
    *    the JSONL watcher lowers it again once the user answers and the transcript
-   *    catches up. The first cut recognizes `AskUserQuestion` only (its
-   *    `↑/↓ to navigate` footer); `ExitPlanMode`'s on-screen prompt has no such
-   *    marker and is a deliberate follow-up. So this state fires from the screen
-   *    source even though it stays absent from the transcript tail.
+   *    catches up. Recognized prompts: `AskUserQuestion` (its `… to navigate`
+   *    footer) and the tool-permission gates (Write/Edit/Bash/WebFetch approval);
+   *    `ExitPlanMode`'s on-screen prompt has no equivalent marker and is a
+   *    deliberate follow-up. So this state fires from the screen source even
+   *    though it stays absent from the transcript tail.
    *  - `running_background`: the agent ended its turn (`end_turn`) while an
    *    outstanding background run it launched is still live — either a dynamic
    *    `Workflow` with an observable run journal

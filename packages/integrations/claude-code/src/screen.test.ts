@@ -108,6 +108,33 @@ const PROSE_NAVIGATE = `● Use the arrow keys to navigate the file tree, then p
 const PLAIN_ASSISTANT_TEXT = `● The function returns null when the file is
   missing, so the caller treats it as "retry".`;
 
+/** Edit-family permission gate (Write/Edit/NotebookEdit), captured live. Marker:
+ *  the `Tab to amend` footer. */
+const WRITE_PERMISSION = `● Write(notes.txt)
+
+ Create file
+ notes.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1 hello
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to create notes.txt?
+ ❯ 1. Yes
+   2. Yes, allow all edits during this session (shift+tab)
+   3. No
+ Esc to cancel · Tab to amend`;
+
+/** Other permission gate (Bash/WebFetch/…), captured live. These have no
+ *  `Tab to amend` footer; marker: the `don't ask again for <x>` option. */
+const WEBFETCH_PERMISSION = `● Fetch(https://example.com)
+
+ Fetch
+   url: "https://example.com", prompt: "Summarize the main content of this page"
+   Claude wants to fetch content from example.com
+ Do you want to allow Claude to fetch this content?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for example.com
+   3. No, and tell Claude what to do differently (esc)`;
+
 describe("screenHasClaudePrompt — AskUserQuestion", () => {
   it("detects the single-select '↑/↓ to navigate' footer", () => {
     expect(screenHasClaudePrompt(ASK_USER_QUESTION)).toBe(true);
@@ -115,6 +142,16 @@ describe("screenHasClaudePrompt — AskUserQuestion", () => {
 
   it("detects the multi-select 'Tab/Arrow keys to navigate' footer", () => {
     expect(screenHasClaudePrompt(ASK_USER_QUESTION_MULTISELECT)).toBe(true);
+  });
+});
+
+describe("screenHasClaudePrompt — permission gates", () => {
+  it("detects the edit-family gate via its 'Tab to amend' footer", () => {
+    expect(screenHasClaudePrompt(WRITE_PERMISSION)).toBe(true);
+  });
+
+  it("detects other gates via the 'don't ask again for' option", () => {
+    expect(screenHasClaudePrompt(WEBFETCH_PERMISSION)).toBe(true);
   });
 });
 
