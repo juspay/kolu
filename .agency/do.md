@@ -18,18 +18,20 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry shape). Two Kolu-specific operational notes layered on top of it:
 
-**Ephemeral linux build host per run.** Static darwin (`sincereintent`) lives in `~/.config/justci/hosts.json`; the linux lane uses a throwaway Incus container per CI invocation so prior runs' nix-store cruft can't poison the verdict. (Box lifecycle — create/connect/destroy, the no-egress retry — is the [`pu`](../.apm/skills/pu/SKILL.md) skill.) If `pu create` fails (e.g. no-egress), drop the `--host` flag and let justci fall back to `hosts.json` resolution for the linux lane rather than blocking the run.
+**Ephemeral linux build host per run.** Static darwin (`sincereintent`) lives in `~/.config/justci/hosts.json`; the linux lane uses a throwaway Incus container per CI invocation so prior runs' nix-store cruft can't poison the verdict. (Box lifecycle — create/connect/destroy, the no-egress retry — is the [`pu`](../.apm/skills/pu/SKILL.md) skill.) [`ci/pu-ci-host.sh`](../ci/pu-ci-host.sh) provisions that host: it **forks the warm golden box** (`kolu-ci-golden`) so the lane starts with a hot Nix store — `ci::nix` ~20s instead of the ~180s a cold box spends re-realising the closure from the substituter (juspay/kolu#1173, and that cold pull also degrades badly when several PRs run at once). It falls back to a cold `pu create`, then to `hosts.json`, so a missing/cold/slow golden never blocks the run. It prints the host name, or nothing — in which case drop `--host` and let justci resolve the linux lane from `hosts.json`.
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
-host="kolu-pr-$pr"
-if pu create "$host"; then                                                             # name is positional; writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
+host=$(ci/pu-ci-host.sh "kolu-pr-$pr")                                                   # warm fork → cold create → (empty)
+if [ -n "$host" ]; then
   nix run github:juspay/justci -- run --progress json --host x86_64-linux="$host"           # --host wins over hosts.json on collision; darwin keeps using sincereintent
   pu destroy "$host"
-else                                                                                    # pu provisioning failed (e.g. no-egress) — drop --host and let hosts.json resolve the linux lane
+else                                                                                    # provisioning failed entirely (e.g. no-egress) — let hosts.json resolve the linux lane
   nix run github:juspay/justci -- run --progress json
 fi
 ```
+
+**Keep the golden box warm.** `kolu-ci-golden` is a long-lived `pu` box whose Nix store is kept hot by periodically running the linux lane on it against `master` (e.g. after a merge): `nix run github:juspay/justci -- run --no-post --platform x86_64-linux --host x86_64-linux=kolu-ci-golden`. A fork inherits whatever is warm; the dependency closure (the bulk of `ci::nix`) stays valid across commits, so even a golden a few commits behind still gives most of the win. Create it once with `pu create kolu-ci-golden`. See [`docs/pu-box-ci-ralph-report.md`](../docs/pu-box-ci-ralph-report.md) for the measurements and the two `pu fork` bugs the script works around.
 
 **Live failure surfacing — consume the `--progress json` stream.** The CI step runs in the background (the `/do` skill backgrounds it), and `--progress json` makes the runner emit one NDJSON line to stdout per node transition the instant process-compose reports it: `{node, recipe, platform, status, exit_code?, log?}` with `status ∈ running|success|failed|skipped|errored`. **Don't wait for the run to finish, and don't poll `gh pr checks` in a loop.** Tail the backgrounded output and react the moment a node turns `failed`/`errored` — while sibling lanes are still running:
 
