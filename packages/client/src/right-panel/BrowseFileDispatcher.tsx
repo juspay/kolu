@@ -94,12 +94,13 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   type Capture = "text" | "prose" | "iframe" | "none";
 
   // Both text-bearing modes mount the same surface and anchor against whatever
-  // root actually holds the selection; they differ only in line addressability.
+  // root actually holds the selection; they share the same sizing class
+  // (`min-h-0 w-full flex-1`) and differ only in line addressability.
   // Both sit as a `flex-1` sibling BELOW the (optional) truncation banner —
   // the banner is chrome, not file content, so it stays out of the commentable
-  // host for the same reason the source view keeps it out (see `sourceRenderer`
-  // and the `prose` renderer below): a user must not be able to select
-  // "File truncated …" and save a comment whose quote the agent can't find.
+  // host (see `sourceRenderer` and the `prose` renderer below): a user must
+  // not be able to select "File truncated …" and save a comment whose quote
+  // the agent can't find.
   const textSurface = (
     file: FileData,
     view: JSX.Element,
