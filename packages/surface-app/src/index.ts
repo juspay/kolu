@@ -18,7 +18,15 @@ export interface FreshnessPaths {
   shellPaths?: string[];
 }
 
-const DEFAULT_ASSET_PREFIX = "/assets/";
+/** The content-hashed asset directory, relative to the dist root (`assets`) —
+ *  the on-disk counterpart to the `/assets/` request prefix below. A Bun- or
+ *  Vite-built client emits hashed bundles under `<dist>/${ASSET_DIR}/`; the
+ *  server pins exactly that prefix `immutable`. Single-sourced here so the
+ *  builder (`@kolu/surface-app/bun`) and the server can't disagree on where
+ *  hashed assets live. */
+export const ASSET_DIR = "assets";
+
+const DEFAULT_ASSET_PREFIX = `/${ASSET_DIR}/`;
 const DEFAULT_SHELL_PATHS = ["/", "/index.html"];
 
 /** The SPA shell directive — `no-store`, never `no-cache`. A normal reload must
