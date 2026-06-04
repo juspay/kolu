@@ -675,24 +675,19 @@ Then(
   },
 );
 
-// A >1 MB Markdown file is read back truncated; the rendered preview must
-// surface the same "File truncated" banner the source view shows, otherwise a
-// partial document renders with no warning. Scoped to the markdown preview
-// testid so it doesn't accidentally match the source-view banner.
+// A >1 MB Markdown file is read back truncated; the preview must surface the
+// same "File truncated" banner the source view shows, otherwise a partial
+// document renders with no warning. The banner is a sibling ABOVE the
+// commentable preview (not inside it — see `truncationBanner` in
+// BrowseFileDispatcher: keeping it out of the comment surface stops it being
+// selected as an un-findable comment quote), so this targets its testid.
 Then(
   "the markdown preview should show the truncation warning",
   async function (this: KoluWorld) {
-    const md = this.page.locator('[data-testid="browse-preview-markdown"]');
-    await pollFor({
-      observe: () => md.textContent({ timeout: 1_000 }).catch(() => null),
-      isDone: (text) =>
-        text !== null && text.includes("File truncated (exceeds 1 MB)"),
-      onTimeout: (last) =>
-        new Error(
-          `markdown preview never showed the truncation warning; last text: ${JSON.stringify(last)}`,
-        ),
-      timeoutMs: POLL_TIMEOUT,
-    });
+    const banner = this.page.locator(
+      '[data-testid="browse-truncation-banner"]',
+    );
+    await banner.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -1301,6 +1296,31 @@ Then(
   },
 );
 
+// The in-place comment highlight rides the CSS Custom Highlight API: the
+// overlay registers ranges under the "kolu-comment" highlight name. A non-zero
+// range count proves the overlay re-anchored against the live DOM — the
+// regression this guards is the rendered Markdown preview swapping its subtree
+// after mount (lazy Shiki re-render), which detaches any earlier ranges; the
+// overlay's MutationObserver must re-apply so the highlight doesn't silently
+// vanish. Polled because Shiki warms a frame or two after the preview mounts.
+Then(
+  "the comment highlight should be present",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () =>
+        this.page
+          .evaluate("window.CSS?.highlights?.get('kolu-comment')?.size ?? 0")
+          .catch(() => 0),
+      isDone: (size) => typeof size === "number" && size > 0,
+      onTimeout: (last) =>
+        new Error(
+          `comment highlight never registered any ranges; last size: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
 When("I click the comment pill", async function (this: KoluWorld) {
   const pill = this.page.locator(COMMENT_PILL);
   await pill.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -1368,6 +1388,40 @@ When(
     await btn.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await btn.first().click();
     await this.waitForFrame();
+  },
+);
+
+// Click a tray item's body button to jump to its anchor. The body button
+// carries the comment text; clicking it fires `onJumpTo`, which navigates the
+// browse view (and, for a multi-surface file, flips the Source ⇄ Rendered
+// toggle back to the surface the comment was made on).
+When(
+  "I click the tray comment {string}",
+  async function (this: KoluWorld, body: string) {
+    const item = this.page
+      .locator(COMMENTS_TRAY)
+      .locator('[data-testid="kolu-tray-item"]', { hasText: body });
+    await item.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await item.first().click();
+    await this.waitForFrame();
+  },
+);
+
+// Assert which Source ⇄ Rendered surface is active by reading the toggle's
+// `aria-pressed`. Used to verify a tray jump flipped back to the right surface.
+Then(
+  "the file view should be showing {string}",
+  async function (this: KoluWorld, mode: string) {
+    const btn = this.page.locator(`[data-testid="fileview-toggle-${mode}"]`);
+    await pollFor({
+      observe: () => btn.getAttribute("aria-pressed").catch(() => null),
+      isDone: (pressed) => pressed === "true",
+      onTimeout: (last) =>
+        new Error(
+          `file view never showed "${mode}"; toggle aria-pressed was ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 

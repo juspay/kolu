@@ -980,10 +980,12 @@ Feature: Code tab (review + browse)
   # ── Comments on files (#881) ──
   #
   # End-to-end coverage of the select → pill → composer → tray → copy
-  # flow. Selection is driven by walking Pierre's shadow DOM to find
-  # the target text node, then calling `Selection.addRange` directly
-  # (Chromium fires `selectionchange` on the document for shadow-DOM
-  # selections, which the `useTextSelection` adapter listens to).
+  # flow. Selection is driven by `dragSelectText` (code_tab_steps.ts):
+  # walk the container's DOM (descending Pierre's shadow root, or the
+  # light DOM of the Markdown preview) to find the target text node,
+  # compute its viewport rect, then drive a REAL `page.mouse` drag so
+  # the browser fires the same pointer + `selectionchange` events a
+  # user would, which the `useTextSelection` adapter listens to.
   # Pure-logic coverage of the underlying anchoring + clipboard payload
   # algorithms lives in `packages/artifact-sdk/src/core/findQuote.test.ts`,
   # `packages/artifact-sdk/src/server/inject.test.ts`, and
@@ -1044,6 +1046,53 @@ Feature: Code tab (review + browse)
     And the comments tray should be visible
     And the comments tray should contain "rendered-preview comment"
     And the comments tray should have 1 comments
+
+  # Regression (#1162): a rendered-preview comment carries no source line, so
+  # the tray jump can't use Pierre's line selection — it must instead flip the
+  # Source ⇄ Rendered toggle back to Rendered. Here the user has since switched
+  # the SAME open file to Source (no remount, so the toggle is "stuck" on
+  # source); clicking the tray item must return them to the rendered preview,
+  # where the quote ("md-preview-marker") actually lives.
+  Scenario: Tray jump returns to the rendered Markdown surface
+    When I run "rm -rf /tmp/kolu-comments-md-jump && git init /tmp/kolu-comments-md-jump && cd /tmp/kolu-comments-md-jump"
+    And I run "printf '# Doc Title\n\nmd-jump-marker in the body.\n' > README.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    When I select text "md-jump-marker" in the markdown preview
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "jump-back comment" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should contain "jump-back comment"
+    When I switch the file view to "source"
+    Then the file view should be showing "source"
+    When I click the tray comment "jump-back comment"
+    Then the file view should be showing "rendered"
+    And the markdown preview should be visible
+
+  # Regression (#1162): the rendered Markdown preview reassigns its innerHTML
+  # AFTER mount — the lazy Shiki highlighter warms and the html memo re-runs,
+  # swapping every text node. A comment highlight applied before that swap
+  # points at detached nodes and silently disappears. The overlay watches the
+  # prose host's subtree and re-applies, so the highlight survives. The doc has
+  # a fenced code block (triggers the Shiki load) and a commentable paragraph.
+  Scenario: Rendered Markdown comment highlight survives the Shiki re-render
+    When I run "rm -rf /tmp/kolu-comments-md-shiki && git init /tmp/kolu-comments-md-shiki && cd /tmp/kolu-comments-md-shiki"
+    And I run "printf '# Doc\n\nmd-shiki-marker paragraph.\n\n```js\nconst x = 1;\n```\n' > README.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "md-shiki-marker"
+    When I select text "md-shiki-marker" in the markdown preview
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "survives shiki" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should contain "survives shiki"
+    And the comment highlight should be present
 
   Scenario: Cancel button dismisses the composer without saving
     When I run "rm -rf /tmp/kolu-comments-cancel && git init /tmp/kolu-comments-cancel && cd /tmp/kolu-comments-cancel"
@@ -1139,10 +1188,11 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     Then the comments tray should contain "should survive reload"
 
-  # A .md file opens rendered, where there's no selectable source surface to
-  # anchor a comment to — so comments on Markdown live in the source view
-  # (plan phase-3 v1 decision: rendered Markdown is read-only). Flipping the
-  # toggle to source brings back Pierre's CommentTextSurface and the pill.
+  # A .md file opens rendered — and the rendered preview is itself commentable
+  # (see the "Commenting on the rendered Markdown preview" scenario above).
+  # This scenario covers the *other* surface: flipping the toggle to source
+  # brings back Pierre's shadow-rooted CommentTextSurface, where a comment
+  # anchors to a real source line (line-addressable, unlike the prose preview).
   Scenario: Comments on a Markdown file work in the source view
     When I run "rm -rf /tmp/kolu-comments-md && git init /tmp/kolu-comments-md && cd /tmp/kolu-comments-md"
     And I run "printf '# Doc\n\nmd-source-comment-marker line\n' > notes.md && git add . && git commit -m init"

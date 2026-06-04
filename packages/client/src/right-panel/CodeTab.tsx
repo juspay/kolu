@@ -745,8 +745,18 @@ const CodeTab: Component<{
                     setView("browse");
                     setSelectedPath(comment.path);
                   }
+                  // Carry the comment's surface so the dispatcher flips the
+                  // Source ⇄ Rendered toggle back to it before the overlay
+                  // re-finds the quote: a prose ("Hello Doc") comment landing
+                  // on the source view ("# Hello Doc") would fail to re-anchor
+                  // (and the source view wouldn't even highlight it). When the
+                  // file is already open in the other mode, `setSelectedPath`
+                  // is a no-op (same path → no remount), so the toggle flip is
+                  // the only thing that moves the user back to the right view.
                   useCommentScrollRequest().set({
                     commentId: comment.id,
+                    path: comment.path,
+                    surface: comment.surface,
                   });
                 }}
               />

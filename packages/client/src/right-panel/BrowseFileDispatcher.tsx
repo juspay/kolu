@@ -50,6 +50,7 @@ import {
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
+import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
@@ -93,13 +94,16 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   type Capture = "text" | "prose" | "iframe" | "none";
 
   // Both text-bearing modes mount the same surface and anchor against whatever
-  // root actually holds the selection; they differ only in host sizing and
-  // line addressability. "text" sits below the truncation banner (`flex-1`);
-  // "prose" owns the whole pane (`h-full`).
+  // root actually holds the selection; they differ only in line addressability.
+  // Both sit as a `flex-1` sibling BELOW the (optional) truncation banner —
+  // the banner is chrome, not file content, so it stays out of the commentable
+  // host for the same reason the source view keeps it out (see `sourceRenderer`
+  // and the `prose` renderer below): a user must not be able to select
+  // "File truncated …" and save a comment whose quote the agent can't find.
   const textSurface = (
     file: FileData,
     view: JSX.Element,
-    opts: { class: string; lineAnchored: boolean },
+    opts: { lineAnchored: boolean; surface?: "source" | "prose" },
   ): JSX.Element => (
     <CommentTextSurface
       terminalId={props.terminalId}
@@ -107,12 +111,25 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       // The host's text is the file source, so the highlight overlay
       // re-anchors when the server bumps content on save.
       contentTick={file.source?.content ?? ""}
-      class={opts.class}
+      // `flex-1 min-h-0` so the host fills the space left under the (optional)
+      // truncation-banner sibling without overflowing it.
+      class="min-h-0 w-full flex-1"
       lineAnchored={opts.lineAnchored}
+      surface={opts.surface}
     >
       {view}
     </CommentTextSurface>
   );
+
+  // A comment records its surface only when the file is multi-surface — i.e.
+  // Markdown, which offers the Source ⇄ Rendered toggle. Plain source (no
+  // rendered form, no toggle) leaves it undefined so the tray jump doesn't
+  // try to flip a toggle that isn't there.
+  const surfaceFor = (
+    file: FileData,
+    surface: "source" | "prose",
+  ): "source" | "prose" | undefined =>
+    isMarkdown(file.path) ? surface : undefined;
 
   const withComments = (
     capture: Capture,
@@ -122,18 +139,33 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     match(capture)
       .with("text", () =>
         textSurface(file, view, {
-          class: "min-h-0 w-full flex-1",
           lineAnchored: true,
+          surface: surfaceFor(file, "source"),
         }),
       )
       .with("prose", () =>
         textSurface(file, view, {
-          class: "h-full w-full",
           lineAnchored: false,
+          surface: surfaceFor(file, "prose"),
         }),
       )
       .with(P.union("iframe", "none"), () => view)
       .exhaustive();
+
+  // The "File truncated" banner — chrome, not file content. Rendered as a
+  // sibling ABOVE the comment surface (never inside it) so it can't be
+  // selected and saved as a comment quote the agent won't find in the file.
+  // Shared by the source and prose (Markdown preview) renderers below.
+  const truncationBanner = (file: FileData): JSX.Element => (
+    <Show when={file.source?.truncated}>
+      <div
+        data-testid="browse-truncation-banner"
+        class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30"
+      >
+        File truncated (exceeds 1 MB)
+      </div>
+    </Show>
+  );
 
   // Kolu's source appliance: pierre's syntax-highlighted CodeView, carrying
   // kolu's theme + initial line selection. The render closure reads `props`
@@ -141,17 +173,11 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // changes flow through without rebuilding it.
   //
   // The "File truncated" banner is rendered as a sibling ABOVE the comment
-  // surface, not inside it: the banner is chrome, not file content, so it must
-  // stay out of the commentable host or a user could select "File truncated …"
-  // and save a comment whose quote is UI copy the agent can't find in the file.
+  // surface (via `truncationBanner`), not inside it — see its definition.
   const sourceRenderer: SourceRenderer = {
     render: (file) => (
       <div class="flex h-full w-full flex-col">
-        <Show when={file.source?.truncated}>
-          <div class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30">
-            File truncated (exceeds 1 MB)
-          </div>
-        </Show>
+        {truncationBanner(file)}
         {withComments(
           "text",
           file,
@@ -207,30 +233,41 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // defaulting to rendered. The rendered document is `"prose"`: selectable
   // light DOM, so it's commentable — anchored against its own host subtree
   // (not the whole page) and with no source `lineRange` (a rendered line isn't
-  // a source line). A comment made here re-finds within the preview; flipping
-  // to Source may not re-highlight it — the rendered quote ("Hello Doc") needn't
-  // appear verbatim in source ("# Hello Doc") — acceptable drift; the comment
-  // still lives in the tray. Non-markdown text matches nothing here and stays
-  // source-only (no toggle). Markdown renders from `content`, not a URL — so
-  // these never appear in the binary `renderedRenderers` list above.
+  // a source line). It records `surface: "prose"` so the tray jump flips the
+  // toggle back to Rendered before re-finding (the rendered quote "Hello Doc"
+  // needn't appear in source "# Hello Doc", so landing on Source would fail
+  // the re-find); the comment re-anchors within the preview. Non-markdown text
+  // matches nothing here and stays source-only (no toggle). Markdown renders
+  // from `content`, not a URL — so these never appear in the binary
+  // `renderedRenderers` list above.
   const textRenderers: RenderedRenderer[] = [
     {
       match: isMarkdown,
       // A `kind:"text"` FileData always carries `source` (see textFile()
       // below), so the `?.`/`?? ""` is type-defensive narrowing of the
       // optional field — never a real blank-document path.
-      render: (file) =>
-        withComments(
-          "prose",
-          file,
-          <MarkdownRenderer
-            markdown={file.source?.content ?? ""}
-            truncated={file.source?.truncated ?? false}
-            resolveImageSrc={(src) =>
-              resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
-            }
-          />,
-        ),
+      //
+      // The truncation banner is rendered HERE as a sibling above the
+      // commentable surface (matching the source renderer), not via
+      // MarkdownRenderer's own `truncated` — leaving it inside the surface
+      // would make "File truncated …" selectable/commentable, the exact
+      // anchor-not-in-file hazard the source path avoids. So `truncated` is
+      // left default (false) on MarkdownRenderer; the banner lives outside.
+      render: (file) => (
+        <div class="flex h-full w-full flex-col">
+          {truncationBanner(file)}
+          {withComments(
+            "prose",
+            file,
+            <MarkdownRenderer
+              markdown={file.source?.content ?? ""}
+              resolveImageSrc={(src) =>
+                resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
+              }
+            />,
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -251,6 +288,19 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     return fc?.kind === "binary" ? { path: props.filePath, url: fc.url } : null;
   });
 
+  // A controlled FileView mode driven by a tray-jump scroll request: when the
+  // pending request targets THIS file and names a surface, force the toggle to
+  // it (prose → rendered, source → source) so the jump lands on the surface
+  // the comment lives on even when the file is already open in the other mode
+  // (same path → no remount, so the toggle wouldn't otherwise move). Returns
+  // null when no request matches — FileView then stays self-controlled.
+  const scroll = useCommentScrollRequest();
+  const jumpMode = createMemo<"source" | "rendered" | null>(() => {
+    const req = scroll.request();
+    if (!req || req.path !== props.filePath || !req.surface) return null;
+    return req.surface === "prose" ? "rendered" : "source";
+  });
+
   return (
     <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
       <Match when={fileContent.error()}>
@@ -264,6 +314,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             file={file()}
             source={sourceRenderer}
             rendered={textRenderers}
+            mode={jumpMode()}
           />
         )}
       </Match>

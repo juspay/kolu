@@ -36,6 +36,10 @@ export type CommentTextSurfaceProps = {
    *  rendered surfaces (the Markdown preview) where a rendered-DOM line
    *  isn't a source line. Defaults to true (source / diff). */
   lineAnchored?: boolean;
+  /** Which browse surface this is, when the file offers a Source ⇄ Rendered
+   *  toggle (Markdown). Recorded on captured comments so the tray jump can
+   *  flip the toggle back. Omit for single-surface views (plain source, diff). */
+  surface?: "source" | "prose";
   children: JSX.Element;
 };
 
@@ -47,6 +51,7 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
     host,
     path: () => props.path,
     lineAnchored: () => props.lineAnchored ?? true,
+    surface: () => props.surface,
   });
   // `createMemo` re-derives the store when `props.terminalId` changes,
   // so switching terminals re-reads the per-terminal queue.
@@ -58,6 +63,11 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
     host,
     comments: commentsForFile,
     contentTick: () => props.contentTick,
+    // Prose surfaces (the Markdown preview) replace their light-DOM subtree
+    // after mount (lazy Shiki re-render), so the overlay must re-anchor on
+    // subtree mutation. Source / diff (line-anchored) ride contentTick alone —
+    // their virtualized subtree churns on scroll and must not drive re-applies.
+    observeMutations: !(props.lineAnchored ?? true),
   });
 
   return (

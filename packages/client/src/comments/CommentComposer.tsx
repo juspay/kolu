@@ -48,6 +48,7 @@ export const CommentComposer: Component<{
       path: target.path,
       locator: target.locator,
       lineRange: target.lineRange,
+      surface: target.surface,
       body: trimmed,
     });
     composer.close();

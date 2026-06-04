@@ -47,6 +47,10 @@ export interface UseTextSelectionOptions {
    *  rendered-DOM line number is meaningless as a source-file line.
    *  Defaults to true (source / diff are line-addressable). */
   lineAnchored?: Accessor<boolean>;
+  /** Which browse surface this capture lives on, when the file offers a
+   *  Source ⇄ Rendered toggle (Markdown). Recorded on the comment so the
+   *  tray jump can restore that surface. Absent for single-surface views. */
+  surface?: Accessor<"source" | "prose" | undefined>;
 }
 
 const DEBOUNCE_MS = 80;
@@ -236,6 +240,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
       path,
       locator,
       lineRange,
+      surface: opts.surface?.(),
       rect: last
         ? { x: last.left, y: last.top, width: last.width, height: last.height }
         : { x: 0, y: 0, width: 0, height: 0 },
