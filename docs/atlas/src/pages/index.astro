@@ -4,10 +4,11 @@ import IndexTree from "../components/IndexTree.astro";
 import AtlasLayout from "../layouts/AtlasLayout.astro";
 import { buildNoteTree } from "../lib/indexTree";
 
-// Generated MOC tree: notes nest under their `parent` (a flat slug). Drafts are
+// Generated MOC tree: notes nest under their `parents` (flat slugs). Drafts are
 // hidden from the build but reachable in `astro dev`. A note with no parent is a
 // root, so membership stays automatic — nothing falls through unfiled. Links are
-// relative (`./<slug>.html`) so the committed pages navigate in the Code tab.
+// relative (`./<slug>.html`) so the committed pages navigate both in kolu's Code
+// tab and externally via htmlpreview.github.io.
 const notes = (await getCollection("atlas"))
   .filter((n) => import.meta.env.DEV || !n.data.draft)
   .sort((a, b) => a.data.title.localeCompare(b.data.title));
@@ -16,17 +17,21 @@ const roots = buildNoteTree(notes);
 
 <AtlasLayout
   title="Atlas"
-  description="kolu's in-repo Atlas — plans, designs, reviews, and learnings, authored in markdown/MDX."
+  description="kolu's in-repo Atlas — plans, designs, reviews, and research, as a generated tree."
 >
-  <div class="wrap">
+  <div class="wrap wrap-index">
     <p class="eyebrow">the kolu atlas</p>
     <h1 class="atlas-title">The <span class="accent">Atlas</span>.</h1>
     <p class="lede">
-      kolu's in-repo knowledge base — authored in markdown/MDX, rendered to
-      self-contained HTML you can read right here in the Code tab. This index is
-      a tree generated from frontmatter: a note nests under its <code>parent</code>,
-      and anything without one is a root — so nothing falls through unfiled.
+      kolu's in-repo knowledge base — a tree generated from each note's
+      <code>parents</code> frontmatter; nothing falls through unfiled.
+      <strong>{notes.length}</strong> notes.
     </p>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-dot m-seedling" />seedling</span>
+      <span class="legend-item"><span class="legend-dot m-budding" />budding</span>
+      <span class="legend-item"><span class="legend-dot m-evergreen" />evergreen</span>
+    </div>
 
     {
       roots.length > 0 ? (

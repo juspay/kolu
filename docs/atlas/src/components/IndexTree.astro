@@ -1,35 +1,35 @@
 ---
-// Recursive index tree. Renders a note card per node and recurses into children
-// via Astro.self, so the Atlas index nests notes under their `parent`. Visual
-// classes (.tree, .note-link, .badge, …) live in AtlasLayout's global CSS.
+// Compact, recursive MOC tree. One row per note (maturity dot · title ·
+// truncated description · kind/flags right-aligned); children nest under their
+// parent via Astro.self with an indent guide — the hierarchy. Scales to ~100
+// links. Links stay relative (`./<slug>.html`) so they resolve in kolu's Code
+// tab AND when read externally through htmlpreview.github.io.
 import type { TreeNode } from "../lib/indexTree";
 
 interface Props {
   nodes: TreeNode[];
-  // ids on the path from the root to here — a child already on the path is a
-  // cycle and is not recursed into (a note can have multiple parents → DAG).
   ancestors?: string[];
+  sub?: boolean;
 }
-const { nodes, ancestors = [] } = Astro.props as Props;
+const { nodes, ancestors = [], sub = false } = Astro.props as Props;
 ---
-<ul class="tree">
+<ul class={sub ? "moc-sub" : "moc"}>
   {
     nodes.map((node) => {
       const path = [...ancestors, node.note.id];
       const children = node.children.filter((c) => !path.includes(c.note.id));
+      const d = node.note.data;
       return (
-        <li class="tree-item">
-          <a class="note-link" href={`./${node.note.id}.html`}>
-            <div class="note-row">
-              <h3 class="note-name">{node.note.data.title}</h3>
-              <span class={`badge m-${node.note.data.maturity}`}>{node.note.data.maturity}</span>
-              <span class="badge badge-kind">{node.note.data.kind}</span>
-              {node.note.data.status && <span class="badge badge-muted">{node.note.data.status}</span>}
-              {node.note.data.draft && <span class="badge badge-draft">draft</span>}
-            </div>
-            <p class="note-desc">{node.note.data.description}</p>
+        <li>
+          <a class="row" href={`./${node.note.id}.html`} title={d.description}>
+            <span class={`row-dot m-${d.maturity}`} />
+            <span class="row-t">{d.title}</span>
+            <span class="row-d">{d.description}</span>
+            <span class="row-k">{d.kind}</span>
+            {d.status && <span class="row-flag is-status">{d.status}</span>}
+            {d.draft && <span class="row-flag is-draft">draft</span>}
           </a>
-          {children.length > 0 && <Astro.self nodes={children} ancestors={path} />}
+          {children.length > 0 && <Astro.self nodes={children} ancestors={path} sub={true} />}
         </li>
       );
     })

@@ -82,36 +82,73 @@ const fullTitle = title === "Atlas" ? "the kolu Atlas" : `${title} · the kolu A
     margin: 0.6rem 0 0;
   }
   .atlas-title .accent { color: var(--amber); }
-  .lede { color: var(--ink-dim); max-width: 34rem; margin: 1.2rem 0 0; }
-  /* index MOC tree (see IndexTree.astro) */
-  .tree { list-style: none; margin: 2.2rem 0 0; padding: 0; }
-  .tree-item { border-bottom: 1px solid var(--rule); }
-  /* nested children: indent + a guide rule, no doubled bottom border */
-  .tree-item .tree {
-    margin: 0 0 0.4rem 1.1rem;
-    padding-left: 1.1rem;
+  .lede { color: var(--ink-dim); max-width: 40rem; margin: 1rem 0 0; font-size: 0.95rem; }
+  .wrap-index { max-width: 56rem; }
+
+  /* maturity legend */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 1.1rem;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    color: var(--ink-muted);
+    margin: 0.7rem 0 0;
+  }
+  .legend-item { display: inline-flex; align-items: center; gap: 0.4em; }
+  .legend-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+  /* ── index MOC tree — compact, one row per note, scales to ~100 ── */
+  .moc { list-style: none; margin: 1.5rem 0 0; padding: 0; }
+  /* nested children: indent + a guide rule (the hierarchy) */
+  .moc-sub {
+    list-style: none;
+    margin: 0.05rem 0 0.2rem 0.55rem;
+    padding-left: 0.8rem;
     border-left: 1px solid var(--rule);
   }
-  .tree-item .tree .tree-item:last-child { border-bottom: 0; }
-  .note-link { display: block; padding: 1.2rem 0; }
-  .note-link:hover { text-decoration: none; }
-  .note-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.7rem; }
-  .note-name { font-family: var(--serif); font-size: 1.35rem; font-weight: 600; color: var(--ink); margin: 0; }
-  .note-link:hover .note-name { color: var(--amber); }
-  .note-desc { color: var(--ink-dim); font-size: 0.95rem; margin: 0.4rem 0 0; }
-
-  .badge {
-    font-family: var(--mono);
-    font-size: 0.6rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.22rem 0.45rem;
+    border-radius: 6px;
+    line-height: 1.3;
   }
-  .m-seedling { color: var(--gold); }
-  .m-budding { color: var(--teal); }
-  .m-evergreen { color: var(--green); }
-  .badge-kind { color: var(--ink-muted); }
-  .badge-muted { color: var(--ink-muted); }
-  .badge-draft { color: var(--alert); }
+  .row:hover { background: var(--surface); text-decoration: none; }
+  .row:hover .row-t { color: var(--amber); }
+  .row-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+  .row-t { color: var(--ink); font-weight: 600; font-size: 0.95rem; white-space: nowrap; flex: none; }
+  .row-d {
+    color: var(--ink-muted);
+    font-size: 0.84rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .row-k {
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    flex: none;
+  }
+  .row-flag {
+    font-family: var(--mono);
+    font-size: 0.56rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    flex: none;
+  }
+  .row-flag.is-status { color: var(--ink-faint); }
+  .row-flag.is-draft { color: var(--alert); }
+  .m-seedling { background: var(--gold); }
+  .m-budding { background: var(--teal); }
+  .m-evergreen { background: var(--green); }
 
   /* ── note header / footer ─────────────────────────────── */
   .backlink {
