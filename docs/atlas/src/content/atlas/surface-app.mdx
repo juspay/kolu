@@ -92,7 +92,8 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 | Piece | The question it answers | Entrypoint | Inv. |
 | --- | --- | --- | --- |
 | `installSurfaceApp` · `installFreshStatic` · `installPwaManifest` | "Serve the SPA fresh, the manifest, AND `/sw.js` (retirement) — one composed call." | <Pill variant="new">/server</Pill> | #1,2,4 |
-| `buildInfoServer()` | "The buildInfo cell's server impl — spread into implementSurface; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
+| `buildInfoServer()` · `surfaceAppServer()` | "The buildInfo cell's server impl (+ the `surfaceApp.info` probe impl) — spread into implementSurface; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
+| `implementSurfaceApp()` | "Implement the whole server side in ONE call (the counterpart to `composeSurfaces`): merge the fragment's cell + probe impls into your own deps, run implementSurface, flow `buildInfo.connect`." | <Pill variant="new">/server</Pill> | #2,5 |
 | `buildInfo` · `defineBuildInfo` | "The buildInfo cell definition — composed into your surface; extensible." | <Pill variant="dx">/surface</Pill> | #2,5 |
 | `useSurfaceApp()` · `SurfaceAppProvider` · `retireServiceWorker()` | "The headless model (status/stale/reload/install) + SW retirement. You render the UI." | <Pill variant="hi">/solid</Pill> | #3,4,5 |
 | `surfaceApp()` vite plugin · `buildSurfaceClient()` · `resolveCommit()` | "Build the client fresh: content-hashed `/assets/*`, the `__SURFACE_APP_COMMIT__` define, the no-store shell rewrite — Vite plugin or Bun helper. Resolve the commit once (env→git→dev)." | <Pill variant="md">/vite · /bun</Pill> | #1,2 |
@@ -184,9 +185,20 @@ One package, sub-path entrypoints mirroring @kolu/surface's `exports` map. Pure 
 ### /server <Pill variant="new">@kolu/surface-app/server</Pill>
 
 ```ts
-import { installSurfaceApp, buildInfoServer } from "@kolu/surface-app/server";
-// compose the buildInfo impl into your surface router — commit auto-resolved, not hand-written:
-implementSurface(surface, { channel, cells: { ...buildInfoServer() } });
+import {
+  implementSurfaceApp,
+  installSurfaceApp,
+  surfaceAppServer,
+} from "@kolu/surface-app/server";
+// `implementSurfaceApp` — the server-side counterpart to `composeSurfaces`: ONE
+// call merges the fragment's buildInfo cell + `surfaceApp.info` probe impls into
+// your own deps, runs implementSurface, and flows `buildInfo.connect` internally.
+// The app passes only its OWN cells/procedures — no hand-spread, no seed→connect.
+const { router, ctx } = implementSurfaceApp(surface, surfaceAppServer(), {
+  channel,
+  cells: { /* yours only */ },
+  procedures: { /* yours only */ },
+});
 // one call serves the shell fresh + the manifest + /sw.js (retirement). Granular pieces exported too.
 installSurfaceApp(app, { clientDist, manifest: { name: `kolu@${host}`, themeColor, icons } });
 ```

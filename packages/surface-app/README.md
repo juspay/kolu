@@ -37,6 +37,7 @@ The library ships **fragments**; an app is their **composition**, with no bespok
 | commit source | `surfaceApp()` Vite plugin · `buildSurfaceClient()` (Bun) · `resolveCommit()` | into the client build & server boot |
 | restart axis | `serverIdentity` (procedure, `surfaceApp.info`) + `serverIdentity()` (impl) | merged via `composeSurfaces` & into `implementSurface` |
 | surface fragment | `surfaceAppSurface` / `surfaceAppSurfaceWith` + `composeSurfaces`; `surfaceAppServer` (impl) | merged into `defineSurface` & `implementSurface` |
+| server one-call | `implementSurfaceApp` — the server-side counterpart to `composeSurfaces` | one call: merges the fragment's cell + probe impls, runs `implementSurface`, flows `buildInfo.connect` |
 
 The **restart axis** is the counterpart to the skew axis: the
 `surface.surfaceApp.info` probe that reads a per-process `processId`. It used to
@@ -88,7 +89,7 @@ extension-carrying package would impose.
 | Entry | Exports | Side |
 |---|---|---|
 | `@kolu/surface-app` | `cacheControlFor`, `isImmutableAssetPath`, `clientIsStale`, `isCleanRef`, `SW_SOURCE` — the pure, framework-free kernels | core |
-| `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer`, `serverIdentity`, `surfaceAppServer` (Hono) | server |
+| `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer`, `serverIdentity`, `surfaceAppServer`, `implementSurfaceApp` (Hono) | server |
 | `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo`, `serverIdentity`, `surfaceAppSurface`, `surfaceAppSurfaceWith`, `composeSurfaces`, `ServerProbeSchema` — the composable fragments | common |
 | `@kolu/surface-app/solid` | `retireServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider`, `useSurfaceApp`, `createServerLifecycle` | client |
 | `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `reloadForUpdate` — framework-free, for root setup before any component | client |
@@ -123,16 +124,29 @@ export const surface = defineSurface(
 
 ```ts
 // server/main.ts
-import { implementSurface, publisherChannel } from "@kolu/surface/server";
-import { installSurfaceApp, surfaceAppServer } from "@kolu/surface-app/server";
+import { publisherChannel } from "@kolu/surface/server";
+import {
+  implementSurfaceApp,
+  installSurfaceApp,
+  surfaceAppServer,
+} from "@kolu/surface-app/server";
 
-const surfaceApp = surfaceAppServer();    // both impls in one call (commit auto-resolved + processId)
-const { router, ctx } = implementSurface(surface, {
-  channel: <T>(name: string) => publisherChannel<T>(publisher, name),
-  cells: { ...surfaceApp.cells },         // build identity — no hand-written store, no sha
-  procedures: { ...surfaceApp.procedures }, // one processId per process — no hand-written probe
-});
-// for an async build axis: await surfaceApp.cells.buildInfo.connect(ctx.cells.buildInfo);
+// The server-side counterpart to `composeSurfaces`: one call merges the
+// surface-app fragment's buildInfo cell + `surfaceApp.info` probe impls into
+// your OWN `implementSurface` deps, runs `implementSurface`, AND flows the
+// buildInfo cell's `connect` (the async boot axis) internally. So the app passes
+// only its OWN cells/procedures — never hand-spreads the surface-app halves or
+// writes the seed→connect dance.
+const { router, ctx } = implementSurfaceApp(
+  surface,
+  surfaceAppServer(),                       // both impls in one call (commit auto-resolved + processId)
+  {
+    channel: <T>(name: string) => publisherChannel<T>(publisher, name),
+    cells: { /* ...your own only — buildInfo is the fragment's */ },
+    procedures: { /* ...your own only — surfaceApp.info is the fragment's */ },
+  },
+);
+// buildInfo.connect runs inside implementSurfaceApp — no hand-written ctx.set.
 
 // ...mount the oRPC router over HTTP + WS, registering /rpc BEFORE the static installers...
 
@@ -299,6 +313,10 @@ const { ctx } = implementSurface(surface, {
 // flow the late half through the SAME fragment — no hand-written second ctx.set:
 await build.buildInfo.connect(ctx.cells.buildInfo);   // republishes once settled
 ```
+
+(`implementSurfaceApp` — the one-call server form above — runs this `connect`
+for you, so an app using it never touches `build.buildInfo.connect` by hand. The
+explicit `connect` here is the lower-level `buildInfoServer` fragment API.)
 
 - **`buildInfo` source** — `T | (() => T) | (() => Promise<T | Partial<T>>)`. An async source returning a `Partial<T>` patches the `{ commit }` seed; a full `T` replaces it. A failed boot-time axis leaves the seed in place (the skew axis keeps working).
 - **`connect(cell)`** — drives the resolved value through the cell's ctx setter (which routes to the bus + the dedup gate), awaiting the async source first. A no-op for a sync source (re-asserting the seed is deduped). Returns a promise so a boot can `await` it.
