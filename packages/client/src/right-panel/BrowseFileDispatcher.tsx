@@ -56,6 +56,22 @@ import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 
+// The "File truncated" banner is rendered as a sibling ABOVE the comment
+// surface in both sourceRenderer and textRenderers: the banner is chrome, not
+// file content, so it must stay out of the commentable host or a user could
+// select "File truncated …" and save a comment whose quote is UI copy the
+// agent can't find in the file.
+const TruncatedBanner: Component<{ show: boolean }> = (p) => (
+  <Show when={p.show}>
+    <div
+      data-testid="browse-truncation-banner"
+      class="border-b border-edge bg-surface-1/30 px-2 py-1 text-[10px] text-warning"
+    >
+      File truncated (exceeds 1 MB)
+    </div>
+  </Show>
+);
+
 export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
   repoPath: string;
@@ -152,22 +168,6 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       )
       .with(P.union("iframe", "none"), () => view)
       .exhaustive();
-
-  // The "File truncated" banner is rendered as a sibling ABOVE the comment
-  // surface in both sourceRenderer and textRenderers: the banner is chrome, not
-  // file content, so it must stay out of the commentable host or a user could
-  // select "File truncated …" and save a comment whose quote is UI copy the
-  // agent can't find in the file.
-  const TruncatedBanner: Component<{ show: boolean }> = (p) => (
-    <Show when={p.show}>
-      <div
-        data-testid="browse-truncation-banner"
-        class="border-b border-edge bg-surface-1/30 px-2 py-1 text-[10px] text-warning"
-      >
-        File truncated (exceeds 1 MB)
-      </div>
-    </Show>
-  );
 
   // Kolu's source appliance: pierre's syntax-highlighted CodeView, carrying
   // kolu's theme + initial line selection. The render closure reads `props`
