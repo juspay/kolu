@@ -61,12 +61,29 @@ finish before starting the next** — never in parallel. Thread `--base` and the
 `rationale` through. `--tracks codex,lens,police` selects/reorders which run
 (default all three, in the order above).
 
+**Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
+either in `consensus` or in `reviewer-error` — the latter meaning codex itself
+never produced a structured verdict (it emitted reasoning prose, or the CLI was
+broken/unavailable) even after `codex-review.sh`'s built-in per-`codex exec`
+retries. That is an *infrastructure hiccup, not a debate outcome*, and in
+practice the next whole-debate attempt usually produces a real verdict. So when
+`/codex-debate` returns `reviewer-error`, **re-invoke it** — same `--base` /
+`rationale` — and keep retrying **up to 3 total attempts**. Stop early the moment
+an attempt reaches `consensus` (that result wins, proceed to lens-debate). Only
+if **all 3** attempts come back `reviewer-error` do you give up on codex: report
+the persistent reviewer-error honestly (no false `## Codex ⇄ Claude debate`
+consensus comment), then continue with lens-debate and code-police, which don't
+depend on codex. The built-in `codex exec` retries inside `codex-review.sh` are a
+*lower* layer (one flaky invocation); this is the *outer* layer (the whole debate
+came back without a verdict) — both apply.
+
 ## Report
 
 Confirm the three PR comments landed, then summarize in chat: each reviewer's
-outcome (codex consensus / reviewer-error, lens consensus, police findings
-actioned) and `git log --oneline <base>..HEAD` + `git diff --stat <base>` so the
-combined result is visible. **Never push or merge** — the human reviews the commits
-and merges when satisfied.
+outcome (codex consensus / reviewer-error — note how many attempts codex took if
+it was retried, lens consensus, police findings actioned) and
+`git log --oneline <base>..HEAD` + `git diff --stat <base>` so the combined
+result is visible. **Never push or merge** — the human reviews the commits and
+merges when satisfied.
 
 ARGUMENTS:

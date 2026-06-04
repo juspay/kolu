@@ -1,47 +1,49 @@
 /** Screen-scrape detection of Claude Code's awaiting-user prompts (#905).
  *
- *  Claude's `AskUserQuestion` / `ExitPlanMode` dialogs are the one
- *  awaiting-user signal the JSONL classifier (`core.ts`'s
- *  `AWAITING_USER_TOOLS`) can't see: the Claude Agent SDK buffers the in-flight
- *  assistant message carrying the `tool_use` block in memory and flushes it to
- *  the transcript only *after* the user answers, so throughout the wait
- *  `deriveState` reads the prior `end_turn` and reports `waiting`. The prompt
- *  is, however, already painted on the terminal — so we recognize it on the
- *  rendered screen instead of waiting for JSONL that arrives too late.
+ *  Three prompt types block the user without producing a detectable JSONL
+ *  signal while they're pending: `AskUserQuestion` / `ExitPlanMode` (the Claude
+ *  Agent SDK buffers the in-flight assistant message in memory and flushes it to
+ *  the transcript only *after* the user answers, so `deriveState` reads the
+ *  prior entry — `thinking` or `waiting`), and tool-permission gates
+ *  (Write/Edit/Bash/WebFetch — the tool call IS on disk so the tail reads
+ *  `tool_use`, but the approval decision is screen-only). All three are already
+ *  painted on the terminal — so we recognize them on the rendered screen
+ *  instead of waiting for JSONL that arrives too late or not at all.
  *
  *  This file is the Claude-specific *detector* + the promote-only *policy* that
- *  lifts `waiting → awaiting_user` when a prompt is on screen. It is pure and
+ *  lifts the active pollable state → `awaiting_user` when a prompt is on
+ *  screen. It is pure and
  *  stateless: a VT-resolved screen snapshot (and the JSONL-derived info) in, a
  *  decision out. Zero `node:*` imports, zero filesystem — the server's poller
  *  feeds it `getScreenText`; `screen.test.ts` feeds it fixtures. The
  *  `ClaudeCodeInfo` import is type-only (erased), so this stays as pure as
  *  `schemas.ts`.
  *
- *  ## Signature — one framework-rendered marker (claude-code v2.1.162, captured live)
- *  `AskUserQuestion`'s footer, anchored on its trailing `… to navigate · Esc to
- *  cancel` — framework chrome, not the model-supplied question/option text, so it
- *  survives option-label churn. Keying on the trailing structure (not the nav
- *  glyphs) covers both prompt shapes: a single-select renders `↑/↓ to navigate`,
- *  a multi-select (tabbed form) renders `Tab/Arrow keys to navigate`. The
- *  look-alikes a user might have on screen at `waiting`/`thinking` all end
- *  differently, so none collide:
- *   - Claude's own `/fork` agent list → `↑/↓ to select · Enter to view` — "to
- *     select", NOT "to navigate";
- *   - `/model` picker → "… s to use this session only · Esc to cancel" — ends in
- *     "Esc to cancel" but not via "to navigate";
- *   - folder-trust prompt → "Enter to confirm · Esc to cancel";
- *   - slash / `@` menus → no footer of this shape at all.
+ *  ## Signature — framework-rendered markers (claude-code v2.1.162, captured live)
+ *  See `PROMPT_MARKERS` for the verbatim list and per-marker rationale. In short,
+ *  three awaiting-user prompts are recognized, each by chrome no idle menu or
+ *  ordinary output carries: `AskUserQuestion` (its `… to navigate · Esc to cancel`
+ *  footer, covering both the single-select and multi-select tabbed shapes), the
+ *  edit-family permission gate (Write/Edit/NotebookEdit — its full
+ *  `Esc to cancel · Tab to amend` footer), and the other permission gates
+ *  (Bash/WebFetch/… — their numbered `<n>. Yes, and don't ask again for <x>`
+ *  remember-option line). Each marker is anchored on the full surrounding chrome
+ *  (whole footer / whole numbered option line), not a bare phrase, so the words
+ *  alone in Bash output, a diff, or model prose can't false-promote. The
+ *  look-alikes that share a word or two — `/model` and the trust prompt end in
+ *  "Esc to cancel"; the `/fork` agent list says "to select" — are excluded the
+ *  same way.
  *
- *  Deliberately a *single* marker. `ExitPlanMode` is NOT detected in this cut —
- *  its dialog has no arrow footer (`Ready to code?` + `shift+tab to approve…`),
- *  so it would need a separate, more volatile string literal. A small,
- *  high-confidence surface we grow over time beats a broad one that
- *  false-promotes; ExitPlanMode (and the hook-based path) is a follow-up.
+ *  `ExitPlanMode` is still NOT detected — its dialog has no arrow footer
+ *  (`Ready to code?` + `shift+tab to approve…`), so it needs a separate, more
+ *  volatile string literal; a small high-confidence surface we grow over time
+ *  beats a broad one that false-promotes, so it (and the hook-based path) remain
+ *  follow-ups.
  *
  *  Bottom-region gate: the live prompt renders at the cursor (screen bottom), so
- *  matching is confined to the screen tail — a footer scrolled into history can't
- *  fire, and once the user answers, the JSONL advances out of `waiting` and the
- *  poll disarms regardless of what lingers on screen.
+ *  matching is confined to the screen tail — a marker scrolled into history can't
+ *  fire, and once the user answers, the JSONL advances and the poll disarms
+ *  regardless of what lingers on screen.
  *
  *  Re-confirm the marker from a live capture (`tmux capture-pane`, the same
  *  VT-resolved text `getScreenText` returns) on any Claude UI change — never from
@@ -56,18 +58,41 @@ import type { ClaudeCodeInfo } from "./schemas.ts";
  *  prompt-like words. */
 export const TAIL_REGION_LINES = 40;
 
-/** The one awaiting-user marker: `AskUserQuestion`'s footer, anchored on its
- *  trailing `… to navigate · Esc to cancel`. Keying on the trailing structure
- *  rather than the nav-hint glyphs makes it cover both observed variants without
- *  enumerating them — single-select renders `↑/↓ to navigate`, multi-select (a
- *  tabbed form) renders `Tab/Arrow keys to navigate`. The `· Esc to cancel`
- *  suffix is what keeps it from colliding with prose ("…arrow keys to navigate
- *  the file tree") or the look-alike menus that also end in "Esc to cancel" but
- *  not via "to navigate" (`/model` → "session only · Esc to cancel"; the trust
- *  prompt → "Enter to confirm · Esc to cancel"; the `/fork` agent list →
- *  "↑/↓ to select · Enter to view"). The `·` separator is optional so a VT that
- *  drops the middot still matches. */
-const NAV_FOOTER_RE = /to navigate\s*·?\s*Esc to cancel/;
+/** Framework-rendered markers that prove an awaiting-user prompt is on screen.
+ *  Each is verbatim chrome captured live (`tmux capture-pane`, claude-code
+ *  v2.1.162) — not model-supplied option text — anchored on a phrase no idle
+ *  menu or ordinary output carries. Any one present in the screen tail is proof.
+ *
+ *   1. **AskUserQuestion** — its footer's trailing `… to navigate · Esc to
+ *      cancel`. Keying on the trailing structure (not the nav-hint glyphs) covers
+ *      both shapes — single-select renders `↑/↓ to navigate`, the multi-select
+ *      tabbed form renders `Tab/Arrow keys to navigate`. The `· Esc to cancel`
+ *      suffix keeps it off prose ("…arrow keys to navigate the file tree") and
+ *      the look-alikes that also end in "Esc to cancel" but not via "to navigate"
+ *      (`/model` → "session only · Esc to cancel"; trust → "Enter to confirm ·
+ *      Esc to cancel"; `/fork` list → "↑/↓ to select · Enter to view").
+ *   2. **Edit-family permission gate** (Write / Edit / NotebookEdit) — the
+ *      "Do you want to create/edit X?" approval, whose footer is
+ *      `Esc to cancel · Tab to amend`. Anchored on the *whole footer* (both
+ *      halves, `·` optional) rather than the bare `Tab to amend` words, so the
+ *      phrase appearing alone in Bash output, a diff, or model prose can't fire —
+ *      it's the framework footer pairing that's the signal.
+ *   3. **Other permission gates** (Bash / WebFetch / …) — the "remember my
+ *      choice" option line `<n>. Yes, and don't ask again for <x>`. These gates
+ *      have no `Tab to amend` footer, so they need their own marker. Anchored on
+ *      the full numbered option line (start-of-line `<n>. Yes, and don't ask
+ *      again for`, apostrophe-agnostic) rather than the bare `don't ask again`
+ *      words — that bare phrase is plausible English prose Claude might write or
+ *      tool output might carry, but the numbered-option framing is chrome only
+ *      the gate paints.
+ *
+ *  Permission gates fire while the tool call is on disk, so the session reads as
+ *  `tool_use` (already pollable) — only the marker is new, not the state gate. */
+const PROMPT_MARKERS: readonly RegExp[] = [
+  /to navigate\s*·?\s*Esc to cancel/, // AskUserQuestion (single + multi-select)
+  /Esc to cancel\s*·?\s*Tab to amend/, // Write/Edit/NotebookEdit gate footer
+  /^\s*\d+\.\s*Yes, and don.t ask again for\b/m, // Bash/WebFetch/etc. gate option
+];
 
 /** The last block of rendered lines, trailing blank rows trimmed so the "tail"
  *  is the last *painted* content, not the empty rows below a short prompt. */
@@ -78,10 +103,11 @@ function tailRegion(screenText: string): string[] {
   return lines.slice(Math.max(0, end - TAIL_REGION_LINES), end);
 }
 
-/** Whether a Claude `AskUserQuestion` prompt is painted on the rendered screen —
- *  its `… to navigate · Esc to cancel` footer present in the screen tail. */
+/** Whether an awaiting-user prompt (`AskUserQuestion` or a tool-permission gate)
+ *  is painted on the rendered screen — any `PROMPT_MARKERS` entry in the tail. */
 export function screenHasClaudePrompt(screenText: string): boolean {
-  return NAV_FOOTER_RE.test(tailRegion(screenText).join("\n"));
+  const tail = tailRegion(screenText).join("\n");
+  return PROMPT_MARKERS.some((re) => re.test(tail));
 }
 
 // --- Promote-only policy (the seam the server poller drives) ---
@@ -109,9 +135,11 @@ export function isScreenPollable(info: ClaudeCodeInfo): boolean {
   return PROMOTABLE_STATES.has(info.state);
 }
 
-/** Merge the JSONL-derived `info` with a rendered-screen snapshot: lift
- *  `waiting → awaiting_user` when an `AskUserQuestion`/`ExitPlanMode` prompt is
- *  on screen, otherwise return `info` unchanged (same reference). Promote-only —
+/** Merge the JSONL-derived `info` with a rendered-screen snapshot: lift the
+ *  active pollable state (`thinking`/`tool_use`/`waiting`) → `awaiting_user` when
+ *  any `PROMPT_MARKERS` entry (the `AskUserQuestion` footer or a tool-permission
+ *  gate) is on screen, otherwise return `info` unchanged (same reference).
+ *  Promote-only —
  *  it never lowers a state; a genuine state change flows back through the JSONL
  *  watcher. The returned reference identity is the "did anything change?" signal
  *  the poller checks. */

@@ -15,13 +15,25 @@ No proposal needed for: bug fixes that restore obvious behavior, build/packaging
 
 Anything user-facing — new shortcuts, settings, UI, defaults, persisted data, or new runtime dependencies — needs a merged proposal before any implementation PR.
 
-A proposal is a short markdown file in [`docs/proposals/`](./docs/proposals/). Copy [`0000-template.md`](./docs/proposals/0000-template.md) to `NNNN-your-slug.md`, fill it in, and open a PR adding only that file. Discuss on the PR; once accepted, it merges and *anyone* — including a maintainer running `/do` — can write the implementation in a follow-up. The merged proposal is a frozen historical record; only status edits are allowed afterward.
+A proposal is an **Atlas note** — a markdown/MDX file in [`docs/atlas/src/content/atlas/`](./docs/atlas/src/content/atlas/). Pick the `kind` that fits what you're proposing and mark it `status: proposed`. Create `<your-slug>.mdx` with this frontmatter:
 
-Implementation details are optional. The template has an "Implementation notes" slot for hints; skip it if you don't have an opinion. The implementer figures out the *how*.
+```yaml
+---
+title: Your proposal, in Title Case
+description: One line — what changes from the user's perspective.
+kind: feature        # the category it belongs in — feature · bug · analysis · reference
+status: proposed     # proposed → accepted → implemented (or superseded)
+maturity: seedling
+---
+```
 
-### Proposal + prototype is the strongest form
+Then write the body — *Summary · Motivation · User-facing behavior · Prototype (optional) · Implementation notes (optional)* — run `just atlas::build` to render it, and open a PR adding the `.mdx` **and** its generated `docs/atlas/dist/<slug>.html` (the `ci::atlas-sync` gate checks the two stay in sync). Your note appears in the [Atlas index](./docs/atlas/dist/index.html) under its category, flagged **proposed** — nothing to wire up, and authorship is just the git history.
 
-A working prototype turns *"I have an opinion about a feature"* into *"look, here's what it could feel like."* Drop HTML mockups, UI screenshots, SVGs, or screen recordings into a sibling directory `docs/proposals/<your-slug>/` and link them from the proposal markdown — reviewers can then interact with the idea instead of reverse-engineering it from prose. The combination is far more compelling than either alone.
+Discuss on the PR. Once **accepted**, a maintainer flips the note to `status: accepted` — that's the whole graduation; the `kind` was right from the start. The note stays a *living* document afterward (git is its record — there is no frozen copy).
+
+Your PR **may optionally bundle an implementation** alongside the proposal — but acceptance merges **only the proposal**. The implementation is reviewed and merged separately (by you or anyone, including a maintainer running `/be`), so the decision to *ship the idea* never rides on the state of the code.
+
+Implementation details are optional — the "Implementation notes" section is for hints; skip it if you don't have an opinion. The implementer figures out the *how*.
 
 ### Drafts welcome
 

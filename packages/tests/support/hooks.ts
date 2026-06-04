@@ -116,7 +116,7 @@ const koluStateDir = mkSubDir("state");
  *  evidence flow to transcode + upload (the same GIF/Pages-player delivery the
  *  bespoke `capture.mjs` used). Off by default so normal runs pay nothing — the
  *  whole point of reusing the harness is that capture rides the existing step
- *  library. See `docs/plans/video-evidence.html`. `rawVideoDir` holds
+ *  library. See `docs/atlas/src/content/atlas/video-evidence.mdx`. `rawVideoDir` holds
  *  Playwright's auto-named files (under `testBaseDir`, wiped in AfterAll);
  *  `evidenceVideoDir` holds the saved, named `.webm`s and survives the run. */
 const EVIDENCE = !!process.env.KOLU_EVIDENCE;

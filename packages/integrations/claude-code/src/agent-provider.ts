@@ -70,15 +70,20 @@ export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
     },
   },
 
-  // The SDK buffers `AskUserQuestion` / `ExitPlanMode` in memory until the user
-  // answers, so the JSONL classifier reports `waiting` throughout the prompt
-  // (#905). The prompt is on the rendered screen, though — so when the host can
-  // read it (`ProviderHooks.readScreenText`), the orchestrator polls while
-  // `isScreenPollable` holds and lifts `waiting → awaiting_user`. `promote` only
-  // ever lifts (never lowers); the orchestrator self-demotes when the prompt
-  // clears, because the watcher's change gate drops the structurally-identical
-  // `waiting` settle-back. Both halves of the policy live in `screen.ts` next to
-  // the detector.
+  // The SDK buffers `AskUserQuestion` / `ExitPlanMode` off-disk while the user
+  // answers, so the JSONL classifier never sees those `tool_use` blocks; a
+  // tool-permission gate's call IS on disk (so the tail reads `tool_use`) but
+  // its approval lives only in the on-screen dialog (#905). The prompt is on the
+  // rendered screen, though — so when the host can read it
+  // (`ProviderHooks.readScreenText`), the orchestrator polls while
+  // `isScreenPollable` holds for any of `thinking` / `tool_use` / `waiting` and
+  // promotes the active state → `awaiting_user`. Recognized prompts are
+  // `AskUserQuestion` plus the tool-permission gates; `ExitPlanMode` is buffered
+  // off-disk but has no on-screen marker yet (a deliberate follow-up). `promote`
+  // only ever lifts (never lowers); the orchestrator self-demotes when the
+  // prompt clears, because the watcher's change gate drops the
+  // structurally-identical `waiting` settle-back. Both halves of the policy live
+  // in `screen.ts` next to the detector.
   screenScrape: {
     tailLines: TAIL_REGION_LINES,
     isPollable: isScreenPollable,

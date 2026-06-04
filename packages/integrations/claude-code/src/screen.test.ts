@@ -108,6 +108,44 @@ const PROSE_NAVIGATE = `● Use the arrow keys to navigate the file tree, then p
 const PLAIN_ASSISTANT_TEXT = `● The function returns null when the file is
   missing, so the caller treats it as "retry".`;
 
+/** Adversarial NEGATIVE — model prose / tool output that mentions the bare
+ *  phrases "Tab to amend" and "don't ask again" outside any permission UI. The
+ *  markers are anchored on the surrounding chrome (full footer / numbered option
+ *  line), so the bare words must NOT promote. */
+const PROSE_TAB_TO_AMEND = `● Git's interactive rebase opens an editor; press
+  Tab to amend the commit message before saving.`;
+
+const PROSE_DONT_ASK_AGAIN = `● I'll remember that preference and won't ask
+  again for this project — let me know if you change your mind, and don't ask
+  again about the linter config either.`;
+
+/** Edit-family permission gate (Write/Edit/NotebookEdit), captured live. Marker:
+ *  the `Tab to amend` footer. */
+const WRITE_PERMISSION = `● Write(notes.txt)
+
+ Create file
+ notes.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1 hello
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to create notes.txt?
+ ❯ 1. Yes
+   2. Yes, allow all edits during this session (shift+tab)
+   3. No
+ Esc to cancel · Tab to amend`;
+
+/** Other permission gate (Bash/WebFetch/…), captured live. These have no
+ *  `Tab to amend` footer; marker: the `don't ask again for <x>` option. */
+const WEBFETCH_PERMISSION = `● Fetch(https://example.com)
+
+ Fetch
+   url: "https://example.com", prompt: "Summarize the main content of this page"
+   Claude wants to fetch content from example.com
+ Do you want to allow Claude to fetch this content?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for example.com
+   3. No, and tell Claude what to do differently (esc)`;
+
 describe("screenHasClaudePrompt — AskUserQuestion", () => {
   it("detects the single-select '↑/↓ to navigate' footer", () => {
     expect(screenHasClaudePrompt(ASK_USER_QUESTION)).toBe(true);
@@ -115,6 +153,16 @@ describe("screenHasClaudePrompt — AskUserQuestion", () => {
 
   it("detects the multi-select 'Tab/Arrow keys to navigate' footer", () => {
     expect(screenHasClaudePrompt(ASK_USER_QUESTION_MULTISELECT)).toBe(true);
+  });
+});
+
+describe("screenHasClaudePrompt — permission gates", () => {
+  it("detects the edit-family gate via its 'Tab to amend' footer", () => {
+    expect(screenHasClaudePrompt(WRITE_PERMISSION)).toBe(true);
+  });
+
+  it("detects other gates via the 'don't ask again for' option", () => {
+    expect(screenHasClaudePrompt(WEBFETCH_PERMISSION)).toBe(true);
   });
 });
 
@@ -145,6 +193,14 @@ describe("screenHasClaudePrompt — negatives", () => {
 
   it("ignores ordinary assistant prose", () => {
     expect(screenHasClaudePrompt(PLAIN_ASSISTANT_TEXT)).toBe(false);
+  });
+
+  it("ignores prose mentioning 'Tab to amend' outside the gate footer", () => {
+    expect(screenHasClaudePrompt(PROSE_TAB_TO_AMEND)).toBe(false);
+  });
+
+  it("ignores prose mentioning 'don't ask again' outside a numbered gate option", () => {
+    expect(screenHasClaudePrompt(PROSE_DONT_ASK_AGAIN)).toBe(false);
   });
 });
 

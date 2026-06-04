@@ -28,8 +28,8 @@ importers:
         specifier: ^0.25.0
         version: 0.25.12
       hono:
-        specifier: ^4.6.0
-        version: 4.12.18
+        specifier: ^4.12.21
+        version: 4.12.23
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -518,10 +518,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.13
-        version: 1.19.13(hono@4.12.18)
+        version: 1.19.13(hono@4.12.23)
       '@hono/node-ws':
         specifier: ^1.1.0
-        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.18))(hono@4.12.18)
+        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.23))(hono@4.12.23)
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
@@ -559,11 +559,11 @@ importers:
         specifier: ^15.1.0
         version: 15.1.0
       hono:
-        specifier: ^4.12.16
-        version: 4.12.18
+        specifier: ^4.12.21
+        version: 4.12.23
       hono-pino:
         specifier: ^0.10.3
-        version: 0.10.3(hono@4.12.18)(pino@10.3.1)
+        version: 0.10.3(hono@4.12.23)(pino@10.3.1)
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -863,10 +863,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.13
-        version: 1.19.13(hono@4.12.18)
+        version: 1.19.13(hono@4.12.23)
       '@hono/node-ws':
         specifier: ^1.1.0
-        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.18))(hono@4.12.18)
+        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.23))(hono@4.12.23)
       '@kolu/surface':
         specifier: workspace:*
         version: link:..
@@ -883,8 +883,8 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.20.1)
       hono:
-        specifier: ^4.12.16
-        version: 4.12.18
+        specifier: ^4.12.21
+        version: 4.12.23
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.5)
@@ -964,7 +964,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.13
-        version: 1.19.13(hono@4.12.18)
+        version: 1.19.13(hono@4.12.23)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../..
@@ -981,8 +981,8 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.20.1)
       hono:
-        specifier: ^4.12.16
-        version: 4.12.18
+        specifier: ^4.12.21
+        version: 4.12.23
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.5)
@@ -2943,8 +2943,8 @@ packages:
       hono: '>=4.0.0'
       pino: '>=7.1.0'
 
-  hono@4.12.18:
-    resolution: {integrity: sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ==}
+  hono@4.12.23:
+    resolution: {integrity: sha512-eIaZ9qDgu7XV0pxOCrg7/WhnQ6Ivm22UcxhXx/A3dcbqbbYgBEkc6e/J/s7j2tS96zoB0S9VBdLwQNCWwUo4LA==}
     engines: {node: '>=16.9.0'}
 
   hosted-git-info@9.0.2:
@@ -4518,14 +4518,14 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@hono/node-server@1.19.13(hono@4.12.18)':
+  '@hono/node-server@1.19.13(hono@4.12.23)':
     dependencies:
-      hono: 4.12.18
+      hono: 4.12.23
 
-  '@hono/node-ws@1.3.0(@hono/node-server@1.19.13(hono@4.12.18))(hono@4.12.18)':
+  '@hono/node-ws@1.3.0(@hono/node-server@1.19.13(hono@4.12.23))(hono@4.12.23)':
     dependencies:
-      '@hono/node-server': 1.19.13(hono@4.12.18)
-      hono: 4.12.18
+      '@hono/node-server': 1.19.13(hono@4.12.23)
+      hono: 4.12.23
       ws: 8.20.1
     transitivePeerDependencies:
       - bufferutil
@@ -4628,7 +4628,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.3.6)':
     dependencies:
-      '@hono/node-server': 1.19.13(hono@4.12.18)
+      '@hono/node-server': 1.19.13(hono@4.12.23)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -4638,7 +4638,7 @@ snapshots:
       eventsource-parser: 3.0.6
       express: 5.2.1
       express-rate-limit: 8.3.2(express@5.2.1)
-      hono: 4.12.18
+      hono: 4.12.23
       jose: 6.2.2
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -5835,13 +5835,13 @@ snapshots:
 
   help-me@5.0.0: {}
 
-  hono-pino@0.10.3(hono@4.12.18)(pino@10.3.1):
+  hono-pino@0.10.3(hono@4.12.23)(pino@10.3.1):
     dependencies:
       defu: 6.1.7
-      hono: 4.12.18
+      hono: 4.12.23
       pino: 10.3.1
 
-  hono@4.12.18: {}
+  hono@4.12.23: {}
 
   hosted-git-info@9.0.2:
     dependencies:

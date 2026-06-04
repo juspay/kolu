@@ -1,13 +1,14 @@
 ---
-// Compact, recursive MOC tree. One row per note (maturity dot · title ·
-// truncated description · kind/flags right-aligned); children nest under their
-// parent via Astro.self with an indent guide — the hierarchy. Scales to ~100
-// links. Links stay relative (`./<slug>.html`) so they resolve in kolu's Code
-// tab AND when read externally through htmlpreview.github.io.
-import type { TreeNode } from "../lib/indexTree";
+// Compact, recursive tree for one category section. One row per note (maturity
+// dot · title · truncated description · flags); same-category children nest under
+// their parent via Astro.self with an indent guide — the within-section
+// hierarchy. A cross-category parent is shown as a `related` link under the row,
+// not as a tree edge. Scales to ~100 links. Links stay relative (`./slug.html`)
+// so they resolve in kolu's Code tab AND externally via htmlpreview.github.io.
+import type { CatTreeNode } from "../lib/indexTree";
 
 interface Props {
-  nodes: TreeNode[];
+  nodes: CatTreeNode[];
   ancestors?: string[];
   sub?: boolean;
 }
@@ -25,10 +26,20 @@ const { nodes, ancestors = [], sub = false } = Astro.props as Props;
             <span class={`row-dot m-${d.maturity}`} />
             <span class="row-t">{d.title}</span>
             <span class="row-d">{d.description}</span>
-            <span class="row-k">{d.kind}</span>
             {d.status && <span class="row-flag is-status">{d.status}</span>}
             {d.draft && <span class="row-flag is-draft">draft</span>}
           </a>
+          {node.related.length > 0 && (
+            <div class="row-rel">
+              <span class="row-rel-lead">related</span>
+              {node.related.map((r, i) => (
+                <>
+                  {i > 0 && <span class="row-rel-sep">·</span>}
+                  <a href={`./${r.id}.html`}>{r.title}</a>
+                </>
+              ))}
+            </div>
+          )}
           {children.length > 0 && <Astro.self nodes={children} ancestors={path} sub={true} />}
         </li>
       );
