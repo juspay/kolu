@@ -63,8 +63,11 @@ const MODS: readonly Mod[] = [
 ];
 
 // Column count derived from the control lists so the "two rows" invariant is
-// mechanical: every modifier and key splits evenly across exactly two rows.
-const COLS = (KEYS.length + MODS.length) / 2;
+// mechanical, not a hardcoded literal that silently goes ragged when a key is
+// added. ceil(total / 2) is the minimal column count that yields exactly two
+// rows for any control count — including an odd total, where a plain /2 would
+// produce a fractional `repeat()` and break the grid.
+const COLS = Math.ceil((KEYS.length + MODS.length) / 2);
 
 const KEY_CLASS =
   "px-2 py-1.5 text-xs text-center rounded-md transition-colors cursor-pointer font-mono";
@@ -90,9 +93,11 @@ const MobileKeyBar: Component<{
   return (
     <Show when={isTouch()}>
       <div
-        // COLS (derived as half the total control count) lays the controls out
-        // in exactly two rows, so every key is reachable without the horizontal
-        // scroll the old single overflow-x row forced.
+        // COLS (half the control count, rounded up) lays the controls out in
+        // exactly two rows, so every key is reachable without the horizontal
+        // scroll the old single overflow-x row forced. Inline grid-template
+        // because the column count is data-derived — a dynamic Tailwind class
+        // would be purged. Mirrors WorkspaceGrid.tsx's data-driven columns.
         class="grid gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge"
         style={{ "grid-template-columns": `repeat(${COLS}, minmax(0, 1fr))` }}
         data-testid="mobile-key-bar"
