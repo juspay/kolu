@@ -153,15 +153,16 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       .with(P.union("iframe", "none"), () => view)
       .exhaustive();
 
-  // The "File truncated" banner — chrome, not file content. Rendered as a
-  // sibling ABOVE the comment surface (never inside it) so it can't be
-  // selected and saved as a comment quote the agent won't find in the file.
-  // Shared by the source and prose (Markdown preview) renderers below.
-  const truncationBanner = (file: FileData): JSX.Element => (
-    <Show when={file.source?.truncated}>
+  // The "File truncated" banner is rendered as a sibling ABOVE the comment
+  // surface in both sourceRenderer and textRenderers: the banner is chrome, not
+  // file content, so it must stay out of the commentable host or a user could
+  // select "File truncated …" and save a comment whose quote is UI copy the
+  // agent can't find in the file.
+  const TruncatedBanner: Component<{ show: boolean }> = (p) => (
+    <Show when={p.show}>
       <div
         data-testid="browse-truncation-banner"
-        class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30"
+        class="border-b border-edge bg-surface-1/30 px-2 py-1 text-[10px] text-warning"
       >
         File truncated (exceeds 1 MB)
       </div>
@@ -172,13 +173,10 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // kolu's theme + initial line selection. The render closure reads `props`
   // reactively (FileView calls it inside its own JSX), so theme/selection
   // changes flow through without rebuilding it.
-  //
-  // The "File truncated" banner is rendered as a sibling ABOVE the comment
-  // surface (via `truncationBanner`), not inside it — see its definition.
   const sourceRenderer: SourceRenderer = {
     render: (file) => (
       <div class="flex h-full w-full flex-col">
-        {truncationBanner(file)}
+        <TruncatedBanner show={file.source?.truncated ?? false} />
         {withComments(
           "text",
           file,
@@ -247,16 +245,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       // A `kind:"text"` FileData always carries `source` (see textFile()
       // below), so the `?.`/`?? ""` is type-defensive narrowing of the
       // optional field — never a real blank-document path.
-      //
-      // The truncation banner is rendered HERE as a sibling above the
-      // commentable surface (matching the source renderer), not via
-      // MarkdownRenderer's own `truncated` — leaving it inside the surface
-      // would make "File truncated …" selectable/commentable, the exact
-      // anchor-not-in-file hazard the source path avoids. So `truncated` is
-      // left default (false) on MarkdownRenderer; the banner lives outside.
       render: (file) => (
         <div class="flex h-full w-full flex-col">
-          {truncationBanner(file)}
+          <TruncatedBanner show={file.source?.truncated ?? false} />
           {withComments(
             "prose",
             file,
