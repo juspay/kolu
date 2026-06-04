@@ -107,8 +107,15 @@ export interface TerminalHandle {
    *  Promise: even the local handle reads it through the pty-host contract,
    *  and a socket/ssh handle reads it over the wire — callers `await` it. */
   getScreenState(): Promise<string>;
-  /** Plain text content of the terminal buffer (scrollback + viewport). */
-  getScreenText(startLine?: number, endLine?: number): Promise<string>;
+  /** Plain text content of the terminal buffer (scrollback + viewport).
+   *  `tailLines` reads only the last N rendered lines — pass it instead of
+   *  fetching the whole buffer when only the screen tail matters (e.g. the
+   *  screen-scrape detector), so a long scrollback isn't allocated per read. */
+  getScreenText(
+    startLine?: number,
+    endLine?: number,
+    tailLines?: number,
+  ): Promise<string>;
 }
 
 /** Filesystem operations scoped to a backend's host machine. Returns

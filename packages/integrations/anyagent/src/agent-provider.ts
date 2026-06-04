@@ -137,6 +137,44 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
       log: Logger,
     ): void;
   };
+
+  /** Optional screen-scrape promotion. Some agents render an awaiting-user
+   *  prompt on the terminal that their watcher's data source can't see during
+   *  the wait — Claude Code buffers the `AskUserQuestion` / `ExitPlanMode`
+   *  `tool_use` message in memory and flushes the transcript JSONL only after
+   *  the user answers, so `createWatcher` reports `waiting` throughout the
+   *  prompt (#905). When this field is declared AND the host can read the
+   *  terminal's rendered screen (`readScreenText`, a host capability the
+   *  orchestrator passes in), the orchestrator polls the screen on its own
+   *  clock while `isPollable(info)` holds and republishes `promote(info,
+   *  screenText)`.
+   *
+   *  Pure: `promote` only ever lifts a state (`waiting → awaiting_user`), never
+   *  lowers it. But the watcher can't be relied on to settle it back: when the
+   *  prompt clears, the JSONL the watcher derives from is structurally identical
+   *  to the `waiting` it already reported, so the watcher's change gate drops
+   *  the write and never demotes. The orchestrator therefore self-demotes — when
+   *  `promote` returns `info` unchanged (no prompt on screen) but the published
+   *  state is still a stale promotion, it republishes the raw watcher `info`. The
+   *  JSONL fs.watch is also silent during the wait, which is why the scrape needs
+   *  its own clock. Agents whose data source already sees the prompt omit this
+   *  field and pay no poll cost. Independent of `createWatcher` so no screen
+   *  handle threads through that contract — keeps the screen capability out of
+   *  agents that don't need it. */
+  screenScrape?: {
+    /** How many lines of the screen tail the detector inspects. The orchestrator
+     *  asks the host for only this many trailing lines (`readScreenText(tailLines)`)
+     *  so a long scrollback (the configured 50k lines) isn't allocated, joined,
+     *  shipped, and discarded every poll just to read the screen bottom. */
+    readonly tailLines: number;
+    /** Whether `info` is in a state the screen scrape could promote — gates the
+     *  poll clock so the screen read only runs during the (idle) wait window. */
+    isPollable(info: Info): boolean;
+    /** Pure merge of the watcher-derived `info` with a rendered-screen snapshot.
+     *  Returns the same `info` reference when nothing on screen warrants a
+     *  promotion, or a new promoted `Info` when it does. */
+    promote(info: Info, screenText: string): Info;
+  };
 }
 
 /** True if the preexec hint or the kernel basename names `agentName`.

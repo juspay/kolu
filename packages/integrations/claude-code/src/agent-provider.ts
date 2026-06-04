@@ -30,6 +30,11 @@ import {
   subscribeSessionsDir,
 } from "./core.ts";
 import type { ClaudeCodeInfo } from "./schemas.ts";
+import {
+  isScreenPollable,
+  promoteFromScreen,
+  TAIL_REGION_LINES,
+} from "./screen.ts";
 import { createSessionWatcher } from "./session-watcher.ts";
 
 export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
@@ -63,5 +68,20 @@ export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
     install(onChange, onError, log) {
       subscribeSessionsDir(onChange, onError, log);
     },
+  },
+
+  // The SDK buffers `AskUserQuestion` / `ExitPlanMode` in memory until the user
+  // answers, so the JSONL classifier reports `waiting` throughout the prompt
+  // (#905). The prompt is on the rendered screen, though — so when the host can
+  // read it (`ProviderHooks.readScreenText`), the orchestrator polls while
+  // `isScreenPollable` holds and lifts `waiting → awaiting_user`. `promote` only
+  // ever lifts (never lowers); the orchestrator self-demotes when the prompt
+  // clears, because the watcher's change gate drops the structurally-identical
+  // `waiting` settle-back. Both halves of the policy live in `screen.ts` next to
+  // the detector.
+  screenScrape: {
+    tailLines: TAIL_REGION_LINES,
+    isPollable: isScreenPollable,
+    promote: promoteFromScreen,
   },
 };

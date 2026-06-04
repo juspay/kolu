@@ -226,12 +226,17 @@ class PtyHostTerminalProxy implements TerminalHandle {
     return data;
   }
 
-  async getScreenText(startLine?: number, endLine?: number): Promise<string> {
+  async getScreenText(
+    startLine?: number,
+    endLine?: number,
+    tailLines?: number,
+  ): Promise<string> {
     await this.ready;
     const { text } = await this.client.surface.terminal.getScreenText({
       id: this.id,
       startLine,
       endLine,
+      tailLines,
     });
     return text;
   }
@@ -296,6 +301,13 @@ function makeHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
       updateServerLiveMetadata(entry, id, mutate),
     trackRecentRepo,
     trackRecentAgent,
+    // The screen-scrape promoter (Claude's AskUserQuestion / ExitPlanMode, #905)
+    // reads the rendered screen through the pty-host handle. `getScreenText`
+    // waits on `ready`, so it's safe even if a poll tick races spawn. The
+    // promoter passes its detector's `tailLines` so only the screen bottom is
+    // read — not the full (up to 50k-line) scrollback — each poll.
+    readScreenText: (tailLines) =>
+      entry.handle.getScreenText(undefined, undefined, tailLines),
   };
 }
 

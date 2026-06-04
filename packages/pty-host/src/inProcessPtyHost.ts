@@ -216,7 +216,12 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
             });
           }
           return {
-            text: host.getScreenText(input.id, input.startLine, input.endLine),
+            text: host.getScreenText(
+              input.id,
+              input.startLine,
+              input.endLine,
+              input.tailLines,
+            ),
           };
         },
       },

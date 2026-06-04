@@ -459,6 +459,29 @@ When(
   },
 );
 
+When(
+  "the terminal renders a Claude AskUserQuestion prompt",
+  async function (this: KoluWorld) {
+    // #905: an `AskUserQuestion` prompt never reaches the JSONL while it's
+    // pending (the SDK buffers it), so the transcript stays `waiting`. kolu
+    // recovers `awaiting_user` by scraping the *rendered screen* server-side.
+    // Paint the prompt's real v2.1.162 signature — the `↑/↓ to navigate` select
+    // footer — into the live PTY so the screen-scrape poll (which reads
+    // `getScreenText` off the buffer) sees exactly what Claude paints.
+    const lines = [
+      " Which database do you prefer?",
+      "",
+      "❯ 1. Postgres",
+      "  2. SQLite",
+      "",
+      " Enter to select · ↑/↓ to navigate · Esc to cancel",
+    ];
+    const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
+    await this.page.keyboard.type(printf);
+    await this.page.keyboard.press("Enter");
+  },
+);
+
 When("the Claude Code session ends", async function (this: KoluWorld) {
   cleanup();
 });
