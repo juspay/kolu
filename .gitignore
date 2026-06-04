@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# …except the self-contained Atlas output, committed for in-app Code-tab preview.
+!/docs/atlas/dist/
+!/docs/atlas/dist/**
 result
 .direnv/
 # APM: generated metadata + per-user state (not vendored)

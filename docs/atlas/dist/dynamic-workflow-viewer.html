@@ -1,0 +1,131 @@
+<!DOCTYPE html><html lang="en" data-theme="light"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Workflow viewer · the kolu Atlas</title><meta name="description" content="Integrating Claude Code dynamic-workflow JSONL into kolu — surfacing fan-out runs on the tile chrome and an Inspector run-list with live timelines."><meta name="generator" content="Astro v6.4.3"><meta name="color-scheme" content="light"><style>:root{--paper: #f6f7f9;--surface: #ffffff;--ink: #1a1c20;--ink-dim: #3f444b;--ink-muted: #6b7178;--ink-faint: #9aa0a6;--rule: #e3e6ea;--rule-soft: #eceef1;--amber: #b4690e;--amber-soft: #f0e2c8;--teal: #0b6478;--green: #1b7a3a;--gold: #8a5200;--alert: #b42318;--code-bg: #eef1f4;--sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0}.atlas-title{font-family:var(--serif);font-size:clamp(2.6rem,6vw,3.6rem);line-height:1.05;letter-spacing:-.01em;font-weight:600;margin:.6rem 0 0}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;font-family:var(--mono);font-size:.66rem;color:var(--ink-muted);margin:.7rem 0 0}.legend-item{display:inline-flex;align-items:center;gap:.4em}.legend-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.moc{list-style:none;margin:1.5rem 0 0;padding:0}.moc-sub{list-style:none;margin:.05rem 0 .2rem .55rem;padding-left:.8rem;border-left:1px solid var(--rule)}.row{display:flex;align-items:center;gap:.5rem;padding:.22rem .45rem;border-radius:6px;line-height:1.3}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{flex:none;width:7px;height:7px;border-radius:50%}.row-t{color:var(--ink);font-weight:600;font-size:.95rem;white-space:nowrap;flex:none}.row-d{color:var(--ink-muted);font-size:.84rem;flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row-k{font-family:var(--mono);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);flex:none}.row-flag{font-family:var(--mono);font-size:.56rem;letter-spacing:.08em;text-transform:uppercase;flex:none}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;color:var(--ink-muted)}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);font-size:clamp(2.1rem,5vw,3rem);line-height:1.08;letter-spacing:-.01em;font-weight:600;margin:1.6rem 0 0}.meta-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-top:1.1rem}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{display:flex;justify-content:space-between;margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule)}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);font-size:1.6rem;color:var(--ink);font-weight:600;letter-spacing:-.01em;margin:2.6rem 0 .8rem}.prose h3{font-family:var(--serif);font-size:1.25rem;color:var(--ink);font-weight:600;margin:2rem 0 .6rem}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.prose code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;margin:0 0 1.3rem}.prose pre code{background:none;border:0;padding:0;font-size:.82rem}.prose blockquote{margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem;border-left:3px solid var(--amber-soft);color:var(--ink-dim)}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 1.4rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;padding:.55rem .7rem;border:1px solid var(--rule);vertical-align:top}.prose th{background:var(--rule-soft);font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-weight:600}
+.toc-list[data-astro-cid-lht5lwky]{list-style:none;margin:0;padding:0}.toc-item[data-astro-cid-lht5lwky]{margin:.2rem 0}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{color:var(--ink-dim);text-decoration:none;font-size:.92rem}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]:hover{color:var(--amber)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky]{margin:.15rem 0 .35rem .2rem;padding-left:.8rem;border-left:1px solid var(--rule)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{font-size:.85rem;color:var(--ink-muted)}.toc[data-astro-cid-6t6zfk7k]{margin:1.8rem 0;padding:.9rem 1.1rem;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}.toc-title[data-astro-cid-6t6zfk7k]{margin:0 0 .5rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted)}
+</style><style>.callout[data-astro-cid-mrmim4ef]{margin:1.4rem 0;padding:.85rem 1.1rem;border:1px solid var(--rule);border-left-width:3px;border-radius:8px;background:var(--surface)}.callout-title[data-astro-cid-mrmim4ef]{margin:0 0 .4rem;font-weight:650;font-size:.82rem;letter-spacing:.02em;color:var(--ink)}.callout-body[data-astro-cid-mrmim4ef]>:first-child{margin-top:0}.callout-body[data-astro-cid-mrmim4ef]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-mrmim4ef]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-mrmim4ef]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-mrmim4ef]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-mrmim4ef]{border-left-color:#b8860b;background:#fbf6e8}.callout-danger[data-astro-cid-mrmim4ef]{border-left-color:var(--alert);background:#fcf0ef}
+</style><style>.pill[data-astro-cid-2qeywk4b]{display:inline-block;font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;padding:.1em .5em;border-radius:999px;vertical-align:middle}
+</style></head> <body>  <article class="wrap"> <header> <a class="backlink" href="./index.html">← the Atlas</a> <h1 class="note-h1">Workflow viewer</h1> <div class="meta-row"> <span>plan</span> <span class="meta-sep">·</span> <span>budding</span>   <span class="meta-sep">·</span><time datetime="2026-06-02T00:00:00.000Z">JUN 01, 2026</time> </div> <p class="note-sub">Integrating Claude Code dynamic-workflow JSONL into kolu — surfacing fan-out runs on the tile chrome and an Inspector run-list with live timelines.</p> <nav class="toc" aria-label="Table of contents" data-astro-cid-6t6zfk7k><p class="toc-title" data-astro-cid-6t6zfk7k>Contents</p><ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#multiplicity-is-the-normal-case-verified" data-astro-cid-lht5lwky>Multiplicity is the normal case (verified)</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#what-a-dynamic-workflow-writes-and-where-status-lives" data-astro-cid-lht5lwky>What a dynamic workflow writes, and where status lives</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#proposal--two-phases-each-shippable-alone" data-astro-cid-lht5lwky>Proposal — two phases, each shippable alone</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#phase-1--repoint-the-reader-name--fan-out-count-appear" data-astro-cid-lht5lwky>Phase 1 — repoint the reader (name + fan-out count appear)</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#phase-2--a-list-of-workflow-runs-with-live-timelines-in-the-inspector-tab" data-astro-cid-lht5lwky>Phase 2 — a list of workflow runs with live timelines, in the Inspector tab</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#what-the-hickey--lowy-pass-changed" data-astro-cid-lht5lwky>What the hickey + lowy pass changed</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#cut-line" data-astro-cid-lht5lwky>Cut line</a>  </li> </ul></nav> </header> <div class="prose"> <p>Analysis of a live <code>do-wf</code> run in <code>drishti/.worktrees/hm</code>, generalized to the
+real case: <strong>a session holds many workflow runs at once — some running, some
+finished</strong>. Two-phase proposal, revised after hickey + lowy.</p>
+<aside class="callout callout-danger" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Headline</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>kolu already knows a workflow is running — it just can’t say <em>which</em> one or <em>how
+many</em> agents. The running state works (it comes from the transcript, not the
+journal). The <em>enrichment</em> is what’s broken: <code>deriveWorkflowProgress()</code> reads a
+journal file that no longer exists, returns <code>null</code>, so the name/fan-out badge
+stays dark. And the model is single-run — even fixed, it collapses a session’s
+whole history to one entry. <em>(verified: <code>core.ts:493-552</code> reads one dead
+<code>workflows/&lt;runId&gt;.json</code>; state is set separately at <code>core.ts:378-385</code>.)</em></p></div> </aside>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Precisely what fails</p> <div class="callout-body" data-astro-cid-mrmim4ef><p><code>deriveState</code> promotes <code>waiting → running_background</code> purely from the
+main-transcript launch marker via <code>outstandingBackgroundTasks()</code> — <strong>no journal
+read</strong> (<code>core.ts:378-385</code>). So the spinner + “Running in background” label
+already render. The journal is read <em>only</em> to fill the <code>workflow</code> field
+(<code>session-watcher.ts:245-247</code>), and <code>agentWorkflow()</code> needs <em>both</em>
+<code>state===running_background</code> <em>and</em> <code>workflow!=null</code> (<code>agentDisplay.ts:43-44</code>).
+State is true; <code>workflow</code> is null → the <code>do-wf · 5 agents</code> badge and the
+“Workflow” inspector row are the only things dark.</p></div> </aside>
+<h2 id="multiplicity-is-the-normal-case-verified">Multiplicity is the normal case (verified)</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Session</th><th>Workflow runs</th><th>Fan-out</th></tr></thead><tbody><tr><td><code>agency/…/cc-workflow</code></td><td><strong>2</strong> runs (<code>wf_84c9119d</code>, <code>wf_e6f94ccf</code>)</td><td>4 agents, 14 agents</td></tr><tr><td><code>kolu/…/modest-runner</code></td><td><strong>3</strong> runs</td><td>—</td></tr><tr><td><code>drishti/…/hm (live)</code></td><td>1 run, in flight</td><td>6 started / 5 done</td></tr></tbody></table>
+<p>So the UI target is a <strong>list</strong> of runs per session, each with its own status and
+timeline — not a single badge value.</p>
+<h2 id="what-a-dynamic-workflow-writes-and-where-status-lives">What a dynamic workflow writes, and where status lives</h2>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>~/.claude/projects/&lt;encoded-cwd&gt;/&lt;session&gt;.jsonl              # main transcript — launch markers + completion notifications</span></span>
+<span class="line"><span>~/.claude/projects/&lt;encoded-cwd&gt;/&lt;session&gt;/</span></span>
+<span class="line"><span>├── workflows/scripts/&lt;name&gt;-&lt;runId&gt;.js                       # persisted script — meta.name + meta.phases[]</span></span>
+<span class="line"><span>└── subagents/workflows/</span></span>
+<span class="line"><span>    ├── wf_84c9119d-127/  journal.jsonl + agent-*.jsonl       # run 1</span></span>
+<span class="line"><span>    └── wf_e6f94ccf-a1f/  journal.jsonl + agent-*.jsonl       # run 2 …</span></span></code></pre>
+<p>The three discrepancies vs. kolu’s current reader, all verified:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>kolu assumes</th><th>On disk</th></tr></thead><tbody><tr><td>One journal at <code>&lt;session&gt;/workflows/&lt;runId&gt;.json</code></td><td>Many at <code>&lt;session&gt;/subagents/workflows/&lt;runId&gt;/journal.jsonl</code></td></tr><tr><td>Snapshot object <code>{workflowName,status,agentCount}</code></td><td><strong>Event log</strong>: <code>{type:&quot;started&quot;,agentId}</code> / <code>{type:&quot;result&quot;,agentId,result:{status,…}}</code></td></tr><tr><td>Name + status live in the journal</td><td><code>name</code> only in the script meta; <strong>workflow-level status is NOT in the journal at all</strong></td></tr></tbody></table>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>The subtle one — status is a transcript fact, not a journal fact</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>The journal records per-<em>agent</em> started/result, never a “workflow finished”
+event. In the live drishti run, 5 agents <em>resulted</em> while the workflow is still
+going (between phases). So “all started agents resulted ⇒ completed” reports
+<strong>false completions between phases</strong>. The authoritative signal is in the main
+transcript: a <code>&lt;task-notification&gt;</code> carrying <code>&lt;status&gt;completed&lt;/status&gt;</code>, keyed
+by the launch <code>Task ID</code>, linked to the <code>Run ID</code> in the same launch marker. kolu
+already pairs Task↔Run IDs at <code>core.ts:419, 478</code>.</p></div> </aside>
+<h2 id="proposal--two-phases-each-shippable-alone">Proposal — two phases, each shippable alone</h2>
+<h3 id="phase-1--repoint-the-reader-name--fan-out-count-appear">Phase 1 — repoint the reader (name + fan-out count appear)</h3>
+<p>Bug-fix-shaped, almost entirely in <code>core.ts</code>; no UI change. They already consume
+<code>ClaudeWorkflow {name,status,agents}</code> (<code>agentDisplay.ts:42-44</code>,
+<code>TerminalMeta.tsx:78-80</code>, <code>MetadataInspector.tsx:194-205</code>):</p>
+<ul>
+<li>Point the journal path at <code>subagents/workflows/&lt;runId&gt;/journal.jsonl</code>.</li>
+<li>Read the event log: <code>agents</code> = distinct <code>started</code> agentIds; <code>name</code> from the script meta.</li>
+<li><strong>Status comes from the transcript, not the journal.</strong> A run is <code>running</code> iff its taskId is still in <code>outstandingBackgroundTasks()</code>; <code>completed</code>/<code>failed</code> once its terminal <code>&lt;task-notification&gt;</code> is seen. No new “all-agents-done” heuristic.</li>
+</ul>
+<h3 id="phase-2--a-list-of-workflow-runs-with-live-timelines-in-the-inspector-tab">Phase 2 — a list of workflow runs with live timelines, in the Inspector tab</h3>
+<p><strong>Rendered prototype</strong> — a session’s runs, newest first; running auto-expanded,
+finished collapsed to a summary you can open:</p>
+<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;overflow:hidden;margin:1.2rem 0;font-size:13px;color:#e6edf3;font-family:ui-sans-serif,system-ui"><div style="display:flex;border-bottom:1px solid #30363d;background:#1c2128"><div style="padding:9px 16px;color:#e6edf3;box-shadow:inset 0 -2px 0 #58a6ff;font-size:12.5px">Inspector</div><div style="padding:9px 16px;color:#9198a1;font-size:12.5px">Code</div></div><div style="padding:14px 16px"><div style="display:flex;gap:10px;padding:5px 0"><span style="color:#9198a1;min-width:96px">Kind</span><span>claude-code</span></div><div style="display:flex;gap:10px;padding:5px 0"><span style="color:#9198a1;min-width:96px">State</span><span style="color:#d29922;border:1px solid #d29922;border-radius:10px;padding:1px 7px;font-size:11px;font-family:ui-monospace,monospace">running in background</span></div><div style="display:flex;gap:10px;padding:5px 0"><span style="color:#9198a1;min-width:96px">Workflows</span><span style="color:#9198a1">3 runs · 1 running</span></div><div style="margin-top:8px;display:flex;flex-direction:column;gap:8px"><div style="border:1px solid #30363d;border-radius:8px;overflow:hidden"><div style="display:flex;align-items:center;gap:8px;padding:8px 11px;background:#1c2128"><span style="width:7px;height:7px;border-radius:50%;background:#d29922;box-shadow:0 0 0 3px rgba(210,153,34,.18)"></span><span style="font-family:ui-monospace,monospace;color:#bc8cff">do-wf</span><span style="color:#d29922;border:1px solid #d29922;border-radius:10px;padding:1px 7px;font-size:11px;font-family:ui-monospace,monospace">running</span><span style="color:#6e7681;font-size:11.5px">6 agents · 4m elapsed</span><span style="color:#6e7681;margin-left:auto;font-size:11px">▾</span></div><div style="padding:8px 12px 12px;border-left:2px solid #30363d;margin:8px 0 0 14px"><div style="display:flex;align-items:center;gap:8px;padding:5px 0 5px 12px;margin-left:-14px;border-left:2px solid #3fb950"><span style="font-weight:600;font-size:12.5px">Sync · Research · Implement</span><span style="color:#6e7681;font-size:11.5px">done</span></div><div style="display:flex;align-items:center;gap:8px;padding:5px 0 5px 12px;margin-left:-14px;border-left:2px solid #d29922"><span style="width:7px;height:7px;border-radius:50%;background:#d29922"></span><span style="font-weight:600;font-size:12.5px">Check</span><span style="color:#6e7681;font-size:11.5px">static-correctness gate</span></div><div style="display:flex;align-items:center;gap:9px;padding:4px 0 4px 26px;font-size:12px"><span style="font-family:ui-monospace,monospace;color:#58a6ff;min-width:96px">a9b4…61c0</span><div style="flex:1;height:6px;background:#010409;border-radius:3px;overflow:hidden"><div style="height:100%;width:20%;margin-left:80%;background:#d29922"></div></div><span style="color:#6e7681;font-family:ui-monospace,monospace">…</span></div><div style="display:flex;align-items:center;gap:8px;padding:5px 0 5px 12px;margin-left:-14px;border-left:2px solid #30363d"><span style="color:#9198a1;font-weight:600;font-size:12.5px">Docs · Format · Commit · Review · …</span><span style="color:#6e7681;font-size:11.5px">9 phases pending</span></div></div></div><div style="border:1px solid #30363d;border-radius:8px;overflow:hidden"><div style="display:flex;align-items:center;gap:8px;padding:8px 11px;background:#1c2128"><span style="width:7px;height:7px;border-radius:50%;background:#3fb950"></span><span style="font-family:ui-monospace,monospace;color:#bc8cff">deep-research</span><span style="color:#3fb950;border:1px solid #3fb950;border-radius:10px;padding:1px 7px;font-size:11px;font-family:ui-monospace,monospace">completed</span><span style="color:#6e7681;font-size:11.5px">14 agents · 6m12s</span><span style="color:#6e7681;margin-left:auto;font-size:11px">▸</span></div><div style="padding:6px 12px 10px 26px;color:#6e7681;font-size:11.5px">finished 12m ago · click to expand timeline &amp; per-agent transcripts</div></div><div style="border:1px solid #30363d;border-radius:8px;overflow:hidden"><div style="display:flex;align-items:center;gap:8px;padding:8px 11px;background:#1c2128"><span style="width:7px;height:7px;border-radius:50%;background:#f85149"></span><span style="font-family:ui-monospace,monospace;color:#bc8cff">do-wf</span><span style="color:#f85149;border:1px solid #f85149;border-radius:10px;padding:1px 7px;font-size:11px;font-family:ui-monospace,monospace">failed</span><span style="color:#6e7681;font-size:11.5px">4 agents · 1m03s</span><span style="color:#6e7681;margin-left:auto;font-size:11px">▸</span></div><div style="padding:6px 12px 10px 26px;color:#6e7681;font-size:11.5px">failed at Check (1 agent failed) · click to expand</div></div></div><div style="color:#6e7681;font-size:11px;margin-top:10px">▸ click an agent → opens its transcript (reuses parseClaudeCodeJsonl → TranscriptEvent[] renderer)</div></div></div>
+<p>Wiring (shaped by the review pass below):</p>
+<ul>
+<li><strong>On-demand fetch, returning a list.</strong> A new RPC <code>loadWorkflowRuns(session)</code> <em>enumerates</em> <code>subagents/workflows/wf_*/</code> and returns <code>WorkflowRun[]</code> — each <code>{runId, name, status, startedEpoch, endedEpoch, agents[]}</code>. Mirrors the existing <code>exportTranscriptHtml</code>/<code>loadClaudeCodeTranscript</code> pull pattern.</li>
+<li><strong>Live metadata stays scalar.</strong> <code>ClaudeCodeInfo</code> still carries only the single running-run summary (plus optionally a small “N runs” count) — the full list is never on the firehose.</li>
+<li><strong>Per-agent transcript reuses the canonical seam.</strong> <code>agent-&lt;id&gt;.jsonl</code> is a normal transcript → <code>parseClaudeCodeJsonl()</code> → <code>TranscriptEvent[]</code> → existing <code>kolu-transcript-html</code> renderer. No parallel event schema.</li>
+</ul>
+<h2 id="what-the-hickey--lowy-pass-changed">What the hickey + lowy pass changed</h2>
+<aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Reuse the transcript IR seam (lowy headline)</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Claude JSONL is already normalized to <code>TranscriptEvent[]</code> with sub-agent
+boundaries. The per-agent transcript view consumes that; only the journal (a
+distinct runtime format) gets its own tiny reader.</p></div> </aside>
+<aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Keep ClaudeWorkflow scalar; never put the run list on live metadata</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>A list of full runs on the firehose would bloat every metadata tick and multiply
+the unenforced “<code>workflow</code> non-null only while <code>running_background</code>” invariant
+already split across a write gate and a read gate. Fetched on demand instead.</p></div> </aside>
+<aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>No new right-panel tab (lowy)</p> <div class="callout-body" data-astro-cid-mrmim4ef><p><code>RightPanelTabKindSchema = z.enum([&quot;inspector&quot;,&quot;code&quot;])</code> is a wire contract with
+persisted <code>activeTab</code> + session restore — adding a kind is a protocol change. The
+run list lives inside the existing Inspector tab.</p></div> </aside>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Two honest gaps</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>(1) The journal doesn’t tag each agent with its phase — grouping is inferred from
+start order against <code>meta.phases</code>, reliable for a sequential pipeline like
+<code>do-wf</code> but not arbitrary <code>parallel()</code> fan-out. Fallback: a flat agent timeline +
+the declared phase strip; the real fix is the runtime stamping <code>phase</code> into the
+journal (upstream). (2) Status for an <em>old</em> completed run needs the terminal
+notification, which may have scrolled out of the transcript tail — so the status
+scan must read the full transcript (or treat dir-present + not-outstanding as
+completed).</p></div> </aside>
+<h2 id="cut-line">Cut line</h2>
+<p>Phase 1 alone is worth shipping: a small correction that makes an already-built
+surface work for the first time, showing the active run. Phase 2 adds the
+multi-run list + timelines and is independently reviewable. When ready, drive it
+with <code>/do</code>.</p> </div> <footer class="note-foot"> <a class="backlink" href="./index.html">← the Atlas</a> <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a> </footer> </article> </body></html>

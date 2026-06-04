@@ -1,0 +1,19 @@
+---
+// A GitHub commit chip — renders the short sha, linked to the commit.
+interface Props {
+  sha: string;
+  repo?: string;
+  label?: string;
+}
+const { sha, repo = "juspay/kolu", label } = Astro.props;
+const href = `https://github.com/${repo}/commit/${sha}`;
+const short = sha.slice(0, 7);
+---
+<a
+  href={href}
+  rel="noopener"
+  style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#475569;background:#eef1f5;border:1px solid #d6dde6;border-radius:6px;padding:.05em .45em;text-decoration:none"
+>
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5ZM10.5 8a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path></svg>
+  {short}{label ? ` · ${label}` : ""}
+</a>

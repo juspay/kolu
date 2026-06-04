@@ -7,3 +7,7 @@ CLAUDE.md linguist-generated
 .codex/** linguist-generated
 .codex/config.toml -linguist-generated
 .opencode/** linguist-generated
+
+# Generated Astro output, committed for in-app (Code tab) preview of the Atlas.
+docs/atlas/dist/** linguist-generated
+docs/atlas/dist/** -diff

@@ -1,0 +1,250 @@
+---
+title: Phantom running_background — Claude shows "running" forever
+description: Why the spinner survives a Claude restart — an orphaned background-launch marker has no completion, so the waiting→running_background promotion never decays. Diagnosis + fix.
+kind: plan
+maturity: budding
+updated: 2026-06-01
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+
+Diagnosis & fix plan · **implemented in <PrLink pr={1109} />** · introduced by
+<PrLink pr={1015} /> · the background-task sibling of [#1017](https://github.com/juspay/kolu/issues/1017)
+· verified against the live `reload-html` transcript, the on-disk task artifacts,
+and a 13-agent design/adversarial-verify pass.
+
+<Callout kind="good" title="Shipped (#1109)">
+Both layers — the pure `deriveState` narrowing (promote only `runId`-bearing
+`Workflow` runs) *and* the watcher-side `liveOutstandingTasks` gate, which drops a
+`Workflow` once kolu can no longer observe it live (journal reads terminal, or
+its liveness anchor aged past `WORKFLOW_JOURNAL_STALE_MS`). **Hardened in codex
+review** on two real gaps: (1) a one-shot *stale-deadline timer*
+(`nextWorkflowStaleDeadline`) re-derives when wall-clock crosses the threshold
+with no fs-event; (2) the anchor (`workflowStaleAnchorMs` — journal mtime →
+`workflows/`-dir mtime → null, *never* `now`) gives a missing/churned-path
+journal a *bounded* grace that genuinely expires. The reported Bash orphan and
+the Workflow-orphan-after-restart both close. Covered by flipped + new unit tests
+and three e2e scenarios (`background_bash`, `orphaned_workflow`,
+`journalless_workflow`).
+</Callout>
+
+<Callout kind="danger" title="Root cause">
+The `waiting → running_background` promotion is *unconditional*. A background
+launch marker with no matching completion is treated as "a task is still
+running" — forever — and the completion can never arrive once the Claude process
+that launched it is gone.
+
+`deriveState` promotes `waiting` to `running_background` whenever
+`outstandingBackgroundTasks(lines)` is non-empty (`core.ts:383-386`), with no
+liveness/staleness gate. The completion `<task-notification>` is only ever written
+by the *live* Claude child when the backgrounded process exits. Claude
+auto-backgrounded a `just ai::apm` Bash command after a timeout, then the user
+**restarted Claude** — orphaning that child. Its completion can never be written,
+the launch line is permanent, so the set stays non-empty and the spinner is
+permanent. Restarting re-reads the same stale JSONL and re-derives the identical
+verdict.
+</Callout>
+
+## The report, reproduced
+
+kolu showed the `reload-html` worktree with the spinning "working" pip, and it
+stayed lit after the user restarted Claude. The transcript tells the story:
+
+```bash
+$ F=~/.claude/projects/-home-srid-code-kolu--worktrees-reload-html/c43efadd-….jsonl
+
+# newest real assistant message → end_turn (this alone = "waiting", no spinner)
+{"type":"assistant","stop_reason":"end_turn","ts":"2026-06-01T22:29:26.464Z"}
+
+# but line 1177 launched a background command, and it never completed:
+$ grep -o 'Command running in background with ID: [a-z0-9]*' "$F"
+Command running in background with ID: bi8olsr8z          # `just ai::apm >/tmp/apm2.log 2>&1`, auto-backgrounded
+
+$ grep -c 'task-id>bi8olsr8z' "$F"
+0                                                          # ← zero completions for this id, anywhere in 3.6 MB
+$ grep -oE '<status>completed</status>' "$F" | wc -l
+17                                                         # 17 completions exist — all for OTHER task ids
+```
+
+The decisive corroboration that the task is *dead*, not running: **after** the
+20:52 launch the agent serviced two more human turns ("Merged! I'll test it next
+PRs" at 21:13, "ok" at 22:29) and ended each with `stop_reason="end_turn"`, 96.7
+minutes apart. A genuine busy-wait does not sit there servicing new prompts.
+
+## How the promotion is wired
+
+Nothing on this path consults wall-clock time or process liveness:
+
+`tail 256 KB of JSONL` → `outstandingBackgroundTasks` → `[bi8olsr8z]` (never completes) → `deriveState` → `waiting → running_background` → `isWorkingState` → `working` bucket → `working` pip → `animate-spin` (`RowPips.tsx:143-144`)
+
+The promotion exists for a real feature — **dynamic-workflow fan-out**: when the
+agent launches a background task and yields its turn (`end_turn`) while genuinely
+busy-waiting, bare `waiting` would wrongly read as idle. The defect is that it has
+**no exit condition other than a completion marker an orphaned task can never
+produce**.
+
+## What was verified
+
+| Claim | Status | Source |
+| --- | --- | --- |
+| `deriveState` promotes `waiting`→`running_background` unconditionally on any outstanding task | <Pill variant="bad">the bug</Pill> | `core.ts:383-386` |
+| `outstandingBackgroundTasks` reconciles launched − completed from JSONL markers; no staleness check | <Pill variant="good">true</Pill> | `core.ts:441-487` |
+| For orphaned `bi8olsr8z` the completion is absent (`grep -c` ⇒ 0); the launch line is permanent | <Pill variant="good">true</Pill> | transcript line 1177; `core.ts:458-462` |
+| Newest real message is `end_turn`; two genuine human turns were serviced *after* the launch | <Pill variant="good">true</Pill> | lines 1177/1212/1241; `core.ts:349-352` |
+| Every line carries an ISO timestamp — staleness is computable in the existing pass | <Pill variant="good">true</Pill> | launch 20:52:46Z vs newest 22:29:26Z |
+| The on-disk `tasks/bi8olsr8z.output` is **0 bytes**, mtime *precedes* the launch, no sidecar | <Pill variant="good">true</Pill> | `/tmp/claude-1000/…/tasks/` |
+
+## Provenance — the PR that introduced it, and the issue it predicted
+
+Introduced by <PrLink pr={1015} /> ("Detect Claude Code's running-in-background
+state for dynamic workflows", `c1e8613b · 2026-05-28`), the same commit that added
+`running_background`, `outstandingBackgroundTasks`, and the launch-marker regexes.
+
+- **The backgrounded-Bash/Agent promotion was deliberate.** #1015: "The Bash/Agent coverage was added after dog-fooding caught a session busy-waiting on backgrounded CI still reading as `waiting`." So the "narrow the trigger" fix below is a genuine product regression, not a free simplification.
+- **#1015 predicted this exact bug class and filed [#1017](https://github.com/juspay/kolu/issues/1017) — still OPEN.** "An *abandoned* session with a stale trailing entry reads as `running` (needs an mtime/liveness heuristic)." Our bug is the background-task manifestation of #1017.
+
+<Callout kind="accent" title="The twist that makes this its own issue">
+#1017's open questions carve out one explicit exception: *"a backgrounded task
+legitimately keeps the session 'working' while quiet, so **staleness must not
+override an outstanding-background-task signal**."* That assumption is precisely
+what our bug breaks — here the outstanding-background-task signal is *itself* the
+stale thing. So the fix isn't "add staleness *around* the promotion"; it's **make
+the background-task signal staleness-aware from the inside** so the set it returns
+is already self-expiring.
+</Callout>
+
+Precedent + north star: <PrLink pr={1019} /> closed the sibling
+[#1018](https://github.com/juspay/kolu/issues/1018) with a *structural transcript
+marker* (`isInterruptMarker` → `waiting`) rather than a timer — the shape of the
+human-turn guard. [#1011](https://github.com/juspay/kolu/issues/1011) (structured
+agent-status side-channel via Claude Code hooks, OPEN) would moot every transcript
+heuristic here; until it lands, the transcript is the only source of truth.
+
+## Four fix candidates — and why two are traps
+
+Each design was handed to an adversarial verifier told to refute it against the
+real data. Two look obvious and are **wrong on this exact transcript**:
+
+| Candidate | Idea | Verdict |
+| --- | --- | --- |
+| **Liveness gate** (kolu owns the PTY) | Veto the promotion if the launching Claude process is dead, via the session file's `(pid, procStart)` against `/proc`. | <Pill variant="bad">fails — 2/2</Pill> A restart *reuses the same `sessionId` and JSONL* and re-keys the session file to the **new, live** foreground pid. "Is the session alive?" returns true → spinner survives. Linux-only besides. |
+| **On-disk probe** (poll the .output file) | Treat a task as dead if its `tasks/<id>.output` is stale / has no fd-holder. | <Pill variant="bad">fails — 2/2</Pill> The command *redirected output away* (`>/tmp/apm2.log`). The file is 0 bytes, mtime precedes the launch — the probe reads "dead" for live and dead alike, and would prematurely clear the pip for *any* redirecting background command. |
+| **Ordering guard** (transcript-only) | Drop a task if a genuine human turn appears *after* its launch marker. | <Pill variant="warn">correct, but narrow — 6/2</Pill> Fixes this bug deterministically and is restart-robust. But as the *sole* fix it breaks a supported case: a genuinely-running CI run + interleaved human prompt would be wrongly de-promoted. Adopted as a *fallback*. |
+| **Staleness veto** (transcript-relative) | Drop a task whose launch predates the transcript's *newest* timestamp by more than `STALE_BG_MS`. | <Pill variant="good">correct & non-breaking — 6/2</Pill> 96.7 min > threshold ⇒ dropped. Anchored to the transcript's newest line (not `Date.now()`), immune to clock skew. Weakness: arbitrary magic number; a fully-quiet orphan never advances `newestTs`. |
+
+The two "obvious" process-liveness fixes are exactly the ones to avoid — they
+measure an available-but-wrong signal. After a restart, Claude is *alive yet
+idle*; only the **transcript's own record** carries the discriminating fact, and
+it survives the restart.
+
+## Recommended fix — only promote a *backed* outstanding task
+
+<Callout kind="good" title="Promote only when an outstanding task carries a runId">
+i.e. a genuine `Workflow` fan-out, whose run journal kolu already watches on
+disk. A bare backgrounded `Bash`/`Agent` (`runId: null`) has no observable backing
+signal, so it no longer lights the pip. The reported bug vanishes outright — no
+threshold, no timestamp parsing, no heuristic classifier. The principled line:
+**kolu should claim "working" only when it can actually *see* the work.** Removing
+an over-broad trigger beats bolting two heuristics onto it (Hickey: subtract,
+don't add).
+</Callout>
+
+The entire behavioral change is one predicate at the promotion site:
+
+```diff
+// packages/integrations/claude-code/src/core.ts — deriveState (383-386)
+  let state = stateAndModel.state;
+  if (state === "waiting") {
+    const bg = outstanding ?? outstandingBackgroundTasks(lines);
+-   if (bg.length > 0) state = "running_background";
++   if (bg.some((t) => t.runId !== null)) state = "running_background";  // Workflow runs only — Bash/Agent have no journal
+  }
+```
+
+`outstandingBackgroundTasks` stays a faithful "launched − completed" set; only the
+*promotion policy* narrows — the correct Lowy seam, because what shifts is "what
+counts as working" (`deriveState`'s concern). The `BackgroundTask.runId` field that
+already distinguishes the two does all the work; no new state, no new inputs.
+
+<Callout kind="warn" title="What it costs, honestly">
+Two departures from #1015's behavior:
+
+- A backgrounded `Bash`/`Agent` the agent is genuinely busy-waiting on now reads as `waiting` — re-opening the case #1015 added Bash/Agent coverage for. *Mitigant: a busy-wait that actively polls emits `tool_use`/`thinking` turns and already reads as working; only a pure end-turn-and-wait loses the pip.*
+- **Residual — closed in this PR.** A `Workflow` (`runId != null`) orphaned by a restart would otherwise still stick. `#1109` closes it with `liveOutstandingTasks`: drop a workflow whose journal is terminal or stale past `WORKFLOW_JOURNAL_STALE_MS` (2 min) — an *authoritative* journal check, not a wall-clock guess.
+</Callout>
+
+## Alternative — the transcript-only veto (keep Bash/Agent spinning)
+
+If a detached `Bash`/`Agent` busy-wait *must* keep lighting the pip (preserving
+#1015 exactly), the fallback makes the outstanding-set self-expiring instead of
+narrowing the trigger — a layered, transcript-only veto inside
+`outstandingBackgroundTasks`. Heavier (a magic threshold + a small classifier) but
+behavior-preserving for the live case:
+
+```ts
+// core.ts — outstandingBackgroundTasks (441-487), sketch of the layered veto
+  const launched = new Map();      // taskId → { runId, index, atMs }
+  const completed = new Set();
+  let newestMs = null;             // newest timestamp across ALL entries (metadata too)
+  let lastHumanTurn = -1;          // index of the newest genuine human prompt
+
+  lines.forEach((raw, i) => {
+    let entry; try { entry = JSON.parse(raw); } catch { return; }
+    const ms = Date.parse(entry.timestamp ?? "");                 // NaN-safe
+    if (!Number.isNaN(ms)) newestMs = Math.max(newestMs ?? ms, ms);
+    if (entry.type === "queue-operation") { /* …completed.add(id)… */ return; }
+    if (entry.type !== "user") return;
+    if (isGenuineHumanTurn(entry)) lastHumanTurn = i;             // real prompt, not machinery
+    // …launched.set(taskId, { runId, index: i, atMs }) …
+  });
+
+  const out = [];
+  for (const [taskId, { runId, index, atMs }] of launched) {
+    if (completed.has(taskId)) continue;
+    if (atMs !== null && newestMs !== null && newestMs - atMs > STALE_BG_MS) continue;  // staleness
+    if (lastHumanTurn > index) continue;                                                // human spoke after
+    out.push({ taskId, runId });
+  }
+  return out;
+```
+
+`isGenuineHumanTurn` reuses `isInterruptMarker` + `toolResultBlock`: a `user`
+entry is a real prompt only if it carries no `tool_result` block, isn't an
+interrupt marker, and its text doesn't start with `<` (filters injected
+`<command-*>` / `<task-notification>` strings). Both vetoes **fail safe** (absent
+timestamp ⇒ not-stale; classifier defaults to "machinery" on ambiguity), so older
+fixtures keep today's behavior. *This is the fallback, not the lead: it carries
+the `STALE_BG_MS` magic number and a heuristic classifier — accidental complexity
+the recommended narrowing doesn't have.*
+
+## Test plan — close both coverage gaps
+
+The bug shipped because **neither** layer exercises a launch that never
+completes: every promotion unit test supplies a completion marker, and the
+`running_background` e2e scenario *mocks the final state* rather than deriving it.
+
+- **Unit (recommended fix):** `deriveState([bashLaunch('bi8olsr8z'), endTurn])` ⇒ `waiting`; flip the now-wrong "promotes a backgrounded Bash" assertion to ⇒ `waiting`; `deriveState([bgLaunch('t1','wf_1'), endTurn])` ⇒ `running_background` (workflow still promotes); workflow completion still clears.
+- **E2e:** add "a backgrounded Bash launch does not spin" driving the *real* watcher + `deriveState`; keep the existing `running_background` scenario green but make its launch a **Workflow** so it proves the legitimate fan-out still spins.
+
+## Open risks & residuals
+
+**If we ship the recommended fix:** a detached `Bash`/`Agent` busy-wait no longer
+lights the pip (deliberate; recoverable via the alternative veto scoped to
+`runId == null`). The Workflow-orphan residual is closed by `liveOutstandingTasks`
+gating on a fresh, non-terminal journal. Not a data-level fix — the launch marker
+stays in the transcript forever; only the promotion policy reads it differently.
+
+**If we ship the alternative veto:** `STALE_BG_MS` is policy and can't distinguish
+an orphaned-and-talked-past task from a genuine long run; a quiet-idle orphan with
+no further lines persists until the next write; the human-vs-machinery classifier
+keys off injected `user` strings and must stay in sync with the format.
+
+---
+
+*Shipped in <PrLink pr={1109} />: the trigger-narrowing (`deriveState` promotes
+only `runId != null`) plus the journal-liveness gate (`liveOutstandingTasks`) —
+closing both the Bash orphan and the Workflow-orphan-after-restart. Grounded by a
+13-agent design pass: 4 candidate fixes × adversarial verification over the live
+transcript, the on-disk artifacts, and the #1015 / #1017 / #1018→#1019 history.*

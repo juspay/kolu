@@ -1,0 +1,67 @@
+---
+// A faux terminal transcript — kolu is a terminal product, so this recurs.
+// `lines` is data: a line starting with "$ " is a prompt+command, "# " a
+// comment, anything else is output. e.g.
+// <Terminal title="kolu" lines={["$ just atlas::build", "✓ done"]} />
+interface Props {
+  title?: string;
+  lines: string[];
+}
+const { title = "kolu", lines } = Astro.props;
+const rows = lines.map((line) => {
+  if (line.startsWith("$ ")) return { kind: "prompt", text: line.slice(2) };
+  if (line.startsWith("# ")) return { kind: "comment", text: line };
+  return { kind: "output", text: line };
+});
+---
+<div class="term">
+  <div class="term-bar">
+    <span class="term-dot" style="background:#ff5f56"></span>
+    <span class="term-dot" style="background:#ffbd2e"></span>
+    <span class="term-dot" style="background:#27c93f"></span>
+    <span class="term-title">{title}</span>
+  </div>
+  <div class="term-body">
+    {rows.map((r) =>
+      r.kind === "prompt" ? (
+        <div class="term-line"><span class="term-prompt">$</span> <span class="term-cmd">{r.text}</span></div>
+      ) : (
+        <div class={`term-line ${r.kind === "comment" ? "term-comment" : "term-out"}`}>{r.text || " "}</div>
+      ),
+    )}
+  </div>
+</div>
+<style>
+  .term {
+    margin: 1.4rem 0;
+    border: 1px solid #11131a;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
+    font-family: var(--mono);
+  }
+  .term-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.8rem;
+    background: #20232e;
+    border-bottom: 1px solid #11131a;
+  }
+  .term-dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .term-title { margin-left: 0.5rem; font-size: 0.72rem; color: #aab1c5; }
+  .term-body {
+    margin: 0;
+    padding: 0.9rem 1rem;
+    background: #15171f;
+    color: #c9d1e3;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .term-prompt { color: #4ec9a8; }
+  .term-cmd { color: #e8ecf7; }
+  .term-out { color: #9aa3ba; }
+  .term-comment { color: #6b7488; font-style: italic; }
+</style>

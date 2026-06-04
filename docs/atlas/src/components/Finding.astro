@@ -1,0 +1,45 @@
+---
+// A review/audit finding — the docs/plans `finding` + `severity` idiom. Carries
+// a severity, an anchor id (so it's linkable), a title, and an MDX body.
+interface Props {
+  sev?: "high" | "medium" | "low";
+  id?: string;
+  title: string;
+}
+const { sev = "medium", id, title } = Astro.props;
+const label = sev === "high" ? "High" : sev === "low" ? "Low" : "Medium";
+---
+<article class={`finding finding-${sev}`} id={id}>
+  <h3 class="finding-head"><span class={`sev sev-${sev}`}>{label}</span> {title}</h3>
+  <div class="finding-body"><slot /></div>
+</article>
+<style>
+  .finding {
+    margin: 1.4rem 0;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--rule);
+    border-left-width: 3px;
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .finding-high { border-left-color: #a02a2a; }
+  .finding-medium { border-left-color: #8a5a00; }
+  .finding-low { border-left-color: #5b6470; }
+  .finding-head { margin: 0 0 0.5rem; font-size: 1.05rem; }
+  .sev {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.12em 0.5em;
+    border-radius: 5px;
+    margin-right: 0.4em;
+    vertical-align: middle;
+  }
+  .sev-high { color: #a02a2a; background: #fbe9e9; border: 1px solid #f0c9c9; }
+  .sev-medium { color: #8a5a00; background: #fbf1dc; border: 1px solid #ecd9ab; }
+  .sev-low { color: #5b6470; background: #eef0f2; border: 1px solid #d9dde2; }
+  .finding-body :global(> :first-child) { margin-top: 0; }
+  .finding-body :global(> :last-child) { margin-bottom: 0; }
+</style>

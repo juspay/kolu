@@ -1,0 +1,69 @@
+---
+title: Electricity — identified, and their progress
+description: A tracker for kolu's electricities — infrastructure pulled out from beneath the app into its own thing — and where each stands.
+kind: review
+maturity: evergreen
+updated: 2026-06-02
+---
+
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+
+<Callout kind="good" title="What counts as electricity">
+Löwy's receptacle — hide the volatility behind a socket you plug into. Three tests at once: ① **domain-agnostic** — no terminal/canvas/git/xterm leaks into the interface; ② **hides a hard volatility** — transport, reconnect, GPU-context loss, persistence — not a 3-line `===`; ③ **graduates** — ships as `@kolu/*` and a *different* app plugs in. The proof of ③ is real, not aspirational. [`@kolu/surface`](https://kolu.dev/blog/surface-framework/) is **kolu's own** client↔server transport first — and it has since picked up a **second consumer** in [srid/drishti](https://github.com/srid/drishti) (a fleet process-monitor; browser ↔ Bun ↔ ssh-agent) that vendors it from this repo and declares its own per-host schema with none of kolu's domain. The second consumer isn't the *point* of the extraction — it's the *proof* it was real electricity: surface never noticed the domain changed.
+</Callout>
+
+> "Decompose based on volatility." Functional decomposition splits a system by what it *does*; volatility-based decomposition isolates each area likely to *change* behind a stable interface — the way a body keeps blood-pressure, pulse, and salinity volatility "encapsulated behind the service called the heart." An *electricity*, here, is one such volatility pulled out into its own package. — Juval Löwy, [Volatility-Based Decomposition](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) (excerpt from *Righting Software*).
+
+## The electricities
+
+| Electricity | Owns (volatility) | PR | Progress |
+| --- | --- | --- | --- |
+| **@kolu/surface** | Live client↔server state — `Cell`/`Collection`/`Stream`/`Event` over oRPC, reconnect, fine-grained reconcile. | <PrLink pr={805} /> | <Pill variant="done">done</Pill> · 2nd consumer: [drishti](https://github.com/srid/drishti) |
+| **@kolu/surface-nix-host** | `HostSession` — `nix copy` a closure to a host, realise, run `--stdio` over ssh. | <PrLink pr={984} /> | <Pill variant="done">done</Pill> · also in drishti |
+| **@kolu/artifact-sdk** | Anchoring — core speaks only `Range`/`Document`/`ShadowRoot`. | <PrLink pr={922} /> | <Pill variant="done">done</Pill> |
+| **@kolu/transcript-core** + **transcript-html** | Transcript model + rendering. | <PrLink pr={744} /> | <Pill variant="done">done</Pill> |
+| **@kolu/solid-pierre** | SolidJS adapters for Pierre tree/diff. | <PrLink pr={823} /> | <Pill variant="done">done</Pill> |
+| **persistedPref** | Validated localStorage (validate-on-read; closed the zoom-`NaN` + maximize bugs). | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
+| **@kolu/log** · **@kolu/html-escape** | Zero-dep leaf types every package can import without dragging the domain tree. | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
+| **dom/** + injectable `isMac` | `walkShadowRoots` relocated to a neutral wall; keybind core no longer reads the UA singleton. | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
+| **createSharedRoot** | Lazy app-scoped reactive singleton (7 consumers). 100% agnostic SolidJS. | <PrLink pr={974} /> | <Pill variant="done">done</Pill> <Pill variant="run">publish?</Pill> |
+| **@kolu/solid-xterm** (createSolidXterm) | xterm.js lifecycle — 8-addon orchestration, WebGL single-owner + context-loss recovery, FitAddon resize, owner-correct async dispose across `await`. | <PrLink pr={1116} /> (plan) | <Pill variant="fix">to build</Pill> |
+
+Plus external electricity correctly leaned on instead of hand-rolled: **Corvu** (dialog/drawer/focus-trap/scroll-lock), **@solid-primitives/\*** (resize-observer, media). Origin: a 41-agent Hickey/Lowy audit (16 candidates) → its "ship now" tier landed in <PrLink pr={1089} />; a framework-scale re-test + adversarial skeptic surfaced the missed `solid-xterm`.
+
+## Next: extract @kolu/solid-xterm
+
+<Callout kind="accent">
+The one genuine not-yet-built electricity — mis-filed at first as "terminal domain," but a SolidJS adapter for xterm.js is agnostic (the `.agency/lowy.md` §6.5 *"what library is this?"* test). It owns two declared volatility rows — async-init cleanup (the `#598`/`#600` ~900 KB leaks) and canvas/WebGL lifecycle (the `#591` zombie-context hunt, `#575`/`#239`/`#595`).
+
+**Inline today** in one `Terminal.tsx` `onMount` (972 lines): `new XTerm` <Cite file="packages/client/src/terminal/Terminal.tsx" lines="472" />, 8× `loadAddon` <Cite file="packages/client/src/terminal/Terminal.tsx" lines="489-509" />, the WebGL single-owner dance <Cite file="packages/client/src/terminal/Terminal.tsx" lines="222-285" />, owner-correct async init <Cite file="packages/client/src/terminal/Terminal.tsx" lines="463-471" />, fit/resize <Cite file="packages/client/src/terminal/Terminal.tsx" lines="179" /> / <Cite file="packages/client/src/terminal/Terminal.tsx" lines="750" />, touch-scroll <Cite file="packages/client/src/terminal/Terminal.tsx" lines="549-596" />.
+</Callout>
+
+```ts
+// one primitive (not a topic-bundle, per §6.5):
+createSolidXterm({ container, theme, fontSize, canUseWebgl?, enabledAddons?,
+  onData?, onResize?, onLinkActivate?, onCustomKeyEvent?, plugins? })
+  -> { terminal, searchAddon, hasWebgl, renderer, dispose }
+```
+
+Owns the agnostic core; kolu bits (link provider, soft-keyboard, diagnostics probes, the PTY `terminal.attach` stream) stay consumer-injected via callbacks. **Dissolves ~240–314 lines** of `Terminal.tsx`. Survived the skeptic ("the domain braid runs too deep") on the interface — those are orchestration concerns, not xterm-lifecycle concerns. Graduates the way surface did: any SolidJS app embedding xterm can plug in.
+
+## Considered — not electricity
+
+Looked framework-sized (the audit's biggest braids), but fail the bar — recorded so they don't get re-proposed.
+
+| Candidate | Verdict | Why |
+| --- | --- | --- |
+| **defineMutation** (optimisticOverlay) | <Pill variant="bad">helper</Pill> | One module, one domain (canvas layouts); the write echo is already owned by `surface`'s metadata subscription. Pending is a UI cache, not a transport axis. |
+| **@kolu/fs-watch** | <Pill variant="bad">helper</Pill> | Owns a refcount/debounce *lifecycle*, not a streaming transport — no wire contract, Node-bound. A `@kolu/shared` helper, not a socket. |
+| **@kolu/geometry** | <Pill variant="bad">domain-coupled</Pill> | `TileLayout` binds it to a server-persisted domain type; a `Rect` package re-adapts at every boundary — moves the braid, doesn't dissolve it. |
+| **@kolu/surface-publish** | <Pill variant="bad">already-covered</Pill> | Surface's `cellHandlers`/`collectionHandlers`/`pollOnEvent` already own server snapshot+delta. Only `terminal.attach` is a raw escape hatch. |
+| **@kolu/commands** (palette) | <Pill variant="bad">domain-coupled</Pill> | Palette engine is already agnostic; all coupling is isolated in `createCommands`, which must stay in the app. Extracting deletes ~0 kolu lines. |
+| God-procedure split | <Pill variant="run">refactor</Pill> | Its biggest dissolvable chunk *is* `solid-xterm` (above); the rest is kolu orchestration — a refactor, not a receptacle. |
+
+---
+
+*Bar from Juval Löwy, _Righting Software_ (receptacle/volatility) + Rich Hickey, _Simple Made Easy_ (complecting); one-socket-not-a-topic-bundle is `.agency/lowy.md` §6.5. `file:line` verified against the codebase; ③ demonstrated by [drishti](https://github.com/srid/drishti) — a second consumer (kolu is the first) that vendors `@kolu/surface` via npins.*

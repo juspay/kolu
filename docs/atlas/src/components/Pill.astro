@@ -1,0 +1,39 @@
+---
+// A small status/severity/size label — the docs/plans `pill`/`tag` idiom (143×).
+// `variant` maps 1:1 to the house-style tokens so ports stay mechanical.
+interface Props {
+  variant?: string;
+}
+const { variant = "todo" } = Astro.props;
+const C: Record<string, [string, string, string]> = {
+  hi: ["#a02a2a", "#fbe9e9", "#f0c9c9"],
+  bad: ["#a02a2a", "#fbe9e9", "#f0c9c9"],
+  fail: ["#a02a2a", "#fbe9e9", "#f0c9c9"],
+  md: ["#8a5a00", "#fbf1dc", "#ecd9ab"],
+  warn: ["#8a5a00", "#fbf1dc", "#ecd9ab"],
+  ok: ["#1b7a3a", "#e6f4ea", "#bce3c8"],
+  good: ["#1b7a3a", "#e6f4ea", "#bce3c8"],
+  done: ["#1b7a3a", "#e6f4ea", "#bce3c8"],
+  fix: ["#5a3ff0", "#efebff", "#d4cbff"],
+  run: ["#0b6478", "#e1f0f3", "#bcdfe6"],
+  new: ["#0b6478", "#e1f0f3", "#bcdfe6"],
+  dx: ["#7c4dd4", "#f1e9fb", "#ddc9f2"],
+  todo: ["#5b6470", "#eef0f2", "#d9dde2"],
+  sm: ["#5b6470", "#eef0f2", "#d9dde2"],
+  lo: ["#5b6470", "#eef0f2", "#d9dde2"],
+};
+const [fg, bg, bd] = C[variant] ?? C.todo;
+---
+<span class="pill" style={`color:${fg};background:${bg};border:1px solid ${bd}`}><slot /></span>
+<style>
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.1em 0.5em;
+    border-radius: 999px;
+    vertical-align: middle;
+  }
+</style>

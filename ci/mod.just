@@ -54,7 +54,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix home-manager e2e smoke fmt biome unit surface-example-build pnpm-hash-fresh docs-moc
+default: nix home-manager e2e smoke fmt biome unit surface-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -138,8 +138,12 @@ biome: install
     {{ nix_shell }} biome lint .
 
 
-# MOC integrity gate. The check lives in the docs/plans module
-# (`plans::check`), co-located with what it guards; this node keeps it in the
-# CI DAG and posts the ci::docs-moc status. Run locally as `just plans::check`.
-docs-moc:
-    {{ nix_shell }} just plans::check
+# Atlas sync gate. The check lives in the docs/atlas module
+# (`atlas::check-sync`): it rebuilds the self-contained Atlas and fails if the
+# committed docs/atlas/dist/ is stale (a note changed without committing the
+# regenerated HTML). Co-located with what it guards; this node keeps it in the
+# CI DAG and posts the ci::atlas-sync status. Run locally as
+# `just atlas::check-sync`. atlas uses an isolated (--ignore-workspace)
+# node_modules, so its install never races the root pnpm install above.
+atlas-sync:
+    {{ nix_shell }} just atlas::check-sync

@@ -1,0 +1,153 @@
+---
+title: Code-tab filter strands empty directories
+description: Why filtering the Code-tab tree left hollow, result-less folders — Pierre's remove promotes an emptied dir to EXPLICIT — and the directoryRemovalOps fix, with the /hickey + /lowy verdict.
+kind: plan
+maturity: budding
+parents: [solid-fileview]
+updated: 2026-06-02
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+
+Diagnosis · branch `search-collapsae` · confirmed against kolu source and
+`@pierre/trees@1.0.0-beta.4` internals.
+
+<Callout kind="danger" title="Root cause">
+The filter removes the matching *files*, but nothing removes the directories
+those removals leave empty — and Pierre deliberately keeps an emptied directory
+as a visible "explicit" folder.
+
+Searching `docs plans` batch-`remove`s every non-matching file. Pierre's
+`removePath` removes only the file node, then **promotes the now-empty parent
+directory to `EXPLICIT`** instead of deleting it. So the whole tree of
+result-less directories survives. The wrapper comment claiming the opposite — "a
+file dropped takes its now-empty ancestor directories with it" (`FileTree.tsx:55-58`)
+— is **false for `batch`/`remove`**; it's only true for `resetPaths`, which this
+branch abandoned to preserve hand-expansion.
+</Callout>
+
+## How the filter is wired
+
+The Code-tab search is **host-driven** — Pierre's own search is off, and kolu
+projects a path set into the tree:
+
+`type in filter` → `searchQuery()` → `projectFileTreeSearch` → `{ projectedPaths, expandedAncestors }` → `<FileTree>` batch + expand
+
+- `projectFileTreeSearch(treePaths(), searchQuery())` (`CodeTab.tsx:331-333`) returns `projectedPaths` (matching **files only**) and `expandedAncestors` (`fileSearch.ts:44-62`). For `docs plans` that's the files under `docs/plans/` and the ancestors `["docs/", "docs/plans/"]`.
+- `<FileTree>` receives `paths={…projectedPaths}`, `search={false}`, `expandPaths={…expandedAncestors}`. `search={false}` means Pierre's `hide-non-matches` machinery is dormant — **all filtering is kolu-side**.
+- The wrapper turns the old inventory into the new one as an **in-place delta**: `pathDiffOperations(appliedPaths, paths)` emits `{type:"remove"}` for each dropped file, then `tree.batch(ops)`, then additively `.expand()`s the ancestors (`FileTree.tsx:205-227`). It uses `batch` rather than `resetPaths` specifically so hand-opened folders survive.
+
+## What I verified in Pierre's source
+
+| Claim | Status | Source |
+| --- | --- | --- |
+| `tree.batch([{remove}])` ⇒ `store.remove` ⇒ `removePath` | <Pill variant="good">true</Pill> | `FileTreeController.js:522` → `store.js:121-139` |
+| `removeSubtree` removes **only the target file node**, never its parent | <Pill variant="good">true</Pill> | `canonical.js:406-441` |
+| After unlinking the file, `removePath` calls `promoteEmptyAncestorsToExplicit(parentId)` | <Pill variant="bad">the bug</Pill> | `canonical.js:46-66` (line 56) |
+| That walks *up* and flags every emptied directory `EXPLICIT` instead of deleting it | <Pill variant="bad">the bug</Pill> | `canonical.js:442-451` |
+| An `EXPLICIT` empty directory stays a visible row | <Pill variant="good">true</Pill> | `canonical.js:201,222,557` |
+| The wrapper only ever `.expand()`s; it never collapses | <Pill variant="good">true</Pill> | `FileTree.tsx:198,219-222` |
+| The filter input has **no debounce** — every keystroke re-projects | <Pill variant="good">true</Pill> | `FileSearchInput.tsx:19` |
+
+The decisive few lines:
+
+```js
+// path-store/src/canonical.js — removePath
+const removedNodeIds = removeSubtree(state, nodeId);   // removes ONLY the file node
+removeChildReference(state, parentId, nodeId, …);      // unlinks it from the parent
+promoteEmptyAncestorsToExplicit(state, parentId);      // ← the emptied directory SURVIVES
+
+// promoteEmptyAncestorsToExplicit
+while (currentDirectoryId != null) {
+  if (getDirectoryIndex(state, currentDirectoryId).childIds.length > 0) return;
+  addNodeFlag(currentNode, PATH_STORE_NODE_FLAG_EXPLICIT);  // keep the empty folder visible
+  currentDirectoryId = currentNode.parentId;               // …and keep walking up
+}
+```
+
+## Why the screenshot looks the way it does
+
+### Why the directories are present at all <Pill variant="bad">defect A</Pill>
+
+`pathDiffOperations` (`FileTree.tsx:59-73`) diffs only **file** path lists;
+directories never appear in `projectedPaths`, so no remove op ever targets a
+directory. Every directory that contained only non-matching files is emptied by
+the file removals and then promoted to a persistent empty folder. Net: the
+entire pre-search directory skeleton remains, now hollow.
+
+### Why they're shown *expanded* <Pill variant="warn">defect B</Pill>
+
+Two compounding facts, both about expansion being **monotonic**:
+
+- **No debounce** → every intermediate keystroke re-projects. Typing `d` matches almost every path, so `expandedAncestors` ≈ *every directory*, and the wrapper `.expand()`s them all.
+- As the query narrows to `docs plans`, the files vanish but the wrapper **never collapses**, and Pierre keeps the expanded flag on a directory even after it's emptied. So the leftover empty dirs stay expanded.
+
+`.github/workflows` is the lone collapsed row because no intermediate prefix ever
+expanded it. Even with a single *paste* of `docs plans`, the empty directories
+would still appear — just collapsed rather than expanded.
+
+<Callout kind="accent" title="The trace, end to end">
+remove non-matching files (batch) → parents emptied → promoted to EXPLICIT →
+still listed → + stale expanded flag → empty expanded rows.
+</Callout>
+
+## Fix direction — /hickey + /lowy verdict
+
+<Callout kind="good" title="Chosen: prune the emptied directories inside FileTree.tsx, derived from the file set">
+Reject the collapse pass. Reject `resetPaths`-on-filter. Lowy fixes the
+*boundary* (the fix belongs in the wrapper; `fileSearch.ts` and `CodeTab.tsx`
+stay inert). Hickey fixes the *internals* (derive directories from
+`appliedPaths`; no parallel `appliedDirs` state; no collapse pass). They are the
+intended complement — Lowy gets the seam right, Hickey gets the structure right.
+</Callout>
+
+| Direction | /hickey | /lowy | Verdict |
+| --- | --- | --- | --- |
+| **A · prune emptied dirs** in the wrapper | Yes — but **derive** dirs from the file set, don't track `appliedDirs` (parallel array = silent-divergence) | Yes — correct seam; both `fileSearch.ts` and the wrapper stay put | <Pill variant="good">chosen</Pill> in Hickey's derived form |
+| **B · collapse pass** | No — `collapse()` on a dir the wrapper doesn't own destroys hand-opens; the expand loop is safe only because it's monotonic | Add it for symmetry | <Pill variant="bad">rejected</Pill> |
+| **C · `resetPaths` on active filter** | No — mode-branch state machine; "user-expansions" is a *ghost variable* Pierre never exposes | No — couples the search-agnostic wrapper to `CodeTab`'s search axis | <Pill variant="bad">rejected</Pill> |
+
+### Resolving the disagreement on A — derive, don't track
+
+Lowy's concrete prescription ("diff `appliedDirs` against `new Set(expandPaths)`")
+has a latent **filter-clear bug**: on an empty query `projectFileTreeSearch`
+returns `expandedAncestors: []` while `projectedPaths` is the *full* inventory.
+Using `expandPaths` as the directory authority would remove *every* directory the
+moment the user clears the filter. Deriving the authority from the file set is
+immune:
+
+```ts
+// after the file batch + appliedPaths = paths:
+const prevDirs = new Set(appliedPaths.flatMap(ancestorDirectoryPaths));
+const nextDirs = new Set(paths.flatMap(ancestorDirectoryPaths));   // full set on empty query ⇒ no removals
+for (const dir of [...prevDirs].filter(d => !nextDirs.has(d))
+                               .sort((a, b) => a.length - b.length)) {  // shallowest first
+  const item = tree.getItem(dir);
+  if (item) tree.batch([{ type: "remove", path: dir, recursive: true }]); // emptied dirs still hold empty child dirs
+}
+```
+
+Two corrections to the originally-sketched op: **(1)** `recursive: true` — an
+emptied directory still contains its (now-explicit) empty child directories, so a
+bare remove throws; **(2)** shallowest-first so the maximal empty subtree is
+removed in one op. No new tracked state: `appliedPaths` stays the single source.
+
+### Why defect B folds into defect A
+
+Once empty directories are *removed*, the "expanded empty rows" symptom is gone —
+an absent directory has no row to render open. And among the directories that
+*survive*, every one is an ancestor of a live match, so it **must stay expanded**.
+There is no "surviving directory that should be collapsed" case during an active
+filter — a collapse pass would re-hide matches and fight the user's own collapse
+(the `#867` feature). Lowy's symmetry is a *false* symmetry: expand-to-reveal is
+mandatory, collapse-to-hide is never wanted.
+
+## Test plan <Pill variant="warn">required</Pill>
+
+`fileSearch.test.ts` tests only the pure projection and **cannot** see this bug —
+it never drives the Pierre `batch` where `promoteEmptyAncestorsToExplicit` lives.
+Two layers:
+
+- **Pure unit — extract `directoryRemovalOps(prevFiles, nextFiles)`** and table-test it: empty/cleared query ⇒ no removals; single deep match ⇒ sibling subtrees removed, ancestors kept; nested empty subtree ⇒ one recursive op on the shallowest; dir with one matching + one non-matching file ⇒ kept; progressive narrowing ⇒ dirs that lost all matches removed.
+- **Integration — mount `<FileTree>`** (jsdom): filter a populated tree and assert (a) emptied directories are *absent*, (b) dirs still holding a match are present and expanded, (c) a directory the user collapses *during* a filter stays collapsed across the next keystroke (the `#867` guard).

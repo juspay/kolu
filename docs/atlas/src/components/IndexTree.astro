@@ -1,0 +1,37 @@
+---
+// Compact, recursive MOC tree. One row per note (maturity dot · title ·
+// truncated description · kind/flags right-aligned); children nest under their
+// parent via Astro.self with an indent guide — the hierarchy. Scales to ~100
+// links. Links stay relative (`./<slug>.html`) so they resolve in kolu's Code
+// tab AND when read externally through htmlpreview.github.io.
+import type { TreeNode } from "../lib/indexTree";
+
+interface Props {
+  nodes: TreeNode[];
+  ancestors?: string[];
+  sub?: boolean;
+}
+const { nodes, ancestors = [], sub = false } = Astro.props as Props;
+---
+<ul class={sub ? "moc-sub" : "moc"}>
+  {
+    nodes.map((node) => {
+      const path = [...ancestors, node.note.id];
+      const children = node.children.filter((c) => !path.includes(c.note.id));
+      const d = node.note.data;
+      return (
+        <li>
+          <a class="row" href={`./${node.note.id}.html`} title={d.description}>
+            <span class={`row-dot m-${d.maturity}`} />
+            <span class="row-t">{d.title}</span>
+            <span class="row-d">{d.description}</span>
+            <span class="row-k">{d.kind}</span>
+            {d.status && <span class="row-flag is-status">{d.status}</span>}
+            {d.draft && <span class="row-flag is-draft">draft</span>}
+          </a>
+          {children.length > 0 && <Astro.self nodes={children} ancestors={path} sub={true} />}
+        </li>
+      );
+    })
+  }
+</ul>

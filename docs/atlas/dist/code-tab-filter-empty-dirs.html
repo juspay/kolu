@@ -1,0 +1,172 @@
+<!DOCTYPE html><html lang="en" data-theme="light"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Code-tab filter strands empty directories · the kolu Atlas</title><meta name="description" content="Why filtering the Code-tab tree left hollow, result-less folders — Pierre's remove promotes an emptied dir to EXPLICIT — and the directoryRemovalOps fix, with the /hickey + /lowy verdict."><meta name="generator" content="Astro v6.4.3"><meta name="color-scheme" content="light"><style>:root{--paper: #f6f7f9;--surface: #ffffff;--ink: #1a1c20;--ink-dim: #3f444b;--ink-muted: #6b7178;--ink-faint: #9aa0a6;--rule: #e3e6ea;--rule-soft: #eceef1;--amber: #b4690e;--amber-soft: #f0e2c8;--teal: #0b6478;--green: #1b7a3a;--gold: #8a5200;--alert: #b42318;--code-bg: #eef1f4;--sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0}.atlas-title{font-family:var(--serif);font-size:clamp(2.6rem,6vw,3.6rem);line-height:1.05;letter-spacing:-.01em;font-weight:600;margin:.6rem 0 0}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;font-family:var(--mono);font-size:.66rem;color:var(--ink-muted);margin:.7rem 0 0}.legend-item{display:inline-flex;align-items:center;gap:.4em}.legend-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.moc{list-style:none;margin:1.5rem 0 0;padding:0}.moc-sub{list-style:none;margin:.05rem 0 .2rem .55rem;padding-left:.8rem;border-left:1px solid var(--rule)}.row{display:flex;align-items:center;gap:.5rem;padding:.22rem .45rem;border-radius:6px;line-height:1.3}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{flex:none;width:7px;height:7px;border-radius:50%}.row-t{color:var(--ink);font-weight:600;font-size:.95rem;white-space:nowrap;flex:none}.row-d{color:var(--ink-muted);font-size:.84rem;flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row-k{font-family:var(--mono);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);flex:none}.row-flag{font-family:var(--mono);font-size:.56rem;letter-spacing:.08em;text-transform:uppercase;flex:none}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;color:var(--ink-muted)}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);font-size:clamp(2.1rem,5vw,3rem);line-height:1.08;letter-spacing:-.01em;font-weight:600;margin:1.6rem 0 0}.meta-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-top:1.1rem}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{display:flex;justify-content:space-between;margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule)}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);font-size:1.6rem;color:var(--ink);font-weight:600;letter-spacing:-.01em;margin:2.6rem 0 .8rem}.prose h3{font-family:var(--serif);font-size:1.25rem;color:var(--ink);font-weight:600;margin:2rem 0 .6rem}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.prose code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;margin:0 0 1.3rem}.prose pre code{background:none;border:0;padding:0;font-size:.82rem}.prose blockquote{margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem;border-left:3px solid var(--amber-soft);color:var(--ink-dim)}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 1.4rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;padding:.55rem .7rem;border:1px solid var(--rule);vertical-align:top}.prose th{background:var(--rule-soft);font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-weight:600}
+.toc-list[data-astro-cid-lht5lwky]{list-style:none;margin:0;padding:0}.toc-item[data-astro-cid-lht5lwky]{margin:.2rem 0}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{color:var(--ink-dim);text-decoration:none;font-size:.92rem}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]:hover{color:var(--amber)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky]{margin:.15rem 0 .35rem .2rem;padding-left:.8rem;border-left:1px solid var(--rule)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{font-size:.85rem;color:var(--ink-muted)}.toc[data-astro-cid-6t6zfk7k]{margin:1.8rem 0;padding:.9rem 1.1rem;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}.toc-title[data-astro-cid-6t6zfk7k]{margin:0 0 .5rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted)}
+</style><style>.callout[data-astro-cid-mrmim4ef]{margin:1.4rem 0;padding:.85rem 1.1rem;border:1px solid var(--rule);border-left-width:3px;border-radius:8px;background:var(--surface)}.callout-title[data-astro-cid-mrmim4ef]{margin:0 0 .4rem;font-weight:650;font-size:.82rem;letter-spacing:.02em;color:var(--ink)}.callout-body[data-astro-cid-mrmim4ef]>:first-child{margin-top:0}.callout-body[data-astro-cid-mrmim4ef]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-mrmim4ef]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-mrmim4ef]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-mrmim4ef]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-mrmim4ef]{border-left-color:#b8860b;background:#fbf6e8}.callout-danger[data-astro-cid-mrmim4ef]{border-left-color:var(--alert);background:#fcf0ef}
+</style><style>.pill[data-astro-cid-2qeywk4b]{display:inline-block;font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;padding:.1em .5em;border-radius:999px;vertical-align:middle}
+</style></head> <body>  <article class="wrap"> <header> <a class="backlink" href="./index.html">← the Atlas</a> <h1 class="note-h1">Code-tab filter strands empty directories</h1> <div class="meta-row"> <span>plan</span> <span class="meta-sep">·</span> <span>budding</span>   <span class="meta-sep">·</span><time datetime="2026-06-02T00:00:00.000Z">JUN 01, 2026</time> </div> <p class="note-sub">Why filtering the Code-tab tree left hollow, result-less folders — Pierre&#39;s remove promotes an emptied dir to EXPLICIT — and the directoryRemovalOps fix, with the /hickey + /lowy verdict.</p> <nav class="toc" aria-label="Table of contents" data-astro-cid-6t6zfk7k><p class="toc-title" data-astro-cid-6t6zfk7k>Contents</p><ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#how-the-filter-is-wired" data-astro-cid-lht5lwky>How the filter is wired</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#what-i-verified-in-pierres-source" data-astro-cid-lht5lwky>What I verified in Pierre’s source</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#why-the-screenshot-looks-the-way-it-does" data-astro-cid-lht5lwky>Why the screenshot looks the way it does</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#why-the-directories-are-present-at-all-defect-a" data-astro-cid-lht5lwky>Why the directories are present at all defect A</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#why-theyre-shown-expanded-defect-b" data-astro-cid-lht5lwky>Why they’re shown expanded defect B</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#fix-direction--hickey--lowy-verdict" data-astro-cid-lht5lwky>Fix direction — /hickey + /lowy verdict</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#resolving-the-disagreement-on-a--derive-dont-track" data-astro-cid-lht5lwky>Resolving the disagreement on A — derive, don’t track</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#why-defect-b-folds-into-defect-a" data-astro-cid-lht5lwky>Why defect B folds into defect A</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#test-plan-required" data-astro-cid-lht5lwky>Test plan required</a>  </li> </ul></nav> </header> <div class="prose"> <p>Diagnosis · branch <code>search-collapsae</code> · confirmed against kolu source and
+<code>@pierre/trees@1.0.0-beta.4</code> internals.</p>
+<aside class="callout callout-danger" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Root cause</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>The filter removes the matching <em>files</em>, but nothing removes the directories
+those removals leave empty — and Pierre deliberately keeps an emptied directory
+as a visible “explicit” folder.</p><p>Searching <code>docs plans</code> batch-<code>remove</code>s every non-matching file. Pierre’s
+<code>removePath</code> removes only the file node, then <strong>promotes the now-empty parent
+directory to <code>EXPLICIT</code></strong> instead of deleting it. So the whole tree of
+result-less directories survives. The wrapper comment claiming the opposite — “a
+file dropped takes its now-empty ancestor directories with it” (<code>FileTree.tsx:55-58</code>)
+— is <strong>false for <code>batch</code>/<code>remove</code></strong>; it’s only true for <code>resetPaths</code>, which this
+branch abandoned to preserve hand-expansion.</p></div> </aside>
+<h2 id="how-the-filter-is-wired">How the filter is wired</h2>
+<p>The Code-tab search is <strong>host-driven</strong> — Pierre’s own search is off, and kolu
+projects a path set into the tree:</p>
+<p><code>type in filter</code> → <code>searchQuery()</code> → <code>projectFileTreeSearch</code> → <code>{ projectedPaths, expandedAncestors }</code> → <code>&lt;FileTree&gt;</code> batch + expand</p>
+<ul>
+<li><code>projectFileTreeSearch(treePaths(), searchQuery())</code> (<code>CodeTab.tsx:331-333</code>) returns <code>projectedPaths</code> (matching <strong>files only</strong>) and <code>expandedAncestors</code> (<code>fileSearch.ts:44-62</code>). For <code>docs plans</code> that’s the files under <code>docs/plans/</code> and the ancestors <code>[&quot;docs/&quot;, &quot;docs/plans/&quot;]</code>.</li>
+<li><code>&lt;FileTree&gt;</code> receives <code>paths={…projectedPaths}</code>, <code>search={false}</code>, <code>expandPaths={…expandedAncestors}</code>. <code>search={false}</code> means Pierre’s <code>hide-non-matches</code> machinery is dormant — <strong>all filtering is kolu-side</strong>.</li>
+<li>The wrapper turns the old inventory into the new one as an <strong>in-place delta</strong>: <code>pathDiffOperations(appliedPaths, paths)</code> emits <code>{type:&quot;remove&quot;}</code> for each dropped file, then <code>tree.batch(ops)</code>, then additively <code>.expand()</code>s the ancestors (<code>FileTree.tsx:205-227</code>). It uses <code>batch</code> rather than <code>resetPaths</code> specifically so hand-opened folders survive.</li>
+</ul>
+<h2 id="what-i-verified-in-pierres-source">What I verified in Pierre’s source</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Claim</th><th>Status</th><th>Source</th></tr></thead><tbody><tr><td><code>tree.batch([{remove}])</code> ⇒ <code>store.remove</code> ⇒ <code>removePath</code></td><td><span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>true</span></td><td><code>FileTreeController.js:522</code> → <code>store.js:121-139</code></td></tr><tr><td><code>removeSubtree</code> removes <strong>only the target file node</strong>, never its parent</td><td><span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>true</span></td><td><code>canonical.js:406-441</code></td></tr><tr><td>After unlinking the file, <code>removePath</code> calls <code>promoteEmptyAncestorsToExplicit(parentId)</code></td><td><span class="pill" style="color:#a02a2a;background:#fbe9e9;border:1px solid #f0c9c9" data-astro-cid-2qeywk4b>the bug</span></td><td><code>canonical.js:46-66</code> (line 56)</td></tr><tr><td>That walks <em>up</em> and flags every emptied directory <code>EXPLICIT</code> instead of deleting it</td><td><span class="pill" style="color:#a02a2a;background:#fbe9e9;border:1px solid #f0c9c9" data-astro-cid-2qeywk4b>the bug</span></td><td><code>canonical.js:442-451</code></td></tr><tr><td>An <code>EXPLICIT</code> empty directory stays a visible row</td><td><span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>true</span></td><td><code>canonical.js:201,222,557</code></td></tr><tr><td>The wrapper only ever <code>.expand()</code>s; it never collapses</td><td><span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>true</span></td><td><code>FileTree.tsx:198,219-222</code></td></tr><tr><td>The filter input has <strong>no debounce</strong> — every keystroke re-projects</td><td><span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>true</span></td><td><code>FileSearchInput.tsx:19</code></td></tr></tbody></table>
+<p>The decisive few lines:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="js"><code><span class="line"><span style="color:#6A737D">// path-store/src/canonical.js — removePath</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> removedNodeIds</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> removeSubtree</span><span style="color:#24292E">(state, nodeId);   </span><span style="color:#6A737D">// removes ONLY the file node</span></span>
+<span class="line"><span style="color:#6F42C1">removeChildReference</span><span style="color:#24292E">(state, parentId, nodeId, …);      </span><span style="color:#6A737D">// unlinks it from the parent</span></span>
+<span class="line"><span style="color:#6F42C1">promoteEmptyAncestorsToExplicit</span><span style="color:#24292E">(state, parentId);      </span><span style="color:#6A737D">// ← the emptied directory SURVIVES</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D">// promoteEmptyAncestorsToExplicit</span></span>
+<span class="line"><span style="color:#D73A49">while</span><span style="color:#24292E"> (currentDirectoryId </span><span style="color:#D73A49">!=</span><span style="color:#005CC5"> null</span><span style="color:#24292E">) {</span></span>
+<span class="line"><span style="color:#D73A49">  if</span><span style="color:#24292E"> (</span><span style="color:#6F42C1">getDirectoryIndex</span><span style="color:#24292E">(state, currentDirectoryId).childIds.</span><span style="color:#005CC5">length</span><span style="color:#D73A49"> &gt;</span><span style="color:#005CC5"> 0</span><span style="color:#24292E">) </span><span style="color:#D73A49">return</span><span style="color:#24292E">;</span></span>
+<span class="line"><span style="color:#6F42C1">  addNodeFlag</span><span style="color:#24292E">(currentNode, </span><span style="color:#005CC5">PATH_STORE_NODE_FLAG_EXPLICIT</span><span style="color:#24292E">);  </span><span style="color:#6A737D">// keep the empty folder visible</span></span>
+<span class="line"><span style="color:#24292E">  currentDirectoryId </span><span style="color:#D73A49">=</span><span style="color:#24292E"> currentNode.parentId;               </span><span style="color:#6A737D">// …and keep walking up</span></span>
+<span class="line"><span style="color:#24292E">}</span></span></code></pre>
+<h2 id="why-the-screenshot-looks-the-way-it-does">Why the screenshot looks the way it does</h2>
+<h3 id="why-the-directories-are-present-at-all-defect-a">Why the directories are present at all <span class="pill" style="color:#a02a2a;background:#fbe9e9;border:1px solid #f0c9c9" data-astro-cid-2qeywk4b>defect A</span></h3>
+<p><code>pathDiffOperations</code> (<code>FileTree.tsx:59-73</code>) diffs only <strong>file</strong> path lists;
+directories never appear in <code>projectedPaths</code>, so no remove op ever targets a
+directory. Every directory that contained only non-matching files is emptied by
+the file removals and then promoted to a persistent empty folder. Net: the
+entire pre-search directory skeleton remains, now hollow.</p>
+<h3 id="why-theyre-shown-expanded-defect-b">Why they’re shown <em>expanded</em> <span class="pill" style="color:#8a5a00;background:#fbf1dc;border:1px solid #ecd9ab" data-astro-cid-2qeywk4b>defect B</span></h3>
+<p>Two compounding facts, both about expansion being <strong>monotonic</strong>:</p>
+<ul>
+<li><strong>No debounce</strong> → every intermediate keystroke re-projects. Typing <code>d</code> matches almost every path, so <code>expandedAncestors</code> ≈ <em>every directory</em>, and the wrapper <code>.expand()</code>s them all.</li>
+<li>As the query narrows to <code>docs plans</code>, the files vanish but the wrapper <strong>never collapses</strong>, and Pierre keeps the expanded flag on a directory even after it’s emptied. So the leftover empty dirs stay expanded.</li>
+</ul>
+<p><code>.github/workflows</code> is the lone collapsed row because no intermediate prefix ever
+expanded it. Even with a single <em>paste</em> of <code>docs plans</code>, the empty directories
+would still appear — just collapsed rather than expanded.</p>
+<aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>The trace, end to end</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>remove non-matching files (batch) → parents emptied → promoted to EXPLICIT →
+still listed → + stale expanded flag → empty expanded rows.</p></div> </aside>
+<h2 id="fix-direction--hickey--lowy-verdict">Fix direction — /hickey + /lowy verdict</h2>
+<aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Chosen: prune the emptied directories inside FileTree.tsx, derived from the file set</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Reject the collapse pass. Reject <code>resetPaths</code>-on-filter. Lowy fixes the
+<em>boundary</em> (the fix belongs in the wrapper; <code>fileSearch.ts</code> and <code>CodeTab.tsx</code>
+stay inert). Hickey fixes the <em>internals</em> (derive directories from
+<code>appliedPaths</code>; no parallel <code>appliedDirs</code> state; no collapse pass). They are the
+intended complement — Lowy gets the seam right, Hickey gets the structure right.</p></div> </aside>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Direction</th><th>/hickey</th><th>/lowy</th><th>Verdict</th></tr></thead><tbody><tr><td><strong>A · prune emptied dirs</strong> in the wrapper</td><td>Yes — but <strong>derive</strong> dirs from the file set, don’t track <code>appliedDirs</code> (parallel array = silent-divergence)</td><td>Yes — correct seam; both <code>fileSearch.ts</code> and the wrapper stay put</td><td><span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>chosen</span> in Hickey’s derived form</td></tr><tr><td><strong>B · collapse pass</strong></td><td>No — <code>collapse()</code> on a dir the wrapper doesn’t own destroys hand-opens; the expand loop is safe only because it’s monotonic</td><td>Add it for symmetry</td><td><span class="pill" style="color:#a02a2a;background:#fbe9e9;border:1px solid #f0c9c9" data-astro-cid-2qeywk4b>rejected</span></td></tr><tr><td><strong>C · <code>resetPaths</code> on active filter</strong></td><td>No — mode-branch state machine; “user-expansions” is a <em>ghost variable</em> Pierre never exposes</td><td>No — couples the search-agnostic wrapper to <code>CodeTab</code>’s search axis</td><td><span class="pill" style="color:#a02a2a;background:#fbe9e9;border:1px solid #f0c9c9" data-astro-cid-2qeywk4b>rejected</span></td></tr></tbody></table>
+<h3 id="resolving-the-disagreement-on-a--derive-dont-track">Resolving the disagreement on A — derive, don’t track</h3>
+<p>Lowy’s concrete prescription (“diff <code>appliedDirs</code> against <code>new Set(expandPaths)</code>”)
+has a latent <strong>filter-clear bug</strong>: on an empty query <code>projectFileTreeSearch</code>
+returns <code>expandedAncestors: []</code> while <code>projectedPaths</code> is the <em>full</em> inventory.
+Using <code>expandPaths</code> as the directory authority would remove <em>every</em> directory the
+moment the user clears the filter. Deriving the authority from the file set is
+immune:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// after the file batch + appliedPaths = paths:</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> prevDirs</span><span style="color:#D73A49"> =</span><span style="color:#D73A49"> new</span><span style="color:#6F42C1"> Set</span><span style="color:#24292E">(appliedPaths.</span><span style="color:#6F42C1">flatMap</span><span style="color:#24292E">(ancestorDirectoryPaths));</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> nextDirs</span><span style="color:#D73A49"> =</span><span style="color:#D73A49"> new</span><span style="color:#6F42C1"> Set</span><span style="color:#24292E">(paths.</span><span style="color:#6F42C1">flatMap</span><span style="color:#24292E">(ancestorDirectoryPaths));   </span><span style="color:#6A737D">// full set on empty query ⇒ no removals</span></span>
+<span class="line"><span style="color:#D73A49">for</span><span style="color:#24292E"> (</span><span style="color:#D73A49">const</span><span style="color:#005CC5"> dir</span><span style="color:#D73A49"> of</span><span style="color:#24292E"> [</span><span style="color:#D73A49">...</span><span style="color:#24292E">prevDirs].</span><span style="color:#6F42C1">filter</span><span style="color:#24292E">(</span><span style="color:#E36209">d</span><span style="color:#D73A49"> =&gt;</span><span style="color:#D73A49"> !</span><span style="color:#24292E">nextDirs.</span><span style="color:#6F42C1">has</span><span style="color:#24292E">(d))</span></span>
+<span class="line"><span style="color:#24292E">                               .</span><span style="color:#6F42C1">sort</span><span style="color:#24292E">((</span><span style="color:#E36209">a</span><span style="color:#24292E">, </span><span style="color:#E36209">b</span><span style="color:#24292E">) </span><span style="color:#D73A49">=&gt;</span><span style="color:#24292E"> a.</span><span style="color:#005CC5">length</span><span style="color:#D73A49"> -</span><span style="color:#24292E"> b.</span><span style="color:#005CC5">length</span><span style="color:#24292E">)) {  </span><span style="color:#6A737D">// shallowest first</span></span>
+<span class="line"><span style="color:#D73A49">  const</span><span style="color:#005CC5"> item</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> tree.</span><span style="color:#6F42C1">getItem</span><span style="color:#24292E">(dir);</span></span>
+<span class="line"><span style="color:#D73A49">  if</span><span style="color:#24292E"> (item) tree.</span><span style="color:#6F42C1">batch</span><span style="color:#24292E">([{ type: </span><span style="color:#032F62">&quot;remove&quot;</span><span style="color:#24292E">, path: dir, recursive: </span><span style="color:#005CC5">true</span><span style="color:#24292E"> }]); </span><span style="color:#6A737D">// emptied dirs still hold empty child dirs</span></span>
+<span class="line"><span style="color:#24292E">}</span></span></code></pre>
+<p>Two corrections to the originally-sketched op: <strong>(1)</strong> <code>recursive: true</code> — an
+emptied directory still contains its (now-explicit) empty child directories, so a
+bare remove throws; <strong>(2)</strong> shallowest-first so the maximal empty subtree is
+removed in one op. No new tracked state: <code>appliedPaths</code> stays the single source.</p>
+<h3 id="why-defect-b-folds-into-defect-a">Why defect B folds into defect A</h3>
+<p>Once empty directories are <em>removed</em>, the “expanded empty rows” symptom is gone —
+an absent directory has no row to render open. And among the directories that
+<em>survive</em>, every one is an ancestor of a live match, so it <strong>must stay expanded</strong>.
+There is no “surviving directory that should be collapsed” case during an active
+filter — a collapse pass would re-hide matches and fight the user’s own collapse
+(the <code>#867</code> feature). Lowy’s symmetry is a <em>false</em> symmetry: expand-to-reveal is
+mandatory, collapse-to-hide is never wanted.</p>
+<h2 id="test-plan-required">Test plan <span class="pill" style="color:#8a5a00;background:#fbf1dc;border:1px solid #ecd9ab" data-astro-cid-2qeywk4b>required</span></h2>
+<p><code>fileSearch.test.ts</code> tests only the pure projection and <strong>cannot</strong> see this bug —
+it never drives the Pierre <code>batch</code> where <code>promoteEmptyAncestorsToExplicit</code> lives.
+Two layers:</p>
+<ul>
+<li><strong>Pure unit — extract <code>directoryRemovalOps(prevFiles, nextFiles)</code></strong> and table-test it: empty/cleared query ⇒ no removals; single deep match ⇒ sibling subtrees removed, ancestors kept; nested empty subtree ⇒ one recursive op on the shallowest; dir with one matching + one non-matching file ⇒ kept; progressive narrowing ⇒ dirs that lost all matches removed.</li>
+<li><strong>Integration — mount <code>&lt;FileTree&gt;</code></strong> (jsdom): filter a populated tree and assert (a) emptied directories are <em>absent</em>, (b) dirs still holding a match are present and expanded, (c) a directory the user collapses <em>during</em> a filter stays collapsed across the next keystroke (the <code>#867</code> guard).</li>
+</ul> </div> <footer class="note-foot"> <a class="backlink" href="./index.html">← the Atlas</a> <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a> </footer> </article> </body></html>

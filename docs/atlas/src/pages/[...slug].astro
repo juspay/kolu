@@ -1,0 +1,51 @@
+---
+import { getCollection, render } from "astro:content";
+import AtlasLayout from "../layouts/AtlasLayout.astro";
+import Toc from "../components/Toc.astro";
+
+export async function getStaticPaths() {
+  const notes = await getCollection("atlas");
+  return notes.map((note) => ({ params: { slug: note.id }, props: { note } }));
+}
+
+const { note } = Astro.props;
+const { Content, headings } = await render(note);
+const d = note.data;
+
+const fmtDate = (date: Date) =>
+  date
+    .toLocaleDateString("en-US", { year: "numeric", month: "short", day: "2-digit" })
+    .toUpperCase();
+---
+
+<AtlasLayout title={d.title} description={d.description}>
+  <article class="wrap">
+    <header>
+      <a class="backlink" href="./index.html">← the Atlas</a>
+
+      <h1 class="note-h1">{d.title}</h1>
+
+      <div class="meta-row">
+        <span>{d.kind}</span>
+        <span class="meta-sep">·</span>
+        <span>{d.maturity}</span>
+        {d.status && (<><span class="meta-sep">·</span><span>{d.status}</span></>)}
+        {d.draft && (<><span class="meta-sep">·</span><span class="badge-draft">draft</span></>)}
+        {d.updated && (<><span class="meta-sep">·</span><time datetime={d.updated.toISOString()}>{fmtDate(d.updated)}</time></>)}
+      </div>
+
+      <p class="note-sub">{d.description}</p>
+
+      <Toc headings={headings} />
+    </header>
+
+    <div class="prose">
+      <Content />
+    </div>
+
+    <footer class="note-foot">
+      <a class="backlink" href="./index.html">← the Atlas</a>
+      <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a>
+    </footer>
+  </article>
+</AtlasLayout>

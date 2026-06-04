@@ -1,0 +1,26 @@
+---
+// A self-contained visual prototype (faux Code-tab frame + maturity ladder).
+// Used from .mdx to show an Atlas note can carry arbitrary HTML/SVG via a
+// reusable component — markdown for prose, components for the visual bits.
+---
+<div style="font-family:ui-sans-serif,system-ui;max-width:34rem;margin:1.4rem 0;border:1px solid #e6e2d6;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.06)">
+  <div style="display:flex;align-items:center;gap:.5rem;padding:.55rem .85rem;background:#f4f1e8;border-bottom:1px solid #e6e2d6">
+    <span style="width:11px;height:11px;border-radius:50%;background:#ff5f56;display:inline-block"></span>
+    <span style="width:11px;height:11px;border-radius:50%;background:#ffbd2e;display:inline-block"></span>
+    <span style="width:11px;height:11px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+    <span style="margin-left:.5rem;font:600 .72rem/1 ui-monospace,monospace;color:#5b6470">atlas / second-brain.html</span>
+  </div>
+  <div style="padding:1.05rem 1.1rem;background:#fff">
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1b7a3a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V11"/><path d="M12 11c0-3.3 2.4-5.8 5.8-5.8 0 3.3-2.4 5.8-5.8 5.8Z"/><path d="M12 14C12 10.7 9.6 8.2 6.2 8.2 6.2 11.5 8.6 14 12 14Z"/></svg>
+      <strong style="color:#1a1c20;font-size:.95rem">A note grows up</strong>
+    </div>
+    <div style="display:flex;align-items:center;gap:.4rem;font:.72rem/1 ui-monospace,monospace">
+      <span style="background:#f8efd9;color:#8a5200;border:1px solid #e8d3a3;border-radius:6px;padding:.28rem .55rem">seedling</span>
+      <span style="color:#cdb47e">→</span>
+      <span style="background:#dcf0f4;color:#0b6478;border:1px solid #0b6478;border-radius:6px;padding:.28rem .55rem;box-shadow:0 0 0 2px #bfe3ea">budding</span>
+      <span style="color:#9fc0c8">→</span>
+      <span style="background:#e3f4e9;color:#1b7a3a;border:1px solid #bce3c8;border-radius:6px;padding:.28rem .55rem">evergreen</span>
+    </div>
+  </div>
+</div>
