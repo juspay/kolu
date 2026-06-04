@@ -1,5 +1,6 @@
 /** Compute character offsets of a Range's start and end within the
- *  concatenated text content of a Document or shadow root. Walks text
+ *  concatenated text content of a QuoteRoot (Document, ShadowRoot, or
+ *  Element). Walks text
  *  nodes in document order using a TreeWalker and accumulates lengths.
  *
  *  Shared by `extractQuote` (uses it to slice prefix/suffix windows out

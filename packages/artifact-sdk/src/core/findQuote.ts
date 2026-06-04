@@ -90,7 +90,7 @@ export function findQuote(
 }
 
 /** Build a DOM Range that covers [start, end] character offsets inside a
- *  Document or shadow root. Returns null if the offsets can't be resolved
+ *  QuoteRoot (Document, ShadowRoot, or Element). Returns null if the offsets can't be resolved
  *  to text-node boundaries (caller treats this as "anchor rotted"). */
 export function rangeFromOffsets(
   doc: QuoteRoot,
