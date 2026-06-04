@@ -13,6 +13,10 @@
  * deliberately self-contained — it carries `resolveCommit` itself rather than
  * importing it — which lets the rest of the package stay extensionless (like
  * `@kolu/surface`) and frees consumers from needing `allowImportingTsExtensions`.
+ * `resolveCommit` LIVES here as the one copy: the server entry
+ * (`buildInfoServer` in `./server`) imports it from `/vite` rather than carrying
+ * its own — so there is a single source of truth for the commit, and no one
+ * should duplicate the resolver.
  */
 
 import { execSync } from "node:child_process";
