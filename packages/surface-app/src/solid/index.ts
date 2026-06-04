@@ -21,12 +21,13 @@ import {
   onCleanup,
   useContext,
 } from "solid-js";
-import { buildInfo as defaultBuildInfo, type BuildInfoDef } from "../surface";
+import { type BuildInfoDef, buildInfo as defaultBuildInfo } from "../surface";
 
 // The non-component lifecycle calls live in the framework-free `/lifecycle`
 // subpath; re-exported here so `<SurfaceAppProvider>` consumers reach them from
 // one import. Apps with no component in scope (root setup) import `/lifecycle`.
 export { reloadForUpdate, retireServiceWorker } from "../lifecycle";
+
 import { reloadForUpdate } from "../lifecycle";
 
 /** The live relationship to the server this client is bound to. */
@@ -62,18 +63,14 @@ export interface WsLike {
   removeEventListener?(type: "open" | "close", listener: () => void): void;
 }
 
-function statusOf(kind: ServerLifecycleEvent["kind"]): ConnectionStatus {
-  switch (kind) {
-    case "connecting":
-      return "reconnecting";
-    case "disconnected":
-      return "down";
-    case "restarted":
-      return "restarted";
-    default:
-      return "live"; // connected | reconnected
-  }
-}
+/** Pure A→B table — exhaustive at the type level (Record requires every key). */
+const STATUS_OF: Record<ServerLifecycleEvent["kind"], ConnectionStatus> = {
+  connecting: "reconnecting",
+  connected: "live",
+  disconnected: "down",
+  reconnected: "live",
+  restarted: "restarted",
+};
 
 /** Derive the server lifecycle from a transport + an identity probe — the generic
  *  form of kolu's `rpc.ts`. On each `open` the probe reads the server's
@@ -144,7 +141,7 @@ export function createServerLifecycle<
   if (getOwner()) onCleanup(dispose);
   return {
     lifecycle,
-    status: () => statusOf(lifecycle().kind),
+    status: () => STATUS_OF[lifecycle().kind],
     serverProcessId: () => {
       const e = lifecycle();
       return "processId" in e ? e.processId : undefined;
@@ -247,6 +244,8 @@ function setAttention(count: number): void {
     setAppBadge?: (n?: number) => Promise<void>;
     clearAppBadge?: () => Promise<void>;
   };
+  // Badging API rejections (permission denied, unsupported) are safe to ignore —
+  // the badge is a best-effort decoration; the app functions identically without it.
   if (count > 0) void nav.setAppBadge?.(count).catch(() => {});
   else void nav.clearAppBadge?.().catch(() => {});
   // Document title — the universal fallback (the in-browser-tab case).

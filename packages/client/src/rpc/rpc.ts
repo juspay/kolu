@@ -33,7 +33,7 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // A persistently-broken probe would otherwise silently leave the UI stuck in
   // its prior connection state. Log it (the next open retries) — same as the
   // pre-extraction rpc.ts.
-  onProbeError: (err) => console.warn("server.info probe failed:", err),
+  onProbeError: (err) => console.error("server.info probe failed:", err),
 });
 
 // `status` is the surface-app `ConnectionStatus` projection of the same
