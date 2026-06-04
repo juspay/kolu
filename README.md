@@ -39,7 +39,7 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 - WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
 - Clickable file references — terminal output that contains `path/to/file.ts:42` (with optional `:col` or `-end` line range) is linkified; clicking opens the file in the right panel's Code tab at that line
 - Lazy attach — late-joining clients receive serialized screen state (~4KB) instead of replaying raw buffer
-- Mobile key bar — on coarse-pointer devices, a thin row above the terminal sends the keys soft keyboards lack (<kbd>Esc</kbd>, <kbd>Tab</kbd>, arrows, <kbd>Ctrl+C</kbd>) plus an IME-bypassing <kbd>Enter</kbd> for Android chat keyboards, with a haptic tick on every tap. Two sticky modifiers (<kbd>Ctrl</kbd>, <kbd>Alt</kbd>) arm one-shot: tap to arm, then the next character — typed on the soft keyboard or sent from the bar — folds into the chord (e.g. <kbd>Ctrl</kbd>+<kbd>R</kbd>, <kbd>Alt</kbd>+<kbd>F</kbd>) and disarms. Touch-swipe inside the terminal scrolls the scrollback buffer
+- Mobile key bar — on coarse-pointer devices, a two-row bar above the terminal sends the keys soft keyboards lack (<kbd>Esc</kbd>, <kbd>Tab</kbd>, arrows, <kbd>Ctrl+C</kbd>) plus an IME-bypassing <kbd>Enter</kbd> for Android chat keyboards, with a haptic tick on every tap. The twelve soft keys lay out in a six-column grid — two rows of six — so every key is visible at once, with no horizontal scrolling. Two sticky modifiers (<kbd>Ctrl</kbd>, <kbd>Alt</kbd>) arm one-shot: tap to arm, then the next character — typed on the soft keyboard or sent from the bar — folds into the chord (e.g. <kbd>Ctrl</kbd>+<kbd>R</kbd>, <kbd>Alt</kbd>+<kbd>F</kbd>) and disarms. Touch-swipe inside the terminal scrolls the scrollback buffer
 
 ### Navigation
 
@@ -317,7 +317,7 @@ just test       # e2e tests (full nix build)
 
 ## Contributing
 
-Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are welcome as direct PRs. **New user-facing features need a merged proposal under [`docs/proposals/`](docs/proposals/) first** — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full split and the proposal template.
+Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are welcome as direct PRs. **New user-facing features need a merged proposal first** — an [Atlas](docs/atlas/) note in the right category with `status: proposed`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full split and the proposal frontmatter.
 
 ## CI
 

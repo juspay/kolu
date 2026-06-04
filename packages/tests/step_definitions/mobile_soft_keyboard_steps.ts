@@ -90,6 +90,63 @@ Then(
   },
 );
 
+Then(
+  "the mobile soft key bar should not scroll horizontally",
+  async function (this: KoluWorld) {
+    const overflows = await this.page.evaluate((sel) => {
+      const bar = document.querySelector(sel) as HTMLElement | null;
+      if (!bar) throw new Error("No mobile key bar");
+      // +1 tolerates sub-pixel rounding; a real overflow is the full key width.
+      return bar.scrollWidth > bar.clientWidth + 1;
+    }, KEY_BAR);
+    assert.ok(
+      !overflows,
+      "Expected the key bar to fit without horizontal scroll (scrollWidth <= clientWidth)",
+    );
+  },
+);
+
+Then(
+  "the mobile soft key bar keys should occupy two rows",
+  async function (this: KoluWorld) {
+    // grid-cols-6 lays the twelve controls (2 modifiers + 10 keys) into exactly
+    // two rows of six. We assert the full contract: twelve keys present, and
+    // their offsetTop baselines partition into two rows sized [6, 6] — not just
+    // "some keys span two rows". The querySelectorAll is scoped to the bar's
+    // descendants, so the bar element itself (whose testid also starts
+    // "mobile-key-") is excluded — only the buttons are counted.
+    const layout = await this.page.evaluate((sel) => {
+      const bar = document.querySelector(sel);
+      if (!bar) throw new Error("No mobile key bar");
+      const keys = Array.from(
+        bar.querySelectorAll('[data-testid^="mobile-key-"]'),
+      ) as HTMLElement[];
+      if (keys.length === 0) throw new Error("No keys in the mobile key bar");
+      // Group keys by their offsetTop baseline (one entry per row), then report
+      // each row's key count sorted top-to-bottom.
+      const byRow = new Map<number, number>();
+      for (const k of keys)
+        byRow.set(k.offsetTop, (byRow.get(k.offsetTop) ?? 0) + 1);
+      const rowSizes = [...byRow.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([, count]) => count);
+      return { total: keys.length, rowSizes };
+    }, KEY_BAR);
+    assert.strictEqual(
+      layout.total,
+      12,
+      `Expected twelve controls in the key bar, got ${layout.total}`,
+    );
+    assert.deepStrictEqual(
+      layout.rowSizes,
+      [6, 6],
+      `Expected the key bar to lay out as two rows of six, got rows ${JSON.stringify(
+        layout.rowSizes,
+      )}`,
+    );
+  },
+);
+
 When(
   "I type {string} on the soft keyboard",
   async function (this: KoluWorld, text: string) {

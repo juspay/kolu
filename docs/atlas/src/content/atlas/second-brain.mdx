@@ -40,7 +40,7 @@ system.** kolu's existing stores:
 
 | Substantial → an **Atlas note** | Lightweight → a **GitHub Issue** |
 | --- | --- |
-| Designs, features, analyses, bug investigations, history | Quick bug tickets, tasks, roadmap items, questions |
+| Proposals, designs, features, analyses, bug investigations, history | Quick bug tickets, tasks, roadmap items, questions |
 
 - **Maturity is a tag, not a divider** — `seedling` → `budding` → `evergreen`; never a location, never a routing axis.
 - **Living ≠ frozen** — a long-lived plan evolves for months and is still an Atlas note, never "frozen".
@@ -168,11 +168,11 @@ earns scoped styles + typed props as a real `.astro`).
 - **A nested ToC** (`<Toc>`) is auto-inserted from each note's headings — the box above.
 - **Dead-link checking stays a generic linter**, not a bespoke gate.
 
-## Proposals & decisions — keep the numbered log
+## Proposals — the contributor intake lane
 
-- Value of a decision/RFC log = **stable monotonic id** + **append-only immutability** + **supersede links**.
-- Keep proposals as **numbered markdown** (`status: proposed → accepted`) — already required by `CONTRIBUTING.md`.
-- `proposed → accepted` is a *lifecycle* (a status field) — no separate `docs/decisions/` dir needed.
+- A proposal is an Atlas note in its **real category** (`kind:` `bug`/`feature`/`analysis`/`reference`) carrying **`status: proposed`** — it shows in that category, flagged *proposed*. There's no separate proposal kind or section; the status badge *is* the queue. Contributors open an Atlas PR; the flow lives in `CONTRIBUTING.md`.
+- **Accepting = a status flip.** On acceptance a maintainer sets `status: accepted` (then `implemented`); the `kind` was right from the start, so nothing moves. The note stays **living** — git is the record, so there's no frozen copy and no separate numbered log.
+- `proposed → accepted → implemented → superseded` is a *lifecycle* (the `status` field); supersession links via `parents` + status. No `docs/proposals/` and no `docs/decisions/` dir needed.
 
 ## Roadmap
 
