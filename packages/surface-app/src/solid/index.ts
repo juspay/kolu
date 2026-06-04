@@ -45,9 +45,11 @@ export type ServerLifecycleEvent =
 
 /** What an identity probe reports: the server process id — a value that changes
  *  when the server restarts (so a reconnect to a *different* process is a restart,
- *  not a transient drop). Kept distinct from build identity (`commit`). Matches
- *  `ServerProbeSchema` from `@kolu/surface-app/surface`; an app may send a
- *  superset (the provider is generic over the probe response — see `P`). */
+ *  not a transient drop). Kept distinct from build identity (`commit`). This
+ *  interface is the canonical probe wire shape; `ServerProbeSchema` from
+ *  `@kolu/surface-app/surface` is the runtime validator that mirrors it
+ *  (kept hand-equal — no `z.infer` derivation between the two). An app may send
+ *  a superset (the provider is generic over the probe response — see `P`). */
 export interface ServerProbe {
   processId: string;
 }

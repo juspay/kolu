@@ -66,8 +66,9 @@ export const buildInfo: BuildInfoDef = defineBuildInfo({
 
 /** What an identity probe reports: the server's `processId` — a value that
  *  changes when the server restarts, so a reconnect to a *different* process is
- *  a restart, not a transient drop. The single source of truth for the probe's
- *  wire shape; `/solid`'s `ServerProbe` is `z.infer` of this. */
+ *  a restart, not a transient drop. The runtime validator for the probe's wire
+ *  shape; it mirrors the canonical `ServerProbe` interface in `/solid` (kept
+ *  hand-equal — there is no `z.infer` derivation between the two). */
 export const ServerProbeSchema = z.object({ processId: z.string() });
 
 /** The `server.info` identity procedure as a composable fragment — the restart
