@@ -11,8 +11,7 @@ standalone site**.
 - **Read externally** (off GitHub, no checkout) — the canonical link is
   htmlpreview, which renders the committed self-contained HTML and follows the
   relative links between notes:
-  <https://htmlpreview.github.io/?https://github.com/juspay/kolu/blob/atlas-arch/docs/atlas/dist/index.html>
-  (swap `atlas-arch` → `master` once this lands on the default branch).
+  <https://htmlpreview.github.io/?https://github.com/juspay/kolu/blob/master/docs/atlas/dist/index.html>
 
 The rendered `dist/` is **committed** (marked generated in `.gitattributes`); an
 `.apm` rule regenerates it whenever a note changes. Author markdown/MDX only —
