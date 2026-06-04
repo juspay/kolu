@@ -3,7 +3,7 @@ title: Git-status indicators in the Code-tab "All files" view
 description: Browsing the whole repo should still tell you what's changed. Give the Code-tab "All files" view the same git-status colors Local/Branch already show, by overlaying a local-status layer (primary) on a branch-status layer (fallback). Plan of record, /be.
 kind: feature
 maturity: seedling
-status: proposed
+status: implemented
 parents: [solid-fileview]
 updated: 2026-06-04
 ---
@@ -11,6 +11,7 @@ updated: 2026-06-04
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
 import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
 
 export const CodeTreePrototype = () => {
   const fg = "#c7ccd6", amber = "#d6a35c", green = "#6cc070";
@@ -74,6 +75,8 @@ export const CodeTreePrototype = () => {
     </div>
   );
 };
+
+Shipped in <PrLink pr={1185} />.
 
 Today the **All files** view is the only Code-tab mode with no git signal —
 you switch to Local/Branch to see what changed, losing whole-repo context.
