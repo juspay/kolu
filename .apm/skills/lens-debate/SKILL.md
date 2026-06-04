@@ -190,7 +190,7 @@ branch for the human to review):
 - On any **unresolved** finding, surface both lenses' final positions plainly so
   the human can adjudicate — do not pick a winner yourself.
 - **Post the debate summary to the PR (default).** When a PR exists and
-  `--no-comment` was NOT passed, post a `## Lowy ⇄ Hickey lens debate` comment via
+  `--no-comment` was NOT passed, post a `## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)` comment via
   `gh pr comment`. Include: the outcome badge and round count; the independent
   per-lens finding counts; the per-finding table (origin, title, location, agreed
   disposition, applied commit); and, for any unresolved finding, both lenses'
