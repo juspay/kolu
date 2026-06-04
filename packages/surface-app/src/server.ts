@@ -13,6 +13,11 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
+import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import {
+  type ImplementSurfaceDeps,
+  implementSurface,
+} from "@kolu/surface/server";
 import type { Hono } from "hono";
 import { resolveCommit } from "./vite";
 import {
@@ -304,4 +309,48 @@ export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
     cells: buildInfoServer<T>(opts),
     procedures: serverIdentity({ processId: opts.processId }),
   };
+}
+
+/** Implement the whole surface-app server side in ONE call — the counterpart to
+ *  `composeSurfaces` on the surface side. It merges the surface-app fragment's
+ *  `buildInfo` cell + `surfaceApp.info` probe impls into your own
+ *  `implementSurface` deps, runs `implementSurface`, AND flows the buildInfo
+ *  cell's `connect` (the async boot axis — kolu's `system.version`, the example's
+ *  `bootId`; a deduped no-op for the sync `{ commit }` default). So the app passes
+ *  ONLY its own `cells`/`procedures` and never hand-spreads the surface-app halves
+ *  or writes the seed→connect dance. Returns `implementSurface`'s `{ router, ctx }`.
+ *
+ *  ```ts
+ *  const { router, ctx } = implementSurfaceApp(surface, surfaceAppServer<T>(opts), {
+ *    channel,
+ *    cells: { serverStats: { store } },   // your own only — buildInfo is the fragment's
+ *    procedures: { hosts: { … } },        // your own only — surfaceApp.info is the fragment's
+ *  });
+ *  ``` */
+export function implementSurfaceApp<
+  const S extends SurfaceSpec,
+  T extends BuildInfo = BuildInfo,
+>(
+  surface: Surface<S>,
+  server: ReturnType<typeof surfaceAppServer<T>>,
+  appDeps: Omit<ImplementSurfaceDeps<S>, "cells" | "procedures"> & {
+    cells?: Partial<NonNullable<ImplementSurfaceDeps<S>["cells"]>>;
+    procedures?: Partial<NonNullable<ImplementSurfaceDeps<S>["procedures"]>>;
+  },
+) {
+  const result = implementSurface(surface, {
+    ...appDeps,
+    cells: { ...server.cells, ...(appDeps.cells ?? {}) },
+    procedures: { ...server.procedures, ...(appDeps.procedures ?? {}) },
+  } as ImplementSurfaceDeps<S>);
+  // Flow the buildInfo cell's late (async) axis through the same fragment — and
+  // re-assert the sync seed harmlessly (deduped by the fragment's `equals`). The
+  // app never writes a hand-rolled `ctx.cells.buildInfo.set`. The generic `S`
+  // doesn't statically prove the `buildInfo` cell, but the fragment we just
+  // spread into `cells` guarantees it at runtime — hence the narrow ctx cast.
+  const ctxCells = result.ctx.cells as {
+    buildInfo: { set: (value: T) => void };
+  };
+  void server.cells.buildInfo.connect(ctxCells.buildInfo);
+  return result;
 }
