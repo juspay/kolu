@@ -1,17 +1,10 @@
 import type { CollectionEntry } from "astro:content";
 
-export type Category =
-  | "proposal"
-  | "bug"
-  | "feature"
-  | "analysis"
-  | "reference";
+export type Category = "bug" | "feature" | "analysis" | "reference";
 
 /** Category is the index's primary skeleton: one section per category, in this
- *  order. `proposal` (the contributor intake queue) is pinned first; `parents`
- *  only nests notes *within* a category. */
+ *  order. `parents` only nests notes *within* a category. */
 export const CATEGORY_ORDER: Category[] = [
-  "proposal",
   "bug",
   "feature",
   "analysis",
@@ -20,11 +13,6 @@ export const CATEGORY_ORDER: Category[] = [
 
 export const CATEGORY_META: Record<Category, { label: string; blurb: string }> =
   {
-    proposal: {
-      label: "Incoming proposals",
-      blurb:
-        "Contributor proposals awaiting review — accepted by re-filing under a real kind.",
-    },
     bug: { label: "Bugs", blurb: "Diagnosed defects and their fix direction." },
     feature: {
       label: "Features",

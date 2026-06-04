@@ -1,6 +1,6 @@
 <!--
 Before opening: see CONTRIBUTING.md.
-New user-facing features need a merged Atlas proposal (kind: proposal) first.
+New user-facing features need a merged Atlas proposal (a note with status: proposed) first.
 -->
 
 ## What
@@ -17,7 +17,7 @@ New user-facing features need a merged Atlas proposal (kind: proposal) first.
 ## Type of change
 
 - [ ] Trivial fix (bug fix, build/CI fix, doc typo, refactor with no behavior change)
-- [ ] Implements an accepted Atlas proposal (`kind: proposal`)
-- [ ] Adds a new Atlas proposal (`kind: proposal`, no implementation in this PR)
+- [ ] Implements an accepted Atlas proposal (`status: accepted`)
+- [ ] Adds a new Atlas proposal (`status: proposed`, no implementation in this PR)
 
 > Feature PRs without a merged proposal will be closed with a pointer to [`CONTRIBUTING.md`](../CONTRIBUTING.md).

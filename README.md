@@ -316,7 +316,7 @@ just test       # e2e tests (full nix build)
 
 ## Contributing
 
-Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are welcome as direct PRs. **New user-facing features need a merged proposal first** — an [Atlas](docs/atlas/) note with `kind: proposal` (it lands in the *Incoming proposals* queue automatically). See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full split and the proposal frontmatter.
+Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are welcome as direct PRs. **New user-facing features need a merged proposal first** — an [Atlas](docs/atlas/) note in the right category with `status: proposed`. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full split and the proposal frontmatter.
 
 ## CI
 

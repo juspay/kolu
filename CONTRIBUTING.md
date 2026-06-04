@@ -15,21 +15,21 @@ No proposal needed for: bug fixes that restore obvious behavior, build/packaging
 
 Anything user-facing — new shortcuts, settings, UI, defaults, persisted data, or new runtime dependencies — needs a merged proposal before any implementation PR.
 
-A proposal is an **Atlas note** — a markdown/MDX file in [`docs/atlas/src/content/atlas/`](./docs/atlas/src/content/atlas/) with `kind: proposal`. Create `<your-slug>.mdx` with this frontmatter:
+A proposal is an **Atlas note** — a markdown/MDX file in [`docs/atlas/src/content/atlas/`](./docs/atlas/src/content/atlas/). Pick the `kind` that fits what you're proposing and mark it `status: proposed`. Create `<your-slug>.mdx` with this frontmatter:
 
 ```yaml
 ---
 title: Your proposal, in Title Case
 description: One line — what changes from the user's perspective.
-kind: proposal
-status: proposed   # proposed → accepted → implemented (or superseded)
+kind: feature        # the category it belongs in — feature · bug · analysis · reference
+status: proposed     # proposed → accepted → implemented (or superseded)
 maturity: seedling
 ---
 ```
 
-Then write the body — *Summary · Motivation · User-facing behavior · Prototype (optional) · Implementation notes (optional)* — run `just atlas::build` to render it, and open a PR adding the `.mdx` **and** its generated `docs/atlas/dist/<slug>.html` (the `ci::atlas-sync` gate checks the two stay in sync). Your note shows up in the **Incoming proposals** section of the [Atlas index](./docs/atlas/dist/index.html) automatically — nothing to wire up, and authorship is just the git history.
+Then write the body — *Summary · Motivation · User-facing behavior · Prototype (optional) · Implementation notes (optional)* — run `just atlas::build` to render it, and open a PR adding the `.mdx` **and** its generated `docs/atlas/dist/<slug>.html` (the `ci::atlas-sync` gate checks the two stay in sync). Your note appears in the [Atlas index](./docs/atlas/dist/index.html) under its category, flagged **proposed** — nothing to wire up, and authorship is just the git history.
 
-Discuss on the PR. Once **accepted**, a maintainer re-files it under its real kind (`feature`/`bug`/…) so it graduates out of the intake queue. The note stays a *living* document afterward (git is its record — there is no frozen copy).
+Discuss on the PR. Once **accepted**, a maintainer flips the note to `status: accepted` — that's the whole graduation; the `kind` was right from the start. The note stays a *living* document afterward (git is its record — there is no frozen copy).
 
 Your PR **may optionally bundle an implementation** alongside the proposal — but acceptance merges **only the proposal**. The implementation is reviewed and merged separately (by you or anyone, including a maintainer running `/be`), so the decision to *ship the idea* never rides on the state of the code.
 
