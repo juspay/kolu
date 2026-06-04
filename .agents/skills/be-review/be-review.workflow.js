@@ -1591,14 +1591,28 @@ if (postComments) {
     ["consolidation", consolidation],
     ...TRACKS.map((t) => [t, tracks[t]]),
   ];
-  // Author the bodies — a rich reporter AGENT for non-trivial slugs (in parallel),
-  // the deterministic baseline otherwise — then POST sequentially for a stable
-  // order. The baseline (`reporters[slug].build`, or `genericComment` for an
+  // Author the bodies — a rich reporter AGENT for non-trivial slugs, the
+  // deterministic baseline otherwise — and POST each one. PIPELINE, not a
+  // barrier-then-serial-loop: every slug flows author→post independently, so a
+  // slug posts the instant ITS body is authored while other slugs are still
+  // being written, and the posts run CONCURRENTLY instead of stacking. The old
+  // shape (await parallel(authoring) THEN a serial `for await postComment` loop)
+  // serialized the slow part — each `gh pr comment` agent takes minutes, so N
+  // tracks stacked to N×minutes of wall-clock; the pipeline collapses that to
+  // roughly max(author+post) over the slowest single slug. The cost: PR comment
+  // order is now post-COMPLETION order, not `items` order — an acceptable trade
+  // for cutting the Report phase from minutes-serial to one slug's round-trip,
+  // and each comment is a self-contained section so interleaving reads fine.
+  // The baseline (`reporters[slug].build`, or `genericComment` for an
   // unregistered slug) is both what a reporter agent improves and the fallback
   // when `richComment` is off or the slug is trivial; a failed/empty authoring
-  // falls back to it too, so Report never skips a comment.
-  const authored = await parallel(
-    items.map(([slug, data]) => () => {
+  // falls back to it too, so Report never skips a comment. A stage throw drops
+  // that one slug to null (skipping its post) instead of crashing the phase —
+  // strictly safer than the old serial loop, where one postComment throw aborted
+  // the whole workflow.
+  const posted = await pipeline(
+    items,
+    ([slug, data]) => {
       // Rewrite worktree commit SHAs to the branch SHAs they were cherry-picked
       // to, so the comment's commit links resolve on GitHub (worktree commits are
       // dangling/unpushed). No-op for the consolidation slug.
@@ -1610,16 +1624,15 @@ if (postComments) {
         baseline,
         reporters[slug]?.guidance || "",
       ).then((body) => [slug, body]);
-    }),
+    },
+    ([slug, body]) =>
+      postComment(slug, body).then((url) => [slug, (url || "").trim()]),
   );
-  for (const item of authored) {
+  for (const item of posted) {
     if (!item) continue;
-    const [slug, body] = item;
-    const url = await postComment(slug, body);
-    comments[slug] = (url || "").trim();
-    log(
-      `Report: posted ${slug} comment${comments[slug] ? ` → ${comments[slug]}` : ""}`,
-    );
+    const [slug, url] = item;
+    comments[slug] = url;
+    log(`Report: posted ${slug} comment${url ? ` → ${url}` : ""}`);
   }
 } else {
   log("Report: --no-comment — skipping PR comments.");
