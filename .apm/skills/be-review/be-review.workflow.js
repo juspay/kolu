@@ -559,11 +559,10 @@ async function policeTrack(wt) {
   for (let policeRound = 0; policeRound < POLICE_MAX_ROUNDS; policeRound++) {
     sweepsRun++; // one review sweep per iteration, counted BEFORE any break/cap exit so the reported count is exact
     const firstSweep = policeRound === 0;
-    const rel = touchedFiles.map((f) => f.replace(`${wt}/`, "").replace(/^\/+/, ""));
-    const relArgs = rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`);
+    const rel = relPaths(wt, touchedFiles); // unquoted, for the touched-count log
     const scope = firstSweep
       ? DIFF(wt)
-      : `Re-review the fixes the previous sweep just applied. Limit the DIFF to the touched files so you don't re-raise unrelated nits: ${DIFF(wt, relArgs)} But you are NOT confined to reading only those files — Read freely any surrounding, caller, dependent, contract, or generated-output files you need (ABSOLUTE paths under \`${wt}\`) to judge whether those edits broke something. Raise a finding ONLY when the problem is rooted in the previous sweep's edits (a regression they introduced, or an issue they only partially resolved), even if the breakage surfaces in an untouched file.`;
+      : `Re-review the fixes the previous sweep just applied. Limit the DIFF to the touched files so you don't re-raise unrelated nits: ${DIFF(wt, [relPathspec(wt, touchedFiles)])} But you are NOT confined to reading only those files — Read freely any surrounding, caller, dependent, contract, or generated-output files you need (ABSOLUTE paths under \`${wt}\`) to judge whether those edits broke something. Raise a finding ONLY when the problem is rooted in the previous sweep's edits (a regression they introduced, or an issue they only partially resolved), even if the breakage surfaces in an untouched file.`;
     const reviews = await parallel(
       passes.map(
         (p) => () =>
@@ -666,14 +665,26 @@ async function policeTrack(wt) {
   };
 }
 
+// The single source for the abs->rel->quote transform: turn absolute worktree
+// paths into a git pathspec safe to interpolate into a shell command. `relPaths`
+// strips the worktree prefix (git -C / DIFF want paths relative to `wt`);
+// `relPathspec` additionally single-quotes each (escaping embedded quotes) and
+// joins them. Both the sweep-scope branch and commitFix go through here so a
+// change to the quoting or prefix rule lives in exactly one place.
+const relPaths = (wt, files) =>
+  files.map((f) => f.replace(`${wt}/`, "").replace(/^\/+/, ""));
+const relPathspec = (wt, files) =>
+  relPaths(wt, files)
+    .map((f) => `'${f.replace(/'/g, `'\\''`)}'`)
+    .join(" ");
+
 // Mechanical committer shared by the police track: stages EXACTLY the listed
 // files in worktree `wt` and commits with the given message — all via `git -C`
 // so it never depends on the shell cwd. The workflow can't run git itself, so a
 // thin agent does. (codex/lens commit via their own workflows.)
 async function commitFix(wt, id, subject, body, files) {
   // Files may arrive as absolute worktree paths; git -C wants them relative to wt.
-  const rel = files.map((f) => f.replace(`${wt}/`, "").replace(/^\/+/, ""));
-  const fileArgs = rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(" ");
+  const fileArgs = relPathspec(wt, files);
   const msgPath = `${SCRATCH}/commit-msg-${id}.txt`;
   const message = `${subject}\n\n${body}`;
   const prompt = `${mechanicalPreamble("COMMITTER")} Do exactly these steps and nothing else — do not edit files, do not push, do not stage anything beyond the listed files.
