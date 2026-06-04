@@ -79,7 +79,8 @@ export const clientIsStale = (
  *  ships NO worker; this one exists ONLY to retire a worker an earlier build of a
  *  consumer left registered — the browser's own update check installs it, and on
  *  activation it deletes caches, unregisters itself, and reloads controlled tabs.
- *  Keep the served copy in lockstep with this constant (a test should assert it). */
+ *  The `/sw.js` route serves this constant verbatim (see `installFreshStatic` in
+ *  `./server`), so there is no separate served file and no lockstep test to maintain. */
 export const SW_SOURCE = `// @kolu/surface-app: self-destructing service worker (retires a legacy worker).
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(retire()));
