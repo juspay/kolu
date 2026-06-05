@@ -1,8 +1,47 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readFile, statFileMtimeMs } from "./browse.ts";
+import { listAll, readFile, statFileMtimeMs } from "./browse.ts";
+
+describe("listAll", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listall-test-"));
+    execFileSync("git", ["init", "-q"], { cwd: tmpDir });
+    fs.mkdirSync(path.join(tmpDir, "People"));
+    // A plain file, a unicode (accented) file inside a folder, and a CJK
+    // name — git C-quotes the latter two unless `-z` is passed.
+    fs.writeFileSync(path.join(tmpDir, "foo.md"), "plain\n");
+    fs.writeFileSync(path.join(tmpDir, "People", "Amélie.md"), "bio\n");
+    fs.writeFileSync(path.join(tmpDir, "メモ.txt"), "memo\n");
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns unicode paths verbatim — no C-quoting, no spurious folder", async () => {
+    // The reported bug: without `-z`, git emits `"People/Am\303\251lie.md"`
+    // (octal-escaped, double-quote-wrapped). The leading `"` became a
+    // spurious `"People` folder and the leaf rendered as `Am\303\251lie.md"`.
+    // With `-z` the path arrives intact and the tree builds correctly.
+    const result = await listAll(tmpDir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const paths = result.value;
+    expect(paths).toContain("People/Amélie.md");
+    expect(paths).toContain("メモ.txt");
+    expect(paths).toContain("foo.md");
+    // No entry should carry a wrapping quote or an octal escape.
+    for (const p of paths) {
+      expect(p).not.toContain('"');
+      expect(p).not.toContain("\\3");
+    }
+  });
+});
 
 describe("readFile", () => {
   let tmpDir: string;

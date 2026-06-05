@@ -22,9 +22,15 @@ type FileTreeSearchProjection = {
 
 function normalizePathSearchText(value: string): string {
   const trimmed = value.trim();
-  return (
-    trimmed.includes("\\") ? trimmed.replaceAll("\\", "/") : trimmed
-  ).toLowerCase();
+  // Compose to NFC before lowercasing so a query and a path that differ only
+  // in unicode normalization still match: a git/macOS path may arrive NFD
+  // (`cafe` + combining acute) while the typed query is NFC (`café`) — without
+  // this the `indexOf` substring search would miss every accented filename.
+  // Both query tokens and candidate paths flow through here, so normalizing at
+  // this one point keeps the two sides in the same form.
+  return (trimmed.includes("\\") ? trimmed.replaceAll("\\", "/") : trimmed)
+    .normalize("NFC")
+    .toLowerCase();
 }
 
 function pathContainsTokensInOrder(

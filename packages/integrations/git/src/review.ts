@@ -68,26 +68,49 @@ async function resolveBase(repoPath: string): Promise<GitResult<GitBaseRef>> {
 }
 
 /**
- * Parse `git diff --name-status <rev>` output into changed files.
+ * Parse `git diff --name-status -z <rev>` output into changed files.
  *
- * Format: one file per line, TAB-separated. Most rows are
- *   `<letter>\t<path>`; renames and copies insert a similarity score
- *   after the letter and carry two paths: `R100\told\tnew`, `C75\tsrc\tdst`.
- *   For those, the *new* path is the one under review.
+ * `-z` emits a flat NUL-separated token stream, never line/TAB text and
+ * never C-quoted — so paths containing newlines, tabs, quotes, backslashes,
+ * or non-ASCII bytes round-trip verbatim (and feed back into `getDiff`'s
+ * pathspec intact). The TAB/newline split this replaced mangled exactly
+ * those paths because `core.quotePath=false` still C-quotes control chars
+ * and quote/backslash bytes.
+ *
+ * Each record is the status field followed by its path(s):
+ *   - regular: `<letter>\0<path>` (e.g. `A\0foo.md`);
+ *   - rename/copy: `<R|C><score>\0<old>\0<new>` — two paths; the *new*
+ *     path is the one under review.
+ * We walk the token stream and consume one or two paths per status field
+ * based on the leading letter.
  */
 export function parseNameStatus(raw: string): GitChangedFile[] {
   const files: GitChangedFile[] = [];
-  for (const line of raw.split("\n")) {
-    if (!line) continue;
-    const parts = line.split("\t");
-    const letter = parts[0]?.[0] ?? "";
-    // Rename/copy rows have 3 fields; everything else has 2.
-    const isRenameOrCopy = parts.length >= 3;
-    const filePath = isRenameOrCopy ? parts[2] : parts[1];
-    if (!filePath) continue;
+  // Trailing NUL leaves an empty final token; drop empties as we go.
+  const tokens = raw.split("\0");
+  let i = 0;
+  while (i < tokens.length) {
+    const field = tokens[i++];
+    if (!field) continue; // skip the empty tail / stray separators
+    const letter = field[0] ?? "";
     const status = toChangeStatus(letter);
-    const oldPath = isRenameOrCopy ? parts[1] : undefined;
-    files.push({ path: filePath, status, ...(oldPath && { oldPath }) });
+    // Renames (`R<score>`) and copies (`C<score>`) carry two paths; every
+    // other status carries one.
+    const isRenameOrCopy = letter === "R" || letter === "C";
+    if (isRenameOrCopy) {
+      const oldPath = tokens[i++];
+      const filePath = tokens[i++];
+      if (!filePath) continue;
+      files.push({
+        path: filePath,
+        status,
+        ...(oldPath && { oldPath }),
+      });
+    } else {
+      const filePath = tokens[i++];
+      if (!filePath) continue;
+      files.push({ path: filePath, status });
+    }
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -140,6 +163,7 @@ export async function getStatus(
     const raw = await gitOutput(repoPath, [
       "diff",
       "--name-status",
+      "-z",
       baseResult.value.sha,
     ]);
     return ok({ files: parseNameStatus(raw), base: baseResult.value });
@@ -191,10 +215,22 @@ function parseRawDiffFlags(rawDiff: string): {
  */
 async function gitOutput(cwd: string, args: string[]): Promise<string> {
   try {
-    const { stdout } = await execFileP("git", args, {
-      cwd,
-      maxBuffer: 128 * 1024 * 1024,
-    });
+    // `-c core.quotePath=false` keeps unicode paths verbatim in the human-
+    // readable diff *headers* (`+++ b/People/Amélie.md`). Without it git
+    // C-quotes "unusual" bytes there — `"People/Am\303\251lie.md"`
+    // (octal-escaped, quote-wrapped). The file *list* doesn't rely on this:
+    // `getStatus` reads `--name-status -z`, whose NUL-delimited records are
+    // never quoted at all (that handles control chars/quotes/backslashes that
+    // `quotePath=false` would still escape). Applied to every git call here so
+    // the diff headers match the NUL-clean file list.
+    const { stdout } = await execFileP(
+      "git",
+      ["-c", "core.quotePath=false", ...args],
+      {
+        cwd,
+        maxBuffer: 128 * 1024 * 1024,
+      },
+    );
     return stdout;
   } catch (e) {
     // `execFile`'s rejection carries `code` (exit status, number) and

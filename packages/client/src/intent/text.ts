@@ -16,7 +16,7 @@ const segmenter =
  *  multi-codepoint emojis (flags, family glyphs) come back as one
  *  cluster; bare codepoints come back as themselves. Empty input
  *  returns the empty string. */
-function firstGrapheme(s: string): string {
+export function firstGrapheme(s: string): string {
   if (s.length === 0) return "";
   if (segmenter) {
     const first = segmenter.segment(s)[Symbol.iterator]().next();
