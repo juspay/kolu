@@ -108,20 +108,19 @@ codex reviews. It returns:
 ```
 { status: "consensus" | "reviewer-error",
   rounds, base, finalVerdict, filesChanged, transcript,
-  workDir, ledgerPath, ledgerHeader }
+  comment }    // the deterministically rendered PR comment body — post it VERBATIM (step 3)
 ```
 
 (each `transcript[]` round also carries a `commit` SHA when that round committed.)
 The debate is recorded as **one small Markdown file per round** —
-`<workDir>/section-NNN.md` (zero-padded). Those section files have two readers:
-the **Claude author** reads them as its cross-round memory (so each round builds
-on the last instead of re-deriving the diff), and **step 3 assembles them into the
-PR comment** — `ledgerHeader` (the outcome header) followed by a `cat` of the
-sections, written to `ledgerPath` (`.codex-debate/debate-log.md`) and posted. The
-comment is therefore a **deterministic concatenation**, never re-rendered through
-an agent — nothing weak ever retypes a large blob. codex is *not* a reader — it
-keeps its own warm session, so re-feeding it the sections would just duplicate its
-context.
+`<workDir>/section-NNN.md` (zero-padded). Those section files are the **Claude
+author's cross-round memory** (so each round builds on the last instead of
+re-deriving the diff). The workflow renders the **same** record into `comment` —
+the outcome header followed by every round's section — so **step 3 just posts that
+string** (`gh pr comment -F`), exactly the way `/lens-debate` does. The comment is
+therefore a **deterministic** render, never re-improvised through an agent —
+nothing weak ever retypes a large blob. codex is *not* a reader — it keeps its own
+warm session, so re-feeding it the sections would just duplicate its context.
 
 - **consensus** — every finding codex raised is resolved (any severity — Claude
   fixed it or codex conceded the dispute). This is the *only* way the debate ends
@@ -168,22 +167,23 @@ the per-round commits sit on the local branch for the human to review):
   `--no-commit`, uncommitted in the working tree). The user reviews, then pushes
   / merges (or runs `/do --from post-implement`) when satisfied.
 - **Post the debate summary to the PR (default).** When a PR exists and
-  `--no-comment` was NOT passed, **assemble the comment from the workflow's
-  output and post it** — no agent re-renders it:
+  `--no-comment` was NOT passed, post the workflow's **deterministically rendered
+  `comment`** verbatim — write it to a file and `gh pr comment <pr> -F <file>`:
 
   ```bash
-  { printf '%s\n\n' "$ledgerHeader"; cat "$workDir"/section-*.md; } > "$ledgerPath"
-  gh pr comment <pr> -F "$ledgerPath"
+  mkdir -p "$repoPath/.codex-debate"   # reviewer-error/--no-commit runs may not have created it
+  printf '%s' "$comment" > "$repoPath/.codex-debate/comment.md"
+  gh pr comment <pr> -F "$repoPath/.codex-debate/comment.md"
   ```
 
-  `ledgerHeader` is the `## Codex ⇄ Claude debate` header (consensus badge, round
-  count, the **`xhigh` reasoning-effort** note); the zero-padded `section-*.md`
-  files are the per-round breakdown of codex's findings and Claude's dispositions
-  that the author also read. So the comment is a **deterministic concatenation**
-  of the same record the commit messages and the author drew on — not an
-  LLM-improvised table. This is an outward-facing write — on by default because
-  the whole point is to leave the review trail on the PR; `--no-comment`
-  suppresses it.
+  The workflow returns `comment` already rendered — the `## Codex ⇄ Claude debate`
+  header (consensus badge, round count, the **`xhigh` reasoning-effort** note)
+  followed by the per-round breakdown of codex's findings and Claude's dispositions
+  that the author also read. So the comment is a **deterministic** render of the
+  same record the commit messages and the author drew on — not an LLM-improvised
+  table. Posting the returned string mirrors `/lens-debate`. This is an
+  outward-facing write — on by default because the whole point is to leave the
+  review trail on the PR; `--no-comment` suppresses it.
 
 ## Safety & notes
 
@@ -222,14 +222,14 @@ the per-round commits sit on the local branch for the human to review):
   `--no-commit`) so the PR history reads as the debate, but the skill never
   pushes or merges. Consensus means "both AIs agree on the committed code," not
   "ship it" — the human reviews the commits and pushes/merges.
-- **Parallel-safe.** Ephemeral scratch (verdicts, rebuttals, the debate ledger)
-  lives under the gitignored, per-worktree `<repoPath>/.codex-debate/`, so debates
-  on many worktrees run at once without clobbering each other — no shared `/tmp`
-  paths, and each worktree's `debate-log.md` is its own.
+- **Parallel-safe.** Ephemeral scratch (verdicts, rebuttals, the per-round
+  sections) lives under the gitignored, per-worktree `<repoPath>/.codex-debate/`,
+  so debates on many worktrees run at once without clobbering each other — no
+  shared `/tmp` paths, and each worktree's section files are its own.
 - **Posts to the PR by default.** When a PR exists, the debate summary — the
-  header + per-round sections assembled into `debate-log.md` — is posted as a PR
-  comment (outward-facing write) unless `--no-comment` is passed — the point is to
-  leave the review trail on the PR.
+  workflow's deterministically rendered `comment` (header + per-round sections) —
+  is posted as a PR comment (outward-facing write) unless `--no-comment` is passed
+  — the point is to leave the review trail on the PR.
 - **Runs to consensus — no cap, no deadlock exit.** The loop ends only when codex
   and Claude agree; it does not bail out at a round cap or declare a "deadlock," because
   a debate that quits without agreement is pointless. The two sides keep arguing

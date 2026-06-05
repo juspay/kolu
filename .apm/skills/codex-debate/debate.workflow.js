@@ -30,16 +30,14 @@ const workDir = `${repoPath}/.codex-debate`
 // DESTRUCTIVE command (the ledger `rm -rf` below); the benign `mkdir -p` prompts
 // elsewhere can tolerate an unquoted path, but a mistargeted `rm -rf` cannot.
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
-// The assembled PR comment. The debate is recorded as one small Markdown file
-// PER ROUND (`section-NNN.md`, written under the gitignored scratch dir). Those
-// section files serve TWO readers: the claude author reads them as its cross-round
-// memory (full history, no inline blob), and the orchestrator concatenates the
-// outcome header + every section into THIS file and posts it (`gh pr comment -F`).
-// So the published summary and the author's context are one record — assembled by
-// deterministic `cat`, never re-rendered through an agent (nothing weak ever
-// retypes a large blob). codex is NOT a reader: it keeps its own warm session, so
-// re-feeding it the ledger would just duplicate what it already remembers.
-const ledgerPath = `${workDir}/debate-log.md`
+// The debate is recorded as one small Markdown file PER ROUND (`section-NNN.md`,
+// written under the gitignored scratch dir) — the claude author reads them as its
+// cross-round memory (full history, no inline blob). The PR comment is rendered
+// from the SAME per-round sections in-process (see renderLedger) and returned as
+// `comment`, so the published summary and the author's context are one record —
+// deterministic, never re-rendered through an agent (nothing weak ever retypes a
+// large blob). codex is NOT a reader: it keeps its own warm session, so re-feeding
+// it the ledger would just duplicate what it already remembers.
 // Commit each round's changes individually (default on). The commit message
 // carries the debate context (codex's findings + claude's dispositions). Never
 // pushes or merges — that stays the human's call.
@@ -286,12 +284,22 @@ function roundLedgerSection(entry) {
 }
 
 // The comment header (small). The full comment is this header followed by the
-// per-round section files, assembled by the orchestrator at post time (SKILL
-// step 3) with a deterministic `cat`. The workflow never renders the whole ledger
-// through an agent, so nothing weak ever retypes a large blob.
+// per-round section files (see renderLedger). The workflow renders the whole
+// comment deterministically from the transcript — no agent ever retypes the blob.
 function ledgerHeader(meta) {
   const badge = meta.status === 'consensus' ? '✅ **Consensus**' : `⚠️ **${meta.status}**`
   return `## Codex ⇄ Claude debate\n\n${badge} after ${meta.rounds} round(s) · codex reviewed at \`xhigh\` reasoning effort · base \`${(meta.base || '').slice(0, 12)}\``
+}
+
+// The whole PR comment, rendered deterministically in-process from the transcript:
+// the outcome header followed by each round's Markdown section. The per-round
+// section files on disk remain the author's cross-round memory (see writeSection);
+// this re-uses the SAME `roundLedgerSection` renderer to assemble the published
+// comment, so the orchestrator posts a ready string (`gh pr comment -F`) exactly
+// the way lens-debate does — no bespoke `cat` glob at the consumer, and nothing
+// weak ever retypes a large blob (the workflow builds the string itself).
+function renderLedger(transcript, meta) {
+  return [ledgerHeader(meta), ...transcript.map(roundLedgerSection)].join('\n\n')
 }
 
 // Zero-pad the round so the section glob (`section-*.md`) sorts in round order
@@ -450,9 +458,11 @@ log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged
 // reached before the author got a turn) would be missing from the comment.
 if (transcript.length > 0) await writeSection(transcript[transcript.length - 1])
 
-// Hand the orchestrator the header and the paths; it assembles the comment
-// (header + section-*.md → ledgerPath) with a deterministic cat and posts it —
-// no agent ever retypes the whole ledger. See SKILL step 3.
+// Hand the orchestrator the ready-to-post comment, rendered deterministically
+// in-process (header + per-round sections) — it just writes the string to a file
+// and posts it (`gh pr comment -F`), the same shape lens-debate uses. The section
+// files on disk stay the author's cross-round memory; this is the published view
+// of that same record, so no agent ever retypes the whole ledger. See SKILL step 3.
 return {
   status,
   rounds: transcript.length,
@@ -460,7 +470,5 @@ return {
   finalVerdict,
   filesChanged,
   transcript,
-  workDir,
-  ledgerPath,
-  ledgerHeader: ledgerHeader({ status, rounds: transcript.length, base }),
+  comment: renderLedger(transcript, { status, rounds: transcript.length, base }),
 }
