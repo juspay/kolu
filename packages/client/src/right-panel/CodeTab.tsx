@@ -119,11 +119,16 @@ const CodeTab: Component<{
   const renderTreeMenu = makeTreeContextMenu({
     view,
     navigate: (target, path) => {
-      // navigate owns the null-no-op: a null path (the adapter's
-      // "directories aren't selectable" verdict) leaves the target's slot
-      // untouched. Keep this guard rather than passing null through to
-      // setSelectedFile — there, null *deletes* the slot, which would clobber
-      // the target's last pick instead of preserving it.
+      // This guard is the *single* enforcement point for the adapter's
+      // documented "null = leave the target's slot untouched" contract
+      // (pierreAdapters.ts `TreeContextMenuNav.navigate`): a null path is the
+      // adapter's "directories aren't selectable" verdict, so the target keeps
+      // its own last pick. It is load-bearing, not removable defensive code —
+      // the adapter never calls setSelectedFile itself, so the no-op lives only
+      // here. Do NOT pass null straight through to setSelectedFile: there, null
+      // *deletes* the slot (useRightPanel.ts), the opposite of "keep last pick".
+      // Hoisting the no-op into navigate's caller forfeits the contract unless
+      // setSelectedFile's null semantics change first.
       if (path !== null) rightPanel.setSelectedFile(target, path);
       setView(target);
     },
