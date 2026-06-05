@@ -519,19 +519,37 @@ const CodeTab: Component<{
     const loc = rightPanel.navigateForward();
     if (loc) applyLocation(loc);
   };
-  // Browser-style back/forward, scoped to the Code tab via an imperative
-  // listener on its root so the chord never reaches a terminal PTY (where
-  // Alt+←/→ are word-nav bytes). Alt+Arrow works cross-platform and isn't in
-  // the global shortcut registry, so it can't shadow a PTY byte the way a
-  // `mod`-based chord would; the toolbar ◀/▶ are the discoverable affordance.
-  // Keyboard events bubble through Pierre's shadow root, so a keystroke on a
-  // focused tree row reaches here. `makeEventListener` auto-cleans on unmount.
-  const attachBackForwardKeys = (el: HTMLDivElement) => {
+  // Browser-style back/forward, scoped to the Code tab via imperative listeners
+  // on its root so the inputs only act while the user is *in* the browser, never
+  // in a terminal. Two channels:
+  //   - keyboard: Alt+←/→ (cross-platform; not in the global shortcut registry,
+  //     so it can't shadow a PTY byte the way a `mod`-based chord would);
+  //   - mouse: the dedicated back/forward (X1/X2) buttons — `button` 3 and 4 —
+  //     with the app's own native history navigation suppressed via
+  //     preventDefault on both down and up, so the buttons drive the Code tab,
+  //     not the SPA.
+  // Both bubble through Pierre's shadow root, so an event over a tree row or the
+  // preview reaches here. `makeEventListener` auto-cleans on unmount.
+  const attachBackForwardInputs = (el: HTMLDivElement) => {
     makeEventListener(el, "keydown", (e) => {
       if (e.altKey && e.key === "ArrowLeft") {
         e.preventDefault();
         goBack();
       } else if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        goForward();
+      }
+    });
+    // Swallow the X1/X2 buttons on the way down so the app doesn't start its own
+    // back/forward navigation; act on the way up.
+    makeEventListener(el, "mousedown", (e) => {
+      if (e.button === 3 || e.button === 4) e.preventDefault();
+    });
+    makeEventListener(el, "mouseup", (e) => {
+      if (e.button === 3) {
+        e.preventDefault();
+        goBack();
+      } else if (e.button === 4) {
         e.preventDefault();
         goForward();
       }
@@ -613,7 +631,7 @@ const CodeTab: Component<{
       <div
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
-        ref={attachBackForwardKeys}
+        ref={attachBackForwardInputs}
       >
         <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
           <div class="flex items-center gap-0.5 shrink-0">

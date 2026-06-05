@@ -443,8 +443,10 @@ re-issues through the same <code>openInCodeTab</code> pipeline rather than a par
 path. Mode-chip toggles don’t record (per-mode memory already restores the file);
 only file views are history steps. The keybind is a Code-tab-scoped <code>Alt+←/→</code>
 listener (a global <code>mod+[</code> would shadow the terminal’s ESC byte on Linux). The
-mouse’s dedicated back/forward (X1/X2) buttons — same intent, pointer-scoped to
-the preview — are a tracked follow-up: <a href="https://github.com/juspay/kolu/issues/1192">#1192</a>.</li>
+mouse’s dedicated back/forward (X1/X2) buttons drive it too — <code>button</code> 3/4,
+pointer-scoped to the preview in kolu and app-wide in the docsite, with the
+app’s native history navigation suppressed so the buttons reach <code>createBrowser</code>
+(<a href="https://github.com/juspay/kolu/issues/1192">#1192</a>).</li>
 </ul></div> </aside>
 <hr/>
 <p><em>Bottom line: don’t extract a history stack — that’s a transformer. Extract the

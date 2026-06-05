@@ -107,6 +107,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-code-tab-back-forward",
-    text: "The Code tab is a browser — follow a link or jump between files, then use the ◀ ▶ buttons (or Alt+←/→) to go back and forward through everywhere you've been",
+    text: "The Code tab is a browser — follow a link or jump between files, then use the ◀ ▶ buttons, Alt+←/→, or your mouse's back/forward buttons to retrace everywhere you've been",
   },
 ];

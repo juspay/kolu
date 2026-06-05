@@ -2,6 +2,7 @@
 
 A tiny **doc browser**: a sidebar of pages, a content pane, and ◀ ▶ buttons that
 go back and forward through the pages you've visited — like any web browser.
+(Your mouse's dedicated back/forward buttons work too.)
 
 ```
 ┌───────────────────────────────────────────────────────────┐

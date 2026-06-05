@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, onCleanup, Show } from "solid-js";
 import { createDocSite } from "../docsite";
 import { DOCS, HOME } from "./docs";
 
@@ -9,6 +9,28 @@ import { DOCS, HOME } from "./docs";
  *  navigation with no extra wiring. */
 export default function App() {
   const site = createDocSite(DOCS, HOME);
+
+  // The mouse's dedicated back/forward (X1/X2) buttons drive the doc-site too —
+  // the whole app is the browser here, so listen app-wide. preventDefault on
+  // both down and up so the page's own history isn't navigated as well.
+  const swallow = (e: MouseEvent) => {
+    if (e.button === 3 || e.button === 4) e.preventDefault();
+  };
+  const act = (e: MouseEvent) => {
+    if (e.button === 3) {
+      e.preventDefault();
+      site.back();
+    } else if (e.button === 4) {
+      e.preventDefault();
+      site.forward();
+    }
+  };
+  window.addEventListener("mousedown", swallow);
+  window.addEventListener("mouseup", act);
+  onCleanup(() => {
+    window.removeEventListener("mousedown", swallow);
+    window.removeEventListener("mouseup", act);
+  });
 
   return (
     <div class="app">
@@ -87,8 +109,8 @@ export default function App() {
       <footer class="foot">
         The ◀ ▶ buttons are <code>createBrowser.canBack()</code> /{" "}
         <code>canForward()</code>; following a link is <code>navigate()</code>.
-        None of it is written in this app — it's the same history controller
-        kolu's Code tab runs.
+        Your mouse's back/forward buttons work here too. None of it is written
+        in this app — it's the same history controller kolu's Code tab runs.
       </footer>
     </div>
   );
