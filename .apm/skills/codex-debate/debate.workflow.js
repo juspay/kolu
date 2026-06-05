@@ -24,6 +24,12 @@ const skillDir = a.skillDir || '.claude/skills/codex-debate'
 // collide on shared /tmp paths, and `.codex-debate/` is gitignored so these
 // files never pollute the diff codex reviews.
 const workDir = `${repoPath}/.codex-debate`
+// POSIX single-quote a path for safe interpolation into a shell command. Wraps
+// in single quotes (so spaces, globs, and shell metacharacters are inert) and
+// escapes any embedded single quote via the '\'' idiom. Used for the one
+// DESTRUCTIVE command (the ledger `rm -rf` below); the benign `mkdir -p` prompts
+// elsewhere can tolerate an unquoted path, but a mistargeted `rm -rf` cannot.
+const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 // The assembled PR comment. The debate is recorded as one small Markdown file
 // PER ROUND (`section-NNN.md`, written under the gitignored scratch dir). Those
 // section files serve TWO readers: the claude author reads them as its cross-round
@@ -366,7 +372,7 @@ log(`Diffing against ${base.slice(0, 12)} (merge-base of ${rawBase} and HEAD), s
 // no true resume (agent() is one-shot, the whole workflow re-runs from scratch),
 // so a fresh start owns a fresh ledger.
 await agent(
-  `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`rm -rf ${workDir} && mkdir -p ${workDir}\`. Do not edit any other file. Do not run git.`,
+  `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`rm -rf -- ${shq(workDir)} && mkdir -p -- ${shq(workDir)}\`. Do not edit any other file. Do not run git.`,
   { label: 'ledger:reset', phase: 'Debate', model: mechModel },
 )
 
