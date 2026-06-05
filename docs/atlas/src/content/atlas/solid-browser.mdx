@@ -2,7 +2,7 @@
 title: The Code tab is a browser → @kolu/solid-browser
 description: The real electricity hiding in the Code tab isn't a history stack — it's the browser. Extract the location + history + link-navigation shell that drives @kolu/solid-fileview over a resolver; back/forward falls out for free, and git becomes an injected resolver.
 kind: feature
-status: proposed
+status: implemented
 maturity: seedling
 parents: [electricity]
 updated: 2026-06-05
@@ -14,7 +14,7 @@ import PrLink from "../../components/PrLink.astro";
 import Cite from "../../components/Cite.astro";
 import D2 from "../../components/D2.astro";
 
-Plan of record · branch `md-back-link` · proposed
+Plan of record · branch `md-back-link` · **phase 1 shipped** in <PrLink pr={1191} />
 
 export const Chrome = () => (
   <div style={{ margin: "1.5rem 0", border: "1px solid #d9d4c6", borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 14px rgba(0,0,0,.07)", fontFamily: "ui-sans-serif,system-ui" }}>
@@ -253,7 +253,7 @@ originating discussion):
 
 | Package | Contents |
 | --- | --- |
-| `packages/solid-browser` <Pill variant="todo">new</Pill> | `createBrowser` navigation engine + `location` / `history` / `linkNav` / `Browser.tsx`. deps: `solid-js`, `@kolu/solid-fileview` (composed for rendering — *no* renderer registry of its own). The agnostic halves of today's `markdownImageSrc` (relative resolution) and `iframePreviewNav` (interception) move here. Zero kolu imports; builds + tests standalone. |
+| `packages/solid-browser` <Pill variant="ok">phase 1</Pill> | Shipped: `location` (`BrowserLocation`) + `linkNav` (`resolveRelativePath`/`resolveLinkHref` + `pathFromPreviewPathname`, codec injected) + 29 unit tests. dep: `@kolu/solid-markdown` (for `url-policy`). Phase 2 adds `createBrowser` (location + history) + `<Browser>` composing `<FileView>` (deps `solid-js`, `@kolu/solid-fileview` then). Zero kolu imports; builds + tests standalone. |
 
 **kolu — the consumer, now just git + chrome:**
 
@@ -263,7 +263,8 @@ originating discussion):
 | `right-panel/CodeTab.tsx` | <Pill variant="warn">slimmed</Pill> Mounts `<Browser>`, injects the `gitResolver` + the FileView renderer list, renders tree + mode chips into its slots. `handleSelect` → `navigate`. |
 | `right-panel/openInCodeTab.ts` | <Pill variant="warn">becomes a binding</Pill> A thin `req → browser.navigate(location)` adapter; the batched-write body becomes the engine's `applyLocation`. |
 | `right-panel/useRightPanel.ts` | <Pill variant="warn">derives</Pill> Hosts the browser; `selectedFile(mode)` derives from the current location instead of owning it. |
-| `right-panel/markdownImageSrc.ts` · `iframePreviewNav.ts` | <Pill variant="ok">halved</Pill> Agnostic resolution/interception relocates into the package; the kolu wrappers (file-route URL, repo mapping) stay. |
+| `right-panel/markdownImageSrc.ts` <Pill variant="ok">shipped</Pill> | Delegates resolution to the package; keeps only the file-route URL build (real composition, not a pass-through). |
+| `right-panel/iframePreviewNav.ts` <Pill variant="ok">deleted</Pill> | The agnostic inversion moved to the package; the kolu codec is bound *inline* at `BrowseIframeRenderer`'s call site — no thin wrapper (see `.agency/code-police.md` → `no-thin-wrapper-functions`). |
 | `input/actions.ts` · `keyboard.test.ts` · `settings/tips.ts` | <Pill variant="ok">+nav</Pill> Back/forward actions, collision test, discoverability tip. |
 
 ### Phasing — extract first, then light the feature
@@ -278,10 +279,23 @@ onto the client that's about to be gutted. There is no forced dependency either
 way; this ordering is chosen for risk isolation and single-purpose diffs (a
 pure-move PR, then a pure-addition PR).
 
+<Callout kind="note" title="As-built: the phase boundary moved (discovered while building phase 1)">
+Reading the code revised where phase 1 stops. The two link paths navigate
+**differently** today — a Markdown link goes through the `openInCodeTab` front
+door (`allowBasenameFallback: false`); an in-iframe link goes straight to
+`onNavigate`→`handleSelect`. **Unifying them behind one `navigate()` is a
+behavior change**, and a `<Browser>` that merely forwards to `<FileView>` is a
+hollow wrapper until it owns a history stack. So phase 1 shipped the honest,
+behavior-preserving slice — the **agnostic primitives** (`location` + `linkNav`),
+extracted and re-consumed — and `createBrowser` / `<Browser>` / the `CodeTab`
+rewire / unified `navigate` moved into **phase 2**, *with* history, where they
+have substance. The lens-defensible decomposition, not the checklist one.
+</Callout>
+
 | Phase | Ships | Risk |
 | --- | --- | --- |
-| **1 · Extract `@kolu/solid-browser`** <Pill variant="todo">electricity lands</Pill> | Lift the engine + `location` / `linkNav` organs into the package, composing `<FileView>` for rendering. `navigate(location)` reproduces today's open-a-file path *exactly*; `CodeTab` becomes the first consumer injecting `gitResolver` + the FileView renderer list. **No back/forward yet** — renders today's formats, navigates as today. kolu LOC drops. | Medium — live-surface refactor, e2e-covered (mirror the `solid-fileview` extraction, <PrLink pr={1082} />). |
-| **2 · Add back/forward** <Pill variant="todo">the feature</Pill> | The user-visible win, riding the extracted browser. This is where the `assign`-vs-`record` seam appears (`navigate` records; `back`/`forward` traverse via `applyLocation` *without* recording), plus the `history` organ, keybinds, back/forward buttons, tree-clicks-as-nav, and scroll-capture-on-leave. Because it lands *in the package*, history never complects into `CodeTab`. | Medium — popstate semantics, scroll-capture timing. |
+| **1 · Extract the primitives** <Pill variant="ok">shipped</Pill> <PrLink pr={1191} /> | `@kolu/solid-browser` = `location` (`BrowserLocation`) + `linkNav` (`resolveRelativePath`/`resolveLinkHref` + `pathFromPreviewPathname`, codec injected), 29 unit tests. kolu re-consumes: `markdownImageSrc` delegates resolution, `iframePreviewNav` binds the codec, `BrowseFileDispatcher` imports `resolveLinkHref`. **Behavior-preserving** — the two nav paths stay distinct. | Low — pure-move + delegation, unit- + e2e-covered. As-built: smaller/safer than first scoped. |
+| **2 · The browser proper + back/forward** <Pill variant="todo">next</Pill> | `createBrowser` (location + **history**: `navigate`/`back`/`forward`) and a `<Browser>` that composes `<FileView>`; `CodeTab` mounts it injecting `gitResolver`; the two nav paths **unify** behind one `navigate` (the intended behavior change). Plus the `assign`-vs-`record` seam, keybinds, back/forward buttons, tree-clicks-as-nav, scroll-capture-on-leave. | Medium — live-surface refactor + popstate/scroll semantics. |
 | **3 · Prove ③** | A second `resolve` consumer (artifact viewer or drishti host-inspector) plugs in — flips this note from "extraction" to "electricity." | — |
 
 ---

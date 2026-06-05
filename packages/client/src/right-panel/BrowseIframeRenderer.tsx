@@ -9,7 +9,9 @@
  *  inert there. */
 
 import { observeIframeNavigation } from "@kolu/artifact-sdk/client";
+import { pathFromPreviewPathname } from "@kolu/solid-browser";
 import { IframeRenderer } from "@kolu/solid-fileview/renderers/iframe";
+import { decodePreviewPath, encodePreviewPath } from "kolu-common/preview";
 import {
   type Component,
   createEffect,
@@ -17,7 +19,12 @@ import {
   onCleanup,
 } from "solid-js";
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
-import { repoPathFromPreviewPathname } from "./iframePreviewNav";
+
+// kolu's preview-URL codec — the same `encodePreviewPath` the server's
+// `buildIframePreviewUrl` uses. Bound here (the inversion's only caller) and
+// passed to the agnostic `pathFromPreviewPathname`, so the inversion can't
+// drift from the encoding without a second source of truth.
+const previewCodec = { encode: encodePreviewPath, decode: decodePreviewPath };
 
 export type BrowseIframeRendererProps = {
   terminalId: string;
@@ -47,7 +54,12 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
     // so a changed `onNavigate`/`url`/`path` is reflected without re-binding
     // the listener, and the effect depends only on the iframe element.
     const dispose = observeIframeNavigation(el, (pathname) => {
-      const next = repoPathFromPreviewPathname(pathname, props.url, props.path);
+      const next = pathFromPreviewPathname(
+        pathname,
+        props.url,
+        props.path,
+        previewCodec,
+      );
       if (next !== null && next !== props.path) props.onNavigate?.(next);
     });
     onCleanup(dispose);
