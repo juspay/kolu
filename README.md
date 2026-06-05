@@ -164,6 +164,7 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 - Shuffle theme — new terminals (and the active one on <kbd>⌘J</kbd>) get a background perceptually distinct from every other open terminal (toggleable; on by default)
 - Dark / light / system UI theme
 - Installed PWA chrome color derives from the server hostname, so app windows from different machines are easier to distinguish
+- **Welcome for new users** — the empty canvas shows three bird's-eye moments (pin kolu as an app · reach it remotely via Tailscale · run agents), above session restore and re-openable anytime via the command palette's **Tutorial** command. The "pin it" card is context-aware: over plain `http://` (a LAN/Tailscale IP, where browsers can't install a PWA without a secure context) it points you to the Tailscale HTTPS fix instead of a dead Install button. Full guide at [kolu.dev/welcome](https://kolu.dev/welcome)
 
 ### Clipboard
 
