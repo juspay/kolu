@@ -119,6 +119,39 @@ describe("fileRefLinkProvider cell geometry", () => {
     expect(fileRefAtCell(term, line.length + 5, 0)).toBeNull();
   });
 
+  it("stops the link end at the visible ref end, not the padded row width", () => {
+    // Real xterm rows are padded with blank cells out to the terminal width.
+    // `translateToString(true)` trims those, but `line.length` still counts
+    // them. A CJK-named ref ending at the last visible char must not have its
+    // link/tap span stretched across the trailing blanks.
+    const text = "メモ/語.ts:3";
+    const refCells = cellsFor(text, isCjk);
+    // Pad to a wider row with 8 blank (width-1, empty) cells, as xterm does.
+    const padded: [string, number][] = [
+      ...refCells,
+      ...Array.from({ length: 8 }, () => ["", 1] as [string, number]),
+    ];
+    const line = fakeLine(padded);
+    const term = fakeTerminal(line);
+    let links: ILink[] | undefined;
+    createFileRefLinkProvider(term, { onActivate: () => {} }).provideLinks(
+      1,
+      (l) => {
+        links = l;
+      },
+    );
+    expect(links).toHaveLength(1);
+    // The whole visible text is the ref. `メモ/語.ts:3` → cell columns:
+    // メ(0-1) モ(2-3) /(4) 語(5-6) .(7) t(8) s(9) :(10) 3(11) → last visible
+    // cell is column 11, so the inclusive 1-based end.x is 12 — NOT the row
+    // width (refCells span + 8 blanks).
+    expect(links?.[0]?.range.end.x).toBe(12);
+    // A tap on the first blank cell (column 12, past the visible ref) must miss.
+    expect(fileRefAtCell(term, 12, 0)).toBeNull();
+    // A tap on the last visible cell (column 11) must still hit.
+    expect(fileRefAtCell(term, 11, 0)?.path).toBe("メモ/語.ts");
+  });
+
   it("keeps the tap span correct for an ASCII ref after a wide prefix", () => {
     const text = "メモ src/a.ts";
     const line = fakeLine(cellsFor(text, isCjk));

@@ -30,11 +30,18 @@ interface CellRefMatch {
  *
  *  The returned array has `text.length + 1` entries; `colFor[i]` is the cell
  *  column where string index `i` starts, and `colFor[text.length]` is the
- *  column one past the last character (so a half-open `[start, end)` string
- *  span maps to a half-open cell span). */
+ *  column one past the last consumed cell (so a half-open `[start, end)` string
+ *  span maps to a half-open cell span). Crucially this end column is the
+ *  *visible* end, not `line.length`: `text` comes from `translateToString(true)`
+ *  which trims trailing blanks, while `line.length` is the full terminal width.
+ *  A ref ending at the last visible char must stop there, not span the trailing
+ *  blank cells out to the row edge. */
 function buildStringToCellMap(line: IBufferLine, text: string): number[] {
   const colFor: number[] = [];
   let strIndex = 0;
+  // The column immediately after the last cell we consumed a character from —
+  // the half-open end of the visible text in cell units.
+  let endCol = 0;
   for (let col = 0; col < line.length && strIndex < text.length; col++) {
     const cell = line.getCell(col);
     if (!cell) break;
@@ -51,11 +58,15 @@ function buildStringToCellMap(line: IBufferLine, text: string): number[] {
       colFor[strIndex] = col;
       strIndex++;
     }
+    // `col + width` is the next column after this glyph (2 for a wide cell, 1
+    // for a normal one). Track it as the running visible end.
+    endCol = col + width;
   }
-  // Any string indices past the walked cells (shouldn't happen for trimmed
-  // text, but guards against a desync) collapse onto the final column.
-  const lastCol = line.length;
-  while (colFor.length <= text.length) colFor.push(lastCol);
+  // `colFor[text.length]` is the half-open end column. Use the visible end we
+  // tracked rather than `line.length` so an end-of-line ref doesn't span the
+  // trailing blank cells. Any further indices (a desync that shouldn't happen
+  // for trimmed text) collapse onto the same column.
+  while (colFor.length <= text.length) colFor.push(endCol);
   return colFor;
 }
 
