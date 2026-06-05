@@ -15,6 +15,7 @@
 
 import Resizable from "@corvu/resizable";
 import { FileTree } from "@kolu/solid-pierre";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
@@ -35,7 +36,12 @@ import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { isMobile, isTouch } from "../useMobile";
-import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
+import {
+  ChevronRightIcon,
+  FileBrowseIcon,
+  FileDiffIcon,
+  GitBranchIcon,
+} from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import { renderTreeContextMenu } from "../ui/pierreAdapters";
@@ -57,7 +63,7 @@ import {
   openInCodeTab,
   pendingOpen,
 } from "./openInCodeTab";
-import { useRightPanel } from "./useRightPanel";
+import { type BrowserLocation, useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -301,6 +307,21 @@ const CodeTab: Component<{
         }
         setSelectedPath(rel);
         setHandled({ request: req, resolvedPath: rel });
+        // Record the front-door open in history *with* its line ref, so a
+        // later back() re-issues it through this same pipeline and repaints
+        // the highlight (cheap-v1 "restore where you were"). Idempotent on
+        // mode+path, so a re-click of the same path:line refreshes the entry
+        // in place rather than deepening history. The echoed Pierre
+        // `onSelect(rel)` is suppressed in `handleSelect` so it can't clobber
+        // this ref with a plain (mode, path) record.
+        rightPanel.recordNavigation({
+          mode: req.targetMode,
+          path: rel,
+          ref:
+            req.ref.startLine !== null && req.ref.endLine !== null
+              ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
+              : undefined,
+        });
       },
       { defer: true },
     ),
@@ -427,6 +448,67 @@ const CodeTab: Component<{
       setHandled(null);
     }
     setSelectedPath(path);
+    // Record the visit — unless this is Pierre's echoed re-select of the file a
+    // front-door open just resolved (its resolution effect already recorded it
+    // *with* the line ref; re-recording here would overwrite the ref with a
+    // plain entry). A genuine tree/iframe pick records a (mode, path) entry,
+    // dropping the line highlight exactly as the selection itself does.
+    if (h?.resolvedPath !== path) {
+      rightPanel.recordNavigation({ mode: view(), path });
+    }
+  };
+
+  // Re-apply a history location on back/forward. A location carrying a line
+  // ref is re-issued through the same front door a terminal `path:N` click
+  // uses, so the existing resolve → `handled` → `selectedRange` pipeline
+  // repaints the line (cheap-v1 "restore where you were"); a plain selection
+  // just moves the mode + file. Either way the `recordNavigation` these
+  // re-applies trigger is idempotent on mode+path, so re-applying never
+  // deepens or forks history — the cursor stays where back()/forward() left it.
+  const applyLocation = (loc: BrowserLocation) => {
+    if (loc.ref && loc.path !== null) {
+      const repo = repoPath();
+      if (repo === null) return;
+      openInCodeTab({
+        ref: {
+          path: loc.path,
+          startLine: loc.ref.startLine,
+          endLine: loc.ref.endLine,
+        },
+        repoRoot: repo,
+        targetMode: loc.mode,
+        allowBasenameFallback: false,
+      });
+      return;
+    }
+    setView(loc.mode);
+    rightPanel.setSelectedFile(loc.mode, loc.path);
+  };
+  const goBack = () => {
+    const loc = rightPanel.navigateBack();
+    if (loc) applyLocation(loc);
+  };
+  const goForward = () => {
+    const loc = rightPanel.navigateForward();
+    if (loc) applyLocation(loc);
+  };
+  // Browser-style back/forward, scoped to the Code tab via an imperative
+  // listener on its root so the chord never reaches a terminal PTY (where
+  // Alt+←/→ are word-nav bytes). Alt+Arrow works cross-platform and isn't in
+  // the global shortcut registry, so it can't shadow a PTY byte the way a
+  // `mod`-based chord would; the toolbar ◀/▶ are the discoverable affordance.
+  // Keyboard events bubble through Pierre's shadow root, so a keystroke on a
+  // focused tree row reaches here. `makeEventListener` auto-cleans on unmount.
+  const attachBackForwardKeys = (el: HTMLDivElement) => {
+    makeEventListener(el, "keydown", (e) => {
+      if (e.altKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        goBack();
+      } else if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        goForward();
+      }
+    });
   };
 
   const treeError = (): Error | undefined =>
@@ -504,8 +586,33 @@ const CodeTab: Component<{
       <div
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
+        ref={attachBackForwardKeys}
       >
         <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+          <div class="flex items-center gap-0.5 shrink-0">
+            <button
+              type="button"
+              data-testid="code-tab-back-button"
+              aria-label="Go back"
+              title="Go back (Alt+←)"
+              disabled={!rightPanel.canNavigateBack()}
+              onClick={goBack}
+              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronRightIcon class="h-3.5 w-3.5 rotate-180" />
+            </button>
+            <button
+              type="button"
+              data-testid="code-tab-forward-button"
+              aria-label="Go forward"
+              title="Go forward (Alt+→)"
+              disabled={!rightPanel.canNavigateForward()}
+              onClick={goForward}
+              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronRightIcon class="h-3.5 w-3.5" />
+            </button>
+          </div>
           <ModeChipPicker
             view={view()}
             onViewChange={setView}

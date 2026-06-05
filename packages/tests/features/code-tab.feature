@@ -384,6 +384,35 @@ Feature: Code tab (review + browse)
     When I click the file "greeting.txt" in the file browser
     Then the file content should contain "hello world"
 
+  # ── Back / forward navigation (phase 2: the Code tab is a browser) ──
+  # Selecting files records history in @kolu/solid-browser's createBrowser; the
+  # toolbar ◀ ▶ buttons retrace it across the files you've viewed. The buttons
+  # are disabled at the ends of the stack (canBack/canForward), proving the
+  # reactive enablement is wired through the controller.
+  Scenario: Code tab back and forward retrace file navigation
+    Given a Code tab in "browse" mode showing files:
+      | path  | content |
+      | a.txt | aaa     |
+      | b.txt | bbb     |
+      | c.txt | ccc     |
+    When I click the file "a.txt" in the file browser
+    Then the selected file should show content "aaa"
+    And the Code tab "back" button should be disabled
+    When I click the file "b.txt" in the file browser
+    Then the selected file should show content "bbb"
+    When I click the file "c.txt" in the file browser
+    Then the selected file should show content "ccc"
+    And the Code tab "forward" button should be disabled
+    When I go back in the Code tab
+    Then the selected file should show content "bbb"
+    When I go back in the Code tab
+    Then the selected file should show content "aaa"
+    When I go forward in the Code tab
+    Then the selected file should show content "bbb"
+    When I go forward in the Code tab
+    Then the selected file should show content "ccc"
+    And the Code tab "forward" button should be disabled
+
   Scenario: File browser wraps long lines by default
     When I run "git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
     And I run "printf 'prefix-' > long.txt && printf '%*s' 240 '' | tr ' ' x >> long.txt && printf '\n' >> long.txt"

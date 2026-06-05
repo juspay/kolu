@@ -14,7 +14,7 @@ import PrLink from "../../components/PrLink.astro";
 import Cite from "../../components/Cite.astro";
 import D2 from "../../components/D2.astro";
 
-Plan of record · branch `md-back-link` · **phase 1 shipped** in <PrLink pr={1191} />
+Plan of record · branch `md-back-link` · **phases 1 + 2 shipped** in <PrLink pr={1191} />
 
 export const Chrome = () => (
   <div style={{ margin: "1.5rem 0", border: "1px solid #d9d4c6", borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 14px rgba(0,0,0,.07)", fontFamily: "ui-sans-serif,system-ui" }}>
@@ -190,7 +190,10 @@ not yet proven electricity" — drishti is cited there as the *proof* `@kolu/sur
 was real, not its point. Until a second app actually plugs a different `resolve`
 into `@kolu/solid-browser`, this is an **extraction with a credible graduation
 path**, not a closed case. The honest framing is "the Code tab is a browser; here
-is the seam that lets it leave."
+is the seam that lets it leave." **Update (phase 2):** [`example/docsite`](https://github.com/juspay/kolu/tree/md-back-link/packages/solid-browser/example/docsite)
+is now a standalone second host reusing `createBrowser` — in-repo proof of reuse,
+exactly the bar `@kolu/surface`'s own examples clear. A different *application*
+injecting its own `resolve` remains the closing argument.
 </Callout>
 
 ## The design
@@ -253,19 +256,18 @@ originating discussion):
 
 | Package | Contents |
 | --- | --- |
-| `packages/solid-browser` <Pill variant="ok">phase 1</Pill> | Shipped: `relativePath.ts` (`resolveRelativePath`/`resolveLinkHref`) + `previewPath.ts` (`pathFromPreviewPathname`, codec injected) + 29 unit tests. dep: `@kolu/url-shape` (the DOM-free `hasOwnScheme` leaf — extracted by the lens-debate so this never depends on a *rendering* package). Phase 2 adds the `BrowserLocation` model + `createBrowser` (history) + `<Browser>` composing `<FileView>` (deps `solid-js`, `@kolu/solid-fileview` then). Zero kolu imports; builds + tests standalone. |
+| `packages/solid-browser` <Pill variant="ok">phases 1 + 2</Pill> | Shipped: `relativePath.ts` + `previewPath.ts` (phase 1) and `createBrowser.ts` — the generic reactive **history** controller (phase 2) — with 39 unit tests + a standalone [`example/docsite`](https://github.com/juspay/kolu/tree/md-back-link/packages/solid-browser/example/docsite) second host. deps: `@kolu/url-shape` (the DOM-free `hasOwnScheme` leaf) + `solid-js` (`createBrowser`'s reactive stack). `<Browser>` composing `<FileView>` stays **deferred** (see the phase-2 as-built callout). Zero kolu imports; builds + tests standalone. |
 
 **kolu — the consumer, now just git + chrome:**
 
 | File | Change |
 | --- | --- |
-| `right-panel/gitResolver.ts` <Pill variant="todo">new (domain)</Pill> | `(repoPath, mode) → file content`. Where git/modes/`repoRoot` live — out of the engine. |
-| `right-panel/CodeTab.tsx` | <Pill variant="warn">slimmed</Pill> Mounts `<Browser>`, injects the `gitResolver` + the FileView renderer list, renders tree + mode chips into its slots. `handleSelect` → `navigate`. |
-| `right-panel/openInCodeTab.ts` | <Pill variant="warn">becomes a binding</Pill> A thin `req → browser.navigate(location)` adapter; the batched-write body becomes the engine's `applyLocation`. |
-| `right-panel/useRightPanel.ts` | <Pill variant="warn">derives</Pill> Hosts the browser; `selectedFile(mode)` derives from the current location instead of owning it. |
-| `right-panel/markdownImageSrc.ts` <Pill variant="ok">shipped</Pill> | Delegates resolution to the package; keeps only the file-route URL build (real composition, not a pass-through). |
-| `right-panel/iframePreviewNav.ts` <Pill variant="ok">deleted</Pill> | The agnostic inversion moved to the package; the kolu codec is bound *inline* at `BrowseIframeRenderer`'s call site — no thin wrapper (see `.agency/code-police.md` → `no-thin-wrapper-functions`). |
-| `input/actions.ts` · `keyboard.test.ts` · `settings/tips.ts` | <Pill variant="ok">+nav</Pill> Back/forward actions, collision test, discoverability tip. |
+| `right-panel/useRightPanel.ts` <Pill variant="ok">phase 2</Pill> | Hosts a per-terminal `Browser<BrowserLocation>` (in-memory; seeded on restore, dropped on teardown) and exposes `recordNavigation`/`navigateBack`/`navigateForward`/`canNavigateBack`/`canNavigateForward`. `selectedFileByMode` **stays** the render + restore truth; history is *additive* over it. |
+| `right-panel/CodeTab.tsx` <Pill variant="ok">phase 2</Pill> | Records every selection (tree click, in-iframe link, resolved front-door open) into history; ◀ ▶ toolbar buttons + a scoped `Alt+←/→` listener re-apply earlier locations. Cheap-v1 re-highlight rides the existing front-door pipeline. |
+| `gitResolver.ts` · `<Browser>` · unified `navigate` <Pill variant="todo">deferred</Pill> | The `resolve(location)→FileData` injection, the `<Browser>` component, and folding the two nav paths into one `navigate` wait on a uniform viewport — diffs don't fit `FileData`, so a `<Browser>` would wrap only browse mode (hollow). See the phase-2 as-built callout. |
+| `right-panel/markdownImageSrc.ts` <Pill variant="ok">phase 1</Pill> | Delegates resolution to the package; keeps only the file-route URL build (real composition, not a pass-through). |
+| `right-panel/iframePreviewNav.ts` <Pill variant="ok">deleted (phase 1)</Pill> | The agnostic inversion moved to the package; the kolu codec is bound *inline* at `BrowseIframeRenderer`'s call site — no thin wrapper (`.agency/code-police.md` → `no-thin-wrapper-functions`). |
+| `settings/tips.ts` <Pill variant="ok">+nav</Pill> | A discoverability tip for back/forward. (No `input/actions.ts` entry: the keybind is a Code-tab-scoped listener, not a global action — a global `mod+[` would shadow the terminal's ESC byte on Linux.) |
 
 ### Phasing — extract first, then light the feature
 
@@ -298,9 +300,34 @@ a rendering one.)*
 
 | Phase | Ships | Risk |
 | --- | --- | --- |
-| **1 · Extract the primitives** <Pill variant="ok">shipped</Pill> <PrLink pr={1191} /> | `@kolu/solid-browser` = `relativePath` (`resolveRelativePath`/`resolveLinkHref`) + `previewPath` (`pathFromPreviewPathname`, codec injected) over the `@kolu/url-shape` leaf, 29 unit tests. kolu re-consumes: `markdownImageSrc` delegates resolution, `BrowseIframeRenderer` binds the `previewPathCodec`, `BrowseFileDispatcher` imports `resolveLinkHref`. **Behavior-preserving** — the two nav paths stay distinct. | Low — pure-move + delegation, unit- + e2e-covered. As-built: smaller/safer than first scoped. |
-| **2 · The browser proper + back/forward** <Pill variant="todo">next</Pill> | `createBrowser` (location + **history**: `navigate`/`back`/`forward`) and a `<Browser>` that composes `<FileView>`; `CodeTab` mounts it injecting `gitResolver`; the two nav paths **unify** behind one `navigate` (the intended behavior change). Plus the `assign`-vs-`record` seam, keybinds, back/forward buttons, tree-clicks-as-nav, scroll-capture-on-leave. | Medium — live-surface refactor + popstate/scroll semantics. |
-| **3 · Prove ③** | A second `resolve` consumer (artifact viewer or drishti host-inspector) plugs in — flips this note from "extraction" to "electricity." | — |
+| **1 · Extract the primitives** <Pill variant="ok">shipped</Pill> <PrLink pr={1191} /> | `@kolu/solid-browser` = `relativePath` + `previewPath` over the `@kolu/url-shape` leaf. kolu re-consumes: `markdownImageSrc` delegates resolution, `BrowseIframeRenderer` binds the `previewPathCodec`, `BrowseFileDispatcher` imports `resolveLinkHref`. **Behavior-preserving** — the two nav paths stay distinct. | Low — pure-move + delegation, unit- + e2e-covered. |
+| **2 · The browser proper + back/forward** <Pill variant="ok">shipped</Pill> <PrLink pr={1191} /> | `createBrowser<L>()` — the generic reactive **history** controller (`navigate`/`back`/`forward`/`current`/`canBack`/`canForward`; forward-truncation; idempotent on same entry). kolu wires it into `useRightPanel`/`CodeTab`: every selection is **recorded**, ◀ ▶ buttons + scoped `Alt+←/→` re-apply, cheap-v1 re-highlight rides the front door. **As-built deltas** (callout below): history is *additive* over `selectedFileByMode` (still the render truth), mode-chips don't record, `<Browser>`/`gitResolver`/unified `navigate` deferred. | Medium — live-surface refactor; the audit + the #818 regression suite guard the selection invariants. |
+| **3 · Prove ③** <Pill variant="warn">in-repo demo landed</Pill> | [`example/docsite`](https://github.com/juspay/kolu/tree/md-back-link/packages/solid-browser/example/docsite) — a standalone doc browser over its own `{ slug }` location — reuses `createBrowser` unchanged (built + tested in CI). In-repo proof of reuse, exactly the bar `@kolu/surface`'s examples clear; a *different application* injecting its own `resolve` (drishti, an artifact viewer) is still the closing argument. | Low — pure-logic reuse. |
+
+<Callout kind="note" title="As-built: phase 2 — the substance is the history controller, not a <Browser> shell">
+The adversarial audit (run before writing a line) reshaped phase 2 around what the
+*real* Code tab is. Three load-bearing corrections:
+
+- **`createBrowser` is the seam, not `<Browser>`.** Diffs (Local/Branch) render
+through `BrowseDiffView`, **not** `<FileView>` — they don't fit `FileData` — so a
+`<Browser>` that "composes `<FileView>`" could only ever host *browse* mode. The
+mode-agnostic thing worth extracting is the **history controller**; it lives
+*above* both rendering paths, in `useRightPanel`. `<Browser>` stays deferred (the
+same hollow-wrapper logic phase 1 used to defer it).
+- **History records; `selectedFileByMode` still renders.** The persisted per-mode
+selection stays the single render + restore truth; the stack is *additive*,
+recording the sequence so back/forward can re-apply it. `navigate` is
+**idempotent on `mode+path`**, which dissolves the re-entrancy hazards (Pierre's
+echoed `onSelect`, the front-door resolution effect re-firing) into harmless
+in-place refreshes — the one property that must hold is "recorded at least once
+per real destination," which rides the e2e-covered `setSelectedFile`.
+- **Cheap-v1 re-highlight reuses the front door.** The line highlight is driven by
+the `handled()` resolution record, not a side signal — so back-to-a-line
+re-issues through the same `openInCodeTab` pipeline rather than a parallel paint
+path. Mode-chip toggles don't record (per-mode memory already restores the file);
+only file views are history steps. The keybind is a Code-tab-scoped `Alt+←/→`
+listener (a global `mod+[` would shadow the terminal's ESC byte on Linux).
+</Callout>
 
 ---
 
@@ -309,6 +336,7 @@ a rendering one.)*
 (`@kolu/solid-fileview`, which it composes); what's left smeared across the
 client is the location + history + link-nav shell. Pull it into
 `@kolu/solid-browser`, inject git as a resolver, and back/forward arrives for
-free. It clears [electricity](electricity)'s hard-volatility
-bar where "history" didn't — proof of graduation (③) still pending a second
-consumer.*
+free. It clears [electricity](electricity)'s hard-volatility bar where "history"
+didn't. Phase 2 shipped the history controller + the back/forward feature, and
+`example/docsite` is a real in-repo second consumer of it — a different
+*application* injecting its own `resolve` is the closing argument.*

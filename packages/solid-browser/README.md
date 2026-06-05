@@ -2,15 +2,21 @@
 
 The navigation core of a content browser — the layer *above* a single document that decides **which** document you're looking at and **where its links go**. Rendering one document is [`@kolu/solid-fileview`](../solid-fileview)'s job; this package is the shell that drives it.
 
-Phase 1 ships the **navigation math**: three pure, framework-free functions that turn a link a user clicked into the next document path. No git, no repos, no DOM, no SolidJS — a "document path" is whatever opaque string your host resolves content from (a repo-relative path, an HTTP path, an ssh target).
+The package has two host-agnostic layers:
 
-| Function | The question it answers | In → out |
+- **Navigation math** — three pure, framework-free functions that turn a link a user clicked into the next document path. No git, no repos, no DOM, no SolidJS.
+- **History** — `createBrowser`, a small reactive (solid-js) controller that turns a sequence of "navigate here" calls into working **back/forward** over any location type.
+
+A "document path" — or, for `createBrowser`, a "location" — is whatever opaque value *your* host resolves content from: a repo-relative path + git mode, an HTTP path, an ssh target, a doc slug.
+
+| Export | The question it answers | In → out |
 |----------|-------------------------|----------|
 | `resolveRelativePath(fromPath, ref)` | "An author wrote `![](logo.png)` in this doc — what path is that?" | `("docs/readme.md", "logo.png")` → `"docs/logo.png"` |
 | `resolveLinkHref(fromPath, href)` | "…and where does `[guide](./guide.md#install)` go?" | `("docs/readme.md", "./guide.md#install")` → `"docs/guide.md"` |
 | `pathFromPreviewPathname(reported, currentUrl, currentPath, codec)` | "A sandboxed iframe just navigated itself — which document is it showing now?" | see [the preview walkthrough](#following-a-link-inside-a-sandboxed-preview) |
+| `createBrowser<L>()` | "The user followed three links — how do I give them back/forward?" | see [the history walkthrough](#going-back-and-forward) |
 
-The first two are GitHub's relative-link rules. The third inverts a host's preview-URL encoding through an **injected codec**, so the package never learns how your URLs are shaped.
+The first two are GitHub's relative-link rules. The third inverts a host's preview-URL encoding through an **injected codec**, so the package never learns how your URLs are shaped. The fourth owns the back/forward stack so a host doesn't reinvent it.
 
 ## Install
 
@@ -25,7 +31,7 @@ Workspace-private. Add it to whichever package does the navigating:
 }
 ```
 
-Its only runtime dependency is the zero-dep [`@kolu/url-shape`](../url-shape) leaf (for the "does this ref carry its own scheme?" test) — so importing it never drags in a rendering stack.
+Its runtime dependencies are the zero-dep [`@kolu/url-shape`](../url-shape) leaf (for the "does this ref carry its own scheme?" test) and `solid-js` (for `createBrowser`'s reactive stack) — so importing it never drags in a rendering stack.
 
 ## Tutorial
 
@@ -115,16 +121,48 @@ observeIframeNavigation(iframeEl, (pathname) => {
 
 > **Why a codec instead of a dependency?** kolu's encoder (`encodePreviewPath`) lives in `kolu-common/preview`; this package must not depend on kolu. Injecting `{ encode, decode }` keeps the inversion host-agnostic while guaranteeing it inverts *your* exact encoding. A different app plugs in a different codec and reuses the same function.
 
+## Going back and forward
+
+The three functions above answer *"where does this link go?"*. `createBrowser` answers the next question: *"the user has been to five places — how do I give them back and forward?"* It's a reactive history controller over an **opaque location type** — it stores, compares, and replays locations and knows nothing about what a location *is*.
+
+```ts
+import { createBrowser } from "@kolu/solid-browser";
+
+// Your host picks the location type. Here: a doc slug.
+const browser = createBrowser<{ slug: string }>({
+  initial: { slug: "index" },
+  // Optional: two locations that name the "same page" refresh the current
+  // entry in place instead of recording a duplicate.
+  isSameEntry: (a, b) => a.slug === b.slug,
+});
+
+browser.navigate({ slug: "guide" }); // record + go
+browser.navigate({ slug: "api" });
+browser.current(); // → { slug: "api" }
+browser.canBack(); // → true   (drives a ◀ button's `disabled`)
+
+browser.back(); // → { slug: "guide" }   (returns the location to apply)
+browser.back(); // → { slug: "index" }
+browser.forward(); // → { slug: "guide" }
+
+browser.navigate({ slug: "faq" }); // navigating after a back forks history:
+browser.canForward(); // → false  (the "guide → api" tail was discarded)
+```
+
+`current`/`canBack`/`canForward` are reactive accessors, so a toolbar's ◀/▶ enablement tracks navigation with no extra wiring. The host owns the two things the controller deliberately doesn't: **applying** a returned location (rendering it) and **resolving** it to content.
+
+> **Why `back()` returns the location instead of applying it.** The controller can't render your documents — only your host can. So traversal returns *what to show* and leaves *how to show it* to you. This is exactly the split kolu's Code tab uses: `back()` yields a `{ mode, path }`, and the Code tab re-applies it (sets the mode, re-selects the file, repaints the line highlight).
+
+See [`example/docsite`](example/docsite) for a complete second host — a tiny doc browser — built on `createBrowser` in ~40 lines.
+
 ## What's NOT here (yet) — the roadmap
 
-Phase 1 is deliberately just the math. The browser *proper* lands in phase 2, where it has substance:
+The navigation math and the history controller are both here. One piece is deliberately still out:
 
-- **`BrowserLocation`** — the typed "URL" of a document space (path + optional line focus). Ships with its first consumer, not before.
-- **`createBrowser`** — a location + **history** controller: `navigate` / `back` / `forward` over a stack of locations.
-- **`<Browser>`** — a SolidJS component that composes `<FileView>` and owns link interception, so a host mounts one component instead of wiring the callbacks above by hand.
+- **`<Browser>`** — a SolidJS component that composes `<FileView>`, owns link interception, and drives a `createBrowser` internally, so a host mounts one component instead of wiring the callbacks + history by hand. It's deferred because it only pays off once a host's *viewport* is uniform: kolu's Code tab still renders diffs through a different path than documents, so a `<Browser>` there would wrap just one of them. It ships with the host that can use it whole. (`BrowserLocation` is likewise the host's concern — kolu defines its own `{ mode, path, ref }`; the generic `createBrowser<L>` takes any location type.)
 
-These arrive *together with history* on purpose: a `<Browser>` that merely forwards to `<FileView>` would be a hollow wrapper — history is what earns the component. Background and the full plan: [`docs/atlas/.../solid-browser.mdx`](../../docs/atlas/src/content/atlas/solid-browser.mdx).
+Background and the full plan: [`docs/atlas/.../solid-browser.mdx`](../../docs/atlas/src/content/atlas/solid-browser.mdx).
 
 ## Testing
 
-`pnpm --filter @kolu/solid-browser test:unit` — 29 cases across `relativePath.test.ts` (GitHub-rule resolution, the reject set, traversal/escape attacks) and `previewPath.test.ts` (codec round-trips for any path, the out-of-route `null` cases).
+`pnpm --filter @kolu/solid-browser test:unit` — 39 cases across `relativePath.test.ts` (GitHub-rule resolution, the reject set, traversal/escape attacks), `previewPath.test.ts` (codec round-trips, the out-of-route `null` cases), and `createBrowser.test.ts` (the history stack: record/traverse, forward-truncation, in-place refresh). The [`example/docsite`](example/docsite) second host carries its own reuse-proof suite.

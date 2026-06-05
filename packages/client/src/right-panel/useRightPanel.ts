@@ -18,6 +18,7 @@
  *  Callers read/write for the *active* terminal — the API is parameterless,
  *  resolving the current terminal id from `useTerminalStore` internally. */
 
+import { type Browser, createBrowser } from "@kolu/solid-browser";
 import {
   type CodeTabView,
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
@@ -31,6 +32,27 @@ import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { isMobile } from "../useMobile";
 import { client, preferences, updatePreferences } from "../wire";
+
+/** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
+ *  history records. `mode` is the All/Local/Branch sub-view, carried *inside*
+ *  the location so back/forward cross modes naturally; `path` is the selected
+ *  repo-relative file (null when the mode has no selection yet); `ref` is an
+ *  optional line range to re-highlight when the entry is revisited (terminal
+ *  `path:N` links, comment jumps), absent for plain file picks. */
+export type BrowserLocation = {
+  mode: CodeTabView;
+  path: string | null;
+  ref?: { startLine: number; endLine: number };
+};
+
+/** Two locations name the "same page" — same file in the same mode — when
+ *  their mode+path match. `navigate` then refreshes the entry's `ref` in place
+ *  instead of recording a duplicate (re-opening the current file at a new line
+ *  doesn't deepen history). This idempotence is what lets every navigation
+ *  funnel — including Pierre's echoed re-selects — call `recordNavigation`
+ *  without risking double history entries. */
+const SAME_LOCATION = (a: BrowserLocation, b: BrowserLocation): boolean =>
+  a.mode === b.mode && a.path === b.path;
 
 const MIN_PANEL_SIZE = 0.05;
 /** Lower bound for the Code-tab vertical split — keep the tree and content
@@ -57,6 +79,30 @@ const [perTerminal, setPerTerminal] = createStore<
  *  `RightPanelDrawer`'s mobile branch owns the open/close gestures; the
  *  desktop branch ignores this signal entirely. */
 const [drawerOpen, setDrawerOpen] = createSignal(false);
+
+/** Per-terminal navigation history — the back/forward stack for each
+ *  terminal's Code tab. In-memory only: history is session-local, and the
+ *  persisted `selectedFileByMode` remains the single render + restore truth.
+ *  This stack only *records* the sequence of visited locations so back/forward
+ *  can re-apply earlier ones. Keyed identically to `perTerminal`, seeded in
+ *  `seedPanel`, dropped in `removePanel`; lazily created for a fresh terminal
+ *  on its first navigation. */
+const browsers = new Map<TerminalId, Browser<BrowserLocation>>();
+
+/** Resolve (creating if absent) a terminal's history controller. A fresh
+ *  terminal starts with an empty stack — its first `navigate` seeds the first
+ *  entry; a restored terminal is seeded in `seedPanel` from its last-viewed
+ *  location. The instance is stable, so reading `.canBack()/.canForward()`
+ *  through it is reactive on the controller's own signals — toolbar enablement
+ *  tracks navigation without extra wiring. */
+function browserFor(id: TerminalId): Browser<BrowserLocation> {
+  let b = browsers.get(id);
+  if (!b) {
+    b = createBrowser<BrowserLocation>({ isSameEntry: SAME_LOCATION });
+    browsers.set(id, b);
+  }
+  return b;
+}
 
 function ensureState(id: TerminalId): void {
   if (perTerminal[id]) return;
@@ -223,17 +269,63 @@ export function useRightPanel() {
       });
     },
 
+    // ── Navigation history (back / forward) ──────────────────────────
+    /** Record a visit to `loc` in the active terminal's history — the
+     *  address-bar path. Idempotent on mode+path (re-recording the current
+     *  location refreshes its `ref` in place rather than duplicating it), so
+     *  it's safe to call from every navigation funnel — tree click, in-iframe
+     *  link, resolved front-door open, and Pierre's echoed re-selects alike.
+     *  Records only; `selectedFileByMode` stays the render truth. */
+    recordNavigation: (loc: BrowserLocation) => {
+      const id = store.activeId();
+      if (id !== null) browserFor(id).navigate(loc);
+    },
+    /** Step back one entry, returning the now-current location to re-apply (or
+     *  null when there's nowhere to go). Traversal, not a new visit — does NOT
+     *  record. */
+    navigateBack: (): BrowserLocation | null => {
+      const id = store.activeId();
+      return id === null ? null : browserFor(id).back();
+    },
+    /** Step forward one entry, returning the now-current location (or null). */
+    navigateForward: (): BrowserLocation | null => {
+      const id = store.activeId();
+      return id === null ? null : browserFor(id).forward();
+    },
+    /** Reactive: is there an earlier entry to return to? Drives ◀ enablement. */
+    canNavigateBack: (): boolean => {
+      const id = store.activeId();
+      return id === null ? false : browserFor(id).canBack();
+    },
+    /** Reactive: is there a later entry to advance to? Drives ▶ enablement. */
+    canNavigateForward: (): boolean => {
+      const id = store.activeId();
+      return id === null ? false : browserFor(id).canForward();
+    },
+
     // ── Session restore + lifecycle ──────────────────────────────────
     /** Seed per-terminal state from server data — no report-back to
      *  server. Called by `useSessionRestore` during hydration and after
      *  recreating a saved terminal. */
     seedPanel: (id: TerminalId, state: RightPanelPerTerminalState) => {
       setPerTerminal(id, state);
+      // Seed the history with the restored location so back/forward have a
+      // starting point matching what's shown — but only when a file was
+      // actually selected; a restored-but-empty mode starts with no history.
+      const path = state.selectedFileByMode?.[state.codeMode] ?? null;
+      browsers.set(
+        id,
+        createBrowser<BrowserLocation>({
+          initial: path !== null ? { mode: state.codeMode, path } : undefined,
+          isSameEntry: SAME_LOCATION,
+        }),
+      );
     },
     /** Clean up state for a terminal that no longer exists. Mirrors
      *  `useSubPanel.removePanel`. */
     removePanel: (id: TerminalId) => {
       setPerTerminal(produce((s) => delete s[id]));
+      browsers.delete(id);
     },
   } as const;
 }
