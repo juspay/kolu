@@ -16,7 +16,11 @@
 import Resizable from "@corvu/resizable";
 import { FileTree } from "@kolu/solid-pierre";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type {
+  CodeTabView,
+  TerminalId,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type Component,
@@ -168,8 +172,23 @@ const CodeTab: Component<{
   // search-reset effect below; collision-safe by construction since
   // `view()` is a typed enum and `repoPath()` is absolute-or-null.
   const selectedPath = (): string | null => rightPanel.selectedFile(view());
-  const setSelectedPath = (path: string | null) => {
-    rightPanel.setSelectedFile(view(), path);
+  // The single selection funnel: set the shown file AND record it in history.
+  // Recording can never drift from selection because they are one call —
+  // routing every selection-mutation site through here replaces the old
+  // convention of placing a paired `recordNavigation` next to each write.
+  // Recording is skipped when `record === false` (mechanical clears, history
+  // replay) or when `path === null` (clearing the slot is not a navigation).
+  const select = (
+    mode: CodeTabView,
+    path: string | null,
+    opts?: {
+      ref?: { startLine: number; endLine: number };
+      record?: boolean;
+    },
+  ) => {
+    rightPanel.setSelectedFile(mode, path);
+    if (opts?.record === false || path === null) return;
+    rightPanel.recordNavigation({ mode, path, ref: opts?.ref });
   };
   const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
 
@@ -332,8 +351,6 @@ const CodeTab: Component<{
           setHandled({ request: req, resolvedPath: null });
           return;
         }
-        setSelectedPath(rel);
-        setHandled({ request: req, resolvedPath: rel });
         // Record the front-door open in history *with* its line ref, so a
         // later back() re-issues it through this same pipeline and repaints
         // the highlight (cheap-v1 "restore where you were"). Idempotent on
@@ -341,14 +358,13 @@ const CodeTab: Component<{
         // in place rather than deepening history. The echoed Pierre
         // `onSelect(rel)` is suppressed in `handleSelect` so it can't clobber
         // this ref with a plain (mode, path) record.
-        rightPanel.recordNavigation({
-          mode: req.targetMode,
-          path: rel,
+        select(req.targetMode, rel, {
           ref:
             req.ref.startLine !== null && req.ref.endLine !== null
               ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
               : undefined,
         });
+        setHandled({ request: req, resolvedPath: rel });
       },
       { defer: true },
     ),
@@ -435,7 +451,7 @@ const CodeTab: Component<{
       },
       (cur, prev) => {
         if (prev && prev.sk !== cur.sk) return;
-        if (cur.s && !cur.pathExists) setSelectedPath(null);
+        if (cur.s && !cur.pathExists) select(view(), null, { record: false });
       },
       { defer: true },
     ),
@@ -467,22 +483,19 @@ const CodeTab: Component<{
     // file in the tree would resurrect the line range, surprising the
     // user who treated their tree click as a fresh intent. Same-file
     // tree-clicks don't trip this branch (Pierre fires `onSelect(rel)`
-    // after our own programmatic `setSelectedPath(rel)` and the path
+    // after our own programmatic `select(..., rel)` and the path
     // equals `handled.resolvedPath` in that case — leaving the highlight
     // intact for the lifetime of the request).
     const h = handled();
     if (h && h.resolvedPath !== null && h.resolvedPath !== path) {
       setHandled(null);
     }
-    setSelectedPath(path);
     // Record the visit — unless this is Pierre's echoed re-select of the file a
     // front-door open just resolved (its resolution effect already recorded it
     // *with* the line ref; re-recording here would overwrite the ref with a
     // plain entry). A genuine tree/iframe pick records a (mode, path) entry,
     // dropping the line highlight exactly as the selection itself does.
-    if (h?.resolvedPath !== path) {
-      rightPanel.recordNavigation({ mode: view(), path });
-    }
+    select(view(), path, { record: h?.resolvedPath !== path });
   };
 
   // Re-apply a history location on back/forward. A location carrying a line
@@ -509,7 +522,7 @@ const CodeTab: Component<{
       return;
     }
     setView(loc.mode);
-    rightPanel.setSelectedFile(loc.mode, loc.path);
+    select(loc.mode, loc.path, { record: false });
   };
   const goBack = () => {
     const loc = rightPanel.navigateBack();
@@ -940,27 +953,23 @@ const CodeTab: Component<{
                     });
                   } else {
                     setView("browse");
-                    setSelectedPath(comment.path);
                     // A no-line comment jump moves the visible file just like a
-                    // tree click — record it so back/forward retraces it too.
-                    // The lineRange branch above records via the `openInCodeTab`
-                    // → resolution-effect pipeline; this plain selection has no
-                    // such funnel, so record it explicitly here. Idempotent on
-                    // mode+path, so jumping to the already-shown file is a
+                    // tree click — `select` records it so back/forward retraces
+                    // it too. The lineRange branch above records via the
+                    // `openInCodeTab` → resolution-effect pipeline. Idempotent
+                    // on mode+path, so jumping to the already-shown file is a
                     // harmless in-place refresh, not a duplicate entry.
-                    rightPanel.recordNavigation({
-                      mode: "browse",
-                      path: comment.path,
-                    });
+                    select("browse", comment.path);
                   }
                   // Carry the comment's surface so the dispatcher flips the
                   // Source ⇄ Rendered toggle back to it before the overlay
                   // re-finds the quote: a prose ("Hello Doc") comment landing
                   // on the source view ("# Hello Doc") would fail to re-anchor
                   // (and the source view wouldn't even highlight it). When the
-                  // file is already open in the other mode, `setSelectedPath`
-                  // is a no-op (same path → no remount), so the toggle flip is
-                  // the only thing that moves the user back to the right view.
+                  // file is already open in the other mode, `select` is a
+                  // no-op selection (same path → no remount), so the toggle
+                  // flip is the only thing that moves the user back to the
+                  // right view.
                   useCommentScrollRequest().set({
                     commentId: comment.id,
                     path: comment.path,
