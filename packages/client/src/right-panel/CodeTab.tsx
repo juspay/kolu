@@ -119,6 +119,11 @@ const CodeTab: Component<{
   const renderTreeMenu = makeTreeContextMenu({
     view,
     navigate: (target, path) => {
+      // navigate owns the null-no-op: a null path (the adapter's
+      // "directories aren't selectable" verdict) leaves the target's slot
+      // untouched. Keep this guard rather than passing null through to
+      // setSelectedFile — there, null *deletes* the slot, which would clobber
+      // the target's last pick instead of preserving it.
       if (path !== null) rightPanel.setSelectedFile(target, path);
       setView(target);
     },
