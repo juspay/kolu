@@ -25,10 +25,9 @@ const chrome = surface();
 const TransportOverlay: Component = () => {
   const pwa = useSurfaceApp();
   const disconnected = () => pwa.status() === "down";
-  const updateReady = () => pwa.updateReady();
 
   return (
-    <Show when={disconnected() || updateReady()}>
+    <Show when={disconnected() || pwa.updateReady()}>
       <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center pointer-events-none">
         <div
           class={`${chrome.class} p-6 max-w-sm text-sm pointer-events-auto`}

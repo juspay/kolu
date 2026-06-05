@@ -6,12 +6,16 @@
  * chrome and drishti's; only the pixels differ.
  */
 
+import {
+  type ConnectionStatus,
+  SurfaceAppProvider,
+  useSurfaceApp,
+} from "@kolu/surface-app/solid";
 import { createSignal, Show } from "solid-js";
-import { SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
 import { buildInfo, type ExampleBuildInfo } from "../common/surface";
 import { app, ws } from "./wire";
 
-const STATUS_LABEL: Record<string, string> = {
+const STATUS_LABEL: Record<ConnectionStatus, string> = {
   live: "live",
   reconnecting: "reconnecting…",
   restarted: "server restarted",
@@ -45,7 +49,7 @@ function Shell() {
     <>
       <header class="rail">
         <span class={`dot ${pwa.status() === "live" ? "ok" : "warn"}`} />
-        <span class="muted">{STATUS_LABEL[pwa.status()] ?? pwa.status()}</span>
+        <span class="muted">{STATUS_LABEL[pwa.status()]}</span>
         <span class="sep">·</span>
         <span>
           SRV <b class="srv">{pwa.server()?.commit || "…"}</b>
