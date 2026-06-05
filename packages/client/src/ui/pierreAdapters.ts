@@ -37,12 +37,18 @@ function navEntryLabel(target: CodeTabView): string {
     : `Open ${viewLabel(target)} diff`;
 }
 
-/** View-switch entries offered for the current `view`. Each view offers the
- *  two it isn't: Browse (All files) jumps into either git-diff view; either
+/** Canonical view order, matching the mode picker's `modeOptions` ordering.
+ *  `navEntriesFor` derives its entries from this list, so adding a view is a
+ *  one-line edit and "exactly the other views, in canonical order" stays
+ *  mechanical instead of hand-tabulated. */
+const VIEW_ORDER = ["browse", "local", "branch"] as const;
+
+/** View-switch entries offered for the current `view`: every other view in
+ *  canonical order. Browse (All files) jumps into either git-diff view; either
  *  git-diff view can return to All files or flip to its sibling diff. The
- *  entry text is composed from `viewLabel`, the single source the mode
- *  picker also renders, so the destination is named identically in both
- *  surfaces.
+ *  entry text is composed from `viewLabel` (via `navEntryLabel`), the single
+ *  source the mode picker also renders, so the destination is named
+ *  identically in both surfaces.
  *
  *  Browse lists the *whole repo*, so a clicked file may be unmodified, an
  *  untracked add, or a tracked edit. Local (working tree vs HEAD) is the
@@ -54,18 +60,10 @@ function navEntryLabel(target: CodeTabView): string {
 function navEntriesFor(
   view: CodeTabView,
 ): readonly { label: string; target: CodeTabView }[] {
-  const entry = (target: CodeTabView) => ({
+  return VIEW_ORDER.filter((target) => target !== view).map((target) => ({
     label: navEntryLabel(target),
     target,
-  });
-  switch (view) {
-    case "browse":
-      return [entry("local"), entry("branch")];
-    case "local":
-      return [entry("browse"), entry("branch")];
-    case "branch":
-      return [entry("browse"), entry("local")];
-  }
+  }));
 }
 
 /** Pierre wraps the rendered element in a `display:flex; align-items:center`
