@@ -117,27 +117,27 @@ type TerminalHistory = {
 };
 const history = new Map<TerminalId, TerminalHistory>();
 
-/** Single owner of a terminal history controller's construction contract.
- *  Every lifecycle verb — lazy-create, repo-change reset, session re-seed —
- *  routes through here so `isSameEntry: SAME_LOCATION` (idempotent on mode+path)
- *  and the explicit `DEFAULT_MAX_ENTRIES` cap are wired in exactly one place; a
- *  future reset path can't silently drop either and reintroduce duplicate
- *  entries or unbounded growth. `initial` seeds the first entry (session
- *  restore); omit it for a fresh, empty stack. */
-function newBrowserFor(initial?: BrowserLocation): Browser<BrowserLocation> {
+/** Single owner of a terminal history controller's construction contract:
+ *  `isSameEntry: SAME_LOCATION` (idempotent on mode+path) and the explicit
+ *  `DEFAULT_MAX_ENTRIES` cap, wired in exactly one place. Always an empty
+ *  stack — seeding (session restore) and clearing (repo change) happen *in
+ *  place* via `browser.reset(...)`, never by building a replacement, so the
+ *  instance (and the toolbar's reactive subscriptions to its enablement
+ *  signals) survives every reset. */
+function newBrowserFor(): Browser<BrowserLocation> {
   return createBrowser<BrowserLocation>({
-    initial,
     isSameEntry: SAME_LOCATION,
     maxEntries: DEFAULT_MAX_ENTRIES,
   });
 }
 
-/** Resolve (creating if absent) a terminal's history record. A fresh terminal
- *  starts with an empty stack — its first `navigate` seeds the first entry; a
- *  restored terminal is seeded in `seedPanel` from its last-viewed location.
- *  The browser instance is stable, so reading `.canBack()/.canForward()` through
- *  it is reactive on the controller's own signals — toolbar enablement tracks
- *  navigation without extra wiring. */
+/** Resolve (creating if absent) a terminal's history record. The browser
+ *  instance is created once and then **never replaced** — resets clear it in
+ *  place — so reading `.canBack()/.canForward()` through it is reactive on the
+ *  controller's own signals: the toolbar's ◀/▶ enablement, subscribed to this
+ *  stable instance on first render, keeps tracking navigation across repo
+ *  resets and session re-seeds without re-wiring. (Replacing the instance
+ *  would strand that subscription on the dead object and freeze the buttons.) */
 function historyFor(id: TerminalId): TerminalHistory {
   let h = history.get(id);
   if (!h) {
@@ -381,9 +381,10 @@ export function useRightPanel() {
       h.lastRepo = repo;
       // First sight of this terminal (fresh mount or session restore): adopt
       // its repo as the baseline, leaving any seeded stack intact. A genuine
-      // repo move on a terminal we've already seen drops the now-stale stack.
+      // repo move on a terminal we've already seen drops the now-stale stack —
+      // cleared in place so the toolbar stays subscribed to the live instance.
       if (prevRepo !== undefined && repo !== prevRepo) {
-        h.browser = newBrowserFor();
+        h.browser.reset();
       }
     },
 
@@ -401,12 +402,11 @@ export function useRightPanel() {
       // just seeded is the truth, and re-seeding is a "this is a fresh start"
       // event, same as first mount.
       const path = state.selectedFileByMode?.[state.codeMode] ?? null;
-      history.set(id, {
-        browser: newBrowserFor(
-          path !== null ? { mode: state.codeMode, path } : undefined,
-        ),
-        lastRepo: undefined,
-      });
+      const h = historyFor(id);
+      h.browser.reset(
+        path !== null ? { mode: state.codeMode, path } : undefined,
+      );
+      h.lastRepo = undefined;
     },
     /** Clean up state for a terminal that no longer exists. Mirrors
      *  `useSubPanel.removePanel`. */

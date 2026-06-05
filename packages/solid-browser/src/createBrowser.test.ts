@@ -156,4 +156,36 @@ describe("createBrowser", () => {
     b.back();
     expect(b.canForward()).toBe(true);
   });
+
+  it("reset clears the stack in place, and stays usable after", () => {
+    const b = createBrowser<string>();
+    b.navigate("a");
+    b.navigate("b");
+    expect(b.canBack()).toBe(true);
+    b.reset();
+    expect(b.current()).toBe(null);
+    expect(b.length()).toBe(0);
+    expect(b.canBack()).toBe(false);
+    expect(b.canForward()).toBe(false);
+    b.navigate("x");
+    expect(b.current()).toBe("x");
+  });
+
+  it("reset(initial) reseeds to a single entry in place", () => {
+    const b = createBrowser<string>();
+    b.navigate("a");
+    b.navigate("b");
+    b.reset("home");
+    expect(b.current()).toBe("home");
+    expect(b.length()).toBe(1);
+    expect(b.canBack()).toBe(false);
+    expect(b.canForward()).toBe(false);
+  });
+
+  // reset() mutates the same signals navigate() does (proven above: canBack
+  // flips after reset), so a reader holding the stable Browser instance sees
+  // the change. That in-place property is the phase-2 fix — history reset by
+  // *replacing* the instance stranded the toolbar's subscriptions on the dead
+  // object and froze the ◀/▶ buttons; the e2e ("back and forward retrace")
+  // guards the reactive wiring end-to-end.
 });

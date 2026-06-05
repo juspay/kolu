@@ -41,6 +41,14 @@ export type Browser<L> = {
   forward: () => L | null;
   /** Total entries on the stack — for tests and diagnostics. */
   length: () => number;
+  /** Clear the stack back to empty (or to a single `initial` entry), **in
+   *  place**. The controller instance is preserved, so reactive reads of
+   *  `current` / `canBack` / `canForward` stay subscribed and update — a host
+   *  that holds the same `Browser` across a context change (e.g. resetting
+   *  history when the underlying repo changes) keeps working without re-wiring.
+   *  Discarding the instance and building a fresh one instead would strand
+   *  those subscriptions on the dead object — the ◀/▶ enablement would freeze. */
+  reset: (initial?: L) => void;
 };
 
 export type CreateBrowserOptions<L> = {
@@ -117,6 +125,11 @@ export function createBrowser<L>(
     return current();
   };
 
+  const reset = (next?: L): void => {
+    setEntries(next === undefined ? [] : [next]);
+    setCursor(next === undefined ? -1 : 0);
+  };
+
   return {
     current,
     canBack,
@@ -125,5 +138,6 @@ export function createBrowser<L>(
     back,
     forward,
     length: () => entries().length,
+    reset,
   };
 }
