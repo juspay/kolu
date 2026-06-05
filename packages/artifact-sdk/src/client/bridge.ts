@@ -87,6 +87,32 @@ export function bindArtifactSdk(
   };
 }
 
+/** Shared transport skeleton for the parent-side typed-iframe-message
+ *  observers below. Owns the network-grade boundary once: the `event.source`
+ *  identity check (origin is meaningless under the opaque-origin sandbox), the
+ *  `!msg || typeof msg !== "object"` shape guard, and the
+ *  addEventListener/removeEventListener disposer. Each observer supplies only
+ *  its `extract` (a ts-pattern match that returns its payload slice, or `null`
+ *  to drop) and its `handle` callback, so tightening the identity/validation
+ *  boundary touches one site regardless of how many `IframeToParent` variants
+ *  exist. The public observers stay separate so each concern still binds its
+ *  own slice of the protocol. */
+function observeFromIframe<T>(
+  iframe: HTMLIFrameElement,
+  extract: (msg: IframeToParent) => T | null,
+  handle: (t: T) => void,
+): () => void {
+  const onMessage = (event: MessageEvent<IframeToParent>): void => {
+    if (event.source !== iframe.contentWindow) return;
+    const msg = event.data;
+    if (!msg || typeof msg !== "object") return;
+    const extracted = extract(msg);
+    if (extracted !== null) handle(extracted);
+  };
+  window.addEventListener("message", onMessage);
+  return () => window.removeEventListener("message", onMessage);
+}
+
 /** Observe in-iframe navigation. The in-iframe SDK reports its document's own
  *  `location.pathname` on every boot via the `ready` message — the initial
  *  load AND every load after a same-frame link click. The parent can't read
@@ -99,29 +125,28 @@ export function bindArtifactSdk(
  *  following and comments are independent concerns with independent owners, so
  *  each binds its own slice of the protocol. The `event.source` identity check
  *  is the same network-grade boundary `bindArtifactSdk` applies. Returns a
- *  disposer. */
+ *  disposer.
+ *
+ *  Matches the payload shape, not just the `type`: previewed HTML runs scripts
+ *  under the same opaque origin and can post a `ready` message with a missing
+ *  or non-string `pathname`. `P.string` keeps that off `onNavigate` (and out
+ *  of the host's pathname inversion — `@kolu/solid-browser`'s
+ *  `pathFromPreviewPathname` — which calls string methods on it). */
 export function observeIframeNavigation(
   iframe: HTMLIFrameElement,
   onNavigate: (pathname: string) => void,
 ): () => void {
-  const onMessage = (event: MessageEvent<IframeToParent>): void => {
-    if (event.source !== iframe.contentWindow) return;
-    const msg = event.data;
-    if (!msg || typeof msg !== "object") return;
-    // Match the payload shape, not just the `type`: previewed HTML runs
-    // scripts under the same opaque origin and can post a `ready` message
-    // with a missing or non-string `pathname`. `P.string` keeps that off
-    // `onNavigate` (and out of the host's pathname inversion —
-    // `@kolu/solid-browser`'s `pathFromPreviewPathname` — which calls string
-    // methods on it) instead of throwing from this handler.
-    match(msg)
-      .with({ type: "kolu-artifact-sdk:ready", pathname: P.string }, (m) => {
-        onNavigate(m.pathname);
-      })
-      .otherwise(() => undefined);
-  };
-  window.addEventListener("message", onMessage);
-  return () => window.removeEventListener("message", onMessage);
+  return observeFromIframe(
+    iframe,
+    (msg) =>
+      match(msg)
+        .with(
+          { type: "kolu-artifact-sdk:ready", pathname: P.string },
+          (m) => m.pathname,
+        )
+        .otherwise(() => null),
+    onNavigate,
+  );
 }
 
 /** Observe the mouse's back/forward (X1/X2) buttons pressed inside the preview.
@@ -136,22 +161,20 @@ export function observeIframeHistory(
   iframe: HTMLIFrameElement,
   onHistory: (direction: "back" | "forward") => void,
 ): () => void {
-  const onMessage = (event: MessageEvent<IframeToParent>): void => {
-    if (event.source !== iframe.contentWindow) return;
-    const msg = event.data;
-    if (!msg || typeof msg !== "object") return;
-    match(msg)
-      .with(
-        {
-          type: "kolu-artifact-sdk:history",
-          direction: P.union("back", "forward"),
-        },
-        (m) => onHistory(m.direction),
-      )
-      .otherwise(() => undefined);
-  };
-  window.addEventListener("message", onMessage);
-  return () => window.removeEventListener("message", onMessage);
+  return observeFromIframe(
+    iframe,
+    (msg) =>
+      match(msg)
+        .with(
+          {
+            type: "kolu-artifact-sdk:history",
+            direction: P.union("back", "forward"),
+          },
+          (m) => m.direction,
+        )
+        .otherwise(() => null),
+    onHistory,
+  );
 }
 
 /** Imperative push — call when the comments set or current path changes
