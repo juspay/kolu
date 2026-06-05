@@ -102,6 +102,17 @@ export function decodePreviewPath(encoded: string): string {
   return encoded.split("/").map(decodeURIComponent).join("/");
 }
 
+/** Kolu's preview-URL codec — the `{ encode, decode }` pairing the inversion
+ *  in `@kolu/solid-browser` (`pathFromPreviewPathname`) injects. The concept
+ *  "these two functions form kolu's codec" lives here, where both halves are
+ *  defined, rather than being rebuilt at each consumer. Typed structurally
+ *  (not against `@kolu/solid-browser`'s `PreviewPathCodec`, which would invert
+ *  the dependency) — the shape is the wire contract both sides agree on. */
+export const previewPathCodec: {
+  encode: (path: string) => string;
+  decode: (encoded: string) => string;
+} = { encode: encodePreviewPath, decode: decodePreviewPath };
+
 /** Base of the per-terminal file route + its `file` segment. Shared so the
  *  server route registration, the server URL builder, and the client (which
  *  resolves repo-relative Markdown image srcs) all agree on one shape —

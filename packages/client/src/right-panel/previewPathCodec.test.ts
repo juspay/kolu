@@ -1,5 +1,5 @@
 import { pathFromPreviewPathname } from "@kolu/solid-browser";
-import { decodePreviewPath, encodePreviewPath } from "kolu-common/preview";
+import { encodePreviewPath, previewPathCodec } from "kolu-common/preview";
 import { describe, expect, it } from "vitest";
 
 // The inversion algorithm is unit-tested in @kolu/solid-browser with a
@@ -9,14 +9,13 @@ import { describe, expect, it } from "vitest";
 // scheme ever changes, the inversion must still invert it — this fails at the
 // unit layer instead of only at e2e. Building inputs via `encodePreviewPath`
 // (not hand-written encoded strings) pins the test to the real encoder.
-const codec = { encode: encodePreviewPath, decode: decodePreviewPath };
 const PREFIX = "/api/terminals/t-1/file";
 const navigate = (from: string, to: string): string | null =>
   pathFromPreviewPathname(
     `${PREFIX}/${encodePreviewPath(to)}`,
     `${PREFIX}/${encodePreviewPath(from)}?v=1`,
     from,
-    codec,
+    previewPathCodec,
   );
 
 describe("kolu preview-path codec ⇄ pathFromPreviewPathname", () => {
@@ -38,7 +37,7 @@ describe("kolu preview-path codec ⇄ pathFromPreviewPathname", () => {
         "/some/other/place.html",
         `${PREFIX}/${encodePreviewPath("first.html")}?v=1`,
         "first.html",
-        codec,
+        previewPathCodec,
       ),
     ).toBeNull();
   });

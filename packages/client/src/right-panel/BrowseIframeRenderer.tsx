@@ -11,7 +11,7 @@
 import { observeIframeNavigation } from "@kolu/artifact-sdk/client";
 import { pathFromPreviewPathname } from "@kolu/solid-browser";
 import { IframeRenderer } from "@kolu/solid-fileview/renderers/iframe";
-import { decodePreviewPath, encodePreviewPath } from "kolu-common/preview";
+import { previewPathCodec } from "kolu-common/preview";
 import {
   type Component,
   createEffect,
@@ -19,12 +19,6 @@ import {
   onCleanup,
 } from "solid-js";
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
-
-// kolu's preview-URL codec — the same `encodePreviewPath` the server's
-// `buildIframePreviewUrl` uses. Bound here (the inversion's only caller) and
-// passed to the agnostic `pathFromPreviewPathname`, so the inversion can't
-// drift from the encoding without a second source of truth.
-const previewCodec = { encode: encodePreviewPath, decode: decodePreviewPath };
 
 export type BrowseIframeRendererProps = {
   terminalId: string;
@@ -58,7 +52,7 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
         pathname,
         props.url,
         props.path,
-        previewCodec,
+        previewPathCodec,
       );
       if (next !== null && next !== props.path) props.onNavigate?.(next);
     });
