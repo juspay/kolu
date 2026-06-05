@@ -1,22 +1,25 @@
-/** The `≠ srv` chip and its staleness derivation — the single source of "this
- *  browser's bundle is out of sync with the server", reused by the desktop
- *  `IdentityRail` and the mobile chrome (`MobileTileView` handle +
- *  `MobileChromeSheet`) so the signal looks and means the same everywhere.
+/** The `≠ srv` chip + kolu's accessor for "this browser's bundle is behind the
+ *  server's build", reused by the desktop `IdentityRail` and the mobile chrome
+ *  (`MobileTileView` handle + `MobileChromeSheet`) so the signal looks and means
+ *  the same everywhere.
  *
- *  `clientStale()` is true only when both the server commit and this build's
- *  baked-in `__KOLU_COMMIT__` are clean refs and differ (see `commitRef`), so a
- *  dev / dirty build never false-positives into a perpetual warning. */
+ *  The staleness DERIVATION is no longer kolu's — it's `@kolu/surface-app`'s
+ *  headless model (`useSurfaceApp().stale()`), driven by `koluBuildInfo`'s
+ *  clean-ref-guarded commit comparison (a dev / dirty build never
+ *  false-positives). kolu owns only the tailwind CHROME below — surface-app
+ *  ships no styled components. */
 
+import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { Component } from "solid-js";
-import { serverInfo } from "../rpc/rpc";
-import { clientIsStale } from "./commitRef";
+import type { KoluBuildInfo } from "kolu-common/surface";
 
-/** True when this browser's build commit provably differs from the server's.
- *  Gate the chip on this: `<Show when={clientStale()}><StaleBadge /></Show>`. */
+/** True when this browser's build provably differs from the server's. Reads the
+ *  surface-app model — must be called under `<SurfaceAppProvider>`. Gate the chip
+ *  on this: `<Show when={clientStale()}><StaleBadge /></Show>`. */
 export const clientStale = (): boolean =>
-  clientIsStale(serverInfo()?.commit, __KOLU_COMMIT__);
+  useSurfaceApp<KoluBuildInfo>().stale();
 
-/** The compact `≠ srv` warning chip. */
+/** The compact `≠ srv` warning chip — kolu's own chrome. */
 export const StaleBadge: Component = () => (
   <span class="self-center rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning">
     ≠ srv

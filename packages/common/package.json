@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
+    "@kolu/surface-app": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",

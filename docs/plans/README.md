@@ -23,6 +23,9 @@ This directory is **deprecated**. kolu's in-repo knowledge base has moved to the
   [`tui`](./remote-terminals.pty-daemon.tui.html). The 208 KB monolith family,
   deliberately deferred (kept as HTML for now; a faithful MDX port exists in git
   history but was reverted to keep the Atlas lean).
-- [`web-delivery.html`](./web-delivery.html) — being renamed in a separate open PR.
+
+`web-delivery.html` has been migrated to the Atlas as
+[`surface-app`](../atlas/src/content/atlas/surface-app.mdx) (rendered:
+`docs/atlas/dist/surface-app.html`).
 
 When the last `.html` here is migrated to the Atlas, this directory retires.

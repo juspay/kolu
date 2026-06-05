@@ -19,7 +19,7 @@ import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { serverCommit, serverHostname, serverProcessId } from "./hostname.ts";
+import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
@@ -29,7 +29,6 @@ import {
   type TerminalProcess,
 } from "./terminal-registry.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
-import { ptyHostIdentity } from "./terminalBackend/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
 import {
@@ -69,11 +68,12 @@ function bracketedPastePath(entry: TerminalProcess, path: string): void {
 export const appRouter = t.router({
   ...surfaceRouter,
   server: {
+    // Per-host BRANDING the shell needs synchronously at boot (document title,
+    // watermark, PWA theme color). The restart axis (`processId`) and the build
+    // identity (`commit` + `ptyHost`) moved to the surface, owned by
+    // @kolu/surface-app — see `surface.ts`'s `serverIdentity()` / `buildInfoServer`.
     info: t.server.info.handler(async () => ({
       identity: pwaIdentityForHostname(serverHostname),
-      processId: serverProcessId,
-      commit: serverCommit,
-      ptyHost: await ptyHostIdentity,
     })),
   },
   terminal: {

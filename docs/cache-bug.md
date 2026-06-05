@@ -196,8 +196,9 @@ curl -s -o /dev/null -w '%{http_code}\n' "http://$HOST:7692/assets/index-DEADBEE
   turn here came from guessing the deployment (HTTPS? proxy? SW?) instead of
   reading it off the box. (The one fact that stayed un-gettable from the box: the
   user's *browser* state — which is exactly where the bug lived.)
-- This is why the [`web-delivery`](./plans/web-delivery.html) skill + library
-  exists: encode the freshness contract once so the next app doesn't relitigate it.
+- This is why the [`surface-app`](./atlas/src/content/atlas/surface-app.mdx)
+  library exists: encode the freshness contract once so the next app doesn't
+  relitigate it.
 
 ## Resolution — it WAS a service worker (the flag was the missing fact)
 
@@ -250,3 +251,192 @@ origin = clean slate, and keep the SW). Decide it independently of the SW kill.
 - **A service worker is a standing liability you must own end-to-end** — gating *new*
   registration doesn't remove an *existing* worker; you need an active unregister
   path, in production, or it outlives the gate forever.
+
+## Development history — generalizing into `@kolu/surface-pwa` (post-#1149)
+
+> This section logs the *design* phase that follows the bugfix: turning the
+> hard-won freshness contract into reusable infrastructure. Kept for the eventual
+> blog post — the bug is the story's first act; this generalization is the second.
+> The living design (formerly the `surface-pwa` plan) was migrated to the Atlas:
+> `docs/atlas/src/content/atlas/surface-app.mdx` (rendered to
+> `docs/atlas/dist/surface-app.html`).
+
+### Why generalize at all
+The same property — "a returning client converges to the deployed build" — has now
+been re-derived four times (#696, #1125, #1135, #1149), each slightly differently,
+each leaving a gap. The lesson `electricity.html` records: conventions-as-prose
+drift; a shared package does not. `@kolu/surface` already proved this for reactive
+transport. Delivery freshness is the next electricity.
+
+### Naming evolved as the scope clarified
+- `@kolu/web-delivery` — first name; "delivery freshness" = cache + skew + SW.
+- `@kolu/surface-web-delivery` — once we accepted oRPC/surface as the substrate, a
+  surface-companion name made the relationship explicit.
+- `@kolu/surface-pwa` — the final name *and* a scope expansion: not just freshness
+  but the whole installable shell on top of surface (manifest, icons, install,
+  delivery, SW stance, version skew). The "pwa" noun is owned as the package's
+  thesis — *a good PWA on this stack ships no service worker* — not apologized for.
+
+### The design tension (good blog material)
+Two three-lens reviews (lowy ∥ hickey ∥ surface-identity) on placement were
+unanimous, high-confidence, for a *surface-free, decoupled, split* design: keep the
+HTTP/SW mechanics in a package that never imports surface (depending on the
+reactive-transport framework for cache-header code is a layering inversion), and let
+only a tiny `buildInfo` cell ride surface. They optimized for **portability and
+minimal coupling** — a non-surface app could reuse the mechanics.
+
+The product decision went the other way, deliberately: **batteries-included and
+surface-native.** Rationale: (1) the name *says* surface — of course it builds on
+surface; (2) the user-visible wins (the reload prompt, the skew badge) should be
+*owned* by the library so downstream apps don't re-replicate them; (3) **interfaces,
+not decoupling, are the extensibility seam** — where an app needs to vary behavior
+(kolu adds pty-host staleness to build identity; drishti is happy with the default
+`{ commit }`), it overrides an interface rather than the library staying generic.
+
+The reconciliation worth remembering for the blog: *the lenses optimized for "any app
+could reuse a piece"; the product optimized for "a surface app gets everything for
+free." An extensible interface delivers the second without sacrificing correctness —
+apps extend the default rather than fork it.*
+
+### The shape we settled on
+- **Depends on `@kolu/surface`.** Genuinely-pure helpers (the cache-directive map,
+  the `sw.js` source, `clientIsStale`) live under `utils/`, but the package is a
+  surface package, full stop.
+- **Entrypoints:** `/server` (static-serve + manifest), `/solid` (SW retirement +
+  skew wiring), `/ui` (`<ReloadPrompt/>` + `<StaleBadge/>`, *shipped*, not deferred),
+  and `/surface` (a `buildInfo` cell composed into the app's `defineSurface`).
+- **A Nix module is part of the package:** it stamps the commit on both sides,
+  injecting `__SURFACE_PWA_COMMIT__` into the client build and `SURFACE_PWA_COMMIT`
+  into the server env — so commit single-sourcing (invariant #2) is owned by
+  surface-pwa, not re-wired per app.
+- **Build identity is an interface**, default impl `{ commit }`, with the staleness
+  predicate part of it. kolu overrides it to add pty-host divergence; drishti uses
+  the default. Two independent freshness axes (build skew vs pty divergence) stay
+  distinguishable.
+- The service-worker stance (retire, never ship) is documented *with its rationale*
+  in the library, so the next app inherits the reasoning, not just the code.
+
+### Open question (unsettled)
+Does a *skill* still earn its keep once the library is batteries-included? The
+author-guidance half collapses into the README; what remains is a thin review lens
+(are you on surface-pwa? did you re-introduce a SW? run the normal-vs-hard-reload
+triage). Leaning toward folding the judgment into the README + docs and deferring a
+separate skill unless drishti proves it's needed.
+
+### Validated against drishti (the second consumer)
+Before writing any code we ran a read-only fit-check against the real
+`github.com/srid/drishti`. It's a close shadow of surface-pwa's own scope — already
+SolidJS 1.9 + Hono on `@hono/node-server`, a heavy `@kolu/surface` user, and it
+hand-rolls a static-shell server, a manifest, icons, and a service worker. So
+drishti is less "an app that needs the library" and more "the prior art the library
+replaces" — an unusually good fit test. Six findings shaped the API:
+
+1. **Bun.build, not Vite** → commit stamping must be **bundler-agnostic**: server env
+   `SURFACE_PWA_COMMIT` + a client define the app's own bundler injects; the Vite/Nix
+   `withCommitStamp` is just a convenience. (drishti vendors `@kolu/*` via npins with
+   zero flake inputs, same as kolu — adding surface-pwa is a one-line overlay add; the
+   bundler, not the flake, is the only difference.)
+2. **An active offline-caching SW today, but it doesn't actually need offline** →
+   surface-pwa retires it cleanly, same as kolu; an owned-SW opt-in stays available for
+   a hypothetical future offline app, but neither kolu nor drishti is one.
+3. **No single client `app`** (a `Map<host, surfaceClient>` + an admin client) →
+   `<SurfacePwaProvider>` takes a **control-plane client**, not "the app."
+4. **A richer manifest than `{ name, themeColor, icons }`** (+ apple head tags),
+   already shipped+tested → `installPwaManifest` takes a full, extensible manifest
+   and is optional.
+5. **Unhashed asset filenames** (`Bun.build` emits `main.js`) → a small drishti PR
+   switches to content-hashed output first; `immutable` is documented as requiring
+   hashing, and unhashed shell assets stay `no-cache` as a guard.
+6. **No commit source yet, default `{ commit }` otherwise sufficient** → validates the
+   default build-identity; only the stamp (finding 1) is missing.
+
+No showstoppers — integration is a one-line nix-overlay add once surface-pwa ships as
+`packages/surface-pwa`. The throughline: **granular-first** — `installFreshStatic`
+usable alone, without dragging manifest or SW opinions; the all-in-one bundle is
+greenfield convenience.
+
+### Reframed: surface-app — a class of app, not a generic PWA (renamed from surface-pwa)
+Questioning the "pwa" name surfaced the real model. This isn't for any installable web
+app — it's for **self-hosted, always-connected, desktop-class apps you run against your
+own server** (kolu, drishti): you own the box, the live wire IS the app (no offline),
+it's installed and desktop-feeling, and you're usually also the deployer — which is why
+a stale client after a redeploy is the defining pain. "pwa" mis-signals
+(offline / installable-for-offline), the opposite of the model. Renamed to
+**@kolu/surface-app** — "the app shell for a surface wire."
+
+The reframe sharpens scope:
+- **Drop, as definitional (not opinion):** offline / precache / SW-as-feature. Install
+  becomes a *desktop* affordance (own window, dock, per-host identity), not an offline
+  one. Out entirely: SEO, multi-tenant, CDN/edge — public-web concerns.
+- **Add — the unifying insight:** build-skew, connection status, and server identity are
+  ONE question — *"what's my relationship to the server I'm bound to right now?"* So
+  surface-app owns the connection+update+identity **model** (headless `useSurfaceApp()`;
+  apps render the UI, consolidate later if it converges), plus desktop-feel affordances:
+  an install prompt, the App Badging API, document-title/favicon state.
+- **Secure context:** install + badging need HTTPS, which a self-hosted LAN/tailnet app
+  lacks by default. We gate the desktop layer on a *trusted* secure context and document
+  the cert paths (tailscale serve, mkcert, self-signed); cert management is likely its
+  own small library. A research pass is confirming the facts — decisively, whether
+  current Chrome still requires a service worker for installability (if so, it tensions
+  the no-SW invariant). Build identity stays an extensible interface (kolu adds pty-host;
+  drishti uses the default `{ commit }`).
+
+### Research confirmed (desktop layer + secure context)
+A four-topic research pass settled the open facts (sources: developer.chrome.com,
+web.dev, MDN, W3C secure-contexts, tailscale/mkcert/caddy docs):
+- **Install needs NO service worker** anymore — Chrome dropped that requirement (108
+  mobile / 112 desktop); a valid manifest over a secure context is installable. So the
+  no-SW invariant and "be installable" don't conflict. CAVEAT: the *automatic*
+  `beforeinstallprompt` still references a fetch handler, so without a SW the in-page
+  Install button is best-effort — but manual browser-menu install always works. So:
+  wire the prompt as progressive enhancement, detect installed via
+  `display-mode: standalone` (+ iOS `navigator.standalone`), fall back to menu/Add-to-
+  Home-Screen copy. Install affordances are Chromium-only.
+- **Secure context is the master gate** for install + Badging (`window.isSecureContext`).
+  `localhost`/`127.0.0.1`/`*.localhost` are exempt (work over http); LAN IPs and bare
+  hostnames over http are NOT — so install/badge are silently unavailable there.
+- **Two layers:** the freshness *core* (delivery, skew over the wire, reload) works on
+  plain HTTP/`ws://` — kolu on a plain-HTTP LAN keeps working. Only the *desktop layer*
+  is gated. (I moderated the research's "hard-block if not secure" recommendation — that
+  would break the core — to graceful degradation + an actionable hint.)
+- **Trusted-cert paths:** `tailscale serve` (real LE cert on `*.ts.net`, warning-free,
+  auto-renew, zero per-device setup) is the recommended path; mkcert / Caddy `tls
+  internal` need a per-device CA install; plain self-signed warns. Cert acquisition is a
+  different volatility (deployment/infra) → keep it OUT of surface-app: extract kolu's
+  self-signed generator into a tiny optional `@kolu/dev-tls` (localhost escape hatch),
+  document the trusted recipes, and have surface-app only feature-detect + hint. This
+  also closes the saga loop — a real cert removes any reason for the Chrome insecure-
+  origin flag that orphaned the SW.
+- **Desktop-feel APIs:** one headless attention/count model fans out to `setAppBadge`
+  (installed Chromium, Win/macOS; Linux no-ops; Android dot-only; Safari/FF desktop
+  none) → `document.title` (universal) → canvas favicon (Safari blocks favicon
+  scripting). No SW means badge updates only while a connected page is live — fine,
+  since the live wire is the app.
+
+## Loop closed — kolu now CONSUMES `@kolu/surface-app`
+
+The saga is over in code, not just in design. kolu's duplicated implementations
+were deleted and replaced by the library it motivated:
+
+- `packages/server/src/cacheControl.ts` (+ its test) → **deleted**; the server
+  serves the shell via `installFreshStatic` / the manifest via `installPwaManifest`
+  from `@kolu/surface-app/server` (`packages/server/src/index.ts`).
+- `packages/client/public/sw.js` → **deleted**; the self-destructing retirement
+  worker is now `SW_SOURCE`, served at `/sw.js` by `installFreshStatic`.
+- `packages/client/src/pwa.ts` (+ test) and `ui/StaleBadge.tsx`'s derivation,
+  `ui/commitRef.ts` (+ test) → **deleted / repointed**; the freshness UX is the
+  library's headless model (`useSurfaceApp()`), and `isCleanRef` / `clientIsStale`
+  come from `@kolu/surface-app`. kolu keeps only its tailwind `≠ srv` chip.
+- `packages/client/src/rpc/rpc.ts`'s hand-rolled connection lifecycle →
+  `createServerLifecycle` (rpc.ts is now the thin signal layer over it).
+- The commit stamp is `surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" })` (Vite
+  plugin) → `__SURFACE_APP_COMMIT__`; the server cell uses kolu's existing
+  `serverCommit`. One commit source, two faces — kolu keeps its `KOLU_COMMIT_HASH`
+  Nix convention (no `default.nix` change).
+- Build identity is **extended**, not replaced: `koluBuildInfo`
+  (`packages/common/src/surface.ts`) adds the in-process pty-host axis
+  (`{ staleKey, navigableCommit }`) to surface-app's `{ commit }` via the generic
+  `defineBuildInfo`; the server fills the pty-host column through the cell once the
+  in-process pty-host reports its identity at boot. The restart axis (`processId`)
+  is surface-app's `serverIdentity` probe at `surface.surfaceApp.info`; kolu's raw
+  `server.info` now carries only per-host branding (title / watermark / theme).

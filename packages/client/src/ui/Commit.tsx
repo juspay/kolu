@@ -5,8 +5,8 @@
  *  About dialog (the client build commit) so the linkable guard can't drift
  *  between the two call sites. */
 
+import { isCleanRef } from "@kolu/surface-app";
 import { type Component, Show } from "solid-js";
-import { isCleanRef } from "./commitRef";
 
 const REPO_URL = "https://github.com/juspay/kolu";
 
