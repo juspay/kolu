@@ -168,7 +168,8 @@ collide and the scratch never shows up in the diff the lenses review. It returns
   unresolved,  // findings still contested at the backstop (empty on consensus)
   applied,     // [{ id, title, files, commit }]
   reviews,     // each lens's independent findings
-  history }    // per-round dispositions
+  history,     // per-round dispositions
+  comment }    // the deterministically rendered PR comment body — post it VERBATIM (step 3)
 ```
 
 - **consensus** — every finding settled (the normal outcome).
@@ -194,6 +195,7 @@ branch for the human to review):
   `comment`** verbatim — write it to a file and `gh pr comment <pr> -F <file>`:
 
   ```bash
+  mkdir -p "$repoPath/.lens-debate"   # clean/all-drop/--no-commit runs never hit commitFix, so the dir may not exist yet
   printf '%s' "$comment" > "$repoPath/.lens-debate/comment.md"
   gh pr comment <pr> -F "$repoPath/.lens-debate/comment.md"
   ```

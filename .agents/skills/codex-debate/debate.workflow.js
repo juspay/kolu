@@ -355,6 +355,21 @@ if (!baseRes?.sha?.trim()) {
 base = baseRes.sha.trim()
 log(`Diffing against ${base.slice(0, 12)} (merge-base of ${rawBase} and HEAD), so the base branch's drift since the fork isn't reviewed.`)
 
+// Clear any stale ledger from a PRIOR debate in this worktree. The scratch dir
+// is persistent (per-worktree, not per-run) and the section files use a flat,
+// stable `section-NNN.md` namespace, so a previous longer debate's high-numbered
+// sections would otherwise survive into this run — the author cats `section-*.md`
+// as its memory and step 3 cats the same glob into the posted comment, so stale
+// sections would pollute BOTH the author's context and the published trail. A
+// thin mechanical agent (the workflow can't run shell itself); deleting the whole
+// dir is safe because nothing in THIS run has written to it yet. This script has
+// no true resume (agent() is one-shot, the whole workflow re-runs from scratch),
+// so a fresh start owns a fresh ledger.
+await agent(
+  `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`rm -rf ${workDir} && mkdir -p ${workDir}\`. Do not edit any other file. Do not run git.`,
+  { label: 'ledger:reset', phase: 'Debate', model: mechModel },
+)
+
 for (let round = 1; ; round++) {
   const verdict = await codexReviews(round, lastClaude ? JSON.stringify(lastClaude) : null)
   finalVerdict = verdict

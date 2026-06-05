@@ -260,15 +260,23 @@ ${message}
 // re-improvises a table. Unlike codex-debate there are NO per-round files to
 // assemble: the lenses don't read a ledger (feeding them prior reasoning would
 // invite entrenchment against conceding), so the comment is the only artifact.
-function renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, withPolice, base }) {
-  const badge = unresolved.length === 0 ? '✅ **Consensus**' : `⚠️ **${unresolved.length} unresolved**`
+function renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, withPolice, base, clean }) {
+  const badge = clean
+    ? '✅ **Clean** — every lens found nothing worth raising'
+    : unresolved.length === 0
+      ? '✅ **Consensus**'
+      : `⚠️ **${unresolved.length} unresolved**`
   const counts = Object.entries(reviewByLens)
     .map(([lens, fs]) => `${lens}=${fs.length}`)
     .join(', ')
+  // A clean diff never debated, so the "after N round(s)" clause is omitted; the
+  // base, the lens roster, and the (all-zero) per-lens counts still ride along so
+  // the comment carries the same audit metadata as a debated run.
+  const meta = `lowy + hickey${withPolice ? ' + code-police' : ''} · base \`${(base || '').slice(0, 12)}\``
   const lines = [
     '## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)',
     '',
-    `${badge} after ${rounds} round(s) · lowy + hickey${withPolice ? ' + code-police' : ''} · base \`${(base || '').slice(0, 12)}\``,
+    clean ? `${badge} · ${meta}` : `${badge} after ${rounds} round(s) · ${meta}`,
     '',
     `Independent findings: ${counts}`,
   ]
@@ -283,7 +291,19 @@ function renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, 
   }
   if (unresolved.length) {
     lines.push('', `### Unresolved — needs human (${unresolved.length})`)
-    unresolved.forEach((u) => lines.push(`- \`${u.id}\` ${u.title} (${u.location}) — lowy: ${u.lowy?.disposition ?? '?'}, hickey: ${u.hickey?.disposition ?? '?'}`))
+    // Surface BOTH lenses' full final positions (disposition + reasoning + any
+    // plan), not just the bare verdict — a human adjudicating needs the actual
+    // disagreement, which lives in each side's reasoning/plan text.
+    unresolved.forEach((u) => {
+      lines.push('', `- \`${u.id}\` ${u.title} (${u.location})`)
+      for (const lens of ['lowy', 'hickey']) {
+        const p = u[lens]
+        const verdict = p?.disposition ?? '?'
+        const reasoning = p?.reasoning ? ` — ${p.reasoning}` : ''
+        lines.push(`  - **${lens}**: ${verdict}${reasoning}`)
+        if (p?.plan?.trim()) lines.push(`    - plan: ${p.plan}`)
+      }
+    })
   }
   return lines.join('\n')
 }
@@ -309,7 +329,11 @@ REVIEWERS.forEach((r, idx) => {
 log(`Independent findings: ${REVIEWERS.map((r) => `${r.lens}=${reviewByLens[r.lens].length}`).join(', ')}`)
 
 if (combined.length === 0) {
-  return { status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', settled: [], unresolved: [], applied: [], reviews: reviewByLens, history: [], comment: '## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)\n\n✅ Every lens found nothing worth raising.' }
+  // Route the clean outcome through the SAME renderer as a debated run so the
+  // comment carries the same audit metadata (base, lens roster, per-lens counts,
+  // whether code-police ran) instead of a bare one-liner.
+  const comment = renderComment({ rounds: 0, settledOut: [], unresolved: [], applied: [], reviewByLens, withPolice, base, clean: true })
+  return { status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', settled: [], unresolved: [], applied: [], reviews: reviewByLens, history: [], comment }
 }
 
 // ---------------------------------------------------------------------------
