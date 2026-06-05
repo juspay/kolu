@@ -33,6 +33,10 @@ export function pathFromPreviewPathname(
   currentPath: string,
   codec: PreviewPathCodec,
 ): string | null {
+  // Split on `?` only (no `#`): a preview URL carries at most `?v=<mtime>` and
+  // never a fragment — the path's own `?`/`#` are percent-encoded by the codec —
+  // so the `#fragment` asymmetry with `resolveLinkHref` is intentional, not an
+  // oversight.
   const currentPathname = currentUrl.split("?")[0] ?? currentUrl;
   const encodedCurrent = codec.encode(currentPath);
   if (!currentPathname.endsWith(encodedCurrent)) return null;
