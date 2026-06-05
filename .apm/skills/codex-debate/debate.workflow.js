@@ -286,6 +286,14 @@ function roundLedgerSection(entry) {
 // The comment header (small). The full comment is this header followed by the
 // per-round section files (see renderLedger). The workflow renders the whole
 // comment deterministically from the transcript — no agent ever retypes the blob.
+//
+// This header's chrome (the `## ` title, the badge, the `base.slice(0, 12)`) is
+// deliberately kept STRUCTURALLY PARALLEL to lens-debate's renderComment header
+// chrome. The no-module workflow runtime has no imports, so a truly shared
+// renderer isn't available; the two are instead siblings that move together. A
+// house-style change (badge emoji, base-slice length, a new metadata row) is a
+// mechanical mirror edit — make it here and in lens-debate's renderComment. If
+// the runtime ever admits a shared helper file, lift this common chrome there.
 function ledgerHeader(meta) {
   const badge = meta.status === 'consensus' ? '✅ **Consensus**' : `⚠️ **${meta.status}**`
   return `## Codex ⇄ Claude debate\n\n${badge} after ${meta.rounds} round(s) · codex reviewed at \`xhigh\` reasoning effort · base \`${(meta.base || '').slice(0, 12)}\``
