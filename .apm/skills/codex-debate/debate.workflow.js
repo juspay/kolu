@@ -136,12 +136,31 @@ ${rebuttalStep}
   })
 }
 
-async function claudeResponds(round, verdict) {
+async function claudeResponds(round, verdict, priorClaude) {
+  // WARM AUTHOR. On follow-up rounds, thread the author's OWN previous
+  // dispositions back into the prompt so it builds on its prior round instead
+  // of re-deriving everything from the diff — the prompt-level analog of codex's
+  // warm session. (We can't truly resume the Claude author: agent() is one-shot,
+  // and Claude isn't headless under Max auth, so there's no session to resume the
+  // way `codex exec resume` carries codex's reasoning forward. This is the
+  // achievable equivalent — context, not state.) codex's responseToRebuttal in
+  // the verdict already says which of the author's disputes it conceded vs still
+  // holds, so the author knows exactly what to revisit. Empty on round 1, so the
+  // first round is byte-identical to the pre-warm-author prompt.
+  const priorBlock = priorClaude
+    ? `This is a FOLLOW-UP round — you already worked this diff last round. Here is what YOU did then (your own dispositions); build on it, don't re-derive it from scratch, and don't re-fix or re-litigate anything already settled:
+
+${JSON.stringify({ summary: priorClaude.summary, actions: priorClaude.actions }, null, 2)}
+
+For any finding you DISPUTED last round, read codex's \`responseToRebuttal\` below: if codex conceded, you're done with it; if codex held firm, weigh its reasoning and either fix it or hold with a sharper argument. Spend this round on findings still \`open\` plus any new ones.
+
+`
+    : ''
   const prompt = `You authored the changes on this branch. CODEX reviewed them and returned the verdict below — what do you think? Fix what you agree with, push back (with reasons) on what you don't.
 
 Work in the repo at \`${repoPath}\` — your shell cwd may be a different worktree, so use ABSOLUTE paths under it and \`git -C ${repoPath}\`. See the change with \`git -C ${repoPath} diff ${base}\`.
 
-CODEX's verdict (JSON):
+${priorBlock}CODEX's verdict (JSON):
 ${JSON.stringify(verdict, null, 2)}
 
 Address EVERY finding, any severity (don't skip minors/nits):
@@ -286,8 +305,11 @@ for (let round = 1; ; round++) {
     break
   }
 
-  // Claude responds: fixes what it agrees with (editing the tree), disputes the rest.
-  const response = await claudeResponds(round, verdict)
+  // Claude responds: fixes what it agrees with (editing the tree), disputes the
+  // rest. `lastClaude` still holds the PREVIOUS round's response here (it's
+  // reassigned just below), so the author gets its own prior dispositions — the
+  // warm-author context — and on round 1 it's null (cold start, unchanged).
+  const response = await claudeResponds(round, verdict, lastClaude)
   entry.claude = response
   lastClaude = response
   log(

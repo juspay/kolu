@@ -184,6 +184,13 @@ the per-round commits sit on the local branch for the human to review):
   other's sessions. If the id is ever missing (round-1 capture failed), a later
   round transparently cold-starts with the full prompt + rebuttal — graceful
   degradation, never a wedge.
+- **Warm author (context, not session).** The Claude author can't be resumed the
+  way codex is — `agent()` is one-shot and Claude isn't headless under Max auth,
+  so there's no session id to carry forward. The prompt-level equivalent is used
+  instead: each follow-up round's author prompt carries the author's OWN previous
+  dispositions (its prior summary + actions), so it builds on its last round
+  rather than re-deriving the whole diff, and won't re-fix or re-litigate findings
+  already settled. Round 1 has no prior, so it's byte-identical to a cold start.
 - **Commits, but never pushes or merges.** Each round is committed locally (unless
   `--no-commit`) so the PR history reads as the debate, but the skill never
   pushes or merges. Consensus means "both AIs agree on the committed code," not
