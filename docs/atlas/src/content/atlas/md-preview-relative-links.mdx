@@ -2,7 +2,7 @@
 title: "Markdown preview: repo-relative links open the target file"
 description: Plan — make a repo-relative Markdown link open the linked file in the Code tab (mirroring how relative images already resolve) instead of booting a bogus app SPA in a new browser tab.
 kind: bug
-status: proposed
+status: implemented
 maturity: seedling
 parents: [solid-fileview]
 updated: 2026-06-04
@@ -10,8 +10,9 @@ updated: 2026-06-04
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
 
-Plan of record · branch `md-preview-rellink` · [issue #1161](https://github.com/juspay/kolu/issues/1161)
+Plan of record · branch `md-preview-rellink` · [issue #1161](https://github.com/juspay/kolu/issues/1161) · shipped in <PrLink pr={1190} />
 
 export const FlowMockup = () => (
   <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "1.5rem 0", fontFamily: "ui-sans-serif,system-ui" }}>
