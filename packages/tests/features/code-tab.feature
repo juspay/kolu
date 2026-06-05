@@ -461,11 +461,14 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "two-A"
     # Two entries in terminal A's repo — back is live.
     And the Code tab "back" button should be enabled
-    # Second terminal in a DIFFERENT repo, with its own back-stack.
+    # Second terminal in a DIFFERENT repo, with its own back-stack. A new
+    # terminal defaults to the Inspector tab (DEFAULT_RIGHT_PANEL_PER_TERMINAL),
+    # so re-select the Code tab for it before driving the mode chip.
     When I create a terminal
     And I run "rm -rf /tmp/kolu-hist-term-b && git init /tmp/kolu-hist-term-b && cd /tmp/kolu-hist-term-b"
     And I run "printf 'one-B\n' > one.txt && printf 'two-B\n' > two.txt"
     And I run "git add . && git commit -m init"
+    And I click the Code tab
     And I click the Code tab mode "browse"
     When I click the file "one.txt" in the file browser
     Then the selected file should show content "one-B"
