@@ -302,17 +302,23 @@ export function useRightPanel() {
       const id = store.activeId();
       return id === null ? false : browserFor(id).canForward();
     },
-    /** Drop the active terminal's navigation history and start a fresh stack.
-     *  The recorded locations are repo-relative paths (`{ mode, path }`) with
-     *  no repo identity of their own, so they are only meaningful within the
-     *  repo they were captured in. When a terminal `cd`s from repo A to repo B,
+    /** Drop a terminal's navigation history and start a fresh stack. The
+     *  recorded locations are repo-relative paths (`{ mode, path }`) with no
+     *  repo identity of their own, so they are only meaningful within the repo
+     *  they were captured in. When a terminal `cd`s from repo A to repo B,
      *  re-applying an A-relative entry inside B would open the wrong same-named
      *  file (or a path B's membership effect then clears). `CodeTab` calls this
-     *  on every `repoPath()` change so back/forward is always scoped to the
-     *  repo currently shown; the next `recordNavigation` re-seeds the stack. */
-    resetHistory: () => {
-      const id = store.activeId();
-      if (id === null) return;
+     *  when a terminal's *own* `repoPath()` changes so back/forward is always
+     *  scoped to the repo currently shown; the next `recordNavigation` re-seeds
+     *  the stack.
+     *
+     *  Takes the terminal id explicitly rather than reading `activeId()`: the
+     *  caller (`CodeTab`, a singleton over the active terminal) must reset the
+     *  history of *the terminal whose repo changed* — which on a plain terminal
+     *  switch is NOT the same as "the now-active terminal". Defaulting to the
+     *  active id would let switching from terminal A (repo A) to terminal B
+     *  (repo B) wipe B's freshly-activated history. */
+    resetHistory: (id: TerminalId) => {
       browsers.set(
         id,
         createBrowser<BrowserLocation>({ isSameEntry: SAME_LOCATION }),

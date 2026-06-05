@@ -441,6 +441,51 @@ Feature: Code tab (review + browse)
     # entry, so back is disabled and can never surface repo A's "from-repo-A".
     And the Code tab "back" button should be disabled
 
+  # Regression: history is PER TERMINAL, and the per-repo reset must fire only
+  # when a terminal's OWN repo changes (a `cd`), never when the user merely
+  # switches the active terminal to one that sits in a different repo. CodeTab
+  # is a singleton over the active terminal, so `repoPath()` shifts on both
+  # events; an over-broad reset keyed on `repoPath()` alone would wipe the
+  # newly-activated terminal's history just by switching to it. Two terminals
+  # in two repos each build a back-stack; switching A→B→A must leave each
+  # terminal's "back" button live (its history intact), not reset.
+  Scenario: Code tab history survives switching between terminals in different repos
+    When I run "rm -rf /tmp/kolu-hist-term-a && git init /tmp/kolu-hist-term-a && cd /tmp/kolu-hist-term-a"
+    And I run "printf 'one-A\n' > one.txt && printf 'two-A\n' > two.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "one.txt" in the file browser
+    Then the selected file should show content "one-A"
+    When I click the file "two.txt" in the file browser
+    Then the selected file should show content "two-A"
+    # Two entries in terminal A's repo — back is live.
+    And the Code tab "back" button should be enabled
+    # Second terminal in a DIFFERENT repo, with its own back-stack.
+    When I create a terminal
+    And I run "rm -rf /tmp/kolu-hist-term-b && git init /tmp/kolu-hist-term-b && cd /tmp/kolu-hist-term-b"
+    And I run "printf 'one-B\n' > one.txt && printf 'two-B\n' > two.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab mode "browse"
+    When I click the file "one.txt" in the file browser
+    Then the selected file should show content "one-B"
+    When I click the file "two.txt" in the file browser
+    Then the selected file should show content "two-B"
+    And the Code tab "back" button should be enabled
+    # Switch back to terminal A: its history must be untouched by the switch —
+    # back is still live and retraces A's own stack, not wiped by the reset.
+    When I select workspace switcher entry 1
+    Then the selected file should show content "two-A"
+    And the Code tab "back" button should be enabled
+    When I go back in the Code tab
+    Then the selected file should show content "one-A"
+    # And terminal B's history is likewise intact when we return to it.
+    When I select workspace switcher entry 2
+    Then the selected file should show content "two-B"
+    And the Code tab "back" button should be enabled
+    When I go back in the Code tab
+    Then the selected file should show content "one-B"
+
   Scenario: File browser wraps long lines by default
     When I run "git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
     And I run "printf 'prefix-' > long.txt && printf '%*s' 240 '' | tr ' ' x >> long.txt && printf '\n' >> long.txt"

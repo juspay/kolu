@@ -116,12 +116,34 @@ const CodeTab: Component<{
 
   // History records repo-relative `{ mode, path }` locations with no repo
   // identity of their own, so a stack captured in repo A must not be replayed
-  // against repo B after a `cd`. Drop the active terminal's history whenever
-  // its repo changes — back/forward then only ever retraces locations from the
-  // repo currently shown, and the next selection re-seeds the fresh stack.
-  // `defer` so a freshly seeded (session-restore) stack survives the initial
-  // mount; only genuine repo transitions reset it.
-  createEffect(on(repoPath, () => rightPanel.resetHistory(), { defer: true }));
+  // against repo B after a `cd`. Drop a terminal's history whenever *that same
+  // terminal's* repo changes — back/forward then only ever retraces locations
+  // from the repo currently shown, and the next selection re-seeds the fresh
+  // stack.
+  //
+  // `CodeTab` is a singleton over the active terminal, so `repoPath()` shifts
+  // on two distinct events: a `cd` inside the current terminal (a genuine repo
+  // transition — reset), AND a plain switch to another terminal that happens to
+  // sit in a different repo (NOT a transition — the target terminal's own
+  // history must survive). Keying the effect on `repoPath()` alone can't tell
+  // them apart, so track `(terminalId, repoPath)` together and reset only when
+  // the terminal id held steady while the repo moved. `defer` so a freshly
+  // seeded (session-restore) stack survives the initial mount.
+  createEffect(
+    on(
+      () => [props.terminalId, repoPath()] as const,
+      ([tid, repo], prev) => {
+        const prevTid = prev?.[0] ?? null;
+        const prevRepo = prev?.[1] ?? null;
+        // Same terminal, different repo ⇒ a `cd`. A terminal switch (tid moved)
+        // or the initial mount (no prev) leaves the target's stack untouched.
+        if (tid !== null && tid === prevTid && repo !== prevRepo) {
+          rightPanel.resetHistory(tid);
+        }
+      },
+      { defer: true },
+    ),
+  );
 
   // Dismiss any open comment composer when the user navigates away from
   // the file/mode/repo the draft was anchored to. Without this, the
