@@ -434,7 +434,9 @@ the <code>handled()</code> resolution record, not a side signal — so back-to-a
 re-issues through the same <code>openInCodeTab</code> pipeline rather than a parallel paint
 path. Mode-chip toggles don’t record (per-mode memory already restores the file);
 only file views are history steps. The keybind is a Code-tab-scoped <code>Alt+←/→</code>
-listener (a global <code>mod+[</code> would shadow the terminal’s ESC byte on Linux).</li>
+listener (a global <code>mod+[</code> would shadow the terminal’s ESC byte on Linux). The
+mouse’s dedicated back/forward (X1/X2) buttons — same intent, pointer-scoped to
+the preview — are a tracked follow-up: <a href="https://github.com/juspay/kolu/issues/1192">#1192</a>.</li>
 </ul></div> </aside>
 <hr/>
 <p><em>Bottom line: don’t extract a history stack — that’s a transformer. Extract the

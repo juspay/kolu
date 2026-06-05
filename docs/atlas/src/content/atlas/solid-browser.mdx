@@ -326,7 +326,9 @@ the `handled()` resolution record, not a side signal — so back-to-a-line
 re-issues through the same `openInCodeTab` pipeline rather than a parallel paint
 path. Mode-chip toggles don't record (per-mode memory already restores the file);
 only file views are history steps. The keybind is a Code-tab-scoped `Alt+←/→`
-listener (a global `mod+[` would shadow the terminal's ESC byte on Linux).
+listener (a global `mod+[` would shadow the terminal's ESC byte on Linux). The
+mouse's dedicated back/forward (X1/X2) buttons — same intent, pointer-scoped to
+the preview — are a tracked follow-up: [#1192](https://github.com/juspay/kolu/issues/1192).
 </Callout>
 
 ---

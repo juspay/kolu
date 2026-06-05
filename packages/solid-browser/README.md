@@ -161,6 +161,8 @@ The navigation math and the history controller are both here. One piece is delib
 
 - **`<Browser>`** — a SolidJS component that composes `<FileView>`, owns link interception, and drives a `createBrowser` internally, so a host mounts one component instead of wiring the callbacks + history by hand. It's deferred because it only pays off once a host's *viewport* is uniform: kolu's Code tab still renders diffs through a different path than documents, so a `<Browser>` there would wrap just one of them. It ships with the host that can use it whole. (`BrowserLocation` is likewise the host's concern — kolu defines its own `{ mode, path, ref }`; the generic `createBrowser<L>` takes any location type.)
 
+Mouse back/forward (X1/X2) buttons for the Code-tab browser are a tracked follow-up: [juspay/kolu#1192](https://github.com/juspay/kolu/issues/1192).
+
 Background and the full plan: [`docs/atlas/.../solid-browser.mdx`](../../docs/atlas/src/content/atlas/solid-browser.mdx).
 
 ## Testing
