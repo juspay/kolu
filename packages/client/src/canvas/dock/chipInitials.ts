@@ -46,12 +46,13 @@ function caseToOneGlyph(glyph: string, mode: "upper" | "lower"): string {
  *    emoji, so the alphanumeric-only match is intentional here.
  *  - `sub` — first grapheme of the intent's display line (line 1, with
  *    leading markdown chrome stripped) when the intent is set;
- *    lowercased when it's an ASCII letter, passed through verbatim when
- *    it's an emoji or other symbol. Falls back to the first alpha-num
- *    of the branch tail when the intent has nothing renderable.
- *  - `subIsGlyph` — `true` when `sub` is a non-ASCII-alphanumeric
- *    grapheme. The CSS hook (`data-glyph`) uses this to drop the faded
- *    opacity that would mute an emoji. */
+ *    lowercased when it's a unicode letter or digit (`\p{L}`/`\p{N}`),
+ *    passed through verbatim when it's an emoji or other symbol. Falls
+ *    back to the first alpha-num of the branch tail when the intent has
+ *    nothing renderable.
+ *  - `subIsGlyph` — `true` when `sub` is a non-alphanumeric grapheme
+ *    (emoji, symbol, punctuation). The CSS hook (`data-glyph`) uses
+ *    this to drop the faded opacity that would mute an emoji. */
 export function chipInitials(
   meta: TerminalMetadata,
   info: TerminalDisplayInfo,

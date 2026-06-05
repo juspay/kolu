@@ -93,6 +93,7 @@ export function parseNameStatus(raw: string): GitChangedFile[] {
     const field = tokens[i++];
     if (!field) continue; // skip the empty tail / stray separators
     const letter = field[0] ?? "";
+    const status = toChangeStatus(letter);
     // Renames (`R<score>`) and copies (`C<score>`) carry two paths; every
     // other status carries one.
     const isRenameOrCopy = letter === "R" || letter === "C";
@@ -102,13 +103,13 @@ export function parseNameStatus(raw: string): GitChangedFile[] {
       if (!filePath) continue;
       files.push({
         path: filePath,
-        status: toChangeStatus(letter),
+        status,
         ...(oldPath && { oldPath }),
       });
     } else {
       const filePath = tokens[i++];
       if (!filePath) continue;
-      files.push({ path: filePath, status: toChangeStatus(letter) });
+      files.push({ path: filePath, status });
     }
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));

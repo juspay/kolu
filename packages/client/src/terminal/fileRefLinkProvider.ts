@@ -10,6 +10,11 @@ export interface FileRefLinkOpts {
   onActivate: (ref: LineRef, event: MouseEvent) => void;
 }
 
+// Any non-ASCII byte in the line means string offsets and cell columns can
+// diverge (wide CJK = 2 cells per char, combining marks = 0 cells per char).
+// Hoisted so the regex literal is compiled once, not re-created per hover.
+const HAS_NON_ASCII = /[^\x00-\x7f]/;
+
 /** A parsed ref plus its position in *cell* columns rather than JS string
  *  offsets. `parseLineRefs` reports UTF-16 string offsets, but xterm's hover
  *  range and the touch hit-test address the buffer by cell column — and the
@@ -89,7 +94,7 @@ function cellRefsAt(terminal: Terminal, bufferLine: number): CellRefMatch[] {
   // Only pay for the per-cell width walk when there's a non-ASCII char that
   // could make a string offset and a cell column diverge — the common all-
   // ASCII line keeps offset === column.
-  const needsCellMap = /[^\x00-\x7f]/.test(text);
+  const needsCellMap = HAS_NON_ASCII.test(text);
   const colFor = needsCellMap ? buildStringToCellMap(lineObj, text) : null;
   return matches.map((match: LineRefMatch) => {
     const start = colFor ? colFor[match.index] : match.index;
@@ -103,6 +108,9 @@ function cellRefsAt(terminal: Terminal, bufferLine: number): CellRefMatch[] {
         endLine: match.endLine,
       },
       text: match.text,
+      // `colFor` is built with `text.length + 1` entries so lookups at
+      // `match.index` and `match.index + match.text.length` are always
+      // in-bounds; the `??` guards are unreachable but kept for safety.
       startCol: start ?? match.index,
       endCol: end ?? match.index + match.text.length,
     };
