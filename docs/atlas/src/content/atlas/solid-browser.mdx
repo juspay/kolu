@@ -1,0 +1,296 @@
+---
+title: The Code tab is a browser → @kolu/solid-browser
+description: The real electricity hiding in the Code tab isn't a history stack — it's the browser. Extract the location + history + link-navigation shell that drives @kolu/solid-fileview over a resolver; back/forward falls out for free, and git becomes an injected resolver.
+kind: feature
+status: proposed
+maturity: seedling
+parents: [electricity]
+updated: 2026-06-05
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Cite from "../../components/Cite.astro";
+import D2 from "../../components/D2.astro";
+
+Plan of record · branch `md-back-link` · proposed
+
+export const Chrome = () => (
+  <div style={{ margin: "1.5rem 0", border: "1px solid #d9d4c6", borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 14px rgba(0,0,0,.07)", fontFamily: "ui-sans-serif,system-ui" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: ".55rem", padding: ".5rem .8rem", background: "#f3f0e7", borderBottom: "1px solid #e6e2d6" }}>
+      <span style={{ display: "inline-flex", gap: ".3rem" }}>
+        <span style={{ width: "1.6rem", height: "1.6rem", display: "grid", placeItems: "center", borderRadius: "6px", background: "#fff", border: "1px solid #ddd6c6", color: "#3454d1", font: "700 .85rem/1 ui-monospace,monospace" }}>◀</span>
+        <span style={{ width: "1.6rem", height: "1.6rem", display: "grid", placeItems: "center", borderRadius: "6px", background: "#fff", border: "1px solid #ece7da", color: "#c2bdaf", font: "700 .85rem/1 ui-monospace,monospace", opacity: .4 }}>▶</span>
+      </span>
+      <code style={{ flex: 1, fontSize: ".72rem", color: "#3a3f47", background: "#fff", border: "1px solid #e2ddcf", borderRadius: "7px", padding: ".35rem .6rem", wordBreak: "break-all" }}>browse · docs/atlas/src/content/atlas/electricity.mdx<span style={{ color: "#a89f86" }}>#L18</span></code>
+    </div>
+    <div style={{ padding: ".9rem 1rem", background: "#fff", fontSize: ".78rem", color: "#4a4f57", lineHeight: 1.55 }}>
+      <strong style={{ color: "#1b1f24" }}>rendered Markdown</strong> — click a repo-relative link → the browser
+      navigates → ◀ goes back to where you were, scroll and highlight intact. Same engine renders source, HTML, SVG, PDF.
+      <div style={{ marginTop: ".6rem", paddingTop: ".55rem", borderTop: "1px dashed #e6e2d6", fontSize: ".74rem", color: "#7a8089" }}>
+        git is not in this picture. The browser resolves <code>location → content</code> through an injected resolver; kolu's resolver is the only part that knows "repo-relative path + mode."
+      </div>
+    </div>
+  </div>
+);
+
+The question that started this was small: *what does it take to add back/forward
+navigation to the Code tab's preview?* The answer kept wanting to be "a history
+stack." That answer is wrong — not incorrect, but **mis-scoped**. A history stack
+is a transformer: a working part *inside* a concept. The concept is the
+**browser**, and it has been hiding in the Code tab the whole time.
+
+<Callout kind="accent" title="The thesis — the Code tab is a browser wearing git as a costume">
+Strip git off the Code tab and what remains is a general capability: **render a
+space of interlinked, typed documents; follow links between them; go back and
+forward.** That is a browser engine. History is one organ of it — alongside the
+location model, the link interceptor, and the resolver; the *rendering* of any
+one document is already solved by `@kolu/solid-fileview`, which the browser
+composes. The electricity is not "history"; it is **`@kolu/solid-browser`**. git
+becomes an injected resolver, and back/forward falls out for free — a browser has
+history the way a heart has chambers.
+</Callout>
+
+<Chrome />
+
+## The Code tab is already a browser
+
+The reframe is one move — name the *concept*, not a mechanism inside it. Two
+observations make that concrete.
+
+### The tell: the renderers are already extracted; the *shell* isn't
+
+kolu already pulled the appliances out into packages — <PrLink pr={1079} />
+(`@kolu/solid-markdown`), <PrLink pr={1082} /> (`@kolu/solid-fileview`),
+`@kolu/solid-pierre` (source). See [solid-fileview](solid-fileview) — "invent the
+grid, slim the house." What that effort extracted was **how a single document
+renders**. What it left behind, still smeared across the client, is the layer
+*above* a single document: **how you move between documents.** That layer is the
+browser, and today it is complected across five files:
+
+| Smeared across | Owns (a browser organ) |
+| --- | --- |
+| `right-panel/openInCodeTab.ts` <Cite file="packages/client/src/right-panel/openInCodeTab.ts" lines="78-85" /> | The **address bar** — the single "navigate to this location" front door. |
+| `right-panel/CodeTab.tsx` <Cite file="packages/client/src/right-panel/CodeTab.tsx" lines="408-430" /> | `handleSelect` — the **navigation controller** (apply a location to the view). |
+| `right-panel/markdownImageSrc.ts` <Cite file="packages/client/src/right-panel/markdownImageSrc.ts" lines="63-69" /> | **Relative-link resolution** (GitHub rules) — agnostic URI math. |
+| `right-panel/iframePreviewNav.ts` <Cite file="packages/client/src/right-panel/iframePreviewNav.ts" lines="22" /> | **In-frame link interception** — map an iframe `pathname` back to a location. |
+| `right-panel/BrowseIframeRenderer.tsx` | **In-iframe link observation** — a navigation edge *out* of rendered HTML (the iframe *drawing* is already `@kolu/solid-fileview`'s). |
+
+None of these is *about git*, and none is *about how a file draws* (that's
+`@kolu/solid-fileview`). They are about **locations, links, and history** — the
+vocabulary of a browser.
+
+### `OpenInCodeTabRequest` is already a URL
+
+Look at the front-door request shape <Cite file="packages/client/src/right-panel/openInCodeTab.ts" lines="31-54" />:
+
+```ts
+{ ref: { path, startLine, endLine }, repoRoot, cwd, targetMode, allowBasenameFallback }
+```
+
+That is a URL. `ref` is the path + fragment; `targetMode` is which "site"
+(`browse`/`local`/`branch`); `repoRoot`/`cwd` are the base href. And
+`openInCodeTab()` is already `location.assign()` — the single producer-side entry
+every navigation routes through, which is *why* relative Markdown links
+([#1161](md-preview-relative-links), <PrLink pr={1190} />) and terminal `path:N`
+links and the right-click *Open path* menu all funnel into it. The browser is
+half-built; it is missing only `history.back()`/`forward()` and the popstate
+semantics over a stack of these locations.
+
+## The electricity — `@kolu/solid-browser`
+
+A standalone package. Depends on `solid-js` + `@kolu/solid-fileview` and nothing
+kolu — the dependency arrow points **out** of the client, never back in. It knows
+URIs, locations, links, and history, and composes `@kolu/solid-fileview` to draw
+whatever a location resolves to. It knows nothing of git, repos, modes,
+terminals — nor of how any single format renders (that is fileview's).
+
+<D2
+  caption="Architectural connections — the dependency arrow points out of the client; the browser composes the viewport, which drives the appliances. git lives only in the injected resolver."
+  code={`
+direction: down
+
+kolu: "kolu app — the consumer" {
+  CodeTab: "right-panel/CodeTab.tsx"
+  gitResolver: "gitResolver.ts (git domain)"
+}
+
+browser: "@kolu/solid-browser — the electricity" {
+  location
+  history: "history (back / forward)"
+  linkNav: "linkNav (resolve + intercept)"
+}
+
+fileview: "@kolu/solid-fileview — the viewport (one FileData + toggle)"
+
+appliances: "appliances" {
+  md: "@kolu/solid-markdown"
+  pierre: "@kolu/solid-pierre"
+}
+
+kolu.CodeTab -> browser: "mounts <Browser>, injects renderers"
+kolu.gitResolver -> browser: "resolve(location) -> FileData"
+browser -> fileview: "composes"
+fileview -> appliances.md: "draws"
+fileview -> appliances.pierre: "draws"
+`}
+/>
+
+What the host **injects** is exactly the volatility kolu owns:
+
+- **`resolve(location) → FileData`** — the only part that knows "repo-relative
+  path + git mode → file bytes," producing the `{ path, source?, url? }`
+  `FileData` that `@kolu/solid-fileview` draws. Swap it and the same browser
+  reads HTTP, ssh, an artifact store.
+- **The renderers `FileView` draws with** — `@kolu/solid-markdown` / `-pierre`
+  and the iframe/image appliances, forwarded straight through to `<FileView>`.
+  The browser owns *no* renderer and *no* render dispatch (`match(path)` is
+  fileview's); it decides only *which location* to show.
+- **Chrome via slots** — the file tree and `browse/local/branch` mode chips.
+
+<Callout kind="note" title="Layered on @kolu/solid-fileview — the viewport vs. the browser">
+The split is clean and one-directional. **`@kolu/solid-fileview` is the
+viewport**: hand it one `FileData` (path + optional `source` text + optional
+rendered `url`) and a renderer list, and it draws *that one document* with the
+Source⇄Rendered toggle, picking a renderer by `match(path)`. It knows nothing of
+navigation. **`@kolu/solid-browser` is the browser around it**: it owns *which*
+document (a location), *where content comes from* (`resolve(location) →
+FileData`), *history*, and *links to other documents* — then hands the resolved
+`FileData` down to a `<FileView>`. Dependency arrow: `solid-browser →
+solid-fileview → solid-markdown`/`-pierre`, acyclic; the viewport never learns
+there's a back button. Two volatilities stacked: fileview encapsulates *how one
+file is viewed*; the browser encapsulates *how you move through a space of
+files*. fileview's own `types.ts` already calls `FileView` "the outlet the
+**Code-browser** preview plan describes" — this is that browser.
+</Callout>
+
+### Does "browser" clear the electricity bar where "history" didn't?
+
+Against [electricity](electricity)'s own three tests:
+
+| Test | "history" stack | `@kolu/solid-browser` |
+| --- | --- | --- |
+| ① **domain-agnostic** | ✓ (but `T` carried no meaning) | ✓ — URIs/locations/links/history; git is injected, rendering is fileview's |
+| ② **hides a *hard* volatility** | <Pill variant="bad">no</Pill> back/forward is a bounded algorithm — `nonempty`-tier leaf | <Pill variant="ok">yes</Pill> resource resolution (transport) + **navigation across heterogeneous rendered content** (DOM-anchor, in-iframe, tree → one location model) + GitHub-relative path semantics + history/popstate + the production-build effect-elision invariant the front door was *built* to dodge <Cite file="packages/client/src/right-panel/openInCodeTab.ts" lines="9-19" /> |
+| ③ **graduates — proof is real** | meaningless standalone | a docs/wiki viewer, a [drishti](https://github.com/srid/drishti)-style host inspector (logs + configs over ssh, links between them), an artifact viewer — each injects its own `resolve` and reuses the published renderers |
+
+<Callout kind="good" title="Why 'browser', not 'history'">
+"History" is self-undescribing — history *of what?* "Browser" tells you what it
+is and what you'd reuse it for without being told. A standalone history stack is
+`nonempty`/`html-escape`-tier: a clean leaf, but the [electricity](electricity)
+tracker lists those as **leaves, not electricities** precisely because they hide
+no *hard* volatility. The browser does — it is the same class of receptacle as
+`@kolu/surface` (transport) or `@kolu/solid-xterm` (WebGL lifecycle).
+</Callout>
+
+<Callout kind="warn" title="③ is proof-pending, and the note says so">
+By the tracker's own standard, a single consumer is "a nicely-factored package,
+not yet proven electricity" — drishti is cited there as the *proof* `@kolu/surface`
+was real, not its point. Until a second app actually plugs a different `resolve`
+into `@kolu/solid-browser`, this is an **extraction with a credible graduation
+path**, not a closed case. The honest framing is "the Code tab is a browser; here
+is the seam that lets it leave."
+</Callout>
+
+## The design
+
+Two mechanisms carry the feature — one for *moving* (the seam), one for
+*remembering where you were* (history). Both live in the engine, never in
+`CodeTab`.
+
+### The seam — split `assign` from `record`
+
+Back/forward hinges on one split the front door doesn't yet make — separating
+`applyLocation` (assign) from `navigate` (assign *and* record):
+
+```
+applyLocation(loc)            // the existing batch(openCodeAt + reveal + setPending) — "assign"
+navigate(loc)  = applyLocation(loc) + history.push(loc)   // address-bar navigation
+back()         = applyLocation(history.back())            // traverse — NO push
+forward()      = applyLocation(history.forward())         // traverse — NO push
+```
+
+This split is mandatory, not cosmetic: if `back`/`forward` went through the
+recording path you'd get the classic *"going back creates new history"* bug.
+Traversal must apply-without-recording — which is why the split is a **phase-2
+(history) concern**, not what makes the engine extractable. The *extraction*
+(phase 1) leans on a different property of the same `applyLocation`: it's the
+one organ that knows about modes and the pending-highlight signal, so it stays
+kolu-side while the rest of the engine graduates.
+
+### The feature that rides out for free — unified back/forward
+
+Back/forward rides the extraction — the engine has history because a browser
+does, so phase 2 is mostly *exposure*, not invention. Settled design (from the
+originating discussion):
+
+- **Unified history, one stack.** Because `targetMode` lives *inside* the
+  location, back/forward cross `browse`/`local`/`branch` naturally — exactly
+  browser behavior. The per-mode `selectedFileByMode`
+  <Cite file="packages/client/src/right-panel/useRightPanel.ts" lines="209-210" />
+  becomes a *derived view* of "current location filtered to this mode," not the
+  source of truth.
+- **Tree clicks count as navigation.** `handleSelect`
+  <Cite file="packages/client/src/right-panel/CodeTab.tsx" lines="408-430" />
+  routes through `navigate()`, so back returns to the previously-viewed file no
+  matter how you reached the current one.
+- **Restore where you *were*, not just what.** A faithful entry is
+  `{ location, scroll }`, where `scroll` is captured on the way *out*
+  (`history.replaceTop` before pushing the next) — browsers restore the scroll
+  you left, not the line you arrived at. Cheap v1: entry = inbound `ref` only,
+  back re-fires the highlight (the `equals:false` pending signal already
+  re-paints <Cite file="packages/client/src/right-panel/openInCodeTab.ts" lines="62-69" />); faithful v2 reads live scroll from the renderer.
+- **Keybinds** — `codeTabBack`/`codeTabForward` in `input/actions.ts`
+  (browser-like `Cmd/Ctrl+[` / `]`), guarded to Code-tab focus; check
+  `input/prohibitedKeybinds.ts` and add the `keyboard.test.ts` collision case.
+
+## Building it
+
+### Files this touches
+
+**The electricity — a new isolated package:**
+
+| Package | Contents |
+| --- | --- |
+| `packages/solid-browser` <Pill variant="todo">new</Pill> | `createBrowser` navigation engine + `location` / `history` / `linkNav` / `Browser.tsx`. deps: `solid-js`, `@kolu/solid-fileview` (composed for rendering — *no* renderer registry of its own). The agnostic halves of today's `markdownImageSrc` (relative resolution) and `iframePreviewNav` (interception) move here. Zero kolu imports; builds + tests standalone. |
+
+**kolu — the consumer, now just git + chrome:**
+
+| File | Change |
+| --- | --- |
+| `right-panel/gitResolver.ts` <Pill variant="todo">new (domain)</Pill> | `(repoPath, mode) → file content`. Where git/modes/`repoRoot` live — out of the engine. |
+| `right-panel/CodeTab.tsx` | <Pill variant="warn">slimmed</Pill> Mounts `<Browser>`, injects the `gitResolver` + the FileView renderer list, renders tree + mode chips into its slots. `handleSelect` → `navigate`. |
+| `right-panel/openInCodeTab.ts` | <Pill variant="warn">becomes a binding</Pill> A thin `req → browser.navigate(location)` adapter; the batched-write body becomes the engine's `applyLocation`. |
+| `right-panel/useRightPanel.ts` | <Pill variant="warn">derives</Pill> Hosts the browser; `selectedFile(mode)` derives from the current location instead of owning it. |
+| `right-panel/markdownImageSrc.ts` · `iframePreviewNav.ts` | <Pill variant="ok">halved</Pill> Agnostic resolution/interception relocates into the package; the kolu wrappers (file-route URL, repo mapping) stay. |
+| `input/actions.ts` · `keyboard.test.ts` · `settings/tips.ts` | <Pill variant="ok">+nav</Pill> Back/forward actions, collision test, discoverability tip. |
+
+### Phasing — extract first, then light the feature
+
+Extraction comes **before** the feature, deliberately. Phase 1 is a *pure,
+behavior-preserving lift* — the `solid-fileview` pattern (extract with kolu
+working throughout, <PrLink pr={1082} />; let features ride the extraction
+after). The subtle point: what gets extracted in phase 1 is **today's
+navigation, which is already proven code** — the safest possible thing to move.
+The *new* behavior (history) is then added to the clean package, never bolted
+onto the client that's about to be gutted. There is no forced dependency either
+way; this ordering is chosen for risk isolation and single-purpose diffs (a
+pure-move PR, then a pure-addition PR).
+
+| Phase | Ships | Risk |
+| --- | --- | --- |
+| **1 · Extract `@kolu/solid-browser`** <Pill variant="todo">electricity lands</Pill> | Lift the engine + `location` / `linkNav` organs into the package, composing `<FileView>` for rendering. `navigate(location)` reproduces today's open-a-file path *exactly*; `CodeTab` becomes the first consumer injecting `gitResolver` + the FileView renderer list. **No back/forward yet** — renders today's formats, navigates as today. kolu LOC drops. | Medium — live-surface refactor, e2e-covered (mirror the `solid-fileview` extraction, <PrLink pr={1082} />). |
+| **2 · Add back/forward** <Pill variant="todo">the feature</Pill> | The user-visible win, riding the extracted browser. This is where the `assign`-vs-`record` seam appears (`navigate` records; `back`/`forward` traverse via `applyLocation` *without* recording), plus the `history` organ, keybinds, back/forward buttons, tree-clicks-as-nav, and scroll-capture-on-leave. Because it lands *in the package*, history never complects into `CodeTab`. | Medium — popstate semantics, scroll-capture timing. |
+| **3 · Prove ③** | A second `resolve` consumer (artifact viewer or drishti host-inspector) plugs in — flips this note from "extraction" to "electricity." | — |
+
+---
+
+*Bottom line: don't extract a history stack — that's a transformer. Extract the
+**browser** the Code tab already is. The renderers are packaged
+(`@kolu/solid-fileview`, which it composes); what's left smeared across the
+client is the location + history + link-nav shell. Pull it into
+`@kolu/solid-browser`, inject git as a resolver, and back/forward arrives for
+free. It clears [electricity](electricity)'s hard-volatility
+bar where "history" didn't — proof of graduation (③) still pending a second
+consumer.*

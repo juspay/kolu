@@ -3,7 +3,7 @@ title: Electricity — identified, and their progress
 description: A tracker for kolu's electricities — infrastructure pulled out from beneath the app into its own thing — and where each stands.
 kind: analysis
 maturity: evergreen
-updated: 2026-06-02
+updated: 2026-06-05
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -13,6 +13,14 @@ import Cite from "../../components/Cite.astro";
 
 <Callout kind="good" title="What counts as electricity">
 Löwy's receptacle — hide the volatility behind a socket you plug into. Three tests at once: ① **domain-agnostic** — no terminal/canvas/git/xterm leaks into the interface; ② **hides a hard volatility** — transport, reconnect, GPU-context loss, persistence — not a 3-line `===`; ③ **graduates** — ships as `@kolu/*` and a *different* app plugs in. The proof of ③ is real, not aspirational. [`@kolu/surface`](https://kolu.dev/blog/surface-framework/) is **kolu's own** client↔server transport first — and it has since picked up a **second consumer** in [srid/drishti](https://github.com/srid/drishti) (a fleet process-monitor; browser ↔ Bun ↔ ssh-agent) that vendors it from this repo and declares its own per-host schema with none of kolu's domain. The second consumer isn't the *point* of the extraction — it's the *proof* it was real electricity: surface never noticed the domain changed.
+</Callout>
+
+<Callout kind="danger" title="How a session mis-identifies electricity — three traps, learned the hard way">
+The live example: asked to add back/forward to the Code-tab preview, a session proposed extracting a **history stack**. Wrong three ways, each caught only by re-asking the test above — and the [solid-browser](solid-browser) plan is the corrected end-to-end.
+
+- **Naming an organ, not the concept.** A history stack is a *transformer* — a working part *inside* a larger thing. The electricity was the **browser** (location + history + link-nav + render-host); history is one chamber of it. Test: *is the name self-describing standalone?* "history" → history **of what?**; "browser" → obvious. If you must append "…of X" to explain the name, you've named a part, not the receptacle.
+- **A module in `client/src/` is not electricity.** Location *is* structure (Hickey): a generic-looking helper living inside the app is **part of the app**, however agnostic the code reads. Electricity is its **own package**, the dependency arrow pointing *out* — `client → @kolu/x`, never back. (`createSharedRoot` sits in `client/src` marked "publish?" — a leaf *awaiting* graduation, **not** a precedent for calling in-app modules electricity.)
+- **Agnostic ≠ electricity — apply test ② honestly.** A clean, reusable, agnostic primitive that hides only a *bounded algorithm* (a stack, a debounce, an `===`) is a **leaf** (`nonempty`/`html-escape`-tier), not a receptacle. "I found a tidy generic module" is the feeling that *precedes* the mistake. Ask what **hard** volatility it hides — transport, GPU-context loss, sandboxing, reconnect — before reaching for `@kolu/`.
 </Callout>
 
 > "Decompose based on volatility." Functional decomposition splits a system by what it *does*; volatility-based decomposition isolates each area likely to *change* behind a stable interface — the way a body keeps blood-pressure, pulse, and salinity volatility "encapsulated behind the service called the heart." An *electricity*, here, is one such volatility pulled out into its own package. — Juval Löwy, [Volatility-Based Decomposition](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) (excerpt from *Righting Software*).
@@ -31,6 +39,7 @@ Löwy's receptacle — hide the volatility behind a socket you plug into. Three 
 | **dom/** + injectable `isMac` | `walkShadowRoots` relocated to a neutral wall; keybind core no longer reads the UA singleton. | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
 | **createSharedRoot** | Lazy app-scoped reactive singleton (7 consumers). 100% agnostic SolidJS. | <PrLink pr={974} /> | <Pill variant="done">done</Pill> <Pill variant="run">publish?</Pill> |
 | **@kolu/solid-xterm** (createSolidXterm) | xterm.js lifecycle — 8-addon orchestration, WebGL single-owner + context-loss recovery, FitAddon resize, owner-correct async dispose across `await`. | <PrLink pr={1116} /> (plan) | <Pill variant="fix">to build</Pill> |
+| **@kolu/solid-browser** | The Code tab *is* a browser — location/address model, back-forward history, cross-content-type link interception, GitHub-relative resolution, sandboxed-iframe lifecycle. git is an injected resolver; the renderer packages plug in. [Plan](solid-browser). | — | <Pill variant="fix">to build</Pill> · ③ proof-pending |
 
 Plus external electricity correctly leaned on instead of hand-rolled: **Corvu** (dialog/drawer/focus-trap/scroll-lock), **@solid-primitives/\*** (resize-observer, media). Origin: a 41-agent Hickey/Lowy audit (16 candidates) → its "ship now" tier landed in <PrLink pr={1089} />; a framework-scale re-test + adversarial skeptic surfaced the missed `solid-xterm`.
 
