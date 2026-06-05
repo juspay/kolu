@@ -84,31 +84,38 @@ const [perTerminal, setPerTerminal] = createStore<
  *  desktop branch ignores this signal entirely. */
 const [drawerOpen, setDrawerOpen] = createSignal(false);
 
-/** Per-terminal navigation history — the back/forward stack for each
- *  terminal's Code tab. In-memory only: history is session-local, and the
- *  persisted `selectedFileByMode` remains the single render + restore truth.
- *  This stack only *records* the sequence of visited locations so back/forward
- *  can re-apply earlier ones. Keyed identically to `perTerminal`, seeded in
- *  `seedPanel`, dropped in `removePanel`; lazily created for a fresh terminal
- *  on its first navigation. */
-const browsers = new Map<TerminalId, Browser<BrowserLocation>>();
-
-/** Last repo root each terminal's history was captured against. The
- *  back/forward stack records repo-relative `{ mode, path }` locations with no
- *  repo identity of their own, so a stack built in repo A is meaningless in
- *  repo B; this map is how we tell, per terminal, whether the repo *that
- *  terminal* sits in has moved since its history was last touched.
+/** Per-terminal navigation history — one record per terminal bundling the
+ *  back/forward stack with the repo it was captured against. Both fields share
+ *  a single lifecycle (seeded in `seedPanel`, dropped in `removePanel`, reset
+ *  together on a repo change), so they live in one Map entry rather than two
+ *  parallel maps that must be kept in sync by hand.
  *
- *  Keyed per terminal (not a single "previously active" value) on purpose: a
- *  terminal's repo can change while it is INACTIVE — a `cd` in its PTY updates
- *  its server metadata even though `CodeTab` (a singleton over the active
- *  terminal) isn't watching it. Comparing only against the immediately
- *  previous active tuple would miss that and let a stale A-relative stack
- *  replay against A's new repo on switch-back. Per-terminal tracking catches
- *  it whenever the terminal next becomes active. Seeded/cleared alongside
- *  `browsers`. `undefined` value means "no repo recorded yet" (fresh or
- *  not-yet-in-a-repo terminal). */
-const lastRepoByTerminal = new Map<TerminalId, string | null>();
+ *  - **`browser`** — the back/forward stack for the terminal's Code tab.
+ *    In-memory only: history is session-local, and the persisted
+ *    `selectedFileByMode` remains the single render + restore truth. This stack
+ *    only *records* the sequence of visited locations so back/forward can
+ *    re-apply earlier ones. Lazily created for a fresh terminal on its first
+ *    navigation.
+ *  - **`lastRepo`** — the repo root the stack was last captured against. The
+ *    recorded locations are repo-relative `{ mode, path }` with no repo
+ *    identity of their own, so a stack built in repo A is meaningless in repo B;
+ *    this field is how we tell, per terminal, whether the repo *that terminal*
+ *    sits in has moved since its history was last touched. Keyed per terminal
+ *    (not a single "previously active" value) on purpose: a terminal's repo can
+ *    change while it is INACTIVE — a `cd` in its PTY updates its server metadata
+ *    even though `CodeTab` (a singleton over the active terminal) isn't watching
+ *    it. Comparing only against the immediately previous active tuple would miss
+ *    that and let a stale A-relative stack replay against A's new repo on
+ *    switch-back. Per-terminal tracking catches it whenever the terminal next
+ *    becomes active. `undefined` means "no repo recorded yet" (fresh or
+ *    not-yet-in-a-repo terminal); `syncRepo` keys its first-sight decision off
+ *    that, so it is distinct from `null` ("recorded, and that terminal is in no
+ *    repo"). */
+type TerminalHistory = {
+  browser: Browser<BrowserLocation>;
+  lastRepo: string | null | undefined;
+};
+const history = new Map<TerminalId, TerminalHistory>();
 
 /** Single owner of a terminal history controller's construction contract.
  *  Every lifecycle verb — lazy-create, repo-change reset, session re-seed —
@@ -132,12 +139,12 @@ function newBrowserFor(initial?: BrowserLocation): Browser<BrowserLocation> {
  *  through it is reactive on the controller's own signals — toolbar enablement
  *  tracks navigation without extra wiring. */
 function browserFor(id: TerminalId): Browser<BrowserLocation> {
-  let b = browsers.get(id);
-  if (!b) {
-    b = newBrowserFor();
-    browsers.set(id, b);
+  let h = history.get(id);
+  if (!h) {
+    h = { browser: newBrowserFor(), lastRepo: undefined };
+    history.set(id, h);
   }
-  return b;
+  return h.browser;
 }
 
 function ensureState(id: TerminalId): void {
@@ -350,8 +357,8 @@ export function useRightPanel() {
      *  genuine repo change keeps back/forward scoped to the repo currently
      *  shown; the next `recordNavigation` re-seeds the stack.
      *
-     *  The decision is keyed PER TERMINAL (`lastRepoByTerminal`), not against
-     *  the previously active terminal: `CodeTab` is a singleton over the active
+     *  The decision is keyed PER TERMINAL (`history.get(id).lastRepo`), not
+     *  against the previously active terminal: `CodeTab` is a singleton over the active
      *  terminal and only calls this for whichever terminal is active, but a
      *  terminal's repo can change while it is INACTIVE (a `cd` in its PTY
      *  updates server metadata unobserved). Tracking each terminal's last-seen
@@ -362,14 +369,18 @@ export function useRightPanel() {
      *  its repo without resetting, so a session-restored (seeded) stack
      *  survives the initial mount. */
     syncRepo: (id: TerminalId, repo: string | null) => {
-      const had = lastRepoByTerminal.has(id);
-      const prevRepo = lastRepoByTerminal.get(id) ?? null;
-      lastRepoByTerminal.set(id, repo);
+      // `browserFor` resolves (creating if absent) the terminal's record, so a
+      // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker —
+      // distinct from `null` ("recorded, terminal is in no repo").
+      browserFor(id);
+      const h = history.get(id)!;
+      const prevRepo = h.lastRepo;
+      h.lastRepo = repo;
       // First sight of this terminal (fresh mount or session restore): adopt
       // its repo as the baseline, leaving any seeded stack intact. A genuine
       // repo move on a terminal we've already seen drops the now-stale stack.
-      if (had && repo !== prevRepo) {
-        browsers.set(id, newBrowserFor());
+      if (prevRepo !== undefined && repo !== prevRepo) {
+        h.browser = newBrowserFor();
       }
     },
 
@@ -382,24 +393,23 @@ export function useRightPanel() {
       // Seed the history with the restored location so back/forward have a
       // starting point matching what's shown — but only when a file was
       // actually selected; a restored-but-empty mode starts with no history.
+      // `lastRepo: undefined` resets the repo baseline so the next `syncRepo`
+      // re-adopts this terminal's current repo without resetting — the stack we
+      // just seeded is the truth, and re-seeding is a "this is a fresh start"
+      // event, same as first mount.
       const path = state.selectedFileByMode?.[state.codeMode] ?? null;
-      browsers.set(
-        id,
-        newBrowserFor(
+      history.set(id, {
+        browser: newBrowserFor(
           path !== null ? { mode: state.codeMode, path } : undefined,
         ),
-      );
-      // Drop the repo baseline so the next `syncRepo` re-adopts this terminal's
-      // current repo without resetting — the stack we just seeded is the truth,
-      // and re-seeding is a "this is a fresh start" event, same as first mount.
-      lastRepoByTerminal.delete(id);
+        lastRepo: undefined,
+      });
     },
     /** Clean up state for a terminal that no longer exists. Mirrors
      *  `useSubPanel.removePanel`. */
     removePanel: (id: TerminalId) => {
       setPerTerminal(produce((s) => delete s[id]));
-      browsers.delete(id);
-      lastRepoByTerminal.delete(id);
+      history.delete(id);
     },
   } as const;
 }

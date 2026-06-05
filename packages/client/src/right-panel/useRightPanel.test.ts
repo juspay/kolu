@@ -79,7 +79,7 @@ describe("useRightPanel — size writes drop Corvu's idempotent re-emits (#1041)
 // records repo-relative `{ mode, path }` locations with no repo identity, so it
 // must be dropped when the terminal it belongs to moves to a different repo —
 // but NOT when the user merely switches the active terminal between two repos.
-// The decision is keyed per terminal (`lastRepoByTerminal`), which is what lets
+// The decision is keyed per terminal (`history.get(id).lastRepo`), which is what lets
 // it catch a repo change that happened while the terminal was INACTIVE (F6): a
 // previous-active-tuple compare would see the switch-back as a plain terminal
 // change and skip the reset, replaying repo-A history against repo A's new repo.

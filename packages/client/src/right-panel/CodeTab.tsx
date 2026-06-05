@@ -132,7 +132,7 @@ const CodeTab: Component<{
   // transition), and — the case a previous-tick compare misses entirely — a
   // terminal's repo can change while it is INACTIVE (its PTY `cd`s while another
   // terminal is shown). `syncRepo` owns the call: it keys the comparison per
-  // terminal (`lastRepoByTerminal`), so the stale repo is caught the moment that
+  // terminal (`history.get(id).lastRepo`), so the stale repo is caught the moment that
   // terminal next becomes active, while a freshly-switched-to terminal in a
   // different repo keeps its own history. The first call per terminal just
   // records the baseline, so a session-restored stack survives initial mount.
