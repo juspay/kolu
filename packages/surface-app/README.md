@@ -182,7 +182,7 @@ A nix-built client stamps the same value into `SURFACE_APP_COMMIT`. The Vite plu
 let stamp = import "${kolu-surface-app}/nix/commit-stamp.nix" { }; in
 # flake: rev = stamp.revFromSelf self;          (short self.rev, else "dev")
 # client derivation buildPhase:  ${stamp.exportLine rev}      (so resolveCommit reads it — sandbox has no git)
-# server wrapper (makeWrapper):  stamp.wrapperArgs rev        (--set SURFACE_APP_COMMIT <rev>)
+# server wrapper (makeWrapper):  --set ${stamp.envVar} "${rev}"   (so server's buildInfo matches the client)
 ```
 
 The client bundle and the server cell then read the same var from one place — drishti (PR #47) is the reference. `resolveCommit` and `ASSET_DIR` are exported on the TS side for the rest.

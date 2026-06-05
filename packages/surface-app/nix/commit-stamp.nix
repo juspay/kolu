@@ -30,8 +30,4 @@ rec {
   # so `resolveCommit()` reads it (the sandbox has no git, so without this the
   # client would bake `"dev"`).
   exportLine = commit: ''export ${envVar}="${commit}"'';
-
-  # `makeWrapper` args that stamp the same commit onto the server binary, so the
-  # server's `buildInfo` cell and the client bundle report the same sha.
-  wrapperArgs = commit: [ "--set" envVar commit ];
 }
