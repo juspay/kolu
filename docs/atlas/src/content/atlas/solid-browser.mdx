@@ -343,8 +343,12 @@ path. Mode-chip toggles don't record (per-mode memory already restores the file)
 only file views are history steps. The keybind is a Code-tab-scoped `Alt+←/→`
 listener (a global `mod+[` would shadow the terminal's ESC byte on Linux). The
 mouse's dedicated back/forward (X1/X2) buttons drive it too — `button` 3/4,
-pointer-scoped to the preview in kolu and app-wide in the docsite, with the
-app's native history navigation suppressed so the buttons reach `createBrowser`
+pointer-scoped to the preview in kolu and app-wide in the docsite. Over a
+*sandboxed HTML preview* the opaque-origin iframe traps the event, so the
+in-iframe artifact-sdk forwards it to the parent (the same postMessage bridge
+that already follows in-frame link navigation); SVG/PDF previews carry no SDK,
+so the buttons are a no-op there. The native history navigation is suppressed
+either way so the buttons reach `createBrowser`
 ([#1192](https://github.com/juspay/kolu/issues/1192)).
 </Callout>
 

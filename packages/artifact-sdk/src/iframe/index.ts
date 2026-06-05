@@ -17,7 +17,13 @@ import { match } from "ts-pattern";
 import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
 import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
-import type { Locator, ParentToIframe, ReadyMsg, SelectMsg } from "../types";
+import type {
+  HistoryMsg,
+  Locator,
+  ParentToIframe,
+  ReadyMsg,
+  SelectMsg,
+} from "../types";
 
 const HIGHLIGHT_NAME = "kolu-artifact-sdk-comment";
 const PILL_ID = "kolu-artifact-sdk-pill";
@@ -26,8 +32,24 @@ let currentPath: string | null = null;
 let lastSelectionRange: Range | null = null;
 let pillEl: HTMLDivElement | null = null;
 
-function postToParent(msg: SelectMsg | ReadyMsg): void {
+function postToParent(msg: SelectMsg | ReadyMsg | HistoryMsg): void {
   window.parent.postMessage(msg, "*");
+}
+
+/** The mouse's dedicated back/forward (X1/X2) buttons — `button` 3 and 4.
+ *  The opaque-origin sandbox traps these in this frame, so the parent can't
+ *  see them; forward the intent so the Code-tab browser's history responds the
+ *  same over a preview as over the file tree. `preventDefault` on both down and
+ *  up suppresses the frame's own native back/forward so only the host
+ *  navigates. (SVG/PDF previews carry no SDK, so this covers HTML previews.) */
+function onHistoryButton(e: MouseEvent): void {
+  if (e.button !== 3 && e.button !== 4) return;
+  e.preventDefault();
+  if (e.type !== "mouseup") return;
+  postToParent({
+    type: "kolu-artifact-sdk:history",
+    direction: e.button === 3 ? "back" : "forward",
+  });
 }
 
 function clearPill(): void {
@@ -150,6 +172,10 @@ function boot(): void {
   ensureHighlightStyle();
   document.addEventListener("selectionchange", onSelectionChange);
   window.addEventListener("message", onMessage);
+  // Forward the mouse back/forward (X1/X2) buttons to the parent — swallow on
+  // the way down so the frame doesn't start its own navigation, act on the up.
+  window.addEventListener("mousedown", onHistoryButton);
+  window.addEventListener("mouseup", onHistoryButton);
   // `location.pathname` lets the parent follow same-frame link navigation:
   // it can't read this frame's URL across the opaque-origin sandbox, so the
   // frame reports its own on every boot (initial load + each post-link load).

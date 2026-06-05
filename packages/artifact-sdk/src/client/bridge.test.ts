@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { observeIframeNavigation } from "./bridge";
+import { observeIframeHistory, observeIframeNavigation } from "./bridge";
 
 /** `observeIframeNavigation` reads only `window.addEventListener("message")`,
  *  `event.source`, and `event.data`. The artifact-sdk package runs its unit
@@ -95,5 +95,50 @@ describe("observeIframeNavigation", () => {
     fake.post(fake.iframe.contentWindow, null);
     fake.post(fake.iframe.contentWindow, "kolu-artifact-sdk:ready");
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("observeIframeHistory", () => {
+  let restore: (() => void) | null = null;
+  afterEach(() => {
+    restore?.();
+    restore = null;
+  });
+
+  it("fires onHistory for back and forward from the iframe", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onHistory = vi.fn();
+    observeIframeHistory(fake.iframe, onHistory);
+    fake.post(fake.iframe.contentWindow, {
+      type: "kolu-artifact-sdk:history",
+      direction: "back",
+    });
+    fake.post(fake.iframe.contentWindow, {
+      type: "kolu-artifact-sdk:history",
+      direction: "forward",
+    });
+    expect(onHistory.mock.calls).toEqual([["back"], ["forward"]]);
+  });
+
+  it("ignores messages from a different source", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onHistory = vi.fn();
+    observeIframeHistory(fake.iframe, onHistory);
+    fake.post({}, { type: "kolu-artifact-sdk:history", direction: "back" });
+    expect(onHistory).not.toHaveBeenCalled();
+  });
+
+  it("drops a history message with an out-of-range direction", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onHistory = vi.fn();
+    observeIframeHistory(fake.iframe, onHistory);
+    fake.post(fake.iframe.contentWindow, {
+      type: "kolu-artifact-sdk:history",
+      direction: "sideways",
+    });
+    expect(onHistory).not.toHaveBeenCalled();
   });
 });

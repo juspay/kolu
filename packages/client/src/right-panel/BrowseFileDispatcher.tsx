@@ -83,6 +83,9 @@ export type BrowseFileDispatcherProps = {
   /** Forwarded to the iframe renderer so an in-iframe link click moves the
    *  tree selection to the linked file (HTML-preview navigation). */
   onNavigate?: (path: string) => void;
+  /** Forwarded to the iframe renderer so the mouse back/forward (X1/X2)
+   *  buttons work over an HTML preview (the sandbox traps them in the frame). */
+  onHistory?: (direction: "back" | "forward") => void;
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
@@ -223,6 +226,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             path={file.path}
             url={file.url ?? ""}
             onNavigate={props.onNavigate}
+            onHistory={props.onHistory}
           />,
         ),
     },

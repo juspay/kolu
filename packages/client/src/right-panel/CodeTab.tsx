@@ -913,6 +913,13 @@ const CodeTab: Component<{
                           // same intent as a tree click: move selection to the
                           // new file and drop any line-range highlight.
                           onNavigate={handleSelect}
+                          // The mouse back/forward (X1/X2) buttons pressed over
+                          // the sandboxed preview can't reach the Code-tab
+                          // listener (the frame traps them), so the in-iframe
+                          // SDK forwards them here to drive the same history.
+                          onHistory={(direction) =>
+                            direction === "back" ? goBack() : goForward()
+                          }
                         />
                       );
                     })()}

@@ -124,6 +124,36 @@ export function observeIframeNavigation(
   return () => window.removeEventListener("message", onMessage);
 }
 
+/** Observe the mouse's back/forward (X1/X2) buttons pressed inside the preview.
+ *  The opaque-origin sandbox traps these events in the frame, so the in-iframe
+ *  SDK forwards them as `history` messages and this lets the parent drive its
+ *  own history (the Code-tab browser's back/forward) — so the buttons behave
+ *  the same over a preview as over the file tree. Mirrors
+ *  `observeIframeNavigation`: a focused listener with the same `event.source`
+ *  identity boundary; the `P.union` payload guard keeps a hostile in-frame
+ *  script from posting an out-of-range `direction`. Returns a disposer. */
+export function observeIframeHistory(
+  iframe: HTMLIFrameElement,
+  onHistory: (direction: "back" | "forward") => void,
+): () => void {
+  const onMessage = (event: MessageEvent<IframeToParent>): void => {
+    if (event.source !== iframe.contentWindow) return;
+    const msg = event.data;
+    if (!msg || typeof msg !== "object") return;
+    match(msg)
+      .with(
+        {
+          type: "kolu-artifact-sdk:history",
+          direction: P.union("back", "forward"),
+        },
+        (m) => onHistory(m.direction),
+      )
+      .otherwise(() => undefined);
+  };
+  window.addEventListener("message", onMessage);
+  return () => window.removeEventListener("message", onMessage);
+}
+
 /** Imperative push — call when the comments set or current path changes
  *  after the initial handshake. The bridge re-broadcasts on every call. */
 export function pushHighlightsTo(
