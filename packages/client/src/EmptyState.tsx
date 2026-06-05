@@ -1,13 +1,16 @@
 /** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
 
+import type { PwaInstall } from "@kolu/solid-pwa-install";
 import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { showsWelcome } from "./capabilities";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import { surface } from "./ui/Surface";
 import Toggle from "./ui/Toggle";
+import WelcomeMoments from "./WelcomeMoments";
 
 const chrome = surface();
 
@@ -57,6 +60,8 @@ function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
 }
 
 interface EmptyStateProps {
+  /** The shared PWA-install controller — drives the "Pin it" moment. */
+  install: PwaInstall;
   savedSession?: SavedSession;
   /** True while `handleRestoreSession` is running. The restore card
    *  stays mounted (button disabled, label changes to "Restoring…")
@@ -94,6 +99,12 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
       class="flex items-center justify-center h-full"
     >
       <div class={`${chrome.class} p-5 max-w-md w-full`}>
+        {/* The bird's-eye welcome — desktop only (no mobile welcome, by design). */}
+        <Show when={showsWelcome()}>
+          <div class="mb-5 pb-5 border-b border-edge">
+            <WelcomeMoments install={props.install} />
+          </div>
+        </Show>
         <Show when={props.savedSession}>
           {(session) => {
             const subCount = () =>

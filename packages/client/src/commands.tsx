@@ -116,6 +116,8 @@ export interface CommandDeps extends ActionContext {
   handleEditActiveIntent: () => void;
   // Dialogs
   setAboutOpen: (open: boolean) => void;
+  /** Re-summon the welcome overlay (the "Tutorial" command). */
+  setWelcomeOpen: (open: boolean) => void;
   setDiagnosticInfoOpen: (open: boolean) => void;
   // Canvas — desktop only. The canvas isn't mounted on mobile, so these
   // commands are hidden there via `supportsSpatialCanvas`.
@@ -348,6 +350,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       name: "Keyboard shortcuts",
       section: "help",
     }),
+    {
+      kind: "action",
+      name: "Tutorial",
+      description: "Show the welcome screen",
+      section: "help",
+      onSelect: () => deps.setWelcomeOpen(true),
+    },
     {
       kind: "action",
       name: "About kolu",

@@ -30,6 +30,7 @@ let
       ./packages/surface-app
       ./packages/solid-pierre
       ./packages/solid-markdown
+      ./packages/solid-pwa-install
       ./packages/solid-fileview
       ./packages/solid-browser
       ./packages/common
@@ -61,7 +62,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-kAkiERNc4Z/q1zPJ0/TvfZZ0c+gNGGiJ4Bg/+7tzv7g=";
+    hash = "sha256-j5C3wV40l6nUPSDNnSIRcTndyirUpRpOj1pvAJe2ku8=";
     fetcherVersion = 3;
   };
 
