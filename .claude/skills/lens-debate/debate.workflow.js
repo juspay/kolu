@@ -260,6 +260,14 @@ ${message}
 // re-improvises a table. Unlike codex-debate there are NO per-round files to
 // assemble: the lenses don't read a ledger (feeding them prior reasoning would
 // invite entrenchment against conceding), so the comment is the only artifact.
+//
+// The header chrome (the `## ` title, the badge, the `base.slice(0, 12)`) is
+// deliberately kept STRUCTURALLY PARALLEL to codex-debate's ledgerHeader chrome.
+// The no-module workflow runtime has no imports, so a truly shared renderer isn't
+// available; the two are instead siblings that move together. A house-style change
+// (badge emoji, base-slice length, a new metadata row) is a mechanical mirror edit
+// — make it here and in codex-debate's ledgerHeader. If the runtime ever admits a
+// shared helper file, lift this common chrome there.
 function renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, withPolice, base, clean }) {
   const badge = clean
     ? '✅ **Clean** — every lens found nothing worth raising'
