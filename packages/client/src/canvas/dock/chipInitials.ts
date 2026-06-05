@@ -14,7 +14,7 @@
  *  share `packages/client/src/intent/text.ts`. */
 
 import type { TerminalMetadata } from "kolu-common/surface";
-import { intentLeadGlyph } from "../../intent/text";
+import { intentLeadGlyph, firstGrapheme } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 
 // Unicode-aware alphanumeric: any letter or number in any script. A repo
@@ -29,11 +29,6 @@ const ALPHANUM = /[\p{L}\p{N}]/u;
 // falling through to the glyph branch.
 const ALPHANUM_ANCHORED = /^[\p{L}\p{N}]\p{M}*$/u;
 
-const graphemes =
-  typeof Intl !== "undefined" && "Segmenter" in Intl
-    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
-    : undefined;
-
 /** Case `glyph` (upper or lower) but keep the chip's one-glyph invariant:
  *  unicode case conversion can *expand* a single letter — `ß`.toUpperCase()
  *  is `"SS"`, `İ`.toLowerCase() is `i` + U+0307 — which would paint two
@@ -41,11 +36,7 @@ const graphemes =
  *  after casing so the rail chip stays exactly one visual glyph. */
 function caseToOneGlyph(glyph: string, mode: "upper" | "lower"): string {
   const cased = mode === "upper" ? glyph.toUpperCase() : glyph.toLowerCase();
-  if (graphemes) {
-    const first = graphemes.segment(cased)[Symbol.iterator]().next();
-    if (!first.done) return first.value.segment;
-  }
-  return [...cased][0] ?? cased;
+  return firstGrapheme(cased) || cased;
 }
 
 /** Two-glyph rail-chip label.
