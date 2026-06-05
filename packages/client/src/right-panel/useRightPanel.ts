@@ -89,6 +89,23 @@ const [drawerOpen, setDrawerOpen] = createSignal(false);
  *  on its first navigation. */
 const browsers = new Map<TerminalId, Browser<BrowserLocation>>();
 
+/** Last repo root each terminal's history was captured against. The
+ *  back/forward stack records repo-relative `{ mode, path }` locations with no
+ *  repo identity of their own, so a stack built in repo A is meaningless in
+ *  repo B; this map is how we tell, per terminal, whether the repo *that
+ *  terminal* sits in has moved since its history was last touched.
+ *
+ *  Keyed per terminal (not a single "previously active" value) on purpose: a
+ *  terminal's repo can change while it is INACTIVE — a `cd` in its PTY updates
+ *  its server metadata even though `CodeTab` (a singleton over the active
+ *  terminal) isn't watching it. Comparing only against the immediately
+ *  previous active tuple would miss that and let a stale A-relative stack
+ *  replay against A's new repo on switch-back. Per-terminal tracking catches
+ *  it whenever the terminal next becomes active. Seeded/cleared alongside
+ *  `browsers`. `undefined` value means "no repo recorded yet" (fresh or
+ *  not-yet-in-a-repo terminal). */
+const lastRepoByTerminal = new Map<TerminalId, string | null>();
+
 /** Resolve (creating if absent) a terminal's history controller. A fresh
  *  terminal starts with an empty stack — its first `navigate` seeds the first
  *  entry; a restored terminal is seeded in `seedPanel` from its last-viewed
@@ -302,27 +319,42 @@ export function useRightPanel() {
       const id = store.activeId();
       return id === null ? false : browserFor(id).canForward();
     },
-    /** Drop a terminal's navigation history and start a fresh stack. The
-     *  recorded locations are repo-relative paths (`{ mode, path }`) with no
-     *  repo identity of their own, so they are only meaningful within the repo
-     *  they were captured in. When a terminal `cd`s from repo A to repo B,
-     *  re-applying an A-relative entry inside B would open the wrong same-named
-     *  file (or a path B's membership effect then clears). `CodeTab` calls this
-     *  when a terminal's *own* `repoPath()` changes so back/forward is always
-     *  scoped to the repo currently shown; the next `recordNavigation` re-seeds
-     *  the stack.
+    /** Reconcile a terminal's history with the repo it currently sits in,
+     *  dropping the stack only when *that terminal's own* repo has changed
+     *  since the history was last touched.
      *
-     *  Takes the terminal id explicitly rather than reading `activeId()`: the
-     *  caller (`CodeTab`, a singleton over the active terminal) must reset the
-     *  history of *the terminal whose repo changed* — which on a plain terminal
-     *  switch is NOT the same as "the now-active terminal". Defaulting to the
-     *  active id would let switching from terminal A (repo A) to terminal B
-     *  (repo B) wipe B's freshly-activated history. */
-    resetHistory: (id: TerminalId) => {
-      browsers.set(
-        id,
-        createBrowser<BrowserLocation>({ isSameEntry: SAME_LOCATION }),
-      );
+     *  The recorded locations are repo-relative paths (`{ mode, path }`) with
+     *  no repo identity of their own, so they are only meaningful within the
+     *  repo they were captured in. When a terminal `cd`s from repo A to repo B,
+     *  re-applying an A-relative entry inside B would open the wrong same-named
+     *  file (or a path B's membership effect then clears). Resetting on a
+     *  genuine repo change keeps back/forward scoped to the repo currently
+     *  shown; the next `recordNavigation` re-seeds the stack.
+     *
+     *  The decision is keyed PER TERMINAL (`lastRepoByTerminal`), not against
+     *  the previously active terminal: `CodeTab` is a singleton over the active
+     *  terminal and only calls this for whichever terminal is active, but a
+     *  terminal's repo can change while it is INACTIVE (a `cd` in its PTY
+     *  updates server metadata unobserved). Tracking each terminal's last-seen
+     *  repo independently catches that change the moment the terminal next
+     *  becomes active — even if other terminals were active in between — without
+     *  wiping a freshly-activated terminal's history just because the active
+     *  repo shifted on a plain switch. The first call for a terminal records
+     *  its repo without resetting, so a session-restored (seeded) stack
+     *  survives the initial mount. */
+    syncRepo: (id: TerminalId, repo: string | null) => {
+      const had = lastRepoByTerminal.has(id);
+      const prevRepo = lastRepoByTerminal.get(id) ?? null;
+      lastRepoByTerminal.set(id, repo);
+      // First sight of this terminal (fresh mount or session restore): adopt
+      // its repo as the baseline, leaving any seeded stack intact. A genuine
+      // repo move on a terminal we've already seen drops the now-stale stack.
+      if (had && repo !== prevRepo) {
+        browsers.set(
+          id,
+          createBrowser<BrowserLocation>({ isSameEntry: SAME_LOCATION }),
+        );
+      }
     },
 
     // ── Session restore + lifecycle ──────────────────────────────────
@@ -342,12 +374,17 @@ export function useRightPanel() {
           isSameEntry: SAME_LOCATION,
         }),
       );
+      // Drop the repo baseline so the next `syncRepo` re-adopts this terminal's
+      // current repo without resetting — the stack we just seeded is the truth,
+      // and re-seeding is a "this is a fresh start" event, same as first mount.
+      lastRepoByTerminal.delete(id);
     },
     /** Clean up state for a terminal that no longer exists. Mirrors
      *  `useSubPanel.removePanel`. */
     removePanel: (id: TerminalId) => {
       setPerTerminal(produce((s) => delete s[id]));
       browsers.delete(id);
+      lastRepoByTerminal.delete(id);
     },
   } as const;
 }
