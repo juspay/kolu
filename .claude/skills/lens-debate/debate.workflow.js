@@ -255,6 +255,39 @@ ${message}
   return agent(prompt, { label: `commit:${fix.id}`, phase: 'Apply', model: mechModel })
 }
 
+// Render the PR comment deterministically from the debate outcome, returned as a
+// string so the ORCHESTRATOR posts it verbatim (`gh pr comment -F`) — no agent
+// re-improvises a table. Unlike codex-debate there are NO per-round files to
+// assemble: the lenses don't read a ledger (feeding them prior reasoning would
+// invite entrenchment against conceding), so the comment is the only artifact.
+function renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, withPolice, base }) {
+  const badge = unresolved.length === 0 ? '✅ **Consensus**' : `⚠️ **${unresolved.length} unresolved**`
+  const counts = Object.entries(reviewByLens)
+    .map(([lens, fs]) => `${lens}=${fs.length}`)
+    .join(', ')
+  const lines = [
+    '## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)',
+    '',
+    `${badge} after ${rounds} round(s) · lowy + hickey${withPolice ? ' + code-police' : ''} · base \`${(base || '').slice(0, 12)}\``,
+    '',
+    `Independent findings: ${counts}`,
+  ]
+  const drops = settledOut.filter((s) => s.agreed && s.disposition === 'drop')
+  if (applied.length) {
+    lines.push('', `### Applied (${applied.length})`)
+    applied.forEach((a) => lines.push(`- \`${a.id}\` ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
+  }
+  if (drops.length) {
+    lines.push('', `### Agreed — no change (${drops.length})`)
+    drops.forEach((d) => lines.push(`- \`${d.id}\` ${d.title} (${d.location})`))
+  }
+  if (unresolved.length) {
+    lines.push('', `### Unresolved — needs human (${unresolved.length})`)
+    unresolved.forEach((u) => lines.push(`- \`${u.id}\` ${u.title} (${u.location}) — lowy: ${u.lowy?.disposition ?? '?'}, hickey: ${u.hickey?.disposition ?? '?'}`))
+  }
+  return lines.join('\n')
+}
+
 // ---------------------------------------------------------------------------
 // Phase 1 — independent parallel review
 // ---------------------------------------------------------------------------
@@ -276,7 +309,7 @@ REVIEWERS.forEach((r, idx) => {
 log(`Independent findings: ${REVIEWERS.map((r) => `${r.lens}=${reviewByLens[r.lens].length}`).join(', ')}`)
 
 if (combined.length === 0) {
-  return { status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', settled: [], unresolved: [], applied: [], reviews: reviewByLens, history: [] }
+  return { status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', settled: [], unresolved: [], applied: [], reviews: reviewByLens, history: [], comment: '## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)\n\n✅ Every lens found nothing worth raising.' }
 }
 
 // ---------------------------------------------------------------------------
@@ -384,4 +417,15 @@ for (const fix of fixes) {
   log(`Applied ${fix.id}: ${files.length} file(s)${sha ? `, committed ${sha.slice(0, 9)}` : ' (uncommitted)'}`)
 }
 
-return { status, rounds, base, withPolice, settled: settledOut, unresolved, applied, reviews: reviewByLens, history }
+return {
+  status,
+  rounds,
+  base,
+  withPolice,
+  settled: settledOut,
+  unresolved,
+  applied,
+  reviews: reviewByLens,
+  history,
+  comment: renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, withPolice, base }),
+}

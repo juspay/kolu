@@ -190,12 +190,21 @@ branch for the human to review):
 - On any **unresolved** finding, surface both lenses' final positions plainly so
   the human can adjudicate — do not pick a winner yourself.
 - **Post the debate summary to the PR (default).** When a PR exists and
-  `--no-comment` was NOT passed, post a `## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)` comment via
-  `gh pr comment`. Include: the outcome badge and round count; the independent
-  per-lens finding counts; the per-finding table (origin, title, location, agreed
-  disposition, applied commit); and, for any unresolved finding, both lenses'
-  positions. Use a single-quoted heredoc so backticks/`$` survive. This mirrors
-  `/codex-debate`; `--no-comment` suppresses it.
+  `--no-comment` was NOT passed, post the workflow's **deterministically rendered
+  `comment`** verbatim — write it to a file and `gh pr comment <pr> -F <file>`:
+
+  ```bash
+  printf '%s' "$comment" > "$repoPath/.lens-debate/comment.md"
+  gh pr comment <pr> -F "$repoPath/.lens-debate/comment.md"
+  ```
+
+  The workflow returns `comment` already rendered — the
+  `## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)` header
+  with the outcome badge and round count, the independent per-lens finding counts,
+  the applied fixes (with commit SHAs), the agreed no-change observations, and any
+  unresolved findings with both lenses' positions. Posting the returned string
+  (rather than re-improvising a table) keeps the comment a **deterministic** render
+  of the debate outcome. This mirrors `/codex-debate`; `--no-comment` suppresses it.
 
 ## Safety & notes
 
