@@ -16,10 +16,10 @@
  *  renders the sheet's contents; `onClose` is called after a user
  *  action so the parent can close the drawer. */
 
+import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { type Component, createSignal, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
-import { reloadForUpdate } from "./pwa";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
@@ -43,6 +43,7 @@ const MobileChromeSheet: Component<{
   onClose: () => void;
 }> = (props) => {
   const rightPanel = useRightPanel();
+  const pwa = useSurfaceApp();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
@@ -69,8 +70,8 @@ const MobileChromeSheet: Component<{
 
       {/* Client out of sync with the server — the actionable mobile form of the
        *  desktop rail's `≠ srv` signal: a one-tap reload onto the deployed build
-       *  (reloadForUpdate is a plain location.reload() off HTTPS, landing fresh
-       *  because the shell is no-store). */}
+       *  (surface-app's `reload()` is a plain location.reload() — kolu has no
+       *  service worker — landing fresh because the shell is no-store). */}
       <Show when={clientStale()}>
         <button
           type="button"
@@ -78,7 +79,7 @@ const MobileChromeSheet: Component<{
           class="mx-3 mt-2 flex h-9 items-center justify-center gap-2 rounded-lg border border-warning/40 bg-warning/10 text-sm text-warning active:bg-warning/20"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => {
-            reloadForUpdate();
+            pwa.reload();
             props.onClose();
           }}
         >

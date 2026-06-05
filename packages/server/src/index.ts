@@ -1,7 +1,5 @@
 import { createServer as createHttpsServer } from "node:https";
-import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
@@ -14,11 +12,9 @@ import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
 import {
-  ASSET_MISS_CACHE_CONTROL,
-  getCacheControlHeader,
-  isImmutableAssetPath,
-  SHELL_CACHE_CONTROL,
-} from "./cacheControl.ts";
+  installFreshStatic,
+  installPwaManifest,
+} from "@kolu/surface-app/server";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import {
@@ -219,54 +215,29 @@ app.get(
 );
 
 // --- Dynamic PWA manifest (includes hostname) ---
-app.get("/manifest.webmanifest", (c) => {
-  const identity = pwaIdentityForHostname(serverHostname);
-  return c.json(
-    {
-      name: identity.name,
-      short_name: identity.name,
-      start_url: "/",
-      display: "standalone",
-      background_color: PWA_BACKGROUND_COLOR,
-      theme_color: identity.themeColor,
-      icons: [
-        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-      ],
-    },
-    { headers: { "Content-Type": "application/manifest+json" } },
-  );
+// surface-app owns assembly + the install-friendly defaults (start_url,
+// display); kolu supplies the per-host branding. Served unconditionally — in
+// dev the Vite proxy forwards `/manifest.webmanifest` here, so it must exist
+// without a built client.
+const pwaIdentity = pwaIdentityForHostname(serverHostname);
+installPwaManifest(app, {
+  name: pwaIdentity.name,
+  themeColor: pwaIdentity.themeColor,
+  backgroundColor: PWA_BACKGROUND_COLOR,
+  icons: [
+    { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+  ],
 });
 
 // --- Static files (production) ---
+// surface-app's freshness contract on the wire: no-store shell, immutable
+// hashed `/assets/*`, 404 on an asset miss (never the HTML shell), the
+// self-destructing `/sw.js`, and the SPA fallback. Replaces kolu's hand-rolled
+// cache-control + static-serve block.
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
-  const root = resolve(clientDist);
-  app.use("/*", async (c, next) => {
-    const directive = getCacheControlHeader(c.req.path);
-    if (directive) c.header("Cache-Control", directive);
-    return next();
-  });
-  app.use("/*", serveStatic({ root }));
-  // SPA fallback. A `/assets/*` request reaching here MISSED a real file — a
-  // stale/bogus content hash — so 404 it rather than serve the HTML shell:
-  // index.html under a `.js` URL is the wrong MIME and would be cached
-  // `immutable` for a year (see isImmutableAssetPath), poisoning the next load.
-  // Any other unmatched path is a client-side route → serve the shell under
-  // `SHELL_CACHE_CONTROL` (the same directive cacheControl.ts pins on `/`) so a
-  // normal reload can never replay a stale shell.
-  app.get(
-    "/*",
-    (c, next) => {
-      if (isImmutableAssetPath(c.req.path)) {
-        c.header("Cache-Control", ASSET_MISS_CACHE_CONTROL);
-        return c.notFound();
-      }
-      c.header("Cache-Control", SHELL_CACHE_CONTROL);
-      return next();
-    },
-    serveStatic({ root, path: "index.html" }),
-  );
+  installFreshStatic(app, { root: clientDist });
 }
 
 // --- TLS setup ---

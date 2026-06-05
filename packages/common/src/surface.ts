@@ -26,6 +26,12 @@
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import {
+  type BuildInfo,
+  composeSurfaces,
+  defineBuildInfo,
+  surfaceAppSurfaceWith,
+} from "@kolu/surface-app/surface";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
@@ -493,96 +499,138 @@ export function applyPreferencesPatch(
   };
 }
 
+// ── Build identity (surface-app's skew axis, extended) ─────────────────
+//
+// surface-app's `buildInfo` cell carries "what build is the server?" as
+// reactive server state (server-pushed, read with `{ authority: "server" }`).
+// The library default is `{ commit }`; kolu EXTENDS it with the in-process
+// pty-host's identity (its own closure `staleKey` + git-navigable commit), the
+// `srv · pty` rail's second column. `defineBuildInfo` is generic over the
+// schema, so the extra axis is type-checked end to end.
+//
+// `ptyHost` is optional: a future surviving daemon (remote-terminals phase B)
+// may predate it. `isStale` stays the library default — the clean-ref-guarded
+// COMMIT comparison — because kolu's staleness signal (`≠ srv`) is purely the
+// client-vs-server commit divergence; the pty-host column is displayed, not a
+// staleness input (the pty-host is in-process in A2, so it can't diverge from
+// the server it lives in).
+export const PtyHostIdentitySchema = z.object({
+  staleKey: z.string(),
+  navigableCommit: z.string(),
+});
+
+export interface KoluBuildInfo extends BuildInfo {
+  ptyHost?: z.infer<typeof PtyHostIdentitySchema>;
+}
+
+export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
+  schema: z.object({
+    commit: z.string(),
+    ptyHost: PtyHostIdentitySchema.optional(),
+  }),
+  default: { commit: "" },
+});
+
 // ── The surface ───────────────────────────────────────────────────────
 
-export const surface = defineSurface({
-  cells: {
-    /** User preferences — local-authority on the client; server-canonical
-     *  on disk. Storage is flat (no discriminated-union subtrees), so the
-     *  spec's `patch` is the only merge path — both server and client run
-     *  it via `applyPatch` defaulting from the spec. */
-    preferences: {
-      schema: PreferencesSchema,
-      default: DEFAULT_PREFERENCES,
-      patchSchema: PreferencesPatchSchema,
-      patch: applyPreferencesPatch,
-      // `test__set` exposed for e2e fixtures.
-      verbs: ["get", "patch", "test__set"],
-    },
+// Merge surface-app's fragment (the build-identity `buildInfo` cell extended
+// with kolu's pty-host axis + the `surface.surfaceApp.info` restart probe) with
+// kolu's OWN surface — one `composeSurfaces` call, not two hand-wired spreads.
+export const surface = defineSurface(
+  composeSurfaces(surfaceAppSurfaceWith(koluBuildInfo), {
+    cells: {
+      /** User preferences — local-authority on the client; server-canonical
+       *  on disk. Storage is flat (no discriminated-union subtrees), so the
+       *  spec's `patch` is the only merge path — both server and client run
+       *  it via `applyPatch` defaulting from the spec. */
+      preferences: {
+        schema: PreferencesSchema,
+        default: DEFAULT_PREFERENCES,
+        patchSchema: PreferencesPatchSchema,
+        patch: applyPreferencesPatch,
+        // `test__set` exposed for e2e fixtures.
+        verbs: ["get", "patch", "test__set"],
+      },
 
-    /** Server-derived activity feed (recent repos + recent agents).
-     *  Read-only on the client; the server is the sole writer via
-     *  `trackRecentRepo` / `trackRecentAgent`. */
-    activityFeed: {
-      schema: ActivityFeedSchema,
-      default: { recentRepos: [], recentAgents: [] } satisfies z.infer<
-        typeof ActivityFeedSchema
-      >,
-      verbs: ["get", "test__set"],
-    },
+      /** Server-derived activity feed (recent repos + recent agents).
+       *  Read-only on the client; the server is the sole writer via
+       *  `trackRecentRepo` / `trackRecentAgent`. */
+      activityFeed: {
+        schema: ActivityFeedSchema,
+        default: { recentRepos: [], recentAgents: [] } satisfies z.infer<
+          typeof ActivityFeedSchema
+        >,
+        verbs: ["get", "test__set"],
+      },
 
-    /** Last persisted snapshot of terminals + active id, or null when no
-     *  session is saved. Read-only on the client; the server's debounced
-     *  autosave loop owns writes. */
-    session: {
-      schema: SavedSessionSchema.nullable(),
-      default: null as z.infer<typeof SavedSessionSchema> | null,
-      verbs: ["get", "test__set"],
-    },
+      /** Last persisted snapshot of terminals + active id, or null when no
+       *  session is saved. Read-only on the client; the server's debounced
+       *  autosave loop owns writes. */
+      session: {
+        schema: SavedSessionSchema.nullable(),
+        default: null as z.infer<typeof SavedSessionSchema> | null,
+        verbs: ["get", "test__set"],
+      },
 
-    /** Live list of terminals — server-driven on create/kill. Mutations
-     *  go through dedicated procedures (`terminal.create`/`kill`/`killAll`)
-     *  in the raw oRPC namespace, not via cell.set. */
-    terminalList: {
-      schema: z.array(TerminalInfoSchema),
-      default: [] as z.infer<typeof TerminalInfoSchema>[],
-      verbs: ["get"],
+      /** Live list of terminals — server-driven on create/kill. Mutations
+       *  go through dedicated procedures (`terminal.create`/`kill`/`killAll`)
+       *  in the raw oRPC namespace, not via cell.set. */
+      terminalList: {
+        schema: z.array(TerminalInfoSchema),
+        default: [] as z.infer<typeof TerminalInfoSchema>[],
+        verbs: ["get"],
+      },
     },
-  },
-  collections: {
-    /** Per-terminal metadata (cwd, git, PR, agent status). Each terminal
-     *  is independently observable; mutations come from server-side
-     *  providers writing through the publisher channel — clients don't
-     *  call `upsert` on this collection directly. */
-    terminalMetadata: {
-      keySchema: TerminalIdSchema,
-      schema: TerminalMetadataSchema,
-      // Only the streaming reads are exposed; writes are server-internal.
-      verbs: ["keys", "get"],
+    collections: {
+      /** Per-terminal metadata (cwd, git, PR, agent status). Each terminal
+       *  is independently observable; mutations come from server-side
+       *  providers writing through the publisher channel — clients don't
+       *  call `upsert` on this collection directly. */
+      terminalMetadata: {
+        keySchema: TerminalIdSchema,
+        schema: TerminalMetadataSchema,
+        // Only the streaming reads are exposed; writes are server-internal.
+        verbs: ["keys", "get"],
+      },
     },
-  },
-  streams: {
-    /** Live changed-files list for the Code-view's Local/Branch modes. */
-    gitStatus: {
-      inputSchema: GitStatusInputSchema,
-      outputSchema: GitStatusOutputSchema,
+    streams: {
+      /** Live changed-files list for the Code-view's Local/Branch modes. */
+      gitStatus: {
+        inputSchema: GitStatusInputSchema,
+        outputSchema: GitStatusOutputSchema,
+      },
+      /** Live unified diff for one file. */
+      gitDiff: {
+        inputSchema: GitDiffInputSchema,
+        outputSchema: GitDiffOutputSchema,
+      },
+      /** Live repo-relative path list (tracked + untracked-but-not-ignored). */
+      fsListAll: {
+        inputSchema: FsListAllInputSchema,
+        outputSchema: FsListAllOutputSchema,
+      },
+      /** Live UTF-8 content for a single file in the Code-view's All-mode body. */
+      fsReadFile: {
+        inputSchema: FsReadFileInputSchema,
+        outputSchema: FsReadFileOutputSchema,
+      },
     },
-    /** Live unified diff for one file. */
-    gitDiff: {
-      inputSchema: GitDiffInputSchema,
-      outputSchema: GitDiffOutputSchema,
+    events: {
+      /** Terminal process exited — fires once per terminal lifetime with the
+       *  exit code. Drives the exit toast and the active-terminal auto-switch
+       *  in `useTerminals`. */
+      terminalExit: {
+        inputSchema: TerminalAttachInputSchema,
+        outputSchema: TerminalOnExitOutputSchema,
+      },
     },
-    /** Live repo-relative path list (tracked + untracked-but-not-ignored). */
-    fsListAll: {
-      inputSchema: FsListAllInputSchema,
-      outputSchema: FsListAllOutputSchema,
-    },
-    /** Live UTF-8 content for a single file in the Code-view's All-mode body. */
-    fsReadFile: {
-      inputSchema: FsReadFileInputSchema,
-      outputSchema: FsReadFileOutputSchema,
-    },
-  },
-  events: {
-    /** Terminal process exited — fires once per terminal lifetime with the
-     *  exit code. Drives the exit toast and the active-terminal auto-switch
-     *  in `useTerminals`. */
-    terminalExit: {
-      inputSchema: TerminalAttachInputSchema,
-      outputSchema: TerminalOnExitOutputSchema,
-    },
-  },
-});
+    // surface-app's identity probe (restart axis) — `surface.surfaceApp.info` —
+    // is merged in via `surfaceAppSurfaceWith` above, composed not hand-written.
+    // Reads the per-process `processId` so the client lifecycle can tell a
+    // transient drop from a server restart. The impl is `serverIdentity()` from
+    // `@kolu/surface-app/server`.
+  }),
+);
 
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────
 // `Surface` lifts `z.infer<schema>` over the spec so consumers reach for

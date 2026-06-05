@@ -466,7 +466,7 @@ const App: Component = () => {
             <p>
               Commit:{" "}
               <Commit
-                sha={__KOLU_COMMIT__}
+                sha={__SURFACE_APP_COMMIT__}
                 class="text-accent hover:underline"
               />
             </p>

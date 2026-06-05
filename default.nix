@@ -27,6 +27,7 @@ let
       ./tsconfig.base.json
       ./packages/surface
       ./packages/surface-nix-host
+      ./packages/surface-app
       ./packages/solid-pierre
       ./packages/solid-markdown
       ./packages/solid-fileview
@@ -60,7 +61,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-1zg9KoQzu0vpTMbOSANKX6aABNlgZGFofrVwOAbt95c=";
+    hash = "sha256-kAkiERNc4Z/q1zPJ0/TvfZZ0c+gNGGiJ4Bg/+7tzv7g=";
     fetcherVersion = 3;
   };
 

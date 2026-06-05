@@ -1,10 +1,10 @@
+import { surfaceApp } from "@kolu/surface-app/vite";
 import tailwindcss from "@tailwindcss/vite";
 import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 import { DEFAULT_PORT } from "kolu-common/config";
-import { defineConfig } from "vite";
+import { defineConfig, type PluginOption } from "vite";
 import solid from "vite-plugin-solid";
 
-const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
 const xtermVersion = xtermPackage.version;
 
 // Ports for the dev instance. Default to the canonical 7681/5173 so a bare
@@ -25,10 +25,17 @@ if (!fontsDir) {
 export default defineConfig({
   // No VitePWA / service worker: kolu doesn't use one (it can't work offline and
   // a precaching worker only served stale builds across deploys — see
-  // docs/cache-bug.md). Freshness is the server's `no-store` shell + immutable
-  // hashed assets; `public/sw.js` is a self-destructing worker that retires any
-  // SW an earlier build registered.
-  plugins: [solid(), tailwindcss()],
+  // docs/cache-bug.md). Freshness is surface-app's contract: the server's
+  // `no-store` shell + immutable hashed assets; surface-app serves a
+  // self-destructing `/sw.js` that retires any SW an earlier build registered.
+  //
+  // `surfaceApp()` stamps `__SURFACE_APP_COMMIT__` from kolu's `KOLU_COMMIT_HASH`
+  // env (→ git → "dev"), the single commit source shared with the server cell.
+  plugins: [
+    solid(),
+    tailwindcss(),
+    surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" }) as PluginOption,
+  ],
   resolve: {
     alias: {
       "kolu-fonts": `${fontsDir}/fonts.css`,
@@ -48,7 +55,6 @@ export default defineConfig({
     },
   },
   define: {
-    __KOLU_COMMIT__: JSON.stringify(commitHash),
     __XTERM_VERSION__: JSON.stringify(xtermVersion),
   },
   build: {
