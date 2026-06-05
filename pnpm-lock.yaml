@@ -759,13 +759,13 @@ importers:
     devDependencies:
       '@hono/node-server':
         specifier: ^1.19.13
-        version: 1.19.13(hono@4.12.18)
+        version: 1.19.13(hono@4.12.23)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
       hono:
         specifier: ^4.12.16
-        version: 4.12.18
+        version: 4.12.23
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -777,7 +777,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.13
-        version: 1.19.13(hono@4.12.18)
+        version: 1.19.13(hono@4.12.23)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../surface
@@ -795,7 +795,7 @@ importers:
         version: 1.13.13(ws@8.20.1)
       hono:
         specifier: ^4.12.16
-        version: 4.12.18
+        version: 4.12.23
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.5)
