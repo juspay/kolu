@@ -22,13 +22,14 @@
  *  passes on the *result*, where markdown-rendered and inline HTML have
  *  converged into one tree:
  *    - apply the per-slot link policy to *every* anchor (markdown- or
- *      inline-HTML-sourced): drop it when links are off, else force
+ *      inline-HTML-sourced): drop it when links are off, tag a repo-relative
+ *      href for in-app interception, else force an external link to
  *      `target="_blank" rel="noopener noreferrer"`;
  *    - swap any image whose src can't load here (a repo-relative README image)
  *      for a labelled fallback chip instead of a broken-image icon. */
 
 import DOMPurify from "dompurify";
-import { isLoadableImage, safeHref } from "./url-policy";
+import { hasOwnScheme, isLoadableImage, safeHref } from "./url-policy";
 
 /** Per-slot policy for the sanitize pass — mirrors the renderer's
  *  `RenderOptions` so one object threads parse + sanitize. */
@@ -226,10 +227,11 @@ function basename(src: string): string {
 /** Apply the per-slot link policy to one anchor that survived sanitization
  *  (markdown- or inline-HTML-sourced alike). When links are off, unwrap it to
  *  its children so the text survives but the anchor doesn't. When on, drop a
- *  non-allowlisted href and force every kept anchor to open in a new tab with a
- *  severed opener. This is the *only* link-policy site: the render layer emits
- *  marked's default `<a href=…>` and applies no policy, so markdown `[]()` and
- *  raw inline `<a>` both pick the policy up here, uniformly, exactly once. */
+ *  non-allowlisted href; otherwise sort the kept anchor into one of three
+ *  buckets the component then handles on click. This is the *only* link-policy
+ *  site: the render layer emits marked's default `<a href=…>` and applies no
+ *  policy, so markdown `[]()` and raw inline `<a>` both pick the policy up here,
+ *  uniformly, exactly once. */
 function applyLinkPolicy(anchor: Element, links: boolean): void {
   const unwrap = () => anchor.replaceWith(...Array.from(anchor.childNodes));
   if (!links) {
@@ -246,6 +248,17 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
   // document — a new tab to `#frag` would just blank-load the app shell. The
   // component intercepts the click to scroll within the preview.
   if (safe.startsWith("#")) return;
+  // A scheme-less href is a *repo-relative* path, not an external URL. Tag it
+  // so the component intercepts the click and routes it through the host's
+  // file-open front door, instead of letting the browser resolve it against the
+  // app origin and navigate a new tab to a bogus route (#1161). The host opens
+  // the linked file in the Code tab, GitHub-style.
+  if (!hasOwnScheme(safe)) {
+    anchor.setAttribute("data-md-rel", "");
+    return;
+  }
+  // A genuine external link (http(s)/mailto) opens in a new tab with a severed
+  // opener so it can't navigate or reach back into the Kolu tab.
   anchor.setAttribute("target", "_blank");
   anchor.setAttribute("rel", "noopener noreferrer");
 }

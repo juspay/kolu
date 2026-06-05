@@ -1,15 +1,16 @@
-/** Resolve a repo-relative Markdown image `src` to a per-terminal file-route
- *  URL the browser can actually fetch, so a README's `![](docs/logo.png)` (or
- *  inline `<img src="docs/logo.png">`) renders the real image instead of
- *  degrading to a fallback chip.
+/** Resolve repo-relative Markdown refs the way GitHub does — against the
+ *  *previewed markdown file's directory* (`docs/readme.md` + `logo.png` →
+ *  `docs/logo.png`, `../assets/x.png` → `assets/x.png`), with a root-absolute
+ *  `/img/x.png` resolved from the repo root. Anything that isn't a repo-relative
+ *  path — an absolute URL, `data:`, protocol-relative `//host`, or an in-page
+ *  `#anchor` — and any path that escapes the repo root (`../../etc`) is rejected.
  *
- *  Relative srcs resolve against the *previewed markdown file's directory*, the
- *  way GitHub renders them — `docs/readme.md` + `logo.png` → `docs/logo.png`,
- *  `../assets/x.png` → `assets/x.png`. A root-absolute `/img/x.png` resolves
- *  from the repo root. Anything that isn't a repo-relative path — an absolute
- *  URL, `data:`, protocol-relative `//host`, or an in-page `#anchor` — returns
- *  undefined so the renderer keeps (http/data) or chips it. A path that escapes
- *  the repo root (`../../etc`) also returns undefined; the route would 403 it. */
+ *  Two consumers share that one rule (`resolveMarkdownRelativePath`):
+ *   - `resolveMarkdownImageSrc` → a per-terminal file-route URL the browser can
+ *     fetch, so a README's `![](docs/logo.png)` renders instead of chipping;
+ *   - `resolveMarkdownLinkPath` → a repo-relative path the Code-tab front door
+ *     opens, so a `[doc](docs/guide.md)` link opens the file in the Code tab
+ *     instead of navigating the app origin in a new tab (#1161). */
 
 // Import from the DOM-free `/url-policy` subpath, not the package root — the
 // root pulls in the `<Markdown>` component (and `solid-js/web`), which this
@@ -17,24 +18,54 @@
 import { hasOwnScheme } from "@kolu/solid-markdown/url-policy";
 import { buildTerminalFileUrl } from "kolu-common/preview";
 
+/** Resolve a repo-relative Markdown ref (image `src` or link `href`) to a
+ *  repo-relative path, applying GitHub's rules: a relative ref resolves against
+ *  the previewed file's own directory, a root-absolute `/x` from the repo root.
+ *  Returns null for a ref that carries its own origin/scheme (absolute URL,
+ *  `data:`, protocol-relative `//host`, in-page `#anchor`) or one that escapes
+ *  the repo root — the single place those rules live, shared by the image and
+ *  link resolvers below. */
+export function resolveMarkdownRelativePath(
+  markdownFilePath: string,
+  ref: string,
+): string | null {
+  const trimmed = ref.trim();
+  // A ref that carries its own origin/scheme is not a repo path — bail. The
+  // shape test is shared with the href policy (`safeHref`) so "has its own
+  // origin" lives in one place.
+  if (trimmed === "" || hasOwnScheme(trimmed)) return null;
+
+  // Root-absolute "/x" resolves from the repo root; everything else from the
+  // markdown file's own directory.
+  const baseDir = trimmed.startsWith("/") ? "" : posixDir(markdownFilePath);
+  return normalizeRepoPath(baseDir, trimmed.replace(/^\/+/, ""));
+}
+
+/** Resolve a repo-relative image `src` to a per-terminal file-route URL the
+ *  browser can fetch, so a README's `![](docs/logo.png)` renders the real image
+ *  instead of degrading to a fallback chip. Returns `undefined` when `src`
+ *  carries its own origin/scheme or escapes the repo root. */
 export function resolveMarkdownImageSrc(
   terminalId: string,
   markdownFilePath: string,
   src: string,
 ): string | undefined {
-  const trimmed = src.trim();
-  // A src that carries its own origin/scheme (absolute URL, `data:`,
-  // protocol-relative `//host`, or an in-page `#anchor`) is not a repo path —
-  // bail and let the renderer keep/chip it. The shape test is shared with the
-  // href policy (`safeHref`) so "has its own origin" lives in one place.
-  if (trimmed === "" || hasOwnScheme(trimmed)) return undefined;
-
-  // Root-absolute "/x" resolves from the repo root; everything else from the
-  // markdown file's own directory.
-  const baseDir = trimmed.startsWith("/") ? "" : posixDir(markdownFilePath);
-  const repoRel = normalizeRepoPath(baseDir, trimmed.replace(/^\/+/, ""));
+  const repoRel = resolveMarkdownRelativePath(markdownFilePath, src);
   if (repoRel === null) return undefined;
   return buildTerminalFileUrl(terminalId, repoRel);
+}
+
+/** Resolve a repo-relative Markdown *link* `href` to a repo-relative path the
+ *  Code-tab front door can open. Strips a trailing `#fragment`/`?query` first —
+ *  a link to `doc.md#section` opens `doc.md`; scrolling to the heading inside it
+ *  is out of scope (#1161). Returns null for an external/own-scheme href or a
+ *  path that escapes the repo root, in which case the click is a no-op. */
+export function resolveMarkdownLinkPath(
+  markdownFilePath: string,
+  href: string,
+): string | null {
+  const path = href.trim().replace(/[?#].*$/, "");
+  return resolveMarkdownRelativePath(markdownFilePath, path);
 }
 
 /** Directory portion of a repo-relative path (`"docs/a.md"` → `"docs"`,

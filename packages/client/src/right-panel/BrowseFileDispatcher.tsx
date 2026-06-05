@@ -54,7 +54,11 @@ import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
-import { resolveMarkdownImageSrc } from "./markdownImageSrc";
+import {
+  resolveMarkdownImageSrc,
+  resolveMarkdownLinkPath,
+} from "./markdownImageSrc";
+import { openInCodeTab } from "./openInCodeTab";
 
 // The "File truncated" banner is rendered as a sibling ABOVE the comment
 // surface in both sourceRenderer and textRenderers: the banner is chrome, not
@@ -259,6 +263,31 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
               resolveImageSrc={(src) =>
                 resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
               }
+              onNavigateRelative={(href) => {
+                // A repo-relative link resolves against the previewed doc's own
+                // directory (GitHub-style), then opens through the same front
+                // door terminal `path:line` links use — so a miss surfaces a
+                // toast and any file type opens, not a bogus new tab (#1161).
+                const path = resolveMarkdownLinkPath(props.filePath, href);
+                // The anchor is tagged `data-md-rel` (so the click was already
+                // preventDefault'd) yet didn't resolve to a repo path — a
+                // traversal that escapes the repo root, or a fragment/query-only
+                // href. Surface it rather than no-op silently, so a dead link
+                // isn't indistinguishable from a working one.
+                if (path === null) {
+                  toast.error(`Can't open link: ${href}`);
+                  return;
+                }
+                openInCodeTab({
+                  ref: { path, startLine: null, endLine: null },
+                  repoRoot: props.repoPath,
+                  targetMode: "browse",
+                  // GitHub-exact: open this path or fail. No fuzzy basename
+                  // fallback — `docs/guide.md` must not silently open a
+                  // same-basename `src/guide.md` (#1161).
+                  allowBasenameFallback: false,
+                });
+              }}
             />,
           )}
         </div>

@@ -432,6 +432,31 @@ Then(
   },
 );
 
+// Negative of the above: assert a file row is NOT the selected one. Used by
+// the GitHub-exact relative-link regression (#1161) — a link to a missing
+// `docs/guide.md` must not silently open a same-basename `src/guide.md` via
+// the terminal resolver's fuzzy basename fallback. Settles a beat first so a
+// late-arriving (wrong) selection still trips the assertion rather than racing
+// past it.
+Then(
+  "the file {string} should not be selected in the file browser",
+  async function (this: KoluWorld, path: string) {
+    await this.waitForFrame();
+    await new Promise((r) => setTimeout(r, 750));
+    const count = await this.page
+      .locator(
+        `${TREE} [data-item-path="${path}"][data-item-type="file"][aria-selected="true"]:not([data-file-tree-sticky-row])`,
+      )
+      .count();
+    if (count !== 0) {
+      throw new Error(
+        `Expected "${path}" not to be selected, but it was — the relative-link ` +
+          `resolver fell back to a same-basename file (#1161 regression)`,
+      );
+    }
+  },
+);
+
 Then(
   "the Code tab content should show the select hint {string}",
   async function (this: KoluWorld, expected: string) {
@@ -758,6 +783,33 @@ Then(
       selector,
       { timeout: POLL_TIMEOUT },
     );
+  },
+);
+
+// Click a repo-relative anchor in the rendered preview and assert it opens the
+// file IN the app, not a new browser tab. The #1161 bug stamped `target=_blank`
+// on relative links, so a click spawned a popup at the app origin; the fix tags
+// them for in-app interception. Arm a popup watch *before* the click and fail if
+// it ever fires — a green run proves no tab was opened.
+When(
+  "I click the repo-relative markdown link {string}",
+  async function (this: KoluWorld, href: string) {
+    const link = this.page.locator(
+      `[data-testid="browse-preview-markdown"] a[href="${href}"]`,
+    );
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const popped = this.page
+      .waitForEvent("popup", { timeout: 1500 })
+      .then(() => true)
+      .catch(() => false);
+    await link.click();
+    if (await popped) {
+      throw new Error(
+        `Clicking the repo-relative link "${href}" opened a new browser tab ` +
+          `(the #1161 bug); it should open the file in the Code tab instead`,
+      );
+    }
+    await this.waitForFrame();
   },
 );
 

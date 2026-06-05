@@ -127,17 +127,26 @@ function hasRefBoundary(text: string, index: number): boolean {
  *  compiler output often prints just `Foo.hs:42` without the
  *  `src/lib/` prefix (#898). The fallback only fires when the
  *  basename is unique in the repo; ambiguous matches stay null since
- *  opening the wrong file is worse than the toast. */
+ *  opening the wrong file is worse than the toast.
+ *
+ *  - `allowBasenameFallback`: default true (terminal output, where the
+ *    fuzzy basename match is the whole point of #898). Pass false for
+ *    callers whose path is already exact and unambiguous — a Markdown
+ *    relative link (#1161) carries GitHub-style exact semantics:
+ *    `[guide](docs/guide.md)` must open exactly `docs/guide.md` or
+ *    fail, never silently open a same-basename `src/guide.md`. */
 export function resolveLineRefPath(args: {
   rawPath: string;
   repoRoot: string;
   cwd: string | undefined;
   repoPaths: readonly string[];
+  allowBasenameFallback?: boolean;
 }): string | null {
   const set = new Set(args.repoPaths);
   for (const candidate of candidates(args)) {
     if (set.has(candidate)) return candidate;
   }
+  if (args.allowBasenameFallback === false) return null;
   return resolveByBasename(args.rawPath, args.repoPaths);
 }
 
