@@ -49,4 +49,26 @@ describe("projectFileTreeSearch", () => {
       expandedAncestors: [],
     });
   });
+
+  it("matches an NFD path against an NFC query (and vice versa)", () => {
+    // A git/macOS path can arrive NFD (`e` + U+0301 combining acute) while the
+    // typed query is NFC (single U+00E9). Both sides normalize to NFC before
+    // the substring search, so the accented name still matches. Forms are
+    // built from \u escapes so the test is independent of this file's bytes.
+    const eAcuteNfc = "é"; // é, composed (one code point)
+    const eAcuteNfd = "é"; // e + combining acute, decomposed
+    const nfdPath = `People/Caf${eAcuteNfd}.md`;
+    const nfcQuery = `caf${eAcuteNfc}`;
+    expect(nfdPath).not.toBe(nfdPath.normalize("NFC")); // guard: truly NFD
+    expect(projectFileTreeSearch([nfdPath], nfcQuery).projectedPaths).toEqual([
+      nfdPath,
+    ]);
+
+    // Symmetric: NFC path, NFD query.
+    const nfcPath = `People/Caf${eAcuteNfc}.md`;
+    const nfdQuery = `caf${eAcuteNfd}`;
+    expect(projectFileTreeSearch([nfcPath], nfdQuery).projectedPaths).toEqual([
+      nfcPath,
+    ]);
+  });
 });

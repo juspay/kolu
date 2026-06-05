@@ -35,22 +35,27 @@ export function formatLineRef(
   return start === end ? `${path}:${start}` : `${path}:${start}-${end}`;
 }
 
-// Path char class: word + `.`, `+`, `@`, `-`. `~` is deliberately
-// excluded — home-relative refs can't be resolved against the
-// terminal's worktree without a resolver contract this module
-// doesn't own.
-const PATH_CHARS = "[\\w.+@-]";
+// Path char class: unicode letters/digits + `_`, `.`, `+`, `@`, `-`.
+// `\p{L}`/`\p{N}` (paired with the `u` flag on the regexes below) keep
+// accented, CJK, and other non-ASCII names like `Amélie.md` in one piece;
+// a bare `\w` is ASCII-only, so it would split the ref at the first
+// non-ASCII byte and linkify `Am` and `lie.md` as two stubs. `~` is
+// deliberately excluded — home-relative refs can't be resolved against the
+// terminal's worktree without a resolver contract this module doesn't own.
+const PATH_CHARS = "[\\p{L}\\p{N}_.+@-]";
 const LINE_REF_RE = new RegExp(
   // Two path shapes:
   //   1. slash-containing: optional `./`, `../`, or `/` prefix, then
   //      one or more `segment/` followed by a final segment;
   //   2. bare filename with a letter-led extension (`Type.hs`,
   //      `package.json`) — letter-led extension rejects IPv4-style
-  //      `192.168.1.1:8080` and version strings like `1.2.3:5`.
+  //      `192.168.1.1:8080` and version strings like `1.2.3:5`. The
+  //      lead is `\p{L}` (any unicode letter) so a unicode extension
+  //      still counts while a leading digit is still rejected.
   // Both branches require either a `/` or a `.ext`, which keeps plain
   // words (`react`, `init`) from getting linkified when the `:N`
   // suffix is absent.
-  `((?:\\.\\.?\\/|\\/)?(?:${PATH_CHARS}+\\/)+${PATH_CHARS}+|${PATH_CHARS}+\\.[A-Za-z]\\w*)` +
+  `((?:\\.\\.?\\/|\\/)?(?:${PATH_CHARS}+\\/)+${PATH_CHARS}+|${PATH_CHARS}+\\.\\p{L}[\\p{L}\\p{N}_]*)` +
     // Optional `:line[:col|-end]`. When absent the bare path links to
     // the file with no line selected.
     `(?::(\\d+)(?::\\d+|-(\\d+))?)?` +
@@ -62,7 +67,8 @@ const LINE_REF_RE = new RegExp(
     // `bin/g++` still link in full. A `:line` suffix ends in a digit, so
     // this only ever trims a bare path's trailing dot.
     `(?<!\\.)`,
-  "g",
+  // `u` makes `\p{L}`/`\p{N}` valid and matching code-point-aware.
+  "gu",
 );
 
 /** Find every `path[:line[-end]]` reference in `text`. URL embeds
@@ -95,7 +101,7 @@ export function parseLineRefs(text: string): LineRefMatch[] {
   return out;
 }
 
-const PATH_CHAR_TEST = /[\w.+@~/-]/;
+const PATH_CHAR_TEST = /[\p{L}\p{N}_.+@~/-]/u;
 
 /** Reject matches embedded in URLs (`://path:N`) and matches that
  *  fuse into a preceding token (`foopath/bar.ts:1` starting at

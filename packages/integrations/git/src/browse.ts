@@ -14,21 +14,33 @@ import { resolveExistingUnder } from "./safe-path.ts";
 const execFileAsync = promisify(execFile);
 
 /** Single spawn/parse/error path shared by the two `git ls-files` listings.
- *  Owns the maxBuffer ceiling, the newline split + empty-line filter, and the
- *  GIT_FAILED error envelope; callers supply the args array and the message
- *  prefix used on failure. */
+ *  Owns the `ls-files -z` invocation, the maxBuffer ceiling, the NUL split +
+ *  empty-entry filter, and the GIT_FAILED error envelope; callers supply the
+ *  selection flags and the message prefix used on failure.
+ *
+ *  `-z` is load-bearing: without it git quotes "unusual" path bytes per
+ *  `core.quotePath` — a unicode name like `People/Amélie.md` comes back as the
+ *  C-escaped, double-quote-wrapped `"People/Am\303\251lie.md"`. The leading
+ *  quote then becomes part of the first path segment (a spurious `"People`
+ *  folder) and the leaf renders as `Am\303\251lie.md"`. `-z` emits each path
+ *  verbatim, NUL-terminated and unquoted, so accented/emoji/CJK names reach the
+ *  tree intact. */
 async function gitLsFiles(
   repoPath: string,
-  args: string[],
+  selectionArgs: string[],
   failMsg: string,
   log?: Logger,
 ): Promise<GitResult<string[]>> {
   try {
-    const { stdout } = await execFileAsync("git", args, {
-      cwd: repoPath,
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    const paths = stdout.split("\n").filter((l) => l.length > 0);
+    const { stdout } = await execFileAsync(
+      "git",
+      ["ls-files", "-z", ...selectionArgs],
+      {
+        cwd: repoPath,
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    );
+    const paths = stdout.split("\0").filter((l) => l.length > 0);
     return ok(paths);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -49,7 +61,7 @@ export async function listAll(
 ): Promise<GitResult<string[]>> {
   return gitLsFiles(
     repoPath,
-    ["ls-files", "--cached", "--others", "--exclude-standard"],
+    ["--cached", "--others", "--exclude-standard"],
     "Failed to list files",
     log,
   );
@@ -73,7 +85,7 @@ export async function listIgnoredPaths(
 ): Promise<GitResult<string[]>> {
   const result = await gitLsFiles(
     repoPath,
-    ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory"],
+    ["--others", "--ignored", "--exclude-standard", "--directory"],
     "Failed to list ignored files",
     log,
   );

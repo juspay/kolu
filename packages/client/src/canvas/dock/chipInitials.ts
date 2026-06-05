@@ -15,7 +15,12 @@ import type { TerminalMetadata } from "kolu-common/surface";
 import { intentLeadGlyph } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 
-const ASCII_ALPHANUM = /^[a-z0-9]$/i;
+// Unicode-aware alphanumeric: any letter or number in any script. A repo
+// named `répo`/`日本語` or a unicode-led branch tail should still yield a
+// meaningful initial instead of the `?` fallback an ASCII-only `[a-z0-9]`
+// would force. `\p{L}`/`\p{N}` need the `u` flag.
+const ALPHANUM = /[\p{L}\p{N}]/u;
+const ALPHANUM_ANCHORED = /^[\p{L}\p{N}]$/u;
 
 /** Two-glyph rail-chip label.
  *
@@ -34,14 +39,16 @@ export function chipInitials(
   meta: TerminalMetadata,
   info: TerminalDisplayInfo,
 ): { repo: string; sub: string; subIsGlyph: boolean } {
-  const repo = (info.key.group.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
+  const repo = (info.key.group.match(ALPHANUM)?.[0] ?? "?").toUpperCase();
   const branchTail = info.key.label.split("/").pop() ?? "";
   const intentGlyph = meta.intent ? intentLeadGlyph(meta.intent) : "";
   if (intentGlyph) {
-    return ASCII_ALPHANUM.test(intentGlyph)
+    // A unicode *letter* lead (`é`, `Ω`) reads as a faded letter, not a glyph;
+    // only true symbols/emoji (not `\p{L}`/`\p{N}`) keep the glyph treatment.
+    return ALPHANUM_ANCHORED.test(intentGlyph)
       ? { repo, sub: intentGlyph.toLowerCase(), subIsGlyph: false }
       : { repo, sub: intentGlyph, subIsGlyph: true };
   }
-  const sub = (branchTail.match(/[a-z0-9]/i)?.[0] ?? "?").toLowerCase();
+  const sub = (branchTail.match(ALPHANUM)?.[0] ?? "?").toLowerCase();
   return { repo, sub, subIsGlyph: false };
 }

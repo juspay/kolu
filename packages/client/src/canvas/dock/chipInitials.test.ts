@@ -148,4 +148,28 @@ describe("chipInitials", () => {
       subIsGlyph: false,
     });
   });
+
+  it("derives an initial from a unicode repo and branch name", () => {
+    // ASCII-only `[a-z0-9]` matched nothing here and fell back to `?`. A
+    // unicode-letter repo/branch should yield a real (upper/lower) initial.
+    expect(chipInitials(meta(), info("répo", "ветка"))).toEqual({
+      repo: "R",
+      sub: "в",
+      subIsGlyph: false,
+    });
+    expect(chipInitials(meta(), info("日本語", "機能/詳細"))).toEqual({
+      repo: "日",
+      sub: "詳",
+      subIsGlyph: false,
+    });
+  });
+
+  it("treats a unicode-letter intent lead as a faded letter, not a glyph", () => {
+    // `é` is `\p{L}` → lowercased letter (subIsGlyph false), unlike an emoji.
+    expect(chipInitials(meta("Émile review"), info("kolu", "main"))).toEqual({
+      repo: "K",
+      sub: "é",
+      subIsGlyph: false,
+    });
+  });
 });

@@ -74,6 +74,9 @@ async function resolveBase(repoPath: string): Promise<GitResult<GitBaseRef>> {
  *   `<letter>\t<path>`; renames and copies insert a similarity score
  *   after the letter and carry two paths: `R100\told\tnew`, `C75\tsrc\tdst`.
  *   For those, the *new* path is the one under review.
+ *
+ * Paths arrive verbatim — `getStatus` runs git with `core.quotePath=false`,
+ * so unicode names aren't C-quoted and the tab/newline split is unambiguous.
  */
 export function parseNameStatus(raw: string): GitChangedFile[] {
   const files: GitChangedFile[] = [];
@@ -191,10 +194,20 @@ function parseRawDiffFlags(rawDiff: string): {
  */
 async function gitOutput(cwd: string, args: string[]): Promise<string> {
   try {
-    const { stdout } = await execFileP("git", args, {
-      cwd,
-      maxBuffer: 128 * 1024 * 1024,
-    });
+    // `-c core.quotePath=false` keeps unicode paths verbatim. Without it git
+    // C-quotes "unusual" bytes — a unicode name like `People/Amélie.md` comes
+    // back as `"People/Am\303\251lie.md"` (octal-escaped, quote-wrapped), which
+    // both the name-status parser (spurious `"People` folder, mangled leaf) and
+    // the diff-header paths would surface garbled. Applied to every git call
+    // here so the file list and the diff headers agree.
+    const { stdout } = await execFileP(
+      "git",
+      ["-c", "core.quotePath=false", ...args],
+      {
+        cwd,
+        maxBuffer: 128 * 1024 * 1024,
+      },
+    );
     return stdout;
   } catch (e) {
     // `execFile`'s rejection carries `code` (exit status, number) and

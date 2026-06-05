@@ -174,6 +174,39 @@ describe("parseLineRefs", () => {
     expect(parseLineRefs("see src/foo.c++ now")[0]?.path).toBe("src/foo.c++");
   });
 
+  it("keeps a unicode filename in one piece (does not split at the accent)", () => {
+    // The reported bug: `\w` is ASCII-only, so the path char class stopped
+    // at `é` and the terminal linkified `People/Am` and `lie.md` as two
+    // separate stubs. Unicode letters must stay inside the ref.
+    const refs = parseLineRefs("see People/Amélie.md:3 for the bio");
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({
+      path: "People/Amélie.md",
+      startLine: 3,
+      endLine: 3,
+      text: "People/Amélie.md:3",
+    });
+  });
+
+  it("matches a bare unicode filename and CJK/path segments", () => {
+    expect(parseLineRefs("open Amélie.md now")[0]?.path).toBe("Amélie.md");
+    expect(parseLineRefs("see 日本語/メモ.txt:7 here")[0]).toMatchObject({
+      path: "日本語/メモ.txt",
+      startLine: 7,
+    });
+  });
+
+  it("reports a byte-accurate index/text for a unicode ref mid-line", () => {
+    // The xterm link provider builds its cell range from `index` +
+    // `text.length`, so a non-ASCII char before/within the match must not
+    // desync those. `é` is one UTF-16 code unit, so the offsets stay exact.
+    const line = "café at docs/Amélie.md:9";
+    const refs = parseLineRefs(line);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]?.index).toBe(line.indexOf("docs/"));
+    expect(refs[0]?.text).toBe("docs/Amélie.md:9");
+  });
+
   it("keeps a :line suffix intact when a sentence period follows", () => {
     // The end-anchored `(?<!\.)` lookbehind is placed after the whole
     // regex rather than inside the slash-path branch — safe only because
