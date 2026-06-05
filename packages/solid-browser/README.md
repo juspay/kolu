@@ -7,10 +7,6 @@ that drives it.
 
 ## What's here (phase 1 — navigation primitives)
 
-- **`location.ts`** — `BrowserLocation`, the agnostic "URL" of a navigable
-  document space (a `path`, optionally focused on a `line` range). The host maps
-  it to whatever it resolves content from — a repo path, an HTTP URL, an ssh
-  target.
 - **`linkNav.ts`** — pure, framework-free navigation math:
   - `resolveRelativePath` / `resolveLinkHref` — resolve a repo-relative ref the
     way GitHub does (against the source document's directory; root-absolute from
