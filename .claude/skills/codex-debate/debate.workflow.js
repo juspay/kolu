@@ -24,6 +24,20 @@ const skillDir = a.skillDir || '.claude/skills/codex-debate'
 // collide on shared /tmp paths, and `.codex-debate/` is gitignored so these
 // files never pollute the diff codex reviews.
 const workDir = `${repoPath}/.codex-debate`
+// POSIX single-quote a path for safe interpolation into a shell command. Wraps
+// in single quotes (so spaces, globs, and shell metacharacters are inert) and
+// escapes any embedded single quote via the '\'' idiom. Used for the one
+// DESTRUCTIVE command (the ledger `rm -f` below); the benign `mkdir -p` prompts
+// elsewhere can tolerate an unquoted path, but a mistargeted `rm -f` cannot.
+const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
+// The debate is recorded as one small Markdown file PER ROUND (`section-NNN.md`,
+// written under the gitignored scratch dir) — the claude author reads them as its
+// cross-round memory (full history, no inline blob). The PR comment is rendered
+// from the SAME per-round sections in-process (see renderLedger) and returned as
+// `comment`, so the published summary and the author's context are one record —
+// deterministic, never re-rendered through an agent (nothing weak ever retypes a
+// large blob). codex is NOT a reader: it keeps its own warm session, so re-feeding
+// it the ledger would just duplicate what it already remembers.
 // Commit each round's changes individually (default on). The commit message
 // carries the debate context (codex's findings + claude's dispositions). Never
 // pushes or merges — that stays the human's call.
@@ -35,6 +49,22 @@ const commit = a.commit !== false
 // (Haiku). Defaults match a direct invocation; /be-review passes both explicitly.
 const model = a.model || 'opus'
 const mechModel = a.mechModel || 'haiku'
+// Fidelity tier (Sonnet). One "mechanical" job isn't a trivial command but a
+// faithful COPY: the codex runner reads codex's verdict JSON off disk and must
+// return it byte-for-byte. A paraphrase silently corrupts the debate (and schema
+// validation checks the verdict's SHAPE, not its wording), and Haiku is the
+// weakest tier for verbatim reproduction — so the verdict relay runs a notch up.
+// Still far cheaper/faster than Opus; the real reviewing is codex's, not this
+// agent's. The small per-round section writes stay on Haiku (tiny payloads).
+const copyModel = a.copyModel || 'sonnet'
+
+// The reasoning effort codex runs at, scoped to the debate. This JS constant is
+// the SINGLE home for the value: it is passed script-ward (a 4th positional arg
+// to codex-review.sh, which sets `-c model_reasoning_effort`) and read by
+// ledgerHeader for the published comment, so the `-c` flag and the header both
+// derive from here via the one-directional invocation channel — no literal
+// repeated across files held together by "remember to update all of them".
+const REASONING_EFFORT = 'xhigh'
 
 // ---------------------------------------------------------------------------
 // Schemas — the codex verdict schema mirrors scripts/codex-verdict.schema.json
@@ -112,11 +142,11 @@ async function codexReviews(round, rebuttalJson) {
 ${rebuttalJson}
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath}\``
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath} ${REASONING_EFFORT}\``
     : `1. (No prior rebuttal this round.)
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath}\``
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath} ${REASONING_EFFORT}\``
 
   const prompt = `You are a MECHANICAL RUNNER for one round of an automated code-review debate. Do exactly the steps below and nothing else. Do NOT review the code yourself, do NOT edit any repository files, do NOT add commentary.
 
@@ -131,17 +161,34 @@ ${rebuttalStep}
   return agent(prompt, {
     label: `codex:round${round}`,
     phase: 'Debate',
-    model: mechModel, // mechanical: runs codex-review.sh + copies the verdict
+    model: copyModel, // not trivial: must relay codex's verdict JSON faithfully
     schema: CODEX_VERDICT_SCHEMA,
   })
 }
 
 async function claudeResponds(round, verdict) {
+  // WARM AUTHOR. We can't truly resume the Claude author (agent() is one-shot,
+  // and Claude isn't headless under Max auth, so there's no session to resume the
+  // way `codex exec resume` carries codex's reasoning forward). The achievable
+  // equivalent is context, not state: every follow-up round the author reads the
+  // per-round section files — the record of every prior round's findings and its
+  // OWN dispositions — and builds on them instead of re-deriving the diff. A
+  // section is written after each round (see the loop), so on round N>1 the files
+  // already hold rounds 1..N-1. Round 1 has none yet, so its prompt is
+  // byte-identical to a cold start.
+  const priorBlock =
+    round > 1
+      ? `This is a FOLLOW-UP round. Every prior round is recorded as a small Markdown file under the debate's scratch dir — read them FIRST for the full history (codex's past findings and YOUR own dispositions):
+  \`cat ${workDir}/section-*.md\`   (or Read them individually; if none exist, fall back to the diff + the verdict below)
+Build on what you already did; don't re-derive the diff from scratch, and don't re-fix or re-litigate anything already settled. For any finding you DISPUTED, check codex's \`responseToRebuttal\` in the verdict below: if codex conceded, you're done with it; if codex held firm, weigh its reasoning and either fix it or hold with a sharper argument. Spend this round on findings still \`open\` plus any new ones.
+
+`
+      : ''
   const prompt = `You authored the changes on this branch. CODEX reviewed them and returned the verdict below — what do you think? Fix what you agree with, push back (with reasons) on what you don't.
 
 Work in the repo at \`${repoPath}\` — your shell cwd may be a different worktree, so use ABSOLUTE paths under it and \`git -C ${repoPath}\`. See the change with \`git -C ${repoPath} diff ${base}\`.
 
-CODEX's verdict (JSON):
+${priorBlock}CODEX's verdict (JSON):
 ${JSON.stringify(verdict, null, 2)}
 
 Address EVERY finding, any severity (don't skip minors/nits):
@@ -162,13 +209,16 @@ Return: actions (one per finding — findingId, disposition, detail), filesChang
 }
 
 // Commit message for one debate round, carrying the debate context: what codex
-// raised and how claude dispositioned each finding.
+// raised and how claude dispositioned each finding. It reuses the same per-bullet
+// projection as the ledger section (findingBullet/actionBullet), in `plain` chrome
+// — no backticks/bold and no `status` field — so the round summary derives from a
+// single rendering rather than two parallel ones.
 function roundCommitMessage(round, verdict, response) {
   const findings = (verdict.findings || [])
-    .map((f) => `- [${f.id} · ${f.severity}] ${f.issue} (${f.location})`)
+    .map((f) => findingBullet(f, { plain: true }))
     .join('\n')
   const actions = (response.actions || [])
-    .map((act) => `- ${act.findingId} ${act.disposition}: ${act.detail}`)
+    .map((a) => actionBullet(a, { plain: true }))
     .join('\n')
   return `fix: codex review — debate round ${round}
 
@@ -200,6 +250,111 @@ ${message}
    Stage ONLY those files. Do NOT use \`git add -A\` or \`git add .\`.
 4. Return the new commit SHA from \`git -C ${repoPath} rev-parse HEAD\`. Do NOT push.`
   return agent(prompt, { label: `commit:round${round}`, phase: 'Debate', model: mechModel })
+}
+
+// ---------------------------------------------------------------------------
+// The shared ledger — rendered from the transcript, deterministically
+// ---------------------------------------------------------------------------
+// One codex finding as a Markdown bullet. The single projection of a finding's
+// fields, shared by the ledger section and the round commit message. `plain` drops
+// the ledger chrome (backticks + the `status` field) for the commit message, which
+// wants plainer text; the field access stays in one place either way.
+function findingBullet(f, { plain = false } = {}) {
+  return plain
+    ? `- [${f.id} · ${f.severity}] ${f.issue} (${f.location})`
+    : `- \`${f.id}\` · ${f.severity} · ${f.status} — ${f.issue} (${f.location})`
+}
+
+// One author disposition as a Markdown bullet. The single projection of an action's
+// fields, shared by the ledger section and the round commit message. `plain` drops
+// the ledger chrome (backticks + bold) for the commit message.
+function actionBullet(a, { plain = false } = {}) {
+  return plain
+    ? `- ${a.findingId} ${a.disposition}: ${a.detail}`
+    : `- \`${a.findingId}\` **${a.disposition}** — ${a.detail}`
+}
+
+// One round's findings, as a Markdown list. Shared by the section renderer below.
+function renderFindings(verdict) {
+  const list = (verdict.findings || []).map((f) => findingBullet(f)).join('\n')
+  return list || '- _(none)_'
+}
+
+// One round's author dispositions, as a Markdown list. `null` on a terminal round
+// (codex approved or errored before the author got a turn).
+function renderActions(response) {
+  if (!response) return '_(no author turn — the debate ended this round)_'
+  const list = (response.actions || []).map((a) => actionBullet(a)).join('\n')
+  return list || '- _(no actions)_'
+}
+
+// One round as a Markdown section: codex's verdict, its response to the rebuttal,
+// and the author's dispositions + commit. The single per-round renderer — the
+// author reads these as its memory and they compose into the posted comment.
+function roundLedgerSection(entry) {
+  const { round, codex, claude, commit } = entry
+  const lines = [
+    `### Round ${round}`,
+    '',
+    `**codex** — approved: \`${codex.approved}\``,
+    '',
+    codex.summary,
+    '',
+    'Findings:',
+    renderFindings(codex),
+  ]
+  if (codex.responseToRebuttal) lines.push('', `_codex on the rebuttal:_ ${codex.responseToRebuttal}`)
+  lines.push('', `**claude** — ${claude ? claude.summary : '_(no author turn this round)_'}`, '', renderActions(claude))
+  if (commit) lines.push('', `commit: \`${commit}\``)
+  return lines.join('\n')
+}
+
+// The comment header (small). The full comment is this header followed by the
+// per-round section files (see renderLedger). The workflow renders the whole
+// comment deterministically from the transcript — no agent ever retypes the blob.
+//
+// This header's chrome (the `## ` title, the badge, the `base.slice(0, 12)`) is
+// deliberately kept STRUCTURALLY PARALLEL to lens-debate's renderComment header
+// chrome. The no-module workflow runtime has no imports, so a truly shared
+// renderer isn't available; the two are instead siblings that move together. A
+// house-style change (badge emoji, base-slice length, a new metadata row) is a
+// mechanical mirror edit — make it here and in lens-debate's renderComment. If
+// the runtime ever admits a shared helper file, lift this common chrome there.
+function ledgerHeader(meta) {
+  const badge = meta.status === 'consensus' ? '✅ **Consensus**' : `⚠️ **${meta.status}**`
+  return `## Codex ⇄ Claude debate\n\n${badge} after ${meta.rounds} round(s) · codex reviewed at \`${meta.reasoningEffort}\` reasoning effort · base \`${(meta.base || '').slice(0, 12)}\``
+}
+
+// The whole PR comment, rendered deterministically in-process from the transcript:
+// the outcome header followed by each round's Markdown section. The per-round
+// section files on disk remain the author's cross-round memory (see writeSection);
+// this re-uses the SAME `roundLedgerSection` renderer to assemble the published
+// comment, so the orchestrator posts a ready string (`gh pr comment -F`) exactly
+// the way lens-debate does — no bespoke `cat` glob at the consumer, and nothing
+// weak ever retypes a large blob (the workflow builds the string itself).
+function renderLedger(transcript, meta) {
+  return [ledgerHeader(meta), ...transcript.map(roundLedgerSection)].join('\n\n')
+}
+
+// Zero-pad the round so the section glob (`section-*.md`) sorts in round order
+// (section-002 before section-010) for both the author's read and the assembly.
+const sectionFile = (round) => `${workDir}/section-${String(round).padStart(3, '0')}.md`
+
+// Write ONE round's section to its own small file — the author reads these as its
+// cross-round memory, and the orchestrator cats them into the posted comment. A
+// thin mechanical agent (the workflow can't do file I/O), but the payload is just
+// this round, so it stays small and Haiku-safe — no whole-ledger retype, and
+// rewriting a round's own file is idempotent (safe on a resume).
+async function writeSection(entry) {
+  const text = roundLedgerSection(entry)
+  const path = sectionFile(entry.round)
+  const prompt = `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
+
+1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+2. Using the Write tool, create \`${path}\` with EXACTLY this content, overwriting any existing file:
+
+${text}`
+  return agent(prompt, { label: `ledger:round${entry.round}`, phase: 'Debate', model: mechModel })
 }
 
 const transcript = []
@@ -248,6 +403,23 @@ if (!baseRes?.sha?.trim()) {
 base = baseRes.sha.trim()
 log(`Diffing against ${base.slice(0, 12)} (merge-base of ${rawBase} and HEAD), so the base branch's drift since the fork isn't reviewed.`)
 
+// Clear any stale ledger from a PRIOR debate in this worktree. The scratch dir
+// is persistent (per-worktree, not per-run) and the section files use a flat,
+// stable `section-NNN.md` namespace, so a previous longer debate's high-numbered
+// sections would otherwise survive into this run — the author cats `section-*.md`
+// as its memory (and they compose into the `comment` renderLedger returns), so stale
+// sections would pollute BOTH the author's context and the published trail. A
+// thin mechanical agent (the workflow can't run shell itself). The reset is
+// section/ledger-scoped: it deletes only the stale `section-*.md` files, not the
+// whole scratch dir, so other artifacts in there (verdict-N.json, rebuttal.json,
+// commit-msg-N.txt) keep their own lifecycle and a future pre-loop writer won't
+// be silently wiped. This script has no true resume (agent() is one-shot, the
+// whole workflow re-runs from scratch), so a fresh start owns a fresh ledger.
+await agent(
+  `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`mkdir -p -- ${shq(workDir)} && rm -f -- ${shq(workDir)}/section-*.md\`. Do not edit any other file. Do not run git.`,
+  { label: 'ledger:reset', phase: 'Debate', model: mechModel },
+)
+
 for (let round = 1; ; round++) {
   const verdict = await codexReviews(round, lastClaude ? JSON.stringify(lastClaude) : null)
   finalVerdict = verdict
@@ -286,7 +458,10 @@ for (let round = 1; ; round++) {
     break
   }
 
-  // Claude responds: fixes what it agrees with (editing the tree), disputes the rest.
+  // Claude responds: fixes what it agrees with (editing the tree), disputes the
+  // rest. It reads the per-round section files (written at the end of each round
+  // below) for its cross-round memory. `lastClaude` is kept only to feed codex's
+  // rebuttal next round (see codexReviews) — it is no longer the author's memory.
   const response = await claudeResponds(round, verdict)
   entry.claude = response
   lastClaude = response
@@ -302,6 +477,11 @@ for (let round = 1; ; round++) {
     entry.commit = (sha || '').trim()
     log(`Round ${round}: committed ${entry.commit}`)
   }
+
+  // Write this round's section so the NEXT round's author can read the full
+  // history. Terminal rounds break above before reaching here, so they're
+  // sectioned just after the loop.
+  await writeSection(entry)
 }
 
 const filesChanged = Array.from(
@@ -309,4 +489,24 @@ const filesChanged = Array.from(
 )
 log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged.length} file(s) changed.`)
 
-return { status, rounds: transcript.length, base, finalVerdict, filesChanged, transcript }
+// Section the terminal round — it broke out of the loop before the in-loop
+// writeSection, so without this its section (a consensus approval, or an error
+// reached before the author got a turn) would be missing from the disk record
+// the orchestrator reads for the chat summary (cat section-*.md) and the
+// author would read as memory if the debate somehow continued.
+if (transcript.length > 0) await writeSection(transcript[transcript.length - 1])
+
+// Hand the orchestrator the ready-to-post comment, rendered deterministically
+// in-process (header + per-round sections) — it just writes the string to a file
+// and posts it (`gh pr comment -F`), the same shape lens-debate uses. The section
+// files on disk stay the author's cross-round memory; this is the published view
+// of that same record, so no agent ever retypes the whole ledger. See SKILL step 3.
+return {
+  status,
+  rounds: transcript.length,
+  base,
+  finalVerdict,
+  filesChanged,
+  transcript,
+  comment: renderLedger(transcript, { status, rounds: transcript.length, base, reasoningEffort: REASONING_EFFORT }),
+}

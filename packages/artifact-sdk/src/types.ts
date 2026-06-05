@@ -64,5 +64,14 @@ export type RenderHighlightsMsg = {
   comments: Array<{ id: string; locator: Locator }>;
 };
 
-export type IframeToParent = SelectMsg | ReadyMsg;
+/** Iframe → parent: the user pressed a mouse back/forward (X1/X2) button
+ *  inside the preview. The opaque-origin sandbox traps these events in the
+ *  frame — they never bubble to the parent — so the SDK forwards the intent and
+ *  the parent drives its own history (the Code-tab browser's back/forward). */
+export type HistoryMsg = {
+  type: "kolu-artifact-sdk:history";
+  direction: "back" | "forward";
+};
+
+export type IframeToParent = SelectMsg | ReadyMsg | HistoryMsg;
 export type ParentToIframe = PathMsg | RenderHighlightsMsg;

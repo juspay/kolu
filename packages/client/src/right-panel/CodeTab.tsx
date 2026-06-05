@@ -14,8 +14,11 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
+import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import {
+  type CodeTabView,
   type TerminalId,
   type TerminalMetadata,
   viewLabel,
@@ -28,6 +31,7 @@ import {
   createSignal,
   Match,
   on,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -39,7 +43,12 @@ import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { isMobile, isTouch } from "../useMobile";
-import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
+import {
+  ChevronRightIcon,
+  FileBrowseIcon,
+  FileDiffIcon,
+  GitBranchIcon,
+} from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
@@ -61,7 +70,7 @@ import {
   openInCodeTab,
   pendingOpen,
 } from "./openInCodeTab";
-import { useRightPanel } from "./useRightPanel";
+import { type BrowserLocation, useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -140,6 +149,33 @@ const CodeTab: Component<{
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
 
+  // History records repo-relative `{ mode, path }` locations with no repo
+  // identity of their own, so a stack captured in repo A must not be replayed
+  // against repo B after a `cd`. `syncRepo` drops a terminal's history whenever
+  // *that same terminal's* repo changes — back/forward then only ever retraces
+  // locations from the repo currently shown, and the next selection re-seeds the
+  // fresh stack.
+  //
+  // `CodeTab` is a singleton over the active terminal, so this effect only ever
+  // feeds `syncRepo` the *active* terminal's `(id, repo)`. The reset decision
+  // can't live here as a compare-against-previous-tick: `repoPath()` shifts on
+  // both a `cd` (genuine transition) and a plain terminal switch (NOT a
+  // transition), and — the case a previous-tick compare misses entirely — a
+  // terminal's repo can change while it is INACTIVE (its PTY `cd`s while another
+  // terminal is shown). `syncRepo` owns the call: it keys the comparison per
+  // terminal (`history.get(id).lastRepo`), so the stale repo is caught the moment that
+  // terminal next becomes active, while a freshly-switched-to terminal in a
+  // different repo keeps its own history. The first call per terminal just
+  // records the baseline, so a session-restored stack survives initial mount.
+  createEffect(
+    on(
+      () => [props.terminalId, repoPath()] as const,
+      ([tid, repo]) => {
+        if (tid !== null) rightPanel.syncRepo(tid, repo);
+      },
+    ),
+  );
+
   // Dismiss any open comment composer when the user navigates away from
   // the file/mode/repo the draft was anchored to. Without this, the
   // composer floats over a different file's content and the user has
@@ -167,8 +203,23 @@ const CodeTab: Component<{
   // search-reset effect below; collision-safe by construction since
   // `view()` is a typed enum and `repoPath()` is absolute-or-null.
   const selectedPath = (): string | null => rightPanel.selectedFile(view());
-  const setSelectedPath = (path: string | null) => {
-    rightPanel.setSelectedFile(view(), path);
+  // The single selection funnel: set the shown file AND record it in history.
+  // Recording can never drift from selection because they are one call —
+  // routing every selection-mutation site through here replaces the old
+  // convention of placing a paired `recordNavigation` next to each write.
+  // Recording is skipped when `record === false` (mechanical clears, history
+  // replay) or when `path === null` (clearing the slot is not a navigation).
+  const select = (
+    mode: CodeTabView,
+    path: string | null,
+    opts?: {
+      ref?: { startLine: number; endLine: number };
+      record?: boolean;
+    },
+  ) => {
+    rightPanel.setSelectedFile(mode, path);
+    if (opts?.record === false || path === null) return;
+    rightPanel.recordNavigation({ mode, path, ref: opts?.ref });
   };
   const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
 
@@ -331,7 +382,19 @@ const CodeTab: Component<{
           setHandled({ request: req, resolvedPath: null });
           return;
         }
-        setSelectedPath(rel);
+        // Record the front-door open in history *with* its line ref, so a
+        // later back() re-issues it through this same pipeline and repaints
+        // the highlight (cheap-v1 "restore where you were"). Idempotent on
+        // mode+path, so a re-click of the same path:line refreshes the entry
+        // in place rather than deepening history. The echoed Pierre
+        // `onSelect(rel)` is suppressed in `handleSelect` so it can't clobber
+        // this ref with a plain (mode, path) record.
+        select(req.targetMode, rel, {
+          ref:
+            req.ref.startLine !== null && req.ref.endLine !== null
+              ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
+              : undefined,
+        });
         setHandled({ request: req, resolvedPath: rel });
       },
       { defer: true },
@@ -419,7 +482,7 @@ const CodeTab: Component<{
       },
       (cur, prev) => {
         if (prev && prev.sk !== cur.sk) return;
-        if (cur.s && !cur.pathExists) setSelectedPath(null);
+        if (cur.s && !cur.pathExists) select(view(), null, { record: false });
       },
       { defer: true },
     ),
@@ -451,14 +514,81 @@ const CodeTab: Component<{
     // file in the tree would resurrect the line range, surprising the
     // user who treated their tree click as a fresh intent. Same-file
     // tree-clicks don't trip this branch (Pierre fires `onSelect(rel)`
-    // after our own programmatic `setSelectedPath(rel)` and the path
+    // after our own programmatic `select(..., rel)` and the path
     // equals `handled.resolvedPath` in that case — leaving the highlight
     // intact for the lifetime of the request).
     const h = handled();
     if (h && h.resolvedPath !== null && h.resolvedPath !== path) {
       setHandled(null);
     }
-    setSelectedPath(path);
+    // Record the visit — unless this is Pierre's echoed re-select of the file a
+    // front-door open just resolved (its resolution effect already recorded it
+    // *with* the line ref; re-recording here would overwrite the ref with a
+    // plain entry). A genuine tree/iframe pick records a (mode, path) entry,
+    // dropping the line highlight exactly as the selection itself does.
+    select(view(), path, { record: h?.resolvedPath !== path });
+  };
+
+  // Re-apply a history location on back/forward. A location carrying a line
+  // ref is re-issued through the same front door a terminal `path:N` click
+  // uses, so the existing resolve → `handled` → `selectedRange` pipeline
+  // repaints the line (cheap-v1 "restore where you were"); a plain selection
+  // just moves the mode + file. Either way the `recordNavigation` these
+  // re-applies trigger is idempotent on mode+path, so re-applying never
+  // deepens or forks history — the cursor stays where back()/forward() left it.
+  const applyLocation = (loc: BrowserLocation) => {
+    if (loc.ref && loc.path !== null) {
+      const repo = repoPath();
+      if (repo === null) return;
+      openInCodeTab({
+        ref: {
+          path: loc.path,
+          startLine: loc.ref.startLine,
+          endLine: loc.ref.endLine,
+        },
+        repoRoot: repo,
+        targetMode: loc.mode,
+        allowBasenameFallback: false,
+      });
+      return;
+    }
+    setView(loc.mode);
+    select(loc.mode, loc.path, { record: false });
+  };
+  const goBack = () => {
+    const loc = rightPanel.navigateBack();
+    if (loc) applyLocation(loc);
+  };
+  const goForward = () => {
+    const loc = rightPanel.navigateForward();
+    if (loc) applyLocation(loc);
+  };
+  // Browser-style back/forward, scoped to the Code tab via imperative listeners
+  // on its root so the inputs only act while the user is *in* the browser, never
+  // in a terminal. Two channels:
+  //   - keyboard: Alt+←/→ (cross-platform; not in the global shortcut registry,
+  //     so it can't shadow a PTY byte the way a `mod`-based chord would);
+  //   - mouse: the dedicated back/forward (X1/X2) buttons, decoded by
+  //     `@kolu/solid-browser`'s shared `attachBackForwardMouse` — it owns the
+  //     button-number truth and the swallow-on-down / act-on-up /
+  //     preventDefault-on-both protocol so the buttons drive the Code tab, not
+  //     the SPA.
+  // Both bubble through Pierre's shadow root, so an event over a tree row or the
+  // preview reaches here. `makeEventListener` auto-cleans on unmount; the
+  // mouse binder's disposer is tied to the component owner via `onCleanup`.
+  const attachBackForwardInputs = (el: HTMLDivElement) => {
+    makeEventListener(el, "keydown", (e) => {
+      if (e.altKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        goBack();
+      } else if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        goForward();
+      }
+    });
+    onCleanup(
+      attachBackForwardMouse(el, { onBack: goBack, onForward: goForward }),
+    );
   };
 
   const treeError = (): Error | undefined =>
@@ -536,8 +666,33 @@ const CodeTab: Component<{
       <div
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
+        ref={attachBackForwardInputs}
       >
         <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+          <div class="flex items-center gap-0.5 shrink-0">
+            <button
+              type="button"
+              data-testid="code-tab-back-button"
+              aria-label="Go back"
+              title="Go back (Alt+←)"
+              disabled={!rightPanel.canNavigateBack()}
+              onClick={goBack}
+              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronRightIcon class="h-3.5 w-3.5 rotate-180" />
+            </button>
+            <button
+              type="button"
+              data-testid="code-tab-forward-button"
+              aria-label="Go forward"
+              title="Go forward (Alt+→)"
+              disabled={!rightPanel.canNavigateForward()}
+              onClick={goForward}
+              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronRightIcon class="h-3.5 w-3.5" />
+            </button>
+          </div>
           <ModeChipPicker
             view={view()}
             onViewChange={setView}
@@ -780,6 +935,13 @@ const CodeTab: Component<{
                           // same intent as a tree click: move selection to the
                           // new file and drop any line-range highlight.
                           onNavigate={handleSelect}
+                          // The mouse back/forward (X1/X2) buttons pressed over
+                          // the sandboxed preview can't reach the Code-tab
+                          // listener (the frame traps them), so the in-iframe
+                          // SDK forwards them here to drive the same history.
+                          onHistory={(direction) =>
+                            direction === "back" ? goBack() : goForward()
+                          }
                         />
                       );
                     })()}
@@ -820,16 +982,23 @@ const CodeTab: Component<{
                     });
                   } else {
                     setView("browse");
-                    setSelectedPath(comment.path);
+                    // A no-line comment jump moves the visible file just like a
+                    // tree click — `select` records it so back/forward retraces
+                    // it too. The lineRange branch above records via the
+                    // `openInCodeTab` → resolution-effect pipeline. Idempotent
+                    // on mode+path, so jumping to the already-shown file is a
+                    // harmless in-place refresh, not a duplicate entry.
+                    select("browse", comment.path);
                   }
                   // Carry the comment's surface so the dispatcher flips the
                   // Source ⇄ Rendered toggle back to it before the overlay
                   // re-finds the quote: a prose ("Hello Doc") comment landing
                   // on the source view ("# Hello Doc") would fail to re-anchor
                   // (and the source view wouldn't even highlight it). When the
-                  // file is already open in the other mode, `setSelectedPath`
-                  // is a no-op (same path → no remount), so the toggle flip is
-                  // the only thing that moves the user back to the right view.
+                  // file is already open in the other mode, `select` is a
+                  // no-op selection (same path → no remount), so the toggle
+                  // flip is the only thing that moves the user back to the
+                  // right view.
                   useCommentScrollRequest().set({
                     commentId: comment.id,
                     path: comment.path,

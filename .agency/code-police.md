@@ -36,6 +36,50 @@ should hold things that are genuinely shared across the host app and
 have no other natural home — not be a barrel for every external
 schema the app happens to use.
 
+### no-thin-wrapper-functions
+
+A function whose entire body forwards its arguments to one other function —
+optionally binding a constant or renaming params — adds no logic and must not
+exist. Inline the call at its (single) site; when a bound constant is involved,
+make it a module-level `const` next to the call, not a function. This is the
+function-level sibling of `no-re-export-bridge-modules`: the same
+fake-indirection smell, applied to call-forwarding instead of symbol
+re-exporting.
+
+Bad — a wrapper that only injects a constant codec and forwards every arg
+(`iframePreviewNav.ts`, whose sole caller was `BrowseIframeRenderer`):
+
+```ts
+export function repoPathFromPreviewPathname(reported, currentUrl, currentPath) {
+  return pathFromPreviewPathname(reported, currentUrl, currentPath, {
+    encode: encodePreviewPath,
+    decode: decodePreviewPath,
+  });
+}
+```
+
+Good — bind the constant once where it's used, call the real function directly:
+
+```ts
+const previewCodec = { encode: encodePreviewPath, decode: decodePreviewPath };
+// …in the handler:
+const next = pathFromPreviewPathname(pathname, props.url, props.path, previewCodec);
+```
+
+_Allowed_: a function that does real work beyond forwarding — composes ≥2 calls,
+adds a null/error transform, narrows a type, or has ≥3 callers that would
+otherwise repeat the same binding (the rule-of-three from `dry-rule-of-three`).
+`resolveMarkdownImageSrc` (resolve → null-check → build a file-route URL) is
+fine: it composes and transforms; it isn't a pass-through.
+
+_Rationale_: a single-caller pass-through is indirection a reader has to chase
+only to discover it does nothing — the same drift/lie cost as a re-export
+bridge, minus even the excuse of crossing a package boundary. Bind constants
+where they're used and let the one caller reach the real function directly.
+Codified after `repoPathFromPreviewPathname` ([kolu#1191](https://github.com/juspay/kolu/pull/1191)) —
+a wrapper that existed only to inject kolu's preview-URL codec into
+`@kolu/solid-browser`'s `pathFromPreviewPathname`.
+
 ### subscription-use-pending
 
 Never check `sub() === undefined` as a proxy for loading — use `sub.pending()`.

@@ -30,6 +30,7 @@ let
       ./packages/solid-pierre
       ./packages/solid-markdown
       ./packages/solid-fileview
+      ./packages/solid-browser
       ./packages/common
       ./packages/integrations
       ./packages/nonempty
@@ -43,6 +44,7 @@ let
       ./packages/transcript-html
       ./packages/artifact-sdk
       ./packages/html-escape
+      ./packages/url-shape
       ./packages/log
     ];
   };
@@ -234,6 +236,12 @@ let
     inherit pkgs src pnpmDeps;
   };
 
+  # @kolu/solid-browser docsite — a standalone second consumer of createBrowser
+  # (the history electricity), built so CI proves the reuse claim doesn't rot.
+  docsiteExample = import ./packages/solid-browser/example/docsite/default.nix {
+    inherit pkgs src pnpmDeps;
+  };
+
   # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
   # package. Reuses this build's `src` + `pnpmDeps` — every package with a
   # typecheck script is in the `src` fileset above (see its INVARIANT
@@ -246,4 +254,4 @@ let
 in
 {
   inherit default koluBin koluEnv pnpmDeps typecheck;
-} // remoteProcessMonitor // miniCi
+} // remoteProcessMonitor // miniCi // docsiteExample

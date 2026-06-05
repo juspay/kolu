@@ -105,4 +105,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-markdown-preview",
     text: "Open a `.md` file in the Code tab's browse mode to read it rendered — flip the Source ⇄ Rendered toggle in the file header to see the raw Markdown",
   },
+  {
+    id: "amb-code-tab-back-forward",
+    text: "The Code tab is a browser — follow a link or jump between files, then use the ◀ ▶ buttons, Alt+←/→, or your mouse's back/forward buttons to retrace everywhere you've been",
+  },
 ];
