@@ -153,10 +153,12 @@ Otherwise (`status === "consensus"`) report in chat (do **not** push or merge �
 the per-round commits sit on the local branch for the human to review):
 
 - The outcome — **consensus** — and how many rounds it took to get there.
-- **The reviewer's reasoning effort: codex runs at `xhigh`** (scoped to the
-  debate via `-c model_reasoning_effort=xhigh` in `codex-review.sh`, regardless
-  of the user's global codex default). State this so the depth of the review is
-  on the record.
+- **The reviewer's reasoning effort** — sourced from the workflow's single
+  `REASONING_EFFORT` constant (`xhigh` today), which is passed down to
+  `codex-review.sh`'s `-c model_reasoning_effort` and into the comment header, so
+  the published value and the config codex actually ran at share one home. Read
+  it off the header rather than asserting it independently. State it so the depth
+  of the review is on the record.
 - `git log --oneline <base>..HEAD` (the per-round debate commits) and
   `git diff --stat <base>` so the user sees what the debate changed.
 - A compact per-round summary — read it straight from the section files
@@ -177,8 +179,9 @@ the per-round commits sit on the local branch for the human to review):
   ```
 
   The workflow returns `comment` already rendered — the `## Codex ⇄ Claude debate`
-  header (consensus badge, round count, the **`xhigh` reasoning-effort** note)
-  followed by the per-round breakdown of codex's findings and Claude's dispositions
+  header (consensus badge, round count, the **reasoning-effort** note from the
+  workflow's `REASONING_EFFORT` constant) followed by the per-round breakdown of
+  codex's findings and Claude's dispositions
   that the author also read. So the comment is a **deterministic** render of the
   same record the commit messages and the author drew on — not an LLM-improvised
   table. Posting the returned string mirrors `/lens-debate`. This is an

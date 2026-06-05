@@ -58,6 +58,14 @@ const mechModel = a.mechModel || 'haiku'
 // agent's. The small per-round section writes stay on Haiku (tiny payloads).
 const copyModel = a.copyModel || 'sonnet'
 
+// The reasoning effort codex runs at, scoped to the debate. This JS constant is
+// the SINGLE home for the value: it is passed script-ward (a 4th positional arg
+// to codex-review.sh, which sets `-c model_reasoning_effort`) and read by
+// ledgerHeader for the published comment, so the `-c` flag and the header both
+// derive from here via the one-directional invocation channel — no literal
+// repeated across files held together by "remember to update all of them".
+const REASONING_EFFORT = 'xhigh'
+
 // ---------------------------------------------------------------------------
 // Schemas — the codex verdict schema mirrors scripts/codex-verdict.schema.json
 // so the runner agent returns the same shape codex was constrained to.
@@ -134,11 +142,11 @@ async function codexReviews(round, rebuttalJson) {
 ${rebuttalJson}
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath}\``
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath} ${REASONING_EFFORT}\``
     : `1. (No prior rebuttal this round.)
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath}\``
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath} ${REASONING_EFFORT}\``
 
   const prompt = `You are a MECHANICAL RUNNER for one round of an automated code-review debate. Do exactly the steps below and nothing else. Do NOT review the code yourself, do NOT edit any repository files, do NOT add commentary.
 
@@ -201,13 +209,16 @@ Return: actions (one per finding — findingId, disposition, detail), filesChang
 }
 
 // Commit message for one debate round, carrying the debate context: what codex
-// raised and how claude dispositioned each finding.
+// raised and how claude dispositioned each finding. It reuses the same per-bullet
+// projection as the ledger section (findingBullet/actionBullet), in `plain` chrome
+// — no backticks/bold and no `status` field — so the round summary derives from a
+// single rendering rather than two parallel ones.
 function roundCommitMessage(round, verdict, response) {
   const findings = (verdict.findings || [])
-    .map((f) => `- [${f.id} · ${f.severity}] ${f.issue} (${f.location})`)
+    .map((f) => findingBullet(f, { plain: true }))
     .join('\n')
   const actions = (response.actions || [])
-    .map((act) => `- ${act.findingId} ${act.disposition}: ${act.detail}`)
+    .map((a) => actionBullet(a, { plain: true }))
     .join('\n')
   return `fix: codex review — debate round ${round}
 
@@ -244,11 +255,28 @@ ${message}
 // ---------------------------------------------------------------------------
 // The shared ledger — rendered from the transcript, deterministically
 // ---------------------------------------------------------------------------
+// One codex finding as a Markdown bullet. The single projection of a finding's
+// fields, shared by the ledger section and the round commit message. `plain` drops
+// the ledger chrome (backticks + the `status` field) for the commit message, which
+// wants plainer text; the field access stays in one place either way.
+function findingBullet(f, { plain = false } = {}) {
+  return plain
+    ? `- [${f.id} · ${f.severity}] ${f.issue} (${f.location})`
+    : `- \`${f.id}\` · ${f.severity} · ${f.status} — ${f.issue} (${f.location})`
+}
+
+// One author disposition as a Markdown bullet. The single projection of an action's
+// fields, shared by the ledger section and the round commit message. `plain` drops
+// the ledger chrome (backticks + bold) for the commit message.
+function actionBullet(a, { plain = false } = {}) {
+  return plain
+    ? `- ${a.findingId} ${a.disposition}: ${a.detail}`
+    : `- \`${a.findingId}\` **${a.disposition}** — ${a.detail}`
+}
+
 // One round's findings, as a Markdown list. Shared by the section renderer below.
 function renderFindings(verdict) {
-  const list = (verdict.findings || [])
-    .map((f) => `- \`${f.id}\` · ${f.severity} · ${f.status} — ${f.issue} (${f.location})`)
-    .join('\n')
+  const list = (verdict.findings || []).map((f) => findingBullet(f)).join('\n')
   return list || '- _(none)_'
 }
 
@@ -256,9 +284,7 @@ function renderFindings(verdict) {
 // (codex approved or errored before the author got a turn).
 function renderActions(response) {
   if (!response) return '_(no author turn — the debate ended this round)_'
-  const list = (response.actions || [])
-    .map((a) => `- \`${a.findingId}\` **${a.disposition}** — ${a.detail}`)
-    .join('\n')
+  const list = (response.actions || []).map((a) => actionBullet(a)).join('\n')
   return list || '- _(no actions)_'
 }
 
@@ -296,7 +322,7 @@ function roundLedgerSection(entry) {
 // the runtime ever admits a shared helper file, lift this common chrome there.
 function ledgerHeader(meta) {
   const badge = meta.status === 'consensus' ? '✅ **Consensus**' : `⚠️ **${meta.status}**`
-  return `## Codex ⇄ Claude debate\n\n${badge} after ${meta.rounds} round(s) · codex reviewed at \`xhigh\` reasoning effort · base \`${(meta.base || '').slice(0, 12)}\``
+  return `## Codex ⇄ Claude debate\n\n${badge} after ${meta.rounds} round(s) · codex reviewed at \`${meta.reasoningEffort}\` reasoning effort · base \`${(meta.base || '').slice(0, 12)}\``
 }
 
 // The whole PR comment, rendered deterministically in-process from the transcript:
@@ -480,5 +506,5 @@ return {
   finalVerdict,
   filesChanged,
   transcript,
-  comment: renderLedger(transcript, { status, rounds: transcript.length, base }),
+  comment: renderLedger(transcript, { status, rounds: transcript.length, base, reasoningEffort: REASONING_EFFORT }),
 }
