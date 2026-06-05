@@ -188,6 +188,19 @@ describe("parseLineRefs", () => {
     });
   });
 
+  it("keeps a decomposed (NFD) unicode filename in one piece", () => {
+    // A git/macOS path can arrive decomposed: `Ame` + U+0301 (combining
+    // acute) + `lie.md`. The combining mark is `\p{M}`, not `\p{L}`/`\p{N}`,
+    // so without `\p{M}` in the char class the ref splits at the accent
+    // exactly like the original ASCII bug.
+    const line = "see People/Amélie.md:3 here".normalize("NFD");
+    expect(line).not.toBe(line.normalize("NFC")); // guard: truly NFD
+    const refs = parseLineRefs(line);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]?.path.normalize("NFC")).toBe("People/Amélie.md");
+    expect(refs[0]?.startLine).toBe(3);
+  });
+
   it("matches a bare unicode filename and CJK/path segments", () => {
     expect(parseLineRefs("open Amélie.md now")[0]?.path).toBe("Amélie.md");
     expect(parseLineRefs("see 日本語/メモ.txt:7 here")[0]).toMatchObject({
@@ -376,5 +389,52 @@ describe("resolveLineRefPath", () => {
         allowBasenameFallback: false,
       }),
     ).toBe("packages/a/src/Main.hs");
+  });
+
+  it("resolves an NFC terminal ref against an NFD repo path (and returns the verbatim repo entry)", () => {
+    // The repo path is decomposed (git/macOS NFD: `Ame` + combining acute),
+    // the terminal text is composed (NFC). An exact `Set.has` would miss; we
+    // compare under NFC. The resolved value must be the *verbatim* NFD repo
+    // entry — that's the byte sequence the OS/git addresses the file by.
+    const nfdRepoPath = "People/Amélie.md".normalize("NFD");
+    expect(nfdRepoPath).not.toBe(nfdRepoPath.normalize("NFC")); // guard
+    const resolved = resolveLineRefPath({
+      rawPath: "People/Amélie.md".normalize("NFC"),
+      repoRoot,
+      cwd: repoRoot,
+      repoPaths: [nfdRepoPath],
+    });
+    expect(resolved).toBe(nfdRepoPath);
+  });
+
+  it("resolves an NFD terminal ref against an NFC repo path via basename too", () => {
+    const nfcRepoPath = "People/Amélie.md".normalize("NFC");
+    // Slash path differs only by normalization; also exercise the bare
+    // basename fallback with mismatched forms.
+    expect(
+      resolveLineRefPath({
+        rawPath: "Amélie.md".normalize("NFD"),
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths: [nfcRepoPath],
+      }),
+    ).toBe(nfcRepoPath);
+  });
+
+  it("returns null when two distinct repo paths collide under NFC", () => {
+    // A repo can contain both the NFC and NFD encodings of the same name as
+    // genuinely distinct files. An NFC ref is ambiguous between them, so we
+    // fail closed rather than open whichever happened to be indexed first.
+    const nfc = "People/Amélie.md".normalize("NFC");
+    const nfd = "People/Amélie.md".normalize("NFD");
+    expect(
+      resolveLineRefPath({
+        rawPath: nfc,
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths: [nfc, nfd],
+        allowBasenameFallback: false,
+      }),
+    ).toBeNull();
   });
 });

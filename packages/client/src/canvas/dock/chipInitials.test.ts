@@ -172,4 +172,27 @@ describe("chipInitials", () => {
       subIsGlyph: false,
     });
   });
+
+  it("treats a decomposed (NFD) intent lead as a letter, not a glyph", () => {
+    // The intent lead is `E` + U+0301 (combining acute). The grapheme is two
+    // code points, so a single-code-point anchor would misfire it into the
+    // glyph branch; NFC-composing first keeps it a faded letter.
+    const nfd = "Émile review".normalize("NFD");
+    expect(nfd).not.toBe(nfd.normalize("NFC")); // guard: truly NFD
+    const r = chipInitials(meta(nfd), info("kolu", "main"));
+    expect(r.subIsGlyph).toBe(false);
+    expect(r.sub.normalize("NFC")).toBe("é");
+  });
+
+  it("clamps a case-expanding letter to a single glyph (ß → S, not SS)", () => {
+    // `ß`.toUpperCase() is `"SS"` and `İ`.toLowerCase() is `i` + U+0307 — both
+    // would paint two glyphs on a one-glyph tile. Each half must stay one
+    // grapheme.
+    const repoExpand = chipInitials(meta(), info("ßeta", "main"));
+    expect(repoExpand.repo).toBe("S");
+    const subExpand = chipInitials(meta("İstanbul"), info("kolu", "main"));
+    // İ→ lowercased is the single grapheme cluster `i̇`; one visual glyph.
+    expect([...subExpand.sub.normalize("NFC")].length).toBeLessThanOrEqual(2);
+    expect(subExpand.subIsGlyph).toBe(false);
+  });
 });

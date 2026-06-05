@@ -53,8 +53,10 @@ describe("projectFileTreeSearch", () => {
   it("matches an NFD path against an NFC query (and vice versa)", () => {
     // A git/macOS path can arrive NFD (`e` + U+0301 combining acute) while the
     // typed query is NFC (single U+00E9). Both sides normalize to NFC before
-    // the substring search, so the accented name still matches. Forms are
-    // built from \u escapes so the test is independent of this file's bytes.
+    // the substring search, so the accented name still matches. The two forms
+    // below are literal accented characters; the `.not.toBe(.normalize("NFC"))`
+    // guard asserts the NFD one really is decomposed, so the test holds
+    // regardless of this file's on-disk bytes.
     const eAcuteNfc = "é"; // é, composed (one code point)
     const eAcuteNfd = "é"; // e + combining acute, decomposed
     const nfdPath = `People/Caf${eAcuteNfd}.md`;
