@@ -412,6 +412,22 @@ export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
+
+/** User-facing name of a Code-tab view — the single source for the words the
+ *  mode picker renders as a chip label and the file-tree right-click menu
+ *  composes its "jump to view" entries from. Defining it once keeps the two
+ *  surfaces in sync structurally rather than by convention. */
+const VIEW_LABELS: Record<CodeTabView, string> = {
+  browse: "All files",
+  local: "Local",
+  branch: "Branch",
+};
+
+/** Display name for a Code-tab view (e.g. "All files" / "Local" / "Branch"). */
+export function viewLabel(view: CodeTabView): string {
+  return VIEW_LABELS[view];
+}
+
 export type RightPanelTabKind = z.infer<typeof RightPanelTabKindSchema>;
 export type RightPanelPerTerminalState = z.infer<
   typeof RightPanelPerTerminalStateSchema

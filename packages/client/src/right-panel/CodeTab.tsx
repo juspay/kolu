@@ -15,7 +15,11 @@
 
 import Resizable from "@corvu/resizable";
 import { FileTree } from "@kolu/solid-pierre";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import {
+  type TerminalId,
+  type TerminalMetadata,
+  viewLabel,
+} from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type Component,
@@ -470,7 +474,7 @@ const CodeTab: Component<{
     return [
       {
         view: "browse",
-        label: "All files",
+        label: viewLabel("browse"),
         hint: "Browse the whole repo",
         testId: "diff-mode-browse",
         icon: FileBrowseIcon,
@@ -478,7 +482,7 @@ const CodeTab: Component<{
       {
         view: "local",
         group: "Git",
-        label: "Local",
+        label: viewLabel("local"),
         hint: "Working tree vs HEAD",
         testId: "diff-mode-local",
         icon: GitBranchIcon,
@@ -486,7 +490,7 @@ const CodeTab: Component<{
       {
         view: "branch",
         group: "Git",
-        label: "Branch",
+        label: viewLabel("branch"),
         hint: ref ? `vs ${ref}` : "Working tree vs branch base",
         testId: "diff-mode-branch",
         icon: GitBranchIcon,

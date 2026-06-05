@@ -14,7 +14,7 @@ import type {
   ContextMenuItem,
   ContextMenuOpenContext,
 } from "@kolu/solid-pierre";
-import type { CodeTabView } from "kolu-common/surface";
+import { type CodeTabView, viewLabel } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "./clipboard";
 
@@ -29,11 +29,20 @@ export type TreeContextMenuNav = {
   navigate: (target: CodeTabView, path: string | null) => void;
 };
 
+/** Menu text for jumping to `target`: "Open in All files" for the browse
+ *  view, "Open <Local|Branch> diff" for a git-diff view. */
+function navEntryLabel(target: CodeTabView): string {
+  return target === "browse"
+    ? `Open in ${viewLabel(target)}`
+    : `Open ${viewLabel(target)} diff`;
+}
+
 /** View-switch entries offered for the current `view`. Each view offers the
  *  two it isn't: Browse (All files) jumps into either git-diff view; either
  *  git-diff view can return to All files or flip to its sibling diff. The
- *  entries name the *destination* the way the mode picker does (All files /
- *  Local / Branch).
+ *  entry text is composed from `viewLabel`, the single source the mode
+ *  picker also renders, so the destination is named identically in both
+ *  surfaces.
  *
  *  Browse lists the *whole repo*, so a clicked file may be unmodified, an
  *  untracked add, or a tracked edit. Local (working tree vs HEAD) is the
@@ -45,22 +54,17 @@ export type TreeContextMenuNav = {
 function navEntriesFor(
   view: CodeTabView,
 ): readonly { label: string; target: CodeTabView }[] {
+  const entry = (target: CodeTabView) => ({
+    label: navEntryLabel(target),
+    target,
+  });
   switch (view) {
     case "browse":
-      return [
-        { label: "Open Local diff", target: "local" },
-        { label: "Open Branch diff", target: "branch" },
-      ];
+      return [entry("local"), entry("branch")];
     case "local":
-      return [
-        { label: "Open in All files", target: "browse" },
-        { label: "Open Branch diff", target: "branch" },
-      ];
+      return [entry("browse"), entry("branch")];
     case "branch":
-      return [
-        { label: "Open in All files", target: "browse" },
-        { label: "Open Local diff", target: "local" },
-      ];
+      return [entry("browse"), entry("local")];
   }
 }
 
