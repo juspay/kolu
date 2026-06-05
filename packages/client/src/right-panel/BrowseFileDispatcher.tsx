@@ -49,15 +49,13 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
+import { resolveLinkHref } from "@kolu/solid-browser";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
-import {
-  resolveMarkdownImageSrc,
-  resolveMarkdownLinkPath,
-} from "./markdownImageSrc";
+import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 import { openInCodeTab } from "./openInCodeTab";
 
 // The "File truncated" banner is rendered as a sibling ABOVE the comment
@@ -268,7 +266,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
                 // directory (GitHub-style), then opens through the same front
                 // door terminal `path:line` links use — so a miss surfaces a
                 // toast and any file type opens, not a bogus new tab (#1161).
-                const path = resolveMarkdownLinkPath(props.filePath, href);
+                const path = resolveLinkHref(props.filePath, href);
                 // The anchor is tagged `data-md-rel` (so the click was already
                 // preventDefault'd) yet didn't resolve to a repo path — a
                 // traversal that escapes the repo root, or a fragment/query-only

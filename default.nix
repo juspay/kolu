@@ -30,6 +30,7 @@ let
       ./packages/solid-pierre
       ./packages/solid-markdown
       ./packages/solid-fileview
+      ./packages/solid-browser
       ./packages/common
       ./packages/integrations
       ./packages/nonempty
