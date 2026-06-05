@@ -73,9 +73,9 @@ browser, and today it is complected across five files:
 | --- | --- |
 | `right-panel/openInCodeTab.ts` <Cite file="packages/client/src/right-panel/openInCodeTab.ts" lines="78-85" /> | The **address bar** — the single "navigate to this location" front door. |
 | `right-panel/CodeTab.tsx` <Cite file="packages/client/src/right-panel/CodeTab.tsx" lines="408-430" /> | `handleSelect` — the **navigation controller** (apply a location to the view). |
-| `right-panel/markdownImageSrc.ts` <Cite file="packages/client/src/right-panel/markdownImageSrc.ts" lines="63-69" /> | **Relative-link resolution** (GitHub rules) — agnostic URI math. |
-| `right-panel/iframePreviewNav.ts` <Cite file="packages/client/src/right-panel/iframePreviewNav.ts" lines="22" /> | **In-frame link interception** — map an iframe `pathname` back to a location. |
-| `right-panel/BrowseIframeRenderer.tsx` | **In-iframe link observation** — a navigation edge *out* of rendered HTML (the iframe *drawing* is already `@kolu/solid-fileview`'s). |
+| `right-panel/markdownImageSrc.ts` → now `solid-browser/src/linkNav.ts` <Cite file="packages/solid-browser/src/linkNav.ts" lines="22-36" /> | **Relative-link resolution** (GitHub rules) — agnostic URI math. |
+| `right-panel/iframePreviewNav.ts` → now `solid-browser/src/linkNav.ts` <Cite file="packages/solid-browser/src/linkNav.ts" lines="68-91" /> | **In-frame link interception** — map an iframe `pathname` back to a location. |
+| `right-panel/BrowseIframeRenderer.tsx` <Cite file="packages/client/src/right-panel/BrowseIframeRenderer.tsx" lines="56-64" /> | **In-iframe link observation** — a navigation edge *out* of rendered HTML (the iframe *drawing* is already `@kolu/solid-fileview`'s). |
 
 None of these is *about git*, and none is *about how a file draws* (that's
 `@kolu/solid-fileview`). They are about **locations, links, and history** — the
@@ -294,7 +294,7 @@ have substance. The lens-defensible decomposition, not the checklist one.
 
 | Phase | Ships | Risk |
 | --- | --- | --- |
-| **1 · Extract the primitives** <Pill variant="ok">shipped</Pill> <PrLink pr={1191} /> | `@kolu/solid-browser` = `location` (`BrowserLocation`) + `linkNav` (`resolveRelativePath`/`resolveLinkHref` + `pathFromPreviewPathname`, codec injected), 29 unit tests. kolu re-consumes: `markdownImageSrc` delegates resolution, `iframePreviewNav` binds the codec, `BrowseFileDispatcher` imports `resolveLinkHref`. **Behavior-preserving** — the two nav paths stay distinct. | Low — pure-move + delegation, unit- + e2e-covered. As-built: smaller/safer than first scoped. |
+| **1 · Extract the primitives** <Pill variant="ok">shipped</Pill> <PrLink pr={1191} /> | `@kolu/solid-browser` = `location` (`BrowserLocation`) + `linkNav` (`resolveRelativePath`/`resolveLinkHref` + `pathFromPreviewPathname`, codec injected), 29 unit tests. kolu re-consumes: `markdownImageSrc` delegates resolution, `BrowseIframeRenderer` binds the codec, `BrowseFileDispatcher` imports `resolveLinkHref`. **Behavior-preserving** — the two nav paths stay distinct. | Low — pure-move + delegation, unit- + e2e-covered. As-built: smaller/safer than first scoped. |
 | **2 · The browser proper + back/forward** <Pill variant="todo">next</Pill> | `createBrowser` (location + **history**: `navigate`/`back`/`forward`) and a `<Browser>` that composes `<FileView>`; `CodeTab` mounts it injecting `gitResolver`; the two nav paths **unify** behind one `navigate` (the intended behavior change). Plus the `assign`-vs-`record` seam, keybinds, back/forward buttons, tree-clicks-as-nav, scroll-capture-on-leave. | Medium — live-surface refactor + popstate/scroll semantics. |
 | **3 · Prove ③** | A second `resolve` consumer (artifact viewer or drishti host-inspector) plugs in — flips this note from "extraction" to "electricity." | — |
 

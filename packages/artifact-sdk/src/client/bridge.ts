@@ -111,8 +111,9 @@ export function observeIframeNavigation(
     // Match the payload shape, not just the `type`: previewed HTML runs
     // scripts under the same opaque origin and can post a `ready` message
     // with a missing or non-string `pathname`. `P.string` keeps that off
-    // `onNavigate` (and out of `repoPathFromPreviewPathname`, which calls
-    // string methods on it) instead of throwing from this handler.
+    // `onNavigate` (and out of the host's pathname inversion —
+    // `@kolu/solid-browser`'s `pathFromPreviewPathname` — which calls string
+    // methods on it) instead of throwing from this handler.
     match(msg)
       .with({ type: "kolu-artifact-sdk:ready", pathname: P.string }, (m) => {
         onNavigate(m.pathname);

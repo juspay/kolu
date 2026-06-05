@@ -84,10 +84,11 @@ export function isMarkdown(filePath: string): boolean {
  *  URL (`/api/terminals/{id}/file/{encoded/path}`). Same kolu-common rationale
  *  as the classifiers above: both sides of the wire must agree. The SERVER
  *  builds the URL (`buildIframePreviewUrl` in `iframePreviewRoute.ts`) and the
- *  CLIENT inverts it (`repoPathFromPreviewPathname` in
- *  `right-panel/iframePreviewNav.ts`, to follow in-iframe link navigation) — a
- *  single source keeps the encode/decode from drifting, so links into
- *  subdirectories or paths with spaces resolve to the right file.
+ *  CLIENT inverts it (`@kolu/solid-browser`'s `pathFromPreviewPathname`, with
+ *  this codec bound in `right-panel/BrowseIframeRenderer.tsx`, to follow
+ *  in-iframe link navigation) — a single source keeps the encode/decode from
+ *  drifting, so links into subdirectories or paths with spaces resolve to the
+ *  right file.
  *
  *  Slashes stay literal (segment boundaries); each segment is percent-encoded
  *  so a name with spaces or reserved characters survives the URL round-trip. */
