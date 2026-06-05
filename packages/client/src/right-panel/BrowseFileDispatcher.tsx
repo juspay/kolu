@@ -269,11 +269,23 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
                 // door terminal `path:line` links use — so a miss surfaces a
                 // toast and any file type opens, not a bogus new tab (#1161).
                 const path = resolveMarkdownLinkPath(props.filePath, href);
-                if (path === null) return;
+                // The anchor is tagged `data-md-rel` (so the click was already
+                // preventDefault'd) yet didn't resolve to a repo path — a
+                // traversal that escapes the repo root, or a fragment/query-only
+                // href. Surface it rather than no-op silently, so a dead link
+                // isn't indistinguishable from a working one.
+                if (path === null) {
+                  toast.error(`Can't open link: ${href}`);
+                  return;
+                }
                 openInCodeTab({
                   ref: { path, startLine: null, endLine: null },
                   repoRoot: props.repoPath,
                   targetMode: "browse",
+                  // GitHub-exact: open this path or fail. No fuzzy basename
+                  // fallback — `docs/guide.md` must not silently open a
+                  // same-basename `src/guide.md` (#1161).
+                  allowBasenameFallback: false,
                 });
               }}
             />,

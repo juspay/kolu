@@ -432,6 +432,31 @@ Then(
   },
 );
 
+// Negative of the above: assert a file row is NOT the selected one. Used by
+// the GitHub-exact relative-link regression (#1161) — a link to a missing
+// `docs/guide.md` must not silently open a same-basename `src/guide.md` via
+// the terminal resolver's fuzzy basename fallback. Settles a beat first so a
+// late-arriving (wrong) selection still trips the assertion rather than racing
+// past it.
+Then(
+  "the file {string} should not be selected in the file browser",
+  async function (this: KoluWorld, path: string) {
+    await this.waitForFrame();
+    await new Promise((r) => setTimeout(r, 750));
+    const count = await this.page
+      .locator(
+        `${TREE} [data-item-path="${path}"][data-item-type="file"][aria-selected="true"]:not([data-file-tree-sticky-row])`,
+      )
+      .count();
+    if (count !== 0) {
+      throw new Error(
+        `Expected "${path}" not to be selected, but it was — the relative-link ` +
+          `resolver fell back to a same-basename file (#1161 regression)`,
+      );
+    }
+  },
+);
+
 Then(
   "the Code tab content should show the select hint {string}",
   async function (this: KoluWorld, expected: string) {

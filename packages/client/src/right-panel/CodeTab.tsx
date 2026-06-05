@@ -292,6 +292,7 @@ const CodeTab: Component<{
           repoRoot: repo,
           cwd: req.cwd,
           repoPaths: paths,
+          allowBasenameFallback: req.allowBasenameFallback,
         });
         if (rel === null) {
           toast.error(`File reference not found: ${req.ref.path}`);

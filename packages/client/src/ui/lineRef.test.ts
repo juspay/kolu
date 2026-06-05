@@ -316,4 +316,32 @@ describe("resolveLineRefPath", () => {
       }),
     ).toBe("src/app.ts");
   });
+
+  it("returns null on an exact miss when basename fallback is disabled", () => {
+    // GitHub-exact semantics (Markdown relative links, #1161): the linked
+    // path is absent, but a unique same-basename file exists elsewhere. The
+    // fuzzy fallback would silently open the wrong file — disabling it must
+    // fail closed instead.
+    expect(
+      resolveLineRefPath({
+        rawPath: "docs/Main.hs",
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths,
+        allowBasenameFallback: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("still resolves an exact path when basename fallback is disabled", () => {
+    expect(
+      resolveLineRefPath({
+        rawPath: "packages/a/src/Main.hs",
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths,
+        allowBasenameFallback: false,
+      }),
+    ).toBe("packages/a/src/Main.hs");
+  });
 });

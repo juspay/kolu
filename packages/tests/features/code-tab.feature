@@ -633,6 +633,26 @@ Feature: Code tab (review + browse)
     Then the file "docs/guide.md" should be selected in the file browser
     And the markdown preview should contain "Relative target reached"
 
+  # Regression for the #1161 follow-up: a relative link must open its EXACT
+  # path or fail — never the terminal resolver's fuzzy unique-basename
+  # fallback (#898), which is right for compiler output but wrong for a
+  # GitHub-style link. Here the link points at a missing `docs/guide.md`
+  # while a same-basename `src/guide.md` exists uniquely; the click must
+  # surface a toast and leave `src/guide.md` unselected, not silently open it.
+  Scenario: Markdown relative link to a missing path does not open a same-basename file
+    When I run "rm -rf /tmp/kolu-md-relexact && git init /tmp/kolu-md-relexact && cd /tmp/kolu-md-relexact"
+    And I run "mkdir -p src && printf '# Other Guide\n\nWrong file.\n' > src/guide.md"
+    And I run "printf '# Home\n\n[the guide](docs/guide.md)\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "a[data-md-rel]" element
+    When I click the repo-relative markdown link "docs/guide.md"
+    Then a toast should appear with text "File reference not found: docs/guide.md"
+    And the file "src/guide.md" should not be selected in the file browser
+
   # Regression guard for a feature audit's findings: Tailwind v4 preflight
   # blanking list markers, footnotes + GitHub alerts being unsupported, and
   # repo-relative images degrading to a chip instead of loading from the
