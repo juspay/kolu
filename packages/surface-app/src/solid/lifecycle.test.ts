@@ -23,8 +23,9 @@ function fakeWs() {
   };
   return {
     ws,
-    fire: (type: "open" | "close") =>
-      listeners[type].slice().forEach((l) => l()),
+    fire: (type: "open" | "close") => {
+      for (const l of listeners[type].slice()) l();
+    },
     count: (type: "open" | "close") => listeners[type].length,
   };
 }
