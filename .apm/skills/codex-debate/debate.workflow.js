@@ -383,12 +383,14 @@ log(`Diffing against ${base.slice(0, 12)} (merge-base of ${rawBase} and HEAD), s
 // sections would otherwise survive into this run — the author cats `section-*.md`
 // as its memory and step 3 cats the same glob into the posted comment, so stale
 // sections would pollute BOTH the author's context and the published trail. A
-// thin mechanical agent (the workflow can't run shell itself); deleting the whole
-// dir is safe because nothing in THIS run has written to it yet. This script has
-// no true resume (agent() is one-shot, the whole workflow re-runs from scratch),
-// so a fresh start owns a fresh ledger.
+// thin mechanical agent (the workflow can't run shell itself). The reset is
+// section/ledger-scoped: it deletes only the stale `section-*.md` files, not the
+// whole scratch dir, so other artifacts in there (verdict-N.json, rebuttal.json,
+// commit-msg-N.txt) keep their own lifecycle and a future pre-loop writer won't
+// be silently wiped. This script has no true resume (agent() is one-shot, the
+// whole workflow re-runs from scratch), so a fresh start owns a fresh ledger.
 await agent(
-  `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`rm -rf -- ${shq(workDir)} && mkdir -p -- ${shq(workDir)}\`. Do not edit any other file. Do not run git.`,
+  `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`mkdir -p -- ${shq(workDir)} && rm -f -- ${shq(workDir)}/section-*.md\`. Do not edit any other file. Do not run git.`,
   { label: 'ledger:reset', phase: 'Debate', model: mechModel },
 )
 
