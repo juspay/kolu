@@ -72,6 +72,9 @@ export function createBrowser<L>(
   options: CreateBrowserOptions<L> = {},
 ): Browser<L> {
   const { initial, isSameEntry, maxEntries = DEFAULT_MAX_ENTRIES } = options;
+  // Hoist the finiteness check — maxEntries is a closed-over constant so
+  // computing it inside navigate() on every push is needless work.
+  const bounded = Number.isFinite(maxEntries);
   const seeded = initial !== undefined;
   const [entries, setEntries] = createSignal<L[]>(seeded ? [initial] : []);
   const [cursor, setCursor] = createSignal(seeded ? 0 : -1);
@@ -97,9 +100,7 @@ export function createBrowser<L>(
     // would exceed the cap, evict the oldest entries from the front and shift
     // the cursor down by the same count so it still points at `loc`.
     const next = [...entries().slice(0, c + 1), loc];
-    const overflow = Number.isFinite(maxEntries)
-      ? Math.max(0, next.length - maxEntries)
-      : 0;
+    const overflow = bounded ? Math.max(0, next.length - maxEntries) : 0;
     setEntries(overflow > 0 ? next.slice(overflow) : next);
     setCursor((x) => x + 1 - overflow);
   };

@@ -132,19 +132,23 @@ function newBrowserFor(initial?: BrowserLocation): Browser<BrowserLocation> {
   });
 }
 
-/** Resolve (creating if absent) a terminal's history controller. A fresh
- *  terminal starts with an empty stack — its first `navigate` seeds the first
- *  entry; a restored terminal is seeded in `seedPanel` from its last-viewed
- *  location. The instance is stable, so reading `.canBack()/.canForward()`
- *  through it is reactive on the controller's own signals — toolbar enablement
- *  tracks navigation without extra wiring. */
-function browserFor(id: TerminalId): Browser<BrowserLocation> {
+/** Resolve (creating if absent) a terminal's history record. A fresh terminal
+ *  starts with an empty stack — its first `navigate` seeds the first entry; a
+ *  restored terminal is seeded in `seedPanel` from its last-viewed location.
+ *  The browser instance is stable, so reading `.canBack()/.canForward()` through
+ *  it is reactive on the controller's own signals — toolbar enablement tracks
+ *  navigation without extra wiring. */
+function historyFor(id: TerminalId): TerminalHistory {
   let h = history.get(id);
   if (!h) {
     h = { browser: newBrowserFor(), lastRepo: undefined };
     history.set(id, h);
   }
-  return h.browser;
+  return h;
+}
+
+function browserFor(id: TerminalId): Browser<BrowserLocation> {
+  return historyFor(id).browser;
 }
 
 function ensureState(id: TerminalId): void {
@@ -369,11 +373,10 @@ export function useRightPanel() {
      *  its repo without resetting, so a session-restored (seeded) stack
      *  survives the initial mount. */
     syncRepo: (id: TerminalId, repo: string | null) => {
-      // `browserFor` resolves (creating if absent) the terminal's record, so a
+      // `historyFor` resolves (creating if absent) the terminal's record, so a
       // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker —
       // distinct from `null` ("recorded, terminal is in no repo").
-      browserFor(id);
-      const h = history.get(id)!;
+      const h = historyFor(id);
       const prevRepo = h.lastRepo;
       h.lastRepo = repo;
       // First sight of this terminal (fresh mount or session restore): adopt
