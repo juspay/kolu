@@ -44,6 +44,7 @@ let
       ./packages/transcript-html
       ./packages/artifact-sdk
       ./packages/html-escape
+      ./packages/url-shape
       ./packages/log
     ];
   };
