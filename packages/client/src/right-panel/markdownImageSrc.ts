@@ -41,6 +41,10 @@ export function resolveMarkdownRelativePath(
   return normalizeRepoPath(baseDir, trimmed.replace(/^\/+/, ""));
 }
 
+/** Resolve a repo-relative image `src` to a per-terminal file-route URL the
+ *  browser can fetch, so a README's `![](docs/logo.png)` renders the real image
+ *  instead of degrading to a fallback chip. Returns `undefined` when `src`
+ *  carries its own origin/scheme or escapes the repo root. */
 export function resolveMarkdownImageSrc(
   terminalId: string,
   markdownFilePath: string,
