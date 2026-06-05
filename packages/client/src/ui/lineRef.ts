@@ -160,48 +160,56 @@ export function resolveLineRefPath(args: {
   // must open (git addresses files by their actual bytes, not the NFC form).
   // Distinct repo paths that collide under NFC are dropped from the map so an
   // ambiguous candidate resolves to null rather than the wrong file.
-  const byNorm = buildNormalizedIndex(args.repoPaths);
+  const { byNorm, byBasename } = buildNormalizedIndex(args.repoPaths);
   for (const candidate of candidates(args)) {
     const hit = byNorm.get(candidate.normalize("NFC"));
     if (hit !== undefined && hit !== AMBIGUOUS) return hit;
   }
   if (args.allowBasenameFallback === false) return null;
-  return resolveByBasename(args.rawPath, args.repoPaths);
+  return resolveByBasename(args.rawPath, byBasename);
 }
 
 /** Sentinel marking an NFC key that maps to two or more distinct repo paths
  *  — treated as unresolvable rather than guessing. */
 const AMBIGUOUS = Symbol("ambiguous");
 
-function buildNormalizedIndex(
-  repoPaths: readonly string[],
-): Map<string, string | typeof AMBIGUOUS> {
+/** Both indexes are built in one pass so the NFC normalization of each repo
+ *  path (full path and basename) happens exactly once. `byNorm` keys the full
+ *  path, `byBasename` keys the basename; both drop NFC collisions to AMBIGUOUS
+ *  and keep the verbatim `repoPaths` entry as the value. */
+function buildNormalizedIndex(repoPaths: readonly string[]): {
+  byNorm: Map<string, string | typeof AMBIGUOUS>;
+  byBasename: Map<string, string | typeof AMBIGUOUS>;
+} {
   const byNorm = new Map<string, string | typeof AMBIGUOUS>();
-  for (const p of repoPaths) {
-    const key = p.normalize("NFC");
-    const existing = byNorm.get(key);
+  const byBasename = new Map<string, string | typeof AMBIGUOUS>();
+  const add = (
+    index: Map<string, string | typeof AMBIGUOUS>,
+    key: string,
+    p: string,
+  ) => {
+    const existing = index.get(key);
     if (existing === undefined) {
-      byNorm.set(key, p);
+      index.set(key, p);
     } else if (existing !== p) {
-      byNorm.set(key, AMBIGUOUS);
+      index.set(key, AMBIGUOUS);
     }
+  };
+  for (const p of repoPaths) {
+    add(byNorm, p.normalize("NFC"), p);
+    add(byBasename, basename(p).normalize("NFC"), p);
   }
-  return byNorm;
+  return { byNorm, byBasename };
 }
 
 function resolveByBasename(
   rawPath: string,
-  repoPaths: readonly string[],
+  byBasename: Map<string, string | typeof AMBIGUOUS>,
 ): string | null {
   const target = basename(rawPath).normalize("NFC");
   if (target === "") return null;
-  let unique: string | null = null;
-  for (const p of repoPaths) {
-    if (basename(p).normalize("NFC") !== target) continue;
-    if (unique !== null && unique !== p) return null;
-    unique = p;
-  }
-  return unique;
+  const hit = byBasename.get(target);
+  return hit === undefined || hit === AMBIGUOUS ? null : hit;
 }
 
 function basename(path: string): string {
