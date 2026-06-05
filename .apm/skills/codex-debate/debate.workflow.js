@@ -27,8 +27,8 @@ const workDir = `${repoPath}/.codex-debate`
 // POSIX single-quote a path for safe interpolation into a shell command. Wraps
 // in single quotes (so spaces, globs, and shell metacharacters are inert) and
 // escapes any embedded single quote via the '\'' idiom. Used for the one
-// DESTRUCTIVE command (the ledger `rm -rf` below); the benign `mkdir -p` prompts
-// elsewhere can tolerate an unquoted path, but a mistargeted `rm -rf` cannot.
+// DESTRUCTIVE command (the ledger `rm -f` below); the benign `mkdir -p` prompts
+// elsewhere can tolerate an unquoted path, but a mistargeted `rm -f` cannot.
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 // The debate is recorded as one small Markdown file PER ROUND (`section-NNN.md`,
 // written under the gitignored scratch dir) — the claude author reads them as its
@@ -407,7 +407,7 @@ log(`Diffing against ${base.slice(0, 12)} (merge-base of ${rawBase} and HEAD), s
 // is persistent (per-worktree, not per-run) and the section files use a flat,
 // stable `section-NNN.md` namespace, so a previous longer debate's high-numbered
 // sections would otherwise survive into this run — the author cats `section-*.md`
-// as its memory and step 3 cats the same glob into the posted comment, so stale
+// as its memory (and they compose into the `comment` renderLedger returns), so stale
 // sections would pollute BOTH the author's context and the published trail. A
 // thin mechanical agent (the workflow can't run shell itself). The reset is
 // section/ledger-scoped: it deletes only the stale `section-*.md` files, not the
@@ -491,7 +491,9 @@ log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged
 
 // Section the terminal round — it broke out of the loop before the in-loop
 // writeSection, so without this its section (a consensus approval, or an error
-// reached before the author got a turn) would be missing from the comment.
+// reached before the author got a turn) would be missing from the disk record
+// the orchestrator reads for the chat summary (cat section-*.md) and the
+// author would read as memory if the debate somehow continued.
 if (transcript.length > 0) await writeSection(transcript[transcript.length - 1])
 
 // Hand the orchestrator the ready-to-post comment, rendered deterministically
