@@ -4,7 +4,7 @@ description: A library for the class of @kolu/surface app that is really a deskt
 kind: reference
 maturity: evergreen
 status: implemented
-updated: 2026-06-04
+updated: 2026-06-05
 parents: electricity
 ---
 
@@ -141,9 +141,12 @@ The spike's failing — fairly called out in review — was making the _example_
 | Face | Library fragment | App composes… |
 | --- | --- | --- |
 | definition | `buildInfo` (cell schema) | into `defineSurface` |
-| server impl | `buildInfoServer()` | into `implementSurface` |
+| restart probe | `serverIdentity` (procedure, `surfaceApp.info`) | into `defineSurface` |
+| surface merge | `surfaceAppSurface` / `surfaceAppSurfaceWith` + `composeSurfaces` | **one** merge of cell + probe into `defineSurface` |
+| server impl | `surfaceAppServer()` + `implementSurfaceApp()` | **one** call (owns `buildInfo.connect`) |
 | client model | `useSurfaceApp()` | under `<SurfaceAppProvider>` |
 | client build + commit | `surfaceApp()` Vite plugin · `buildSurfaceClient()` (Bun) · `resolveCommit()` | into the client build & server boot |
+| nix commit stamp | `nix/commit-stamp.nix` (`envVar` · `revFromSelf` · `exportLine`) | into the flake / derivation / server wrapper |
 
 And the commit is **resolved once** — `SURFACE_APP_COMMIT` env, else `git rev-parse --short HEAD`, else `"dev"` (which `clientIsStale` already treats as never-stale) — then fed to both the client define and the server cell. No app writes a sha.
 
@@ -165,17 +168,23 @@ declare const __SURFACE_APP_COMMIT__: string;
 <Callout kind="good" title="✓ composed — the app stitches fragments and owns none of it">
 
 ```ts
-// server — compose the impl fragment (commit auto-resolved), then serve shell + manifest + /sw.js
-implementSurface(surface, { channel, cells: { ...buildInfoServer() } });
+// surface — ONE merge: the buildInfo cell + the surfaceApp.info probe + your own spec
+const surface = defineSurface(composeSurfaces(surfaceAppSurface, { cells: {/* yours */}, procedures: {/* yours */} }));
+// server — ONE call: merges the surface-app impls, runs implementSurface, flows buildInfo.connect; then serve shell + manifest + /sw.js
+const { router, ctx } = implementSurfaceApp(surface, surfaceAppServer(), { channel, cells: {/* yours */}, procedures: {/* yours */} });
 installSurfaceApp(app, { clientDist, manifest });
 // vite.config — one plugin resolves the commit (git/env), injects the define, ships its type
 plugins: [solid(), surfaceApp()]
-// env.d.ts — deleted. no define, no sha literal, no hand-rolled routes.
+// env.d.ts — deleted. no define, no sha literal, no hand-rolled routes, no hand-spread fragments.
 ```
 
 </Callout>
 
 Every removed line was the app doing the library's job; every surviving line composes a fragment. That's the whole principle.
+
+<Callout kind="accent" title="The composition seams are a stopgap for flat cells">
+`composeSurfaces`, `surfaceAppServer` + `implementSurfaceApp`, the dup-key throw, and the app-visible `connect` all exist because `@kolu/surface` cells are a flat `Record<name, spec>` (only procedures namespace). The foundational fix is **nested sub-surfaces** ([kolu#1197](https://github.com/juspay/kolu/issues/1197)): a surface `mounts` a whole sub-surface under a key (`mounts: { surfaceApp: surfaceAppSurface }`), so the cell is truly `surfaceApp.buildInfo`, composition is a plain mount, and the runtime owns the mounted sub-surface's lifecycle (incl. firing its cells' `connect`). That dissolves all four seams — surface-app becomes *just a mounted sub-surface*. A `@kolu/surface` core change (the wire shape), deferred to its own PR.
+</Callout>
 
 ## The API
 
@@ -307,6 +316,7 @@ For this class it's **definitional**, not an opinion — but the rationale ships
 - **Batteries-included behaviour, headless UI.** Owns delivery, identity, commit stamping, SW retirement, install affordance, and the relationship-to-server model; apps render the chrome. The README ships the wiring.
 - **Interfaces where it varies** — build identity (default `{ commit }`; kolu extends).
 - **Settled questions.** Install needs no service worker; cert/TLS lives outside surface-app; the desktop layer is secure-context-gated with graceful degradation. The connection-lifecycle model ships in-library as `createServerLifecycle`; the client build ships as `surfaceApp()` (Vite) / `buildSurfaceClient()` (Bun); and the surface fragment + `composeSurfaces` merge ship in `@kolu/surface-app` (probe namespaced under `surfaceApp`). One follow-up remains deferred: whether `@kolu/dev-tls` is extracted as its own optional package.
+- **A living library, not a finished one.** The boundary is settled, but the _composition surface_ keeps tightening as more apps adopt it — each "compose, don't hand-wire" seam (`composeSurfaces`, `implementSurfaceApp`, `buildSurfaceClient`, `nix/commit-stamp.nix`) was added because drishti's adoption surfaced a place an app was still hand-rolling the library's job. Expect that pattern to continue: a third consumer will find the next seam to lift upstream.
 
 ### Name
 
@@ -318,6 +328,7 @@ For this class it's **definitional**, not an opinion — but the rationale ships
 2. **Adopt in drishti** (separate PRs, drishti repo) — first a small PR for content-hashed `Bun.build` output; then port drishti onto the library (default identity, same UX). <Pill variant="done">done</Pill> — [srid/drishti#47](https://github.com/srid/drishti/pull/47).
 3. **Extract `@kolu/dev-tls`** — pull kolu's self-signed generator (`server/src/tls.ts`) into a tiny optional package for the localhost/dev escape hatch; document the trusted recipes (`tailscale serve` / mkcert / Caddy). surface-app itself only feature-detects the secure context and hints. <Pill variant="run">deferred</Pill>
 4. **Blog post** — sibling to [surface-framework](https://kolu.dev/blog/surface-framework/), seeded by [cache-bug.md](../../cache-bug.md). <Pill variant="run">deferred</Pill>
+5. **Nested sub-surfaces in `@kolu/surface`** — `mounts: { surfaceApp: … }` makes surface-app *just a mounted sub-surface* and dissolves `composeSurfaces` / `implementSurfaceApp` / the dup-key throw / the app-visible `connect`. A wire-shape change to surface core, its own PR. <Pill variant="run">deferred</Pill> — [kolu#1197](https://github.com/juspay/kolu/issues/1197).
 
 <Callout kind="good" title="The one-line answer">
 Stop re-deriving the app shell per self-hosted app. Do for the installed, always-connected client what surface did for the wire — own delivery, server identity, the connection/update model, and desktop install as importable code; extend by interface where apps differ; and let drishti `import` instead of re-learn.
