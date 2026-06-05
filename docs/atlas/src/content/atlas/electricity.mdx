@@ -3,7 +3,7 @@ title: Electricity — identified, and their progress
 description: A tracker for kolu's electricities — infrastructure pulled out from beneath the app into its own thing — and where each stands.
 kind: analysis
 maturity: evergreen
-updated: 2026-06-04
+updated: 2026-06-05
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -15,6 +15,14 @@ import Cite from "../../components/Cite.astro";
 Löwy's receptacle — hide the volatility behind a socket you plug into. Three tests at once: ① **domain-agnostic** — no terminal/canvas/git/xterm leaks into the interface; ② **hides a hard volatility** — transport, reconnect, GPU-context loss, persistence — not a 3-line `===`; ③ **graduates** — ships as `@kolu/*` and a *different* app plugs in. The proof of ③ is real, not aspirational. [`@kolu/surface`](https://kolu.dev/blog/surface-framework/) is **kolu's own** client↔server transport first — and it has since picked up a **second consumer** in [srid/drishti](https://github.com/srid/drishti) (a fleet process-monitor; browser ↔ Bun ↔ ssh-agent) that vendors it from this repo and declares its own per-host schema with none of kolu's domain. The second consumer isn't the *point* of the extraction — it's the *proof* it was real electricity: surface never noticed the domain changed.
 </Callout>
 
+<Callout kind="danger" title="How a session mis-identifies electricity — three traps, learned the hard way">
+The live example: asked to add back/forward to the Code-tab preview, a session proposed extracting a **history stack**. Wrong three ways, each caught only by re-asking the test above — and the [solid-browser](solid-browser) plan is the corrected end-to-end.
+
+- **Naming an organ, not the concept.** A history stack is a *transformer* — a working part *inside* a larger thing. The electricity was the **browser** (location + history + link-nav + render-host); history is one chamber of it. Test: *is the name self-describing standalone?* "history" → history **of what?**; "browser" → obvious. If you must append "…of X" to explain the name, you've named a part, not the receptacle.
+- **A module in `client/src/` is not electricity.** Location *is* structure (Hickey): a generic-looking helper living inside the app is **part of the app**, however agnostic the code reads. Electricity is its **own package**, the dependency arrow pointing *out* — `client → @kolu/x`, never back. (`createSharedRoot` sits in `client/src` marked "publish?" — a leaf *awaiting* graduation, **not** a precedent for calling in-app modules electricity.)
+- **Agnostic ≠ electricity — apply test ② honestly.** A clean, reusable, agnostic primitive that hides only a *bounded algorithm* (a stack, a debounce, an `===`) is a **leaf** (`nonempty`/`html-escape`-tier), not a receptacle. "I found a tidy generic module" is the feeling that *precedes* the mistake. Ask what **hard** volatility it hides — transport, GPU-context loss, sandboxing, reconnect — before reaching for `@kolu/`.
+</Callout>
+
 > "Decompose based on volatility." Functional decomposition splits a system by what it *does*; volatility-based decomposition isolates each area likely to *change* behind a stable interface — the way a body keeps blood-pressure, pulse, and salinity volatility "encapsulated behind the service called the heart." An *electricity*, here, is one such volatility pulled out into its own package. — Juval Löwy, [Volatility-Based Decomposition](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) (excerpt from *Righting Software*).
 
 ## The electricities
@@ -24,7 +32,7 @@ Löwy's receptacle — hide the volatility behind a socket you plug into. Three 
 | **@kolu/surface** | Live client↔server state — `Cell`/`Collection`/`Stream`/`Event` over oRPC, reconnect, fine-grained reconcile. | <PrLink pr={805} /> | <Pill variant="done">done</Pill> · 2nd consumer: [drishti](https://github.com/srid/drishti) |
 | **[@kolu/surface-app](./surface-app.html)** | The app shell for surface apps — fresh delivery + server/build identity + the connection/update lifecycle model + desktop-install. | <PrLink pr={1154} /> | <Pill variant="done">done</Pill> · 2nd consumer: [drishti](https://github.com/srid/drishti) |
 | **@kolu/surface-nix-host** | `HostSession` — `nix copy` a closure to a host, realise, run `--stdio` over ssh. | <PrLink pr={984} /> | <Pill variant="done">done</Pill> · also in drishti |
-| **@kolu/artifact-sdk** | Anchoring — core speaks only `Range`/`Document`/`ShadowRoot`. | <PrLink pr={922} /> | <Pill variant="done">done</Pill> |
+| **@kolu/artifact-sdk** | Two volatilities under one roof — the agnostic **anchoring core** (W3C quote re-find; speaks only `Range`/`Document`/`ShadowRoot`) *and* the **sandboxed-iframe parent↔frame bridge** (opaque-origin postMessage, now carrying comments + in-frame navigation + back/forward input). See the re-eval note below. | <PrLink pr={922} /> | <Pill variant="done">done</Pill> <Pill variant="run">re-eval</Pill> |
 | **@kolu/transcript-core** + **transcript-html** | Transcript model + rendering. | <PrLink pr={744} /> | <Pill variant="done">done</Pill> |
 | **@kolu/solid-pierre** | SolidJS adapters for Pierre tree/diff. | <PrLink pr={823} /> | <Pill variant="done">done</Pill> |
 | **persistedPref** | Validated localStorage (validate-on-read; closed the zoom-`NaN` + maximize bugs). | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
@@ -32,6 +40,31 @@ Löwy's receptacle — hide the volatility behind a socket you plug into. Three 
 | **dom/** + injectable `isMac` | `walkShadowRoots` relocated to a neutral wall; keybind core no longer reads the UA singleton. | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
 | **createSharedRoot** | Lazy app-scoped reactive singleton (7 consumers). 100% agnostic SolidJS. | <PrLink pr={974} /> | <Pill variant="done">done</Pill> <Pill variant="run">publish?</Pill> |
 | **@kolu/solid-xterm** (createSolidXterm) | xterm.js lifecycle — 8-addon orchestration, WebGL single-owner + context-loss recovery, FitAddon resize, owner-correct async dispose across `await`. | <PrLink pr={1116} /> (plan) | <Pill variant="fix">to build</Pill> |
+| **@kolu/solid-browser** | The Code tab *is* a browser — location/address model, back-forward history, cross-content-type link interception, GitHub-relative resolution, sandboxed-iframe lifecycle. git is an injected resolver; the renderer packages plug in. [Plan](solid-browser). | <PrLink pr={1191} /> | <Pill variant="run">phase 1</Pill> primitives shipped · createBrowser+history (P2), ③ proof-pending |
+
+<Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
+"Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
+package. It holds **two** volatilities: (1) the **anchoring core** (`core/` — W3C
+quote extract/re-find/highlight; pure and agnostic, speaks only
+`Range`/`Document`/`ShadowRoot`), and (2) the **sandboxed-iframe parent↔frame
+bridge** (`client/bridge.ts` + `iframe/` — opaque-origin postMessage with
+`event.source` identity as the only trust boundary). The bridge is the *harder*
+volatility, and it has quietly accreted clients: comments (selection →
+`SelectMsg` → highlights), then **in-frame navigation** (`observeIframeNavigation`),
+then **back/forward input** (`observeIframeHistory`, <PrLink pr={1191} />). The
+lens-debate in <PrLink pr={1191} /> already reframed the package's *stated*
+identity to "the in-iframe sandbox bridge, with comments as one client" — but
+that was a docs fix, not a decomposition.
+
+**The open question (work it outside this PR):** is "talk to code inside an
+opaque-origin sandboxed frame" one sound receptacle — a transport-grade
+volatility with comments / navigation / input as interchangeable clients — or a
+topic-bundle that should split the agnostic **anchoring core** from the **bridge
+transport**? Note the smell that prompted this: the back/forward client landed in
+this package only by *physical necessity* (the one script inside the sandbox is
+this one), which is exactly the "easy to put it here" the three traps above warn
+against. Flagged, not decided.
+</Callout>
 
 Plus external electricity correctly leaned on instead of hand-rolled: **Corvu** (dialog/drawer/focus-trap/scroll-lock), **@solid-primitives/\*** (resize-observer, media). Origin: a 41-agent Hickey/Lowy audit (16 candidates) → its "ship now" tier landed in <PrLink pr={1089} />; a framework-scale re-test + adversarial skeptic surfaced the missed `solid-xterm`.
 

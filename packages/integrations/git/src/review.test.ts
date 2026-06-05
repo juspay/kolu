@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getDiff } from "./review.ts";
+import { getDiff, getStatus } from "./review.ts";
 
 describe("getDiff path authority", () => {
   let repo: string;
@@ -64,5 +64,59 @@ describe("getDiff path authority", () => {
     // The only requirement is that the symlink-resolving guard does NOT reject
     // this tracked diff based on the host filesystem.
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("getStatus branch mode — unicode paths", () => {
+  let repo: string;
+
+  beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-review-unicode-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("returns a unicode branch-diff path verbatim — no C-quoting, no spurious folder", async () => {
+    // The branch-mode file list comes from `git diff --name-status <base>`.
+    // Without `core.quotePath=false`, git emits `"People/Am\303\251lie.md"`
+    // (octal-escaped, quote-wrapped); the leading quote then became a spurious
+    // `"People` folder and the leaf rendered as `Am\303\251lie.md"`.
+    const leaf = "Amélie.md";
+    const rel = `People/${leaf}`;
+
+    const git = simpleGit(repo);
+    await git.init();
+    await git.addConfig("user.email", "test@example.com");
+    await git.addConfig("user.name", "Test");
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(repo, "README.md"), "base\n");
+    await git.add(".");
+    await git.commit("base");
+    // Synthesize the remote-tracking base `getStatus` diffs against, with no
+    // real remote: point `origin/main` (and origin/HEAD) at the base commit.
+    await git.raw(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    await git.raw([
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+      "refs/remotes/origin/main",
+    ]);
+
+    fs.mkdirSync(path.join(repo, "People"));
+    fs.writeFileSync(path.join(repo, "People", leaf), "bio\n");
+    await git.add(".");
+    await git.commit("add unicode file");
+
+    const result = await getStatus(repo, "branch");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const paths = result.value.files.map((f) => f.path);
+    expect(paths).toContain(rel);
+    expect(result.value.files).toContainEqual({ path: rel, status: "A" });
+    for (const p of paths) {
+      expect(p).not.toContain('"');
+      expect(p).not.toContain("\\3");
+    }
   });
 });

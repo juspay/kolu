@@ -1576,3 +1576,49 @@ When("I reload the page", async function (this: KoluWorld) {
   // on the right panel staying open across reloads via persisted state.
   await this.waitForFrame();
 });
+
+// ── Back / forward navigation (phase 2: the Code tab is a browser) ──
+// Selecting files records history in @kolu/solid-browser's createBrowser; the
+// toolbar ◀ ▶ buttons (the primary affordance — Alt+←/→ is the scoped-keybind
+// alternate) retrace it. These drive the buttons by their testids.
+
+When("I go back in the Code tab", async function (this: KoluWorld) {
+  const btn = this.page.locator('[data-testid="code-tab-back-button"]');
+  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await btn.click();
+  await this.waitForFrame();
+});
+
+When("I go forward in the Code tab", async function (this: KoluWorld) {
+  const btn = this.page.locator('[data-testid="code-tab-forward-button"]');
+  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await btn.click();
+  await this.waitForFrame();
+});
+
+Then(
+  "the Code tab {string} button should be disabled",
+  async function (this: KoluWorld, dir: string) {
+    const id =
+      dir === "back" ? "code-tab-back-button" : "code-tab-forward-button";
+    // A disabled <button> keeps the `disabled` attribute, so `:disabled`
+    // attaches exactly when createBrowser reports an end of the stack
+    // (canBack/canForward false) and the button is greyed out.
+    const btn = this.page.locator(`[data-testid="${id}"]:disabled`);
+    await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Code tab {string} button should be enabled",
+  async function (this: KoluWorld, dir: string) {
+    const id =
+      dir === "back" ? "code-tab-back-button" : "code-tab-forward-button";
+    // The inverse of the disabled check — `:enabled` attaches exactly when
+    // createBrowser reports a live entry to traverse to (canBack/canForward
+    // true), proving the reactive enablement tracks the stack in both
+    // directions.
+    const btn = this.page.locator(`[data-testid="${id}"]:enabled`);
+    await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);

@@ -157,10 +157,18 @@ function installSharedWorkingTreeWatcher(
           // hit several listeners (different filePaths) or none (all-ignored
           // paths slipped through somehow).
           for (const event of events) {
+            // Normalize to NFC before comparing: macOS FSEvents reports
+            // filenames in the filesystem's native form (often NFD —
+            // `e` + combining acute), while `matchAbs` is derived from a
+            // git/client path that's usually NFC (`é`). A raw `===` would
+            // silently miss every event for a unicode-named file, breaking
+            // the single-file watcher's live-reload. `matchAbs` is already
+            // NFC-normalized at creation, so only the event path needs it here.
+            const eventPath = event.path.normalize("NFC");
             for (const listener of listeners) {
               if (
                 listener.matchAbs === null ||
-                listener.matchAbs === event.path
+                listener.matchAbs === eventPath
               ) {
                 pending.add(listener);
               }
@@ -258,7 +266,9 @@ export function watchWorkingTree(
   const matchAbs =
     options?.filePath === undefined
       ? null
-      : path.resolve(repoRoot, options.filePath);
+      : // NFC so it compares equal to NFC-normalized FSEvents paths (see the
+        // event callback) regardless of the input path's composition form.
+        path.resolve(repoRoot, options.filePath).normalize("NFC");
   let entry = sharedWorkingTreeWatchers.get(repoRoot);
   if (!entry) {
     entry = installSharedWorkingTreeWatcher(

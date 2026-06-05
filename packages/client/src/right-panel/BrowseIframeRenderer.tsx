@@ -8,8 +8,13 @@
  *  and PDF are served verbatim, so the bridge simply finds no SDK and stays
  *  inert there. */
 
-import { observeIframeNavigation } from "@kolu/artifact-sdk/client";
+import {
+  observeIframeHistory,
+  observeIframeNavigation,
+} from "@kolu/artifact-sdk/client";
+import { pathFromPreviewPathname } from "@kolu/solid-browser";
 import { IframeRenderer } from "@kolu/solid-fileview/renderers/iframe";
+import { previewPathCodec } from "kolu-common/preview";
 import {
   type Component,
   createEffect,
@@ -17,7 +22,6 @@ import {
   onCleanup,
 } from "solid-js";
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
-import { repoPathFromPreviewPathname } from "./iframePreviewNav";
 
 export type BrowseIframeRendererProps = {
   terminalId: string;
@@ -27,6 +31,11 @@ export type BrowseIframeRendererProps = {
    *  reports the loaded document's pathname, which we map back to a repo path
    *  and hand to the host so the file tree selection follows the navigation. */
   onNavigate?: (path: string) => void;
+  /** Follow a mouse back/forward (X1/X2) button pressed inside the preview:
+   *  the opaque-origin sandbox traps the event in the frame, so the in-iframe
+   *  SDK forwards the intent and the host drives the Code-tab browser's
+   *  history — the buttons then work over the preview as well as the tree. */
+  onHistory?: (direction: "back" | "forward") => void;
 };
 
 const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
@@ -47,9 +56,26 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
     // so a changed `onNavigate`/`url`/`path` is reflected without re-binding
     // the listener, and the effect depends only on the iframe element.
     const dispose = observeIframeNavigation(el, (pathname) => {
-      const next = repoPathFromPreviewPathname(pathname, props.url, props.path);
+      const next = pathFromPreviewPathname(
+        pathname,
+        props.url,
+        props.path,
+        previewPathCodec,
+      );
       if (next !== null && next !== props.path) props.onNavigate?.(next);
     });
+    onCleanup(dispose);
+  });
+
+  // The mouse's back/forward (X1/X2) buttons pressed *inside* the preview never
+  // reach the parent's Code-tab listener (the opaque-origin sandbox traps
+  // them), so the in-iframe SDK forwards them here and the host drives history.
+  createEffect(() => {
+    const el = iframeEl();
+    if (!el) return;
+    const dispose = observeIframeHistory(el, (direction) =>
+      props.onHistory?.(direction),
+    );
     onCleanup(dispose);
   });
 

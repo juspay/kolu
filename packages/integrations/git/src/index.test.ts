@@ -276,8 +276,10 @@ describe("resolveUnder", () => {
 // --- parseNameStatus ---
 
 describe("parseNameStatus", () => {
-  it("parses simple M/A/D lines", () => {
-    const raw = "M\tsrc/foo.ts\nA\tsrc/bar.ts\nD\told.ts\n";
+  // `parseNameStatus` consumes `git diff --name-status -z` output: a flat
+  // NUL-separated token stream, `<status>\0<path>[\0<path2>]\0…`.
+  it("parses simple M/A/D records", () => {
+    const raw = "M\0src/foo.ts\0A\0src/bar.ts\0D\0old.ts\0";
     expect(parseNameStatus(raw)).toEqual([
       { path: "old.ts", status: "D" },
       { path: "src/bar.ts", status: "A" },
@@ -286,26 +288,26 @@ describe("parseNameStatus", () => {
   });
 
   it("extracts the new path from renames (R<score>)", () => {
-    const raw = "R100\told/path.ts\tnew/path.ts\n";
+    const raw = "R100\0old/path.ts\0new/path.ts\0";
     expect(parseNameStatus(raw)).toEqual([
       { path: "new/path.ts", status: "R", oldPath: "old/path.ts" },
     ]);
   });
 
   it("extracts the destination from copies (C<score>)", () => {
-    const raw = "C075\tsrc.ts\tdst.ts\n";
+    const raw = "C075\0src.ts\0dst.ts\0";
     expect(parseNameStatus(raw)).toEqual([
       { path: "dst.ts", status: "C", oldPath: "src.ts" },
     ]);
   });
 
-  it("handles type-change (T) lines", () => {
-    const raw = "T\tlink.txt\n";
+  it("handles type-change (T) records", () => {
+    const raw = "T\0link.txt\0";
     expect(parseNameStatus(raw)).toEqual([{ path: "link.txt", status: "T" }]);
   });
 
   it("falls back to '?' for unknown status letters", () => {
-    const raw = "X\tunknown.txt\n";
+    const raw = "X\0unknown.txt\0";
     expect(parseNameStatus(raw)).toEqual([
       { path: "unknown.txt", status: "?" },
     ]);
@@ -313,11 +315,11 @@ describe("parseNameStatus", () => {
 
   it("returns empty array for empty input", () => {
     expect(parseNameStatus("")).toEqual([]);
-    expect(parseNameStatus("\n")).toEqual([]);
+    expect(parseNameStatus("\0")).toEqual([]);
   });
 
   it("sorts output by path", () => {
-    const raw = "M\tz.ts\nM\ta.ts\nM\tm.ts\n";
+    const raw = "M\0z.ts\0M\0a.ts\0M\0m.ts\0";
     expect(parseNameStatus(raw).map((f) => f.path)).toEqual([
       "a.ts",
       "m.ts",
@@ -325,11 +327,14 @@ describe("parseNameStatus", () => {
     ]);
   });
 
-  it("skips blank lines in the middle", () => {
-    const raw = "M\tfoo.ts\n\nA\tbar.ts\n";
+  it("keeps a path that contains a tab or newline intact (the -z win)", () => {
+    // `core.quotePath=false` text output would C-quote and quote-wrap this
+    // path, then the TAB/newline split would mangle it. `-z` emits it verbatim
+    // as a single NUL-delimited token, so it round-trips into `getDiff`.
+    const raw = "A\0wei\trd\nname.md\0M\0plain.ts\0";
     expect(parseNameStatus(raw)).toEqual([
-      { path: "bar.ts", status: "A" },
-      { path: "foo.ts", status: "M" },
+      { path: "plain.ts", status: "M" },
+      { path: "wei\trd\nname.md", status: "A" },
     ]);
   });
 });

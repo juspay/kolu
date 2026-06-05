@@ -168,7 +168,8 @@ collide and the scratch never shows up in the diff the lenses review. It returns
   unresolved,  // findings still contested at the backstop (empty on consensus)
   applied,     // [{ id, title, files, commit }]
   reviews,     // each lens's independent findings
-  history }    // per-round dispositions
+  history,     // per-round dispositions
+  comment }    // the deterministically rendered PR comment body — post it VERBATIM (step 3)
 ```
 
 - **consensus** — every finding settled (the normal outcome).
@@ -190,12 +191,22 @@ branch for the human to review):
 - On any **unresolved** finding, surface both lenses' final positions plainly so
   the human can adjudicate — do not pick a winner yourself.
 - **Post the debate summary to the PR (default).** When a PR exists and
-  `--no-comment` was NOT passed, post a `## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)` comment via
-  `gh pr comment`. Include: the outcome badge and round count; the independent
-  per-lens finding counts; the per-finding table (origin, title, location, agreed
-  disposition, applied commit); and, for any unresolved finding, both lenses'
-  positions. Use a single-quoted heredoc so backticks/`$` survive. This mirrors
-  `/codex-debate`; `--no-comment` suppresses it.
+  `--no-comment` was NOT passed, post the workflow's **deterministically rendered
+  `comment`** verbatim — write it to a file and `gh pr comment <pr> -F <file>`:
+
+  ```bash
+  mkdir -p "$repoPath/.lens-debate"   # clean/all-drop/--no-commit runs never hit commitFix, so the dir may not exist yet
+  printf '%s' "$comment" > "$repoPath/.lens-debate/comment.md"
+  gh pr comment <pr> -F "$repoPath/.lens-debate/comment.md"
+  ```
+
+  The workflow returns `comment` already rendered — the
+  `## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)` header
+  with the outcome badge and round count, the independent per-lens finding counts,
+  the applied fixes (with commit SHAs), the agreed no-change observations, and any
+  unresolved findings with both lenses' positions. Posting the returned string
+  (rather than re-improvising a table) keeps the comment a **deterministic** render
+  of the debate outcome. This mirrors `/codex-debate`; `--no-comment` suppresses it.
 
 ## Safety & notes
 
