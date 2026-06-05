@@ -17,10 +17,11 @@ import Resizable from "@corvu/resizable";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import type {
-  CodeTabView,
-  TerminalId,
-  TerminalMetadata,
+import {
+  type CodeTabView,
+  type TerminalId,
+  type TerminalMetadata,
+  viewLabel,
 } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
@@ -50,7 +51,7 @@ import {
 } from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
-import { renderTreeContextMenu } from "../ui/pierreAdapters";
+import { makeTreeContextMenu } from "../ui/pierreAdapters";
 import {
   pierreIconConfig,
   pierreTreesShadowCss,
@@ -117,6 +118,34 @@ const CodeTab: Component<{
   // wipes selection on every Inspector round-trip in non-local modes.
   const view = rightPanel.codeMode;
   const setView = rightPanel.setCodeMode;
+
+  // Tree right-click menu: "Copy path" plus view-switch entries (All files ⇄
+  // Local / Branch diff). Built once — `nav.view()` is read fresh on each
+  // right-click, so the closure tracks the live mode even though Pierre
+  // snapshots the menu config at mount. For a file row, navigation seeds the
+  // destination view's selection slot *before* switching so the same file
+  // lands selected there (a file absent from that view's changed set — e.g. an
+  // untracked file in Branch mode, or anything in a base-less Branch — falls
+  // out and the membership effect clears it; the view still switches, the
+  // asked-for behavior). For a directory row `path` is null (directories
+  // aren't selectable), so the target keeps its own last pick.
+  const renderTreeMenu = makeTreeContextMenu({
+    view,
+    navigate: (target, path) => {
+      // This guard is the *single* enforcement point for the adapter's
+      // documented "null = leave the target's slot untouched" contract
+      // (pierreAdapters.ts `TreeContextMenuNav.navigate`): a null path is the
+      // adapter's "directories aren't selectable" verdict, so the target keeps
+      // its own last pick. It is load-bearing, not removable defensive code —
+      // the adapter never calls setSelectedFile itself, so the no-op lives only
+      // here. Do NOT pass null straight through to setSelectedFile: there, null
+      // *deletes* the slot (useRightPanel.ts), the opposite of "keep last pick".
+      // Hoisting the no-op into navigate's caller forfeits the contract unless
+      // setSelectedFile's null semantics change first.
+      if (path !== null) rightPanel.setSelectedFile(target, path);
+      setView(target);
+    },
+  });
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
 
@@ -575,7 +604,7 @@ const CodeTab: Component<{
     return [
       {
         view: "browse",
-        label: "All files",
+        label: viewLabel("browse"),
         hint: "Browse the whole repo",
         testId: "diff-mode-browse",
         icon: FileBrowseIcon,
@@ -583,7 +612,7 @@ const CodeTab: Component<{
       {
         view: "local",
         group: "Git",
-        label: "Local",
+        label: viewLabel("local"),
         hint: "Working tree vs HEAD",
         testId: "diff-mode-local",
         icon: GitBranchIcon,
@@ -591,7 +620,7 @@ const CodeTab: Component<{
       {
         view: "branch",
         group: "Git",
-        label: "Branch",
+        label: viewLabel("branch"),
         hint: ref ? `vs ${ref}` : "Working tree vs branch base",
         testId: "diff-mode-branch",
         icon: GitBranchIcon,
@@ -757,7 +786,7 @@ const CodeTab: Component<{
                       contextMenu={{
                         enabled: true,
                         triggerMode: "both",
-                        render: renderTreeContextMenu,
+                        render: renderTreeMenu,
                       }}
                       onError={(err) =>
                         toast.error(`File tree render failed: ${err.message}`)
