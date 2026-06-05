@@ -18,7 +18,11 @@
  *  Callers read/write for the *active* terminal — the API is parameterless,
  *  resolving the current terminal id from `useTerminalStore` internally. */
 
-import { type Browser, createBrowser } from "@kolu/solid-browser";
+import {
+  type Browser,
+  createBrowser,
+  DEFAULT_MAX_ENTRIES,
+} from "@kolu/solid-browser";
 import {
   type CodeTabView,
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
@@ -106,6 +110,21 @@ const browsers = new Map<TerminalId, Browser<BrowserLocation>>();
  *  not-yet-in-a-repo terminal). */
 const lastRepoByTerminal = new Map<TerminalId, string | null>();
 
+/** Single owner of a terminal history controller's construction contract.
+ *  Every lifecycle verb — lazy-create, repo-change reset, session re-seed —
+ *  routes through here so `isSameEntry: SAME_LOCATION` (idempotent on mode+path)
+ *  and the explicit `DEFAULT_MAX_ENTRIES` cap are wired in exactly one place; a
+ *  future reset path can't silently drop either and reintroduce duplicate
+ *  entries or unbounded growth. `initial` seeds the first entry (session
+ *  restore); omit it for a fresh, empty stack. */
+function newBrowserFor(initial?: BrowserLocation): Browser<BrowserLocation> {
+  return createBrowser<BrowserLocation>({
+    initial,
+    isSameEntry: SAME_LOCATION,
+    maxEntries: DEFAULT_MAX_ENTRIES,
+  });
+}
+
 /** Resolve (creating if absent) a terminal's history controller. A fresh
  *  terminal starts with an empty stack — its first `navigate` seeds the first
  *  entry; a restored terminal is seeded in `seedPanel` from its last-viewed
@@ -115,7 +134,7 @@ const lastRepoByTerminal = new Map<TerminalId, string | null>();
 function browserFor(id: TerminalId): Browser<BrowserLocation> {
   let b = browsers.get(id);
   if (!b) {
-    b = createBrowser<BrowserLocation>({ isSameEntry: SAME_LOCATION });
+    b = newBrowserFor();
     browsers.set(id, b);
   }
   return b;
@@ -350,10 +369,7 @@ export function useRightPanel() {
       // its repo as the baseline, leaving any seeded stack intact. A genuine
       // repo move on a terminal we've already seen drops the now-stale stack.
       if (had && repo !== prevRepo) {
-        browsers.set(
-          id,
-          createBrowser<BrowserLocation>({ isSameEntry: SAME_LOCATION }),
-        );
+        browsers.set(id, newBrowserFor());
       }
     },
 
@@ -369,10 +385,9 @@ export function useRightPanel() {
       const path = state.selectedFileByMode?.[state.codeMode] ?? null;
       browsers.set(
         id,
-        createBrowser<BrowserLocation>({
-          initial: path !== null ? { mode: state.codeMode, path } : undefined,
-          isSameEntry: SAME_LOCATION,
-        }),
+        newBrowserFor(
+          path !== null ? { mode: state.codeMode, path } : undefined,
+        ),
       );
       // Drop the repo baseline so the next `syncRepo` re-adopts this terminal's
       // current repo without resetting — the stack we just seeded is the truth,
