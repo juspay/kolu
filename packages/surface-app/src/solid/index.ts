@@ -170,6 +170,10 @@ export interface SurfaceAppModel<
   server: Accessor<T | undefined>;
   /** This client's baked-in commit. */
   clientCommit: string;
+  /** A fresh server build is live and reloading will land it — drives the reload
+   *  prompt. The skew-OR-restart rule (`"restarted"` status or `stale()`) and the
+   *  `"restarted"` status-string knowledge live here, beside the `reload()` they gate. */
+  updateReady: Accessor<boolean>;
   /** Land the deployed build. */
   reload: () => void;
   /** Set an attention/unread count: OS app badge if installed (best-effort) +
@@ -310,11 +314,16 @@ export function SurfaceAppProvider<
   // `isStale` wants a concrete value, so fall back to the schema default.
   const isStale = (srv: T | undefined): boolean =>
     def.isStale(srv ?? def.cells.buildInfo.default, props.clientCommit);
+  const stale = () => isStale(server());
   const model: SurfaceAppModel<T> = {
     status,
-    stale: () => isStale(server()),
+    stale,
     server,
     clientCommit: props.clientCommit,
+    // A new build is live whether the deploy was caught live (`"restarted"`) or
+    // this bundle's commit provably differs (`stale()`) — the unified rule lives
+    // beside `reload()`, so consumers read the predicate instead of re-deriving it.
+    updateReady: () => status() === "restarted" || stale(),
     reload: reloadForUpdate,
     setAttention,
   };

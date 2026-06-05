@@ -6,13 +6,12 @@
  *
  * Two independent signals drive it, both from surface-app's headless model:
  * - `status()` is `"down"` — the WebSocket dropped; show "Reconnecting…".
- * - update-ready — a fresh client build is ready; show the reload prompt.
- *   "Ready" is `status() === "restarted"` (a deploy caught live, transient — a
- *   backgrounded tab that missed the reconnect never sees it) OR `stale()` (the
- *   durable backstop: this bundle's commit provably differs from the server's,
- *   no matter when it connected). kolu has no service worker, so the reload is a
- *   plain `location.reload()` (surface-app's `reload()`) landing on the
- *   `no-store` shell → the current bundle.
+ * - `updateReady()` — a fresh client build is ready; show the reload prompt.
+ *   The skew-OR-restart rule (`"restarted"` status OR `stale()`) lives in
+ *   surface-app's model beside the `reload()` it gates, so this consumer just
+ *   reads the predicate. kolu has no service worker, so the reload is a plain
+ *   `location.reload()` (surface-app's `reload()`) landing on the `no-store`
+ *   shell → the current bundle.
  *
  * The Reload button lives inside the card so the action is where the user's
  * eye already is, not tucked into a corner toast.
@@ -26,7 +25,7 @@ const chrome = surface();
 const TransportOverlay: Component = () => {
   const pwa = useSurfaceApp();
   const disconnected = () => pwa.status() === "down";
-  const updateReady = () => pwa.status() === "restarted" || pwa.stale();
+  const updateReady = () => pwa.updateReady();
 
   return (
     <Show when={disconnected() || updateReady()}>
