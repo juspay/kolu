@@ -59,7 +59,7 @@ function copyCodeBlock(button: HTMLElement): void {
  *  (dock card, switcher card) doesn't double-fire that slot's handler. */
 function bindInteractions(
   el: HTMLElement,
-  onNavigateRelative?: () => ((path: string) => void) | undefined,
+  onNavigateRelative?: (href: string) => void,
 ): void {
   const onPointerDown = (e: Event) => {
     const target = e.target as Element | null;
@@ -100,7 +100,7 @@ function bindInteractions(
       // handler the link is simply inert (still better than a bogus tab).
       if (anchor.hasAttribute("data-md-rel")) {
         e.preventDefault();
-        if (href) onNavigateRelative?.()?.(href);
+        if (href) onNavigateRelative?.(href);
       }
     }
   };
@@ -185,7 +185,7 @@ export const Markdown: Component<{
     <Dynamic
       component={variant() === "inline" ? "span" : "div"}
       ref={(el: HTMLElement) =>
-        bindInteractions(el, () => props.onNavigateRelative)
+        bindInteractions(el, (href) => props.onNavigateRelative?.(href))
       }
       class="kolu-md"
       data-md-variant={variant()}
