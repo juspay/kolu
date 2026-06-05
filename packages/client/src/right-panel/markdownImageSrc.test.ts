@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveMarkdownImageSrc } from "./markdownImageSrc";
+import {
+  resolveMarkdownImageSrc,
+  resolveMarkdownLinkPath,
+} from "./markdownImageSrc";
 
 const resolve = (mdPath: string, src: string) =>
   resolveMarkdownImageSrc("term-1", mdPath, src);
@@ -64,5 +67,50 @@ describe("resolveMarkdownImageSrc", () => {
     expect(resolve("README.md", "a%2f..%2f..%2fetc")).toBeUndefined();
     expect(resolve("README.md", "%2e%2e/secret")).toBeUndefined();
     expect(resolve("README.md", "bad%ZZ.png")).toBeUndefined();
+  });
+});
+
+describe("resolveMarkdownLinkPath", () => {
+  it("resolves a link against the previewed doc's directory", () => {
+    expect(resolveMarkdownLinkPath("README.md", "docs/guide.md")).toBe(
+      "docs/guide.md",
+    );
+    expect(resolveMarkdownLinkPath("docs/index.md", "guide.md")).toBe(
+      "docs/guide.md",
+    );
+    expect(resolveMarkdownLinkPath("docs/a/b.md", "../c.md")).toBe("docs/c.md");
+  });
+
+  it("treats a root-absolute href as repo-root-relative", () => {
+    expect(resolveMarkdownLinkPath("docs/index.md", "/LICENSE")).toBe(
+      "LICENSE",
+    );
+  });
+
+  it("strips a #fragment or ?query before resolving (#1161 scope)", () => {
+    // The file opens; scrolling to the in-doc heading is out of scope.
+    expect(resolveMarkdownLinkPath("README.md", "docs/guide.md#install")).toBe(
+      "docs/guide.md",
+    );
+    expect(resolveMarkdownLinkPath("README.md", "docs/guide.md?v=2")).toBe(
+      "docs/guide.md",
+    );
+  });
+
+  it("returns null for external / own-scheme hrefs", () => {
+    expect(
+      resolveMarkdownLinkPath("README.md", "https://example.com/"),
+    ).toBeNull();
+    expect(resolveMarkdownLinkPath("README.md", "mailto:a@b.c")).toBeNull();
+    expect(
+      resolveMarkdownLinkPath("README.md", "//cdn.example.com"),
+    ).toBeNull();
+    expect(resolveMarkdownLinkPath("README.md", "#section")).toBeNull();
+    expect(resolveMarkdownLinkPath("README.md", "   ")).toBeNull();
+  });
+
+  it("returns null when the href escapes the repo root", () => {
+    expect(resolveMarkdownLinkPath("README.md", "../../etc/passwd")).toBeNull();
+    expect(resolveMarkdownLinkPath("docs/a.md", "../../../secret")).toBeNull();
   });
 });

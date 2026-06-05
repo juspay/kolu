@@ -25,7 +25,11 @@ Inline HTML (sanitized): `<details>`/`<summary>`, `<kbd>`, `<sub>`/`<sup>`,
 `<mark>`, `<p align>` wrappers, definition lists (`<dl>`), `<figure>`/
 `<figcaption>`, table `<caption>`/`<colgroup>`, `<abbr>` (raw form). A
 repo-relative image resolves against the document's directory and loads from the
-host's file route; everything is themed for light/dark.
+host's file route; a repo-relative **link** likewise resolves against the
+document's directory and, on click, opens the target file in the host (the Code
+tab) rather than navigating the app origin — GitHub-faithfully (a trailing
+`#fragment` opens the file but doesn't yet scroll to the heading). Everything is
+themed for light/dark.
 
 ## Not implemented
 

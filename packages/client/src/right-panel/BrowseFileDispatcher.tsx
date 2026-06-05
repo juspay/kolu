@@ -54,7 +54,11 @@ import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
-import { resolveMarkdownImageSrc } from "./markdownImageSrc";
+import {
+  resolveMarkdownImageSrc,
+  resolveMarkdownLinkPath,
+} from "./markdownImageSrc";
+import { openInCodeTab } from "./openInCodeTab";
 
 // The "File truncated" banner is rendered as a sibling ABOVE the comment
 // surface in both sourceRenderer and textRenderers: the banner is chrome, not
@@ -259,6 +263,19 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
               resolveImageSrc={(src) =>
                 resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
               }
+              onNavigateRelative={(href) => {
+                // A repo-relative link resolves against the previewed doc's own
+                // directory (GitHub-style), then opens through the same front
+                // door terminal `path:line` links use — so a miss surfaces a
+                // toast and any file type opens, not a bogus new tab (#1161).
+                const path = resolveMarkdownLinkPath(props.filePath, href);
+                if (path === null) return;
+                openInCodeTab({
+                  ref: { path, startLine: null, endLine: null },
+                  repoRoot: props.repoPath,
+                  targetMode: "browse",
+                });
+              }}
             />,
           )}
         </div>

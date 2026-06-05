@@ -591,24 +591,47 @@ Feature: Code tab (review + browse)
     And the markdown preview should not render a "input[type=text]" element
 
   # The renderer only stamps the anchors it mints; a raw inline `<a>` from the
-  # README must still pick up the link policy in the sanitize pass — a safe
-  # relative href survives but is forced to open in a new tab (so it can't
-  # navigate the Kolu tab itself), and an unsafe scheme is unwrapped to text.
+  # README must still pick up the link policy in the sanitize pass — a repo-
+  # relative href is tagged for in-app interception (so it opens the file in the
+  # Code tab, never a new tab — #1161), a genuine external href is forced to a
+  # new tab with a severed opener, and an unsafe scheme is unwrapped to text.
   Scenario: Markdown preview applies the link policy to raw inline anchors
     When I run "rm -rf /tmp/kolu-md-rawa && git init /tmp/kolu-md-rawa && cd /tmp/kolu-md-rawa"
-    And I run "printf '# Raw Anchors\n\n<a href=docs/guide.md>relative doc</a>\n\n<a href=javascript:1>raw evil</a>\n' > README.md"
+    And I run "printf '# Raw Anchors\n\n<a href=docs/guide.md>relative doc</a>\n\n<a href=https://example.com/>external link</a>\n\n<a href=javascript:1>raw evil</a>\n' > README.md"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
     When I click the file "README.md" in the file browser
     Then the markdown preview should be visible
     And the markdown preview should contain "relative doc"
+    And the markdown preview should contain "external link"
     And the markdown preview should contain "raw evil"
-    # Safe relative anchor kept, but forced to a new tab with a severed opener.
+    # Repo-relative anchor is tagged for in-app interception, NOT sent to a new tab.
+    And the markdown preview should render a "a[data-md-rel]" element
+    And the markdown preview should not render a "a[data-md-rel][target=_blank]" element
+    # The genuine external anchor still opens in a new tab with a severed opener.
     And the markdown preview should render a "a[target=_blank]" element
     And the markdown preview should render a "a[rel~=noopener]" element
     # The unsafe-scheme anchor is gone; its text remains.
     And the markdown preview should not render a "a[href^=javascript]" element
+
+  # The repro for #1161: clicking a repo-relative link opens the linked file IN
+  # the Code tab (GitHub-faithful), resolved against the previewed doc's own
+  # directory — it must NOT navigate the app origin in a new browser tab. The
+  # click step fails if a popup/new tab opens.
+  Scenario: Markdown preview opens a repo-relative link in the Code tab
+    When I run "rm -rf /tmp/kolu-md-rellink && git init /tmp/kolu-md-rellink && cd /tmp/kolu-md-rellink"
+    And I run "mkdir -p docs && printf '# Guide Doc\n\nRelative target reached.\n' > docs/guide.md"
+    And I run "printf '# Home\n\n[the guide](docs/guide.md)\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "a[data-md-rel]" element
+    When I click the repo-relative markdown link "docs/guide.md"
+    Then the file "docs/guide.md" should be selected in the file browser
+    And the markdown preview should contain "Relative target reached"
 
   # Regression guard for a feature audit's findings: Tailwind v4 preflight
   # blanking list markers, footnotes + GitHub alerts being unsupported, and

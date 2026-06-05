@@ -761,6 +761,33 @@ Then(
   },
 );
 
+// Click a repo-relative anchor in the rendered preview and assert it opens the
+// file IN the app, not a new browser tab. The #1161 bug stamped `target=_blank`
+// on relative links, so a click spawned a popup at the app origin; the fix tags
+// them for in-app interception. Arm a popup watch *before* the click and fail if
+// it ever fires — a green run proves no tab was opened.
+When(
+  "I click the repo-relative markdown link {string}",
+  async function (this: KoluWorld, href: string) {
+    const link = this.page.locator(
+      `[data-testid="browse-preview-markdown"] a[href="${href}"]`,
+    );
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const popped = this.page
+      .waitForEvent("popup", { timeout: 1500 })
+      .then(() => true)
+      .catch(() => false);
+    await link.click();
+    if (await popped) {
+      throw new Error(
+        `Clicking the repo-relative link "${href}" opened a new browser tab ` +
+          `(the #1161 bug); it should open the file in the Code tab instead`,
+      );
+    }
+    await this.waitForFrame();
+  },
+);
+
 // Tailwind v4's preflight resets `list-style: none` app-wide, so the rendered
 // preview must re-declare list markers or every list renders unmarked. Assert
 // the computed marker is actually disc/decimal, not the reset `none` — a plain

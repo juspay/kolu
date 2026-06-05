@@ -18,6 +18,10 @@ export type MarkdownRendererProps = {
    *  `@kolu/solid-markdown`'s `resolveImageSrc`). The host wires this to its
    *  file-serving route so README images render instead of falling back. */
   resolveImageSrc?: (src: string) => string | undefined;
+  /** Open a repo-relative link `href` in the host (see `@kolu/solid-markdown`'s
+   *  `onNavigateRelative`). The host wires this to its file-open front door so a
+   *  `[doc](docs/guide.md)` link opens the file instead of a new browser tab. */
+  onNavigateRelative?: (href: string) => void;
 };
 
 export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
@@ -30,6 +34,7 @@ export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
         markdown={props.markdown}
         variant="document"
         resolveImageSrc={props.resolveImageSrc}
+        onNavigateRelative={props.onNavigateRelative}
       />
     </div>
   </div>

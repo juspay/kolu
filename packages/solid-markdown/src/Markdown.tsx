@@ -57,7 +57,10 @@ function copyCodeBlock(button: HTMLElement): void {
  *
  *  Each also stops the bubble so a nested control in a clickable host slot
  *  (dock card, switcher card) doesn't double-fire that slot's handler. */
-function bindInteractions(el: HTMLElement): void {
+function bindInteractions(
+  el: HTMLElement,
+  onNavigateRelative?: () => ((path: string) => void) | undefined,
+): void {
   const onPointerDown = (e: Event) => {
     const target = e.target as Element | null;
     if (target?.closest?.("a, [data-md-copy]")) {
@@ -88,6 +91,16 @@ function bindInteractions(el: HTMLElement): void {
           e.preventDefault();
           landing.scrollIntoView({ behavior: "smooth", block: "start" });
         }
+        return;
+      }
+      // Repo-relative links (tagged by the link policy) must never resolve
+      // against the app origin — that opens a bogus app route in a new tab
+      // (#1161). Suppress the default navigation unconditionally and, when the
+      // host wired a handler, ask it to open the linked file instead. With no
+      // handler the link is simply inert (still better than a bogus tab).
+      if (anchor.hasAttribute("data-md-rel")) {
+        e.preventDefault();
+        if (href) onNavigateRelative?.()?.(href);
       }
     }
   };
@@ -106,6 +119,11 @@ export const Markdown: Component<{
   /** Resolve a repo-relative image `src` to a loadable URL (see
    *  `SanitizeOptions.resolveImageSrc`). Document variant only. */
   resolveImageSrc?: (src: string) => string | undefined;
+  /** Open a repo-relative *link* `href` (a scheme-less `[doc](docs/guide.md)`)
+   *  in the host instead of letting the browser navigate the app origin in a
+   *  new tab (#1161). The host resolves the path against the previewed file and
+   *  opens it (e.g. in the Code tab). Unwired ⇒ such links are inert. */
+  onNavigateRelative?: (href: string) => void;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   const isDocument = () => variant() === "document";
@@ -166,7 +184,9 @@ export const Markdown: Component<{
   return (
     <Dynamic
       component={variant() === "inline" ? "span" : "div"}
-      ref={bindInteractions}
+      ref={(el: HTMLElement) =>
+        bindInteractions(el, () => props.onNavigateRelative)
+      }
       class="kolu-md"
       data-md-variant={variant()}
       innerHTML={html()}
