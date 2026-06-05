@@ -107,17 +107,21 @@ codex reviews. It returns:
 
 ```
 { status: "consensus" | "reviewer-error",
-  rounds, base, finalVerdict, filesChanged, transcript, ledgerPath }
+  rounds, base, finalVerdict, filesChanged, transcript,
+  workDir, ledgerPath, ledgerHeader }
 ```
 
 (each `transcript[]` round also carries a `commit` SHA when that round committed.)
-`ledgerPath` points at `.codex-debate/debate-log.md` — the **shared debate
-ledger**, one durable Markdown record of every round (codex's findings, its reply
-to the rebuttal, Claude's dispositions, the commit) rewritten each round. It has
-two readers: the **Claude author** reads it as its cross-round memory (so each
-round builds on the last instead of re-deriving the diff), and **step 3 posts it
-verbatim as the PR comment**. codex is *not* a reader — it keeps its own warm
-session, so re-feeding it the ledger would just duplicate its context.
+The debate is recorded as **one small Markdown file per round** —
+`<workDir>/section-NNN.md` (zero-padded). Those section files have two readers:
+the **Claude author** reads them as its cross-round memory (so each round builds
+on the last instead of re-deriving the diff), and **step 3 assembles them into the
+PR comment** — `ledgerHeader` (the outcome header) followed by a `cat` of the
+sections, written to `ledgerPath` (`.codex-debate/debate-log.md`) and posted. The
+comment is therefore a **deterministic concatenation**, never re-rendered through
+an agent — nothing weak ever retypes a large blob. codex is *not* a reader — it
+keeps its own warm session, so re-feeding it the sections would just duplicate its
+context.
 
 - **consensus** — every finding codex raised is resolved (any severity — Claude
   fixed it or codex conceded the dispute). This is the *only* way the debate ends
@@ -156,24 +160,30 @@ the per-round commits sit on the local branch for the human to review):
   on the record.
 - `git log --oneline <base>..HEAD` (the per-round debate commits) and
   `git diff --stat <base>` so the user sees what the debate changed.
-- A compact per-round summary — read it straight from the ledger at `ledgerPath`
-  (each round's codex verdict, Claude's dispositions, and the commit SHA) so the
-  convergence reads round by round. No need to re-derive it from `transcript`; the
-  ledger already renders it.
+- A compact per-round summary — read it straight from the section files
+  (`cat <workDir>/section-*.md`: each round's codex verdict, Claude's
+  dispositions, and the commit SHA) so the convergence reads round by round. No
+  need to re-derive it from `transcript`; the sections already render it.
 - The agreed changes are committed per round on the local branch (or, under
   `--no-commit`, uncommitted in the working tree). The user reviews, then pushes
   / merges (or runs `/do --from post-implement`) when satisfied.
 - **Post the debate summary to the PR (default).** When a PR exists and
-  `--no-comment` was NOT passed, post the **ledger file verbatim** as the PR
-  comment: `gh pr comment <pr> -F "$ledgerPath"` (or `--body-file`). The workflow
-  already wrote the final, headed render to `ledgerPath` — a `## Codex ⇄ Claude
-  debate` document carrying the **consensus** badge, the round count, the
-  **`xhigh` reasoning-effort** note, and a per-round breakdown of codex's findings
-  and Claude's dispositions. Posting the file directly (rather than re-improvising
-  a table) keeps the comment a **deterministic** render of the same record the
-  commit messages and the author drew on. This is an outward-facing write — on by
-  default because the whole point is to leave the review trail on the PR;
-  `--no-comment` suppresses it.
+  `--no-comment` was NOT passed, **assemble the comment from the workflow's
+  output and post it** — no agent re-renders it:
+
+  ```bash
+  { printf '%s\n\n' "$ledgerHeader"; cat "$workDir"/section-*.md; } > "$ledgerPath"
+  gh pr comment <pr> -F "$ledgerPath"
+  ```
+
+  `ledgerHeader` is the `## Codex ⇄ Claude debate` header (consensus badge, round
+  count, the **`xhigh` reasoning-effort** note); the zero-padded `section-*.md`
+  files are the per-round breakdown of codex's findings and Claude's dispositions
+  that the author also read. So the comment is a **deterministic concatenation**
+  of the same record the commit messages and the author drew on — not an
+  LLM-improvised table. This is an outward-facing write — on by default because
+  the whole point is to leave the review trail on the PR; `--no-comment`
+  suppresses it.
 
 ## Safety & notes
 
@@ -198,15 +208,16 @@ the per-round commits sit on the local branch for the human to review):
 - **Warm author (context, not session).** The Claude author can't be resumed the
   way codex is — `agent()` is one-shot and Claude isn't headless under Max auth,
   so there's no session id to carry forward. The equivalent is context, not state:
-  each follow-up round the author **reads the shared debate ledger**
-  (`.codex-debate/debate-log.md`) — every prior round's findings and its own
+  each follow-up round the author **reads the per-round section files**
+  (`cat .codex-debate/section-*.md`) — every prior round's findings and its own
   dispositions — so it builds on its last round rather than re-deriving the whole
-  diff, and won't re-fix or re-litigate findings already settled. The ledger is
-  rewritten after each round, so round N>1 always sees rounds 1..N-1; round 1 has
-  no ledger yet, so it's byte-identical to a cold start (and if the file is ever
-  missing, the author falls back to the diff + verdict). The *same* ledger is what
-  step 3 posts as the PR comment, so the author's memory and the published summary
-  are one artifact. codex stays on its own warm session and never reads the ledger.
+  diff, and won't re-fix or re-litigate findings already settled. A small section
+  is written after each round, so round N>1 always sees rounds 1..N-1; round 1 has
+  none yet, so it's byte-identical to a cold start (and if no sections exist, the
+  author falls back to the diff + verdict). The *same* sections compose the PR
+  comment step 3 posts, so the author's memory and the published summary are one
+  record. The writes stay small (one round each), so the Haiku writer never
+  retypes a large blob. codex stays on its own warm session and never reads them.
 - **Commits, but never pushes or merges.** Each round is committed locally (unless
   `--no-commit`) so the PR history reads as the debate, but the skill never
   pushes or merges. Consensus means "both AIs agree on the committed code," not
@@ -216,9 +227,9 @@ the per-round commits sit on the local branch for the human to review):
   on many worktrees run at once without clobbering each other — no shared `/tmp`
   paths, and each worktree's `debate-log.md` is its own.
 - **Posts to the PR by default.** When a PR exists, the debate summary — the
-  ledger file (`debate-log.md`) — is posted verbatim as a PR comment
-  (outward-facing write) unless `--no-comment` is passed — the point is to leave
-  the review trail on the PR.
+  header + per-round sections assembled into `debate-log.md` — is posted as a PR
+  comment (outward-facing write) unless `--no-comment` is passed — the point is to
+  leave the review trail on the PR.
 - **Runs to consensus — no cap, no deadlock exit.** The loop ends only when codex
   and Claude agree; it does not bail out at a round cap or declare a "deadlock," because
   a debate that quits without agreement is pointless. The two sides keep arguing
