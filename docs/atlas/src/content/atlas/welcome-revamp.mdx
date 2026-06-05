@@ -1,0 +1,399 @@
+---
+title: "Welcome, revamped — pin it, reach it, run agents"
+description: A bird's-eye in-app welcome plus a full kolu.dev/welcome guide. The spine — the same `tailscale serve` that makes kolu reachable from your phone is what gives it the HTTPS secure context a PWA needs to install. One command unlocks both. Plan of record.
+kind: feature
+status: proposed
+maturity: seedling
+parents: [second-brain]
+updated: 2026-06-05
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
+import Roadmap from "../../components/Roadmap.astro";
+import Milestone from "../../components/Milestone.astro";
+
+export const C = {
+  bg: "#15171c", chrome: "#1b1e24", panel: "#171a20", line: "#2a2e37",
+  fg: "#c7ccd6", dim: "#8b929d", faint: "#5b626d",
+  amber: "#d6a35c", green: "#6cc070", blue: "#6ea8e0", red: "#d66c6c", purple: "#a594e8",
+};
+
+export const Win = (props) => (
+  <div style={`margin:1.6rem 0;max-width:${props.w || "34rem"};border:1px solid ${C.line};border-radius:12px;overflow:hidden;background:${C.bg};box-shadow:0 6px 22px rgba(0,0,0,.32)`}>
+    <div style={`display:flex;align-items:center;gap:.45rem;padding:.5rem .8rem;background:${C.chrome};border-bottom:1px solid ${C.line}`}>
+      <span style="width:10px;height:10px;border-radius:50%;background:#ff5f56;display:inline-block"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:#ffbd2e;display:inline-block"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+      <span style={`margin-left:.4rem;font:600 .72rem/1 ui-monospace,monospace;color:${C.dim}`}>{props.title}</span>
+    </div>
+    <div style="padding:1.1rem 1.15rem">{props.children}</div>
+  </div>
+);
+
+export const moments = [
+  { icon: "📌", k: "Pin it", t: "Install kolu as an app — its own window, dock icon, and live agent badge.", chip: "PWA", c: C.amber },
+  { icon: "🌐", k: "Reach it anywhere", t: "One Tailscale command and kolu follows you to your phone, over real HTTPS.", chip: "Tailscale", c: C.blue },
+  { icon: "🤖", k: "Run agents", t: "Open a repo, drop a tile, launch Claude / Codex / OpenCode. Agent-agnostic.", chip: "Canvas", c: C.green },
+];
+
+export const WelcomeMockup = () => (
+  <Win title="kolu · welcome" w="36rem">
+    <div style={`font:600 .95rem/1.4 ui-sans-serif,system-ui;color:${C.fg};margin-bottom:.2rem`}>Terminals on an infinite canvas. Any agent.</div>
+    <div style={`font:.8rem/1.5 ui-sans-serif,system-ui;color:${C.dim};margin-bottom:1rem`}>Three things worth doing first.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem">
+      {moments.map((m) => (
+        <div style={`border:1px solid ${C.line};border-radius:10px;background:${C.panel};padding:.7rem .65rem`}>
+          <div style="font-size:1.05rem;margin-bottom:.35rem">{m.icon}</div>
+          <div style={`font:600 .78rem/1.2 ui-sans-serif,system-ui;color:${C.fg};margin-bottom:.25rem`}>{m.k}</div>
+          <div style={`font:.68rem/1.45 ui-sans-serif,system-ui;color:${C.dim}`}>{m.t}</div>
+          <div style={`margin-top:.5rem;display:inline-block;font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:${m.c};border:1px solid ${m.c}55;border-radius:5px;padding:.18rem .4rem`}>{m.chip}</div>
+        </div>
+      ))}
+    </div>
+    <div style={`margin-top:1rem;padding-top:.85rem;border-top:1px solid ${C.line};display:flex;align-items:center;justify-content:space-between`}>
+      <div style={`font:.72rem/1.4 ui-sans-serif,system-ui;color:${C.faint}`}>New terminal <span style={`color:${C.dim};font-family:ui-monospace,monospace`}>⌘⏎</span> &nbsp;·&nbsp; Palette <span style={`color:${C.dim};font-family:ui-monospace,monospace`}>⌘K</span></div>
+      <a style={`font:600 .72rem/1 ui-sans-serif,system-ui;color:${C.blue};text-decoration:none`}>Full guide → kolu.dev/welcome</a>
+    </div>
+    <div style={`margin-top:.7rem;font:.66rem/1.4 ui-monospace,monospace;color:${C.faint}`}>Closed it? <span style={`color:${C.dim}`}>⌘K → "Tutorial"</span> brings it back anytime.</div>
+  </Win>
+);
+
+Today, kolu has no welcome — only an **empty state**. When the canvas holds
+zero terminals, <Cite file="packages/client/src/EmptyState.tsx" /> renders a
+session-restore card and a list of keyboard shortcuts. PWA install shows up
+once, passively, as a single ambient tip
+(<Cite file="packages/client/src/settings/tips.ts" lines="85" />) that's hidden
+the moment you're already installed. Remote use and Tailscale appear *nowhere*.
+
+This note proposes a **bird's-eye in-app welcome** (a revamp of that empty
+state, re-openable on demand) and a **full guide at `kolu.dev/welcome`** — and
+threads both around one verified insight.
+
+<WelcomeMockup />
+
+## The spine: one command unlocks two features
+
+kolu's two onboarding goals — **pin it as an app** and **reach it from
+anywhere** — look separate. They are the same action.
+
+A self-hosted kolu is almost always served over **plain HTTP** on a LAN
+(`192.168.x.x`) or Tailscale (`100.x`) address. Browsers refuse to install a
+PWA from there: installation requires a **secure context**, and the only
+non-HTTPS origins that qualify are loopback / `localhost`. So the blocker for
+*remote install* and the enabler for *remote access* are resolved by the very
+same `tailscale serve` — it gives kolu a real `https://…ts.net` origin. Tell it
+as **one story with one payoff**, never two features.
+
+export const Node = (props) => (
+  <div style={`flex:1;min-width:0;border:1px solid ${props.c}66;border-radius:9px;background:${C.panel};padding:.6rem .55rem;text-align:center`}>
+    <div style={`font:600 .7rem/1.2 ui-sans-serif,system-ui;color:${props.c};margin-bottom:.2rem`}>{props.h}</div>
+    <div style={`font:.62rem/1.35 ui-monospace,monospace;color:${C.dim};word-break:break-all`}>{props.s}</div>
+  </div>
+);
+export const Arrow = () => (<div style={`flex:none;align-self:center;color:${C.faint};font:700 1rem/1 ui-monospace,monospace;padding:0 .15rem`}>→</div>);
+
+export const TailscaleBridge = () => (
+  <div style="margin:1.6rem 0;max-width:40rem">
+    <div style="display:flex;align-items:stretch;gap:.2rem">
+      <Node c={C.red} h="✗ Plain HTTP" s="http://100.x:PORT — no install, off-LAN unreachable" />
+      <Arrow />
+      <Node c={C.amber} h="tailscale serve" s="tailscale serve --bg PORT" />
+      <Arrow />
+      <Node c={C.green} h="✓ Real HTTPS" s="https://box.tailnet.ts.net" />
+    </div>
+    <div style={`display:flex;gap:.5rem;margin-top:.6rem;font:600 .68rem/1.3 ui-sans-serif,system-ui`}>
+      <div style={`flex:1;text-align:center;color:${C.green};border:1px dashed ${C.green}66;border-radius:8px;padding:.45rem`}>↳ secure context → <strong>Install unlocked</strong></div>
+      <div style={`flex:1;text-align:center;color:${C.blue};border:1px dashed ${C.blue}66;border-radius:8px;padding:.45rem`}>↳ on your tailnet → <strong>Reachable anywhere</strong></div>
+    </div>
+  </div>
+);
+
+<TailscaleBridge />
+
+### Verified facts (the plan rests on these)
+
+Four load-bearing claims, each adversarially fact-checked against current
+(2025–26) primary sources.
+
+<Callout kind="danger" title="No install over plain HTTP — and this is the #1 trap">
+Installability requires a **secure context**
+([W3C Secure Contexts §3.1](https://www.w3.org/TR/secure-contexts/)). The only
+HTTP origins that qualify are loopback (`127.0.0.0/8`, `::1`) and the
+`localhost` name family. A `192.168.x.x` LAN IP or a Tailscale `100.x` IP
+(CGNAT `100.64.0.0/10`) over `http://` is **not** secure: `beforeinstallprompt`
+never fires and Chromium shows **no install affordance at all**
+([MDN](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable)).
+**Never render an Install button or "install me" tip on an insecure origin** —
+it would be a dead control. The one correct runtime gate is
+`window.isSecureContext === true`.
+</Callout>
+
+- **Tailscale Serve = a genuine secure context.** `tailscale serve` reverse-proxies a local port and terminates TLS at `https://machine.tailnet.ts.net` with a real **Let's Encrypt** cert (DNS-01 against `*.ts.net`; private key never leaves your box) — browsers accept it with no warnings, so install + service workers unlock. <Pill variant="ok">confirmed</Pill> Caveats: enable **MagicDNS + HTTPS Certificates** once in the admin console; the **full FQDN** is mandatory (the bare hostname and the `100.x` IP are still plain HTTP); Serve is **tailnet-only**; the FQDN lands in public Certificate-Transparency logs, so don't bake secrets into machine names. ([Serve KB](https://tailscale.com/kb/1312/serve), [HTTPS KB](https://tailscale.com/kb/1153/enabling-https))
+- **`beforeinstallprompt` is Chromium-only.** Chrome/Edge/Brave/etc. fire it; **Firefox and Safari (desktop *and* iOS) never do** — and Chrome/Edge *on iOS* run on WebKit, so they don't fire it either. A custom JS Install button must start **hidden** and reveal only on the event. <Pill variant="ok">confirmed</Pill>
+- **iOS has no install API.** The only path is the manual **Share → Add to Home Screen**, which works regardless of any event (since iOS 16.4 from Chrome/Edge/Firefox too, not just Safari). On iOS you render *instructions, not a button*. Requires HTTPS + `display: standalone` + an `apple-touch-icon`; avoid the deprecated `apple-mobile-web-app-capable` meta. <Pill variant="ok">confirmed</Pill>
+
+<Callout kind="note" title="Manifest enrichment — in scope for this work, not 'later'">
+The manifest is served `standalone` with 192/512 icons, now assembled by
+`@kolu/surface-app`'s `installPwaManifest` (<PrLink pr={1154} />, in `master`),
+whose `...extra` passthrough already accepts the missing fields — so enriching it
+is just passing **`description`**, **`screenshots`**, and a **maskable** 512px
+icon at the call site (<Cite file="packages/server/src/index.ts" lines="223" />).
+That richer manifest upgrades both Chromium's native install card and the library
+preview below. Validate via **DevTools → Application → Manifest** — Lighthouse's
+PWA audit is deprecated.
+</Callout>
+
+## The in-app welcome
+
+**Revamp `EmptyState` in place** rather than add a modal. The patterns worth
+stealing: VS Code **Walkthroughs** (a short, re-openable checklist — *not* a
+forced tour; it explicitly warns against excessive steps), Warp (one welcome
+surface, success measured as *habit* not completion), Zed (empty-state-as-
+welcome, re-openable from the palette), and Raycast's `EmptyView` (the empty
+state carries the onboarding *with actions*).
+
+**The moments (cap ~3–5, hard).** The three cards above — **Pin it**,
+**Reach it anywhere**, **Run agents** — sit above the existing restore card and
+shortcut list. Each is one verb + one line + one chip; depth lives behind the
+"Full guide" link, not inline. Lean on kolu's auto-detection (recent repos,
+recent agents in <Cite file="packages/client/src/wire.ts" />) so the welcome
+shows *the user's own data*, reinforcing zero-setup.
+
+**Re-openable via the palette.** `EmptyState` only auto-shows at zero
+terminals, so the welcome would vanish forever once you're working. Add a
+stable palette command — labelled **"Tutorial"** (alias "Welcome") — that
+re-summons it anytime, mirroring VS Code's `openWalkthrough`. Wire it as an
+action in <Cite file="packages/client/src/input/actions.ts" /> and surface it
+through the registry in <Cite file="packages/client/src/commands.tsx" />.
+
+**No dismiss state — by design.** Zero terminals *always* shows the welcome.
+The way you "dismiss" it is to **open a terminal**; open zero again and it comes
+right back. There is no `welcomeSeen` flag, no "Don't show again," nothing to
+persist, nothing to go stale — the empty canvas *is* the trigger, full stop.
+The only addition is the **"Tutorial"** palette command, which re-summons the
+same welcome (as an overlay) even while you're working. Register a
+feature-discoverability **tip** pointing at it (per
+<Cite file=".claude/rules/conventions.md" />) so the re-open is discoverable.
+
+### The PWA card is context-aware
+
+This is where the spine pays off. The card reads the runtime and renders one of
+three states — it **never** shows a button that can't work:
+
+export const states = [
+  { c: C.red, tag: "http:// (insecure)", title: "Installing needs HTTPS", body: "You're on http://box:7777. Set up Tailscale for a real HTTPS URL — then pin it.", cta: "How → Reach it anywhere", solid: false },
+  { c: C.green, tag: "https + Chromium", title: "Pin kolu to your dock", body: "Its own window, app icon, and a live badge for finished agents.", cta: "Install", solid: true },
+  { c: C.blue, tag: "iOS Safari", title: "Add to Home Screen", body: "Tap Share ⬆ , then “Add to Home Screen”. (Instructions — iOS has no install button.)", cta: "Show me", solid: false },
+];
+
+export const InstallStates = () => (
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem;margin:1.4rem 0;max-width:40rem">
+    {states.map((s) => (
+      <div style={`border:1px solid ${s.c}55;border-radius:11px;background:${C.bg};overflow:hidden`}>
+        <div style={`font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:${s.c};background:${s.c}1a;padding:.35rem .6rem;border-bottom:1px solid ${s.c}33`}>{s.tag}</div>
+        <div style="padding:.7rem .65rem">
+          <div style={`font:600 .78rem/1.25 ui-sans-serif,system-ui;color:${C.fg};margin-bottom:.3rem`}>{s.title}</div>
+          <div style={`font:.66rem/1.45 ui-sans-serif,system-ui;color:${C.dim};min-height:3.2em`}>{s.body}</div>
+          <div style={s.solid
+            ? `margin-top:.55rem;text-align:center;font:600 .7rem/1 ui-sans-serif,system-ui;color:${C.bg};background:${s.c};border-radius:7px;padding:.4rem`
+            : `margin-top:.55rem;text-align:center;font:600 .7rem/1 ui-sans-serif,system-ui;color:${s.c};border:1px solid ${s.c}66;border-radius:7px;padding:.4rem`}>{s.cta}</div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+<InstallStates />
+
+**Gate order** (apply top-down — the first match wins):
+
+```
+1. !window.isSecureContext      → "needs HTTPS" hint → link to Tailscale section
+2. already installed            → render nothing
+     matchMedia('(display-mode: standalone)').matches
+     || navigator.standalone === true
+3. secure + beforeinstallprompt → real one-click Install button (Chromium)
+4. secure, no event             → per-platform manual instructions (table below)
+```
+
+**Per-platform instruction set** (render the literal glyph as inline SVG next to
+numbered steps — visual beats prose):
+
+| Platform / browser | What kolu shows |
+| --- | --- |
+| Chromium desktop / Android, event captured | Real **Install** button → `prompt()` in the click handler |
+| Android Chrome (no event) | Menu ⋮ → **Install app** |
+| Android Firefox | Menu → **Install** (no event, but install works) |
+| iOS — Safari / Chrome / Edge / Firefox (16.4+) | Illustrated **Share ⬆ → Add to Home Screen** (instructions, not a button) |
+| Safari desktop (macOS Sonoma / Safari 17+) | **File → Add to Dock** (works on any page; no event) |
+| Firefox desktop | Native install not shipped yet (experimental *Taskbar Tabs*) — suggest Chrome/Edge |
+| Any non-secure origin (`http://`) | The HTTPS/Tailscale hint — never an Install button |
+
+<Callout kind="good" title="Fact-check (June 2026): non-Chromium still installs — just not via JS">
+The "`beforeinstallprompt` is Chromium-only" claim is accurate **about the
+event** — Firefox and Safari never fire it — but that is *not* "no install," so
+kolu must **instruct per browser** rather than dead-end on "use Chrome":
+
+- **Safari desktop** (macOS Sonoma / Safari 17+): **File → Add to Dock** turns any page into a web app — no manifest or event needed. ([Apple](https://support.apple.com/en-us/104996))
+- **Safari iOS / iPadOS**: **Share → Add to Home Screen** (since iOS 16.4 also from Chrome / Edge / Firefox).
+- **Firefox Android**: menu → **Install**.
+- **Firefox desktop**: no native install yet — *Taskbar Tabs* is experimental in Nightly (`browser.taskbarTabs.enabled`), not GA; suggest Chrome/Edge. ([MDN](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Installing))
+
+The `@khmyznikov/pwa-install` component already renders the Safari/iOS
+instruction screens, so the detection branch picks the right one.
+</Callout>
+
+<Callout kind="accent" title="Library decision: use @khmyznikov/pwa-install, wrap thinly in Solid">
+A ~28 kB, MIT, framework-agnostic web component (~41k weekly downloads, kept
+current for iOS 18+) that already solves the parts we'd otherwise re-implement:
+the iOS/macOS Share-sheet instruction screens, localization, standalone
+detection, one-shot `prompt()`, and the `appinstalled` listener. This matches
+kolu's "prefer well-maintained libraries over custom code" rule
+(<Cite file=".claude/rules/conventions.md" />). Wrap the custom element in a
+SolidJS component, feed it `manifest-url` / `icon` / `install-description`, hand
+it the captured event via `externalPromptEvent`, and read
+`isInstallAvailable` / `isUnderStandaloneMode`. Hand-rolling is only worth it
+for Chromium-only with fully bespoke branding — which is not the goal. Ship the
+wrapper as a **new package, `packages/solid-pwa-install`** (`@kolu/solid-pwa-install`),
+a focused SolidJS adapter alongside `solid-pierre` / `solid-markdown` /
+`solid-fileview` — so the install card is reusable by other surface apps
+(drishti included), not buried in kolu's client.
+([repo](https://github.com/khmyznikov/pwa-install))
+</Callout>
+
+The existing tip-gate (<Cite file="packages/client/src/settings/useTips.ts" lines="14" />)
+already filters `amb-pwa-install` when installed; extend that to also drop it on
+an insecure origin — a passive "install me" tip is just as dead as a button on
+`http://`.
+
+## The full guide — kolu.dev/welcome
+
+A new `website/src/pages/welcome.astro` (Astro + Tailwind, alongside the
+existing `index.astro`). Structure it as a **Raycast-style skill ladder**, each
+section copy-pasteable and ending at a verifiable success state:
+
+1. **Intro** <Pill variant="todo">what / who</Pill> — the canvas + agent-agnostic thesis, one line.
+2. **Quickstart** <Pill variant="todo">basics</Pill> — Nix install → running kolu, preserving the README's literal first block; ends at *"you should see kolu open with an empty canvas."*
+3. **First 5 minutes** <Pill variant="todo">the win</Pill> — open a repo → launch an agent in a tile (mirrors in-app moment #3).
+4. **Core concepts** <Pill variant="run">core</Pill> — canvas, tiles, dock, worktrees, command/sub-palette, auto-detection.
+5. **Pin it as an app (PWA)** <Pill variant="run">core</Pill> — the per-OS steps from above, with the **HTTP/secure-context caveat called out up front** and Tailscale as the fix.
+6. **Reach it anywhere (Tailscale)** <Pill variant="dx">power</Pill> — the exact minimal sequence (below), the Serve-vs-Funnel safety note, and the decision aid.
+7. **Power features** <Pill variant="dx">power</Pill> — multi-agent at scale, keybindings, sessions.
+8. **FAQ / Troubleshooting** — lead with *"I see no Install button"* → you're on HTTP, use the `ts.net` URL.
+
+The page is built to **grow**. Beyond the essentials, deeper how-tos live in
+**collapsible sections** (`<details>`, collapsed by default) — *Using the code
+browser*, *Working the canvas view*, *Worktrees*, *Sessions*, … — added over
+time without lengthening the first read or breaking the scannable skill ladder.
+
+Every in-app card and empty-state hint **deep-links to the matching anchor**
+here; this page stays the single source of truth, kept in sync with in-app copy
+and the README (per <Cite file=".claude/rules/workflow.md" />).
+
+<Callout kind="good" title="The Tailscale walkthrough (the one to get exactly right)">
+1. Install Tailscale on the dev box **and** the phone/laptop; sign both into the **same account**.<br/>
+2. Admin console → DNS: enable **MagicDNS**, then **HTTPS Certificates** (one-time; acknowledge the public-ledger notice).<br/>
+3. On the dev box: <code>tailscale serve --bg &lt;PORT&gt;</code> (<code>--bg</code> survives reboots).<br/>
+4. Open the printed <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code> on the phone — install the PWA from there.
+
+Default to **Serve** (tailnet-only), never **Funnel** (public, no auth — a
+footgun; a single flag flips a port public). Keep the dev server on
+`127.0.0.1` and let Serve be the only exposed surface. Manage with
+`tailscale serve status` / `reset` / `off`. Decision aid: Serve = "just my
+devices"; Cloudflare Tunnel + Access = "public + identity-gated"; ngrok =
+"throwaway public URL". Rule out Caddy local-CA / self-signed — its root isn't
+trusted on a remote phone, so no secure context.
+
+**Frictionless payoff:** when kolu can resolve its own Serve URL, surface it
+in-app with a **copy button** so handing it off is one tap.
+</Callout>
+
+## Building it
+
+### Architecture — through the electricity lens
+
+Read against <Cite file="docs/atlas/src/content/atlas/electricity.mdx" label="electricity.mdx" />:
+infrastructure that ① is domain-agnostic, ② hides a hard volatility, and ③
+graduates to a second consumer earns its own `@kolu/*` package; everything else
+stays kolu domain. That splits this work into three layers.
+
+**① `@kolu/surface-app`** <PrLink pr={1154} /> — the app-shell electricity, now
+in `master`. Already owns the **manifest** (`installPwaManifest`, whose `...extra` passthrough
+absorbs the enrichment above) and the **headless "relationship-to-server" model**
+(`useSurfaceApp()`: connection lifecycle, build-skew). *Installability* —
+`window.isSecureContext` + standalone display-mode — is a sibling
+environment fact, so the `canInstallPwa` / `isInstalled` signals belong in that
+same headless model. Graduates today (drishti is the second consumer).
+
+**② `@kolu/solid-pwa-install`** — a *new* electricity. A focused SolidJS adapter
+wrapping `@khmyznikov/pwa-install`, sibling to `solid-pierre` / `solid-markdown` /
+`solid-fileview`. Behind one socket ("install this web app") it owns the
+cross-browser install volatility — `beforeinstallprompt` capture, the
+per-platform instruction screens, `appinstalled` — reading installability from ①.
+Passes all three tests: agnostic (no terminal/canvas/git), hides a genuinely hard
+volatility (every browser installs differently), graduates (any surface app).
+**`@kolu/surface-app` may itself depend on `@kolu/solid-pwa-install`** and
+compose the card with its own installability signals — so a consumer wires
+install exactly once. *Supersedes the earlier "wrap it inside the kolu client"
+idea.*
+
+**③ kolu app** — domain, *not* electricity. The welcome itself is kolu's story:
+
+| Area | File | Change |
+| --- | --- | --- |
+| In-app welcome | <Cite file="packages/client/src/EmptyState.tsx" /> | The 3 moments + the `@kolu/solid-pwa-install` card, above restore/shortcuts |
+| Re-open command | <Cite file="packages/client/src/input/actions.ts" />, <Cite file="packages/client/src/commands.tsx" /> | New "Tutorial" action + palette entry — re-summons the welcome as an overlay |
+| Discoverability tip | <Cite file="packages/client/src/settings/tips.ts" />, <Cite file="packages/client/src/settings/useTips.ts" /> | Tip pointing at "Tutorial"; drop the PWA tip on an insecure origin. **No** `welcomeSeen` — zero terminals always shows it |
+| Manifest call-site | <Cite file="packages/server/src/index.ts" lines="223" /> | Pass `description` / `screenshots` / maskable icon into `installPwaManifest` |
+| Full guide | new `website/src/pages/welcome.astro` | The skill-ladder page |
+
+No new server contract; no service worker (kolu has none by design).
+
+<Callout kind="note" title="Built on @kolu/surface-app (merged)">
+`@kolu/surface-app` (<PrLink pr={1154} />) is in `master`, so layers ① and ②
+build on it directly — `installPwaManifest` and the `useSurfaceApp()` headless
+model are already there to extend.
+</Callout>
+
+### Build plan
+
+<Roadmap>
+  <Milestone status="now" label="Manifest enrichment">Pass `description` / `screenshots` / maskable icon into `@kolu/surface-app`'s `installPwaManifest`. Smallest step; unblocks the richer install card.</Milestone>
+  <Milestone status="now" label="Installability signals">Add `canInstallPwa` (`isSecureContext`) + `isInstalled` (display-mode / `navigator.standalone`) to the `useSurfaceApp()` headless model.</Milestone>
+  <Milestone status="next" label="@kolu/solid-pwa-install">New package wrapping `@khmyznikov/pwa-install`: gate order, per-platform branch, `beforeinstallprompt` + `appinstalled` wiring.</Milestone>
+  <Milestone status="next" label="EmptyState revamp">The 3 moments + the install card. The most visible change.</Milestone>
+  <Milestone status="next" label="Tutorial command + tip">Palette command that re-summons the welcome; discoverability tip. No persistence.</Milestone>
+  <Milestone status="next" label="kolu.dev/welcome">The skill-ladder guide; deep-link anchors from in-app cards; `<details>` sections grow over time.</Milestone>
+  <Milestone status="next" label="Tailscale URL surfacing">Resolve + show the `ts.net` URL with a copy button.</Milestone>
+</Roadmap>
+
+### Pitfalls
+
+<Callout kind="warn" title="Onboarding anti-patterns">
+
+- **Dead Install buttons on HTTP.** The #1 kolu-specific trap — gate on `isSecureContext` first, always.
+- **Default-visible custom Install button.** Safari/Firefox/iOS never fire the event; hide by default, reveal on event.
+- **Treating the iOS card as a button.** It's instructions; it can't trigger anything.
+- **Long forced tours.** kolu's audience hates hand-holding — one win, then links. (VS Code warns against this explicitly.)
+- **Replaying onboarding for returning users** — "the airplane safety video every flight." Persist + detect returning + offer re-entry.
+- **Funnel by default, or the bare hostname / `100.x` IP.** Funnel is public+unauthenticated; the bare host and IP are plain HTTP. Always the full `ts.net` FQDN, Serve not Funnel.
+- **Reproducing docs in the panel.** Verb + one line + one action inline; depth links out, or the two copies drift.
+
+</Callout>
+
+### Decisions
+
+- **No mobile welcome.** Onboarding is desktop-only — mobile already opts out of ambient tips via `showsAmbientTips` (<Cite file="packages/client/src/capabilities.ts" lines="34" />).
+- **No persistence.** Zero terminals always shows the welcome; *opening a terminal* is the dismissal, and it returns whenever you're back at zero. No `welcomeSeen`, nothing to go stale.
+- **Tailscale: instruct, never auto-run.** Even when `tailscale` is on `PATH`, the welcome *documents* the command — it does not offer to run `tailscale serve` for you.
+- **No QR.** A copy button on the `ts.net` URL is enough.
+- **Install ownership.** `@kolu/solid-pwa-install` owns the card UI + cross-browser install volatility; `@kolu/surface-app` owns the manifest + installability signals and **may depend on `solid-pwa-install`** to compose the card — a surface app wires install once.
+- **Builds on #1154 (merged).** `@kolu/surface-app` is in `master`; layers ① and ② extend its `installPwaManifest` and `useSurfaceApp()` directly.
+
+---
+
+*Status: `proposed`. On acceptance, flip to `accepted` and link the implementing
+PR with `<PrLink pr={NNNN} />`.*
