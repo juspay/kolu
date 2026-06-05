@@ -24,6 +24,15 @@ const skillDir = a.skillDir || '.claude/skills/codex-debate'
 // collide on shared /tmp paths, and `.codex-debate/` is gitignored so these
 // files never pollute the diff codex reviews.
 const workDir = `${repoPath}/.codex-debate`
+// The shared debate ledger: one durable Markdown record of the whole debate
+// (every round's codex findings + claude dispositions + commit), rewritten each
+// round under the gitignored scratch dir. It serves TWO readers — the claude
+// author reads it as its cross-round memory (replacing an inline blob), and the
+// orchestrator posts it verbatim as the PR comment (`gh pr comment -F`), so the
+// summary is a deterministic render of the same record, not an LLM re-improvisation.
+// codex is NOT a reader: it keeps its own warm session, so re-feeding it the
+// ledger would just duplicate what it already remembers (and bloat its context).
+const ledgerPath = `${workDir}/debate-log.md`
 // Commit each round's changes individually (default on). The commit message
 // carries the debate context (codex's findings + claude's dispositions). Never
 // pushes or merges — that stays the human's call.
@@ -136,26 +145,24 @@ ${rebuttalStep}
   })
 }
 
-async function claudeResponds(round, verdict, priorClaude) {
-  // WARM AUTHOR. On follow-up rounds, thread the author's OWN previous
-  // dispositions back into the prompt so it builds on its prior round instead
-  // of re-deriving everything from the diff — the prompt-level analog of codex's
-  // warm session. (We can't truly resume the Claude author: agent() is one-shot,
+async function claudeResponds(round, verdict) {
+  // WARM AUTHOR. We can't truly resume the Claude author (agent() is one-shot,
   // and Claude isn't headless under Max auth, so there's no session to resume the
-  // way `codex exec resume` carries codex's reasoning forward. This is the
-  // achievable equivalent — context, not state.) codex's responseToRebuttal in
-  // the verdict already says which of the author's disputes it conceded vs still
-  // holds, so the author knows exactly what to revisit. Empty on round 1, so the
-  // first round is byte-identical to the pre-warm-author prompt.
-  const priorBlock = priorClaude
-    ? `This is a FOLLOW-UP round — you already worked this diff last round. Here is what YOU did then (your own dispositions); build on it, don't re-derive it from scratch, and don't re-fix or re-litigate anything already settled:
-
-${JSON.stringify({ summary: priorClaude.summary, actions: priorClaude.actions }, null, 2)}
-
-For any finding you DISPUTED last round, read codex's \`responseToRebuttal\` below: if codex conceded, you're done with it; if codex held firm, weigh its reasoning and either fix it or hold with a sharper argument. Spend this round on findings still \`open\` plus any new ones.
+  // way `codex exec resume` carries codex's reasoning forward). The achievable
+  // equivalent is context, not state: every follow-up round the author reads the
+  // shared debate ledger — the durable record of every prior round's findings and
+  // its OWN dispositions — and builds on it instead of re-deriving the diff. The
+  // ledger is written after each round (see the loop), so on round N>1 it already
+  // holds rounds 1..N-1. Round 1 has no ledger yet, so its prompt is byte-identical
+  // to a cold start.
+  const priorBlock =
+    round > 1
+      ? `This is a FOLLOW-UP round. The debate so far — every prior round's codex findings and YOUR own dispositions — is recorded in this file:
+  \`${ledgerPath}\`
+Read it FIRST (if it's somehow missing, fall back to the diff + the verdict below). Build on what you already did; don't re-derive the diff from scratch, and don't re-fix or re-litigate anything already settled. For any finding you DISPUTED, check codex's \`responseToRebuttal\` in the verdict below: if codex conceded, you're done with it; if codex held firm, weigh its reasoning and either fix it or hold with a sharper argument. Spend this round on findings still \`open\` plus any new ones.
 
 `
-    : ''
+      : ''
   const prompt = `You authored the changes on this branch. CODEX reviewed them and returned the verdict below — what do you think? Fix what you agree with, push back (with reasons) on what you don't.
 
 Work in the repo at \`${repoPath}\` — your shell cwd may be a different worktree, so use ABSOLUTE paths under it and \`git -C ${repoPath}\`. See the change with \`git -C ${repoPath} diff ${base}\`.
@@ -219,6 +226,79 @@ ${message}
    Stage ONLY those files. Do NOT use \`git add -A\` or \`git add .\`.
 4. Return the new commit SHA from \`git -C ${repoPath} rev-parse HEAD\`. Do NOT push.`
   return agent(prompt, { label: `commit:round${round}`, phase: 'Debate', model: mechModel })
+}
+
+// ---------------------------------------------------------------------------
+// The shared ledger — rendered from the transcript, deterministically
+// ---------------------------------------------------------------------------
+// One round's findings, as a Markdown list. Shared by the section renderer below.
+function renderFindings(verdict) {
+  const list = (verdict.findings || [])
+    .map((f) => `- \`${f.id}\` · ${f.severity} · ${f.status} — ${f.issue} (${f.location})`)
+    .join('\n')
+  return list || '- _(none)_'
+}
+
+// One round's author dispositions, as a Markdown list. `null` on a terminal round
+// (codex approved or errored before the author got a turn).
+function renderActions(response) {
+  if (!response) return '_(no author turn — the debate ended this round)_'
+  const list = (response.actions || [])
+    .map((a) => `- \`${a.findingId}\` **${a.disposition}** — ${a.detail}`)
+    .join('\n')
+  return list || '- _(no actions)_'
+}
+
+// One round as a Markdown section: codex's verdict, its response to the rebuttal,
+// and the author's dispositions + commit. The single per-round renderer — the
+// author reads these as its memory and they compose into the posted comment.
+function roundLedgerSection(entry) {
+  const { round, codex, claude, commit } = entry
+  const lines = [
+    `### Round ${round}`,
+    '',
+    `**codex** — approved: \`${codex.approved}\``,
+    '',
+    codex.summary,
+    '',
+    'Findings:',
+    renderFindings(codex),
+  ]
+  if (codex.responseToRebuttal) lines.push('', `_codex on the rebuttal:_ ${codex.responseToRebuttal}`)
+  lines.push('', `**claude** — ${claude ? claude.summary : '_(no author turn this round)_'}`, '', renderActions(claude))
+  if (commit) lines.push('', `commit: \`${commit}\``)
+  return lines.join('\n')
+}
+
+// The whole ledger. With `meta` (final write) it gets the consensus header that
+// makes the file directly postable as the PR comment; without it (the provisional
+// mid-debate writes that feed the author) it's just the round sections.
+function renderLedger(rounds, meta) {
+  const sections = rounds.map(roundLedgerSection).join('\n\n')
+  if (!meta) return sections
+  const badge = meta.status === 'consensus' ? '✅ **Consensus**' : `⚠️ **${meta.status}**`
+  const header = `## Codex ⇄ Claude debate\n\n${badge} after ${meta.rounds} round(s) · codex reviewed at \`xhigh\` reasoning effort · base \`${(meta.base || '').slice(0, 12)}\``
+  return `${header}\n\n${sections}`
+}
+
+// Write the ledger to disk. A thin mechanical agent: the workflow can't do file
+// I/O itself, so (like commitRound) it hands an agent the exact bytes to write.
+// Always overwrites with the full current render, so there's no fragile append
+// and the file is consistent whenever the author reads it. `meta` only on the
+// final write (the postable comment); omitted mid-debate.
+async function writeLedger(meta) {
+  const text = renderLedger(transcript, meta)
+  const prompt = `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
+
+1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+2. Using the Write tool (NOT a shell heredoc — the content has Markdown/special characters), create \`${ledgerPath}\` with EXACTLY this content, overwriting any existing file:
+
+${text}`
+  return agent(prompt, {
+    label: meta ? 'ledger:final' : `ledger:round${transcript.length}`,
+    phase: 'Debate',
+    model: mechModel,
+  })
 }
 
 const transcript = []
@@ -306,10 +386,10 @@ for (let round = 1; ; round++) {
   }
 
   // Claude responds: fixes what it agrees with (editing the tree), disputes the
-  // rest. `lastClaude` still holds the PREVIOUS round's response here (it's
-  // reassigned just below), so the author gets its own prior dispositions — the
-  // warm-author context — and on round 1 it's null (cold start, unchanged).
-  const response = await claudeResponds(round, verdict, lastClaude)
+  // rest. It reads the shared ledger (written at the end of each round below) for
+  // its cross-round memory. `lastClaude` is kept only to feed codex's rebuttal
+  // next round (see codexReviews) — it is no longer the author's memory.
+  const response = await claudeResponds(round, verdict)
   entry.claude = response
   lastClaude = response
   log(
@@ -324,6 +404,11 @@ for (let round = 1; ; round++) {
     entry.commit = (sha || '').trim()
     log(`Round ${round}: committed ${entry.commit}`)
   }
+
+  // Record the round in the shared ledger so the NEXT round's author can read its
+  // own history. Provisional (no header) — the final, postable render with the
+  // consensus header is written at the terminus.
+  await writeLedger()
 }
 
 const filesChanged = Array.from(
@@ -331,4 +416,10 @@ const filesChanged = Array.from(
 )
 log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged.length} file(s) changed.`)
 
-return { status, rounds: transcript.length, base, finalVerdict, filesChanged, transcript }
+// Final ledger render — full history plus the outcome header — the canonical,
+// directly-postable PR comment. The terminal round is already in `transcript`
+// (pushed before every break), so this single write covers every exit path,
+// including a consensus or error reached before the author got a turn.
+await writeLedger({ status, rounds: transcript.length, base })
+
+return { status, rounds: transcript.length, base, finalVerdict, filesChanged, transcript, ledgerPath }
