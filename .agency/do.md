@@ -99,7 +99,7 @@ KOLU_EVIDENCE=1 just test-quick features/<file>.feature --name "<scenario name>"
 # → packages/tests/reports/videos/<scenario>.webm
 ```
 
-Rationale + the ecosystem survey: [`docs/plans/video-evidence.html`](../docs/plans/video-evidence.html).
+Rationale + the ecosystem survey: [`docs/atlas/src/content/atlas/video-evidence.mdx`](../docs/atlas/src/content/atlas/video-evidence.mdx).
 
 ### Agent-state scenarios
 

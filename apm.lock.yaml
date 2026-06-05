@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-04T19:24:20.086087+00:00'
+generated_at: '2026-06-04T23:08:01.502568+00:00'
 apm_version: 0.18.0
 dependencies:
 - repo_url: anthropics/skills
@@ -118,6 +118,7 @@ mcp_configs:
     registry: false
     command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
 local_deployed_files:
+- .agents/skills/atlas
 - .agents/skills/be
 - .agents/skills/be-review
 - .agents/skills/codex-debate
@@ -139,6 +140,7 @@ local_deployed_files:
 - .claude/rules/state.md
 - .claude/rules/streaming.md
 - .claude/rules/toast-conventions.md
+- .claude/skills/atlas
 - .claude/skills/be
 - .claude/skills/be-review
 - .claude/skills/codex-debate
@@ -152,9 +154,9 @@ local_deployed_file_hashes:
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
   .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
-  .claude/rules/atlas.md: sha256:be52ed70ce2632aff1404bd68a653bdb0addd2dfd95e91c58d0849038cc08663
+  .claude/rules/atlas.md: sha256:952a49f91d233d35fa8fc1f731cbff874161df7491b5696edc1e91da588c6d90
   .claude/rules/conventions.md: sha256:c9f6ab7de674fb0da8b3d29f0e188db0cb67f96df774e270848b18323a12760b
-  .claude/rules/docs.md: sha256:f4f4ecc14528d519c833cf9a96ab6bf6d51554eaa4ee80fea42f69f91a33d471
+  .claude/rules/docs.md: sha256:00e7efd122bfa9dd97cddde6f0caa01ae022a0ddc49d9df42cfd214a03eec868
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:a5cfe688d4399be719565de823ccacec874b9d2faa01d29897a7b40de1f49367

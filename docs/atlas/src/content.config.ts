@@ -17,7 +17,9 @@ const atlas = defineCollection({
     // = an investigation into how the system behaves; `reference` = durable
     // knowledge (designs, decisions, how-it-works). The index renders one section
     // per category (see src/lib/indexTree.ts), so this axis is the primary
-    // skeleton — `parents` only nests notes *within* a category.
+    // skeleton — `parents` only nests notes *within* a category. A contributor
+    // proposal is just a note in its real category carrying `status: proposed`
+    // (see CONTRIBUTING.md); acceptance flips the status, not the kind.
     kind: z
       .enum(["bug", "feature", "analysis", "reference"])
       .default("reference"),
