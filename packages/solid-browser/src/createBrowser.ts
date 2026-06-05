@@ -52,12 +52,26 @@ export type CreateBrowserOptions<L> = {
    *  than recording a duplicate. Omit to record every `navigate` as a new
    *  entry (the default: `navigate` always pushes). */
   isSameEntry?: (current: L, next: L) => boolean;
+  /** Cap the stack so a long-lived session can't grow history without
+   *  bound (the repo's no-unbounded-growth rule for usage-driven
+   *  collections). When a `navigate` push would exceed this, the oldest
+   *  entries are evicted from the front and the cursor is shifted to stay
+   *  on the same logical entry — browser behaviour: the deep past falls off
+   *  the back of the stack, never the recent. Defaults to {@link DEFAULT_MAX_ENTRIES};
+   *  pass a finite value to override, `Infinity` to disable. */
+  maxEntries?: number;
 };
+
+/** Default history cap — generous enough that real back/forward sessions
+ *  never hit it, small enough that a runaway producer can't leak. Browsers
+ *  themselves cap (Chromium ~50/tab); 200 here gives ample headroom while
+ *  staying bounded. */
+export const DEFAULT_MAX_ENTRIES = 200;
 
 export function createBrowser<L>(
   options: CreateBrowserOptions<L> = {},
 ): Browser<L> {
-  const { initial, isSameEntry } = options;
+  const { initial, isSameEntry, maxEntries = DEFAULT_MAX_ENTRIES } = options;
   const seeded = initial !== undefined;
   const [entries, setEntries] = createSignal<L[]>(seeded ? [initial] : []);
   const [cursor, setCursor] = createSignal(seeded ? 0 : -1);
@@ -79,8 +93,15 @@ export function createBrowser<L>(
       });
       return;
     }
-    setEntries((es) => [...es.slice(0, c + 1), loc]);
-    setCursor((x) => x + 1);
+    // Push: drop any forward tail (fork), append, advance. When the result
+    // would exceed the cap, evict the oldest entries from the front and shift
+    // the cursor down by the same count so it still points at `loc`.
+    const next = [...entries().slice(0, c + 1), loc];
+    const overflow = Number.isFinite(maxEntries)
+      ? Math.max(0, next.length - maxEntries)
+      : 0;
+    setEntries(overflow > 0 ? next.slice(overflow) : next);
+    setCursor((x) => x + 1 - overflow);
   };
 
   const back = (): L | null => {

@@ -1608,3 +1608,17 @@ Then(
     await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
+
+Then(
+  "the Code tab {string} button should be enabled",
+  async function (this: KoluWorld, dir: string) {
+    const id =
+      dir === "back" ? "code-tab-back-button" : "code-tab-forward-button";
+    // The inverse of the disabled check — `:enabled` attaches exactly when
+    // createBrowser reports a live entry to traverse to (canBack/canForward
+    // true), proving the reactive enablement tracks the stack in both
+    // directions.
+    const btn = this.page.locator(`[data-testid="${id}"]:enabled`);
+    await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);

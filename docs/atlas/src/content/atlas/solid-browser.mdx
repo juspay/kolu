@@ -100,26 +100,33 @@ semantics over a stack of these locations.
 
 ## The electricity — `@kolu/solid-browser`
 
-A standalone package. Depends on `solid-js` + `@kolu/solid-fileview` and nothing
-kolu — the dependency arrow points **out** of the client, never back in. It knows
-URIs, locations, links, and history, and composes `@kolu/solid-fileview` to draw
-whatever a location resolves to. It knows nothing of git, repos, modes,
-terminals — nor of how any single format renders (that is fileview's).
+A standalone package. **As shipped** (phases 1 + 2) it depends on
+`@kolu/url-shape` + `solid-js` and nothing kolu — the dependency arrow points
+**out** of the client, never back in. It owns URIs, locations, links, and history
+(`createBrowser` is the reactive history controller). It knows nothing of git,
+repos, modes, terminals — nor of how any single format renders (that is
+fileview's). The diagram below draws the **full target** shape, including the
+parts still deferred: a `<Browser>` component that composes `@kolu/solid-fileview`
+to draw whatever a location resolves to. Today the host (`CodeTab`) keeps both
+rendering paths and consumes only the history controller + the path utilities —
+so the package depends on `@kolu/solid-fileview` only *once `<Browser>` lands*,
+not now (see the phase-2 as-built callout for why `<Browser>` is deferred).
 
 <D2
-  caption="Architectural connections — the dependency arrow points out of the client; the browser composes the viewport, which drives the appliances. git lives only in the injected resolver."
+  caption="Architectural connections — the target shape. SOLID edges are shipped (CodeTab drives createBrowser; the package depends only on @kolu/url-shape + solid-js). DASHED edges (mounts <Browser>, composes <FileView>, the gitResolver injection) are DEFERRED — see the phase-2 callout. git lives only in the injected resolver."
   code={`
 direction: down
 
 kolu: "kolu app — the consumer" {
   CodeTab: "right-panel/CodeTab.tsx"
-  gitResolver: "gitResolver.ts (git domain)"
+  gitResolver: "gitResolver.ts (git domain) — deferred"
 }
 
 browser: "@kolu/solid-browser — the electricity" {
   location
-  history: "history (back / forward)"
-  linkNav: "linkNav (resolve + intercept)"
+  history: "createBrowser (back / forward) — shipped"
+  linkNav: "linkNav (resolve + intercept) — shipped"
+  browserComp: "<Browser> — deferred"
 }
 
 fileview: "@kolu/solid-fileview — the viewport (one FileData + toggle)"
@@ -129,15 +136,23 @@ appliances: "appliances" {
   pierre: "@kolu/solid-pierre"
 }
 
-kolu.CodeTab -> browser: "mounts <Browser>, injects renderers"
-kolu.gitResolver -> browser: "resolve(location) -> FileData"
-browser -> fileview: "composes"
+kolu.CodeTab -> browser.history: "records / replays navigation (shipped)"
+kolu.CodeTab -> browser.browserComp: "mounts <Browser>, injects renderers (deferred)" {
+  style.stroke-dash: 4
+}
+kolu.gitResolver -> browser.browserComp: "resolve(location) -> FileData (deferred)" {
+  style.stroke-dash: 4
+}
+browser.browserComp -> fileview: "composes (deferred)" {
+  style.stroke-dash: 4
+}
 fileview -> appliances.md: "draws"
 fileview -> appliances.pierre: "draws"
 `}
 />
 
-What the host **injects** is exactly the volatility kolu owns:
+Once `<Browser>` lands, what the host **injects** is exactly the volatility kolu
+owns:
 
 - **`resolve(location) → FileData`** — the only part that knows "repo-relative
   path + git mode → file bytes," producing the `{ path, source?, url? }`
@@ -256,7 +271,7 @@ originating discussion):
 
 | Package | Contents |
 | --- | --- |
-| `packages/solid-browser` <Pill variant="ok">phases 1 + 2</Pill> | Shipped: `relativePath.ts` + `previewPath.ts` (phase 1) and `createBrowser.ts` — the generic reactive **history** controller (phase 2) — with 39 unit tests + a standalone [`example/docsite`](https://github.com/juspay/kolu/tree/md-back-link/packages/solid-browser/example/docsite) second host. deps: `@kolu/url-shape` (the DOM-free `hasOwnScheme` leaf) + `solid-js` (`createBrowser`'s reactive stack). `<Browser>` composing `<FileView>` stays **deferred** (see the phase-2 as-built callout). Zero kolu imports; builds + tests standalone. |
+| `packages/solid-browser` <Pill variant="ok">phases 1 + 2</Pill> | Shipped: `relativePath.ts` + `previewPath.ts` (phase 1) and `createBrowser.ts` — the generic reactive **history** controller (phase 2) — with 42 unit tests + a standalone [`example/docsite`](https://github.com/juspay/kolu/tree/md-back-link/packages/solid-browser/example/docsite) second host. deps: `@kolu/url-shape` (the DOM-free `hasOwnScheme` leaf) + `solid-js` (`createBrowser`'s reactive stack). `<Browser>` composing `<FileView>` stays **deferred** (see the phase-2 as-built callout). Zero kolu imports; builds + tests standalone. |
 
 **kolu — the consumer, now just git + chrome:**
 

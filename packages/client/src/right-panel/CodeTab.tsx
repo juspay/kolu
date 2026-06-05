@@ -114,6 +114,15 @@ const CodeTab: Component<{
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
 
+  // History records repo-relative `{ mode, path }` locations with no repo
+  // identity of their own, so a stack captured in repo A must not be replayed
+  // against repo B after a `cd`. Drop the active terminal's history whenever
+  // its repo changes — back/forward then only ever retraces locations from the
+  // repo currently shown, and the next selection re-seeds the fresh stack.
+  // `defer` so a freshly seeded (session-restore) stack survives the initial
+  // mount; only genuine repo transitions reset it.
+  createEffect(on(repoPath, () => rightPanel.resetHistory(), { defer: true }));
+
   // Dismiss any open comment composer when the user navigates away from
   // the file/mode/repo the draft was anchored to. Without this, the
   // composer floats over a different file's content and the user has
@@ -896,6 +905,17 @@ const CodeTab: Component<{
                   } else {
                     setView("browse");
                     setSelectedPath(comment.path);
+                    // A no-line comment jump moves the visible file just like a
+                    // tree click — record it so back/forward retraces it too.
+                    // The lineRange branch above records via the `openInCodeTab`
+                    // → resolution-effect pipeline; this plain selection has no
+                    // such funnel, so record it explicitly here. Idempotent on
+                    // mode+path, so jumping to the already-shown file is a
+                    // harmless in-place refresh, not a duplicate entry.
+                    rightPanel.recordNavigation({
+                      mode: "browse",
+                      path: comment.path,
+                    });
                   }
                   // Carry the comment's surface so the dispatcher flips the
                   // Source ⇄ Rendered toggle back to it before the overlay

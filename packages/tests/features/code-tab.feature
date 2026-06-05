@@ -413,6 +413,34 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "ccc"
     And the Code tab "forward" button should be disabled
 
+  # Regression: history records repo-relative `{ mode, path }` with no repo
+  # identity of its own, so it must be scoped to the repo it was captured in.
+  # When the SAME terminal `cd`s from one repo to another that happens to hold a
+  # same-named file, re-applying a stale entry would open the wrong file (the
+  # other repo's `shared.txt`). The history reset on `repoPath()` change makes
+  # back/forward scoped to the repo currently shown: after the `cd`, the fresh
+  # stack has only the new repo's selection, so "back" is disabled and the old
+  # repo's content is never reachable.
+  Scenario: Code tab history is scoped per repo — back cannot cross a cd into another repo
+    When I run "rm -rf /tmp/kolu-hist-a && git init /tmp/kolu-hist-a && cd /tmp/kolu-hist-a"
+    And I run "printf 'from-repo-A\n' > shared.txt && printf 'only-in-A\n' > a-only.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "a-only.txt" in the file browser
+    Then the selected file should show content "only-in-A"
+    When I click the file "shared.txt" in the file browser
+    Then the selected file should show content "from-repo-A"
+    # Two entries recorded in repo A — back is live here.
+    And the Code tab "back" button should be enabled
+    When I run "rm -rf /tmp/kolu-hist-b && git init /tmp/kolu-hist-b && cd /tmp/kolu-hist-b"
+    And I run "printf 'from-repo-B\n' > shared.txt && git add . && git commit -m init"
+    When I click the file "shared.txt" in the file browser
+    Then the selected file should show content "from-repo-B"
+    # History was reset on the repo change: the B stack holds only this one
+    # entry, so back is disabled and can never surface repo A's "from-repo-A".
+    And the Code tab "back" button should be disabled
+
   Scenario: File browser wraps long lines by default
     When I run "git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
     And I run "printf 'prefix-' > long.txt && printf '%*s' 240 '' | tr ' ' x >> long.txt && printf '\n' >> long.txt"
@@ -1180,6 +1208,37 @@ Feature: Code tab (review + browse)
     When I click the tray comment "jump-back comment"
     Then the file view should be showing "rendered"
     And the markdown preview should be visible
+
+  # Regression: a tray jump to a comment with NO source lineRange (a
+  # rendered-Markdown / prose comment) used to bypass the history front door —
+  # it set the browse view + selection directly without recording. Back/forward
+  # then skipped the jump even though it moved the visible file. The no-line
+  # branch now records the navigation, so after jumping to the comment's file
+  # from a different file, "back" is enabled and returns to where you were.
+  Scenario: No-line comment tray jump records Code tab history
+    When I run "rm -rf /tmp/kolu-comments-md-history && git init /tmp/kolu-comments-md-history && cd /tmp/kolu-comments-md-history"
+    And I run "printf '# Doc Title\n\nmd-history-marker in the body.\n' > README.md && printf 'other-file-body\n' > other.txt && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "md-history-marker"
+    When I select text "md-history-marker" in the markdown preview
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "history-tray comment" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should contain "history-tray comment"
+    # Move to another file so the tray jump back to README is a real transition.
+    When I click the file "other.txt" in the file browser
+    Then the selected file should show content "other-file-body"
+    # Jump via the tray to the no-line comment on README — this records history.
+    When I click the tray comment "history-tray comment"
+    Then the markdown preview should be visible
+    # The jump was recorded, so back retraces it to the file we left.
+    And the Code tab "back" button should be enabled
+    When I go back in the Code tab
+    Then the selected file should show content "other-file-body"
 
   # Regression (#1162): the rendered Markdown preview reassigns its innerHTML
   # AFTER mount — the lazy Shiki highlighter warms and the html memo re-runs,

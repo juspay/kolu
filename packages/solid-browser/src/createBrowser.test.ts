@@ -109,6 +109,44 @@ describe("createBrowser", () => {
     expect(b.current()).toEqual({ id: 2 });
   });
 
+  it("caps the stack, evicting the oldest entries and keeping the cursor on the latest", () => {
+    const b = createBrowser<number>({ maxEntries: 3 });
+    b.navigate(1);
+    b.navigate(2);
+    b.navigate(3);
+    expect(b.length()).toBe(3);
+    // The fourth push evicts entry 1; cursor stays on the newest.
+    b.navigate(4);
+    expect(b.length()).toBe(3);
+    expect(b.current()).toBe(4);
+    expect(b.canForward()).toBe(false);
+    // Back/forward now retrace only the retained window [2, 3, 4].
+    expect(b.back()).toBe(3);
+    expect(b.back()).toBe(2);
+    expect(b.back()).toBe(null); // 1 fell off the front
+    expect(b.current()).toBe(2);
+  });
+
+  it("maxEntries: Infinity disables the cap", () => {
+    const b = createBrowser<number>({ maxEntries: Number.POSITIVE_INFINITY });
+    for (let i = 0; i < 500; i++) b.navigate(i);
+    expect(b.length()).toBe(500);
+  });
+
+  it("the in-place refresh never grows the stack past the cap", () => {
+    type Loc = { id: number; ref?: number };
+    const b = createBrowser<Loc>({
+      isSameEntry: (a, c) => a.id === c.id,
+      maxEntries: 2,
+    });
+    b.navigate({ id: 1 });
+    b.navigate({ id: 2 });
+    // Same logical page as the current entry — refresh in place, no growth.
+    b.navigate({ id: 2, ref: 9 });
+    expect(b.length()).toBe(2);
+    expect(b.current()).toEqual({ id: 2, ref: 9 });
+  });
+
   it("accessors reflect mutations (they read live signals)", () => {
     const b = createBrowser<string>();
     expect(b.canBack()).toBe(false);
