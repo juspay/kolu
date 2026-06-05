@@ -641,9 +641,9 @@ importers:
 
   packages/solid-browser:
     dependencies:
-      '@kolu/solid-markdown':
+      '@kolu/url-shape':
         specifier: workspace:*
-        version: link:../solid-markdown
+        version: link:../url-shape
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -670,6 +670,9 @@ importers:
       '@kolu/html-escape':
         specifier: workspace:*
         version: link:../html-escape
+      '@kolu/url-shape':
+        specifier: workspace:*
+        version: link:../url-shape
       dompurify:
         specifier: ^3.2.4
         version: 3.4.8
@@ -1037,6 +1040,12 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/url-shape:
+    devDependencies:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3

@@ -5,9 +5,9 @@
  *  GitHub does. It knows nothing about git, repos, or kolu — a "document path"
  *  is whatever opaque string the host resolves content from. */
 
-// `/url-policy` is the DOM-free subpath — importing the package root would drag
-// in the `<Markdown>` component (and `solid-js/web`); this stays node-pure.
-import { hasOwnScheme } from "@kolu/solid-markdown/url-policy";
+// `hasOwnScheme` lives in the zero-dep `@kolu/url-shape` leaf, so this resolver
+// stays node-pure — no edge into `@kolu/solid-markdown` (solid-js + DOMPurify).
+import { hasOwnScheme } from "@kolu/url-shape";
 
 /** Resolve a repo-relative ref (image `src` or link `href`) to a document path,
  *  applying GitHub's rules: a relative ref resolves against the source

@@ -1,5 +1,5 @@
 {
-  "name": "@kolu/solid-browser",
+  "name": "@kolu/url-shape",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -11,14 +11,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
-    "vitest": "^4.1.0"
-  },
-  "dependencies": {
-    "@kolu/url-shape": "workspace:*"
+    "typescript": "^5.8.0"
   }
 }

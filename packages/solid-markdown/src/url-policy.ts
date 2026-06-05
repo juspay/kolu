@@ -5,6 +5,16 @@
  *  to inline-HTML anchors + decides which image srcs load as written. DOM-free,
  *  so the parse contract stays Node-testable. */
 
+// `hasOwnScheme` is the pure URL-*shape* predicate (does a ref carry its own
+// origin?), distinct from this module's *policy* (which schemes are allowed).
+// It lives in the zero-dep `@kolu/url-shape` leaf so `@kolu/solid-browser`'s
+// relative-resolver can share it without depending on this (solid-js +
+// DOMPurify) package; re-exported here so `safeHref`/`sanitize` callers keep
+// their existing import surface.
+import { hasOwnScheme } from "@kolu/url-shape";
+
+export { hasOwnScheme };
+
 /** Allowlist a URL for use as an `href`. Returns the original string when
  *  safe, else `undefined` (the caller then renders inert text). DOM-free:
  *  resolves relative refs against a fixed base so we can read the *effective*
@@ -29,21 +39,6 @@ export function safeHref(href: string): string | undefined {
     url.protocol === "https:" ||
     url.protocol === "mailto:";
   return ok ? trimmed : undefined;
-}
-
-/** Does this ref carry an origin/scheme of its own — i.e. it is NOT a bare
- *  repo-relative path? True for a protocol-relative `//host`, anything with a
- *  scheme (`https:`, `data:`, `mailto:`, …), and an in-page `#anchor`. The
- *  image resolver uses this to bail before treating a src as a repo path; it is
- *  the shape decision shared with `safeHref` (which then *allowlists* among the
- *  schemes), kept in one place so "has its own origin" is encoded once. */
-export function hasOwnScheme(src: string): boolean {
-  const trimmed = src.trim();
-  return (
-    trimmed.startsWith("#") || // in-page anchor (own "origin": this document)
-    trimmed.startsWith("//") || // protocol-relative `//host`
-    /^[a-z][a-z0-9+.-]*:/i.test(trimmed) // an explicit scheme
-  );
 }
 
 /** An image that loads directly as written — an absolute http(s) URL or an
