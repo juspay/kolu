@@ -38,7 +38,7 @@ import { isMobile, isTouch } from "../useMobile";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
-import { renderTreeContextMenu } from "../ui/pierreAdapters";
+import { makeTreeContextMenu } from "../ui/pierreAdapters";
 import {
   pierreIconConfig,
   pierreTreesShadowCss,
@@ -105,6 +105,21 @@ const CodeTab: Component<{
   // wipes selection on every Inspector round-trip in non-local modes.
   const view = rightPanel.codeMode;
   const setView = rightPanel.setCodeMode;
+
+  // Tree right-click menu: "Copy path" plus view-switch entries (All files ⇄
+  // git diff). Built once — `nav.view()` is read fresh on each right-click, so
+  // the closure tracks the live mode even though Pierre snapshots the menu
+  // config at mount. Navigation seeds the destination view's selection slot
+  // *before* switching so the same file lands selected there (a file with no
+  // diff falls out of the changed set and the membership effect clears it —
+  // the view still switches, which is the asked-for behavior).
+  const renderTreeMenu = makeTreeContextMenu({
+    view,
+    navigate: (target, path) => {
+      if (path !== null) rightPanel.setSelectedFile(target, path);
+      setView(target);
+    },
+  });
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
 
@@ -599,7 +614,7 @@ const CodeTab: Component<{
                       contextMenu={{
                         enabled: true,
                         triggerMode: "both",
-                        render: renderTreeContextMenu,
+                        render: renderTreeMenu,
                       }}
                       onError={(err) =>
                         toast.error(`File tree render failed: ${err.message}`)

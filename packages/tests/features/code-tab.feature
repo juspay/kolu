@@ -363,6 +363,35 @@ Feature: Code tab (review + browse)
     And I click the context menu item "Copy path"
     Then the clipboard should contain "api/handler.ts"
 
+  # ── Pierre tree right-click menu (view switching) ──
+  # The menu carries view-switch entries so a right-click on a file row jumps
+  # straight to that file in another view: All files → "Open git diff" lands in
+  # the Branch diff; a git-diff view → "Open in All files" returns to browse.
+  # The clicked file rides along as the destination view's selection.
+
+  Scenario: Right-click in All files opens the git diff
+    When I run "git init /tmp/kolu-tree-togit && cd /tmp/kolu-tree-togit"
+    And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
+    And I run "printf 'two\n' >> seed.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab mode should be "browse"
+    When I right-click the changed file "seed.txt" in the Code tab
+    And I click the context menu item "Open git diff"
+    Then the Code tab mode should be "branch"
+
+  Scenario: Right-click in a git diff returns to All files
+    When I run "git init /tmp/kolu-tree-tobrowse && cd /tmp/kolu-tree-tobrowse"
+    And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
+    And I run "printf 'two\n' >> seed.txt"
+    And I click the Code tab
+    Then the Code tab mode should be "local"
+    And the Code tab should list a changed file "seed.txt"
+    When I right-click the changed file "seed.txt" in the Code tab
+    And I click the context menu item "Open in All files"
+    Then the Code tab mode should be "browse"
+    And the file "seed.txt" should be selected in the file browser
+
   # ── Browse mode: file tree + content viewer ──
 
   Scenario: File browser shows the repo file tree
