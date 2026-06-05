@@ -7,13 +7,13 @@ that drives it.
 
 ## What's here (phase 1 — navigation primitives)
 
-- **`linkNav.ts`** — pure, framework-free navigation math:
-  - `resolveRelativePath` / `resolveLinkHref` — resolve a repo-relative ref the
-    way GitHub does (against the source document's directory; root-absolute from
-    the root; reject own-scheme refs and traversal that escapes the root).
-  - `pathFromPreviewPathname` — invert a sandboxed preview's reported
-    `location.pathname` back to a document path, with the URL **codec injected**
-    (the host owns its own preview-URL encoding).
+- **`relativePath.ts`** — `resolveRelativePath` / `resolveLinkHref`: resolve a
+  repo-relative ref the way GitHub does (against the source document's directory;
+  root-absolute from the root; reject own-scheme refs and traversal that escapes
+  the root).
+- **`previewPath.ts`** — `pathFromPreviewPathname`: invert a sandboxed preview's
+  reported `location.pathname` back to a document path, with the URL **codec
+  injected** (the host owns its own preview-URL encoding).
 
 ## Roadmap (phase 2 — the browser proper)
 

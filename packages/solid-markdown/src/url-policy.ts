@@ -9,8 +9,7 @@
 // origin?), distinct from this module's *policy* (which schemes are allowed).
 // It lives in the zero-dep `@kolu/url-shape` leaf so `@kolu/solid-browser`'s
 // relative-resolver can share it without depending on this (solid-js +
-// DOMPurify) package; re-exported here so `safeHref`/`sanitize` callers keep
-// their existing import surface.
+// DOMPurify) package.
 import { hasOwnScheme } from "@kolu/url-shape";
 
 export { hasOwnScheme };
