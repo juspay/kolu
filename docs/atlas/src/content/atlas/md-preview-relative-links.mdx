@@ -1,0 +1,169 @@
+---
+title: "Markdown preview: repo-relative links open the target file"
+description: Plan — make a repo-relative Markdown link open the linked file in the Code tab (mirroring how relative images already resolve) instead of booting a bogus app SPA in a new browser tab.
+kind: bug
+status: proposed
+maturity: seedling
+parents: [solid-fileview]
+updated: 2026-06-04
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+
+Plan of record · branch `md-preview-rellink` · [issue #1161](https://github.com/juspay/kolu/issues/1161)
+
+export const FlowMockup = () => (
+  <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "1.5rem 0", fontFamily: "ui-sans-serif,system-ui" }}>
+    {[
+      {
+        tag: "today — broken",
+        tagBg: "#fdecea", tagFg: "#b42318", border: "#f3c9c4",
+        title: "[the limitations doc](packages/solid-markdown/LIMITATIONS.md)",
+        steps: [
+          "anchor stamped target=_blank rel=noopener",
+          "browser resolves href against the app origin",
+          "opens http://localhost:5173/packages/…/LIMITATIONS.md",
+        ],
+        outcome: "✗ a fresh kolu SPA boots at a bogus route — the file never opens",
+        outcomeFg: "#b42318",
+      },
+      {
+        tag: "this plan — fixed",
+        tagBg: "#e3f4e9", tagFg: "#1b7a3a", border: "#bce3c8",
+        title: "[the limitations doc](packages/solid-markdown/LIMITATIONS.md)",
+        steps: [
+          "scheme-less anchor tagged, no target=_blank",
+          "click intercepted → host callback onNavigateRelative",
+          "resolved vs the doc's dir → openInCodeTab front door",
+        ],
+        outcome: "✓ LIMITATIONS.md opens in the Code tab's browse view — the app origin is never navigated",
+        outcomeFg: "#1b7a3a",
+      },
+    ].map((c) => (
+      <div style={{ flex: "1 1 19rem", border: `1px solid ${c.border}`, borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 12px rgba(0,0,0,.06)" }}>
+        <div style={{ padding: ".4rem .8rem", background: c.tagBg, color: c.tagFg, font: "600 .72rem/1 ui-monospace,monospace", borderBottom: `1px solid ${c.border}` }}>{c.tag}</div>
+        <div style={{ padding: ".9rem 1rem", background: "#fff" }}>
+          <code style={{ display: "block", fontSize: ".7rem", color: "#3454d1", background: "#f5f7ff", border: "1px solid #e2e8ff", borderRadius: "6px", padding: ".4rem .55rem", marginBottom: ".7rem", wordBreak: "break-all" }}>{c.title}</code>
+          <ol style={{ margin: 0, paddingLeft: "1.1rem", fontSize: ".76rem", color: "#4a4f57", lineHeight: 1.5 }}>
+            {c.steps.map((s) => <li>{s}</li>)}
+          </ol>
+          <div style={{ marginTop: ".75rem", paddingTop: ".6rem", borderTop: "1px dashed #e6e2d6", fontSize: ".76rem", fontWeight: 600, color: c.outcomeFg }}>{c.outcome}</div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+## What a user sees
+
+In the Code tab's rendered Markdown preview, a repo-relative link — say
+`[the limitations doc](packages/solid-markdown/LIMITATIONS.md)` — should open
+that file in the Code tab, the way it does on GitHub. Today it opens a **new
+browser tab at the app origin** (`http://localhost:5173/packages/…/LIMITATIONS.md`),
+which just boots a fresh kolu SPA at a route that means nothing. The linked file
+never opens.
+
+Relative **images** already do the right thing — a README's `![](docs/logo.png)`
+renders the real image through the per-terminal file route. Relative **links**
+have no equivalent. This plan gives them one.
+
+<FlowMockup />
+
+<Callout kind="danger" title="Root cause">
+The link pipeline never distinguishes a *repo-relative* href from a *real
+external* one. The scheme allowlist resolves a scheme-less path against a fake
+base, sees `https:`, and declares it safe; the link policy then stamps
+`target="_blank" rel="noopener noreferrer"`. On click the browser resolves the
+relative href against the *real* document origin and opens the bogus URL. Nothing
+in the chain recognises "this is a path inside the repo."
+</Callout>
+
+## Shape of the fix — wire links the way images are wired
+
+The change reuses an existing seam rather than inventing one. Relative images are
+resolved by a host callback that the preview component already accepts; links get
+a parallel callback, and clicks route through the **same front door** every other
+"open this file in the Code tab" producer uses (terminal `path:line` links, the
+right-click *Open path* menu).
+
+<Callout kind="accent" title="Data flow — anchor click → file opens">
+scheme-less anchor (tagged, **not** `target=_blank`) → click intercepted in the
+preview → host callback `onNavigateRelative(href)` → resolve href against the
+**previewed doc's directory** → `openInCodeTab({ targetMode: "browse" })` → Code
+tab reveals the target file. The app origin is never navigated.
+</Callout>
+
+Three layers move, each a thin pass-through — the shape mirrors the image path
+exactly:
+
+| Layer | Today (images) | Added (links) |
+| --- | --- | --- |
+| `@kolu/solid-markdown` | accepts `resolveImageSrc`; rewrites `<img>` src | tags scheme-less anchors, intercepts their click, calls a new optional `onNavigateRelative(path)` host callback |
+| `@kolu/solid-fileview` renderer | threads `resolveImageSrc` | threads the new link callback |
+| `right-panel/BrowseFileDispatcher` | resolves image src vs the doc's dir | resolves the href vs the doc's dir, then calls `openInCodeTab` |
+
+<Callout kind="good" title="One concept, two consumers">
+Resolving a Markdown-relative ref to a repo-relative path (GitHub rules: relative
+to the doc's own directory, root-absolute from the repo root, reject traversal
+that escapes the repo) is **one** idea. Today it lives inside the image resolver.
+The plan factors that core out so the link path and the image path share it — the
+image resolver keeps wrapping it into a file-route URL; the link path feeds the
+repo-relative result to the Code-tab front door. No second copy of the
+path-normalisation rules.
+</Callout>
+
+## Why route through the existing front door
+
+`openInCodeTab` is the single producer-side entry point for "show this file in the
+Code tab." Reusing it means relative links inherit, for free, the behaviour the
+team already debugged for terminal links:
+
+- A href that resolves to **any** repo file opens it — not just other Markdown.
+- A href that resolves to **nothing in the repo** surfaces a toast (the front
+  door's existing miss path), which is strictly better than a bogus new tab.
+- Desktop uncollapse / mobile drawer / re-click-after-collapse all already work.
+
+The alternative — teaching the preview to navigate on its own — would duplicate
+that front-door logic and re-open bugs (#1161's sibling: the production
+effect-ordering elision the front door was built to sidestep). Rejected.
+
+## Trade-offs & scope
+
+<Callout kind="warn" title="In scope">
+Repo-relative links (no scheme) that resolve to a path inside the repo. Both
+Markdown `[]()` links and raw inline `<a href=…>`. External links
+(`https://`, `mailto:`) keep today's new-tab-with-severed-opener behaviour
+untouched.
+</Callout>
+
+- **Fragments on a relative path** (`LIMITATIONS.md#known-issues`) — the path
+  opens; scrolling to the heading inside the freshly-opened doc is **out of
+  scope** for this fix (a future follow-up, tracked as a known limitation).
+- **No host callback wired** (compact/inline Markdown slots, or a future embedder
+  that doesn't pass it) — the scheme-less anchor simply doesn't navigate rather
+  than opening a bogus tab. Document-variant preview always wires it.
+- **`LIMITATIONS.md`** — the package's known-limitation note that documents
+  today's broken behaviour is removed (or its entry retired) once this lands,
+  since the limitation no longer holds.
+
+## Test gap to close
+
+<Callout kind="danger" title="The existing e2e codified the bug as correct">
+`code-tab.feature`'s "applies the link policy to raw inline anchors" scenario only
+asserts a relative anchor is *kept* with `target=_blank`/`rel=noopener` — it never
+**clicks** it. So it blessed the new-tab markup and was blind to the bogus
+destination.
+</Callout>
+
+This is a bug fix, so the reproducing test comes first (red → green):
+
+- **New scenario** — render a doc with a repo-relative link, **click it**, assert
+  the target file opens in the Code tab's browse view **and** that the app origin
+  was never navigated. This is the failing test that captures #1161.
+- **Correct the existing scenario** — a scheme-less anchor is no longer expected
+  to carry `target=_blank`; it's expected to be tagged for interception. The
+  unsafe-scheme (`javascript:`) and genuine-external assertions stay.
+- **Unit** — the factored-out Markdown-relative-path resolver gets table tests
+  shared in spirit with the image resolver's cases (doc-dir relative,
+  root-absolute, `..`-escape rejected, percent-decode).
