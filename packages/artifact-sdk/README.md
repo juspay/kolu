@@ -1,9 +1,12 @@
 # @kolu/artifact-sdk
 
-Self-contained comments-on-files toolkit. Captures user text selections
-inside Kolu's Code tab — source files, branch diffs, and HTML artifacts
-rendered in a sandboxed iframe — and turns each one into a W3C-style
-quote anchor that survives file edits.
+The in-iframe sandbox bridge for Kolu's Code-tab preview seam — the single
+script that runs in the opaque-origin iframe and forwards the in-frame
+intents the sandbox traps (text selection, same-frame link nav, mouse
+back/forward) to the parent. Comments-on-files is one client of it: it
+captures user text selections inside Kolu's Code tab — source files, branch
+diffs, and HTML artifacts rendered in a sandboxed iframe — and turns each
+one into a W3C-style quote anchor that survives file edits.
 
 ## Layout
 

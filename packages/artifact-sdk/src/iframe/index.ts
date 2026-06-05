@@ -5,13 +5,18 @@
  *  alone; the parent validates by `event.source === iframeRef.contentWindow`
  *  identity since `event.origin` is `"null"` under the opaque sandbox.
  *
- *  Three responsibilities:
- *    1. Capture text selections inside the iframe document, build a Locator
- *       via the shared `extractQuote`, and surface a floating "+ Comment"
- *       pill at the selection's end.
- *    2. On pill click, post `SelectMsg` to the parent.
- *    3. Apply CSS Custom Highlights for the comment set the parent pushes
- *       via `RenderHighlightsMsg`. */
+ *  This is the single in-iframe agent in the opaque-origin sandbox. It
+ *  forwards to the parent the in-frame intents the sandbox traps — events
+ *  that never reach the parent because they fire inside the frame:
+ *    - Text selection → on pill click, post `SelectMsg` (built from a
+ *      Locator via the shared `extractQuote`, surfaced as a floating
+ *      "+ Comment" pill at the selection's end).
+ *    - Same-frame link navigation → `ReadyMsg.pathname` on every boot, so
+ *      the parent learns where a link click went.
+ *    - Mouse back/forward (X1/X2) → `HistoryMsg`, so the parent drives its
+ *      own history.
+ *  It also applies CSS Custom Highlights for the comment set the parent
+ *  pushes via `RenderHighlightsMsg`. */
 
 import { attachBackForwardMouse } from "@kolu/solid-browser/backForward";
 import { match } from "ts-pattern";
