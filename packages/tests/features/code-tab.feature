@@ -365,20 +365,35 @@ Feature: Code tab (review + browse)
 
   # ── Pierre tree right-click menu (view switching) ──
   # The menu carries view-switch entries so a right-click on a file row jumps
-  # straight to that file in another view: All files → "Open git diff" lands in
-  # the Branch diff; a git-diff view → "Open in All files" returns to browse.
-  # The clicked file rides along as the destination view's selection.
+  # straight to that file in another view: All files → "Open Local diff" /
+  # "Open Branch diff"; a git-diff view → "Open in All files" returns to
+  # browse. The clicked file rides along as the destination view's selection,
+  # so the destination must actually render that file's diff — not just flip
+  # the mode chip. Browse lists the whole repo, so it offers BOTH git targets:
+  # Local (always available, includes untracked) and Branch (vs origin base).
 
-  Scenario: Right-click in All files opens the git diff
-    When I run "git init /tmp/kolu-tree-togit && cd /tmp/kolu-tree-togit"
+  Scenario: Right-click in All files opens the Local diff of that file
+    When I run "git init /tmp/kolu-tree-tolocal && cd /tmp/kolu-tree-tolocal"
     And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
     And I run "printf 'two\n' >> seed.txt"
     And I click the Code tab
     And I click the Code tab mode "browse"
     Then the Code tab mode should be "browse"
     When I right-click the changed file "seed.txt" in the Code tab
-    And I click the context menu item "Open git diff"
+    And I click the context menu item "Open Local diff"
+    Then the Code tab mode should be "local"
+    And the file "seed.txt" should be selected in the file browser
+    And the Code tab should render a diff view
+
+  Scenario: Right-click in All files opens the Branch diff of that file
+    Given a Code tab in "branch" mode showing file "seed.txt" with content "two"
+    When I click the Code tab mode "browse"
+    Then the Code tab mode should be "browse"
+    When I right-click the changed file "seed.txt" in the Code tab
+    And I click the context menu item "Open Branch diff"
     Then the Code tab mode should be "branch"
+    And the file "seed.txt" should be selected in the file browser
+    And the Code tab should render a diff view
 
   Scenario: Right-click in a git diff returns to All files
     When I run "git init /tmp/kolu-tree-tobrowse && cd /tmp/kolu-tree-tobrowse"

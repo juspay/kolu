@@ -107,12 +107,15 @@ const CodeTab: Component<{
   const setView = rightPanel.setCodeMode;
 
   // Tree right-click menu: "Copy path" plus view-switch entries (All files ⇄
-  // git diff). Built once — `nav.view()` is read fresh on each right-click, so
-  // the closure tracks the live mode even though Pierre snapshots the menu
-  // config at mount. Navigation seeds the destination view's selection slot
-  // *before* switching so the same file lands selected there (a file with no
-  // diff falls out of the changed set and the membership effect clears it —
-  // the view still switches, which is the asked-for behavior).
+  // Local / Branch diff). Built once — `nav.view()` is read fresh on each
+  // right-click, so the closure tracks the live mode even though Pierre
+  // snapshots the menu config at mount. For a file row, navigation seeds the
+  // destination view's selection slot *before* switching so the same file
+  // lands selected there (a file absent from that view's changed set — e.g. an
+  // untracked file in Branch mode, or anything in a base-less Branch — falls
+  // out and the membership effect clears it; the view still switches, the
+  // asked-for behavior). For a directory row `path` is null (directories
+  // aren't selectable), so the target keeps its own last pick.
   const renderTreeMenu = makeTreeContextMenu({
     view,
     navigate: (target, path) => {

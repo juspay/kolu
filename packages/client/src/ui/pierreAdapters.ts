@@ -22,21 +22,35 @@ import { writeTextToClipboard } from "./clipboard";
 export type TreeContextMenuNav = {
   /** Current Code-tab view — read at right-click time, not factory time. */
   view: () => CodeTabView;
-  /** Switch the Code tab to `target`, carrying `path` as that view's
-   *  selection (null = just switch the view, select nothing). */
+  /** Switch the Code tab to `target`. A non-null `path` becomes that view's
+   *  selection (the clicked file rides along). `null` (directory right-click —
+   *  directories aren't selectable) leaves the target's selection slot
+   *  untouched, so it restores its own last pick per the per-slot design. */
   navigate: (target: CodeTabView, path: string | null) => void;
 };
 
-/** View-switch entries offered for the current `view`. Browse (All files)
- *  jumps into the Branch diff; either git-diff view can return to All files
- *  or flip to its sibling diff. The entries name the *destination* the way
- *  the mode picker does (All files / Local / Branch). */
+/** View-switch entries offered for the current `view`. Each view offers the
+ *  two it isn't: Browse (All files) jumps into either git-diff view; either
+ *  git-diff view can return to All files or flip to its sibling diff. The
+ *  entries name the *destination* the way the mode picker does (All files /
+ *  Local / Branch).
+ *
+ *  Browse lists the *whole repo*, so a clicked file may be unmodified, an
+ *  untracked add, or a tracked edit. Local (working tree vs HEAD) is the
+ *  always-available diff — no remote needed, and it's the only one that
+ *  shows untracked files — so it leads. Branch (vs `origin/<default>`) can
+ *  be base-less or exclude the file; offering it explicitly lets the user
+ *  pick, rather than hard-coding a single git target that may not hold the
+ *  file (which would just clear the selection or surface the Branch error). */
 function navEntriesFor(
   view: CodeTabView,
 ): readonly { label: string; target: CodeTabView }[] {
   switch (view) {
     case "browse":
-      return [{ label: "Open git diff", target: "branch" }];
+      return [
+        { label: "Open Local diff", target: "local" },
+        { label: "Open Branch diff", target: "branch" },
+      ];
     case "local":
       return [
         { label: "Open in All files", target: "browse" },
