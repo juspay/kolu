@@ -1,4 +1,8 @@
 export {
+  attachBackForwardMouse,
+  mouseButtonDirection,
+} from "./backForwardInput";
+export {
   type Browser,
   createBrowser,
   type CreateBrowserOptions,

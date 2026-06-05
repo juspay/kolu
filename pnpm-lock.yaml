@@ -24,6 +24,9 @@ importers:
 
   packages/artifact-sdk:
     dependencies:
+      '@kolu/solid-browser':
+        specifier: workspace:*
+        version: link:../solid-browser
       esbuild:
         specifier: ^0.25.0
         version: 0.25.12

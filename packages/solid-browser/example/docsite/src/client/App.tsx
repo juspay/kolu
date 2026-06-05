@@ -1,3 +1,4 @@
+import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { For, onCleanup, Show } from "solid-js";
 import { createDocSite } from "../docsite";
 import { DOCS, HOME } from "./docs";
@@ -11,26 +12,15 @@ export default function App() {
   const site = createDocSite(DOCS, HOME);
 
   // The mouse's dedicated back/forward (X1/X2) buttons drive the doc-site too —
-  // the whole app is the browser here, so listen app-wide. preventDefault on
-  // both down and up so the page's own history isn't navigated as well.
-  const swallow = (e: MouseEvent) => {
-    if (e.button === 3 || e.button === 4) e.preventDefault();
-  };
-  const act = (e: MouseEvent) => {
-    if (e.button === 3) {
-      e.preventDefault();
-      site.back();
-    } else if (e.button === 4) {
-      e.preventDefault();
-      site.forward();
-    }
-  };
-  window.addEventListener("mousedown", swallow);
-  window.addEventListener("mouseup", act);
-  onCleanup(() => {
-    window.removeEventListener("mousedown", swallow);
-    window.removeEventListener("mouseup", act);
-  });
+  // the whole app is the browser here, so listen app-wide. The shared binder
+  // owns the swallow/act/preventDefault protocol so the page's own history isn't
+  // navigated as well.
+  onCleanup(
+    attachBackForwardMouse(window, {
+      onBack: () => site.back(),
+      onForward: () => site.forward(),
+    }),
+  );
 
   return (
     <div class="app">

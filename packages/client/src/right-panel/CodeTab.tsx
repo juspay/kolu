@@ -14,6 +14,7 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
+import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type {
@@ -29,6 +30,7 @@ import {
   createSignal,
   Match,
   on,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -537,12 +539,14 @@ const CodeTab: Component<{
   // in a terminal. Two channels:
   //   - keyboard: Alt+←/→ (cross-platform; not in the global shortcut registry,
   //     so it can't shadow a PTY byte the way a `mod`-based chord would);
-  //   - mouse: the dedicated back/forward (X1/X2) buttons — `button` 3 and 4 —
-  //     with the app's own native history navigation suppressed via
-  //     preventDefault on both down and up, so the buttons drive the Code tab,
-  //     not the SPA.
+  //   - mouse: the dedicated back/forward (X1/X2) buttons, decoded by
+  //     `@kolu/solid-browser`'s shared `attachBackForwardMouse` — it owns the
+  //     button-number truth and the swallow-on-down / act-on-up /
+  //     preventDefault-on-both protocol so the buttons drive the Code tab, not
+  //     the SPA.
   // Both bubble through Pierre's shadow root, so an event over a tree row or the
-  // preview reaches here. `makeEventListener` auto-cleans on unmount.
+  // preview reaches here. `makeEventListener` auto-cleans on unmount; the
+  // mouse binder's disposer is tied to the component owner via `onCleanup`.
   const attachBackForwardInputs = (el: HTMLDivElement) => {
     makeEventListener(el, "keydown", (e) => {
       if (e.altKey && e.key === "ArrowLeft") {
@@ -553,20 +557,9 @@ const CodeTab: Component<{
         goForward();
       }
     });
-    // Swallow the X1/X2 buttons on the way down so the app doesn't start its own
-    // back/forward navigation; act on the way up.
-    makeEventListener(el, "mousedown", (e) => {
-      if (e.button === 3 || e.button === 4) e.preventDefault();
-    });
-    makeEventListener(el, "mouseup", (e) => {
-      if (e.button === 3) {
-        e.preventDefault();
-        goBack();
-      } else if (e.button === 4) {
-        e.preventDefault();
-        goForward();
-      }
-    });
+    onCleanup(
+      attachBackForwardMouse(el, { onBack: goBack, onForward: goForward }),
+    );
   };
 
   const treeError = (): Error | undefined =>
