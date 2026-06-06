@@ -7,9 +7,9 @@
  *  LAN/Tailscale IP (`canInstallPwa()` false) it pivots to the Tailscale fix
  *  rather than dangling a dead button. */
 
-import type { PwaInstall } from "@kolu/solid-pwa-install";
+import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import { type Component, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
@@ -24,12 +24,15 @@ const newTerminalKey =
 
 const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
   const app = useSurfaceApp();
-  const installLabel = () =>
-    props.install.canPrompt() ? "Install" : "How to install";
+  // Auto-detected, per-browser install steps — used when no one-click prompt is
+  // available (Safari/Firefox/iOS, or any plain-http origin). Manual install
+  // works over http; only the one-click prompt + app badge need a secure context.
+  const instr = () => installInstructions(props.install.platform());
 
   return (
     <div class="space-y-3" data-testid="welcome-moments">
-      {/* Pin it — context-aware install affordance */}
+      {/* Pin it — one-click where a real prompt exists, else inline per-browser
+          steps (manual install works over http; one-click + badge want HTTPS). */}
       <div class="flex items-start gap-3">
         <span class="text-base leading-5" aria-hidden="true">
           📌
@@ -43,21 +46,35 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
             }
           >
             <Show
-              when={app.canInstallPwa()}
+              when={props.install.canPrompt()}
               fallback={
-                <div
-                  class="text-xs text-fg-3"
-                  data-testid="welcome-install-insecure"
-                >
-                  Installing needs HTTPS.{" "}
-                  <a
-                    href={`${GUIDE_URL}#remote`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="text-accent hover:underline"
-                  >
-                    Set up Tailscale →
-                  </a>
+                <div data-testid="welcome-install-manual">
+                  <div class="text-xs text-fg-3">
+                    Add kolu as an app — its own window, dock icon, and a live
+                    agent badge.
+                  </div>
+                  <details class="mt-1 text-xs text-fg-3">
+                    <summary class="cursor-pointer text-accent hover:underline">
+                      {instr().title} →
+                    </summary>
+                    <ol class="mt-1 ml-4 list-decimal space-y-0.5">
+                      <For each={instr().steps}>{(s) => <li>{s}</li>}</For>
+                    </ol>
+                  </details>
+                  <Show when={!app.canInstallPwa()}>
+                    <div class="mt-1 text-xs text-fg-3">
+                      Want one-click install + the live badge? Serve over HTTPS
+                      —{" "}
+                      <a
+                        href={`${GUIDE_URL}#remote`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-accent hover:underline"
+                      >
+                        Tailscale →
+                      </a>
+                    </div>
+                  </Show>
                 </div>
               }
             >
@@ -67,14 +84,14 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
             </Show>
           </Show>
         </div>
-        <Show when={!app.isInstalled() && app.canInstallPwa()}>
+        <Show when={!app.isInstalled() && props.install.canPrompt()}>
           <button
             type="button"
             data-testid="welcome-install"
             class="shrink-0 self-center px-3 py-1.5 text-xs rounded-lg bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
             onClick={() => props.install.prompt()}
           >
-            {installLabel()}
+            Install
           </button>
         </Show>
       </div>

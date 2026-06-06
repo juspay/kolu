@@ -174,11 +174,12 @@ export function isInstalledFromEnv(env: InstallEnv): boolean {
   return env.displayModeStandalone || env.navigatorStandalone;
 }
 
-/** Installation is *possible* here: a secure context, and not already installed.
- *  False over plain `http://` on a LAN/Tailscale IP — only https and the
- *  localhost/loopback set are secure contexts. This is the one gate every install
- *  affordance must pass before it's shown, so a dead Install button never appears
- *  where it can't work. */
+/** A secure context where the **one-click** install prompt (and the app badge /
+ *  service workers) can work, and not already installed. False over plain
+ *  `http://` on a LAN/Tailscale IP — only https and the localhost/loopback set
+ *  are secure contexts. Gate the *one-click* affordance on this; manual install
+ *  via the browser menu still works over http, so don't use it to hide install
+ *  entirely. */
 export function canInstallFromEnv(env: InstallEnv): boolean {
   return env.isSecureContext && !isInstalledFromEnv(env);
 }
@@ -227,9 +228,11 @@ export interface SurfaceAppModel<
   setAttention: (count: number) => void;
   /** Running as an installed app (standalone display-mode / iOS `navigator.standalone`). */
   isInstalled: Accessor<boolean>;
-  /** Installation is possible in this environment — a secure context and not
-   *  already installed. The single gate before showing any install affordance;
-   *  false over plain `http://` on a LAN/Tailscale IP. */
+  /** A secure context where the **one-click** install prompt — plus the OS app
+   *  badge and service workers — can work (https or localhost), and not already
+   *  installed. False over plain `http://` on a LAN/Tailscale IP, where *manual*
+   *  install via the browser menu still works; gate the one-click affordance on
+   *  this, not the existence of any install path. */
   canInstallPwa: Accessor<boolean>;
 }
 

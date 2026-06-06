@@ -97,18 +97,18 @@ interface InstallInstructions {
 const INSTRUCTIONS: Record<InstallPlatform, InstallInstructions> = {
   "chromium-desktop": {
     title: "Install app",
+    // The ⋮-menu path works on plain http too (unlike the address-bar install
+    // icon / one-click prompt, which need a secure context).
     steps: [
-      "Click Install when prompted.",
-      "Or use the install icon in the address bar.",
+      "Open the ⋮ menu → Save and share → Create shortcut…",
+      'Tick "Open as window", then Create.',
+      "On HTTPS you can also click the install icon in the address bar.",
     ],
     canPromptNatively: true,
   },
   "chromium-android": {
     title: "Install app",
-    steps: [
-      "Tap Install when prompted.",
-      "Or open the browser menu and choose Install app.",
-    ],
+    steps: ["Open the ⋮ menu.", "Tap Install app (or Add to Home screen)."],
     canPromptNatively: true,
   },
   "android-firefox": {

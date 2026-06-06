@@ -12,12 +12,11 @@ import { preferences, updatePreferences } from "../wire";
 import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
-// The install tip is dead unless install can actually work: not already
-// installed, and a secure context (plain http:// on a LAN/Tailscale IP can't
-// install — only https + localhost qualify). Drop it otherwise.
-const canInstallPwa = window.isSecureContext && !isPWA;
+// Drop the install tip only when already installed. Its "install from your
+// browser menu" copy works over plain http too — manual install isn't gated on a
+// secure context (only the one-click prompt and the app badge are).
 const ambientPool = AMBIENT_TIPS.filter(
-  (t) => t.id !== "amb-pwa-install" || canInstallPwa,
+  (t) => !(isPWA && t.id === "amb-pwa-install"),
 );
 
 const [activeTipSignal, setActiveTip] = createSignal<Tip | null>(null);
