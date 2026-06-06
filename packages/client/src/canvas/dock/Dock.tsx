@@ -46,9 +46,12 @@
  *  surface, rounded with a drop shadow, so canvas tiles don't bleed
  *  through.
  *
- *  Auto-hides only when the workspace has no terminals — once the user
- *  has any terminal at all, the dock stays on screen, since it is the
- *  primary navigator. */
+ *  Always on screen — it is the primary navigator. At zero terminals
+ *  it collapses to its header alone, whose `+` button is the
+ *  mouse-driven path to the first terminal on the empty canvas (#1202);
+ *  the welcome card advertises the shortcut but carries no clickable
+ *  affordance. App.tsx mounts it (desktop only) inside the empty-state
+ *  canvas as well as the populated one. */
 
 import { persistedPref } from "../../persistedPref";
 import type { TerminalId } from "kolu-common/surface";
@@ -147,45 +150,42 @@ const Dock: Component<{
 }> = (props) => {
   const tree = useDockOrder();
   const posture = useViewPosture();
-  const hasAnyRow = () => tree().flatRows.length > 0 || tree().parkedCount > 0;
 
   return (
-    <Show when={hasAnyRow()}>
-      <aside
-        data-testid="dock"
-        data-mode={dockMode()}
-        data-maximized={posture.mode() === "maximized" ? "" : undefined}
-        class="flex flex-col select-none overflow-hidden bg-surface-1"
-        classList={{
-          // Tiled: absolute float inside the canvas; positions over
-          // tiles rather than reflowing them. `top-12` (48 px) sits
-          // 4 px below the 44 px chrome bar, so the dock card lines up
-          // with the right panel (also `top-12`) along a single
-          // horizontal axis. Opaque background (see base class) so
-          // canvas tiles don't bleed through the seams between rows
-          // or behind the rounded corners.
-          "absolute z-30 top-12 left-4 rounded-2xl shadow-2xl shadow-black/40":
-            posture.mode() === "tiled",
-          "max-h-[calc(100vh-14rem)]": posture.mode() === "tiled",
-          // Maximized: real left-panel flex sibling of the canvas. The
-          // canvas takes the remaining space via `flex-1` next to us
-          // (see TerminalCanvas). Full canvas height comes from the
-          // parent flex container (`stretch` is the default
-          // `align-items`); a right-edge separator reads as a hard
-          // panel boundary rather than a floating card.
-          "relative shrink-0 h-full border-r border-edge":
-            posture.mode() === "maximized",
-        }}
-        style={{ width: `${dockWidth(dockMode())}px` }}
-      >
-        <RailOrCards
-          mode={dockMode()}
-          tree={tree()}
-          onCreate={props.onCreate}
-          onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
-        />
-      </aside>
-    </Show>
+    <aside
+      data-testid="dock"
+      data-mode={dockMode()}
+      data-maximized={posture.mode() === "maximized" ? "" : undefined}
+      class="flex flex-col select-none overflow-hidden bg-surface-1"
+      classList={{
+        // Tiled: absolute float inside the canvas; positions over
+        // tiles rather than reflowing them. `top-12` (48 px) sits
+        // 4 px below the 44 px chrome bar, so the dock card lines up
+        // with the right panel (also `top-12`) along a single
+        // horizontal axis. Opaque background (see base class) so
+        // canvas tiles don't bleed through the seams between rows
+        // or behind the rounded corners.
+        "absolute z-30 top-12 left-4 rounded-2xl shadow-2xl shadow-black/40":
+          posture.mode() === "tiled",
+        "max-h-[calc(100vh-14rem)]": posture.mode() === "tiled",
+        // Maximized: real left-panel flex sibling of the canvas. The
+        // canvas takes the remaining space via `flex-1` next to us
+        // (see TerminalCanvas). Full canvas height comes from the
+        // parent flex container (`stretch` is the default
+        // `align-items`); a right-edge separator reads as a hard
+        // panel boundary rather than a floating card.
+        "relative shrink-0 h-full border-r border-edge":
+          posture.mode() === "maximized",
+      }}
+      style={{ width: `${dockWidth(dockMode())}px` }}
+    >
+      <RailOrCards
+        mode={dockMode()}
+        tree={tree()}
+        onCreate={props.onCreate}
+        onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
+      />
+    </aside>
   );
 };
 

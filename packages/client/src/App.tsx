@@ -26,7 +26,7 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
-import { toggleRailCards } from "./canvas/dock/Dock";
+import Dock, { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import { buildWorkspaceEntries } from "./canvas/dockModel";
 import TerminalCanvas from "./canvas/TerminalCanvas";
@@ -554,6 +554,22 @@ const App: Component = () => {
                 class="relative flex-1 min-h-0 canvas-grid-bg"
               >
                 <CanvasWatermark text={appTitle()} />
+                {/* The Dock stays mounted at zero terminals (desktop only)
+                 *  so its `+` new-terminal button is the always-reachable
+                 *  mouse path to the first terminal — the welcome card
+                 *  advertises ⌘⏎ but carries no clickable affordance
+                 *  (#1202). The empty Dock is just its header; the
+                 *  `relative` parent anchors its tiled-posture float
+                 *  (`top-12 left-4`), the only posture reachable at zero
+                 *  tiles. Mobile keeps its own pull-down nav. */}
+                <Show when={!isMobile()}>
+                  <Dock
+                    onCreate={() => openPaletteGroup("New terminal")}
+                    onOpenWorkspaceSearch={() =>
+                      openPaletteGroup("Search workspaces")
+                    }
+                  />
+                </Show>
                 <EmptyState
                   install={pwaInstall}
                   savedSession={session.savedSession() ?? undefined}
