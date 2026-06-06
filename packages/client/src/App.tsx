@@ -275,6 +275,14 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  /** One definition of "Dock → palette": how the receptacle reaches the
+   *  command palette. Spread into every Dock mount (the empty-branch Dock
+   *  and the one TerminalCanvas owns) so the wiring lives in one place. */
+  const dockPalette = {
+    onCreate: () => openPaletteGroup("New terminal"),
+    onOpenWorkspaceSearch: () => openPaletteGroup("Search workspaces"),
+  };
+
   /** Close a terminal. Top-level terminals show a confirmation dialog;
    *  splits (sub-terminals) are killed directly — they are ephemeral
    *  sub-panes, like browser tabs, and should never pop the worktree
@@ -563,12 +571,7 @@ const App: Component = () => {
                  *  (`top-12 left-4`), the only posture reachable at zero
                  *  tiles. Mobile keeps its own pull-down nav. */}
                 <Show when={!isMobile()}>
-                  <Dock
-                    onCreate={() => openPaletteGroup("New terminal")}
-                    onOpenWorkspaceSearch={() =>
-                      openPaletteGroup("Search workspaces")
-                    }
-                  />
+                  <Dock {...dockPalette} />
                 </Show>
                 <EmptyState
                   install={pwaInstall}
@@ -656,10 +659,7 @@ const App: Component = () => {
                       onAutoArrange={arrange.handleCanvasAutoArrange}
                       onSelect={store.setActiveSilently}
                       onClose={(id) => closeTerminal(id)}
-                      onOpenWorkspaceSearch={() =>
-                        openPaletteGroup("Search workspaces")
-                      }
-                      onCreate={() => openPaletteGroup("New terminal")}
+                      {...dockPalette}
                       renderTileTitle={(id) => (
                         <TerminalMeta
                           info={store.getDisplayInfo(id)}
