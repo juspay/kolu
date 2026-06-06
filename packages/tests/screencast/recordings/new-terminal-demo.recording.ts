@@ -32,7 +32,7 @@ export const recording: Recording = {
   chrome: "app",
   caption:
     "Open a terminal, clone a repo, and launch an agent — kolu's core loop in one window.",
-  display: { hideRightPanel: true },
+  display: { hideRightPanel: true, cleanCanvas: true },
   async drive(world) {
     // Idempotent fixture: a fresh ~/demo/kolu each run (the terminal's $HOME is
     // this same user, so this clears what the shell is about to clone).

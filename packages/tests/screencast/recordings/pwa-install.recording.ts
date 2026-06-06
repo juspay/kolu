@@ -18,6 +18,7 @@ export const recording: Recording = {
   name: "pwa-install",
   chrome: "browser",
   caption: "Pin kolu as an app — install it from the welcome.",
+  display: { cleanCanvas: true },
   async drive(world) {
     const page = world.page;
     await world.waitForReady();

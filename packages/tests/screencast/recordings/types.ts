@@ -6,8 +6,11 @@ import type { KoluWorld } from "../../support/world";
 export interface RecordingDisplay {
   /** Collapse the right (Inspector/Code) panel so the content fills the frame. */
   hideRightPanel?: boolean;
-  /** Collapse the left dock (best-effort — no dedicated control yet). */
-  collapseDock?: boolean;
+  /**
+   * Hide the dock + canvas minimap for a clean, focused canvas — a marketing
+   * composition choice (the surfaces still exist; they're just out of shot).
+   */
+  cleanCanvas?: boolean;
 }
 
 export interface Recording {

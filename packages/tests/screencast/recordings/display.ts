@@ -21,8 +21,15 @@ export async function applyDisplay(
       .catch(() => undefined);
   }
 
-  if (display.collapseDock) {
-    // No dedicated dock-collapse control today; left as a hook for when one
-    // lands so recordings can already declare the intent.
+  if (display.cleanCanvas) {
+    // Take the dock + minimap out of shot. Injected CSS (not a code change to
+    // the app) — a per-recording composition choice; the surfaces still exist.
+    await world.page
+      .addStyleTag({
+        content:
+          '[data-testid="dock"],[data-testid="canvas-minimap"]{display:none !important}',
+      })
+      .catch(() => undefined);
+    await world.waitForFrame();
   }
 }
