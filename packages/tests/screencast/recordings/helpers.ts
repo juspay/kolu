@@ -151,13 +151,17 @@ export async function launchAgentAndAsk(
   // and the row has stopped pulsing). NB: the high-level state is `data-bucket`
   // ("working"/"awaiting"/"idle"); `data-agent-state` is the raw state
   // ("thinking"/"tool_use"/"waiting"), which is NOT what we want here.
+  //
+  // These two waits are LOAD-BEARING: they prove the live agent actually ran
+  // (working) and finished (awaiting), which is the whole point of the clip. Let
+  // them THROW on timeout so a dead agent / state-detection regression fails the
+  // recording instead of silently filming a clip where the dock never lights up.
+  // (The annotations that follow are best-effort visual polish and stay caught.)
   const dockBucket = (bucket: string, timeout: number) =>
-    world.page
-      .waitForSelector(`[data-bucket="${bucket}"]`, {
-        state: "attached",
-        timeout,
-      })
-      .catch(() => undefined);
+    world.page.waitForSelector(`[data-bucket="${bucket}"]`, {
+      state: "attached",
+      timeout,
+    });
   // Working: point at the agent's live state in two places — the title-bar
   // badge (state + context tokens) and the dock row now tracking it.
   await dockBucket("working", 20_000);

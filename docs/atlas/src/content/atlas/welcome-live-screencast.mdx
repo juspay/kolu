@@ -2,8 +2,8 @@
 title: Live screencast clips on the welcome page
 description: Embed short, crisp, looping .mp4/.webm clips of a real running kolu in kolu.dev/welcome — captured by the existing Cucumber + Playwright harness, transcoded for the web, regenerable by a just recipe. Plan of record.
 kind: feature
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 parents: [welcome-revamp, video-evidence]
 updated: 2026-06-06
 ---
@@ -336,12 +336,17 @@ volatility; ③ pending a real second consumer).
 A running record of *this work's* research, dead-ends, and decisions — raw
 material for a future blog post. Newest at the bottom.
 
-<Callout kind="note" title="The sections above predate the pivot">
+<Callout kind="note" title="The sections above predate the pivot — read the Log + code for the as-built design">
 The plan above (sections 1–5) captures the *original* design — reuse `recordVideo`,
-fork at transcode. The log below is where it actually went: through a hard
-fps-vs-resolution wall, a second research pass, and out the other side to an
-**OS-level x11grab capture in Chrome app-mode**, then a **`Recording` subsystem**.
-The body will be revised to match once the subsystem lands.
+fork at transcode. **That is not what shipped.** The log below is where it actually
+went: through a hard fps-vs-resolution wall, a second research pass, and out the
+other side to an **OS-level `x11grab` capture of a headful Chrome app-mode window**
+(no `recordVideo`, no CDP frame-capture), then a **`Recording` subsystem**. The
+subsystem has **landed** (<PrLink pr={1213} />, Log §9–11). Sections 1–5 are kept
+as the original-design record; for the as-built pipeline the sources of truth are
+the **Log below**, <Cite file="packages/tests/screencast/README.md" label="the screencast README" />,
+and <Cite file="packages/tests/screencast/engine.ts" label="engine.ts" /> /
+<Cite file="packages/tests/screencast/recordings" label="recordings/" />.
 </Callout>
 
 **1 · Plan + prior-art sweep.** <Pill variant="ok">workflow #1</Pill> Picked up the

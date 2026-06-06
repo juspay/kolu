@@ -29,9 +29,10 @@ just record new-terminal-demo  # one, by name
 ```
 
 Per do.md this is meant to run on a **pu box**; today the clips are captured
-**locally** because the demo's climax needs an authenticated `claude` (a clean
-box has none). Nix deps (`ffmpeg-full` + `Xvfb`) live in `./shell.nix`, layered
-onto the e2e shell by the recipe — the top-level flake devShells are untouched.
+**locally** because the demo's climax launches a **real, authenticated agent**
+(the `new-terminal-demo` runs `codex` — a clean box has no logged-in CLI). Nix
+deps (`ffmpeg-full` + `Xvfb`) live in `./shell.nix`, layered onto the e2e shell
+by the recipe — the top-level flake devShells are untouched.
 
 ### Time + size
 

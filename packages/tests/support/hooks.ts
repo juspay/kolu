@@ -62,10 +62,14 @@ const mkSubDir = (name: string) => {
 const claudeSessionsDir = mkSubDir("claude-sessions");
 const claudeProjectsDir = mkSubDir("claude-projects");
 // KOLU_X11CAP recordings launch the REAL claude, whose session lands in the
-// real ~/.claude/projects — so leave the dirs unset and let kolu watch the real
-// location (the dock then tracks the live agent). Normal runs use the per-worker
-// temp dirs for the mock harness.
-if (!process.env.KOLU_X11CAP) {
+// real ~/.claude/projects — so the dirs must be UNSET (not just left as-is) and
+// kolu must watch the real location (the dock then tracks the live agent). If a
+// developer already exported these, DELETE them so an inherited mock/custom dir
+// can't shadow the real one. Normal runs use the per-worker temp dirs.
+if (process.env.KOLU_X11CAP) {
+  delete process.env.KOLU_CLAUDE_SESSIONS_DIR;
+  delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
+} else {
   process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
   process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
 }
@@ -78,9 +82,12 @@ const codexDir = mkSubDir("codex");
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
 // KOLU_X11CAP recordings launch the REAL codex (its session lands in the real
-// ~/.codex) — leave KOLU_CODEX_DIR unset so kolu watches the real location and
-// the dock tracks the live agent. Normal runs use the temp mock dir.
-if (!process.env.KOLU_X11CAP) {
+// ~/.codex) — KOLU_CODEX_DIR must be UNSET so kolu watches the real location and
+// the dock tracks the live agent. Delete any inherited value so a developer's
+// exported override can't shadow the real dir. Normal runs use the temp mock dir.
+if (process.env.KOLU_X11CAP) {
+  delete process.env.KOLU_CODEX_DIR;
+} else {
   process.env.KOLU_CODEX_DIR = codexDir;
 }
 process.env.KOLU_OPENCODE_DB = opencodeDbPath;
@@ -477,11 +484,17 @@ BeforeAll(async () => {
           // `mkdtempSync`'s random suffix guarantees no collisions across
           // parallel workers or worktrees.
           KOLU_STATE_DIR: koluStateDir,
-          // KOLU_X11CAP: omit the claude/codex dir overrides so the server
-          // watches the real ~/.claude/projects + ~/.codex and the dock tracks
-          // the launched agent live.
+          // KOLU_X11CAP: the server must watch the real ~/.claude/projects +
+          // ~/.codex so the dock tracks the launched agent live. We already
+          // delete these from process.env above, but set them to undefined here
+          // too so they're stripped from the child env even if the spread ever
+          // re-introduces an inherited value.
           ...(X11CAP
-            ? {}
+            ? {
+                KOLU_CLAUDE_SESSIONS_DIR: undefined,
+                KOLU_CLAUDE_PROJECTS_DIR: undefined,
+                KOLU_CODEX_DIR: undefined,
+              }
             : {
                 KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
                 KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
@@ -736,31 +749,47 @@ After(async function (this: KoluWorld, scenario) {
   }
   // KOLU_X11CAP: now the raw clip is finalized, transcode it into the crisp web
   // assets the welcome page embeds (mp4 + webm + poster), trimming the leading
-  // blank from before the first navigation.
+  // blank from before the first navigation. FAIL-CLOSED: only publish when the
+  // scenario PASSED, and let a bad grab or transcode throw so `just record`
+  // exits non-zero rather than silently committing stale/blank assets.
   if (X11CAP && x11RawPath) {
-    const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
-    await engine
-      .transcodeToWeb({
-        raw: x11RawPath,
-        outDir: demoOutDir,
-        name,
-        // Skip the app-mode load-in + Background reload + the killAll that
-        // clears the auto-restored terminal, so the clip opens on the clean
-        // empty-canvas welcome (then the terminal is created on camera).
-        trimStart: 5.3,
-        posterAt: 2,
-      })
-      .then((out) =>
-        console.log(
-          `[worker:${workerId}] KOLU_X11CAP: web assets → ${out.mp4}`,
-        ),
-      )
-      .catch((err) =>
-        console.error(
-          `[worker:${workerId}] KOLU_X11CAP: transcode failed:`,
-          err,
-        ),
-      );
+    const raw = x11RawPath;
     x11RawPath = undefined;
+    const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
+    // A failed scenario means the flow didn't reach its climax — the clip is
+    // junk. Don't overwrite the committed demo assets with it; keep the raw
+    // around for debugging and surface the failure (After can't re-fail the
+    // scenario, but a thrown error here still aborts the run non-zero).
+    if (scenario.result?.status !== Status.PASSED) {
+      throw new Error(
+        `KOLU_X11CAP: scenario "${scenario.pickle.name}" did not pass ` +
+          `(${scenario.result?.status}); refusing to publish demo assets from ` +
+          `${raw}`,
+      );
+    }
+    // Guard against a truncated/empty grab (ffmpeg spawn failure, Xvfb gone):
+    // transcoding a 0-byte clip would emit broken assets that still "succeed".
+    const rawSize = fs.existsSync(raw) ? fs.statSync(raw).size : 0;
+    if (rawSize < 1024) {
+      throw new Error(
+        `KOLU_X11CAP: raw clip ${raw} is missing or too small (${rawSize}B) — ` +
+          `ffmpeg likely failed to capture; not publishing demo assets`,
+      );
+    }
+    const out = await engine.transcodeToWeb({
+      raw,
+      outDir: demoOutDir,
+      name,
+      // Skip the app-mode load-in + Background reload + the killAll that
+      // clears the auto-restored terminal, so the clip opens on the clean
+      // empty-canvas welcome (then the terminal is created on camera).
+      trimStart: 5.3,
+      // Poster is sampled from the trimmed timeline; pick a beat where the
+      // demo terminal is already on the clean canvas (past the welcome card +
+      // the nudge), so the first paint / reduced-motion still frame is the
+      // deliberate empty-canvas demo state, not the restore-session card.
+      posterAt: 6,
+    });
+    console.log(`[worker:${workerId}] KOLU_X11CAP: web assets → ${out.mp4}`);
   }
 });

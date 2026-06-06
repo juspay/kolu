@@ -171,13 +171,15 @@ const tunnels = [
 
     <!-- Live screencast of a real kolu session, captured by the screencast
          engine (packages/tests/screencast) and transcoded for the web.
-         Poster-first; autoplay/muted/loop/playsinline; reduced-motion respected
-         via the inline script at the end of the file. -->
+         Poster-first; muted/loop/playsinline. Reduced-motion is gated BEFORE
+         playback: the markup ships WITHOUT `autoplay`, so nothing plays until
+         the inline script at the end of the file decides — it adds `autoplay` +
+         `.play()` only when motion is allowed, and otherwise leaves the poster
+         standing with native `controls` as a visible play affordance. -->
     <figure class="demo-figure">
       <div class="demo-frame">
         <video
           class="demo-video"
-          autoplay
           muted
           loop
           playsinline
@@ -1325,13 +1327,34 @@ const tunnels = [
   }
 </style>
 
-<script>
-  // Respect prefers-reduced-motion: the markup autoplays, but if the visitor
-  // asked for less motion we pause every demo clip and let the poster stand in.
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    document.querySelectorAll<HTMLVideoElement>(".demo-video").forEach((v) => {
-      v.removeAttribute("autoplay");
-      v.pause();
-    });
-  }
+<script is:inline>
+  // Reduced-motion gate for the demo clips. The markup ships WITHOUT `autoplay`,
+  // so nothing plays until this decides — no race against first playback.
+  //  - motion allowed → enable autoplay + .play() (with a .catch so iOS
+  //    low-power-mode rejection falls back to the poster gracefully).
+  //  - motion reduced → leave the poster standing and expose native `controls`
+  //    so the visitor has a visible play affordance (the Atlas note's requirement).
+  // Re-evaluated on preference change while the page stays open.
+  (function () {
+    var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    function apply() {
+      var vids = document.querySelectorAll(".demo-video");
+      for (var i = 0; i < vids.length; i++) {
+        var v = vids[i];
+        if (mq.matches) {
+          v.removeAttribute("autoplay");
+          v.setAttribute("controls", "");
+          v.pause();
+        } else {
+          v.removeAttribute("controls");
+          v.setAttribute("autoplay", "");
+          var p = v.play();
+          if (p && typeof p.catch === "function") p.catch(function () {});
+        }
+      }
+    }
+    apply();
+    if (mq.addEventListener) mq.addEventListener("change", apply);
+    else if (mq.addListener) mq.addListener(apply);
+  })();
 </script>
