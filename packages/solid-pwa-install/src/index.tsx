@@ -266,10 +266,10 @@ export function createPwaInstall(opts?: {
 
   const prompt = () => {
     // A captured Chromium event is the one true one-click path: replay it.
-    if (
-      deferredPrompt &&
-      (platform === "chromium-desktop" || platform === "chromium-android")
-    ) {
+    // The platform→native-capable mapping has one home — the INSTRUCTIONS
+    // table's `canPromptNatively` — so adding a Chromium platform only updates
+    // that record, not a second inline list here.
+    if (deferredPrompt && installInstructions(platform).canPromptNatively) {
       const evt = deferredPrompt;
       deferredPrompt = null;
       // The browser allows replaying the event only once — drop `canPrompt`
