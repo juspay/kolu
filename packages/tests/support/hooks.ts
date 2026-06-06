@@ -187,8 +187,9 @@ let xvfbProc: ReturnType<typeof spawn> | undefined;
 let ffmpegProc: ReturnType<typeof spawn> | undefined;
 let x11Display: string | undefined;
 let x11RawPath: string | undefined;
-/** The current scenario's file stem (slug of its name), set in Before so the
- * After grab/transcode path reuses the exact same value instead of re-deriving. */
+/** The current scenario's file stem (slug of its name), set once in Before so
+ * every After site (failure screenshot, evidence webm, x11 grab/transcode)
+ * reads the same value instead of re-deriving it. */
 let x11Stem: string | undefined;
 /** The current scenario's recording chrome ("app" | "browser"), set in Before. */
 let x11Chrome: "app" | "browser" = "app";
@@ -586,6 +587,10 @@ AfterAll(async () => {
 });
 
 Before(async function (this: KoluWorld, scenario) {
+  // Derive the scenario's file stem once, up front — the failure screenshot,
+  // the evidence webm, the x11 grab, and the transcoded assets all key off the
+  // same value, so it's computed here and read at every site below.
+  x11Stem = slug(scenario.pickle.name);
   // Kill leftover terminals and reset state so each scenario starts clean.
   // After #577 each domain (preferences / activity / savedSession) owns its
   // own reset endpoint — fired in parallel so the per-scenario setup cost
@@ -685,7 +690,6 @@ Before(async function (this: KoluWorld, scenario) {
   // smooth regardless of how heavy the scenario is. Leading blank frames (before
   // the first navigation) are trimmed in the transcode step.
   if (X11CAP && x11Display) {
-    x11Stem = slug(scenario.pickle.name);
     x11RawPath = path.join(evidenceVideoDir, `${x11Stem}.x11.mp4`);
     ffmpegProc = engine.startX11Grab({
       display: x11Display,
@@ -710,7 +714,7 @@ After(async function (this: KoluWorld, scenario) {
       "screenshots",
     );
     fs.mkdirSync(dir, { recursive: true });
-    const name = slug(scenario.pickle.name);
+    const name = x11Stem ?? slug(scenario.pickle.name);
     await this.page
       .screenshot({
         path: path.join(dir, `${name}.png`),
@@ -737,7 +741,7 @@ After(async function (this: KoluWorld, scenario) {
   }
   if (this.context) await this.context.close();
   if (video) {
-    const name = slug(scenario.pickle.name);
+    const name = x11Stem ?? slug(scenario.pickle.name);
     fs.mkdirSync(evidenceVideoDir, { recursive: true });
     await video
       .saveAs(path.join(evidenceVideoDir, `${name}.webm`))
@@ -756,8 +760,8 @@ After(async function (this: KoluWorld, scenario) {
   if (X11CAP && x11RawPath) {
     const raw = x11RawPath;
     x11RawPath = undefined;
-    // Reuse the exact stem the Before grab wrote — never re-derive, or the
-    // transcode could target a file the grab never created.
+    // Reuse the exact stem Before stashed — never re-derive, or the transcode
+    // could target a file the grab never created.
     const name = x11Stem ?? slug(scenario.pickle.name);
     x11Stem = undefined;
     // A failed scenario means the flow didn't reach its climax — the clip is
