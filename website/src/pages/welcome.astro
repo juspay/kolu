@@ -169,6 +169,55 @@ const tunnels = [
       its own tile. kolu watches what you do, so you barely configure anything.
     </p>
 
+    <!-- Live screencast — a real kolu session captured by the e2e harness,
+         transcoded for the web. Two capture paths shown side by side for a
+         crispness comparison (temporary — pick a winner before shipping).
+         Poster-first; autoplay/muted/loop/playsinline; reduced-motion respected
+         via the inline script at the end of the file. -->
+    <figure class="demo-figure">
+      <div class="demo-compare">
+        <div class="demo-clip">
+          <span class="demo-label">A · recordVideo — VP8, ~1 Mbit/s</span>
+          <div class="demo-frame">
+            <video
+              class="demo-video"
+              autoplay
+              muted
+              loop
+              playsinline
+              preload="metadata"
+              poster="/demo/first-agent.webp"
+            >
+              <source src="/demo/first-agent.webm" type="video/webm" />
+              <source src="/demo/first-agent.mp4" type="video/mp4" />
+            </video>
+          </div>
+        </div>
+        <div class="demo-clip">
+          <span class="demo-label">B · x11grab — 2560×1440, 30 fps, CRF 18</span>
+          <div class="demo-frame">
+            <video
+              class="demo-video"
+              autoplay
+              muted
+              loop
+              playsinline
+              preload="metadata"
+              poster="/demo/first-agent-v2.webp"
+            >
+              <source src="/demo/first-agent-v2.webm" type="video/webm" />
+              <source src="/demo/first-agent-v2.mp4" type="video/mp4" />
+            </video>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        The same kolu session — open the palette, pick a repo, launch an agent —
+        captured two ways. Compare the crispness of the terminal text and palette
+        labels at full size.
+      </figcaption>
+    </figure>
+
     <ol class="step-list">
       <li>
         <span class="step-n">1</span>
@@ -915,6 +964,48 @@ const tunnels = [
     white-space: nowrap;
   }
 
+  /* ── Live screencast figure ─────────────────────────────────────────── */
+  .demo-figure {
+    margin-block: 1.6rem;
+  }
+  .demo-compare {
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+  }
+  .demo-clip {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .demo-label {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+    color: var(--color-amber-dim);
+  }
+  .demo-frame {
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 0.6rem;
+    overflow: hidden;
+    background: var(--color-void-sunk);
+    box-shadow: 0 0 60px -25px color-mix(in srgb, var(--color-amber) 30%, transparent);
+    line-height: 0;
+  }
+  .demo-video {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1280 / 720;
+  }
+  .demo-figure figcaption {
+    margin-top: 0.7rem;
+    font-size: 0.85rem;
+    line-height: 1.55;
+    color: var(--color-ink-muted);
+    text-align: center;
+  }
+
   /* ── Terminal frame (reused for command blocks) ─────────────────────── */
   .term-frame {
     border: 1px solid var(--color-rule-strong);
@@ -1273,3 +1364,14 @@ const tunnels = [
     }
   }
 </style>
+
+<script>
+  // Respect prefers-reduced-motion: the markup autoplays, but if the visitor
+  // asked for less motion we pause every demo clip and let the poster stand in.
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    document.querySelectorAll<HTMLVideoElement>(".demo-video").forEach((v) => {
+      v.removeAttribute("autoplay");
+      v.pause();
+    });
+  }
+</script>
