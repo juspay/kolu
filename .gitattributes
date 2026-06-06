@@ -11,3 +11,7 @@ CLAUDE.md linguist-generated
 # Generated Astro output, committed for in-app (Code tab) preview of the Atlas.
 docs/atlas/dist/** linguist-generated
 docs/atlas/dist/** -diff
+
+# Release notes are append-only — every PR adds a line under Unreleased. `union`
+# auto-resolves concurrent appends (keep both sides) so PRs never conflict here.
+website/src/content/changelog/unreleased.mdx merge=union

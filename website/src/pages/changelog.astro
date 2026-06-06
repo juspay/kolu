@@ -1,0 +1,160 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { getCollection, render } from "astro:content";
+
+const fmtDate = (d: Date) =>
+  d
+    .toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    })
+    .toUpperCase();
+
+const all = await getCollection("changelog");
+
+// A dateless entry is the open Unreleased section; dated entries are releases.
+const unreleased = all.find((e) => !e.data.date);
+const released = all
+  .filter((e) => e.data.date)
+  .sort((a, b) => b.data.date!.valueOf() - a.data.date!.valueOf());
+
+// Pre-render MDX bodies in frontmatter (can't `await render()` inside the map).
+const unreleasedHasBody = !!unreleased?.body?.trim();
+const UnreleasedBody = unreleased ? (await render(unreleased)).Content : null;
+const rendered = await Promise.all(
+  released.map(async (entry) => ({
+    version: entry.data.version,
+    date: entry.data.date!,
+    Body: (await render(entry)).Content,
+  })),
+);
+---
+
+<BaseLayout title="Releases" description="What's new in kolu — shipped and on the way.">
+  <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
+    <p class="eyebrow mb-4">the changelog</p>
+    <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
+      What's <span class="text-amber">new</span><br />in kolu.
+    </h1>
+    <p class="mt-6 text-ink-dim max-w-xl leading-relaxed">
+      Every tagged release, newest first — plus what's already landed on{" "}
+      <code class="mono text-ink">master</code> and waiting for the next tag.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-24">
+    {/* Unreleased — always shown; empty when you're on the latest tag. */}
+    <article class="border-t border-rule py-10 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
+      <div class="md:text-right">
+        <span
+          class="mono text-[0.72rem] tracking-widest text-amber border border-amber/40 rounded-full px-2.5 py-1"
+        >
+          UNRELEASED
+        </span>
+      </div>
+      <div>
+        {
+          unreleasedHasBody && UnreleasedBody ? (
+            <div class="release-body"><UnreleasedBody /></div>
+          ) : (
+            <p class="mono text-ink-muted text-sm leading-relaxed">
+              // nothing unreleased — you're on the latest tagged build.<br />
+              <span class="text-ink-faint">
+                track master for changes as they land:
+              </span>{" "}
+              <code class="text-ink">nix run github:juspay/kolu</code>
+            </p>
+          )
+        }
+      </div>
+    </article>
+
+    {
+      rendered.map(({ version, date, Body }) => (
+        <article class="border-t border-rule py-10 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
+          <div class="md:text-right">
+            <h2
+              id={`v${version.replace(/\./g, "-")}`}
+              class="display-sm text-[2rem] text-ink scroll-mt-20"
+            >
+              v{version}
+            </h2>
+            <time
+              class="mono text-[0.72rem] text-ink-muted tracking-widest block mt-1"
+              datetime={date.toISOString()}
+            >
+              {fmtDate(date)}
+            </time>
+          </div>
+          <div class="release-body">
+            <Body />
+          </div>
+        </article>
+      ))
+    }
+  </section>
+</BaseLayout>
+
+<style>
+  /* Scoped prose for release bodies — lighter than the serif blog prose. */
+  .release-body {
+    color: var(--color-ink-dim);
+    line-height: 1.65;
+  }
+  .release-body :global(> p:first-child) {
+    color: var(--color-ink);
+    font-size: 1.05rem;
+  }
+  .release-body :global(h3) {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.72rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--color-amber);
+    margin: 1.8rem 0 0.9rem;
+  }
+  .release-body :global(ul) {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .release-body :global(li) {
+    position: relative;
+    padding-left: 1.1rem;
+  }
+  .release-body :global(li)::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--color-ink-faint);
+  }
+  .release-body :global(strong) {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+  .release-body :global(a) {
+    color: var(--color-amber);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-amber) 35%, transparent);
+  }
+  .release-body :global(a:hover) {
+    border-bottom-color: var(--color-amber);
+  }
+  .release-body :global(code),
+  .release-body :global(kbd) {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.85em;
+    background: var(--color-void-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: 4px;
+    padding: 0.1em 0.4em;
+    color: var(--color-ink);
+  }
+  .release-body :global(p) {
+    margin: 0.9rem 0;
+  }
+</style>

@@ -1,0 +1,87 @@
+---
+title: kolu Release Runbook
+description: Cut a release with `just release X.Y` — tag master, promote the Unreleased changelog entry, GitHub release. The changelog lives as a website content collection; the agent appends to it per PR, kolu.dev renders it Unreleased-and-all.
+kind: reference
+status: proposed
+maturity: seedling
+parents: [second-brain]
+updated: 2026-06-06
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
+import Terminal from "../../components/Terminal.astro";
+
+kolu ships **only** as a Nix flake — users track `master` (`nix run github:juspay/kolu`). A release is a **tag on master**: a named point, a pin, a dated changelog entry. Nothing is published that master doesn't already serve.
+
+kolu is an **application, not a library** — no API to break, no downstream resolver reading the version. So the version is **X.Y**, picked by hand: a `.0` is a milestone you're calling ready, a `.N` bump is a normal release. No `.Z` (rolling, no maintenance branches — nothing to patch; you just ship the next minor). No SemVer contract, no computed bump.
+
+## The changelog is website content
+
+It lives in the site, not a root `CHANGELOG.md` — a **content collection** beside the blog (<Cite file="website/src/content.config.ts" lines="4-14" label="blog collection — same shape" />). Each release is one entry; `unreleased.mdx` is the open one.
+
+```
+website/src/content/changelog/
+  unreleased.mdx     ← agent appends here, every user-facing PR
+  1-0.mdx            ← stamped { version: "1.0", date: 2026-06-06 } at release
+```
+
+```mdx
+---
+version: Unreleased
+---
+### Added
+- Compose surfaces as siblings — one canvas, no surface-app seams. <PrLink pr={1201} />
+### Fixed
+- Dock pings stop pulsing once you switch to the row. <PrLink pr={1198} />
+### Heads-up
+- `KOLU_STATE_DIR` moved under `$XDG_CONFIG_HOME/kolu`; existing sessions auto-migrate.
+```
+
+- **Authored per PR.** `/be` and `/do` append one line to `unreleased.mdx` during implement — full PR context, real prose, the kit (`<PrLink>`, callouts, even evidence) when an entry earns it. No conventional-commit prefixes, no bump field: kolu's an app, nothing computes a version from them.
+- **`### Heads-up`** is the editorial home for disruptive changes — removed feature, changed default, migration — written *for the user*.
+- **Conflict-free.** `website/src/content/changelog/unreleased.mdx merge=union` in `.gitattributes` auto-resolves concurrent appends — git keeps both lines, no marker, no rebase.
+- **A CI check** keeps it honest: a user-facing PR touches `unreleased.mdx` or carries a `no-changelog` label.
+
+## kolu.dev renders it — Unreleased included
+
+A `/changelog` page maps the collection newest-first, **`Unreleased` at the top**, so users see what shipped *and* what's coming — and it's your live preview: the notes are on the site the moment a PR merges, no dry-run needed.
+
+Because the changelog **is** `website/**`, the existing Pages deploy already fires on every changelog edit (<Cite file=".github/workflows/pages.yml" lines="9-15" label="pages.yml — on.push.paths website/**" />) — no `paths:` change, no raw-import of a root file, nothing extra to wire.
+
+## Cutting a release
+
+```sh
+just release 1.0 --dry-run   # print the stamp + version bump, write nothing
+just release 1.0             # promote Unreleased · bump · tag · push · gh release
+```
+
+<Terminal
+  title="release"
+  lines={[
+    "$ just release 1.0",
+    "✓ preflight: master · clean · synced with origin · CI green",
+    "→ stamp unreleased.mdx → 1-0.mdx { version: 1.0, date: 2026-06-06 } + fresh unreleased.mdx",
+    "→ bump version → 1.0 in default.nix",
+    "→ commit release 1.0 + annotated tag v1.0",
+    "→ push master + tag",
+    "→ gh release create v1.0  (notes → kolu.dev/changelog#v1-0)",
+    "✓ live: kolu.dev/changelog · github.com/juspay/kolu/releases/tag/v1.0",
+  ]}
+/>
+
+- You pass `X.Y` — an editorial call, not a computed one.
+- Preflight refuses to tag anything CI hasn't already passed.
+- Any release is pinnable: `nix run github:juspay/kolu/v1.0`.
+
+## Wiring (one-time, ships with this note's PR)
+
+- **`changelog` collection** — add it to `content.config.ts` (`{ version, date? }` schema) + the `/changelog` page; seed `unreleased.mdx`. `.gitattributes`: `…/unreleased.mdx merge=union`.
+- **The per-PR rule** — `/be` and `/do` append to `unreleased.mdx` during implement; a CI check enforces touched-or-labeled.
+- **`just release X.Y`** — the recipe above (stamp · bump · tag · push · gh release).
+- **Identity rail** — collapse the two `version = "0.1.0"` literals (<Cite file="default.nix" lines="56" />, <Cite file="default.nix" lines="101" />) into one `let version = "0.1"`, stamp `KOLU_VERSION` beside `KOLU_COMMIT_HASH` (<Cite file="default.nix" lines="203" />) → surface-app `buildInfo` cell → render `1.0 · a1b2c3d` in the rail (<Cite file="packages/client/src/ui/IdentityRail.tsx" lines="96-119" label="IdentityRail srv column" />). Between releases it reads the last tag + commit: the series you're on, plus the exact build.
+
+---
+
+*Status: `proposed`. Accepting flips the status; link the implementing PR with `<PrLink pr={…} />`. First run: `just release 1.0`.*
