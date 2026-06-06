@@ -251,7 +251,7 @@ const RailOrCards: Component<{
        *  aside's `overflow-hidden`. The all-parked case (no visible rows
        *  but `parkedCount > 0`) still needs it — that is exactly when
        *  "show all" is the way back. */}
-      <Show when={props.tree.flatRows.length > 0 || props.tree.parkedCount > 0}>
+      <Show when={props.tree.hasContent}>
         <HiddenFooter parkedCount={props.tree.parkedCount} />
       </Show>
     </div>
