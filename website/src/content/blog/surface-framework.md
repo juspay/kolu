@@ -181,7 +181,11 @@ const note = await app.rpc.surface.notes.create({ title: "Untitled" });
 
 The bound `.use()` is the part I'm happiest with. Instead of passing a procedure reference at every call site, the client has already wired each primitive to its oRPC entry, dropped the identity arguments, and threaded the retry context inside. The hooks own the snapshot-and-deltas reconcile, the per-key reactive lifecycle, the optimistic local merge for the cells you mark `authority: "local"`, and the resubscribe-on-reconnect cleanup. You ask for `app.cells.prefs.use(...)` and you get a value that's still correct after a dropped connection, without your having typed the word "reconnect."
 
-## What it deleted
+## What it's worth
+
+Two ways to take the measure of a framework, both more honest than a feature list: count what it removed, and admit what it won't do.
+
+### What it deleted
 
 The easiest way to say what the framework does is to count what it removed. About 800 lines of plumbing across the client and server. But the number that tells the story better is the set of things that now appear zero times in Kolu's code. Zero hand-written `yield current; for await (…) yield ev` loops in the router. Zero `publishSystem("X:changed", value)` calls — every publish goes through a typed channel whose name is derived from the key, so nobody writes the string `"X:changed"` and nobody typos it. Zero hand-threaded retry contexts in client code. Zero `pollOnEvent` wrappers. Zero `AbortController` plumbing in the providers.
 
@@ -196,7 +200,7 @@ export const contract = oc.router({
 });
 ```
 
-## What it won't do
+### What it won't do
 
 Now the part where I tell you what it can't do, which is usually more honest than the feature list. Kolu has one client per session, and the framework is built for exactly that. It doesn't carry the machinery you'd need for a hundred clients watching the same key — no refcounting, no query-cropping, none of the cross-network sharing that reflex-frp grows for that case. That machinery is real and it's good, and Kolu doesn't have the problem it solves, so paying for it would be plumbing with no payback. It also doesn't try to compose primitives into bigger primitives. Solid already has `createMemo` and `on` for that, and the framework's job ends at the wire. I kept wanting to make it cleverer and kept stopping, because every time I looked, **the clever version was solving a problem I didn't have.**
 

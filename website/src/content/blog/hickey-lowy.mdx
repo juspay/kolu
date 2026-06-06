@@ -74,7 +74,7 @@ Löwy says as much himself, in an appendix on complexity:
 
 The complexity he's warning about starts as a temporal thing — variety across customers and across time — and only later turns into tangled code. So the two do meet eventually: a mis-scoped volatility, left alone long enough, becomes a complected mess. But they meet late. The spatial defect is visible today; the temporal one stays hidden until the clock it's riding finally ticks. Which is the whole reason a one-lens review misses half of what's wrong. **It's reading one frame of a two-frame picture.**
 
-## A spatial defect: `borderClass`
+### A spatial defect: `borderClass`
 
 Kolu's screen is one infinite canvas. Terminals are tiles you pan and zoom around, like windows on a desk with no edges. Floating over them is a row of pills, one per terminal, grouped by repo. Each pill's border has to say two things at once: what the agent is doing (thinking, using a tool, waiting) and whether this is the terminal you're looking at. The first version fused them into one match:
 
@@ -122,7 +122,7 @@ And Löwy? Nothing to say here. Active-ness and agent state rev on the same cloc
 
 Every codebase has a `borderClass`. It's the code that gets merged because it works. Löwy's lens looks straight at it and sees nothing wrong. **Without Hickey in the rotation, it stays.**
 
-## A temporal defect: `displaySuffix`
+### A temporal defect: `displaySuffix`
 
 Two terminals can end up with the same name — same `repoName + branch` in git, or same `cwd` when there's no git. The UI has to tell them apart, so Kolu tacks a short collision-suffix onto the label: `main #a3f2`. Cute problem, obvious fix.
 
@@ -169,7 +169,7 @@ Hickey, this time, had nothing to say. To a snapshot the before and after look a
 
 Every codebase has a `displaySuffix` too. Something computed in the wrong layer, because the wrong layer was the easiest place to type it. **Without Löwy in the rotation, it stays** — and every future change to the collision rule has to go hunting for it in the client.
 
-## When both fire
+### When both fire
 
 Once in <PR id={623} /> the two lenses landed on the same line. The state was `canvasMaximized` — which tile, if any, is currently filling the screen. The first version treated it like every other preference in Kolu: a `Preferences` field, synced through the server, saved into `SavedSession`, hydrated on mount behind a careful `maxHydrated` flag so the first paint wouldn't flash.
 

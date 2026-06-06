@@ -26,7 +26,11 @@ The first crack at it happened on the bus to the swimming pool, and again on the
 
 Deploy. Chrome's Task Manager, GPU Memory column: the steady climb went flat. Memory Footprint column: unchanged. So the GPU thing was a leak — its own small leak — but not the one eating the gigabyte. **I'd fixed a symptom.**
 
-## The wrong turn
+## The memory leak
+
+The bus-stop fix was the easy win. The gigabyte was still there, and finding it took the rest of the day — most of which I spent measuring the wrong thing.
+
+### The wrong turn
 
 Kolu uses [SolidJS](https://www.solidjs.com/), which tracks reactivity through [`system/Context`](https://developer.chrome.com/docs/devtools/memory-problems/heap-snapshots#system-context) objects — V8's name for the block of memory that holds a closure's captured variables. If a component's scope doesn't clean up on unmount, its `Context` hangs around, and everything that scope closed over hangs around with it. _Retention_, the textbook kind.
 
@@ -39,7 +43,7 @@ Six commits landed on a branch <PR id={614} /> over the afternoon. Claude swappe
 
 Chrome's Task Manager showed no change. None. **The number I'd spent the afternoon cutting wasn't the number that mattered.**
 
-## What I was actually measuring
+### What I was actually measuring
 
 Chrome's [Task Manager](https://developer.chrome.com/docs/devtools/memory-problems#monitor_memory_use_in_realtime_with_the_chrome_task_manager) shows three columns for a tab: `JavaScript Memory`, `GPU Memory`, and `Memory Footprint`. The first two are what they sound like. `Memory Footprint` is the one that counts — the total resident size the operating system hands the tab's renderer process. It rolls everything up: the JS heap, the GPU textures, Chrome's per-renderer baseline (~100–150 MB), V8's code cache, and one more thing that gets no column of its own and turned out to be the whole story.
 
@@ -49,7 +53,7 @@ _Native-side state backing the DOM and typed-array objects._ SVG attributes, det
 
 **The leak was in native `ArrayBuffer` bytes.**
 
-## The one-line fix that took hours to find
+### The one-line fix that took hours to find
 
 I told Claude to throw the PR away and start over, this time with a different analyzer: sum `self_size` bytes per class across a snapshot pair, sort by byte growth. Five minutes of code, one line of output worth reading:
 

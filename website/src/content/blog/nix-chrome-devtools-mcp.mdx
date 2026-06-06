@@ -14,7 +14,11 @@ Wiring it into a project used to be a chore. You needed a Chrome binary, a launc
 
 > One-sentence pitches: **[Nix](https://nixos.org/)** gives you reproducible binaries — Chrome, Node, anything — with no manual installers. **[APM](https://microsoft.github.io/apm/)** is a package manager for AI-agent context: like `npm`, except the things you install are skills and MCP servers instead of libraries.
 
-## Step 1 — Install Nix
+## Setup
+
+Three steps, about five minutes — and you never download a Chrome binary or write a per-agent config block.
+
+### Step 1 — Install Nix
 
 Follow [nixos.asia/en/install](https://nixos.asia/en/install). The installer takes a minute on macOS or Linux. Verify:
 
@@ -28,7 +32,7 @@ If you used the nixos.asia path, flakes are already enabled. If you installed Ni
 experimental-features = nix-command flakes
 ```
 
-## Step 2 — Drop one dep into apm.yml
+### Step 2 — Drop one dep into apm.yml
 
 APM is a Python tool, but you don't have to install it. Nix can pull [`uvx`](https://docs.astral.sh/uv/) on demand, and `uvx` in turn fetches APM from its Python package on first run:
 
@@ -59,7 +63,7 @@ nix shell nixpkgs#uv -c uvx --from apm-cli apm install --target claude,codex,ope
 
 APM clones [`juspay/nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp), drops its launcher into `.agents/skills/nix-chrome-devtools-mcp/bin/serve`, and writes a per-runtime MCP config for each target — `.mcp.json` for Claude Code, `.codex/config.toml` for Codex, `opencode.json` for OpenCode.
 
-## Step 3 — Verify
+### Step 3 — Verify
 
 Open `.mcp.json` (or your runtime's equivalent). You should see a `chrome-devtools` server entry:
 
