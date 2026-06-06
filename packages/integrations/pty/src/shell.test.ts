@@ -37,13 +37,22 @@ function runZsh(script: string, cwd = "/tmp"): string | null {
 }
 
 describe("koluIdentityEnv", () => {
-  it("returns Kolu's identity vars: TERM_PROGRAM, TERM_PROGRAM_VERSION, VTE_VERSION", () => {
+  it("returns Kolu's identity vars: TERM_PROGRAM, TERM_PROGRAM_VERSION, VTE_VERSION, COLORTERM", () => {
     const env = koluIdentityEnv("9.9.9");
     expect(env).toEqual({
       TERM_PROGRAM: "kolu",
       TERM_PROGRAM_VERSION: "9.9.9",
       VTE_VERSION: "7603",
+      COLORTERM: "truecolor",
     });
+  });
+
+  it("asserts COLORTERM=truecolor so PTY tools emit 24-bit color escapes", () => {
+    // kolu's xterm.js WebGL renderer displays 24-bit color, so the
+    // assertion is honest. Unconditional (not passthrough) because a
+    // GUI/launchd launch carries no parent COLORTERM to forward, yet the
+    // renderer is just as capable — see koluIdentityEnv's doc comment.
+    expect(koluIdentityEnv("9.9.9").COLORTERM).toBe("truecolor");
   });
 
   it("VTE_VERSION stomps a parent value when layered via Object.assign", () => {
