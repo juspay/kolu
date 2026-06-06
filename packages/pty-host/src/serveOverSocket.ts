@@ -44,10 +44,16 @@ function isSocketLive(path: string): Promise<boolean> {
 }
 
 /** Start serving `router` over a unix socket at `socketPath`. Returns a
- *  listener whose `close()` stops it and removes the socket file. If a live
- *  peer already owns the path, logs a warning and returns a no-op listener so
- *  a second server never hijacks the first's CLI clients (the single-server
- *  model; pass a distinct path to run two). */
+ *  listener whose `close()` stops it and removes the socket file.
+ *
+ *  The socket is an *additive* convenience — it's how `kolu-tui` reaches the
+ *  pty-host — and kolu-server's web path is entirely independent of it, so a
+ *  failure to bind it must NEVER crash the server. Every failure mode resolves
+ *  to a no-op listener with a warning, not a rejection: a live peer already on
+ *  the path (the single-server model — don't hijack its CLI clients), a lost
+ *  race for the path (`EADDRINUSE` when parallel instances share the default
+ *  socket, as the e2e harness does), or an unwritable dir. Pass
+ *  `--pty-host-socket` to give each instance its own path. */
 export async function servePtyHostOverUnixSocket(opts: {
   socketPath: string;
   // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param.
@@ -55,53 +61,64 @@ export async function servePtyHostOverUnixSocket(opts: {
   log?: Logger;
 }): Promise<PtyHostSocketListener> {
   const { socketPath, router, log } = opts;
+  const noop: PtyHostSocketListener = { socketPath, close() {} };
 
-  // Owner-only parent dir, mirroring koluRoot's 0o700 privacy.
-  mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
+  try {
+    // Owner-only parent dir, mirroring koluRoot's 0o700 privacy.
+    mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
 
-  if (await isSocketLive(socketPath)) {
+    if (await isSocketLive(socketPath)) {
+      log?.warn(
+        { socketPath },
+        "pty-host socket already served by another kolu instance; not taking it over (kolu-tui reaches that one). Use --pty-host-socket to run a second instance.",
+      );
+      return noop;
+    }
+    // Stale file from a crash (or nothing): clear it so listen() won't EADDRINUSE.
+    rmSync(socketPath, { force: true });
+
+    const server = createServer((socket) => {
+      // A client vanishing mid-frame must not take down the listener — log at
+      // debug and let serveOverStdio's read-stream-end resolve that peer.
+      socket.on("error", (err) =>
+        log?.debug({ err }, "pty-host socket client error"),
+      );
+      void serveOverStdio({
+        router,
+        transport: { read: socket, write: socket },
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+    log?.info({ socketPath }, "pty-host socket listening (kolu-tui)");
+    server.on("error", (err) =>
+      log?.error({ err }, "pty-host socket server error"),
+    );
+
+    let closed = false;
+    return {
+      socketPath,
+      close() {
+        if (closed) return;
+        closed = true;
+        log?.info({ socketPath }, "pty-host socket closed");
+        server.close();
+        rmSync(socketPath, { force: true });
+      },
+    };
+  } catch (err) {
+    // Most often EADDRINUSE: another instance won the race for this path. Degrade
+    // to no kolu-tui socket this run rather than take the server down with us.
     log?.warn(
-      { socketPath },
-      "pty-host socket already served by another kolu instance; not taking it over (kolu-tui reaches that one). Use --pty-host-socket to run a second instance.",
+      { err, socketPath },
+      "pty-host socket unavailable this run (could not bind); kolu-server otherwise unaffected",
     );
-    return { socketPath, close() {} };
+    return noop;
   }
-  // Stale file from a crash (or nothing): clear it so listen() won't EADDRINUSE.
-  rmSync(socketPath, { force: true });
-
-  const server = createServer((socket) => {
-    // A client vanishing mid-frame must not take down the listener — log at
-    // debug and let serveOverStdio's read-stream-end resolve that peer.
-    socket.on("error", (err) =>
-      log?.debug({ err }, "pty-host socket client error"),
-    );
-    void serveOverStdio({
-      router,
-      transport: { read: socket, write: socket },
-    });
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(socketPath, () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-  log?.info({ socketPath }, "pty-host socket listening (kolu-tui)");
-  server.on("error", (err) =>
-    log?.error({ err }, "pty-host socket server error"),
-  );
-
-  let closed = false;
-  return {
-    socketPath,
-    close() {
-      if (closed) return;
-      closed = true;
-      log?.info({ socketPath }, "pty-host socket closed");
-      server.close();
-      rmSync(socketPath, { force: true });
-    },
-  };
 }

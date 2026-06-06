@@ -98,4 +98,25 @@ describe("servePtyHostOverUnixSocket — real unix-socket round-trip", () => {
     a.dispose();
     b.dispose();
   });
+
+  it("degrades to a no-op (never throws) when the path is already served", async () => {
+    // A second instance racing for the same path must NOT crash the caller (the
+    // e2e harness boots many servers sharing the default socket). It resolves to
+    // a harmless no-op while the original keeps serving.
+    const { servedRouter } = createInProcessPtyHost({
+      log: silentLog,
+      shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
+      version: "test",
+    });
+    const second = await servePtyHostOverUnixSocket({
+      socketPath,
+      router: servedRouter,
+      log: silentLog,
+    });
+    expect(() => second.close()).not.toThrow();
+    // the original listener is untouched and still serving
+    const { client, dispose } = await connect();
+    expect((await client.surface.terminal.list({})).entries).toEqual([]);
+    dispose();
+  });
 });
