@@ -138,14 +138,18 @@ A tracker recognises electricity after it ships; a method *predicts* it. Surface
 | **`createOwnedResource`** — a `withOwner`-shaped primitive that registers cleanup at attach, so `onCleanup` can't land on a null owner | family B: owner-before-await, already seen 3× (#598/#600/#591) | the SolidJS owner model changes so the await-gap closes upstream, or the call-site set stops growing |
 | **`@kolu/solid-xterm`** (already tabled) | the xterm lifecycle braid | a second SolidJS app never embeds xterm (③ never arrives) |
 
-### Re-deriving surface from zero — the generativity proof
+### The procedure — run it on any app, before any code
 
-1. **List the boundaries, not the features.** kolu is a browser client and a server; they talk. → there is a *network boundary*. (Parnas: list the decisions likely to change *first*; Löwy: decompose by volatility, not by function.)
-2. **Ask what *changes* across it, not what it *does*.** Not "it sends terminal data" — *the link drops, reorders, reconnects; the shape of live state itself evolves (oRPC today, SSE/WS/RSC tomorrow).* That sentence is the axis of volatility.
-3. **Demand one interface that survives every value of the axis.** A consumer must read live server state identically whether the socket is up, reconnecting, or transport-swapped → *snapshot, then deltas, then liveness*; a SolidJS-signal-shaped handle; no `AsyncIterable` in components.
-4. **That interface is the receptacle.** Domain-agnostic (no terminal/git in it), hides a hard volatility (transport + reconnect), and a *different* app can plug in → you have specified `@kolu/surface` without having written any kolu.
+Six steps. Inputs are *interactions*, never features. The falsifiable claim: fed only *"a client and a server talk over a wire,"* step 6 must **emit surface**. If it can't, the method is wrong — and this note is then a catalog of packages wearing a method's clothes.
 
-Step 2 is where functional decomposition dies and the method earns its keep: the instant you write *what changes* instead of *what it does*, surface stops being a design choice and becomes **inevitable**. That is the difference between a tracker and a generator — and the bar every row below is now held to.
+1. **Frame the interaction, not the feature.** Reject requirements-as-design (Löwy: *"any attempt at designing against the requirements will always guarantee pain, because when the requirements change, so will your design"*). The only legal input here: *a client and a server talk over a wire.*
+2. **Sweep the two axes of change** (both *verbatim* Löwy): **① same customer over time** — what changes for *this* user as use evolves? (request/response today → server-pushed live state → deltas → reconnect-with-resume). **② all customers at one instant** — are they all using the wire the same way? (LAN vs flaky mobile vs proxies that kill long-lived sockets → poll / SSE / WS).
+3. **Independence check.** Are ① and ② the *same* change in disguise? No: *push semantics over time* ≠ *transport across customers*. Two real axes → a real vault. If they collapse to one, you've found functional decomposition wearing a domain hat — **stop.**
+4. **Screen the survivor** (three Löwy filters): *variable, not volatile?* — an if-else/flag can't span poll→SSE→WS, so it survives. *Solution masquerading as requirement?* — "add WebSockets" is the **Cooking**, not the **Feeding**; climb to the parent: *live-state delivery.* *Open-ended & expensive to contain unless encapsulated?* — retrofitting a transport swap across every feature is the loose grenade. Survives.
+5. **Name it for the axis, not the tech.** `WebSocketClient` names an *activity* (it fractures on the first transport swap); **`LiveStateTransport` / surface** names the *volatility* (it doesn't). The naming test is the cheap proxy for the sweep test in [§the metaphor, made generative](#the-metaphor-made-generative-axes-in-not-decoration).
+6. **The interface is the receptacle.** Verbs that don't change when the volatility behind them does — *snapshot → deltas → liveness*; a signal-shaped handle; no `AsyncIterable` in components. Domain-agnostic, a different app can plug in → **you have specified `@kolu/surface` without having written any kolu.**
+
+Step 2 is where functional decomposition dies: the instant you write *what changes* instead of *what it does*, surface stops being a design choice and becomes **inevitable**. (Honest footnote, [§hindsight](#foresight-names-the-vault-pain-funds-it): the method names *where* the vault is and *what its verbs are* before code exists — but historically it's recurring same-shape **pain** that tells you it's time to pour it. Foresight names the vault; pain funds it.)
 
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
