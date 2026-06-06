@@ -7,7 +7,6 @@
 
 import Dialog from "@corvu/dialog";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
-import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
@@ -154,11 +153,10 @@ const App: Component = () => {
   // app identity. The server stamps a per-host `kolu@<hostname>` name; passing
   // a static "kolu" here would mask that in the install dialog for every host.
   // Installed-state is single-owner: surface-app's `isInstalled` is the sole
-  // detector — feed it in rather than letting pwa-install re-derive it.
-  const surfaceApp = useSurfaceApp();
+  // detector — pwa-install no longer re-derives it, so consumers read
+  // `app.isInstalled()` directly (see WelcomeMoments).
   const pwaInstall = createPwaInstall({
     manifestUrl: "/manifest.webmanifest",
-    isInstalled: surfaceApp.isInstalled,
   });
 
   // Diagnostic info dialog state (command palette → Debug → Diagnostic info)

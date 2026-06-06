@@ -9,7 +9,9 @@
  *  Android hides install in a menu, Firefox desktop has nothing. A consumer
  *  that branched on `navigator.userAgent` itself would carry all of that
  *  forever; here it plugs into one stable interface (`PwaInstall`) and the
- *  detection + the instruction-dialog delegation live behind it.
+ *  detection + the instruction-dialog delegation live behind it. Installed-state
+ *  is intentionally *not* part of this socket: it has a single owner elsewhere
+ *  (e.g. `@kolu/surface-app`'s `isInstalled`) that consumers read directly.
  *
  *  Two layers:
  *  - PURE, fully unit-tested: `detectInstallPlatform` / `installInstructions`.
@@ -151,11 +153,6 @@ export function installInstructions(
 
 export interface PwaInstall {
   canPrompt: Accessor<boolean>; // a real one-click install is available now
-  /** Running standalone / already installed. Single-owner: this socket does not
-   *  re-derive install state — it surfaces the `isInstalled` accessor injected by
-   *  the consumer (e.g. `@kolu/surface-app`'s `isInstalled`), defaulting to a
-   *  constant `false` when none is given. */
-  installed: Accessor<boolean>;
   platform: Accessor<InstallPlatform>;
   /** Native prompt on Chromium; otherwise opens the @khmyznikov dialog. */
   prompt: () => void;
@@ -180,11 +177,6 @@ export function createPwaInstall(opts?: {
   icon?: string;
   name?: string;
   description?: string;
-  /** Whether the app is already installed / running standalone. Single-owner:
-   *  pass the value derived elsewhere (e.g. `@kolu/surface-app`'s `isInstalled`)
-   *  so this socket never runs a second installed-detector. Omit to leave
-   *  `installed` permanently `false` (a consumer that doesn't track it). */
-  isInstalled?: Accessor<boolean>;
 }): PwaInstall {
   const platform: InstallPlatform =
     typeof navigator === "undefined"
@@ -299,10 +291,6 @@ export function createPwaInstall(opts?: {
 
   return {
     canPrompt,
-    // Single-owner install state: surface the injected accessor (e.g.
-    // surface-app's `isInstalled`) rather than re-deriving it here. Defaults to
-    // a constant `false` for a consumer that doesn't track it.
-    installed: opts?.isInstalled ?? (() => false),
     platform: () => platform,
     prompt,
   };

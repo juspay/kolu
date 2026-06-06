@@ -24,23 +24,28 @@ for what counts as an electricity.
   imports safely under vitest's Node environment.
 - **Browser-only** — `createPwaInstall(...)`, a small reactive controller that
   registers the `<pwa-install>` element, captures `beforeinstallprompt`, tracks
-  `installed`/`canPrompt`, and exposes a single `prompt()` that does the native
-  prompt on Chromium and opens the component's instruction dialog elsewhere.
-  Call it inside a Solid component/owner.
+  `canPrompt`, and exposes a single `prompt()` that does the native prompt on
+  Chromium and opens the component's instruction dialog elsewhere. Call it
+  inside a Solid component/owner. Installed-state is deliberately out of scope:
+  it has a single owner elsewhere (e.g. `@kolu/surface-app`'s `isInstalled`)
+  that consumers read directly.
 
 ## Usage
 
 ```tsx
 import { createPwaInstall } from "@kolu/solid-pwa-install";
+import { useSurfaceApp } from "@kolu/surface-app/solid";
 
 function InstallButton() {
+  // Installed-state has a single owner — read it from there, not from `pwa`.
+  const app = useSurfaceApp();
   const pwa = createPwaInstall({
     manifestUrl: "/manifest.webmanifest",
     name: "kolu",
   });
 
   return (
-    <Show when={!pwa.installed()}>
+    <Show when={!app.isInstalled()}>
       <button onClick={pwa.prompt}>
         {pwa.canPrompt() ? "Install" : "How to install"}
       </button>
@@ -59,7 +64,7 @@ human-readable instruction screens for the detected `platform()`.
 |--------|------|--------------|
 | `detectInstallPlatform({ ua, maxTouchPoints, vendor })` | pure | Classifies the browser into an `InstallPlatform`. |
 | `installInstructions(platform)` | pure | `{ title, steps[], canPromptNatively }` for that platform. |
-| `createPwaInstall(opts?)` | browser | Reactive `{ canPrompt, installed, platform, prompt }`. |
+| `createPwaInstall(opts?)` | browser | Reactive `{ canPrompt, platform, prompt }`. |
 
 ## Testing
 
