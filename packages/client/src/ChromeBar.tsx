@@ -29,7 +29,6 @@ import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
-import { useTerminalStore } from "./terminal/useTerminalStore";
 import {
   DockToggleIcon,
   InspectorToggleIcon,
@@ -54,7 +53,6 @@ const ChromeBar: Component<{
 }> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
-  const store = useTerminalStore();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
@@ -63,13 +61,9 @@ const ChromeBar: Component<{
   // overlay — the `right:` offset below keeps controls off the panel.
   const docked = createMemo(() => posture.mode() === "maximized");
 
-  // Maximize needs a tile to act on. At zero terminals the canvas is the
-  // empty/restore screen and `posture.mode()` derives to "tiled" regardless
-  // of the persisted `kolu-canvas-maximized` flag (see useViewPosture.ts), so
-  // a blind `toggle()` here would silently invert that hidden flag — flipping
-  // the user's preference with a button that reads "Maximize terminal". Gate
-  // the action on having a tile so it never disagrees with its own label.
-  const canMaximize = createMemo(() => store.terminalIds().length > 0);
+  // Gate the maximize affordance on a tile existing (posture's single
+  // source of truth) so the button never disagrees with `mode()`'s guard.
+  const canMaximize = posture.canMaximize;
 
   // The maximize toggle's affordance describes the action a click performs,
   // so both the tooltip and the aria-label read from one source and can't
