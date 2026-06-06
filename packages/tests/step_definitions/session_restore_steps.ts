@@ -47,14 +47,17 @@ async function postSavedSessionPayload(
   if (activeTerminalId !== undefined)
     payload.activeTerminalId = activeTerminalId;
   const resp = await world.page.request.fetch(
-    "/rpc/surface/session/test__set",
+    "/rpc/surface/kolu/session/test__set",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify({ json: payload }),
     },
   );
-  assert.ok(resp.ok(), `surface/session/test__set failed: ${resp.status()}`);
+  assert.ok(
+    resp.ok(),
+    `surface/kolu/session/test__set failed: ${resp.status()}`,
+  );
 }
 
 Given(

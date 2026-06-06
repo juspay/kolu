@@ -25,6 +25,7 @@ import type { ZodType } from "zod";
 import {
   type CellSpec,
   type CollectionSpec,
+  composeSurfaceContracts,
   DEFAULT_CELL_VERBS_WITH_PATCH,
   DEFAULT_CELL_VERBS_WITHOUT_PATCH,
   DEFAULT_COLLECTION_VERBS,
@@ -32,9 +33,15 @@ import {
   type ProcedureSpec,
   type StreamSpec,
   type Surface,
-  type SurfaceContractFor,
   type SurfaceSpec,
 } from "./define";
+
+// `composeSurfaceContracts` is a browser-safe, contract-only helper — it
+// lives in `./define` so a browser-reached common module can value-import it
+// without dragging `@orpc/server` into the client bundle. Re-exported here so
+// server-only consumers that already import from `@kolu/surface/server` keep
+// working.
+export { composeSurfaceContracts };
 import type { Cell, Collection, Event, Stream } from "./index";
 
 // ── Persistence + pub/sub interfaces ───────────────────────────────────
@@ -1493,37 +1500,6 @@ export function implementSurfaces<const E extends SurfaceEntries>(
     // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
     router: { surface: t.router(byKey) } as any,
     ctx: ctxByKey as SurfacesCtx<E>,
-  };
-}
-
-/** Compose a keyed map of surfaces into a single contract fragment of shape
- *  `{ surface: { <key>: innerContract } }` — the wire-level counterpart to
- *  `implementSurfaces`. A consumer spreads the result into their host
- *  contract (alongside raw oRPC procedures) AND types their `websocketLink`
- *  off `typeof composeSurfaceContracts(...)`. */
-export function composeSurfaceContracts<
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
-  const E extends Record<string, Surface<any>>,
->(
-  entries: E,
-): {
-  surface: {
-    [K in keyof E]: E[K] extends Surface<infer S>
-      ? SurfaceContractFor<S>["surface"]
-      : never;
-  };
-} {
-  const surface: Record<string, unknown> = {};
-  for (const [key, s] of Object.entries(entries)) {
-    // biome-ignore lint/suspicious/noExplicitAny: contract walk-by-string
-    surface[key] = (s.contract as any).surface;
-  }
-  return { surface } as {
-    surface: {
-      [K in keyof E]: E[K] extends Surface<infer S>
-        ? SurfaceContractFor<S>["surface"]
-        : never;
-    };
   };
 }
 

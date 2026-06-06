@@ -8,8 +8,7 @@
  * this is the composition the example exists to show.
  */
 
-import { defineSurface } from "@kolu/surface/define";
-import { composeSurfaceContracts } from "@kolu/surface/server";
+import { composeSurfaceContracts, defineSurface } from "@kolu/surface/define";
 import {
   defineBuildInfo,
   surfaceAppSurfaceWith,

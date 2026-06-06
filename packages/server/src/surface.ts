@@ -16,9 +16,15 @@
  *     ctx through `./surfaceCtx.ts` is what breaks the bidirectional
  *     import cycle that would otherwise form (#1005).
  *
- * Publisher channel names are framework-derived: `<surface-key>:changed`
- * for cells, `<surface-key>:keys` + `<surface-key>:<key>` for collections,
- * `<surface-key>:<JSON.stringify(input)>` for events.
+ * Publisher channel names are framework-derived in two layers. Each surface
+ * names its own channels by primitive: `<prim>:changed` for cells,
+ * `<prim>:keys` + `<prim>:<key>` for collections,
+ * `<prim>:<JSON.stringify(input)>` for events. `implementSurfaces` then
+ * key-namespaces every name with its sibling key before it reaches the shared
+ * publisher — so the wire publisher actually sees `kolu/preferences:changed`,
+ * `surfaceApp/buildInfo:changed`, etc. The `<sibling>/` prefix is what keeps
+ * two siblings that each own a same-named primitive from colliding on one
+ * publisher.
  *
  * `confStore`-backed cells (`preferences`, `activityFeed`, `session`) live
  * here so this file is the only one that knows the on-disk layout. Domain

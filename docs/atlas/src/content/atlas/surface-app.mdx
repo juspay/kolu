@@ -4,7 +4,7 @@ description: A library for the class of @kolu/surface app that is really a deskt
 kind: reference
 maturity: evergreen
 status: implemented
-updated: 2026-06-05
+updated: 2026-06-06
 parents: electricity
 ---
 
@@ -93,14 +93,25 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 | Piece | The question it answers | Entrypoint | Inv. |
 | --- | --- | --- | --- |
 | `installSurfaceApp` · `installFreshStatic` · `installPwaManifest` | "Serve the SPA fresh, the manifest, AND `/sw.js` (retirement) — one composed call." | <Pill variant="new">/server</Pill> | #1,2,4 |
-| `buildInfoServer()` · `surfaceAppServer()` | "The buildInfo cell's server impl (+ the `surfaceApp.info` probe impl) — spread into implementSurface; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
-| `implementSurfaceApp()` | "Implement the whole server side in ONE call (the counterpart to `composeSurfaces`): merge the fragment's cell + probe impls into your own deps, run implementSurface, flow `buildInfo.connect`." | <Pill variant="new">/server</Pill> | #2,5 |
-| `buildInfo` · `defineBuildInfo` | "The buildInfo cell definition — composed into your surface; extensible." | <Pill variant="dx">/surface</Pill> | #2,5 |
+| `buildInfoServer()` · `surfaceAppServer()` | "The buildInfo cell's server impl (+ the `identity.info` probe impl) — the deps bundle for the surface-app sibling entry in `implementSurfaces`; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
+| `surfaceAppSurface` · `surfaceAppSurfaceWith` | "surface-app's complete standalone surface (buildInfo cell + `identity.info` probe) — served as a sibling via `implementSurfaces` / `surfaceClients` / `composeSurfaceContracts`." | <Pill variant="dx">/surface</Pill> | #2,5 |
+| `buildInfo` · `defineBuildInfo` | "The buildInfo cell definition — composed into the surface-app surface; extensible." | <Pill variant="dx">/surface</Pill> | #2,5 |
 | `useSurfaceApp()` · `SurfaceAppProvider` · `retireServiceWorker()` | "The headless model (status/stale/server/reload/setAttention) + SW retirement. You render the UI." | <Pill variant="hi">/solid</Pill> | #3,4,5 |
 | `surfaceApp()` vite plugin · `buildSurfaceClient()` · `resolveCommit()` | "Build the client fresh: content-hashed `/assets/*`, the `__SURFACE_APP_COMMIT__` define, the no-store shell rewrite — Vite plugin or Bun helper. Resolve the commit once (env→git→dev)." | <Pill variant="md">/vite · /bun</Pill> | #1,2 |
 | `cacheControlFor` · `clientIsStale` · `SW_SOURCE` | "The pure, framework-free kernels." | <Pill variant="ok">utils/</Pill> | #1,2 |
 
-## The design
+<Callout kind="warn" title="Historical: ‘The design’ + ‘The API’ below describe the merge-era seams — now removed">
+The next two sections (**The design**, **The API**) document the original
+**merge** approach — `composeSurfaces`, `surfaceAppServer` + `implementSurfaceApp`,
+the dup-key throw, the app-visible `connect`, and the old `surfaceApp.info`
+probe path. That approach is **gone**. surface-app is now served as a *sibling*
+surface (`implementSurfaces` / `surfaceClients` / `composeSurfaceContracts`,
+probe at `identity.info`) — see [Composing surfaces](#composing-surfaces--multiple-surfaces-one-transport),
+which is **implemented** and is the current API of record. The merge-era prose
+is kept below only as design history.
+</Callout>
+
+## The design <Pill variant="run">historical (merge era)</Pill>
 
 ### The headless model
 
@@ -187,9 +198,9 @@ Every removed line was the app doing the library's job; every surviving line com
 `composeSurfaces`, `surfaceAppServer` + `implementSurfaceApp`, the dup-key throw, and the app-visible `connect` all exist because surface-app is **merged into** the app's one surface — and its `buildInfo` cell (flat) + `surfaceApp.info` probe (two-level) don't merge as one unit. The fix isn't to make merging smarter; it's to **stop merging**: surface-app is already a complete surface, so serve it as a **sibling**, not a fragment to splice in. That dissolves all four seams with *no* change to `SurfaceSpec`. **This is now the plan of record — see [Composing surfaces](#composing-surfaces--multiple-surfaces-one-transport) below.**
 </Callout>
 
-## The API
+## The API <Pill variant="run">historical (merge era)</Pill>
 
-One package, sub-path entrypoints mirroring @kolu/surface's `exports` map. Pure kernels under `utils/`.
+One package, sub-path entrypoints mirroring @kolu/surface's `exports` map. Pure kernels under `utils/`. The `composeSurfaces` / `implementSurfaceApp` / `surfaceApp.info` snippets in this section are the **superseded merge API** — the current sibling API is in [Composing surfaces](#composing-surfaces--multiple-surfaces-one-transport).
 
 ### /server <Pill variant="new">@kolu/surface-app/server</Pill>
 

@@ -112,8 +112,7 @@ extension-carrying package would impose.
 
 ```ts
 // common/surface.ts
-import { defineSurface } from "@kolu/surface/define";
-import { composeSurfaceContracts } from "@kolu/surface/server";
+import { composeSurfaceContracts, defineSurface } from "@kolu/surface/define";
 import { surfaceAppSurface } from "@kolu/surface-app/surface";
 
 // Your OWN surface — surface-app is NOT merged into it.
@@ -138,15 +137,18 @@ export const contract = composeSurfaceContracts({
 
 ```ts
 // server/main.ts
+import { implement } from "@orpc/server";
+import { RPCHandler } from "@orpc/server/fetch";
 import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
 import { installSurfaceApp, surfaceAppServer } from "@kolu/surface-app/server";
+import { contract } from "../common/surface";
 
 // Serve a keyed map of independent surfaces over one transport. surface-app is
 // a SIBLING under its key; `surfaceAppServer()` is the deps bundle for that
 // entry (the buildInfo cell + the `identity.info` probe). The runtime supplies
 // each sibling a key-namespaced channel and fires the buildInfo cell's `connect`
 // (the async boot axis) automatically — no hand-written seed→ctx.set dance.
-const { router, ctx } = implementSurfaces(
+const { router: surfacesRouter, ctx } = implementSurfaces(
   { channel: <T>(name: string) => publisherChannel<T>(publisher, name) },
   {
     app: { surface: appSurface, deps: { /* ...your own cells/procedures */ } },
@@ -154,7 +156,15 @@ const { router, ctx } = implementSurfaces(
   },
 );
 
-// ...mount the oRPC router over HTTP + WS, registering /rpc BEFORE the static installers...
+// `implementSurfaces` returns a router FRAGMENT — wrap it with
+// `implement(contract).router({ ...fragment })` before handing it to the
+// RPC/WS handlers. The fragment carries its baked `surface.*` paths, so this
+// is a plain spread (no extra prefix); mounting the raw fragment skips the
+// contract bind and 404s. Register `/rpc` BEFORE the static installers.
+const appRouter = implement(contract).router({ ...surfacesRouter } as any);
+const httpHandler = new RPCHandler(appRouter);
+// const wsHandler = new WsRPCHandler(appRouter);  // same router over WS
+// ...mount httpHandler/wsHandler on /rpc...
 
 installSurfaceApp(app, {
   clientDist,
@@ -239,12 +249,21 @@ const clients = surfaceClients(link, {
   surfaceApp: surfaceAppSurface,
 });
 
+// `.rpc` is typed `unknown` — the combined link can't be expanded per-key
+// (see `SurfaceClient.rpc`), so pin the call shape once at the boundary:
+const probeIdentity = (): Promise<ServerProbe> =>
+  (
+    clients.surfaceApp.rpc as {
+      surface: { identity: { info: (input: object) => Promise<ServerProbe> } };
+    }
+  ).surface.identity.info({});
+
 // at the root — surface-app derives the connection lifecycle from the transport:
 <SurfaceAppProvider
   controlPlane={clients.surfaceApp}                // typed: must carry the buildInfo cell
   clientCommit={__SURFACE_APP_COMMIT__}
   ws={ws}                                          // open/close → connecting/live/down
-  probe={() => clients.surfaceApp.rpc.surface.identity.info({})} // { processId } → reconnected vs restarted
+  probe={probeIdentity}                            // { processId } → reconnected vs restarted
   // isStale={(srv, cli) => …}                      // optional: override the predicate per section
   // onError={(err) => toast.error(err.message)}    // optional: surface a dead buildInfo stream
 >

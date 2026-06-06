@@ -2,12 +2,17 @@
  * One PartySocket connection feeding `surfaceClient` + module-level
  * `.use(...)` calls for the app's singleton reactive subscriptions.
  *
- * `app` exposes:
+ * `app` is the SCOPED kolu surface client (`clients.kolu`) — only kolu's own
+ * surface bundle, not the full link. It exposes:
  *   - `app.cells / .collections / .streams / .events` — bound `.use(policy)`
  *     hooks (drop `source` / `mutate` / `valueSource` / `keyToInput`)
- *   - `app.rpc` — typed oRPC client; `app.rpc.surface.<key>.<verb>(...)` for
- *     surface-managed procedures, `app.rpc.{terminal,git,server}.<verb>(...)`
- *     for raw oRPC.
+ *   - `app.rpc` — the scoped link slice (`{ surface: link.surface.kolu }`);
+ *     surface-managed procedures resolve through it.
+ *
+ * Raw oRPC procedures (`terminal`, `git`, `server`) live at the ROOT of the
+ * full combined link, exported as `client` — `client.terminal.create(...)`,
+ * `client.git.worktreeCreate(...)`, `client.server.info(...)`. They are NOT
+ * on `app.rpc`.
  *
  * The `preferences` / `recentRepos` / `savedSession` accessors below
  * collapse what used to be hand-rolled `usePreferences` / `useActivityFeed`

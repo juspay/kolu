@@ -12,7 +12,7 @@
  * TerminalIdSchema, etc.) live in `./surface` and are imported here.
  */
 
-import { composeSurfaceContracts } from "@kolu/surface/server";
+import { composeSurfaceContracts } from "@kolu/surface/define";
 import { eventIterator, oc } from "@orpc/contract";
 import {
   WorktreeCreateInputSchema,
