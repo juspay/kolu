@@ -31,7 +31,7 @@ const rendered = await Promise.all(
 );
 ---
 
-<BaseLayout title="Releases" description="What's new in kolu — shipped and on the way.">
+<BaseLayout title="Changelog" description="What's new in kolu — shipped and on the way.">
   <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
     <p class="eyebrow mb-4">the changelog</p>
     <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
@@ -47,11 +47,17 @@ const rendered = await Promise.all(
     {/* Unreleased — always shown; empty when you're on the latest tag. */}
     <article class="border-t border-rule py-10 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
       <div class="md:text-right">
-        <span
-          class="mono text-[0.72rem] tracking-widest text-amber border border-amber/40 rounded-full px-2.5 py-1"
+        <a
+          href="#unreleased"
+          class="version-link inline-block"
         >
-          UNRELEASED
-        </span>
+          <span
+            id="unreleased"
+            class="mono text-[0.72rem] tracking-widest text-amber border border-amber/40 rounded-full px-2.5 py-1 scroll-mt-20 hover:bg-amber/10 transition-colors"
+          >
+            UNRELEASED
+          </span>
+        </a>
       </div>
       <div>
         {
@@ -74,12 +80,21 @@ const rendered = await Promise.all(
       rendered.map(({ version, date, Body }) => (
         <article class="border-t border-rule py-10 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
           <div class="md:text-right">
-            <h2
-              id={`v${version.replace(/\./g, "-")}`}
-              class="display-sm text-[2rem] text-ink scroll-mt-20"
+            <a
+              href={`#v${version.replace(/\./g, "-")}`}
+              class="version-link group/anchor inline-flex items-baseline gap-1.5 md:flex-row-reverse"
             >
-              v{version}
-            </h2>
+              <span
+                aria-hidden="true"
+                class="mono text-amber opacity-0 group-hover/anchor:opacity-100 transition-opacity"
+              >#</span>
+              <h2
+                id={`v${version.replace(/\./g, "-")}`}
+                class="display-sm text-[2rem] text-ink group-hover/anchor:text-amber transition-colors scroll-mt-20"
+              >
+                v{version}
+              </h2>
+            </a>
             <time
               class="mono text-[0.72rem] text-ink-muted tracking-widest block mt-1"
               datetime={date.toISOString()}
@@ -97,6 +112,11 @@ const rendered = await Promise.all(
 </BaseLayout>
 
 <style>
+  /* Version headings are their own permalink — no underline, anchors handle it. */
+  .version-link {
+    text-decoration: none;
+  }
+
   /* Scoped prose for release bodies — lighter than the serif blog prose. */
   .release-body {
     color: var(--color-ink-dim);
