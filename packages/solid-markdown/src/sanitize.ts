@@ -253,15 +253,21 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
   // handler reads, not a URL the browser ever navigates.
   //
   // The marker is in the document allowlist, so a README's *raw* HTML can mint
-  // `<a data-md-wikilink href="…">` directly — and an untrusted document must
-  // not be able to opt an anchor out of the normal per-anchor policy (safeHref,
-  // external target/rel stamping, relative tagging) just by stamping the
-  // marker. So only honor it for a target that is actually a safe, scheme-less
-  // internal reference: a marker with a scheme-carrying or unsafe href is
-  // stripped of the marker and falls through to the normal policy below, where
-  // an external URL gets `target="_blank" rel="noopener"` and an unsafe scheme
-  // is unwrapped. (The parser only ever mints the marker on a bare `[[…]]`
-  // target, so this never strips a legitimately-tokenized wikilink.)
+  // `<a data-md-wikilink href="…">` directly. The safety boundary this guard
+  // enforces is the one that matters: an untrusted document must not be able to
+  // route an *escaping* href (external URL or unsafe scheme) through the
+  // marker. So the marker is honored ONLY for a safe, scheme-less, non-fragment
+  // href — and every other shape is stripped of the marker and falls through to
+  // the normal policy below (external → `target="_blank" rel="noopener"`,
+  // unsafe scheme → unwrapped, `#frag` → in-page anchor).
+  //
+  // What this does NOT (and need not) distinguish: a scheme-less internal path
+  // minted by raw HTML vs by the parser. Both stay internal — a raw-HTML
+  // `<a data-md-wikilink href="Guide">` resolves through the host's pathless
+  // vault resolver instead of the directory-relative one, but neither escapes
+  // the app origin; both end at the same file-open front door. Telling them
+  // apart would need a parser-owned sentinel transformed post-sanitize, and the
+  // only payoff is which *internal* resolver runs — not worth the indirection.
   if (anchor.hasAttribute("data-md-wikilink")) {
     const safe = href ? safeHref(href) : undefined;
     if (safe !== undefined && !safe.startsWith("#") && !hasOwnScheme(safe)) {

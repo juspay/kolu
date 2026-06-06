@@ -939,6 +939,11 @@ const CodeTab: Component<{
                           // The live repo file list — the vault a `[[wikilink]]`
                           // in the previewed doc resolves against, pathless.
                           repoPaths={treePaths()}
+                          // `fsListAll` resubscribes (and briefly empties
+                          // `treePaths()`) on tab toggles; gate wikilink
+                          // resolution on it so a click in that window doesn't
+                          // resolve against the empty snapshot.
+                          repoPathsPending={allPaths.pending()}
                           theme={diffTheme()}
                           initialSelectedLines={selectedRange()}
                           // Following a link inside an HTML preview is the

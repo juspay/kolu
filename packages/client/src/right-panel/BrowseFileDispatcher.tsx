@@ -85,6 +85,13 @@ export type BrowseFileDispatcherProps = {
    *  `[[wikilink]]` resolves against, pathless. Threaded from `CodeTab` rather
    *  than re-subscribed here so resolution shares the one live list. */
   repoPaths: readonly string[];
+  /** Whether `repoPaths` is still settling (`fsListAll.pending()`). The file
+   *  list briefly resets to `[]` whenever that stream resubscribes (e.g. a
+   *  right-panel tab toggle), so a `[[wikilink]]` clicked in that window must
+   *  not resolve against the empty/stale snapshot — it would toast a bogus "no
+   *  file" or surface stale candidates. Mirrors the `openInCodeTab` pipeline,
+   *  which gates resolution on this same `pending()` for the same reason. */
+  repoPathsPending: boolean;
   theme: "light" | "dark";
   initialSelectedLines?: SelectedLineRange | null;
   /** Forwarded to the iframe renderer so an in-iframe link click moves the
@@ -111,8 +118,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // A `[[Note]]` click resolves pathless against the whole repo (`repoPaths`),
   // GitHub/Obsidian-style. A unique hit opens through the same front door every
   // other "open this file" producer uses; a miss toasts; an ambiguous basename
-  // (two `app.ts`) surfaces a disambiguation menu anchored to the clicked link
-  // rather than failing closed — the user picks the file they meant.
+  // (two `Note.md` in different folders) surfaces a disambiguation menu anchored
+  // to the clicked link rather than failing closed — the user picks the file
+  // they meant.
   const openWikilinkPath = (path: string) =>
     openInCodeTab({
       ref: { path, startLine: null, endLine: null },
@@ -129,6 +137,16 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   } | null>(null);
 
   const onNavigateWikilink = (target: string, anchor: HTMLElement) => {
+    // The vault list resubscribes (and momentarily empties) on right-panel tab
+    // toggles while a persisted preview stays clickable, so resolving against a
+    // pending snapshot would falsely report "no file" or stale candidates. Ask
+    // the user to retry rather than resolve a one-shot click against `[]`; the
+    // list settles in a tick. (The `openInCodeTab` effect can simply re-run
+    // when `pending()` flips — a click can't, hence the explicit guard.)
+    if (props.repoPathsPending) {
+      toast.error("Repo file list still loading — try the link again");
+      return;
+    }
     const res = resolveWikilink({ target, repoPaths: props.repoPaths });
     if (res.kind === "none") {
       toast.error(`No file matching [[${target}]]`);

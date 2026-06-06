@@ -814,7 +814,7 @@ When(
 );
 
 // Click an Obsidian-style `[[wikilink]]` in the rendered preview. The anchor's
-// href is the bare target (`Architecture` / `app`), tagged `data-md-wikilink`
+// href is the bare target (`Architecture` / `Note`), tagged `data-md-wikilink`
 // so styling + click-routing differ from a regular link. Like a relative link
 // it must never open a browser tab — arm a popup watch and fail if one fires.
 When(

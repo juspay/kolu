@@ -49,14 +49,6 @@ function copyCodeBlock(button: HTMLElement): void {
     .catch((err) => console.warn("markdown: copy to clipboard failed", err));
 }
 
-/** Handle interactive bits inside the rendered Markdown — code-copy buttons and
- *  in-page anchors. (The preview is read-only; task-list checkboxes render as
- *  presentational state.) Bound imperatively (not via JSX `onClick`) because
- *  these are delegated handlers over sanitizer-minted DOM, not declarative
- *  element interactions the a11y lint would expect a role for.
- *
- *  Each also stops the bubble so a nested control in a clickable host slot
- *  (dock card, switcher card) doesn't double-fire that slot's handler. */
 /** Host hooks for the two link kinds the preview intercepts: a repo-relative
  *  `[]()` link (resolved against the doc's directory) and an Obsidian-style
  *  `[[wikilink]]` (resolved pathless across the repo). Both fire only in the
@@ -69,6 +61,15 @@ type LinkHandlers = {
   onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
 };
 
+/** Handle interactive bits inside the rendered Markdown — code-copy buttons,
+ *  in-page anchors, and the two intercepted link kinds (`LinkHandlers`). (The
+ *  preview is read-only; task-list checkboxes render as presentational state.)
+ *  Bound imperatively (not via JSX `onClick`) because these are delegated
+ *  handlers over sanitizer-minted DOM, not declarative element interactions the
+ *  a11y lint would expect a role for.
+ *
+ *  Each also stops the bubble so a nested control in a clickable host slot
+ *  (dock card, switcher card) doesn't double-fire that slot's handler. */
 function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
   const onPointerDown = (e: Event) => {
     const target = e.target as Element | null;
