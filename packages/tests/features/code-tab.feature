@@ -457,6 +457,118 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "ccc"
     And the Code tab "forward" button should be disabled
 
+  # History stores `mode` *inside* each entry, so back/forward cross the
+  # All/Local/Branch sub-views, not just files within one view. Walk browse
+  # twice, then jump to a file's Local diff via the tree's right-click "Open
+  # Local diff" — that context-menu jump is a navigation and MUST record, like
+  # every other selection. Back then has to unwind BOTH the mode (local →
+  # browse) and the file (beta → alpha), proving the stack is cross-modal and
+  # that the right-click front door funnels through history (regression: the
+  # menu used to set the view + selection directly, bypassing recordNavigation,
+  # so this jump left no trace and back skipped straight past it).
+  Scenario: Code tab back/forward crosses modes and records right-click "Open in" jumps
+    When I run "rm -rf /tmp/kolu-nav-cross && git init /tmp/kolu-nav-cross && cd /tmp/kolu-nav-cross"
+    And I run "printf 'alpha-line\n' > alpha.txt && printf 'beta-line\n' > beta.txt"
+    And I run "git add . && git commit -m init"
+    And I run "printf 'beta-extra\n' >> beta.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab mode should be "browse"
+    When I click the file "alpha.txt" in the file browser
+    Then the selected file should show content "alpha-line"
+    And the Code tab "back" button should be disabled
+    When I click the file "beta.txt" in the file browser
+    Then the selected file should show content "beta-line"
+    # Cross-mode jump via the tree right-click menu — beta's Local diff.
+    When I right-click the changed file "beta.txt" in the Code tab
+    And I click the context menu item "Open Local diff"
+    Then the Code tab mode should be "local"
+    And the file "beta.txt" should be selected in the file browser
+    And the Code tab should render a diff view
+    And the Code tab "forward" button should be disabled
+    # First back unwinds the recorded right-click jump: back to browse/beta.
+    # (Pre-fix the jump recorded nothing, so this back landed on browse/alpha.)
+    When I go back in the Code tab
+    Then the Code tab mode should be "browse"
+    And the file "beta.txt" should be selected in the file browser
+    And the selected file should show content "beta-line"
+    # Second back keeps unwinding within browse.
+    When I go back in the Code tab
+    Then the Code tab mode should be "browse"
+    And the file "alpha.txt" should be selected in the file browser
+    And the selected file should show content "alpha-line"
+    And the Code tab "back" button should be disabled
+    # Forward retraces the whole trail, mode switch and all.
+    When I go forward in the Code tab
+    Then the Code tab mode should be "browse"
+    And the selected file should show content "beta-line"
+    When I go forward in the Code tab
+    Then the Code tab mode should be "local"
+    And the file "beta.txt" should be selected in the file browser
+    And the Code tab should render a diff view
+    And the Code tab "forward" button should be disabled
+
+  # The other direction of the same regression: a right-click "Open in All
+  # files" from a git-diff view is a navigation and must record. With only one
+  # prior entry on the stack, the decisive tell is the "back" button flipping
+  # to enabled the moment the jump lands — pre-fix it stayed disabled because
+  # the menu bypassed recordNavigation.
+  Scenario: Right-click "Open in All files" from a diff records history
+    When I run "rm -rf /tmp/kolu-nav-tobrowse && git init /tmp/kolu-nav-tobrowse && cd /tmp/kolu-nav-tobrowse"
+    And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
+    And I run "printf 'two\n' >> seed.txt"
+    And I click the Code tab
+    Then the Code tab mode should be "local"
+    And the Code tab should list a changed file "seed.txt"
+    When I click the file "seed.txt" in the file browser
+    Then the Code tab should render a diff view
+    # Sole entry (local/seed.txt) — nothing to go back to yet.
+    And the Code tab "back" button should be disabled
+    When I right-click the changed file "seed.txt" in the Code tab
+    And I click the context menu item "Open in All files"
+    Then the Code tab mode should be "browse"
+    And the file "seed.txt" should be selected in the file browser
+    # The jump recorded browse/seed.txt — back is now live.
+    And the Code tab "back" button should be enabled
+    When I go back in the Code tab
+    Then the Code tab mode should be "local"
+    And the Code tab should render a diff view
+    When I go forward in the Code tab
+    Then the Code tab mode should be "browse"
+    And the file "seed.txt" should be selected in the file browser
+
+  # Browser-fork semantics: navigating after a back drops the forward tail.
+  # Walk a→b→c, rewind to a, then pick c afresh — that fork must evict b, so a
+  # subsequent forward lands on c (the new branch), never the discarded b, and
+  # the forward button is dead at the new tip. Unit-tested in createBrowser, but
+  # never end-to-end through the real toolbar until now.
+  Scenario: Code tab forward history is truncated when navigating after going back
+    Given a Code tab in "browse" mode showing files:
+      | path  | content |
+      | a.txt | aaa     |
+      | b.txt | bbb     |
+      | c.txt | ccc     |
+    When I click the file "a.txt" in the file browser
+    Then the selected file should show content "aaa"
+    When I click the file "b.txt" in the file browser
+    Then the selected file should show content "bbb"
+    When I click the file "c.txt" in the file browser
+    Then the selected file should show content "ccc"
+    When I go back in the Code tab
+    Then the selected file should show content "bbb"
+    When I go back in the Code tab
+    Then the selected file should show content "aaa"
+    # New navigation from the middle forks the stack: the b/c tail is dropped.
+    When I click the file "c.txt" in the file browser
+    Then the selected file should show content "ccc"
+    And the Code tab "forward" button should be disabled
+    When I go back in the Code tab
+    Then the selected file should show content "aaa"
+    # Forward now reaches the re-picked c directly — b was truncated, not revisited.
+    When I go forward in the Code tab
+    Then the selected file should show content "ccc"
+    And the Code tab "forward" button should be disabled
+
   # Regression: history records repo-relative `{ mode, path }` with no repo
   # identity of its own, so it must be scoped to the repo it was captured in.
   # When the SAME terminal `cd`s from one repo to another that happens to hold a
