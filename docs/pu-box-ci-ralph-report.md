@@ -1,5 +1,16 @@
 # pu-box CI ralph report
 
+> **Superseded (2026-06):** the per-run **fork-a-golden** mechanism this report
+> delivered (`ci/pu-ci-host.sh`) has been replaced by a **fixed pool of leased
+> warm boxes** (`kolu-ci-1..8`, `ci/pu-ci-run.sh` + `just ci::pool-ensure`). The
+> headline *measurements* below still hold — warming the Nix store is the lever,
+> `ci::nix` collapses 189s → ~12s, and warm boxes are immune to substituter
+> contention. What changed is the *delivery*: leasing an always-warm pool box
+> sidesteps both `pu fork` bugs entirely (fork is no longer on the hot path), so
+> a run pays no fork/create latency and the box stays warm across leases. See
+> [`.agency/do.md`](../.agency/do.md) for the current model.
+
+
 Measurement-driven reduction of the **`x86_64-linux` CI lane wall-clock** — the
 pipeline `/do` runs on an ephemeral `pu` box (`kolu-pr-<N>`, a clean 32-core
 NixOS Incus container) per PR. Tracks and closes

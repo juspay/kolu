@@ -18,20 +18,18 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry shape). Two Kolu-specific operational notes layered on top of it:
 
-**Ephemeral linux build host per run.** Static darwin (`sincereintent`) lives in `~/.config/justci/hosts.json`; the linux lane uses a throwaway Incus container per CI invocation so prior runs' nix-store cruft can't poison the verdict. (Box lifecycle — create/connect/destroy, the no-egress retry — is the [`pu`](../.apm/skills/pu/SKILL.md) skill.) [`ci/pu-ci-host.sh`](../ci/pu-ci-host.sh) provisions that host: it **forks the warm golden box** (`kolu-ci-golden`) so the lane starts with a hot Nix store — `ci::nix` ~20s instead of the ~180s a cold box spends re-realising the closure from the substituter (juspay/kolu#1173, and that cold pull also degrades badly when several PRs run at once). It falls back to a cold `pu create`, then to `hosts.json`, so a missing/cold/slow golden never blocks the run. It prints the host name, or nothing — in which case drop `--host` and let justci resolve the linux lane from `hosts.json`.
+**Linux build host: a leased pool box per run.** Static darwin (`sincereintent`) lives in `~/.config/justci/hosts.json`; the linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. [`ci/pu-ci-run.sh`](../ci/pu-ci-run.sh) wraps the whole justci invocation: it leases an idle pool box, pins justci's linux lane to it with `--host`, and releases on exit. Just call it with the PR number and your justci args:
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
-host=$(ci/pu-ci-host.sh "kolu-pr-$pr")                                                   # warm fork → cold create → (empty)
-if [ -n "$host" ]; then
-  nix run github:juspay/justci -- run --progress json --host x86_64-linux="$host"           # --host wins over hosts.json on collision; darwin keeps using sincereintent
-  pu destroy "$host"
-else                                                                                    # provisioning failed entirely (e.g. no-egress) — let hosts.json resolve the linux lane
-  nix run github:juspay/justci -- run --progress json
-fi
+ci/pu-ci-run.sh "$pr" --progress json     # lease idle kolu-ci-N → run linux lane on it → release; cold-create then hosts.json fallback
 ```
 
-**Keep the golden box warm.** `kolu-ci-golden` is a long-lived `pu` box whose Nix store is kept hot by periodically running the linux lane on it against `master` (e.g. after a merge): `nix run github:juspay/justci -- run --no-post --platform x86_64-linux --host x86_64-linux=kolu-ci-golden`. A fork inherits whatever is warm; the dependency closure (the bulk of `ci::nix`) stays valid across commits, so even a golden a few commits behind still gives most of the win. Create it once with `pu create kolu-ci-golden`. See [`docs/pu-box-ci-ralph-report.md`](../docs/pu-box-ci-ralph-report.md) for the measurements and the two `pu fork` bugs the script works around.
+A warm leased box keeps `ci::nix` ~20s (vs ~180s on a cold box re-realising the closure) and, pulling nothing from the substituter, never triggers the concurrent-load contention that stalls cold boxes when several PRs run at once (juspay/kolu#1173). The wrapper forwards justci's stdout (so the `--progress json` stream below works unchanged) and falls back — saturated/unreachable pool → cold ephemeral `pu create` → `hosts.json` — so CI is never blocked. Box lifecycle is the [`pu`](../.apm/skills/pu/SKILL.md) skill; runner mechanics are the [`ci`](../.claude/skills/ci/SKILL.md) skill.
+
+*Why a lease, not a fork:* the lock lives on the box (`flock`) and is held over the ssh data channel, so it auto-releases the instant the run ends — even on a hard crash (verified). This replaces the old fork-a-golden-per-run model, whose `pu fork` was unreliable — non-deterministic cross-gateway placement left the forked box unreachable (juspay/kolu#1204). Measurements and the full rationale: [`docs/pu-box-ci-ralph-report.md`](../docs/pu-box-ci-ralph-report.md).
+
+**Keep the pool warm and healthy.** A pool box warms on its first real CI run and stays warm across leases. Bring the pool up to strength (and repair any missing/unhealthy slot) with `just ci::pool-ensure`; inspect with `just ci::pool-status`. Keep stores hot by periodically running the linux lane against `master` on idle slots (e.g. after a merge): `nix run github:juspay/justci -- run --no-post --platform x86_64-linux --host x86_64-linux=kolu-ci-<N>`. (The old `kolu-ci-golden` fork template is retired — the pool boxes are themselves the warm hosts.)
 
 **Live failure surfacing — consume the `--progress json` stream.** The CI step runs in the background (the `/do` skill backgrounds it), and `--progress json` makes the runner emit one NDJSON line to stdout per node transition the instant process-compose reports it: `{node, recipe, platform, status, exit_code?, log?}` with `status ∈ running|success|failed|skipped|errored`. **Don't wait for the run to finish, and don't poll `gh pr checks` in a loop.** Tail the backgrounded output and react the moment a node turns `failed`/`errored` — while sibling lanes are still running:
 
@@ -43,7 +41,7 @@ grep -o '{.*}' "$ci_output" | jq -c 'select(.status=="failed" or .status=="error
 
 The instant such a line appears, read its `log` path (`.ci/<sha>/<platform>/<recipe>.log`) to diagnose — the failing recipe's full output is already on disk before the other lanes finish. Extract JSON objects (`grep -o '{.*}'`) rather than matching line starts: process-compose shares the inherited stdout and emits its own `[<recipe>@<platform>]` log lines plus an xterm title escape that can prefix the very first JSON line. Begin the fix → fmt → commit → retry-CI loop as soon as you have a confirmed failure; you needn't let the rest of the pipeline drain first. (`gh pr checks` / `justci protect --dry-run` remain the source of truth for the *final* green-gate below — the stream is for reacting fast, the checks are for confirming done.) The `CI=true` prefix is gone: justci is strict by default now, and the var is a harmless no-op.
 
-**`pu` misbehaves → comment on the PR with full diagnostics.** Whenever `pu` fails to do its job — `create` errors out, a box lands with no egress (`nix run` hangs on "Resolving timed out"), retries keep landing on dead hosts, or `connect`/`destroy` misbehaves — don't just silently fall back. Post a PR comment so the `pu`/Incus admin can fix the underlying host permanently instead of every run papering over it. Gather everything the admin needs to pin the bad physical host, then drop `--host` and continue per the fallback above (a diagnostic comment must never block the run).
+**`pu` misbehaves → log it on [juspay/kolu#1204](https://github.com/juspay/kolu/issues/1204) with full diagnostics.** Whenever `pu` fails to do its job — `create`/`fork` errors out, a box lands with no egress (`nix run` hangs on "Resolving timed out"), a fork lands cross-gateway and is unreachable, retries keep landing on dead hosts, or `connect`/`destroy` misbehaves — don't just silently fall back. **Post a comment on the central pu-issues log [#1204](https://github.com/juspay/kolu/issues/1204)** so the `pu`/Incus admin can read across sessions and fix the underlying host permanently instead of every run papering over it. **This applies in every session, not only `/do`** — any time `pu` misbehaves, drop a #1204 comment. Gather everything the admin needs to pin the bad physical host, then continue per the fallback above (a diagnostic comment must never block the run).
 
 ```sh
 # $host is the box name; $stage is the pu subcommand that misbehaved (create|connect|destroy|egress)
@@ -67,7 +65,7 @@ The instant such a line appears, read its `log` path (`.ci/<sha>/<platform>/<rec
     echo "== gateway TCP ==";     gw=$(ip route | awk "/default/{print \$3; exit}"); timeout 5 bash -c "echo > /dev/tcp/$gw/443" && echo "gw $gw:443 ok" || echo "gw $gw:443 FAILED"
   ' 2>&1
   echo '```'
-} | gh pr comment "$pr" --body-file -
+} | gh issue comment 1204 --repo juspay/kolu --body-file -
 ```
 
 To capture each stage's stderr for the excerpt above, tee it when you invoke `pu` — e.g. `pu create "$host" 2> >(tee /tmp/pu-$host.err >&2)`.
