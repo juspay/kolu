@@ -15,6 +15,11 @@ import type { Recording } from "./types";
 const REPO = "https://github.com/juspay/kolu";
 const DEMO_DIR = path.join(os.homedir(), "demo");
 const CLONE_PATH = path.join(DEMO_DIR, "kolu");
+// Ownership marker: a hidden file the harness drops inside CLONE_PATH after it
+// creates the clone. We only ever delete CLONE_PATH if this marker is present
+// (or the path doesn't exist yet) — so a developer's own checkout or unrelated
+// work at ~/demo/kolu is never destroyed; the recipe fails loudly instead.
+const OWNERSHIP_MARKER = path.join(CLONE_PATH, ".kolu-demo-fixture");
 
 /**
  * The product demo: open a terminal, clone a repo, launch an agent, and ask it
@@ -32,11 +37,21 @@ export const recording: Recording = {
   async drive(world) {
     // Idempotent fixture: a fresh ~/demo/kolu each run (the terminal's $HOME is
     // this same user, so this clears what the shell is about to clone). Remove
-    // ONLY the clone target the harness owns (never DEMO_DIR or anything above
-    // it) and do it via fs — no shell interpolation of a user-home path into
-    // `rm -rf`.
+    // ONLY a clone the HARNESS created — proven by our ownership marker inside
+    // CLONE_PATH. If ~/demo/kolu exists WITHOUT the marker it's the developer's
+    // own checkout/data: refuse to delete it and fail loudly. We never touch
+    // DEMO_DIR or anything above it, and use fs (no shell interpolation).
     fs.mkdirSync(DEMO_DIR, { recursive: true });
-    fs.rmSync(CLONE_PATH, { recursive: true, force: true });
+    if (fs.existsSync(CLONE_PATH)) {
+      if (!fs.existsSync(OWNERSHIP_MARKER)) {
+        throw new Error(
+          `${CLONE_PATH} exists but lacks the harness ownership marker ` +
+            `(${path.basename(OWNERSHIP_MARKER)}) — refusing to delete what ` +
+            `looks like your own checkout. Move it aside and re-run.`,
+        );
+      }
+      fs.rmSync(CLONE_PATH, { recursive: true, force: true });
+    }
 
     // Shared single-terminal-demo opening: themed terminal, clear of the dock.
     await setupSingleTerminal(world);
@@ -62,6 +77,9 @@ export const recording: Recording = {
         `git clone did not produce ${CLONE_PATH}/.git within 30s — clone failed`,
       );
     }
+    // Stamp the ownership marker so the NEXT run can prove the harness created
+    // this clone and is safe to delete it (see the guard above).
+    fs.writeFileSync(OWNERSHIP_MARKER, "kolu screencast demo fixture\n");
     await pause(world, 1200);
 
     await world.terminalRun("cd kolu");
