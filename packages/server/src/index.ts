@@ -233,13 +233,30 @@ installPwaManifest(app, {
   icons: [
     { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
     { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-    // Maskable variant so installed icons fill the OS mask instead of being
-    // letterboxed; reuses the 512 art (safe-zone-padded source is a follow-up).
+    // Maskable variant (logo inside the safe zone on the brand background) so
+    // installed icons fill the OS mask instead of being letterboxed.
     {
-      src: "/icon-512.png",
+      src: "/icon-512-maskable.png",
       sizes: "512x512",
       type: "image/png",
       purpose: "maskable",
+    },
+  ],
+  // Richer install dialog — Chromium renders these in the install card.
+  screenshots: [
+    {
+      src: "/screenshot-wide.png",
+      sizes: "1280x720",
+      type: "image/png",
+      form_factor: "wide",
+      label: "The kolu canvas with the welcome",
+    },
+    {
+      src: "/screenshot-narrow.png",
+      sizes: "540x720",
+      type: "image/png",
+      form_factor: "narrow",
+      label: "kolu on mobile",
     },
   ],
 });
