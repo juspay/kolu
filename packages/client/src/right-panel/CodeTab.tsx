@@ -936,6 +936,9 @@ const CodeTab: Component<{
                           terminalId={tid}
                           repoPath={repo}
                           filePath={path}
+                          // The live repo file list — the vault a `[[wikilink]]`
+                          // in the previewed doc resolves against, pathless.
+                          repoPaths={treePaths()}
                           theme={diffTheme()}
                           initialSelectedLines={selectedRange()}
                           // Following a link inside an HTML preview is the

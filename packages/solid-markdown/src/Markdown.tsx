@@ -57,10 +57,19 @@ function copyCodeBlock(button: HTMLElement): void {
  *
  *  Each also stops the bubble so a nested control in a clickable host slot
  *  (dock card, switcher card) doesn't double-fire that slot's handler. */
-function bindInteractions(
-  el: HTMLElement,
-  onNavigateRelative?: (href: string) => void,
-): void {
+/** Host hooks for the two link kinds the preview intercepts: a repo-relative
+ *  `[]()` link (resolved against the doc's directory) and an Obsidian-style
+ *  `[[wikilink]]` (resolved pathless across the repo). Both fire only in the
+ *  document preview; everywhere else links are off and these never run. */
+type LinkHandlers = {
+  onNavigateRelative?: (href: string) => void;
+  /** A wikilink click — the host resolves `target` (`Note` / `Note#Heading`)
+   *  against the whole repo. `anchor` is the clicked element so the host can
+   *  anchor a disambiguation menu to it when the target is ambiguous. */
+  onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
+};
+
+function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
   const onPointerDown = (e: Event) => {
     const target = e.target as Element | null;
     if (target?.closest?.("a, [data-md-copy]")) {
@@ -93,6 +102,15 @@ function bindInteractions(
         }
         return;
       }
+      // Wikilinks (`[[Note]]`, tagged by the renderer) resolve pathless across
+      // the whole repo — never against the app origin. Suppress navigation and
+      // hand the host the bare target plus the clicked anchor, so it can open
+      // the file (or anchor a disambiguation menu here when it's ambiguous).
+      if (anchor.hasAttribute("data-md-wikilink")) {
+        e.preventDefault();
+        if (href) handlers.onNavigateWikilink?.(href, anchor);
+        return;
+      }
       // Repo-relative links (tagged by the link policy) must never resolve
       // against the app origin — that opens a bogus app route in a new tab
       // (#1161). Suppress the default navigation unconditionally and, when the
@@ -100,7 +118,7 @@ function bindInteractions(
       // handler the link is simply inert (still better than a bogus tab).
       if (anchor.hasAttribute("data-md-rel")) {
         e.preventDefault();
-        if (href) onNavigateRelative?.(href);
+        if (href) handlers.onNavigateRelative?.(href);
       }
     }
   };
@@ -124,6 +142,12 @@ export const Markdown: Component<{
    *  new tab (#1161). The host resolves the path against the previewed file and
    *  opens it (e.g. in the Code tab). Unwired ⇒ such links are inert. */
   onNavigateRelative?: (href: string) => void;
+  /** Open an Obsidian-style `[[wikilink]]` in the host. Unlike a relative link,
+   *  the `target` (`Note` / `Note#Heading`) resolves *pathless* across the
+   *  whole repo. `anchor` is the clicked element, so the host can anchor a
+   *  disambiguation menu to it when the basename matches more than one file.
+   *  Unwired ⇒ wikilinks are inert. */
+  onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   const isDocument = () => variant() === "document";
@@ -185,7 +209,11 @@ export const Markdown: Component<{
     <Dynamic
       component={variant() === "inline" ? "span" : "div"}
       ref={(el: HTMLElement) =>
-        bindInteractions(el, (href) => props.onNavigateRelative?.(href))
+        bindInteractions(el, {
+          onNavigateRelative: (href) => props.onNavigateRelative?.(href),
+          onNavigateWikilink: (target, anchor) =>
+            props.onNavigateWikilink?.(target, anchor),
+        })
       }
       class="kolu-md"
       data-md-variant={variant()}

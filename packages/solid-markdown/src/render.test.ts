@@ -209,3 +209,43 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).not.toContain("<hr>");
   });
 });
+
+describe("wikilinks", () => {
+  it("renders [[Note]] as a tagged anchor with the bare target href", () => {
+    const out = html("see [[Architecture]] for more");
+    expect(out).toContain("data-md-wikilink");
+    expect(out).toContain('href="Architecture"');
+    expect(out).toContain(">Architecture</a>");
+  });
+
+  it("uses the alias as the display text", () => {
+    const out = html("[[Architecture|the arch doc]]");
+    expect(out).toContain('href="Architecture"');
+    expect(out).toContain(">the arch doc</a>");
+  });
+
+  it("carries a #heading in the href and the default display", () => {
+    const out = html("[[Architecture#Overview]]");
+    expect(out).toContain('href="Architecture#Overview"');
+    expect(out).toContain(">Architecture#Overview</a>");
+  });
+
+  it("supports a qualified target path", () => {
+    const out = html("[[docs/Guide|read it]]");
+    expect(out).toContain('href="docs/Guide"');
+    expect(out).toContain(">read it</a>");
+  });
+
+  it("leaves the ![[embed]] form inert (literal text, never a link)", () => {
+    const out = html("![[Big Note]]");
+    expect(out).not.toContain("data-md-wikilink");
+    expect(out).toContain("![[Big Note]]");
+  });
+
+  it("does not produce wikilinks in intent slots (rawHtml off)", () => {
+    // The compact/inline scales don't admit the wikilink syntax — `[[Note]]`
+    // stays literal there, so a chat message can't mint a file-opening anchor.
+    const out = renderMarkdownToRawHtml("[[Note]]", { rawHtml: false });
+    expect(out).not.toContain("data-md-wikilink");
+  });
+});

@@ -813,6 +813,58 @@ When(
   },
 );
 
+// Click an Obsidian-style `[[wikilink]]` in the rendered preview. The anchor's
+// href is the bare target (`Architecture` / `app`), tagged `data-md-wikilink`
+// so styling + click-routing differ from a regular link. Like a relative link
+// it must never open a browser tab — arm a popup watch and fail if one fires.
+When(
+  "I click the wikilink {string}",
+  async function (this: KoluWorld, target: string) {
+    const link = this.page.locator(
+      `[data-testid="browse-preview-markdown"] a[data-md-wikilink][href="${target}"]`,
+    );
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const popped = this.page
+      .waitForEvent("popup", { timeout: 1500 })
+      .then(() => true)
+      .catch(() => false);
+    await link.click();
+    if (await popped) {
+      throw new Error(
+        `Clicking the wikilink "${target}" opened a new browser tab; it must ` +
+          `resolve in the Code tab instead`,
+      );
+    }
+    await this.waitForFrame();
+  },
+);
+
+// The disambiguation menu shown when a wikilink's basename matches more than
+// one repo file — an anchored list of candidate paths portalled to the body.
+Then(
+  "the wikilink disambiguation menu should be visible",
+  async function (this: KoluWorld) {
+    const menu = this.page.locator(
+      '[data-testid="wikilink-disambiguation-menu"]',
+    );
+    await menu.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+// Pick one candidate path from the open disambiguation menu. The option's
+// testid carries the path verbatim (`…-option-<path>`).
+When(
+  "I click the wikilink candidate {string}",
+  async function (this: KoluWorld, path: string) {
+    const opt = this.page.locator(
+      `[data-testid="wikilink-disambiguation-option-${path}"]`,
+    );
+    await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await opt.click();
+    await this.waitForFrame();
+  },
+);
+
 // Tailwind v4's preflight resets `list-style: none` app-wide, so the rendered
 // preview must re-declare list markers or every list renders unmarked. Assert
 // the computed marker is actually disc/decimal, not the reset `none` — a plain

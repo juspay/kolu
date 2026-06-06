@@ -914,6 +914,55 @@ Feature: Code tab (review + browse)
     Then a toast should appear with text "File reference not found: docs/guide.md"
     And the file "src/guide.md" should not be selected in the file browser
 
+  # Obsidian-style wikilinks: `[[Note]]` renders as a distinct (data-md-wikilink)
+  # anchor and resolves PATHLESS across the whole repo — `[[Architecture]]` opens
+  # docs/Architecture.md wherever it lives, extension implied, with no directory
+  # hint. Resolution is lazy (on click), through the same Code-tab front door.
+  Scenario: Markdown preview opens a wikilink to the unique matching file
+    When I run "rm -rf /tmp/kolu-md-wiki && git init /tmp/kolu-md-wiki && cd /tmp/kolu-md-wiki"
+    And I run "mkdir -p docs/deep && printf '# Architecture Doc\n\nArch target reached.\n' > docs/deep/Architecture.md"
+    And I run "printf '# Home\n\nsee [[Architecture]] for the design\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "a[data-md-wikilink]" element
+    When I click the wikilink "Architecture"
+    Then the file "docs/deep/Architecture.md" should be selected in the file browser
+    And the markdown preview should contain "Arch target reached"
+
+  # The ambiguity affordance: when a wikilink's basename matches more than one
+  # file (two `app.ts`), the click surfaces a disambiguation menu anchored to the
+  # link rather than failing closed — the user picks the file they meant.
+  Scenario: Ambiguous wikilink surfaces a disambiguation menu
+    When I run "rm -rf /tmp/kolu-md-wikiamb && git init /tmp/kolu-md-wikiamb && cd /tmp/kolu-md-wikiamb"
+    And I run "mkdir -p a b && printf 'alpha\n' > a/app.ts && printf 'beta\n' > b/app.ts"
+    And I run "printf '# Home\n\nopen the [[app]] module\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "a[data-md-wikilink]" element
+    When I click the wikilink "app"
+    Then the wikilink disambiguation menu should be visible
+    When I click the wikilink candidate "b/app.ts"
+    Then the file "b/app.ts" should be selected in the file browser
+
+  # A wikilink to a name that matches nothing surfaces a toast (not a silent
+  # no-op), the same way a dead relative link does.
+  Scenario: Wikilink with no matching file surfaces a toast
+    When I run "rm -rf /tmp/kolu-md-wikimiss && git init /tmp/kolu-md-wikimiss && cd /tmp/kolu-md-wikimiss"
+    And I run "printf '# Home\n\nsee [[Nonexistent]] here\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    When I click the wikilink "Nonexistent"
+    Then a toast should appear with text "No file matching [[Nonexistent]]"
+
   # Regression guard for a feature audit's findings: Tailwind v4 preflight
   # blanking list markers, footnotes + GitHub alerts being unsupported, and
   # repo-relative images degrading to a chip instead of loading from the

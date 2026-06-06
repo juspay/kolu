@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatLineRef, parseLineRefs, resolveLineRefPath } from "./lineRef";
+import {
+  formatLineRef,
+  parseLineRefs,
+  resolveLineRefPath,
+  resolveWikilink,
+} from "./lineRef";
 
 describe("formatLineRef", () => {
   it("formats a single line and a range", () => {
@@ -436,5 +441,106 @@ describe("resolveLineRefPath", () => {
         allowBasenameFallback: false,
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveWikilink", () => {
+  it("resolves a bare target by basename, extension implied", () => {
+    // `[[Architecture]]` finds Architecture.md anywhere in the repo.
+    expect(
+      resolveWikilink({
+        target: "Architecture",
+        repoPaths: ["src/x.ts", "docs/deep/Architecture.md"],
+      }),
+    ).toEqual({ kind: "unique", path: "docs/deep/Architecture.md" });
+  });
+
+  it("matches any extension for an extension-less target", () => {
+    // In a code repo `[[app]]` should find app.ts (not just app.md).
+    expect(
+      resolveWikilink({ target: "app", repoPaths: ["nested/app.ts"] }),
+    ).toEqual({ kind: "unique", path: "nested/app.ts" });
+  });
+
+  it("does not match a longer-stemmed sibling (app vs app.test)", () => {
+    // `app.test.ts` has stem `app.test`, so `[[app]]` must not match it.
+    expect(
+      resolveWikilink({ target: "app", repoPaths: ["src/app.test.ts"] }),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("surfaces candidates when the basename is ambiguous", () => {
+    const res = resolveWikilink({
+      target: "app",
+      repoPaths: ["src/app.ts", "nested/src/app.ts"],
+    });
+    expect(res).toEqual({
+      kind: "ambiguous",
+      candidates: ["nested/src/app.ts", "src/app.ts"],
+    });
+  });
+
+  it("returns none when nothing matches", () => {
+    expect(
+      resolveWikilink({ target: "Missing", repoPaths: ["src/app.ts"] }),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("drops a trailing #heading before resolving", () => {
+    expect(
+      resolveWikilink({
+        target: "Architecture#Overview",
+        repoPaths: ["docs/Architecture.md"],
+      }),
+    ).toEqual({ kind: "unique", path: "docs/Architecture.md" });
+  });
+
+  it("honours an explicit extension verbatim", () => {
+    // `[[logo.png]]` matches the png, not a sibling logo.svg.
+    expect(
+      resolveWikilink({
+        target: "logo.png",
+        repoPaths: ["assets/logo.png", "assets/logo.svg"],
+      }),
+    ).toEqual({ kind: "unique", path: "assets/logo.png" });
+  });
+
+  it("narrows a qualified target to the matching directory", () => {
+    // `[[docs/guide]]` opens docs/guide.md, never src/guide.md.
+    expect(
+      resolveWikilink({
+        target: "docs/guide",
+        repoPaths: ["src/guide.ts", "docs/guide.md"],
+      }),
+    ).toEqual({ kind: "unique", path: "docs/guide.md" });
+  });
+
+  it("a qualified target whose directory is absent is none", () => {
+    expect(
+      resolveWikilink({ target: "docs/guide", repoPaths: ["src/guide.ts"] }),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("matches a qualified target against a nested directory tail", () => {
+    expect(
+      resolveWikilink({
+        target: "deep/Architecture",
+        repoPaths: ["a/b/deep/Architecture.md", "deep/Other.md"],
+      }),
+    ).toEqual({ kind: "unique", path: "a/b/deep/Architecture.md" });
+  });
+
+  it("resolves an NFD repo path against an NFC target", () => {
+    const nfc = "docs/Amélie".normalize("NFC");
+    const nfd = `docs/${"Amélie".normalize("NFD")}.md`;
+    const res = resolveWikilink({ target: nfc.slice(5), repoPaths: [nfd] });
+    // Returns the verbatim (NFD) repo entry, matched under NFC.
+    expect(res).toEqual({ kind: "unique", path: nfd });
+  });
+
+  it("is none for an empty or heading-only target", () => {
+    expect(
+      resolveWikilink({ target: "#section", repoPaths: ["a.md"] }),
+    ).toEqual({ kind: "none" });
   });
 });

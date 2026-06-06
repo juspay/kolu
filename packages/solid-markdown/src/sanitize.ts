@@ -184,6 +184,13 @@ const DOCUMENT_ATTR = [
   // The fence language the renderer stamps on `<code>` so the code-block pass
   // can syntax-highlight it (`class` is forbidden, so this carries it).
   "data-lang",
+  // The wikilink marker the renderer stamps on a `[[Note]]` anchor. Unlike
+  // `data-md-rel` (derived post-sanitize by the link policy below), this one
+  // must come from the parser — only the parser can tell a `[[…]]` reference
+  // from a `[]()` link — so it has to survive DOMPurify, hence the allowlist
+  // entry. The link policy keys on it to route the click to the pathless
+  // wikilink resolver instead of the directory-relative one.
+  "data-md-wikilink",
 ];
 const INTENT_ATTR = ["href", "title"];
 
@@ -238,6 +245,13 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
     unwrap();
     return;
   }
+  // A wikilink (`[[Note]]`, tagged by the renderer) resolves pathless on click
+  // through the host's vault-wide resolver — never against the app origin — so
+  // keep the anchor and its marker untouched. Its href is the bare target
+  // (`Note` / `Note#Heading`); DOMPurify already dropped any unsafe-scheme
+  // target, so a surviving href is a plain relative reference the click handler
+  // reads, not a URL the browser ever navigates.
+  if (anchor.hasAttribute("data-md-wikilink")) return;
   const href = anchor.getAttribute("href");
   const safe = href ? safeHref(href) : undefined;
   if (safe === undefined) {

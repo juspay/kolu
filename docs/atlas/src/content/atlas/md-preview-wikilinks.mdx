@@ -1,0 +1,206 @@
+---
+title: "Markdown preview: Obsidian-style [[wikilinks]]"
+description: Support [[Note]] / [[Note|alias]] / [[Note#heading]] wikilinks in the Code-tab Markdown preview — a distinct rendered style, pathless vault-wide resolution on click, and an inline disambiguation menu when a basename is ambiguous.
+kind: feature
+status: proposed
+maturity: seedling
+parents: [solid-fileview]
+updated: 2026-06-06
+---
+
+import Callout from "../../components/Callout.astro";
+import D2 from "../../components/D2.astro";
+import Pill from "../../components/Pill.astro";
+
+Plan of record · branch `still-cause` · builds directly on the relative-link
+work (the `bug` note *"repo-relative links open the target file"*, shipped in
+PR #1190). Verdict: <Pill>~half a day, low risk</Pill>.
+
+export const LinkProto = () => {
+  const ext = { color: "#3454d1", textDecoration: "underline", textUnderlineOffset: "2px" };
+  const wiki = { color: "#6d4ed6", textDecoration: "none", borderBottom: "1px solid #cdbef2", paddingBottom: "1px", fontWeight: 500 };
+  const Brk = ({ children }) => (
+    <span style={wiki}>
+      <span style={{ color: "#b3a3ec", marginRight: "1px" }}>⟦</span>
+      {children}
+      <span style={{ color: "#b3a3ec", marginLeft: "1px" }}>⟧</span>
+    </span>
+  );
+  const rows = [
+    { src: "[the limitations doc](LIMITATIONS.md)", label: "regular markdown link", note: "underlined link-blue — unchanged", render: <a style={ext}>the limitations doc</a> },
+    { src: "[[Architecture]]", label: "wikilink", note: "violet, bracketed — reads as an internal note reference", render: <Brk>Architecture</Brk> },
+    { src: "[[Architecture|the arch doc]]", label: "wikilink · aliased", note: "alias is the visible text; same style", render: <Brk>the arch doc</Brk> },
+  ];
+  return (
+    <div style={{ margin: "1.5rem 0", border: "1px solid #e6e2d6", borderRadius: "12px", overflow: "hidden", boxShadow: "0 2px 12px rgba(0,0,0,.06)", fontFamily: "ui-sans-serif,system-ui" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", padding: ".55rem .85rem", background: "#f4f1e8", borderBottom: "1px solid #e6e2d6" }}>
+        <span style={{ width: "11px", height: "11px", borderRadius: "50%", background: "#ff5f56" }} />
+        <span style={{ width: "11px", height: "11px", borderRadius: "50%", background: "#ffbd2e" }} />
+        <span style={{ width: "11px", height: "11px", borderRadius: "50%", background: "#27c93f" }} />
+        <span style={{ marginLeft: ".5rem", font: "600 .72rem/1 ui-monospace,monospace", color: "#5b6470" }}>Code tab · rendered Markdown preview</span>
+      </div>
+      <div style={{ background: "#fff" }}>
+        {rows.map((r, i) => (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: "1rem", alignItems: "baseline", padding: ".7rem 1rem", borderTop: i === 0 ? "none" : "1px solid #f0ece2" }}>
+            <div>
+              <code style={{ fontSize: ".72rem", color: "#3454d1", background: "#f5f7ff", border: "1px solid #e2e8ff", borderRadius: "6px", padding: ".15rem .4rem", wordBreak: "break-all" }}>{r.src}</code>
+              <div style={{ fontSize: ".68rem", color: "#8a8f97", marginTop: ".35rem", textTransform: "uppercase", letterSpacing: ".03em" }}>{r.label}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: ".9rem" }}>{r.render}</div>
+              <div style={{ fontSize: ".72rem", color: "#6a6f77", marginTop: ".3rem", lineHeight: 1.4 }}>{r.note}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const AmbiguityProto = () => (
+  <div style={{ margin: "1.5rem 0", padding: "1.4rem 1.1rem 1.8rem", border: "1px solid #e6e2d6", borderRadius: "12px", background: "#fff", fontFamily: "ui-sans-serif,system-ui", boxShadow: "0 2px 12px rgba(0,0,0,.06)" }}>
+    <div style={{ fontSize: ".9rem", color: "#1a1c20", position: "relative", display: "inline-block" }}>
+      open the{" "}
+      <span style={{ color: "#6d4ed6", fontWeight: 500, borderBottom: "1px solid #cdbef2" }}>
+        <span style={{ color: "#b3a3ec" }}>⟦</span>app<span style={{ color: "#b3a3ec" }}>⟧</span>
+      </span>{" "}
+      module
+      <div style={{ position: "absolute", top: "1.7rem", left: "2.9rem", minWidth: "12rem", background: "#fff", border: "1px solid #e2dcd0", borderRadius: "8px", boxShadow: "0 8px 24px rgba(0,0,0,.14)", padding: ".25rem", zIndex: 1 }}>
+        {["a/app.ts", "b/app.ts"].map((p) => (
+          <div style={{ font: ".72rem/1.2 ui-monospace,monospace", color: "#3a3f47", padding: ".4rem .55rem", borderRadius: "5px", cursor: "pointer", background: p === "a/app.ts" ? "#f1ecff" : "transparent" }}>{p}</div>
+        ))}
+      </div>
+    </div>
+    <div style={{ marginTop: "4.2rem", fontSize: ".72rem", color: "#6a6f77" }}>
+      Click on an ambiguous <code>[[app]]</code> → a menu anchored to the link
+      lists every repo file whose basename matched; pick one to open it.
+    </div>
+  </div>
+);
+
+## How wikilinks render and resolve
+
+A wikilink is not a regular link with different syntax — it should *look* like a
+different kind of reference. Regular Markdown links keep today's link-blue
+underline; a wikilink gets its own **violet, bracketed** treatment that reads as
+"internal note reference," uniformly, whether or not it resolves.
+
+<LinkProto />
+
+Resolution is **lazy — on click**, never at render time. The preview doesn't
+pre-check every `[[…]]` against the file list to grey out dead ones; it renders
+them all alike and resolves the one you actually click. That keeps the renderer a
+pure presenter (no file-list dependency threaded into it) and matches how the
+relative-link path already works.
+
+<Callout kind="accent" title="Ambiguity is surfaced, not failed">
+A terminal `path:N` click that hits an ambiguous basename fails closed (it can't
+ask which file you meant). A wikilink *can* ask: clicking `[[app]]` when two
+`app.ts` exist opens a small **disambiguation menu anchored to the link** — the
+candidate paths, one click to open. A unique hit opens straight away; a miss
+toasts.
+</Callout>
+
+<AmbiguityProto />
+
+## The hard part — the vault index — already ships
+
+The obvious worry with Obsidian wikilinks is **resolution**: `[[Architecture]]`
+is *pathless* — it finds `Architecture.md` by basename, scanning the whole repo,
+with no directory hint. That sounds like it needs a new file index.
+
+It doesn't. `fsListAll` already streams `git ls-files --cached --others
+--exclude-standard` into the client (`integrations/git/src/browse.ts`),
+materialised as `treePaths()` in `CodeTab.tsx` — a live, gitignore-respecting,
+NFC-normalised list of every repo path, already the back-end of the "open this
+file" front door.
+
+<Callout kind="good" title="What the resolver actually does">
+`resolveWikilink(target, repoPaths)` (`ui/lineRef.ts`) matches the target's
+basename against that list — **extension implied**, so in a *code* repo
+`[[app]]` matches `app.ts` (and `app.md`, and a bare `app`), and
+`[[Architecture]]` matches `Architecture.md`. A qualified `[[docs/Note]]` narrows
+to that directory. It returns `unique` / `none` / **`ambiguous` with the
+candidate list** — the one thing the existing `resolveLineRefPath` throws away
+(it collapses ambiguity to `null`), because surfacing the candidates is what
+powers the menu.
+</Callout>
+
+## The pieces
+
+The relative-link work (PR #1190) cut most of the seam: a tagged anchor, a host
+callback, and the `openInCodeTab` front door. Wikilinks add a *parser* in front
+of it and a *resolver + menu* behind it.
+
+<D2
+  caption="The added pieces (accent) bracket the existing open-in-Code-tab front door. The marked extension mints a distinct data-md-wikilink anchor; a dedicated host callback carries the clicked element so an ambiguous target can anchor a menu to it; resolveWikilink surfaces candidates instead of collapsing to null. Sanitize, the front door, and the file list are untouched."
+  code={`direction: down
+md: "@kolu/solid-markdown" {
+  ext: "markedWikilink() — NEW · parses [[Note]] [[a|b]] [[a#h]] ![[embed]] → distinct data-md-wikilink anchor"
+  cb: "onNavigateWikilink(target, anchorEl) — NEW host callback"
+}
+disp: "client / BrowseFileDispatcher — NEW branch" {
+  res: "resolveWikilink(target, repoPaths) → unique | none | ambiguous+candidates"
+  menu: "unique ⇒ open · none ⇒ toast · ambiguous ⇒ OptionMenu anchored to anchorEl"
+}
+front: "openInCodeTab — front door (existing)"
+list: "treePaths() — fsListAll / git ls-files (existing, threaded as repoPaths)"
+md.ext -> md.cb
+md.cb -> disp.res: "click"
+disp.res -> disp.menu
+disp.menu -> front: "chosen path"
+list -> disp.res: "the vault"
+`}
+/>
+
+<Callout kind="accent" title="markedWikilink() — desugar, don't reinvent">
+A small inline tokenizer extension beside `marked-alert` / `marked-footnote` in
+`solid-markdown/src/render.ts` (document variant only). It parses `[[Target]]`,
+`[[Target|Alias]]`, `[[Target#Heading]]` and emits
+`<a href="Target" data-md-wikilink>Alias</a>`. The marker is allowlisted so it
+survives DOMPurify; the link policy keys on it to skip the relative-link
+treatment, and the click handler routes to the wikilink callback. The `![[…]]`
+embed form is parsed too — only to render it **inert** (literal text), never
+expanded.
+</Callout>
+
+Why a *separate* `onNavigateWikilink` callback rather than reusing
+`onNavigateRelative`: the two differ on two axes — the resolution model (pathless
+vault vs. the doc's directory) and the need for the **clicked element**, so the
+host can anchor the disambiguation menu to it. The menu itself is no new
+machinery — it reuses `OptionMenu` + `useAnchoredPopover`, the same anchored
+option-list the Dock and minimap pickers use. `repoPaths` is threaded from
+`CodeTab` (which owns `treePaths()`) down to the dispatcher, since the front door
+resolves internally and never exposes the candidate set the menu needs.
+
+## Scope
+
+<Callout kind="warn" title="In scope">
+`[[Note]]`, `[[Note|Alias]]`, `[[Note#Heading]]` — rendered distinctly, resolved
+pathless and vault-wide on click, with an inline menu for ambiguous basenames and
+a toast for misses.
+</Callout>
+
+- **`![[embeds]]` (transclusion) — no.** Inlining a note's body or an image is
+  *not* a link; it's a render-time content splice with its own recursion, cycle,
+  and sizing concerns. `![[…]]` is left as inert literal text, never expanded.
+- **Heading scroll-after-open — out of scope.** A `[[Note#Heading]]` opens the
+  file; scrolling to `#Heading` *inside* it is not handled here — the same gap the
+  relative-link fix left for `[]()` fragments.
+
+## Why this stays simple
+
+<Callout kind="good" title="One concept, isolated volatility">
+Wikilinks don't fork the renderer. They're a *second parser* (the `[[…]]` syntax)
+feeding a *second resolution model* (pathless basename) into the **same**
+open-in-Code-tab front door. The genuinely new volatility — "how does this
+token's target become a path, and what happens when it's ambiguous?" — is
+isolated to one marked extension, one resolver, and one dispatcher branch. The
+sanitizer, the file list, and the front door don't know wikilinks exist.
+</Callout>
+
+The earlier instinct to call resolution "moderate effort" was wrong: it assumed a
+file index that turned out to already ship. With that corrected, the whole
+feature — distinct rendering, pathless resolution, and the ambiguity menu — is a
+half-day, low-risk change. Transclusion is a deliberate no; heading-scroll is out
+of scope.

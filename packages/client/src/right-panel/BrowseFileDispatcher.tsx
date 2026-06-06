@@ -42,6 +42,7 @@ import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
+  createSignal,
   type JSX,
   Match,
   Show,
@@ -52,6 +53,8 @@ import { match, P } from "ts-pattern";
 import { resolveLinkHref } from "@kolu/solid-browser";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
+import { resolveWikilink } from "../ui/lineRef";
+import { OptionMenu } from "../ui/OptionMenu";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
@@ -78,6 +81,10 @@ export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
   repoPath: string;
   filePath: string;
+  /** The repo's full file list (`fsListAll`), repo-relative — the vault a
+   *  `[[wikilink]]` resolves against, pathless. Threaded from `CodeTab` rather
+   *  than re-subscribed here so resolution shares the one live list. */
+  repoPaths: readonly string[];
   theme: "light" | "dark";
   initialSelectedLines?: SelectedLineRange | null;
   /** Forwarded to the iframe renderer so an in-iframe link click moves the
@@ -98,6 +105,47 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     {
       onError: (err) => toast.error(`File content stream: ${err.message}`),
     },
+  );
+
+  // ── Wikilink navigation ────────────────────────────────────────────
+  // A `[[Note]]` click resolves pathless against the whole repo (`repoPaths`),
+  // GitHub/Obsidian-style. A unique hit opens through the same front door every
+  // other "open this file" producer uses; a miss toasts; an ambiguous basename
+  // (two `app.ts`) surfaces a disambiguation menu anchored to the clicked link
+  // rather than failing closed — the user picks the file they meant.
+  const openWikilinkPath = (path: string) =>
+    openInCodeTab({
+      ref: { path, startLine: null, endLine: null },
+      repoRoot: props.repoPath,
+      targetMode: "browse",
+      // `path` is already an exact repo entry from the resolver — no fuzzy
+      // fallback (it would defeat the point of having disambiguated).
+      allowBasenameFallback: false,
+    });
+
+  const [wikiMenu, setWikiMenu] = createSignal<{
+    anchor: HTMLElement;
+    candidates: string[];
+  } | null>(null);
+
+  const onNavigateWikilink = (target: string, anchor: HTMLElement) => {
+    const res = resolveWikilink({ target, repoPaths: props.repoPaths });
+    if (res.kind === "none") {
+      toast.error(`No file matching [[${target}]]`);
+      return;
+    }
+    if (res.kind === "unique") {
+      openWikilinkPath(res.path);
+      return;
+    }
+    setWikiMenu({ anchor, candidates: res.candidates });
+  };
+
+  const wikiMenuOptions = createMemo(() =>
+    (wikiMenu()?.candidates ?? []).map((path) => ({
+      value: path,
+      label: path,
+    })),
   );
 
   // The comment address space a view exposes — the single axis this seam
@@ -290,6 +338,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
                   allowBasenameFallback: false,
                 });
               }}
+              onNavigateWikilink={onNavigateWikilink}
             />,
           )}
         </div>
@@ -328,26 +377,41 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   });
 
   return (
-    <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
-      <Match when={fileContent.error()}>
-        {(err) => (
-          <div class="px-2 py-1 text-danger">Error: {err().message}</div>
-        )}
-      </Match>
-      <Match when={textFile()}>
-        {(file) => (
-          <FileView
-            file={file()}
-            source={sourceRenderer}
-            rendered={textRenderers}
-            mode={jumpMode()}
-          />
-        )}
-      </Match>
-      <Match when={binaryFile()}>
-        {(file) => <FileView file={file()} rendered={renderedRenderers} />}
-      </Match>
-    </Switch>
+    <>
+      <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
+        <Match when={fileContent.error()}>
+          {(err) => (
+            <div class="px-2 py-1 text-danger">Error: {err().message}</div>
+          )}
+        </Match>
+        <Match when={textFile()}>
+          {(file) => (
+            <FileView
+              file={file()}
+              source={sourceRenderer}
+              rendered={textRenderers}
+              mode={jumpMode()}
+            />
+          )}
+        </Match>
+        <Match when={binaryFile()}>
+          {(file) => <FileView file={file()} rendered={renderedRenderers} />}
+        </Match>
+      </Switch>
+      {/* Ambiguous-wikilink disambiguation: an anchored list of the repo files
+       *  whose basename matched. Picking one opens it; the menu reuses the same
+       *  anchored-option-list scaffold the Dock/minimap pickers use. */}
+      <OptionMenu
+        triggerRef={() => wikiMenu()?.anchor}
+        open={() => wikiMenu() !== null}
+        onDismiss={() => setWikiMenu(null)}
+        anchor="bottom-start"
+        options={wikiMenuOptions()}
+        value=""
+        onSelect={openWikilinkPath}
+        testIdPrefix="wikilink-disambiguation"
+      />
+    </>
   );
 };
 

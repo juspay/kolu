@@ -58,6 +58,75 @@ function useGfmExtensions(inst: Marked): void {
   inst.use(markedAlert());
 }
 
+/** One `[[wikilink]]` token: an Obsidian-style internal reference. `target`
+ *  is the note/path (never empty); `heading` is the optional `#…` fragment;
+ *  `alias` is the optional `|…` display override; `embed` marks the `![[…]]`
+ *  transclusion form, which this renderer deliberately does NOT expand. */
+interface WikilinkToken {
+  type: "wikilink";
+  raw: string;
+  target: string;
+  heading?: string;
+  alias?: string;
+  embed: boolean;
+}
+
+// `[[target]]`, `[[target|alias]]`, `[[target#heading]]`, and the `![[…]]`
+// embed form. Each captured part stops at the structural delimiters (`#`, `|`,
+// `]]`) so `target` / `heading` / `alias` split cleanly. `target` is `+`
+// (non-empty); the others are optional. A newline ends the candidate — a
+// wikilink never spans lines.
+const WIKILINK_RE =
+  /^(!)?\[\[([^\][\n|#]+)(?:#([^\][\n|]+))?(?:\|([^\][\n]+))?\]\]/;
+
+// The Obsidian-style `[[wikilink]]` inline extension. It desugars a wikilink
+// into the *same* tagged anchor a repo-relative `[]()` link produces — minted
+// here with `data-md-wikilink` so the sanitizer keeps the marker (it's in the
+// document allowlist) and the component routes the click to the host's
+// pathless, vault-wide resolver instead of the directory-relative one. The
+// `![[…]]` embed (transclusion) form is intentionally left inert: it renders as
+// literal text, never expanded into the referenced note's content.
+function useWikilinkExtension(inst: Marked): void {
+  inst.use({
+    extensions: [
+      {
+        name: "wikilink",
+        level: "inline",
+        // Point the inline lexer at the next `[[` / `![[` so the default text
+        // tokenizer stops there and this extension gets first refusal.
+        start(src: string) {
+          return src.match(/!?\[\[/)?.index;
+        },
+        tokenizer(src: string): WikilinkToken | undefined {
+          const m = WIKILINK_RE.exec(src);
+          if (!m || m[2] === undefined) return undefined;
+          return {
+            type: "wikilink",
+            raw: m[0],
+            target: m[2].trim(),
+            heading: m[3]?.trim(),
+            alias: m[4]?.trim(),
+            embed: m[1] === "!",
+          };
+        },
+        renderer(token) {
+          const w = token as WikilinkToken;
+          // Embeds are out of scope — emit the literal source so `![[Note]]`
+          // shows as text rather than being silently expanded or half-linked.
+          if (w.embed) return escapeHtml(w.raw);
+          // Carry the heading in the href so the host can resolve (it strips
+          // the fragment) without a second attribute; the marker disambiguates
+          // a wikilink from a `[]()` relative link at the click seam.
+          const href = w.heading ? `${w.target}#${w.heading}` : w.target;
+          const display =
+            w.alias ?? (w.heading ? `${w.target}#${w.heading}` : w.target);
+          return `<a href="${escapeHtml(href)}" data-md-wikilink>${escapeHtml(display)}</a>`;
+        },
+      },
+    ],
+  });
+}
+
 // The per-slot renderer override — the only thing the parser config varies on.
 // Just the code fence today: carry the fence language on `data-lang` so the
 // sanitize pass can find + syntax-highlight the block (see ./highlight).
@@ -97,6 +166,11 @@ function useRawHtmlPolicy(inst: Marked, rawHtml: boolean): void {
 function buildMarked(breaks: boolean, rawHtml: boolean): Marked {
   const inst = new Marked({ gfm: true, breaks });
   useGfmExtensions(inst);
+  // Wikilinks are a document-preview feature, scoped to the one variant that
+  // admits a document's full surface (`rawHtml` is true only for the document
+  // preview). The compact/inline intent slots leave `[[…]]` as plain text —
+  // their links are off, so a wikilink anchor would just be unwrapped anyway.
+  if (rawHtml) useWikilinkExtension(inst);
   useCodeFenceRenderer(inst);
   useRawHtmlPolicy(inst, rawHtml);
   return inst;
