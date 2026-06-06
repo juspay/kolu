@@ -26,13 +26,12 @@ import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import {
-  appSurface,
   contract,
   EMPTY_STATS,
   type ExampleBuildInfo,
   buildInfo as exampleBuildInfo,
   type ServerStats,
-  surfaceAppSurface,
+  surfaces,
 } from "../common/surface.ts";
 
 const PORT = Number(process.env.PORT ?? 7710);
@@ -78,7 +77,9 @@ const { router: surfacesRouter, ctx } = implementSurfaces(
   { channel: <T>(name: string) => publisherChannel<T>(publisher, name) },
   {
     surfaceApp: {
-      surface: surfaceAppSurface,
+      // Surface bound off the authoritative `surfaces` map (not a free-standing
+      // import), so a key rename in common/surface.ts can't strand the server.
+      surface: surfaces.surfaceApp,
       deps: surfaceAppServer<ExampleBuildInfo>({
         // The schema-valid seed: every required axis at its default. Until the
         // async source settles, the cell publishes `{ commit, bootId: "" }` — a
@@ -95,7 +96,7 @@ const { router: surfacesRouter, ctx } = implementSurfaces(
       }) as any,
     },
     app: {
-      surface: appSurface,
+      surface: surfaces.app,
       deps: { cells: { serverStats: { store: statsStore } } },
     },
   },
