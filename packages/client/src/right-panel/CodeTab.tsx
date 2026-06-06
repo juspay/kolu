@@ -138,11 +138,18 @@ const CodeTab: Component<{
       // adapter's "directories aren't selectable" verdict, so the target keeps
       // its own last pick. It is load-bearing, not removable defensive code —
       // the adapter never calls setSelectedFile itself, so the no-op lives only
-      // here. Do NOT pass null straight through to setSelectedFile: there, null
-      // *deletes* the slot (useRightPanel.ts), the opposite of "keep last pick".
-      // Hoisting the no-op into navigate's caller forfeits the contract unless
-      // setSelectedFile's null semantics change first.
-      if (path !== null) rightPanel.setSelectedFile(target, path);
+      // here. `select` can't absorb the guard: its unconditional setSelectedFile
+      // runs before the record check, so `select(target, null)` would *delete*
+      // the slot (useRightPanel.ts) — the opposite of "keep last pick". The
+      // no-op must stay in front of the funnel unless those null semantics
+      // change first.
+      //
+      // A real pick routes through `select` — the same funnel tree clicks and
+      // the terminal-link front door use — so this cross-mode jump records a
+      // (target, path) history entry like every other navigation. (It used to
+      // call setSelectedFile directly and skip recordNavigation, so back/forward
+      // stepped straight over right-click "Open in <mode>" jumps.)
+      if (path !== null) select(target, path);
       setView(target);
     },
   });
