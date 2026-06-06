@@ -42,19 +42,19 @@ The **Family** column (A · Boundary, B · Invariant, C · Appliance, plus *leaf
 | Electricity | Fam | Owns (volatility) | PR | Progress |
 | --- | --- | --- | --- | --- |
 | **@kolu/surface** | A | Live client↔server state — `Cell`/`Collection`/`Stream`/`Event` over oRPC, reconnect, fine-grained reconcile. | <PrLink pr={805} /> | <Pill variant="done">done</Pill> · 2nd consumer: [drishti](https://github.com/srid/drishti) |
-| **[@kolu/surface-app](./surface-app.html)** | A | The app shell for surface apps — fresh delivery + server/build identity + the connection/update lifecycle model + desktop-install. *(the **Manager** half of the [Manager-vs-Engine](#-the-lifecycle-manager-vs-the-transport-engine--is-surface-two-electricities) question.)* | <PrLink pr={1154} /> | <Pill variant="done">done</Pill> · 2nd consumer: [drishti](https://github.com/srid/drishti) |
+| **[@kolu/surface-app](./surface-app.html)** | A | The app shell for surface apps — fresh delivery + server/build identity + the connection/update lifecycle model + desktop-install. *(the **Manager** half of the [Manager-vs-Engine](#the-lifecycle-manager-vs-the-transport-engine--is-surface-two-electricities--candidate) question.)* | <PrLink pr={1154} /> | <Pill variant="done">done</Pill> · 2nd consumer: [drishti](https://github.com/srid/drishti) |
 | **@kolu/surface-nix-host** | A | `HostSession` — `nix copy` a closure to a host, realise, run `--stdio` over ssh. | <PrLink pr={984} /> | <Pill variant="done">done</Pill> · also in drishti |
 | **@kolu/artifact-sdk** | A+C | Two volatilities under one roof — the agnostic **anchoring core** (C: W3C quote re-find; speaks only `Range`/`Document`/`ShadowRoot`) *and* the **sandboxed-iframe parent↔frame bridge** (A: opaque-origin postMessage, now carrying comments + in-frame navigation + back/forward input). See the re-eval note below. | <PrLink pr={922} /> | <Pill variant="done">done</Pill> <Pill variant="run">re-eval</Pill> |
 | **@kolu/transcript-core** + **transcript-html** | C | Transcript model + rendering. | <PrLink pr={744} /> | <Pill variant="done">done</Pill> |
 | **@kolu/solid-pierre** | C | SolidJS adapters for Pierre tree/diff. | <PrLink pr={823} /> | <Pill variant="done">done</Pill> |
 | **@kolu/solid-markdown** | C | Untrusted-markdown → safe HTML — the marked → DOMPurify → Shiki pipeline + href policy. The *sanitiser* is the volatility (XSS surface moves with every CVE). | — | <Pill variant="done">done</Pill> · 2nd consumer: solid-fileview |
 | **@kolu/pty-host** | A | PTY process lifecycle — `node-pty` child, `@xterm/headless` mirror, VT-derived taps (cwd/title/command/foreground). Agnostic to *what* runs in the shell; its contract schema still lives in `kolu-common` (③-caveat below). | — | <Pill variant="done">done</Pill> <Pill variant="run">③-caveat</Pill> |
-| **persistedPref** | B | Validated localStorage (validate-on-read; closed the zoom-`NaN` + maximize bugs). Distinct vault from server [`migrate-on-load`](#-migrate-on-load--schema-evolution-at-rest-family-b-server). | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
+| **persistedPref** | B | Validated localStorage (validate-on-read; closed the zoom-`NaN` + maximize bugs). Distinct vault from server [`migrate-on-load`](#migrate-on-load--schema-evolution-at-rest-family-b-server--candidate). | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
 | **@kolu/log** · **@kolu/html-escape** · **@kolu/url-shape** · **nonempty** · **memorable-names** · **terminal-themes** | leaf | Zero/near-zero-dep leaves every package imports without dragging the domain tree. `url-shape` (`hasOwnScheme`) is the textbook leaf — *carved out so solid-markdown's href policy and solid-browser's resolver share it with no arrow between them*. `terminal-themes` (okLab nearest-match over the iTerm2 catalog) is a data+algorithm leaf, not a receptacle. | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
 | **@kolu/solid-fileview** | comp | Source↔Rendered toggle + renderer dispatch. Honest verdict: a **composition**, not a receptacle — it *arranges* solid-markdown/solid-pierre, hides no hard volatility. Shipped as `@kolu/*` for reuse, but leaf-tier on test ②. | — | <Pill variant="bad">leaf (mislabeled by package scope)</Pill> |
-| **dom/** + injectable `isMac` | B | `walkShadowRoots` relocated to a neutral wall; keybind core no longer reads the UA singleton. *(a face of [`createOwnedResource`](#-createownedresource--reactive-owner-correctness-family-b--extract-now)'s owner-correctness axis.)* | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
+| **dom/** + injectable `isMac` | B | `walkShadowRoots` relocated to a neutral wall; keybind core no longer reads the UA singleton. *(a face of [`createOwnedResource`](#createownedresource--reactive-owner-correctness-family-b--extract-now)'s owner-correctness axis.)* | <PrLink pr={1089} /> | <Pill variant="done">done</Pill> |
 | **createSharedRoot** | B | Lazy app-scoped reactive singleton (7 consumers). 100% agnostic SolidJS — the *inverse* face of `createOwnedResource`. | <PrLink pr={974} /> | <Pill variant="done">done</Pill> <Pill variant="run">publish?</Pill> |
-| **createOwnedResource** | B | **(new this pass — extract-now)** Reactive-owner correctness across `await`; registers cleanup at attach so `onCleanup` can't no-op. Absorbs `createSharedRoot` + `dom/`. [Crop §](#-createownedresource--reactive-owner-correctness-family-b--extract-now). | — | <Pill variant="fix">to build</Pill> |
+| **createOwnedResource** | B | **(new this pass — extract-now)** Reactive-owner correctness across `await`; registers cleanup at attach so `onCleanup` can't no-op. Absorbs `createSharedRoot` + `dom/`. [Crop §](#createownedresource--reactive-owner-correctness-family-b--extract-now). | — | <Pill variant="fix">to build</Pill> |
 | **@kolu/solid-xterm** (createSolidXterm) | C | xterm.js lifecycle — 8-addon orchestration, WebGL single-owner + context-loss recovery, FitAddon resize, owner-correct async dispose across `await`. | <PrLink pr={1116} /> (plan) | <Pill variant="fix">to build</Pill> |
 | **@kolu/solid-browser** | comp | The Code tab *is* a browser — location/address model, back-forward history, cross-content-type link interception, GitHub-relative resolution, sandboxed-iframe lifecycle. A **composition** (A link-intercept + C appliances + [addressing](#the-seam-the-families-share-addressing-a-reference-that-outlives-what-it-points-at)), not one receptacle. git is an injected resolver; the renderer packages plug in. [Plan](solid-browser). | <PrLink pr={1191} /> | <Pill variant="run">phase 1</Pill> primitives shipped · createBrowser+history (P2), ③ proof-pending |
 
@@ -154,6 +154,10 @@ Six steps. Inputs are *interactions*, never features. The falsifiable claim: fed
 
 Step 2 is where functional decomposition dies: the instant you write *what changes* instead of *what it does*, surface stops being a design choice and becomes **inevitable**. (Honest footnote, [§hindsight](#foresight-names-the-vault-pain-funds-it): the method names *where* the vault is and *what its verbs are* before code exists — but historically it's recurring same-shape **pain** that tells you it's time to pour it. Foresight names the vault; pain funds it.)
 
+### Foresight names the vault; pain funds it
+
+A caution against over-selling the method, kept honest by history. Prediction-by-method almost never *suffices alone* — recognition-after-pain is the historical rule. McIlroy's 1964 "garden hose" memo genuinely predicted Unix pipes ~nine years early (*"we should have some ways of coupling programs like garden hose"*) and then **sat unbuilt** until accumulated pain met Thompson's overnight rewrite. So the defensible claim is narrow and strong: the procedure tells you *where* the receptacle will sit and *what its verbs are* before any code exists — but **same-shape pain (or a contractually-certain axis) is the co-factor that says it's time to pour.** This is why the crop below pairs every *extract-now* with **dated, recurring** evidence — and why a clean axis whose volatility hasn't fired yet (`vt-events`) is filed *defer*, not *build*.
+
 ## The metaphor, made generative: axes in, not decoration
 
 The reason it's called *electricity* isn't decoration — it's **the procedure read backwards.** Löwy lists the power volatilities first — *"power can be AC or DC; 110 volts or 220 volts; … 50 hertz or 60 hertz; produced by solar panels …, a generator …, or plain grid connectivity"* — and *then* the receptacle is whatever interface stays **bit-identical** across every value on every axis. The volatility list is the input; the socket's geometry is the output (its fixed point). Map the axes straight onto a software seam:
@@ -172,9 +176,29 @@ The reason it's called *electricity* isn't decoration — it's **the procedure r
 
 ## Newly identified this pass — the engine, turned on
 
-A method is only worth the name if running it *produces* electricities you hadn't tabled. So this section is the output of pointing the [procedure](#the-procedure--run-it-on-any-app-before-any-code) at kolu **as it stands today** — each candidate stated as its *axis* (what changes), the tell-tale sentence *"every time ___ changes, we hand-edit ___,"* the kolu evidence (`file:line` / issue), and an honest verdict. The honesty gate: a generator that only ever says "extract" is a tracker with extra steps, so the crop below **defers** four and **rejects** two — and one of them *corrects a claim made earlier in this very note*.
+A method is only worth the name if running it *produces* electricities you hadn't tabled. So this section is the output of pointing the [procedure](#the-procedure--run-it-on-any-app-before-any-code) at kolu **as it stands today** — each candidate stated as its *axis* (what changes), the tell-tale sentence *"every time ___ changes, we hand-edit ___,"* the kolu evidence (`file:line` / issue), and an honest verdict. The honesty gate: a generator that only ever says "extract" is a tracker with extra steps, so the crop below **defers** some and **rejects** two — and one *corrects a claim made earlier in this very note*.
 
-### ⚡ `createOwnedResource` — reactive-owner correctness (Family B) · <Pill variant="fix">extract-now</Pill>
+| # | Candidate | Fam | Verdict | Axis — *what changes* |
+| --- | --- | --- | --- | --- |
+| 1 | [`createOwnedResource`](#createownedresource--reactive-owner-correctness-family-b--extract-now) | B | <Pill variant="fix">extract-now</Pill> | the reactive scope owning a subscription across `await` |
+| 2 | [`terminal.attach` → Stream](#terminalattach--surfaces-last-hand-rolled-snapshot--narrow) | B | <Pill variant="run">narrow</Pill> | surface's last hand-rolled snapshot |
+| 3 | [`migrate-on-load`](#migrate-on-load--schema-evolution-at-rest-family-b-server--candidate) | B | <Pill variant="run">candidate</Pill> | persisted shape vs an evolving schema |
+| 4 | [Manager vs Engine](#the-lifecycle-manager-vs-the-transport-engine--is-surface-two-electricities--candidate) | A | <Pill variant="run">candidate</Pill> | lifecycle *sequence* vs transport *activity* |
+| 5 | [`view → artifact`](#view--portable-artifact--export-family-c-adjacent--candidate--defer) | C | <Pill variant="run">defer</Pill> | export format + sink set |
+| 6 | [`vt-events`](#vt-events--escape-sequences--typed-shell-events--candidate--defer) | A | <Pill variant="run">defer</Pill> | escape-sequence → typed event mapping |
+| 7 | [`chord-arbitration`](#chord-arbitration--who-owns-a-keychord-when-input-consumers-stack-family-b--candidate) | B | <Pill variant="run">candidate</Pill> | who owns a chord when consumers stack |
+| 8 | [`capability-gate`](#capability-gate--degrade-when-a-browser-api-is-absent-family-b--extract-now) | B | <Pill variant="fix">extract-now</Pill> | degrade when a browser API is absent |
+| 9 | [`terminal-probes`](#terminal-probes--read-volatile-library-internals-behind-null-safe-thunks-family-b--extract-now--partly-built) | B | <Pill variant="run">extract-now·partly</Pill> | reading volatile library internals safely |
+| 10 | [`refcounted-fan-out`](#refcounted-fan-out--one-source--n-subscribers-refcount--backpressure--extract-now) | B | <Pill variant="fix">extract-now</Pill> | one source → N subscribers + backpressure |
+| 11 | [`freshness`](#freshness--running-code-identity-vs-deployed-code-identity--candidate--partly-in-surface-app) | A | <Pill variant="run">candidate</Pill> | running-code id vs deployed-code id |
+| 12 | [`ambient-injection`](#ambient-injection--deterministic-time--platform--rng-as-injected-sources--candidate) | B | <Pill variant="run">candidate</Pill> | injected time / platform / RNG |
+| · | [addressing](#the-seam-the-families-share-addressing-a-reference-that-outlives-what-it-points-at) | A×C | <Pill variant="run">flagged</Pill> | a reference that outlives its target |
+| ✗ | [identity / trust](#the-reject-pile--candidates-the-engine-refused) | — | <Pill variant="bad">reject</Pill> | who's allowed (single-user-local) |
+| ✗ | [client fan-out](#the-reject-pile--candidates-the-engine-refused) | — | <Pill variant="bad">reject</Pill> | N tabs share one subscription |
+
+Tally: **4 extract-now**, 1 narrow, **5 candidates**, 2 defer, 1 flagged, 2 reject. Nine of the twelve are **Family B** — the invariant kind a package audit is structurally blind to, which is the whole point. Detail rows follow.
+
+### `createOwnedResource` — reactive-owner correctness (Family B) · <Pill variant="fix">extract-now</Pill>
 
 The strongest new find, and a textbook **invariant electricity**.
 
@@ -186,7 +210,7 @@ The strongest new find, and a textbook **invariant electricity**.
 
 This promotes the table's `dom/` + `createSharedRoot` rows from "agnostic helpers awaiting graduation" to **two faces of one un-built receptacle.**
 
-### 🔌 `terminal.attach` — surface's last hand-rolled snapshot · <Pill variant="run">narrow</Pill>
+### `terminal.attach` — surface's last hand-rolled snapshot · <Pill variant="run">narrow</Pill>
 
 Found by *correcting this note*, not by adding to it.
 
@@ -195,7 +219,7 @@ Found by *correcting this note*, not by adding to it.
 - **Evidence:** the one surviving hand-roll lives at <Cite file="packages/server/src/router.ts" lines="144-151" /> (`terminal.attach`) — a raw oRPC procedure, *not* a surface-managed descriptor, so the framework's guarantee doesn't reach it.
 - **Verdict — narrow:** not a new package; the move is to model `terminal.attach` as a surface `Stream` (or route PTY bytes through the existing `pollOnEvent` shape) so the invariant becomes 100% enforce-by-construction and the escape hatch closes. The electricity here is *already built* — this is the last meter of wire.
 
-### 🗄️ `migrate-on-load` — schema evolution at rest (Family B, server) · <Pill variant="run">candidate</Pill>
+### `migrate-on-load` — schema evolution at rest (Family B, server) · <Pill variant="run">candidate</Pill>
 
 A real receptacle hiding in plain sight inside `state.ts` — un-named, un-extracted.
 
@@ -208,7 +232,7 @@ A real receptacle hiding in plain sight inside `state.ts` — un-named, un-extra
 The seductive move is "unify client `persistedPref` and server `state.ts` into one `@kolu/validated-store`." **Run the independence check — they fail it.** Different *clocks*: the client validates **per-entry, on every read, with no migration** (a stale value just degrades to its fallback); the server validates **once at boot, on an aggregate, through a migration ladder** (<Cite file="packages/client/src/persistedPref.ts" lines="56-68" /> vs <Cite file="packages/server/src/state.ts" lines="128-442" />). And the wire-validation clock (oRPC checks an incoming patch) is a *third*, independent one. Same *shape* (opaque → validate → degrade) ≠ same *axis*: they change for different reasons. Merging them is the **coincidental-duplication trap** (legs-on-a-dog = legs-on-a-chair = 4). So: client `persistedPref` = **done** (the receptacle, fully adopted — five call-sites, no stragglers); server `migrate-on-load` = a **separate** candidate. Two vaults, not one.
 </Callout>
 
-### 🔀 The lifecycle **Manager** vs the transport **Engine** — is surface *two* electricities? · <Pill variant="run">candidate</Pill>
+### The lifecycle **Manager** vs the transport **Engine** — is surface *two* electricities? · <Pill variant="run">candidate</Pill>
 
 The boldest structural claim of the pass: apply Löwy's **sequence-vs-activity** split *inside* the headline electricity.
 
@@ -217,7 +241,7 @@ The boldest structural claim of the pass: apply Löwy's **sequence-vs-activity**
 - **Evidence — half-separated:** the *Engine* is already a clean seam — `websocket` / `stdio` / `direct` links all return the same client interface (<Cite file="packages/surface/src/links/_wire.ts" lines="1-9" />). But the *Manager* is still braided to it: `createServerLifecycle({ ws, probe })` derives connecting/connected/reconnected/**restarted** by listening to the raw socket's `open`/`close` (<Cite file="packages/surface-app/src/solid/index.ts" lines="87-103" />), and the retry plugin re-snapshots on reconnect *separately* — two uncoordinated responders to one socket event.
 - **Verdict — candidate (don't split yet):** the seam is real and named, but the axis hasn't *moved* enough to force the split (one transport family in anger so far). Flagged as the place surface will *cleave* if a second transport's lifecycle (e.g. stdio resume semantics) diverges from websocket's. The `postMessageLink` [forward bet](#the-real-test-does-the-method-generate-or-only-recognise) is the most likely trigger: a fourth boundary whose liveness differs is what turns one electricity into a Manager + an Engine.
 
-### 📤 `view → portable artifact` — export (Family C-adjacent) · <Pill variant="run">candidate · defer</Pill>
+### `view → portable artifact` — export (Family C-adjacent) · <Pill variant="run">candidate · defer</Pill>
 
 The crop's clearest *"real axis, wrong time"* — and a lesson in not extracting on momentum.
 
@@ -226,7 +250,7 @@ The crop's clearest *"real axis, wrong time"* — and a lesson in not extracting
 - **Evidence — the shape is real and growing:** five formats in seven weeks — `exportSessionAsHtml`, `exportScrollbackAsPdf`, `screenshotTerminal` (PNG→clipboard), `sessionTransfer` (JSON), `recorder/` (WebM); the leaf `download.ts` (`triggerDownload`) is *already* shared by two of them.
 - **Why defer (the falsifier bites):** each export *welds* its own source to its own sink with **different** readiness guards (popup-block fallback vs hard-error vs clipboard-absent) — the parameters-and-conditionals smell that says *the cases aren't the same thing yet*. No second consumer of a different shape. Verdict: **revisit at the 6th format or a non-UI (CLI) consumer**; until then it's a folder waiting to become wrong. The honest call here is *not* to extract — which is the point of having a method instead of an appetite.
 
-### 🧩 `vt-events` — escape-sequences → typed shell events · <Pill variant="run">candidate · defer</Pill>
+### `vt-events` — escape-sequences → typed shell events · <Pill variant="run">candidate · defer</Pill>
 
 A possible future **cleave of an existing electricity** (pty-host), not a greenfield one.
 
@@ -235,7 +259,7 @@ A possible future **cleave of an existing electricity** (pty-host), not a greenf
 - **Evidence:** the ~50 lines of OSC handlers at <Cite file="packages/pty-host/src/ptyHost.ts" lines="434-481" />, sitting inside ~450 lines of node-pty lifecycle; one real entanglement (OSC 633 *drives* the foreground re-sample schedule).
 - **Why defer:** the parse ruleset has been **inert since extraction** (no new OSC codes added; the churn has all been *process* concerns — exit tombstones, sample timing). No external consumer wants byte-stream-→-events without the rest of pty-host *today*. Verdict: **document the axis, monitor churn** — split to `@kolu/vt-events` only when a non-kolu consumer (tmux/Zellij control-mode) appears or the rules take 3+ independent edits. A clean Löwy axis whose *volatility hasn't fired yet*.
 
-### ⌨️ `chord-arbitration` — who owns a keychord when input consumers stack (Family B) · <Pill variant="run">candidate</Pill>
+### `chord-arbitration` — who owns a keychord when input consumers stack (Family B) · <Pill variant="run">candidate</Pill>
 
 The most *kolu-shaped* find: a volatility born of running tools **inside** the app's own terminals.
 
@@ -244,16 +268,16 @@ The most *kolu-shaped* find: a volatility born of running tools **inside** the a
 - **Evidence — dated & growing:** `Ctrl+J` reserved 2024, `Ctrl+B` added 2026 (`ee454bc3`); the reserved set at <Cite file="packages/client/src/input/prohibitedKeybinds.ts" lines="21-33" />, the manual action-shifts at <Cite file="packages/client/src/input/actions.ts" lines="224" /> / <Cite file="packages/client/src/input/actions.ts" lines="252" /> (#873/#957), and the collision is *unit-tested* (`PROHIBITED × ACTIONS`) at <Cite file="packages/client/src/input/keyboard.test.ts" lines="218-232" />.
 - **Verdict — candidate:** the invariant is *tested* (good) but the resolution is still hand-shifted per collision. The receptacle is an arbiter that, given the reserved set, *derives* the app's chord remap instead of editing it by hand. Domain-agnostic: any terminal multiplexer hosting passthrough tools has this exact axis. Extract when a **fourth** reserved chord lands — that's the rule-of-three line.
 
-### 🧪 `capability-gate` — degrade when a browser API is absent (Family B) · <Pill variant="fix">extract-now</Pill>
+### `capability-gate` — degrade when a browser API is absent (Family B) · <Pill variant="fix">extract-now</Pill>
 
 A scattered invariant that wants one seam.
 
 - **Axis:** the set of platform capabilities (clipboard, File-System-Access, WebGL, secure-context/HTTPS, PWA-install) that gate a feature, *with a degrade path when absent* — and that set churns as browsers move.
 - **The sentence:** *every time a feature needs a capability, we re-write `if (!navigator.X) { toast.error(…) }` inline — each site with a different fallback.*
 - **Evidence:** partial home at <Cite file="packages/client/src/capabilities.ts" lines="26-34" /> (form-factor gates only), but the *feature* gates are ad hoc at 5+ sites — `navigator.clipboard?.write` <Cite file="packages/client/src/screenshotTerminal.ts" lines="395" />, `showSaveFilePicker`/`getDisplayMedia` <Cite file="packages/client/src/recorder/useRecorder.ts" lines="103-111" />, the `execCommand` clipboard fallback <Cite file="packages/client/src/ui/clipboard.ts" lines="64" />, WebGL gating in `Terminal.tsx`. The plain-HTTP clipboard fallback (`168e6865`) shows the set growing.
-- **Verdict — extract-now:** same shape (*probe → degrade → notify*) at every site, no app-domain in it. A `tryFeature(capability, { onAbsent })` seam collapses the five hand-rolls and makes "what do we do when the API is missing" answerable in one place. This is the export row's [welded guards](#-view--portable-artifact--export-family-c-adjacent--candidate--defer) seen from the *capability* axis rather than the *format* axis — the two cross here.
+- **Verdict — extract-now:** same shape (*probe → degrade → notify*) at every site, no app-domain in it. A `tryFeature(capability, { onAbsent })` seam collapses the five hand-rolls and makes "what do we do when the API is missing" answerable in one place. This is the export row's [welded guards](#view--portable-artifact--export-family-c-adjacent--candidate--defer) seen from the *capability* axis rather than the *format* axis — the two cross here.
 
-### 🔬 `terminal-probes` — read volatile library internals behind null-safe thunks (Family B) · <Pill variant="run">extract-now · partly built</Pill>
+### `terminal-probes` — read volatile library internals behind null-safe thunks (Family B) · <Pill variant="run">extract-now · partly built</Pill>
 
 Already recognised in `.agency/lowy.md` — the crop just confirms it and finds the leaks.
 
@@ -262,7 +286,7 @@ Already recognised in `.agency/lowy.md` — the crop just confirms it and finds 
 - **Evidence — receptacle exists, but leaks at the edges:** `TerminalProbes` (`() => T | null`) at <Cite file="packages/client/src/terminal/terminalRefs.ts" lines="20-30" /> and the WebGL lifecycle snapshot at <Cite file="packages/client/src/terminal/webglTracker.ts" lines="71-101" /> are the good pattern; but `screenshotTerminal` still pokes `buffer.active.getLine` *directly* (<Cite file="packages/client/src/screenshotTerminal.ts" lines="207-226" />), bypassing the probe wall.
 - **Verdict — extract-now (harden, don't invent):** the electricity is *already designed*; the work is to route the remaining reach-throughs through it and ship it (likely as the diagnostics face of `solid-xterm`, or its own `@kolu/terminal-probes`). Distinct from solid-xterm's *lifecycle* axis: this one is purely *measure-volatile-internals-safely*.
 
-### 📡 `refcounted-fan-out` — one source → N subscribers, refcount + backpressure · <Pill variant="fix">extract-now</Pill>
+### `refcounted-fan-out` — one source → N subscribers, refcount + backpressure · <Pill variant="fix">extract-now</Pill>
 
 The pass's **best-evidenced** find — rule-of-three already *quadrupled* — and it resolves the multi-tab reject into a positive.
 
@@ -275,12 +299,21 @@ The pass's **best-evidenced** find — rule-of-three already *quadrupled* — an
 The [Considered table](#considered--not-electricity) rejects `@kolu/fs-watch` as "a refcount/debounce *lifecycle*, not a streaming transport." True — but that compared it to the *wrong* electricity. fs-watch isn't a transport; it is **one of the four instances of `refcounted-fan-out` above.** The reject answered "is this a *surface*-shaped transport?" (no) and missed "is the refcount-fan-out *lifecycle* itself the artifact?" (yes — `.agency/lowy.md`'s Layer-0 prompt). The helper was real; we'd been measuring it against the wrong receptacle. Corrected below.
 </Callout>
 
-### 🔄 `freshness` — running-code identity vs deployed-code identity · <Pill variant="run">candidate · partly in surface-app</Pill>
+### `freshness` — running-code identity vs deployed-code identity · <Pill variant="run">candidate · partly in surface-app</Pill>
 
 - **Axis:** the identity of the code currently *running* vs the code *deployed/available*, and deriving "you are stale — reload/restart" from the drift — with **no transport knowledge** in it.
 - **The sentence:** *every time a new identity axis appears (pty-host build-id, client commit, server commit), we hand-edit an `isStale` predicate.*
 - **Evidence:** the nix-baked `currentBuildId()` <Cite file="packages/pty-host/src/buildId.ts" lines="1-29" />, the extensible `isStale` in <Cite file="packages/surface-app/src/surface.ts" lines="37-60" />, the stale badge reading `staleKey` in `IdentityRail.tsx`. Landed incrementally (`606c7a24` build-id intro → `5cc41968` surface-app extraction).
 - **Verdict — candidate (mostly housed):** surface-app *already* owns the lifecycle plumbing, so this isn't greenfield — but naming the **axis** (identity-drift → update-prompt) separates it from surface's *transport* axis, which is why the same app can change its update story without touching its wire. The `③` is real: drishti reuses the `isStale`/`buildInfo` seam with its own identity.
+
+### `ambient-injection` — deterministic time / platform / RNG as injected sources · <Pill variant="run">candidate</Pill>
+
+The most *outside-the-box* find: the volatility isn't a boundary or a renderer — it's the **ambient globals the code reads without asking.**
+
+- **Axis:** non-deterministic ambient singletons — the wall clock (`Date.now`/`setInterval`), the platform (`navigator.userAgent`), randomness — read directly at call-sites, which makes them *untestable and non-injectable*. The volatility is "this value comes from the environment, and the environment varies (and must be faked in tests)."
+- **The sentence:** *every time setup needs the time/platform/RNG, we read a global directly — then can't test it, and re-roll the same `setInterval(…); onCleanup(clearInterval)` ticker.*
+- **Evidence:** `isMac` is the **proven first instance** — already injected (the `dom/` row) precisely so the keybind core stops reading the UA singleton. The unowned siblings: the same shared-ticker shape at <Cite file="packages/client/src/staleness.ts" lines="54-56" />, <Cite file="packages/client/src/settings/useTips.ts" lines="41-44" />, `recorder/useRecorder.ts`, `useThemeManager.ts`. (Telling corroboration: the agent harness *forbids* `Date.now()`/`Math.random()` in some contexts for exactly this reason.)
+- **Verdict — candidate, honestly hedged:** the per-use ticker is **leaf-tier** on its own (three lines). But the *axis* — deterministic injected ambient — is real and already paid off once (`isMac`). The receptacle is a `createClock()` / injected-providers seam (one owned ticker, fake-able in tests) that `createOwnedResource` would host. Worth naming because it reframes a scatter of "small helpers" as one testability electricity; not worth a package until a second ambient (the clock) is actually injected.
 
 ### The reject pile — candidates the engine *refused*
 
@@ -343,7 +376,7 @@ Looked framework-sized (the audit's biggest braids), but fail the bar — record
 | Candidate | Verdict | Why |
 | --- | --- | --- |
 | **defineMutation** (optimisticOverlay) | <Pill variant="bad">helper</Pill> | One module, one domain (canvas layouts); the write echo is already owned by `surface`'s metadata subscription. Pending is a UI cache, not a transport axis. |
-| **@kolu/fs-watch** | <Pill variant="run">re-judged</Pill> | *Original verdict: helper — "a refcount/debounce lifecycle, not a streaming transport."* **Re-judged this pass:** that measured it against the wrong receptacle. It is not a transport, but the refcount/fan-out **lifecycle** it owns *is* the artifact — fs-watch is one of four instances of [`refcounted-fan-out`](#-refcounted-fan-out--one-source--n-subscribers-refcount--backpressure) (extract-now). The reject wasn't wrong about "not a socket"; it stopped one altitude too early. |
+| **@kolu/fs-watch** | <Pill variant="run">re-judged</Pill> | *Original verdict: helper — "a refcount/debounce lifecycle, not a streaming transport."* **Re-judged this pass:** that measured it against the wrong receptacle. It is not a transport, but the refcount/fan-out **lifecycle** it owns *is* the artifact — fs-watch is one of four instances of [`refcounted-fan-out`](#refcounted-fan-out--one-source--n-subscribers-refcount--backpressure--extract-now) (extract-now). The reject wasn't wrong about "not a socket"; it stopped one altitude too early. |
 | **@kolu/geometry** | <Pill variant="bad">domain-coupled</Pill> | `TileLayout` binds it to a server-persisted domain type; a `Rect` package re-adapts at every boundary — moves the braid, doesn't dissolve it. |
 | **@kolu/surface-publish** | <Pill variant="bad">already-covered</Pill> | Surface's `cellHandlers`/`collectionHandlers`/`pollOnEvent` already own server snapshot+delta. Only `terminal.attach` is a raw escape hatch. |
 | **@kolu/commands** (palette) | <Pill variant="bad">domain-coupled</Pill> | Palette engine is already agnostic; all coupling is isolated in `createCommands`, which must stay in the app. Extracting deletes ~0 kolu lines. |
