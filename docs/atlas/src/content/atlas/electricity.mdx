@@ -338,6 +338,10 @@ A generator should also be a *detector*: point the procedure at each existing `@
 
 The reverse audit is the method's self-test: it must re-derive the good rows, reject the leaves, and flag the compositions — *without being told which is which.* It does. That, more than any single new candidate, is the evidence that the note is a generator and not a flattering list.
 
+### Why the crop stops at twelve (diminishing returns is a finding, not a failure)
+
+A generator that keeps emitting candidates indefinitely is no longer generating — it's hallucinating axes. Löwy's own caution applies: *"this is a process of diminishing returns; don't overdo it."* Past the twelve above, every further candidate the engine proposed (a shared-clock helper beyond `ambient-injection`, a toast-semantics seam, a scroll-position state machine, a tiling-geometry `Rect`) tripped a falsifier — a bounded algorithm, a single domain, an axis that hasn't moved — and landed in *defer*, *reject*, or the [Considered table](#considered--not-electricity). **Stopping is the method working, not running out of ideas:** the same discipline that says *extract `refcounted-fan-out` now* says *don't manufacture a thirteenth.* The crop is sized to kolu's *actual* volatility, and it will grow only when kolu's does — which is exactly the property that separates infrastructure from speculation.
+
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
 package. It holds **two** volatilities: (1) the **anchoring core** (`core/` — W3C
