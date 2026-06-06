@@ -5,6 +5,8 @@ pubDate: 2026-04-18
 author: "Sridhar Ratnakumar"
 ---
 
+import PR from "../../components/PR.astro";
+
 [Kolu](https://github.com/juspay/kolu) is a terminal-native cockpit for coding agents — `claude`, `opencode`, whatever ships next week. The terminal is the universal interface: every pane is a real [xterm.js](https://xtermjs.org/) in the browser, wired over a WebSocket to a PTY on the server, and Kolu just watches what you already do — the repos you `cd` into, the agents you run — to build its UI. No agent adapters, no preferences pane. Run a new agent once and it shows up in the command palette the next time you want it.
 
 Yesterday I shipped [canvas mode](https://x.com/sridca/status/2044953014100726221): instead of stacking terminals in a sidebar, you drag them around a freeform 2D canvas, like windows on a desk. Cute demo, people liked it, and — within hours of it going live on the always-on Kolu instance on my headless dev box — the thing that drove the tab to 1.2 GB.
@@ -20,7 +22,7 @@ This is the story of finding that leak, told honestly — the two wrong hours, t
 <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
 </div>
 
-The first crack at it happened on the bus to the swimming pool, and again on the way back — typing instructions to Claude Code on my phone and watching retainer walks come back between stops. That pass found a real bug, just not the one I was chasing. Two `MutableDisposable` fields in xterm — one in `RenderService`, one in `WebglRenderer` — were created with `= new MutableDisposable()` but never wrapped in `this._register(...)`. Without that registration, xterm's `Disposable` base class never tore them down, so a `setInterval` for the cursor blink and a debounced resize task kept ticking long after `terminal.dispose()`. Six lines of source: [xtermjs/xterm.js#5817](https://github.com/xtermjs/xterm.js/pull/5817).
+The first crack at it happened on the bus to the swimming pool, and again on the way back — typing instructions to Claude Code on my phone and watching retainer walks come back between stops. That pass found a real bug, just not the one I was chasing. Two `MutableDisposable` fields in xterm — one in `RenderService`, one in `WebglRenderer` — were created with `= new MutableDisposable()` but never wrapped in `this._register(...)`. Without that registration, xterm's `Disposable` base class never tore them down, so a `setInterval` for the cursor blink and a debounced resize task kept ticking long after `terminal.dispose()`. Six lines of source: <PR id={5817} repo="xtermjs/xterm.js" />.
 
 Deploy. Chrome's Task Manager, GPU Memory column: the steady climb went flat. Memory Footprint column: unchanged. So the GPU thing was a leak — its own small leak — but not the one eating the gigabyte. **I'd fixed a symptom.**
 
@@ -33,7 +35,7 @@ So Claude took the obvious first steps. Chrome DevTools, Memory tab. [Heap snaps
 - Inline JSX handlers (`<div onClick={() => terminal.focus()}>`) that share one V8 lexical scope with the whole component body. One closure in that scope captures something heavy, and the entire scope gets pinned.
 - Component libraries (`@corvu/resizable`, `@thisbeyond/solid-dnd`) that register internal contexts and don't always tear them down cleanly.
 
-Six commits landed on [a branch](https://github.com/juspay/kolu/pull/614) over the afternoon. Claude swapped both libraries for 200 lines of our own code, delegated every inline handler to the parent, and got the `Context` count per 30-toggle run from +11,025 down to +1,208. An 89% cut. It wrote the PR and drew a tidy mermaid graph of the staircase coming down. I deployed.
+Six commits landed on a branch <PR id={614} /> over the afternoon. Claude swapped both libraries for 200 lines of our own code, delegated every inline handler to the parent, and got the `Context` count per 30-toggle run from +11,025 down to +1,208. An 89% cut. It wrote the PR and drew a tidy mermaid graph of the staircase coming down. I deployed.
 
 Chrome's Task Manager showed no change. None. **The number I'd spent the afternoon cutting wasn't the number that mattered.**
 
@@ -102,12 +104,12 @@ Deploy. Fresh tab, thirty toggles, quiet session: **the footprint stayed flat.**
 
 Two upstream patches fell out of the day:
 
-- [xtermjs/xterm.js#5817](https://github.com/xtermjs/xterm.js/pull/5817) — the bus-stop patch. Register the two `MutableDisposable` fields. Six lines of source. Killed the GPU-memory leak.
-- [xtermjs/xterm.js#5821](https://github.com/xtermjs/xterm.js/pull/5821) — the `WeakRef` patch. One line of real code plus a comment saying why. Killed the Memory-Footprint leak.
+- <PR id={5817} repo="xtermjs/xterm.js" /> — the bus-stop patch. Register the two `MutableDisposable` fields. Six lines of source. Killed the GPU-memory leak.
+- <PR id={5821} repo="xtermjs/xterm.js" /> — the `WeakRef` patch. One line of real code plus a comment saying why. Killed the Memory-Footprint leak.
 
 Both look laughably small. Both took hours of measuring, retainer-walking, and wrong turns to find. **That's the shape of this work: the ratio of code written to time spent is about zero.**
 
-While they were unreleased I pulled them in through a `juspay/xterm.js` fork pinned in `pnpm.overrides`. #5817 has since merged upstream, and #5821 was closed in favor of the equivalent [#5831](https://github.com/xtermjs/xterm.js/pull/5831) (clear the observer reference on dispose); both shipped in the upstream `6.1.0-beta` line, so the override is now a plain version pin against the auto-published betas built from `xtermjs/xterm.js@master`:
+While they were unreleased I pulled them in through a `juspay/xterm.js` fork pinned in `pnpm.overrides`. <PR id={5817} repo="xtermjs/xterm.js" /> has since merged upstream, and <PR id={5821} repo="xtermjs/xterm.js" /> was closed in favor of the equivalent <PR id={5831} repo="xtermjs/xterm.js" /> (clear the observer reference on dispose); both shipped in the upstream `6.1.0-beta` line, so the override is now a plain version pin against the auto-published betas built from `xtermjs/xterm.js@master`:
 
 ```json
 "@xterm/xterm": "6.1.0-beta.225",
@@ -124,7 +126,7 @@ Sort heap diffs by bytes, not by instance count. A 220 MB leak across 175,594 `U
 
 `.disconnect()`, `.dispose()`, and `removeEventListener()` are best-effort. In the presence of browser extensions, DevTools, and native registries, a callback that closes over heavy state and outlives its owner keeps the whole graph alive. `WeakRef` is cheap insurance: one `.deref()?.` in the callback path, no behavior change while the reference is live, clean collection when it isn't. **Use it on anything you hand to `IntersectionObserver`, `MutationObserver`, `ResizeObserver`, or `EventTarget.addEventListener`.**
 
-The fix is [c9794db](https://github.com/juspay/kolu/pull/617). My always-on Kolu tab sits at 300 MB now, and stays there.
+The fix is `c9794db` <PR id={617} />. My always-on Kolu tab sits at 300 MB now, and stays there.
 
 The full investigation history — including the wrong turns I glossed over here — lives in Kolu's repo alongside the tools that did the work:
 

@@ -6,6 +6,7 @@ author: "Sridhar Ratnakumar"
 ---
 
 import Tip from "../../components/Tip.astro";
+import PR from "../../components/PR.astro";
 
 If you've ever wanted your coding agent to actually see your app running — take a screenshot, dump the DOM, read the network panel, snapshot the JS heap — Google ships an MCP server that does exactly that: [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp). It speaks the [Model Context Protocol](https://modelcontextprotocol.io/), so any agent that speaks it can plug in.
 
@@ -98,11 +99,11 @@ The first is iteration. The agent opens the page it just changed, takes a snapsh
 
 The second is PR evidence. Our [`/do`](https://agency.srid.ca/) workflow (from [`srid/agency`](https://github.com/srid/agency)) ends with an `evidence` step: spin up a dev server on a free port, point `chrome-devtools-mcp` at the routes that changed, run `take_screenshot`, upload to a long-lived [`evidence-assets`](https://github.com/juspay/kolu/releases/tag/evidence-assets) GitHub release, and drop the URLs into the PR comment. **The reviewer sees exactly what changed without checking out the branch.**
 
-Here's what one of those evidence comments looks like, lifted from [Kolu PR #835](https://github.com/juspay/kolu/pull/835#issuecomment-4393613826):
+Here's what one of those evidence comments looks like, lifted from Kolu <PR id={835} />:
 
 ![Worktree-naming leaf with prefilled `peaked-rank` suggestion](/blog/kolu-evidence-worktree-name-leaf.png)
 
-(See also [#866](https://github.com/juspay/kolu/pull/866#issuecomment-4430710269) for a cross-palette icon check, and [#867](https://github.com/juspay/kolu/pull/867#issuecomment-4432265073) for a three-step diagnostic table comparing `master` against the fix.)
+(See also <PR id={866} /> for a cross-palette icon check, and <PR id={867} /> for a three-step diagnostic table comparing `master` against the fix.)
 
 ## Overrides (optional)
 

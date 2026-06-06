@@ -6,6 +6,7 @@ author: "Sridhar Ratnakumar"
 ---
 
 import Tip from "../../components/Tip.astro";
+import PR from "../../components/PR.astro";
 
 Code can be wrong in two different ways, and for a long time I only checked for one of them.
 
@@ -26,7 +27,7 @@ This matters more than it used to, because I'm not the one typing most of the co
 
 I posted that two days ago. This is where the refinement stands now — not the finish line, just a snapshot mid-process.
 
-I ran both reviewers on [PR #623](https://github.com/juspay/kolu/pull/623)[^1] of [Kolu](https://github.com/juspay/kolu), a redesign of the whole UI down to a single canvas. I drove the iterations; Claude Code wrote every line; the two reviewers are themselves Claude Code subagents spawned from the same session. They ran [once before any code existed](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685) and then [twice against the committed diff](https://github.com/juspay/kolu/pull/623#issuecomment-4274952616) as I revised. Most of what they found sat on one axis or the other. A few times both landed on the same code — code that would have shipped otherwise. The one-axis findings are the story.
+I ran both reviewers on <PR id={623} />[^1] of [Kolu](https://github.com/juspay/kolu), a redesign of the whole UI down to a single canvas. I drove the iterations; Claude Code wrote every line; the two reviewers are themselves Claude Code subagents spawned from the same session. They ran [once before any code existed](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685) and then [twice against the committed diff](https://github.com/juspay/kolu/pull/623#issuecomment-4274952616) as I revised. Most of what they found sat on one axis or the other. A few times both landed on the same code — code that would have shipped otherwise. The one-axis findings are the story.
 
 ## What the two lenses are
 
@@ -170,13 +171,13 @@ Every codebase has a `displaySuffix` too. Something computed in the wrong layer,
 
 ## When both fire
 
-Once in PR #623 the two lenses landed on the same line. The state was `canvasMaximized` — which tile, if any, is currently filling the screen. The first version treated it like every other preference in Kolu: a `Preferences` field, synced through the server, saved into `SavedSession`, hydrated on mount behind a careful `maxHydrated` flag so the first paint wouldn't flash.
+Once in <PR id={623} /> the two lenses landed on the same line. The state was `canvasMaximized` — which tile, if any, is currently filling the screen. The first version treated it like every other preference in Kolu: a `Preferences` field, synced through the server, saved into `SavedSession`, hydrated on mount behind a careful `maxHydrated` flag so the first paint wouldn't flash.
 
 Hickey saw three concepts braided into one chain: what's maximized, whether the client has caught up to the server yet, and how to dodge a flash on first paint. Löwy, running on its own, saw three volatilities with no shared consumer: a client UI signal that revs when you click, a server field that revs on schema changes, and a `SavedSession` entry with its own versioning to worry about.
 
 **Different diagnoses. Same line. Same fix.** [Commit `99c1c44`](https://github.com/juspay/kolu/commit/99c1c44) deleted the server field, the `SavedSession` entry, the hydration flag, and the oRPC mutation, and moved the signal to `makePersisted` over `localStorage`. Nine files: 14 insertions, 90 deletions.
 
-When both lenses fire on the same spot, it's because the factoring is wrong deep enough to show up in both views at once — tangled right now, and bound to mismatched clocks for later. Call it _binocular agreement_. It's a sharp signal when you get it. It's also the minority. In PR #623 the binocular findings were outnumbered several-to-one by single-axis ones across three passes, and the few that did turn up came mostly from later passes — because revising the code keeps reintroducing the kind of defect both lenses catch together. Most findings, including the two I built this post around, sat on a single axis. That's the normal shape.
+When both lenses fire on the same spot, it's because the factoring is wrong deep enough to show up in both views at once — tangled right now, and bound to mismatched clocks for later. Call it _binocular agreement_. It's a sharp signal when you get it. It's also the minority. In <PR id={623} /> the binocular findings were outnumbered several-to-one by single-axis ones across three passes, and the few that did turn up came mostly from later passes — because revising the code keeps reintroducing the kind of defect both lenses catch together. Most findings, including the two I built this post around, sat on a single axis. That's the normal shape.
 
 ## Why the passes differ
 
@@ -210,7 +211,7 @@ And when they disagree, **don't split the difference.** Take the one whose reaso
 
 Everything above is the existence proof for that one sentence: the `borderClass` braid Löwy couldn't see, the `displaySuffix` in the wrong layer that Hickey couldn't see, the `canvasMaximized` chain where they happened to land together. Run only Hickey and you'd have shipped `displaySuffix` recomputing on every client on every render, forever. Run only Löwy and you'd have shipped a `borderClass` match that taxes every future agent-state variant you ever add.
 
-One more thing, and it's the part I trust most. PR #623 shipped seven refactor commits past the point I'd have merged on taste, and every one of them made the diff smaller. That's the tell. The fix removes code, it doesn't add it. If your "simplification" is growing the diff, one of your lenses is broken. Probably both.
+One more thing, and it's the part I trust most. <PR id={623} /> shipped seven refactor commits past the point I'd have merged on taste, and every one of them made the diff smaller. That's the tell. The fix removes code, it doesn't add it. If your "simplification" is growing the diff, one of your lenses is broken. Probably both.
 
 **Ship when both lenses go quiet. Not before.**
 
@@ -252,7 +253,7 @@ One more thing, and it's the part I trust most. PR #623 shipped seven refactor c
   mode-discriminator split were added here.
 
 [^1]:
-    PR #623 is an outlier in my normal workflow — a "kitchen sink"
+    <PR id={623} /> is an outlier in my normal workflow — a "kitchen sink"
     PR landing a full UX redesign in one branch. I usually ship
     smaller, single-purpose PRs. The scale is part of why the
     third review pass caught things the earlier passes missed:
