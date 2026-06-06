@@ -10,7 +10,7 @@
 
 import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import { type Component, For, Match, Show, Switch } from "solid-js";
+import { type Component, createMemo, For, Match, Show, Switch } from "solid-js";
 import { advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
@@ -32,14 +32,16 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
   //   one-click       — a real install prompt exists (Chromium, secure origin)
   //   manual-secure   — no prompt, but secure context (Safari/Firefox/iOS)
   //   manual-insecure — plain-http origin: manual install works, badge needs HTTPS
-  const pinState = () =>
+  // Memo: consumed in 6 JSX positions — compute once per reactive update.
+  const pinState = createMemo(() =>
     app.isInstalled()
       ? "installed"
       : props.install.canPrompt()
         ? "one-click"
         : app.canInstallPwa()
           ? "manual-secure"
-          : "manual-insecure";
+          : "manual-insecure",
+  );
 
   return (
     <div class="space-y-3" data-testid="welcome-moments">
