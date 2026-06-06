@@ -2,10 +2,11 @@
  *  Run agents. Rendered inline by `EmptyState` (zero terminals) and inside
  *  `WelcomeDialog` (the palette "Tutorial" command).
  *
- *  The Pin-it card is context-aware: it never offers an install action where it
- *  can't work. Install requires a secure context, so over plain `http://` on a
- *  LAN/Tailscale IP (`canInstallPwa()` false) it pivots to the Tailscale fix
- *  rather than dangling a dead button. */
+ *  The Pin-it card adapts to the browser: a one-click Install button where a real
+ *  prompt exists (Chromium on a secure origin), else auto-detected inline install
+ *  steps (Safari / Firefox / iOS, or any plain-`http://` origin — manual install
+ *  works there). On an insecure origin it also offers the HTTPS/Tailscale upgrade
+ *  for one-click install + the live agent badge. */
 
 import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
