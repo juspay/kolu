@@ -25,6 +25,11 @@ import {
 import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
 import { DOCK_CARDS_GUTTER_CLASS } from "../../ui/chromeSpacing";
 
+/** Default testid for the footer strip's root element. The footer's
+ *  identity is one concept, so the fallback literal lives here once and
+ *  both layouts (rail + cards) reference it — neither branch can drift. */
+const DOCK_HIDDEN_FOOTER_TESTID = "dock-hidden-footer";
+
 export const HiddenFooter: Component<{
   parkedCount: number;
   compact?: boolean;
@@ -69,7 +74,7 @@ export const HiddenFooter: Component<{
       fallback={<CardsLayout {...props} showRelax={showRelax} relax={relax} />}
     >
       <div
-        data-testid={props.testId ?? "dock-hidden-footer"}
+        data-testid={props.testId ?? DOCK_HIDDEN_FOOTER_TESTID}
         data-layout="rail"
         class="flex flex-col items-center gap-1 border-t border-edge/40 py-2 text-fg-3"
       >
@@ -120,7 +125,7 @@ const CardsLayout: Component<{
   const filterActive = createMemo(() => activityWindow() !== "all");
   return (
     <div
-      data-testid={props.testId ?? "dock-hidden-footer"}
+      data-testid={props.testId ?? DOCK_HIDDEN_FOOTER_TESTID}
       data-layout="cards"
       classList={{
         // Common: bordered top edge, neutral text, left-aligned content.
