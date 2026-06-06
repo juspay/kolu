@@ -33,7 +33,10 @@ export const HiddenFooter: Component<{
    *  `overflow-hidden` and reads as garbled text. Instead, collapse to
    *  just the centered picker chip (its "4h"/"All" label + tooltip
    *  carry the meaning the sentence would spell out), with the parked
-   *  count stacked above only when the window is actually hiding rows. */
+   *  count stacked above only when the window is actually hiding rows.
+   *  That count doubles as the rail-sized "show all" recovery button —
+   *  one click back to the full set, the affordance the cards layout
+   *  spells out as a link. */
   rail?: boolean;
   testId?: string;
   /** Per-surface namespace for the embedded `ActivityWindowChip`'s
@@ -48,20 +51,34 @@ export const HiddenFooter: Component<{
   // "N hidden by … window" sentence) or it isn't (label the chip plainly
   // so the strip doesn't read "0 hidden by All window").
   const filterActive = createMemo(() => activityWindow() !== "all");
-  const showRelax = createMemo(() => props.parkedCount > 0 && filterActive());
-  if (props.rail) {
-    return (
+  // `props.rail` flips when the dock toggles rail ↔ cards while this
+  // footer instance stays mounted (the parent never remounts it). A
+  // bare `if (props.rail)` would read the prop once at create time and
+  // freeze the layout, so the rail/cards choice has to live inside the
+  // returned tree where Solid can re-run it. `<Show>` does exactly that.
+  return (
+    <Show when={props.rail} fallback={<CardsLayout {...props} />}>
       <div
         data-testid={props.testId ?? "dock-hidden-footer"}
+        data-layout="rail"
         class="flex flex-col items-center gap-1 border-t border-edge/40 py-2 text-fg-3"
       >
+        {/* Rail recovery affordance: when the window is actually hiding
+         *  rows, the count doubles as the one-click "show all" escape the
+         *  cards footer spells out as a link — there's no room for the
+         *  label in 44px, so the click + accessible name carry it. When
+         *  nothing is hidden it's a plain count, not interactive. */}
         <Show when={filterActive() && props.parkedCount > 0}>
-          <span
-            class="tabular-nums text-[0.6rem] leading-none"
-            title={`${props.parkedCount} hidden by activity window`}
+          <button
+            type="button"
+            data-testid="dock-hidden-show-all"
+            onClick={() => setActivityWindow("all")}
+            class="tabular-nums text-[0.6rem] leading-none text-accent cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            aria-label={`${props.parkedCount} terminals hidden by the activity window — show all`}
+            title={`${props.parkedCount} hidden by activity window — show all`}
           >
-            {props.parkedCount}
-          </span>
+            <span aria-hidden="true">{props.parkedCount}</span>
+          </button>
         </Show>
         <ActivityWindowChip
           anchor="top-start"
@@ -69,11 +86,26 @@ export const HiddenFooter: Component<{
           class="rounded-md hover:bg-surface-2/70 h-5 min-w-5 px-1 text-[0.65rem]"
         />
       </div>
-    );
-  }
+    </Show>
+  );
+};
+
+/** Cards / mobile layout — the full "N hidden by [Wh] window — show all"
+ *  sentence with the picker chip inline. Split out so the rail/cards
+ *  choice in `HiddenFooter` is a single reactive `<Show>` rather than a
+ *  create-time branch that freezes when the dock mode toggles. */
+const CardsLayout: Component<{
+  parkedCount: number;
+  compact?: boolean;
+  testId?: string;
+  chipTestIdPrefix?: "dock-window" | "mobile-dock-window";
+}> = (props) => {
+  const filterActive = createMemo(() => activityWindow() !== "all");
+  const showRelax = createMemo(() => props.parkedCount > 0 && filterActive());
   return (
     <div
       data-testid={props.testId ?? "dock-hidden-footer"}
+      data-layout="cards"
       classList={{
         // Common: bordered top edge, neutral text, left-aligned content.
         "flex items-center gap-1.5 border-t border-edge/40 text-fg-3 text-left": true,
