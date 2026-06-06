@@ -2,7 +2,9 @@
  *  both the activity-window picker and the "what is the window
  *  hiding right now?" disclosure. Sits at the bottom of the dock body
  *  (desktop) and the mobile drawer; the `compact` prop selects touch
- *  sizing (taller, slightly larger type).
+ *  sizing (taller, slightly larger type), and the `rail` prop selects
+ *  the collapsed-dock layout — chip-only, since the 44px rail can't
+ *  hold the sentence.
  *
  *  Always rendered. When nothing is parked, the strip honestly reads
  *  "0 hidden by 4h window" — the disclosure's empty state, not invented
@@ -26,6 +28,13 @@ import { DOCK_CARDS_GUTTER_CLASS } from "../../ui/chromeSpacing";
 export const HiddenFooter: Component<{
   parkedCount: number;
   compact?: boolean;
+  /** Rail (collapsed dock) layout. The 44px rail has no room for the
+   *  "N hidden by … window" sentence — it clips under the dock's
+   *  `overflow-hidden` and reads as garbled text. Instead, collapse to
+   *  just the centered picker chip (its "4h"/"All" label + tooltip
+   *  carry the meaning the sentence would spell out), with the parked
+   *  count stacked above only when the window is actually hiding rows. */
+  rail?: boolean;
   testId?: string;
   /** Per-surface namespace for the embedded `ActivityWindowChip`'s
    *  testids. Distinct desktop/mobile prefixes keep simultaneous renders
@@ -40,6 +49,28 @@ export const HiddenFooter: Component<{
   // so the strip doesn't read "0 hidden by All window").
   const filterActive = createMemo(() => activityWindow() !== "all");
   const showRelax = createMemo(() => props.parkedCount > 0 && filterActive());
+  if (props.rail) {
+    return (
+      <div
+        data-testid={props.testId ?? "dock-hidden-footer"}
+        class="flex flex-col items-center gap-1 border-t border-edge/40 py-2 text-fg-3"
+      >
+        <Show when={filterActive() && props.parkedCount > 0}>
+          <span
+            class="tabular-nums text-[0.6rem] leading-none"
+            title={`${props.parkedCount} hidden by activity window`}
+          >
+            {props.parkedCount}
+          </span>
+        </Show>
+        <ActivityWindowChip
+          anchor="top-start"
+          testIdPrefix={props.chipTestIdPrefix ?? "dock-window"}
+          class="rounded-md hover:bg-surface-2/70 h-5 min-w-5 px-1 text-[0.65rem]"
+        />
+      </div>
+    );
+  }
   return (
     <div
       data-testid={props.testId ?? "dock-hidden-footer"}
