@@ -192,6 +192,19 @@ Found by *correcting this note*, not by adding to it.
 - **Evidence:** the one surviving hand-roll lives at <Cite file="packages/server/src/router.ts" lines="144-151" /> (`terminal.attach`) — a raw oRPC procedure, *not* a surface-managed descriptor, so the framework's guarantee doesn't reach it.
 - **Verdict — narrow:** not a new package; the move is to model `terminal.attach` as a surface `Stream` (or route PTY bytes through the existing `pollOnEvent` shape) so the invariant becomes 100% enforce-by-construction and the escape hatch closes. The electricity here is *already built* — this is the last meter of wire.
 
+### 🗄️ `migrate-on-load` — schema evolution at rest (Family B, server) · <Pill variant="run">candidate</Pill>
+
+A real receptacle hiding in plain sight inside `state.ts` — un-named, un-extracted.
+
+- **Axis:** the shape of state *at rest* versus an evolving schema. Persisted JSON written by build N must load cleanly into build N+k.
+- **The sentence:** *every time a persisted field changes shape, we hand-write a migration rung (and bump `SCHEMA_VERSION`).*
+- **Evidence:** the aggregate schema at <Cite file="packages/server/src/state.ts" lines="88-102" />, the **23-rung migration ladder** (`1.1.0 → 1.23.0`) at <Cite file="packages/server/src/state.ts" lines="128-442" />, boot-time validation that refuses to start on mismatch. This is a coherent *migrate-on-load* receptacle that domain modules read through without ever touching the on-disk layout.
+- **③ prospect:** any app persisting versioned state wants exactly this (Conf gives the file; the *migration ladder + validate-at-boot + degrade rule* is the electricity).
+
+<Callout kind="warn" title="…and the trap it would spring: persistedPref is NOT the same electricity">
+The seductive move is "unify client `persistedPref` and server `state.ts` into one `@kolu/validated-store`." **Run the independence check — they fail it.** Different *clocks*: the client validates **per-entry, on every read, with no migration** (a stale value just degrades to its fallback); the server validates **once at boot, on an aggregate, through a migration ladder** (<Cite file="packages/client/src/persistedPref.ts" lines="56-68" /> vs <Cite file="packages/server/src/state.ts" lines="128-442" />). And the wire-validation clock (oRPC checks an incoming patch) is a *third*, independent one. Same *shape* (opaque → validate → degrade) ≠ same *axis*: they change for different reasons. Merging them is the **coincidental-duplication trap** (legs-on-a-dog = legs-on-a-chair = 4). So: client `persistedPref` = **done** (the receptacle, fully adopted — five call-sites, no stragglers); server `migrate-on-load` = a **separate** candidate. Two vaults, not one.
+</Callout>
+
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
 package. It holds **two** volatilities: (1) the **anchoring core** (`core/` — W3C
