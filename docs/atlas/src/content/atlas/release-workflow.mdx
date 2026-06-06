@@ -32,25 +32,25 @@ website/src/content/changelog/
 version: Unreleased
 ---
 ### Added
-- Compose surfaces as siblings — one canvas, no surface-app seams. <PrLink pr={1201} />
+- Compose surfaces as siblings — one canvas, no surface-app seams. ([#1201](https://github.com/juspay/kolu/pull/1201))
 ### Fixed
-- Dock pings stop pulsing once you switch to the row. <PrLink pr={1198} />
+- Dock pings stop pulsing once you switch to the row. ([#1198](https://github.com/juspay/kolu/pull/1198))
 ### Heads-up
 - `KOLU_STATE_DIR` moved under `$XDG_CONFIG_HOME/kolu`; existing sessions auto-migrate.
 ```
 
-- **Authored per PR.** `/be` and `/do` append one line to `unreleased.mdx` during implement — full PR context, real prose, the kit (`<PrLink>`, callouts, even evidence) when an entry earns it. No conventional-commit prefixes, no bump field: kolu's an app, nothing computes a version from them.
+- **Authored per PR by `/be`.** Its *implement* step appends one line to `unreleased.mdx` under the right `###` heading — full PR context, real prose, a markdown link to the PR. No conventional-commit prefixes, no bump field: kolu's an app, nothing computes a version from them.
 - **`### Heads-up`** is the editorial home for disruptive changes — removed feature, changed default, migration — written *for the user*.
 - **Conflict-free.** `website/src/content/changelog/unreleased.mdx merge=union` in `.gitattributes` auto-resolves concurrent appends — git keeps both lines, no marker, no rebase.
 
-## Every PR fills it in
+## Keeping it filled — two checkpoints, no CI gate
 
-Two layers — one writes it, one won't let you forget:
+A forgotten entry gets caught without a merge-blocking check, because there are already two human/agent checkpoints around it:
 
-- **Automated (the default path).** `/be` and `/do` append the `unreleased.mdx` line as part of *implement* — they already have the diff and the intent in hand. One line added to the **Git** section of `.apm/instructions/conventions.instructions.md` (the single source both follow; `just ai::apm` regenerates) makes it a standing step.
-- **Enforced (the backstop).** A required **`changelog`** check on every PR — fails unless the PR's diff touches `unreleased.mdx` **or** carries a `no-changelog` label (for chore/docs/refactor PRs with no user-facing effect). A GitHub Actions `pull_request` job is the natural home — it has the base ref, so it's a three-line `git diff --name-only origin/${{ base }}...HEAD | grep` (the same shape as the existing `pages.yml`, <Cite file=".github/workflows/pages.yml" lines="1-15" />). Mark it required in branch protection so it actually gates merge.
+- **Write time — `/be` authors it.** The changelog line is a step in `/be`'s implement phase (<Cite file=".apm/skills/be/SKILL.md" lines="36" label="be §2 — Add a changelog entry" />). Every PR you cut goes through `/be`, so the entry rides along with the diff and the intent that produced it.
+- **Publish time — the release prompt shows it.** `just release X.Y` prints the exact `Unreleased` notes it's about to publish and waits for `y`. A thin or empty section is visible *at the only moment it matters* — you're staring at the release notes before they ship.
 
-The automated layer means you rarely hit the gate; the gate means a forgotten entry can't reach `master`. The `no-changelog` label is the explicit, auditable escape — a reviewer sees it and knows the omission was a choice.
+That's enough for a single-maintainer, `/be`-driven repo. A merge-blocking **`changelog` CI check** (PR diff touches `unreleased.mdx` or carries a `no-changelog` label) only earns its keep once PRs arrive from contributors who *don't* run `/be` — then you can't trust the write-time step and want a hard gate. Add it then, not now.
 
 ## kolu.dev renders it — Unreleased included
 
@@ -88,7 +88,7 @@ One command. It shows the plan — the version, the `Unreleased` notes it's abou
 ## Wiring (one-time, ships with this note's PR)
 
 - **`changelog` collection** — ✓ landed in <PrLink pr={1208} />: `content.config.ts` schema, the `/changelog` page, seeded `unreleased.mdx`, `.gitattributes` `merge=union`.
-- **Keep-it-filled** — the conventions one-liner (so `/be` + `/do` author it) **and** the required `changelog` PR check, both from [Every PR fills it in](#every-pr-fills-it-in).
+- **Keep-it-filled** — the `/be` implement-step entry (<Cite file=".apm/skills/be/SKILL.md" lines="36" />); no CI gate, the release prompt is the backstop. See [Keeping it filled](#keeping-it-filled--two-checkpoints-no-ci-gate).
 - **`just release X.Y`** — the recipe above (stamp · bump · tag · push · gh release).
 - **Identity rail** — collapse the two `version = "0.1.0"` literals (<Cite file="default.nix" lines="56" />, <Cite file="default.nix" lines="101" />) into one `let version = "0.1"`, stamp `KOLU_VERSION` beside `KOLU_COMMIT_HASH` (<Cite file="default.nix" lines="203" />) → surface-app `buildInfo` cell → render `1.0 · a1b2c3d` in the rail (<Cite file="packages/client/src/ui/IdentityRail.tsx" lines="96-119" label="IdentityRail srv column" />). Between releases it reads the last tag + commit: the series you're on, plus the exact build.
 
