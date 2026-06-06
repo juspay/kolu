@@ -6,10 +6,7 @@ name: pages
 
 on:
   push:
-    # TEMP(welcome-preview): `welcome` deploys kolu.dev from the PR branch so
-    # kolu.dev/welcome previews this PR live and refreshes on every website push.
-    # REVERT before merge — restore `branches: [master]`.
-    branches: [master, welcome]
+    branches: [master]
     paths:
       - "website/**"
       - "packages/client/favicon.svg"
