@@ -202,8 +202,6 @@ let x11RawPath: string | undefined;
  * every After site (failure screenshot, evidence webm, x11 grab/transcode)
  * reads the same value instead of re-deriving it. */
 let x11Stem: string | undefined;
-/** The current scenario's recording chrome ("app" | "browser"), set in Before. */
-let x11Chrome: "app" | "browser" = "app";
 
 let baseUrl: string;
 let browser: Browser;
@@ -367,12 +365,13 @@ const ciArgs = [
 
 async function newScenarioPage(
   isMobile: boolean,
+  chrome: "app" | "browser",
 ): Promise<{ context: BrowserContext; page: Page }> {
   // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
   // needs its own persistent context — Playwright drives the page Chrome opens
   // at launch. Browser-chrome recordings fall through to the headful newContext
   // path below (the global `browser` is launched headful under X11CAP).
-  if (X11CAP && x11Chrome === "app" && !isMobile) {
+  if (X11CAP && chrome === "app" && !isMobile) {
     const userDataDir = fs.mkdtempSync(path.join(testBaseDir, "chrome-app-"));
     const context = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
@@ -630,11 +629,11 @@ Before(async function (this: KoluWorld, scenario) {
   const isMobile = scenario.pickle.tags.some((t) => t.name === "@mobile");
 
   // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
-  // browser chrome — read it before creating the page so the launch matches.
-  if (X11CAP) x11Chrome = getRecording(scenario.pickle.name).chrome;
+  // browser chrome — read it so the launch matches.
+  const chrome = X11CAP ? getRecording(scenario.pickle.name).chrome : "browser";
 
   this.browser = browser;
-  const created = await newScenarioPage(isMobile);
+  const created = await newScenarioPage(isMobile, chrome);
   this.context = created.context;
   this.page = created.page;
   // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
