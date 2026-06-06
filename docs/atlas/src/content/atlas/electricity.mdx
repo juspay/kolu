@@ -198,6 +198,8 @@ A method is only worth the name if running it *produces* electricities you hadn'
 
 Tally: **4 extract-now**, 1 narrow, **5 candidates**, 2 defer, 1 flagged, 2 reject. Nine of the twelve are **Family B** — the invariant kind a package audit is structurally blind to, which is the whole point. Detail rows follow.
 
+**The ③ audit (the hardest gate — "a second consumer of *different shape*").** Rank the crop by how real its second consumer is, not how clean its code is. **Already proven internally:** `refcounted-fan-out` is strongest — *four* consumers of different shape (PTY/WAL/dir/git) pull the same lifecycle today; `freshness` is real too — drishti already reuses the `isStale`/`buildInfo` seam with its own identity. **Generic-but-credible:** `createOwnedResource`, `capability-gate`, `migrate-on-load` — any SolidJS-async / web / versioned-state app wants each unchanged, but no *concrete* second consumer has pulled them yet. **Kolu-shaped, ③ pending:** `chord-arbitration`, `terminal-probes`, `ambient-injection`, `vt-events` — real axes whose only consumer is kolu, so they wait for a second multiplexer / terminal-app / injected-clock to *prove* (not assume) the boundary. This ranking, not the prettiness of the interface, is what orders the build queue.
+
 ### `createOwnedResource` — reactive-owner correctness (Family B) · <Pill variant="fix">extract-now</Pill>
 
 The strongest new find, and a textbook **invariant electricity**.
@@ -325,6 +327,16 @@ Included on purpose: a method that only ever says "extract" is rationalising, no
 | **Client multi-tab / fan-out** — "N tabs share one upstream subscription" | **Zero client evidence**: one `PartySocket` per tab, no `BroadcastChannel`/`SharedWorker`/refcount, no issue or PR asking for it. Pure speculative generality (more hooks than things plugged in). *Telling nuance:* fan-out **is** real infrastructure on the **server** (refcounted WAL watchers, drop-slow-subscriber channels) — so the axis exists in kolu, just not at the boundary we were tempted to extract. | a feature needs cross-tab state sync; the *second tab pulling one subscription unmodified* would be the ③ proof — until then, it's a fantasy. |
 
 The second row is the sharper lesson: the same axis (fan-out) is **genuine on one side of the system and speculative on the other.** "Is this volatile?" is never answered in the abstract — only at a specific boundary, with the git log open.
+
+### The reverse audit — run the engine *backwards* on what's already shipped
+
+A generator should also be a *detector*: point the procedure at each existing `@kolu/*` row and try to **re-derive** it — name its one axis, write its "every time ___ changes" sentence, find a second consumer of different shape. What *can't* be re-derived is a suspected functional decomposition wearing a package hat.
+
+- **Re-derive cleanly** (one nameable axis, real ③): surface, surface-app, surface-nix-host, pty-host (boundary axes); solid-markdown, solid-pierre, transcript (appliance axes). The audit *reproduces* the inventory — reassuring.
+- **Correctly *fail* to re-derive a hard axis** — and that's the point, not a flaw: the leaves (`url-shape`, `nonempty`, `memorable-names`, `log`, `html-escape`, `terminal-themes`). Asked "what *hard* volatility?", each answers "a bounded algorithm." The engine sorting them *out* is it working.
+- **Flagged — can't name a single axis:** `solid-fileview` and `solid-browser`. Both re-derive only as *"arranges A + C"* — no own volatility. The reverse audit lands on the **same** composition verdict reached three other ways (the Family column, test ②, the seams analysis). When four independent checks converge on "composition, not receptacle," that's not a coincidence — it's the boundary being real.
+
+The reverse audit is the method's self-test: it must re-derive the good rows, reject the leaves, and flag the compositions — *without being told which is which.* It does. That, more than any single new candidate, is the evidence that the note is a generator and not a flattering list.
 
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
