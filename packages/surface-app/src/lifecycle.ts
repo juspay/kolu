@@ -3,10 +3,11 @@
  *
  * Framework-free (no JSX, no SolidJS): just the browser-side actions an app
  * runs at root setup, before any component mounts — retire a legacy service
- * worker, or land the deployed build with a plain reload. The `/solid`
- * entrypoint re-exports both so `<SurfaceAppProvider>` consumers reach them
- * from one import; this subpath is the obvious home when there's no component
- * in scope (kolu calls `retireServiceWorker()` in `index.tsx` at boot).
+ * worker, register the notification worker, or land the deployed build with a
+ * plain reload. The `/solid` entrypoint re-exports them so `<SurfaceAppProvider>`
+ * consumers reach them from one import; this subpath is the obvious home when
+ * there's no component in scope (kolu calls `registerServiceWorker()` in
+ * `index.tsx` at boot).
  */
 
 /** Whether the SW API is exposed (any secure context — incl. localhost + the
@@ -31,8 +32,26 @@ export function retireServiceWorker(): void {
   }
 }
 
-/** Apply the latest build: a plain reload. With no SW and a `no-store` shell,
- *  this always fetches the current `index.html` — and thus the current bundle. */
+/** Register the `/sw.js` worker (the fetch-less notification worker, when the
+ *  server serves it via `installFreshStatic({ serviceWorker: "notify" })`). The
+ *  notification path in an installed PWA needs an active registration —
+ *  `ServiceWorkerRegistration.showNotification()` is the ONLY notification API
+ *  that works in `standalone` display mode (the page-level `new Notification()`
+ *  constructor is illegal there). This is the `registerServiceWorker()`
+ *  counterpart to `retireServiceWorker()`: an app shows notifications OR retires
+ *  its worker, never both. It also heals a legacy caching worker — registering at
+ *  the same `/` scope replaces it, and the notification worker purges caches on
+ *  activate. No-op (resolving `null`) where the SW API isn't exposed. */
+export function registerServiceWorker(
+  path = "/sw.js",
+): Promise<ServiceWorkerRegistration | null> {
+  if (!swApiAvailable) return Promise.resolve(null);
+  return navigator.serviceWorker.register(path);
+}
+
+/** Apply the latest build: a plain reload. With a fetch-less SW (or none) and a
+ *  `no-store` shell, this always fetches the current `index.html` — and thus the
+ *  current bundle. */
 export function reloadForUpdate(): void {
   location.reload();
 }

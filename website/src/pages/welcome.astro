@@ -411,9 +411,9 @@ const tunnels = [
     </div>
 
     <p class="guide-lede">
-      Pinning kolu gives it its own window, a dock / home-screen icon, and a live
-      badge for finished agents. But there's one rule that trips everyone up, so
-      read this first.
+      Pinning kolu gives it its own window, a dock / home-screen icon, and — on
+      a secure context — a live badge plus desktop notifications for finished
+      agents. But there's one rule that trips everyone up, so read this first.
     </p>
 
     <aside class="callout callout-note">
@@ -422,7 +422,8 @@ const tunnels = [
       appear only on a <em>secure context</em> (<code>https://…</code> or loopback /
       <code>localhost</code>), so on a plain <code>http://</code> LAN
       (<code>192.168.x.x</code>) or Tailscale <code>100.x</code> address they won't
-      show — and the OS app badge and service workers are unavailable there too. You
+      show — and the OS app badge, desktop notifications, and service workers are
+      unavailable there too (notifications ride a service worker). You
       can still <strong>install manually</strong> (Chrome's <em>Create shortcut →
       Open as window</em>, iOS <em>Add to Home Screen</em>) — see each browser below.
       For the frictionless one-click path <em>plus</em> the live badge, give kolu a
@@ -653,7 +654,10 @@ const tunnels = [
         <dd>
           The dock pulses for working agents and breathes for awaiting ones; a
           finished background agent fires a loud violet ping plus a toast with a
-          <strong>Switch</strong> action that pans the canvas straight to it.
+          <strong>Switch</strong> action that pans the canvas straight to it —
+          and, on an HTTPS/<code>localhost</code> kolu with notifications
+          granted, a native <strong>OS notification</strong> you can click to
+          jump to that terminal, even when kolu is in the background.
         </dd>
       </div>
       <div class="concept">
@@ -759,6 +763,58 @@ const tunnels = [
             <code>https://…ts.net</code> URL from <a href="#remote" class="guide-link"
               >Reach it anywhere</a
             >.
+          </p>
+        </div>
+      </details>
+
+      <details class="deep">
+        <summary>
+          <span class="deep-tag deep-tag-alert">#2</span>
+          I'm not getting desktop notifications when an agent finishes
+        </summary>
+        <div class="deep-body">
+          <p>
+            kolu fires a native OS notification when an agent finishes in a
+            terminal you're <em>not</em> actively watching — a background
+            terminal, or any time kolu isn't the focused window. If you're
+            looking right at that terminal as it finishes, the on-canvas dock
+            surfaces it instead and no banner fires (by design). Past that, work
+            these in order:
+          </p>
+          <ul>
+            <li>
+              <strong>Secure context.</strong> Notifications ride a service
+              worker, which only registers over HTTPS or <code>localhost</code> —
+              the same rule as the app badge. Over plain <code>http://</code> (a
+              LAN IP or Tailscale <code>100.x</code>) there's no worker, so no
+              banner. Give kolu an <code>https://…ts.net</code> URL — <a
+                href="#remote"
+                class="guide-link">Reach it anywhere ↑</a
+              >.
+            </li>
+            <li>
+              <strong>Grant permission.</strong> The browser asks once; if it was
+              dismissed, re-enable it via the address-bar lock icon →
+              <strong>Notifications</strong>.
+            </li>
+            <li>
+              <strong>Let the OS through — the step that trips everyone.</strong>
+              The site toggle being on is <em>not</em> enough: your browser must
+              itself be allowed to post notifications at the OS level. On macOS:
+              <strong>System Settings → Notifications → Google Chrome</strong> (or
+              the pinned kolu app — it gets its <em>own</em> entry, separate from
+              Chrome) → <strong>Allow</strong>, style Banners or Alerts, and turn
+              off Focus / Do Not Disturb. Relaunching the browser after toggling
+              helps it take effect.
+            </li>
+          </ul>
+          <p>
+            Quick check: open DevTools console on kolu and run
+            <code
+              >navigator.serviceWorker.getRegistration().then(r =&gt;
+              r.showNotification('test'))</code
+            >. If <em>that</em> banner shows, the OS layer is fine and it's the
+            "not watching" rule above; if it doesn't, it's the OS-level setting.
           </p>
         </div>
       </details>

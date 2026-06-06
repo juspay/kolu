@@ -9,7 +9,7 @@ It exists because the same property — *a returning client converges to the bui
 Not "any installable web app." A specific, recognizable shape:
 
 - **You run the server** — your machine, homelab, tailnet; not a CDN, not multi-tenant SaaS. Identity is per named host.
-- **Always-connected** — the live WebSocket *is* the app; there is no meaningful offline mode. This is why there's **no service worker** — by nature, not opinion.
+- **Always-connected** — the live WebSocket *is* the app; there is no meaningful offline mode. This is why there's **no *caching* service worker** — by nature, not opinion. (A *fetch-less* worker — one that never intercepts the network — is a legitimate opt-in for OS notifications; see "Why no caching service worker".)
 - **Desktop-class** — installed, long-lived, native-feeling: an app window, not a tab you re-find.
 - **You're usually also the deployer** — you redeploy your own server often, so a stale installed client after a deploy is the *defining* pain.
 
@@ -22,7 +22,7 @@ Four properties the library guarantees. **#1 is load-bearing**; the rest are gra
 1. **One mutable entry point; everything else immutable.** The shell (`index.html`) is the *only* never-cached resource (`no-store`); content-hashed assets are `immutable`; a missing `/assets/*` hash **404**s rather than falling through to the HTML shell. The one document that names the bundle is always re-fetched, so staleness is *structurally impossible*.
 2. **Build identity is first-class and single-sourced.** Client and server stamp the *same* commit, resolved once; the server exposes it on a `buildInfo` cell.
 3. **Skew is visible and recoverable.** When client ≠ server, a durable indicator shows and a reload that lands fresh is one tap away.
-4. **A service worker is an opt-in you own end-to-end — or, for this class, none.** surface-app ships none and actively *retires* any it finds (see "Why no service worker").
+4. **A service worker is an opt-in you own end-to-end — caching never, fetch-less when you need it.** By default surface-app actively *retires* any worker it finds; an app that needs OS notifications opts into a *fetch-less* worker (no `fetch` handler → zero caching → freshness still structural). See "Why no caching service worker".
 5. **The client always knows its relationship to the server** — host, build, and live status (`live` / `reconnecting` / `restarted` / stale-build) — surfaced as a headless model the app renders.
 
 ## Compose as siblings, don't merge
@@ -97,11 +97,11 @@ extension-carrying package would impose.
 
 | Entry | Exports | Side |
 |---|---|---|
-| `@kolu/surface-app` | `cacheControlFor`, `isImmutableAssetPath`, `clientIsStale`, `isCleanRef`, `SW_SOURCE` — the pure, framework-free kernels | core |
+| `@kolu/surface-app` | `cacheControlFor`, `isImmutableAssetPath`, `clientIsStale`, `isCleanRef`, `SW_SOURCE`, `NOTIFICATION_SW_SOURCE` — the pure, framework-free kernels | core |
 | `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer`, `serverIdentity`, `surfaceAppServer` (Hono) | server |
 | `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo`, `surfaceAppSurface`, `surfaceAppSurfaceWith`, `ServerProbeSchema` — the standalone surface | common |
-| `@kolu/surface-app/solid` | `retireServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider`, `useSurfaceApp`, `createServerLifecycle` | client |
-| `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `reloadForUpdate` — framework-free, for root setup before any component | client |
+| `@kolu/surface-app/solid` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider`, `useSurfaceApp`, `createServerLifecycle` | client |
+| `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate` — framework-free, for root setup before any component | client |
 | `@kolu/surface-app/vite` | `surfaceApp()` plugin, `resolveCommit()` | build (Vite) |
 | `@kolu/surface-app/bun` | `buildSurfaceClient()`, `ASSET_DIR` — the content-hashed Bun client build | build (Bun) |
 | `@kolu/surface-app/client` | the `__SURFACE_APP_COMMIT__` type, via `/// <reference>` | client types |
@@ -171,7 +171,8 @@ installSurfaceApp(app, {
   manifest: { name: `myapp@${host}`, themeColor, icons },
 });
 // serves: no-store shell · immutable /assets/* · 404 on asset-miss · SPA fallback
-//       · /sw.js (the self-destructing retirement worker, no-cache) · /manifest.webmanifest
+//       · /sw.js (the self-destructing retirement worker — or the fetch-less
+//         notification worker with `serviceWorker: "notify"`, no-cache) · /manifest.webmanifest
 ```
 
 `installFreshStatic` / `installPwaManifest` are exported for apps that compose by hand; `installSurfaceApp` is the greenfield convenience that wires both in the right order.
@@ -364,16 +365,20 @@ deps, fired by `implementSurface` / `implementSurfaces` for you.
 - **`equals`** — emitted on the cell entry, so the surface runtime suppresses a no-op re-publish on **every** write path (`connect`, a later `ctx.set`, a wire `set`), the same way kolu's confStore-backed cells declare `equals: JSON.stringify`. Defaults to `JSON.stringify` identity.
 - **`build.buildInfo.current()`** / **`build.buildInfo.ready`** — the fragment's own read of the resolved value and a promise that settles once the async source lands (handy for boot logging / tests).
 
-## Why no service worker
+## Why no caching service worker
 
-For this class it's **definitional**, not an opinion — but the rationale ships so the next engineer doesn't "add a SW for offline" and re-open the wound:
+The ban is on a *caching* worker — one with a `fetch` handler that intercepts the network. For this class that's **definitional**, not an opinion — the rationale ships so the next engineer doesn't "add a SW for offline" and re-open the wound:
 
 - **No offline to gain** — a surface app needs its live WebSocket; no wire, no app.
 - **No speed to gain** — content-hashed assets are already `immutable`-cached; a precache just adds a stale-prone layer.
-- **Real downside** — a SW is a second interception layer in front of the network that `no-store` can't reach; owning its update+retire lifecycle is a standing liability (the whole saga).
+- **Real downside** — a *fetch-handling* SW is a second interception layer in front of the network that `no-store` can't reach; owning its update+retire lifecycle is a standing liability (the whole saga).
 - **Install survives without it** — Chrome dropped the SW requirement for installability (108 mobile / 112 desktop); a valid manifest over a secure context installs.
 
-surface-app ships `SW_SOURCE` (a self-destructing worker `installSurfaceApp` serves at `/sw.js`) plus `retireServiceWorker()` (run on load) — together they retire a worker an earlier build registered, with no user action. Gate any SW logic on `window.isSecureContext`, **never** `location.protocol === "https:"` (that misses `localhost` and flag-secured origins — the bug that orphaned kolu's worker).
+By default surface-app ships `SW_SOURCE` (a self-destructing worker `installSurfaceApp` serves at `/sw.js`) plus `retireServiceWorker()` (run on load) — together they retire a worker an earlier build registered, with no user action.
+
+**The fetch-less notification opt-in.** An installed PWA can only raise an OS notification through `ServiceWorkerRegistration.showNotification()` — the page-level `new Notification()` constructor is an *illegal constructor* in `standalone` display mode on Chromium, so it silently throws and no banner appears. So an app that needs notifications opts in: serve `NOTIFICATION_SW_SOURCE` (`installFreshStatic({ serviceWorker: "notify" })`) and register it with `registerServiceWorker()`. That worker has **no `fetch` handler**, so it never intercepts the network and the freshness contract holds structurally — the ban was always on caching, not on the existence of a worker. It also subsumes retirement: registering at the `/` scope replaces any legacy caching worker, which it purges on `activate`. An app does one or the other — `registerServiceWorker()` (notify) **or** `retireServiceWorker()` (none) — never both.
+
+Gate any SW logic on `window.isSecureContext`, **never** `location.protocol === "https:"` (that misses `localhost` and flag-secured origins — the bug that orphaned kolu's worker).
 
 ## The desktop layer needs a secure context (HTTPS)
 
@@ -395,7 +400,7 @@ surface-app does **not** acquire TLS — that's a deployment-axis concern; it on
 When auditing an app's delivery (this is the judgment, in lieu of a separate skill):
 
 - **Is the app on surface-app?** Don't re-derive cache headers, the SPA fallback, or SW handling by hand.
-- **Did anyone register a service worker?** The stance is: ship none, retire legacy. A new SW re-opens the stale-client bug.
+- **Did anyone register a *caching* service worker?** The stance is: no `fetch` handler, ever. A worker that caches re-opens the stale-client bug; a fetch-less notification worker (`NOTIFICATION_SW_SOURCE`) is fine — confirm it registers no `fetch` listener.
 - **Triage a stale client:** *normal reload stale, hard reload fresh* → a cached shell **or** a service worker. Confirm **in the browser** (Network panel Size column reads `(ServiceWorker)`; `navigator.serviceWorker.getRegistrations()`), never by reasoning about the origin.
 - **`immutable` presumes content-hashed filenames.** An unhashed shell asset must stay `no-cache` (it never matches the asset prefix, so it isn't pinned).
 - **Desktop features (install, badging) need a trusted secure context.** On plain-HTTP LAN they're silently unavailable — surface the hint, don't assume.

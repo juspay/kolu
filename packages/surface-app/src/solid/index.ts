@@ -30,7 +30,11 @@ import {
 // The non-component lifecycle calls live in the framework-free `/lifecycle`
 // subpath; re-exported here so `<SurfaceAppProvider>` consumers reach them from
 // one import. Apps with no component in scope (root setup) import `/lifecycle`.
-export { reloadForUpdate, retireServiceWorker } from "../lifecycle";
+export {
+  registerServiceWorker,
+  reloadForUpdate,
+  retireServiceWorker,
+} from "../lifecycle";
 
 import { reloadForUpdate } from "../lifecycle";
 
