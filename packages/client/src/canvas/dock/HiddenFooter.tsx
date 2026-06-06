@@ -59,12 +59,10 @@ export const HiddenFooter: Component<{
   // That collapses three states into two: a filter is active (show the
   // "N hidden by … window" sentence) or it isn't (label the chip plainly
   // so the strip doesn't read "0 hidden by All window").
+  //
+  // filterActive, showRelax, and relax are hoisted here — one reactive
+  // node each — so neither layout re-derives them independently.
   const filterActive = createMemo(() => activityWindow() !== "all");
-  // The show-all recovery affordance is one domain decision — when a
-  // filter is active AND rows are parked, offer a single click that
-  // widens the window to "all". The predicate and the action live here,
-  // once; each layout renders only its own chrome (rail count-button vs
-  // cards link) around this shared guard and handler.
   const showRelax = createMemo(() => filterActive() && props.parkedCount > 0);
   const relax = () => setActivityWindow("all");
   // `props.rail` flips when the dock toggles rail ↔ cards while this
@@ -75,7 +73,17 @@ export const HiddenFooter: Component<{
   return (
     <Show
       when={props.rail}
-      fallback={<CardsLayout {...props} showRelax={showRelax} relax={relax} />}
+      fallback={
+        <CardsLayout
+          parkedCount={props.parkedCount}
+          compact={props.compact}
+          testId={props.testId}
+          chipTestIdPrefix={props.chipTestIdPrefix}
+          filterActive={filterActive}
+          showRelax={showRelax}
+          relax={relax}
+        />
+      }
     >
       <div
         data-testid={props.testId ?? DOCK_HIDDEN_FOOTER_TESTID}
@@ -118,15 +126,12 @@ const CardsLayout: Component<{
   compact?: boolean;
   testId?: string;
   chipTestIdPrefix?: "dock-window" | "mobile-dock-window";
-  /** Shared recovery rule, hoisted into HiddenFooter's body so the
-   *  predicate and action aren't spelled twice across layouts. This
-   *  layout renders only its own chrome (the "show all" link) around
-   *  them. `filterActive` below stays local — it drives the sentence
-   *  words ("N hidden by … window"), a layout-specific concern. */
+  /** Shared state hoisted into HiddenFooter so neither layout re-derives
+   *  the same signal independently — one reactive node, two consumers. */
+  filterActive: () => boolean;
   showRelax: () => boolean;
   relax: () => void;
 }> = (props) => {
-  const filterActive = createMemo(() => activityWindow() !== "all");
   return (
     <div
       data-testid={props.testId ?? DOCK_HIDDEN_FOOTER_TESTID}
@@ -144,7 +149,7 @@ const CardsLayout: Component<{
           props.compact !== true,
       }}
     >
-      <Show when={filterActive()} fallback={<span>Activity window</span>}>
+      <Show when={props.filterActive()} fallback={<span>Activity window</span>}>
         <span class="tabular-nums">{props.parkedCount}</span>
         <span>hidden by</span>
       </Show>
@@ -157,7 +162,7 @@ const CardsLayout: Component<{
             : "h-5 min-w-5 px-1 text-[0.65rem]"
         }`}
       />
-      <Show when={filterActive()}>
+      <Show when={props.filterActive()}>
         <span>window</span>
       </Show>
       <Show when={props.showRelax()}>
