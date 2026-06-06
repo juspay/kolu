@@ -89,14 +89,15 @@ export interface LaunchAgentOptions {
   trustMs?: number;
   /** ms to wait for the agent to load the project before typing the prompt. */
   bootMs?: number;
-  /** ms to dwell after submitting — the window where the dock row pulses. */
+  /** ms to hold on the answer once the agent goes idle (dock → awaiting). */
   dwellMs?: number;
 }
 
 /**
  * Launch an agent in the active terminal and (optionally) ask it something —
- * the reusable climax of a product demo. Keep the dock in shot and its row
- * tracks the agent live (working → awaiting) through the dwell. Shared across
+ * the reusable climax of a product demo. Keep the dock in shot: its row tracks
+ * the agent live, and we wait for it to flip **working → awaiting** (i.e. the
+ * agent actually answered) rather than dwelling a fixed time. Shared across
  * recordings (this one and future ones).
  *
  * Claude's first run in a folder shows a "trust this folder" gate; Enter
@@ -110,11 +111,22 @@ export async function launchAgentAndAsk(
   opts: LaunchAgentOptions = {},
 ): Promise<void> {
   await world.terminalRun(opts.command ?? CLAUDE_SONNET);
-  await pause(world, opts.trustMs ?? 3500); // folder-trust gate appears
+  await pause(world, opts.trustMs ?? 2500); // folder-trust gate appears
   await world.page.keyboard.press("Enter"); // accept "Yes, I trust this folder"
-  await pause(world, opts.bootMs ?? 4500); // agent loads the project
-  if (opts.prompt) {
-    await world.terminalRun(opts.prompt);
-    await pause(world, opts.dwellMs ?? 12000); // dock pulses while it works
-  }
+  await pause(world, opts.bootMs ?? 2500); // agent loads, ready for input
+  if (!opts.prompt) return;
+
+  await world.terminalRun(opts.prompt);
+  // Wait for the dock to show the agent actually working, then settling back to
+  // awaiting — the answer is on screen and the row has stopped pulsing.
+  const dockState = (state: string) =>
+    world.page
+      .waitForSelector(`[data-agent-state="${state}"]`, {
+        state: "attached",
+        timeout: state === "working" ? 15000 : 120000,
+      })
+      .catch(() => undefined);
+  await dockState("working");
+  await dockState("awaiting");
+  await pause(world, opts.dwellMs ?? 2500); // hold on the answer + awaiting dock
 }
