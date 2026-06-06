@@ -120,15 +120,20 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // (two `Note.md` in different folders) surfaces a disambiguation menu anchored
   // to the clicked link rather than failing closed — the user picks the file
   // they meant.
-  const openWikilinkPath = (path: string) =>
+  // The shared "open" tail: every preview-link path — wikilink or doc-relative —
+  // ends at the same front door. Only the *resolution* differs per callback
+  // (pathless vault vs. doc-relative); the *open* lives here, once. No fuzzy
+  // basename fallback — the resolvers already produced an exact repo entry, and
+  // a fallback would silently open a same-basename file in another folder.
+  const openPreviewPath = (path: string) =>
     openInCodeTab({
       ref: { path, startLine: null, endLine: null },
       repoRoot: props.repoPath,
       targetMode: "browse",
-      // `path` is already an exact repo entry from the resolver — no fuzzy
-      // fallback (it would defeat the point of having disambiguated).
       allowBasenameFallback: false,
     });
+
+  const openWikilinkPath = (path: string) => openPreviewPath(path);
 
   const [wikiMenu, setWikiMenu] = createSignal<{
     anchor: HTMLElement;
@@ -345,15 +350,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
                   toast.error(`Can't open link: ${href}`);
                   return;
                 }
-                openInCodeTab({
-                  ref: { path, startLine: null, endLine: null },
-                  repoRoot: props.repoPath,
-                  targetMode: "browse",
-                  // GitHub-exact: open this path or fail. No fuzzy basename
-                  // fallback — `docs/guide.md` must not silently open a
-                  // same-basename `src/guide.md` (#1161).
-                  allowBasenameFallback: false,
-                });
+                openPreviewPath(path);
               }}
               onNavigateWikilink={onNavigateWikilink}
             />,
