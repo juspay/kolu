@@ -222,14 +222,25 @@ export function createPwaInstall(opts?: {
 
     const el = document.createElement("pwa-install") as PwaInstallElement;
     // Take ownership of *when* every dialog appears. Without these, the
-    // component auto-shows its own install/how-to UI on page load — its Apple
-    // path flips `isInstallAvailable` true 500ms after load and, with
-    // `isDialogHidden` defaulting to false, renders the dialog unprompted; the
-    // Android-fallback path does the same. `manual-apple`/`manual-chrome` keep
-    // it dormant until our `prompt()` calls `showDialog(true)`, so the welcome
-    // card is the only thing that opens it.
+    // component auto-shows its own install/how-to UI on page load. The upstream
+    // `_checkInstallAvailable` has three independent branches:
+    //   - Apple: `manual-apple` calls `hideDialog()` so its 500ms
+    //     `isInstallAvailable = true` flip can't render (gate is
+    //     `isInstallAvailable && !isDialogHidden`).
+    //   - Chromium: `manual-chrome` calls `hideDialog()` for the same reason,
+    //     but ONLY when `window.BeforeInstallPromptEvent` exists.
+    //   - Android fallback: a *separate* branch (`!disableFallback && isAndroid`)
+    //     that, on a user gesture, sets `isInstallAvailable = true` after a
+    //     timeout. On Android engines without `BeforeInstallPromptEvent` (e.g.
+    //     Firefox Android), the Chromium branch is skipped, so `manual-chrome`
+    //     never runs and `isDialogHidden` stays false — the fallback would then
+    //     render the dialog unprompted. `disable-android-fallback` turns that
+    //     branch off entirely.
+    // With all three set the element stays dormant until our `prompt()` calls
+    // `showDialog(true)`, so the welcome card is the only thing that opens it.
     el.setAttribute("manual-apple", "");
     el.setAttribute("manual-chrome", "");
+    el.setAttribute("disable-android-fallback", "");
     if (opts?.manifestUrl) el.setAttribute("manifest-url", opts.manifestUrl);
     if (opts?.icon) el.setAttribute("icon", opts.icon);
     if (opts?.name) el.setAttribute("name", opts.name);
