@@ -42,6 +42,7 @@ import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
+  createSignal,
   type JSX,
   Match,
   Show,
@@ -50,8 +51,10 @@ import {
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import { resolveLinkHref } from "@kolu/solid-browser";
+import { resolveWikilink } from "@kolu/solid-markdown";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
+import { OptionMenu } from "../ui/OptionMenu";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
@@ -78,6 +81,18 @@ export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
   repoPath: string;
   filePath: string;
+  /** The repo's vault a `[[wikilink]]` resolves against — its full file list
+   *  (`fsListAll`, repo-relative, pathless) paired with that list's readiness,
+   *  threaded from `CodeTab` rather than re-subscribed here so resolution shares
+   *  the one live list. The two arrive as one value so they can't drift apart:
+   *  `paths` is the snapshot, `pending` says whether it's still settling
+   *  (`fsListAll.pending()`). The list briefly resets to `[]` whenever that
+   *  stream resubscribes (e.g. a right-panel tab toggle), so a `[[wikilink]]`
+   *  clicked in that window must read `pending` from the same object it would
+   *  resolve `paths` against — gating on the stale flag of a different snapshot
+   *  is exactly the mismatch this single value rules out. Mirrors the
+   *  `openInCodeTab` pipeline, which gates resolution on `pending()` likewise. */
+  repoVault: { paths: readonly string[]; pending: boolean };
   theme: "light" | "dark";
   initialSelectedLines?: SelectedLineRange | null;
   /** Forwarded to the iframe renderer so an in-iframe link click moves the
@@ -98,6 +113,61 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     {
       onError: (err) => toast.error(`File content stream: ${err.message}`),
     },
+  );
+
+  // ── Wikilink navigation ────────────────────────────────────────────
+  // A `[[Note]]` click resolves pathless against the whole repo (`repoVault`),
+  // GitHub/Obsidian-style. A unique hit opens through the same front door every
+  // other "open this file" producer uses; a miss toasts; an ambiguous basename
+  // (two `Note.md` in different folders) surfaces a disambiguation menu anchored
+  // to the clicked link rather than failing closed — the user picks the file
+  // they meant.
+  // The shared "open" tail: every preview-link path — wikilink or doc-relative —
+  // ends at the same front door. Only the *resolution* differs per callback
+  // (pathless vault vs. doc-relative); the *open* lives here, once. No fuzzy
+  // basename fallback — the resolvers already produced an exact repo entry, and
+  // a fallback would silently open a same-basename file in another folder.
+  const openPreviewPath = (path: string) =>
+    openInCodeTab({
+      ref: { path, startLine: null, endLine: null },
+      repoRoot: props.repoPath,
+      targetMode: "browse",
+      allowBasenameFallback: false,
+    });
+
+  const [wikiMenu, setWikiMenu] = createSignal<{
+    anchor: HTMLElement;
+    candidates: string[];
+  } | null>(null);
+
+  const onNavigateWikilink = (target: string, anchor: HTMLElement) => {
+    // The vault list resubscribes (and momentarily empties) on right-panel tab
+    // toggles while a persisted preview stays clickable, so resolving against a
+    // pending snapshot would falsely report "no file" or stale candidates. Ask
+    // the user to retry rather than resolve a one-shot click against `[]`; the
+    // list settles in a tick. (The `openInCodeTab` effect can simply re-run
+    // when `pending()` flips — a click can't, hence the explicit guard.)
+    if (props.repoVault.pending) {
+      toast.error("Repo file list still loading — try the link again");
+      return;
+    }
+    const res = resolveWikilink({ target, repoPaths: props.repoVault.paths });
+    if (res.kind === "none") {
+      toast.error(`No file matching [[${target}]]`);
+      return;
+    }
+    if (res.kind === "unique") {
+      openPreviewPath(res.path);
+      return;
+    }
+    setWikiMenu({ anchor, candidates: res.candidates });
+  };
+
+  const wikiMenuOptions = createMemo(() =>
+    (wikiMenu()?.candidates ?? []).map((path) => ({
+      value: path,
+      label: path,
+    })),
   );
 
   // The comment address space a view exposes — the single axis this seam
@@ -280,16 +350,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
                   toast.error(`Can't open link: ${href}`);
                   return;
                 }
-                openInCodeTab({
-                  ref: { path, startLine: null, endLine: null },
-                  repoRoot: props.repoPath,
-                  targetMode: "browse",
-                  // GitHub-exact: open this path or fail. No fuzzy basename
-                  // fallback — `docs/guide.md` must not silently open a
-                  // same-basename `src/guide.md` (#1161).
-                  allowBasenameFallback: false,
-                });
+                openPreviewPath(path);
               }}
+              onNavigateWikilink={onNavigateWikilink}
             />,
           )}
         </div>
@@ -328,26 +391,49 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   });
 
   return (
-    <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
-      <Match when={fileContent.error()}>
-        {(err) => (
-          <div class="px-2 py-1 text-danger">Error: {err().message}</div>
-        )}
-      </Match>
-      <Match when={textFile()}>
-        {(file) => (
-          <FileView
-            file={file()}
-            source={sourceRenderer}
-            rendered={textRenderers}
-            mode={jumpMode()}
-          />
-        )}
-      </Match>
-      <Match when={binaryFile()}>
-        {(file) => <FileView file={file()} rendered={renderedRenderers} />}
-      </Match>
-    </Switch>
+    <>
+      <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
+        <Match when={fileContent.error()}>
+          {(err) => (
+            <div class="px-2 py-1 text-danger">Error: {err().message}</div>
+          )}
+        </Match>
+        <Match when={textFile()}>
+          {(file) => (
+            <FileView
+              file={file()}
+              source={sourceRenderer}
+              rendered={textRenderers}
+              mode={jumpMode()}
+            />
+          )}
+        </Match>
+        <Match when={binaryFile()}>
+          {(file) => <FileView file={file()} rendered={renderedRenderers} />}
+        </Match>
+      </Switch>
+      {/* Ambiguous-wikilink disambiguation: an anchored list of the repo files
+       *  whose basename matched. Picking one opens it; the menu reuses the same
+       *  anchored-option-list scaffold the Dock/minimap pickers use — but with
+       *  the unbounded-content opts those fixed pickers don't need: an ambiguous
+       *  `[[index]]` can match dozens of long repo paths, so cap the height
+       *  (scroll the overflow), truncate long path labels (full path in the
+       *  hover title), and let the panel flip above the link when it sits near
+       *  the viewport bottom. */}
+      <OptionMenu
+        triggerRef={() => wikiMenu()?.anchor}
+        open={() => wikiMenu() !== null}
+        onDismiss={() => setWikiMenu(null)}
+        anchor="bottom-start"
+        options={wikiMenuOptions()}
+        value=""
+        onSelect={openPreviewPath}
+        testIdPrefix="wikilink-disambiguation"
+        maxHeight={280}
+        truncate
+        flip
+      />
+    </>
   );
 };
 

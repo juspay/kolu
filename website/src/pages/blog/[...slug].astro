@@ -1,6 +1,7 @@
 ---
 import { getCollection, render } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
+import TOC from '../../components/TOC.astro';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => `${base}${p}` || '/';
@@ -14,9 +15,13 @@ export async function getStaticPaths() {
 }
 
 const { post } = Astro.props;
-const { Content, remarkPluginFrontmatter } = await render(post);
+const { Content, headings, remarkPluginFrontmatter } = await render(post);
 
 const minutesRead = remarkPluginFrontmatter?.minutesRead;
+
+// Show a table of contents only when the post is long enough to need one.
+const tocHeadings = headings.filter((h) => h.depth >= 2 && h.depth <= 3);
+const showToc = tocHeadings.length >= 4;
 ---
 
 <BaseLayout
@@ -70,6 +75,8 @@ const minutesRead = remarkPluginFrontmatter?.minutesRead;
         }
       </div>
     </header>
+
+    {showToc && <TOC headings={headings} />}
 
     <div class="prose prose-editorial max-w-none">
       <Content />

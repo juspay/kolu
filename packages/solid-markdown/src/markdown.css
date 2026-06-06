@@ -30,6 +30,9 @@
   --md-box: color-mix(in oklch, currentColor 7%, transparent);
   --md-box-faint: color-mix(in oklch, currentColor 4%, transparent);
   --md-link: var(--color-accent, #3b82f6);
+  /* Wikilinks read as a different kind of reference from a regular link, so
+   * they get their own (violet) accent rather than `--color-accent`. */
+  --md-wikilink: #8b5cf6;
 
   font-size: var(--md-fs);
   line-height: var(--md-lh);
@@ -105,6 +108,30 @@
 }
 .kolu-md a:hover {
   text-decoration: underline;
+}
+/* Obsidian-style wikilinks (`[[Note]]`) must read as a distinct kind of
+ * reference from a regular `[]()` link: a violet accent and bracket glyphs mark
+ * it as an internal note reference. The marker is stamped by the renderer and
+ * kept through sanitization; the host resolves the target pathless on click. */
+.kolu-md a[data-md-wikilink] {
+  color: var(--md-wikilink);
+  text-decoration: none;
+  border-bottom: 1px solid
+    color-mix(in oklch, var(--md-wikilink) 40%, transparent);
+}
+.kolu-md a[data-md-wikilink]:hover {
+  text-decoration: none;
+  border-bottom-color: var(--md-wikilink);
+}
+.kolu-md a[data-md-wikilink]::before {
+  content: "⟦";
+  margin-right: 0.08em;
+  color: color-mix(in oklch, var(--md-wikilink) 55%, transparent);
+}
+.kolu-md a[data-md-wikilink]::after {
+  content: "⟧";
+  margin-left: 0.08em;
+  color: color-mix(in oklch, var(--md-wikilink) 55%, transparent);
 }
 .kolu-md strong {
   font-weight: 600;

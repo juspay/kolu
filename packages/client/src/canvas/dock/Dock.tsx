@@ -247,12 +247,16 @@ const RailOrCards: Component<{
        *  it only earns its place once there is something to park or
        *  show: at true zero (no visible rows AND nothing parked — the
        *  empty-canvas Dock) it would read a meaningless "0 hidden by …
-       *  window" and, in rail mode, clip inside the 44px rail under the
-       *  aside's `overflow-hidden`. The all-parked case (no visible rows
-       *  but `parkedCount > 0`) still needs it — that is exactly when
-       *  "show all" is the way back. */}
+       *  window". The all-parked case (no visible rows but
+       *  `parkedCount > 0`) still needs it — that is exactly when
+       *  "show all" is the way back. In rail mode the footer hands off
+       *  to its chip-only layout (the 44px rail can't hold the
+       *  sentence), driven by the `rail` prop below. */}
       <Show when={props.tree.hasContent}>
-        <HiddenFooter parkedCount={props.tree.parkedCount} />
+        <HiddenFooter
+          parkedCount={props.tree.parkedCount}
+          rail={props.mode === "rail"}
+        />
       </Show>
     </div>
   );

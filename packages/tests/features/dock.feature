@@ -115,3 +115,18 @@ Feature: Dock
     # an additional click.
     And the minimap window should be "12h"
     And there should be no page errors
+
+  Scenario: Activity-window footer switches layout reactively on collapse
+    # The footer is the same mounted component across a rail ↔ cards
+    # toggle (the parent never remounts it), so its layout choice must be
+    # reactive — a create-time `if (props.rail)` would freeze whichever
+    # layout it first rendered. Start in the default cards layout, collapse
+    # to rail, and the footer must re-render into the compact rail layout
+    # rather than keep clipping the cards sentence inside the 44 px rail.
+    Then the dock hidden footer should use the "cards" layout
+    When I collapse the dock to rail
+    Then the dock should be in "rail" mode
+    And the dock hidden footer should use the "rail" layout
+    When the dock is expanded
+    Then the dock hidden footer should use the "cards" layout
+    And there should be no page errors

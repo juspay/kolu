@@ -15,6 +15,7 @@ const WORKING_ROW_SELECTOR = '[data-testid="dock-row"][data-bucket="working"]';
 const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
 const CHROME_DOCK_TOGGLE_SELECTOR = '[data-testid="dock-toggle"]';
 const DOCK_WINDOW_TRIGGER_SELECTOR = '[data-testid="dock-window-trigger"]';
+const HIDDEN_FOOTER_SELECTOR = '[data-testid="dock-hidden-footer"]';
 
 Then("the dock should be visible", async function (this: KoluWorld) {
   await this.page
@@ -269,5 +270,21 @@ When(
     await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await opt.click();
     await this.waitForFrame();
+  },
+);
+
+// The footer tags itself `data-layout="rail"|"cards"`. The two layouts
+// are different DOM (compact centered chip vs. inline sentence), so the
+// attribute is the semantic signal that the reactive `<Show>` re-rendered
+// the right branch after a mode toggle — not a frozen create-time choice.
+Then(
+  /^the dock hidden footer should use the "(rail|cards)" layout$/,
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: string }) =>
+        document.querySelector(sel)?.getAttribute("data-layout") === want,
+      { sel: HIDDEN_FOOTER_SELECTOR, want: expected },
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
