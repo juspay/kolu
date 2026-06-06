@@ -28,12 +28,12 @@ import { join } from "node:path";
  * Exported so callers can pass it as the default whitelist value.
  *
  * Kolu's own identity vars (TERM_PROGRAM, TERM_PROGRAM_VERSION,
- * VTE_VERSION) live in `koluIdentityEnv()` and are layered on top of
- * cleanEnv's output by the PTY spawn caller — they don't belong in the
- * parent-forward whitelist.
+ * VTE_VERSION, COLORTERM) live in `koluIdentityEnv()` and are layered on
+ * top of cleanEnv's output by the PTY spawn caller — they don't belong in
+ * the parent-forward whitelist.
  */
 export const NIX_ENV_WHITELIST =
-  "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM";
+  "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY";
 
 /** Whitelist set once at startup; undefined means passthrough mode (production). */
 let envWhitelist: Set<string> | undefined;
@@ -110,6 +110,14 @@ export function cleanEnv(): Record<string, string> {
  * the same shape as the identity assertions. The value `7603` encodes VTE
  * 0.76.3 using VTE's scheme: major×10000 + minor×100 + micro.
  *
+ * `COLORTERM=truecolor` advertises 24-bit color so tools gate their
+ * truecolor escapes on it (Claude Code, vim, bat, delta). Our xterm.js
+ * WebGL renderer displays 24-bit color faithfully, so the assertion is
+ * honest. It belongs here, not in cleanEnv's passthrough whitelist: the
+ * capability is a property of kolu's renderer, not of whatever env the
+ * parent process happened to inherit — a GUI/launchd launch carries no
+ * COLORTERM to forward, yet the renderer is just as capable.
+ *
  * Per-PTY identity vars (anything that depends on terminalId) belong in
  * `SpawnInit.env` returned by `prepareShellInit`, not here.
  */
@@ -118,6 +126,7 @@ export function koluIdentityEnv(version: string): Record<string, string> {
     TERM_PROGRAM: "kolu",
     TERM_PROGRAM_VERSION: version,
     VTE_VERSION: "7603",
+    COLORTERM: "truecolor",
   };
 }
 
