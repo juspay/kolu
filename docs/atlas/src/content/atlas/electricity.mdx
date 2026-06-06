@@ -80,12 +80,12 @@ Every row above is a **boundary** electricity — a socket over a place where by
 
 | Invariant run everywhere by hand | The silent bug when you forget | Enforce-by-construction receptacle |
 | --- | --- | --- |
-| **snapshot → *then* deltas** on every streaming handler | client renders deltas onto an empty base; a reconnect shows nothing | `implementSurface` wraps the handler — you declare *read* + *install*, never the ordering. Surface half-owns this; server handlers still hand-roll the snapshot. |
+| **snapshot → *then* deltas** on every streaming handler | client renders deltas onto an empty base; a reconnect shows nothing | **Already enforce-by-construction** — `Cell`/`Collection`/`Stream` handlers (and `pollOnEvent`) yield the snapshot *inside the framework*, where domain code can't skip it (<Cite file="packages/surface/src/server.ts" lines="146-149" />, <Cite file="packages/surface/src/server.ts" lines="314-335" />). The lone hand-roll left is the raw-oRPC `terminal.attach` escape hatch ([crop row below](#newly-identified-this-pass--the-engine-turned-on)). |
 | **owner captured *before* `await`** in any async setup | `onCleanup` lands on a null owner → silent no-op → the subsystem leaks (~900 KB/component; #598/#600/#591) | a `withOwner`-shaped resource: cleanup registers at *attach*, not via a manual `detach()` handle |
 | **validate on *read*** from any persisted store | a stale / `NaN` / `"false"` value loads as truthy and corrupts UI state | `persistedPref` (client) · the `state.ts` migration ladder (server) — *the same invariant in two unconnected homes* |
 | **silence the *expected* abort, log the rest** | unmount/navigation spews fake errors that bury the real ones | `isExpectedCleanupError` — one predicate every stream consumer must run |
 
-These never surface in a package audit because their *correct* form **deletes code rather than adding a folder**. That is the signature of family B: the receptacle is a *smaller surface*, not a new noun. Where family A asks *"what boundary is volatile?"*, family B asks *"what rule am I trusting myself to remember?"* — and both clear Löwy's bar (a volatility encapsulated so the blast radius of a change stays contained). Note the connection: snapshot→deltas appears in **both** families — surface (A) defines the contract, but its server-side enforcement is still a family-B invariant leaking out. The two families meet exactly where an electricity is half-built.
+These never surface in a package audit because their *correct* form **deletes code rather than adding a folder**. That is the signature of family B: the receptacle is a *smaller surface*, not a new noun. Where family A asks *"what boundary is volatile?"*, family B asks *"what rule am I trusting myself to remember?"* — and both clear Löwy's bar (a volatility encapsulated so the blast radius of a change stays contained). Note the connection: snapshot→deltas appears in **both** families — surface (A) defines the contract *and* (correcting an earlier draft of this note) already **enforces** it by construction for every `Cell`/`Collection`/`Stream`. The family-B residue is now a single escape hatch — the raw-oRPC `terminal.attach` — which is exactly the kind of half-built remainder the crop below is for. The two families meet where an electricity is *almost* finished.
 
 ## A third family: appliance electricities (blob → safe view)
 
@@ -182,6 +182,15 @@ The strongest new find, and a textbook **invariant electricity**.
 - **③ prospect:** any SolidJS app that does async setup wants this unchanged — the cleanest second-consumer story of the whole crop.
 
 This promotes the table's `dom/` + `createSharedRoot` rows from "agnostic helpers awaiting graduation" to **two faces of one un-built receptacle.**
+
+### 🔌 `terminal.attach` — surface's last hand-rolled snapshot · <Pill variant="run">narrow</Pill>
+
+Found by *correcting this note*, not by adding to it.
+
+- **Axis:** snapshot-then-deltas (Family B), already owned by surface for every `Cell`/`Collection`/`Stream`.
+- **The sentence:** *every time we add a raw-oRPC stream outside surface, we hand-write `if (snapshot) yield snapshot; for await (…) yield delta` again.*
+- **Evidence:** the one surviving hand-roll lives at <Cite file="packages/server/src/router.ts" lines="144-151" /> (`terminal.attach`) — a raw oRPC procedure, *not* a surface-managed descriptor, so the framework's guarantee doesn't reach it.
+- **Verdict — narrow:** not a new package; the move is to model `terminal.attach` as a surface `Stream` (or route PTY bytes through the existing `pollOnEvent` shape) so the invariant becomes 100% enforce-by-construction and the escape hatch closes. The electricity here is *already built* — this is the last meter of wire.
 
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
