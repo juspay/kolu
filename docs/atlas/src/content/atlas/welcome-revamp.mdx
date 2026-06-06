@@ -139,11 +139,13 @@ it would be a dead control. The one correct runtime gate is
 The manifest is served `standalone` with 192/512 icons, now assembled by
 `@kolu/surface-app`'s `installPwaManifest` (<PrLink pr={1154} />, in `master`),
 whose `...extra` passthrough already accepts the missing fields — so enriching it
-is just passing **`description`**, **`screenshots`**, and a **maskable** 512px
-icon at the call site (<Cite file="packages/server/src/index.ts" lines="223" />).
-That richer manifest upgrades both Chromium's native install card and the library
-preview below. Validate via **DevTools → Application → Manifest** — Lighthouse's
-PWA audit is deprecated.
+is just passing **`description`** and a **maskable** 512px icon at the call site
+(<Cite file="packages/server/src/index.ts" lines="223" />). (**`screenshots`** —
+which would give the install card a richer preview — is a follow-up: it needs
+real screenshot assets, so it's not in the shipped scope yet.) That richer
+manifest upgrades both Chromium's native install card and the library preview
+below. Validate via **DevTools → Application → Manifest** — Lighthouse's PWA
+audit is deprecated.
 </Callout>
 
 ## The in-app welcome
@@ -347,7 +349,7 @@ idea.*
 | In-app welcome | <Cite file="packages/client/src/EmptyState.tsx" /> | The 3 moments + the `@kolu/solid-pwa-install` card, above restore/shortcuts |
 | Re-open command | <Cite file="packages/client/src/input/actions.ts" />, <Cite file="packages/client/src/commands.tsx" /> | New "Tutorial" action + palette entry — re-summons the welcome as an overlay |
 | Discoverability tip | <Cite file="packages/client/src/settings/tips.ts" />, <Cite file="packages/client/src/settings/useTips.ts" /> | Tip pointing at "Tutorial"; drop the PWA tip on an insecure origin. **No** `welcomeSeen` — zero terminals always shows it |
-| Manifest call-site | <Cite file="packages/server/src/index.ts" lines="223" /> | Pass `description` / `screenshots` / maskable icon into `installPwaManifest` |
+| Manifest call-site | <Cite file="packages/server/src/index.ts" lines="223" /> | Pass `description` + maskable icon into `installPwaManifest` (`screenshots` deferred — needs assets) |
 | Full guide | new `website/src/pages/welcome.astro` | The skill-ladder page |
 
 No new server contract; no service worker (kolu has none by design).
@@ -361,7 +363,7 @@ model are already there to extend.
 ### Build plan
 
 <Roadmap>
-  <Milestone status="now" label="Manifest enrichment">Pass `description` / `screenshots` / maskable icon into `@kolu/surface-app`'s `installPwaManifest`. Smallest step; unblocks the richer install card.</Milestone>
+  <Milestone status="now" label="Manifest enrichment">Pass `description` + maskable icon into `@kolu/surface-app`'s `installPwaManifest` (`screenshots` deferred — needs real assets). Smallest step; unblocks the richer install card.</Milestone>
   <Milestone status="now" label="Installability signals">Add `canInstallPwa` (`isSecureContext`) + `isInstalled` (display-mode / `navigator.standalone`) to the `useSurfaceApp()` headless model.</Milestone>
   <Milestone status="next" label="@kolu/solid-pwa-install">New package wrapping `@khmyznikov/pwa-install`: gate order, per-platform branch, `beforeinstallprompt` + `appinstalled` wiring.</Milestone>
   <Milestone status="next" label="EmptyState revamp">The 3 moments + the install card. The most visible change.</Milestone>

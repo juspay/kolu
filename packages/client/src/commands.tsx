@@ -16,7 +16,7 @@ import type {
 } from "./CommandPalette";
 import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
 import type { DockSourceEntry } from "./canvas/dockModel";
-import { supportsSpatialCanvas } from "./capabilities";
+import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import {
   ACTIONS,
   type ActionContext,
@@ -350,13 +350,21 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       name: "Keyboard shortcuts",
       section: "help",
     }),
-    {
-      kind: "action",
-      name: "Tutorial",
-      description: "Show the welcome screen",
-      section: "help",
-      onSelect: () => deps.setWelcomeOpen(true),
-    },
+    // Tutorial re-summons the welcome — gated to surfaces that have one. Mobile
+    // has no welcome by design (`showsWelcome()` false), so the command is
+    // omitted there rather than opening a desktop-oriented dialog in the
+    // compact layout.
+    ...(showsWelcome()
+      ? [
+          {
+            kind: "action" as const,
+            name: "Tutorial",
+            description: "Show the welcome screen",
+            section: "help" as const,
+            onSelect: () => deps.setWelcomeOpen(true),
+          },
+        ]
+      : []),
     {
       kind: "action",
       name: "About kolu",

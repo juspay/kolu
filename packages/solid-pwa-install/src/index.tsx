@@ -85,73 +85,68 @@ export function detectInstallPlatform(opts: {
 /** PURE, unit-tested. Human instruction lines for platforms with no JS prompt.
  *  `canPromptNatively` is true only for the two Chromium platforms that fire
  *  `beforeinstallprompt`; for everyone else the steps are the manual recipe. */
-export function installInstructions(platform: InstallPlatform): {
+interface InstallInstructions {
   title: string;
   steps: string[];
   canPromptNatively: boolean;
-} {
-  switch (platform) {
-    case "chromium-desktop":
-      return {
-        title: "Install app",
-        steps: [
-          "Click Install when prompted.",
-          "Or use the install icon in the address bar.",
-        ],
-        canPromptNatively: true,
-      };
-    case "chromium-android":
-      return {
-        title: "Install app",
-        steps: [
-          "Tap Install when prompted.",
-          "Or open the browser menu and choose Install app.",
-        ],
-        canPromptNatively: true,
-      };
-    case "android-firefox":
-      return {
-        title: "Add to Home screen",
-        steps: [
-          "Open the browser menu (⋮).",
-          "Tap Install or Add to Home screen.",
-        ],
-        canPromptNatively: false,
-      };
-    case "ios":
-      return {
-        title: "Add to Home Screen",
-        steps: [
-          "Tap the Share button.",
-          "Choose Add to Home Screen.",
-          "Tap Add.",
-        ],
-        canPromptNatively: false,
-      };
-    case "safari-desktop":
-      return {
-        title: "Add to Dock",
-        steps: ["Open the File menu.", "Choose Add to Dock."],
-        canPromptNatively: false,
-      };
-    case "firefox-desktop":
-      return {
-        title: "Install not supported",
-        steps: [
-          "Firefox on desktop has no built-in install.",
-          "Open this app in Chrome or Edge to install it.",
-        ],
-        canPromptNatively: false,
-      };
-    default:
-      return {
-        title: "Install app",
-        steps: [
-          "Look for an install or Add to Home Screen option in your browser menu.",
-        ],
-        canPromptNatively: false,
-      };
-  }
+}
+
+// A `Record` over the closed union (not a `switch` with `default`): adding a
+// new `InstallPlatform` becomes a compile error here, forcing a deliberate
+// platform-specific recipe instead of silently falling into generic steps.
+const INSTRUCTIONS: Record<InstallPlatform, InstallInstructions> = {
+  "chromium-desktop": {
+    title: "Install app",
+    steps: [
+      "Click Install when prompted.",
+      "Or use the install icon in the address bar.",
+    ],
+    canPromptNatively: true,
+  },
+  "chromium-android": {
+    title: "Install app",
+    steps: [
+      "Tap Install when prompted.",
+      "Or open the browser menu and choose Install app.",
+    ],
+    canPromptNatively: true,
+  },
+  "android-firefox": {
+    title: "Add to Home screen",
+    steps: ["Open the browser menu (⋮).", "Tap Install or Add to Home screen."],
+    canPromptNatively: false,
+  },
+  ios: {
+    title: "Add to Home Screen",
+    steps: ["Tap the Share button.", "Choose Add to Home Screen.", "Tap Add."],
+    canPromptNatively: false,
+  },
+  "safari-desktop": {
+    title: "Add to Dock",
+    steps: ["Open the File menu.", "Choose Add to Dock."],
+    canPromptNatively: false,
+  },
+  "firefox-desktop": {
+    title: "Install not supported",
+    steps: [
+      "Firefox on desktop has no built-in install.",
+      "Open this app in Chrome or Edge to install it.",
+    ],
+    canPromptNatively: false,
+  },
+  other: {
+    title: "Install app",
+    steps: [
+      "Look for an install or Add to Home Screen option in your browser menu.",
+    ],
+    canPromptNatively: false,
+  },
+};
+
+export function installInstructions(
+  platform: InstallPlatform,
+): InstallInstructions {
+  return INSTRUCTIONS[platform];
 }
 
 export interface PwaInstall {
@@ -165,7 +160,6 @@ export interface PwaInstall {
 /** Minimal shape of the `@khmyznikov/pwa-install` custom element we touch. */
 interface PwaInstallElement extends HTMLElement {
   isUnderStandaloneMode?: boolean;
-  isInstallAvailable?: boolean;
   showDialog?: (forced?: boolean) => void;
 }
 
@@ -227,6 +221,15 @@ export function createPwaInstall(opts?: {
     void import("@khmyznikov/pwa-install");
 
     const el = document.createElement("pwa-install") as PwaInstallElement;
+    // Take ownership of *when* every dialog appears. Without these, the
+    // component auto-shows its own install/how-to UI on page load — its Apple
+    // path flips `isInstallAvailable` true 500ms after load and, with
+    // `isDialogHidden` defaulting to false, renders the dialog unprompted; the
+    // Android-fallback path does the same. `manual-apple`/`manual-chrome` keep
+    // it dormant until our `prompt()` calls `showDialog(true)`, so the welcome
+    // card is the only thing that opens it.
+    el.setAttribute("manual-apple", "");
+    el.setAttribute("manual-chrome", "");
     if (opts?.manifestUrl) el.setAttribute("manifest-url", opts.manifestUrl);
     if (opts?.icon) el.setAttribute("icon", opts.icon);
     if (opts?.name) el.setAttribute("name", opts.name);
@@ -237,13 +240,7 @@ export function createPwaInstall(opts?: {
     element = el;
 
     const refreshInstalled = () => setInstalled(readInstalled(element));
-    const refreshAvailable = () => {
-      // The component's own read, when present, is the most reliable signal of
-      // a replayable native prompt.
-      if (element?.isInstallAvailable === true) setCanPrompt(true);
-    };
     refreshInstalled();
-    refreshAvailable();
 
     const onBeforeInstallPrompt = (e: Event) => {
       // Keep the browser's mini-infobar from auto-showing so the host owns the
@@ -267,15 +264,17 @@ export function createPwaInstall(opts?: {
     const standaloneMq = window.matchMedia("(display-mode: standalone)");
     standaloneMq.addEventListener("change", refreshInstalled);
 
-    // The component announces availability via its own event too.
-    const onAvailable = () => setCanPrompt(true);
-    el.addEventListener("pwa-install-available-event", onAvailable);
+    // NOTE: we deliberately do NOT drive `canPrompt` from the component's
+    // `pwa-install-available-event` / `isInstallAvailable`. Those are broader
+    // than a real one-click install — the component fires them for the Apple
+    // (Share→Add to Home Screen) and Android-fallback manual paths too. The
+    // only true one-click signal is a captured `beforeinstallprompt`, so
+    // `canPrompt` is set exclusively from `onBeforeInstallPrompt` above.
 
     onCleanup(() => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onAppInstalled);
       standaloneMq.removeEventListener("change", refreshInstalled);
-      el.removeEventListener("pwa-install-available-event", onAvailable);
       el.remove();
       element = null;
       deferredPrompt = null;
@@ -290,15 +289,23 @@ export function createPwaInstall(opts?: {
     ) {
       const evt = deferredPrompt;
       deferredPrompt = null;
-      void evt.prompt().finally(() => {
-        // The browser allows replaying the event only once.
-        setCanPrompt(false);
-        void evt.userChoice
-          .then((choice) => {
+      // The browser allows replaying the event only once — drop `canPrompt`
+      // immediately so a second click can't re-enter with a consumed event.
+      setCanPrompt(false);
+      evt
+        .prompt()
+        .then(() =>
+          evt.userChoice.then((choice) => {
             if (choice.outcome === "accepted") setInstalled(true);
-          })
-          .catch(() => {});
-      });
+          }),
+        )
+        .catch((err: unknown) => {
+          // A consumed/invalid prompt event rejects here (or the choice read
+          // fails). Log it instead of swallowing — an unhandled rejection
+          // otherwise surfaces in the browser console with no context, and a
+          // silently-failed prompt would look like a dead button.
+          console.warn("[pwa-install] native prompt failed:", err);
+        });
       return;
     }
     // Everyone else: let the component decide native vs instruction screens.

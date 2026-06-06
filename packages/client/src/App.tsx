@@ -149,9 +149,11 @@ const App: Component = () => {
   // palette "Tutorial" command. One shared install controller drives both the
   // inline moments and the overlay (a single <pwa-install> element, not two).
   const [welcomeOpen, setWelcomeOpen] = createSignal(false);
+  // No `name`/`icon` overrides — the served manifest is the single source of
+  // app identity. The server stamps a per-host `kolu@<hostname>` name; passing
+  // a static "kolu" here would mask that in the install dialog for every host.
   const pwaInstall = createPwaInstall({
     manifestUrl: "/manifest.webmanifest",
-    name: "kolu",
   });
 
   // Diagnostic info dialog state (command palette → Debug → Diagnostic info)
