@@ -167,10 +167,10 @@ const EVIDENCE_VIEWPORT = { width: 1280, height: 720 };
 const X11CAP = !!process.env.KOLU_X11CAP;
 const X11_SCALE = 2;
 const X11_VIEWPORT = { width: 1280, height: 720 }; // logical; physical = ×scale
-const X11_SCREEN = {
-  width: X11_VIEWPORT.width * X11_SCALE,
-  height: X11_VIEWPORT.height * X11_SCALE,
-};
+const X11_SCREEN = engine.physicalSize({
+  viewport: X11_VIEWPORT,
+  scale: X11_SCALE,
+});
 /** Scenario name → file stem. The grab path (Before) and transcode path (After)
  * MUST agree on this, so it lives in exactly one place. */
 const slug = (s: string) => s.replace(/\s+/g, "-").toLowerCase();

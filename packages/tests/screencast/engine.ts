@@ -24,6 +24,19 @@ export interface Viewport {
   height: number;
 }
 
+/** The PHYSICAL capture resolution for a logical viewport at a given scale —
+ *  the one place the `physical = width|height × scale` relationship lives, so
+ *  the Xvfb screen and the x11grab `video_size` cannot drift apart. */
+export function physicalSize(opts: { viewport: Viewport; scale: number }): {
+  width: number;
+  height: number;
+} {
+  return {
+    width: opts.viewport.width * opts.scale,
+    height: opts.viewport.height * opts.scale,
+  };
+}
+
 /** Start an Xvfb virtual display sized to the PHYSICAL capture resolution. */
 export function startXvfb(
   display: string,
