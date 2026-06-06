@@ -11,10 +11,10 @@ reproducible from source rather than hand-recorded.
 
 ## The two halves
 
-| | What it is | Rule |
-| --- | --- | --- |
-| **`engine.ts`** | AGNOSTIC capture: Xvfb + headful Chrome (app-mode) + `ffmpeg -f x11grab` + transcode. Knows nothing about kolu. | A `@kolu/web-screencast` graduation candidate — **never import kolu domain here.** The dependency arrow points OUT. |
-| **`recordings/`** | kolu DOMAIN: one file per clip (`<name>.recording.ts`) declaring `{ name, chrome, theme, display, drive(world) }`, plus shared `helpers.ts`. | Reuse the World step helpers; lean on `helpers.ts` for the common patterns. |
+|                   | What it is                                                                                                                                   | Rule                                                                                                                |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **`engine.ts`**   | AGNOSTIC capture: Xvfb + headful Chrome (app-mode) + `ffmpeg -f x11grab` + transcode. Knows nothing about kolu.                              | A `@kolu/web-screencast` graduation candidate — **never import kolu domain here.** The dependency arrow points OUT. |
+| **`recordings/`** | kolu DOMAIN: one file per clip (`<name>.recording.ts`) declaring `{ name, chrome, theme, display, drive(world) }`, plus shared `helpers.ts`. | Reuse the World step helpers; lean on `helpers.ts` for the common patterns.                                         |
 
 `step_definitions/recording_steps.ts` is the dispatcher (`When I record
 "<name>"`); `features/recordings.feature` lists one scenario per recording;
@@ -56,12 +56,11 @@ by the recipe — the top-level flake devShells are untouched.
 ```ts
 export const recording: Recording = {
   name: "my-demo",
-  chrome: "app",            // "app" = chromeless PWA window · "browser" = real chrome
-  theme: "Vaughn",          // pinned per recording (packages/terminal-themes)
+  chrome: "app", // "app" = chromeless PWA window · "browser" = real chrome
+  theme: "Vaughn", // pinned per recording (packages/terminal-themes)
   display: { hideRightPanel: true, hideMinimap: true }, // dock stays in for live status
-  caption: "…",             // used by the embed/docs
   async drive(world) {
-    await setupSingleTerminal(world);            // themed terminal, clear of the dock
+    await setupSingleTerminal(world); // themed terminal, clear of the dock
     await world.terminalRun("…");
     await launchAgentAndAsk(world, { prompt: "…" }); // dock pulses while it works
   },
@@ -91,4 +90,4 @@ export const recording: Recording = {
 - **codex: don't use `--dangerously-bypass-approvals-and-sandbox` interactively** — it shows a danger-confirmation that the prompt then dismisses (codex exits). Use `--ask-for-approval never --sandbox read-only` (autonomous, safe, no confirm). It also has a slow typewriter intro — wait it out before typing.
 - **`claude --dangerously-skip-permissions` does NOT skip the folder-trust gate** — only per-tool prompts. `launchAgentAndAsk` accepts the gate explicitly (claude); codex shows no gate (`acceptTrustGate: false`).
 - **The app-mode session auto-restores a terminal** — even after the harness's session reset, a terminal reappears on reload. `setupSingleTerminal` `killAll`s it for a clean empty canvas; `transcodeToWeb({ trimStart })` then skips the (multi-second) load-in + killAll so the clip opens on the empty welcome.
-- **`chrome: "app"` vs `"browser"`** — "app" launches a chromeless `--app=` window (the installed-PWA surface, used by the demo); "browser" keeps real tabs + address bar. A browser→app transition *within* one clip isn't possible here (no WM to drop the chrome) — it'd need two concatenated segments.
+- **`chrome: "app"` vs `"browser"`** — "app" launches a chromeless `--app=` window (the installed-PWA surface, used by the demo); "browser" keeps real tabs + address bar. A browser→app transition _within_ one clip isn't possible here (no WM to drop the chrome) — it'd need two concatenated segments.

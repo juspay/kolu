@@ -25,8 +25,6 @@ export interface Recording {
    *  look consistent — e.g. "Vaughn". Applied to terminals created via the
    *  `newTerminal` helper. */
   theme?: string;
-  /** One-line caption used by the embed + docs. */
-  caption: string;
   /** kolu-domain display tweaks applied before `drive()`. */
   display?: RecordingDisplay;
   /** Drive the flow. Uses World helpers (createTerminal/terminalRun/…). */

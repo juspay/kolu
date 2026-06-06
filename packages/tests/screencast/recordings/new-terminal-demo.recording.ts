@@ -31,8 +31,6 @@ export const recording: Recording = {
   name: "new-terminal-demo",
   chrome: "app",
   theme: "Vaughn",
-  caption:
-    "Open a terminal, clone a repo, launch an agent, ask it anything — kolu's core loop, with the dock tracking the agent live.",
   display: { hideRightPanel: true, hideMinimap: true },
   async drive(world) {
     // Idempotent fixture: a fresh ~/demo/kolu each run (the terminal's $HOME is
