@@ -6,11 +6,10 @@ import type { KoluWorld } from "../../support/world";
 export interface RecordingDisplay {
   /** Collapse the right (Inspector/Code) panel so the content fills the frame. */
   hideRightPanel?: boolean;
-  /**
-   * Hide the dock + canvas minimap for a clean, focused canvas — a marketing
-   * composition choice (the surfaces still exist; they're just out of shot).
-   */
-  cleanCanvas?: boolean;
+  /** Take the left dock out of shot (keep it in to show live agent status). */
+  hideDock?: boolean;
+  /** Take the canvas minimap out of shot. */
+  hideMinimap?: boolean;
 }
 
 export interface Recording {
@@ -22,6 +21,10 @@ export interface Recording {
    * `--app=` window an installed PWA uses — right for the product demo.
    */
   chrome: "app" | "browser";
+  /** Terminal theme to pin (a name from packages/terminal-themes), so clips
+   *  look consistent — e.g. "Vaughn". Applied to terminals created via the
+   *  `newTerminal` helper. */
+  theme?: string;
   /** One-line caption used by the embed + docs. */
   caption: string;
   /** kolu-domain display tweaks applied before `drive()`. */

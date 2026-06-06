@@ -21,14 +21,14 @@ export async function applyDisplay(
       .catch(() => undefined);
   }
 
-  if (display.cleanCanvas) {
-    // Take the dock + minimap out of shot. Injected CSS (not a code change to
-    // the app) — a per-recording composition choice; the surfaces still exist.
+  // Take surfaces out of shot via injected CSS (not a code change to the app)
+  // — a per-recording composition choice; the surfaces still exist.
+  const hidden: string[] = [];
+  if (display.hideDock) hidden.push('[data-testid="dock"]');
+  if (display.hideMinimap) hidden.push('[data-testid="canvas-minimap"]');
+  if (hidden.length) {
     await world.page
-      .addStyleTag({
-        content:
-          '[data-testid="dock"],[data-testid="canvas-minimap"]{display:none !important}',
-      })
+      .addStyleTag({ content: `${hidden.join(",")}{display:none !important}` })
       .catch(() => undefined);
     await world.waitForFrame();
   }

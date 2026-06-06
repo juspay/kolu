@@ -1,9 +1,5 @@
+import { pause } from "./helpers";
 import type { Recording } from "./types";
-
-const pause = (
-  world: { page: { waitForTimeout(ms: number): Promise<void> } },
-  ms: number,
-) => world.page.waitForTimeout(ms);
 
 /**
  * The PWA install story: summon the welcome (the "Tutorial" palette command,
@@ -17,8 +13,9 @@ const pause = (
 export const recording: Recording = {
   name: "pwa-install",
   chrome: "browser",
+  theme: "Vaughn",
   caption: "Pin kolu as an app — install it from the welcome.",
-  display: { cleanCanvas: true },
+  display: { hideDock: true, hideMinimap: true },
   async drive(world) {
     const page = world.page;
     await world.waitForReady();
