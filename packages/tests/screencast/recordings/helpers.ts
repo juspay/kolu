@@ -158,15 +158,102 @@ export async function launchAgentAndAsk(
         timeout,
       })
       .catch(() => undefined);
+  // Working: point at the agent's live state in two places — the title-bar
+  // badge (state + context tokens) and the dock row now tracking it.
   await dockBucket("working", 20_000);
+  await annotate(
+    world,
+    '[data-testid="agent-indicator"]',
+    "live state + tokens",
+    "up",
+  );
+  await annotate(
+    world,
+    '[data-bucket="working"]',
+    "…mirrored on the dock",
+    "up",
+  );
+  await pause(world, 3000);
+
+  // Done: the agent answered — the dock flips to awaiting ("your turn").
   await dockBucket("awaiting", 90_000);
-  // Make the status change unmissable: glow the awaiting dock row, then hold
-  // on it (≥1s) so the viewer registers that the agent has finished.
+  await clearAnnotations(world);
+  await annotate(
+    world,
+    '[data-bucket="awaiting"]',
+    "agent finished — your turn",
+    "up",
+  );
+  await pause(world, opts.dwellMs ?? 2800); // hold on the answer + annotation
+}
+
+type ArrowDir = "up" | "down" | "left" | "right";
+
+/**
+ * Overlay a clearly-EXTERNAL coral arrow + label pointing at `selector` (the
+ * arrow points toward the element from `dir`'s side). A drawn annotation reads
+ * as "the clip is showing you this" — a CSS ring read as kolu's own UI. Tagged
+ * so `clearAnnotations` can drop them between phases. Reusable across recordings.
+ */
+async function annotate(
+  world: KoluWorld,
+  selector: string,
+  label: string,
+  dir: ArrowDir = "up",
+): Promise<void> {
   await world.page
-    .addStyleTag({
-      content:
-        '[data-bucket="awaiting"]{box-shadow:0 0 0 2px #e0a45c,0 0 18px 4px rgba(224,164,92,.55)!important;border-radius:10px!important;transition:box-shadow .25s ease}',
+    .evaluate(
+      ({ selector, label, dir }) => {
+        const target = document.querySelector(selector);
+        if (!target) return;
+        const r = target.getBoundingClientRect();
+        const C = "#ff7a59";
+        const paths: Record<string, string> = {
+          up: "M17 30 V10 M17 6 L10 16 M17 6 L24 16",
+          down: "M17 4 V24 M17 28 L10 18 M17 28 L24 18",
+          left: "M30 17 H10 M6 17 L16 10 M6 17 L16 24",
+          right: "M4 17 H24 M28 17 L18 10 M28 17 L18 24",
+        };
+        const vert = dir === "up" || dir === "down";
+        const arrow = `<svg width="34" height="34" viewBox="0 0 34 34" fill="none" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.55))"><path d="${paths[dir]}" stroke="${C}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        const pill = `<span style="background:${C};color:#15171c;font-weight:700;font-size:13px;padding:5px 10px;border-radius:8px;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.45)">${label}</span>`;
+        const wrap = document.createElement("div");
+        wrap.className = "__demo_annotation";
+        wrap.style.cssText = `position:fixed;z-index:2147483647;pointer-events:none;display:flex;${vert ? "flex-direction:column" : "flex-direction:row"};align-items:center;gap:3px;font-family:ui-sans-serif,system-ui,sans-serif`;
+        // arrow nearest the target: up/left → arrow first; down/right → pill first
+        wrap.innerHTML =
+          dir === "down" || dir === "right" ? pill + arrow : arrow + pill;
+        document.body.appendChild(wrap);
+        const w = wrap.offsetWidth;
+        const h = wrap.offsetHeight;
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        let left = cx - w / 2;
+        let top = r.bottom + 6;
+        if (dir === "down") top = r.top - h - 6;
+        if (dir === "left") {
+          left = r.right + 8;
+          top = cy - h / 2;
+        }
+        if (dir === "right") {
+          left = r.left - w - 8;
+          top = cy - h / 2;
+        }
+        wrap.style.left = `${Math.max(2, Math.round(left))}px`;
+        wrap.style.top = `${Math.max(2, Math.round(top))}px`;
+      },
+      { selector, label, dir },
+    )
+    .catch(() => undefined);
+  await world.waitForFrame();
+}
+
+/** Remove all annotation overlays (between phases). */
+async function clearAnnotations(world: KoluWorld): Promise<void> {
+  await world.page
+    .evaluate(() => {
+      for (const e of document.querySelectorAll(".__demo_annotation"))
+        e.remove();
     })
     .catch(() => undefined);
-  await pause(world, opts.dwellMs ?? 2800); // hold on the answer + glowing dock
 }
