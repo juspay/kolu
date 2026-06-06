@@ -158,6 +158,23 @@ export function createServerLifecycle<
   };
 }
 
+/** surface-app's own `identity.info` restart probe, as a typed call on a surface
+ *  client's `.rpc`. A client whose surface registers surface-app under a key
+ *  exposes the probe at the SCOPED wire path `surface.identity.info` (the key is
+ *  consumed by the scope and does not reappear). `.rpc` is typed `unknown` (the
+ *  dynamic combined link can't be expanded per-key — see `SurfaceClient.rpc`), so
+ *  the structural cast lives HERE once, beside the surface that defines the probe,
+ *  instead of being hand-pinned at every `createServerLifecycle({ probe })` site. */
+export function surfaceAppProbe(client: {
+  rpc: unknown;
+}): Promise<ServerProbe> {
+  return (
+    client.rpc as {
+      surface: { identity: { info: (input: object) => Promise<ServerProbe> } };
+    }
+  ).surface.identity.info({});
+}
+
 /** The headless model `useSurfaceApp()` returns. */
 export interface SurfaceAppModel<
   T extends { commit: string } = { commit: string },

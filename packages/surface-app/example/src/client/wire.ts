@@ -9,7 +9,7 @@
 
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClients } from "@kolu/surface/solid";
-import type { ServerProbe } from "@kolu/surface-app/solid";
+import { type ServerProbe, surfaceAppProbe } from "@kolu/surface-app/solid";
 import { WebSocket as PartySocket } from "partysocket";
 import { type contract, surfaces } from "../common/surface";
 
@@ -25,11 +25,8 @@ export const clients = surfaceClients(link, surfaces);
 
 /** The `identity.info` restart probe, on the SCOPED `surfaceApp` client. Its
  *  `.rpc` is typed `unknown` (the dynamic combined link can't be expanded
- *  per-key — see `SurfaceClient.rpc`), so the call shape is pinned here once:
+ *  per-key — see `SurfaceClient.rpc`), so the structural cast lives in
+ *  surface-app's `surfaceAppProbe` (beside the surface that defines the probe):
  *  `surface.identity.info` resolves at `/surface/surfaceApp/identity/info`. */
 export const probeIdentity = (): Promise<ServerProbe> =>
-  (
-    clients.surfaceApp.rpc as {
-      surface: { identity: { info: (input: object) => Promise<ServerProbe> } };
-    }
-  ).surface.identity.info({});
+  surfaceAppProbe(clients.surfaceApp);

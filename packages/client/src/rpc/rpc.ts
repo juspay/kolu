@@ -17,7 +17,7 @@
 import {
   createServerLifecycle,
   type ServerLifecycleEvent,
-  type ServerProbe,
+  surfaceAppProbe,
 } from "@kolu/surface-app/solid";
 import { createMemo } from "solid-js";
 import { match } from "ts-pattern";
@@ -38,15 +38,9 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // `/surface/surfaceApp/identity/info` — the key is consumed by the scope and
   // does NOT reappear in the path. `.rpc` is typed `unknown` (the dynamic
   // combined link can't be expanded per-key — see `SurfaceClient.rpc`), so the
-  // probe call shape is pinned here once.
-  probe: () =>
-    (
-      surfaceApp.rpc as {
-        surface: {
-          identity: { info: (input: object) => Promise<ServerProbe> };
-        };
-      }
-    ).surface.identity.info({}),
+  // probe call shape lives in surface-app's `surfaceAppProbe`, beside the surface
+  // that defines the probe — not re-cast here.
+  probe: () => surfaceAppProbe(surfaceApp),
   // A persistently-broken probe would otherwise silently leave the UI stuck in
   // its prior connection state. Log it (the next open retries) — same as the
   // pre-extraction rpc.ts.
