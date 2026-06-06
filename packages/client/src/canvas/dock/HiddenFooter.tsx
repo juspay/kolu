@@ -6,11 +6,15 @@
  *  the collapsed-dock layout — chip-only, since the 44px rail can't
  *  hold the sentence.
  *
- *  Always rendered. When nothing is parked, the strip honestly reads
- *  "0 hidden by 4h window" — the disclosure's empty state, not invented
- *  copy. The picker chip is inline inside the sentence, so the user
+ *  Gated on `tree.hasContent` by the dock, so it never renders at true
+ *  zero (no visible rows AND nothing parked). When something COULD be
+ *  parked, the cards/mobile layout shows the "N hidden by [W] window"
+ *  empty-state (reading "0 hidden by …" when a filter is active but
+ *  nothing is parked yet) with the picker chip inline, so the user
  *  reaches the control next to where its effect is visible (no
- *  ping-pong between dock header and dock footer).
+ *  ping-pong between dock header and dock footer); the rail layout
+ *  drops the textual sentence entirely (chip + optional accent count
+ *  only).
  *
  *  "show all" is a fast-relax shortcut and only renders when it would
  *  actually do something (`parkedCount > 0 && activityWindow !== "all"`);
