@@ -62,6 +62,21 @@ Read down the last column: three of the four are *surface, or surface stretched 
 
 This is the cut the file/module view hides: the same socket is wired four times because four *boundaries* are volatile, not because four *modules* exist. It also sharpens the artifact-sdk re-eval (below): the live question isn't "anchoring vs bridge" — it's *"should the bridge be a **surface link** rather than a private transport?"* — i.e. does the origin boundary deserve a socket of the **same shape** as the network boundary?
 
+## The table misses an entire *kind*: invariant electricities
+
+Every row above is a **boundary** electricity — a socket over a place where bytes cross. But the codebase hides a second family the package-shaped view is blind to, because its members aren't packages — they're *rules enforced by remembering*:
+
+> An **invariant electricity** is a correctness rule run as the same cassette of plumbing at N call-sites, where forgetting it produces a **silent** bug, not a loud one. The volatility isn't a transport — it's that *the set of call-sites keeps growing, and every new one is a latent failure.* (This is `.agency/lowy.md`'s Layer-0 prompt: *the pattern across N call-sites is itself the artifact.*)
+
+| Invariant run everywhere by hand | The silent bug when you forget | Enforce-by-construction receptacle |
+| --- | --- | --- |
+| **snapshot → *then* deltas** on every streaming handler | client renders deltas onto an empty base; a reconnect shows nothing | `implementSurface` wraps the handler — you declare *read* + *install*, never the ordering. Surface half-owns this; server handlers still hand-roll the snapshot. |
+| **owner captured *before* `await`** in any async setup | `onCleanup` lands on a null owner → silent no-op → the subsystem leaks (~900 KB/component; #598/#600/#591) | a `withOwner`-shaped resource: cleanup registers at *attach*, not via a manual `detach()` handle |
+| **validate on *read*** from any persisted store | a stale / `NaN` / `"false"` value loads as truthy and corrupts UI state | `persistedPref` (client) · the `state.ts` migration ladder (server) — *the same invariant in two unconnected homes* |
+| **silence the *expected* abort, log the rest** | unmount/navigation spews fake errors that bury the real ones | `isExpectedCleanupError` — one predicate every stream consumer must run |
+
+These never surface in a package audit because their *correct* form **deletes code rather than adding a folder**. That is the signature of family B: the receptacle is a *smaller surface*, not a new noun. Where family A asks *"what boundary is volatile?"*, family B asks *"what rule am I trusting myself to remember?"* — and both clear Löwy's bar (a volatility encapsulated so the blast radius of a change stays contained). Note the connection: snapshot→deltas appears in **both** families — surface (A) defines the contract, but its server-side enforcement is still a family-B invariant leaking out. The two families meet exactly where an electricity is half-built.
+
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
 package. It holds **two** volatilities: (1) the **anchoring core** (`core/` — W3C
