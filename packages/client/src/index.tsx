@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { retireServiceWorker } from "@kolu/surface-app/lifecycle";
+import { registerServiceWorker } from "@kolu/surface-app/lifecycle";
 import { SurfaceAppProvider } from "@kolu/surface-app/solid";
 import { MetaProvider } from "@solidjs/meta";
 import { koluBuildInfo } from "kolu-common/surface";
@@ -11,11 +11,20 @@ import { status } from "./rpc/rpc";
 import { surfaceApp } from "./wire";
 import "./index.css";
 
-// kolu does not use a service worker. Retire any one a previous build left
-// registered (and delete its caches); the self-destructing `/sw.js` (served by
-// surface-app's `installFreshStatic`) covers a worker still controlling the
-// page. Run before any component — the framework-free `/lifecycle` subpath.
-retireServiceWorker();
+// Register the fetch-less notification worker (served at `/sw.js` by surface-app's
+// `installFreshStatic({ serviceWorker: "notify" })`). kolu needs an active
+// registration so background agent-finished alerts can fire via
+// `ServiceWorkerRegistration.showNotification()` — the only notification path
+// that works in an installed PWA (the page-level `new Notification()` constructor
+// is illegal in `standalone` display mode). The worker has NO fetch handler, so
+// it never caches and the freshness contract still holds; registering it at `/`
+// also replaces (and so retires) any legacy caching worker, which it purges on
+// activate. Best-effort: a failed registration (e.g. dev, where `/sw.js` isn't
+// served) just means no OS banner — the in-app dock + sound still fire. Run
+// before any component — the framework-free `/lifecycle` subpath.
+void registerServiceWorker().catch((err) => {
+  console.debug("service worker registration skipped:", err);
+});
 
 // Install `window.__kolu` debug hook (dev only) — one-line console access to
 // the same diagnostic probes DiagnosticInfo renders. See debug/consoleHooks.ts.

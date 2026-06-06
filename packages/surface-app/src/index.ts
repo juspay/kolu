@@ -82,13 +82,16 @@ export const clientIsStale = (
   isCleanRef(clientCommit) &&
   serverCommit !== clientCommit;
 
-/** The self-destructing service worker, as a string the app writes to its
- *  public dir at `/sw.js` (served `no-cache`, see `cacheControlFor`). surface-app
- *  ships NO worker; this one exists ONLY to retire a worker an earlier build of a
- *  consumer left registered — the browser's own update check installs it, and on
+/** The self-destructing service worker — the DEFAULT `/sw.js` source for the
+ *  no-worker class of app. It exists ONLY to retire a worker an earlier build of
+ *  a consumer left registered — the browser's own update check installs it, and on
  *  activation it deletes caches, unregisters itself, and reloads controlled tabs.
- *  The `/sw.js` route serves this constant verbatim (see `installFreshStatic` in
- *  `./server`), so there is no separate served file and no lockstep test to maintain. */
+ *  Pair with `retireServiceWorker()` (the page-side call). The `/sw.js` route
+ *  serves this constant verbatim (see `installFreshStatic` in `./server`), so
+ *  there is no separate served file and no lockstep test to maintain.
+ *
+ *  An app that needs notifications opts into `NOTIFICATION_SW_SOURCE` instead
+ *  (`installFreshStatic({ serviceWorker: "notify" })` + `registerServiceWorker()`). */
 export const SW_SOURCE = `// @kolu/surface-app: self-destructing service worker (retires a legacy worker).
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(retire()));
@@ -98,5 +101,50 @@ async function retire() {
   await self.registration.unregister();
   const clients = await self.clients.matchAll({ type: "window" });
   for (const client of clients) client.navigate(client.url);
+}
+`;
+
+/** The notification service worker — the opt-in `/sw.js` source for an app that
+ *  shows OS notifications (`ServiceWorkerRegistration.showNotification`, the ONLY
+ *  notification path that works in an installed PWA — the page-level
+ *  `new Notification()` constructor is an illegal constructor in `standalone`
+ *  display mode on Chromium).
+ *
+ *  It is **deliberately fetch-less**: it registers NO `fetch` handler, so it
+ *  never intercepts a navigation or asset request and thus *cannot* serve a stale
+ *  shell. That is what keeps it compatible with the freshness contract — the
+ *  contract bans a *caching* worker, and a worker with no `fetch` handler does
+ *  zero caching. On `activate` it still purges any cache a legacy worker left and
+ *  `clients.claim()`s, so registering it over an old caching worker heals the
+ *  stale-shell bug the same way the self-destructing worker did. `notificationclick`
+ *  focuses an open app window (and `postMessage`s the notification's `data` so the
+ *  page can route the click — e.g. activate the right terminal) or opens one.
+ *
+ *  Pair with `registerServiceWorker()` (the page-side call) and
+ *  `installFreshStatic({ serviceWorker: "notify" })` (the server side). */
+export const NOTIFICATION_SW_SOURCE = `// @kolu/surface-app: notification service worker (fetch-less — never caches).
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(takeover()));
+async function takeover() {
+  const keys = await caches.keys().catch(() => []);
+  await Promise.all(keys.map((key) => caches.delete(key)));
+  await self.clients.claim();
+}
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(focusApp(event.notification.data || {}));
+});
+async function focusApp(data) {
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+  const client = clients.find((c) => "focus" in c);
+  if (client) {
+    await client.focus();
+    client.postMessage({ type: "notificationclick", data });
+  } else {
+    await self.clients.openWindow(data.url || "/");
+  }
 }
 `;

@@ -249,12 +249,17 @@ installPwaManifest(app, {
 
 // --- Static files (production) ---
 // surface-app's freshness contract on the wire: no-store shell, immutable
-// hashed `/assets/*`, 404 on an asset miss (never the HTML shell), the
-// self-destructing `/sw.js`, and the SPA fallback. Replaces kolu's hand-rolled
-// cache-control + static-serve block.
+// hashed `/assets/*`, 404 on an asset miss (never the HTML shell), the `/sw.js`
+// worker, and the SPA fallback. Replaces kolu's hand-rolled cache-control +
+// static-serve block. `serviceWorker: "notify"` serves the fetch-less
+// notification worker (kolu fires agent-finished alerts via
+// `ServiceWorkerRegistration.showNotification()`, the only notification path
+// that works in an installed PWA) instead of the self-destructing one — it never
+// caches, so the freshness contract still holds. Pairs with
+// `registerServiceWorker()` in the client's `index.tsx`.
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
-  installFreshStatic(app, { root: clientDist });
+  installFreshStatic(app, { root: clientDist, serviceWorker: "notify" });
 }
 
 // --- TLS setup ---
