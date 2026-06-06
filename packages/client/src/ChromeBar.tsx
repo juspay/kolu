@@ -61,6 +61,10 @@ const ChromeBar: Component<{
   // overlay — the `right:` offset below keeps controls off the panel.
   const docked = createMemo(() => posture.mode() === "maximized");
 
+  // Gate the maximize affordance on a tile existing (posture's single
+  // source of truth) so the button never disagrees with `mode()`'s guard.
+  const canMaximize = posture.canMaximize;
+
   // The maximize toggle's affordance describes the action a click performs,
   // so both the tooltip and the aria-label read from one source and can't
   // drift out of sync with the posture.
@@ -144,9 +148,12 @@ const ChromeBar: Component<{
             class={toggleBtnClass}
             classList={{
               "bg-surface-2 text-fg": docked(),
-              "text-fg-3 hover:bg-surface-2 hover:text-fg": !docked(),
+              "text-fg-3 hover:bg-surface-2 hover:text-fg":
+                !docked() && canMaximize(),
+              "text-fg-3/40 cursor-not-allowed": !canMaximize(),
             }}
             data-active={docked() ? "" : undefined}
+            disabled={!canMaximize()}
             onClick={() => posture.toggle()}
             aria-label={maximizeLabel()}
           >

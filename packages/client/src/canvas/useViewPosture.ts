@@ -27,11 +27,34 @@ export type ViewPostureMode = "tiled" | "maximized";
 
 export function useViewPosture() {
   const store = useTerminalStore();
+  /** "Maximize is meaningful" — there is a tile to maximize. With zero
+   *  terminals the canvas is the empty/restore screen, which has no tile.
+   *  The single source of truth for this sub-fact, shared by `mode()`'s
+   *  guard below and exposed to readers (ChromeBar) via `canMaximize`. */
+  const canMaximize = (): boolean => store.terminalIds().length > 0;
   return {
-    /** Current canvas-display mode. */
+    /** Current canvas-display mode. `"maximized"` requires a tile to
+     *  maximize (see `canMaximize`): with zero terminals the posture is
+     *  always `"tiled"` regardless of the persisted `kolu-canvas-maximized`
+     *  flag. This is a derivation, not a mutation — the persisted
+     *  preference is left intact so it re-applies the moment a terminal
+     *  returns. It also keeps the empty-canvas Dock (mounted by App.tsx,
+     *  see `Dock.tsx`) in its only reachable posture, instead of taking
+     *  the maximized flush-sidebar classes inside a non-flex host and
+     *  pushing the welcome card off-screen. */
     mode: (): ViewPostureMode =>
-      store.canvasMaximized() ? "maximized" : "tiled",
-    /** Toggle between tiled canvas and maximized. Single writer. */
-    toggle: store.toggleCanvasMaximized,
+      store.canvasMaximized() && canMaximize() ? "maximized" : "tiled",
+    /** Whether maximize is meaningful — a tile exists to maximize.
+     *  Readers gate the maximize affordance on this so it never disagrees
+     *  with `mode()`'s own guard. */
+    canMaximize,
+    /** Toggle between tiled canvas and maximized. Single writer, and the
+     *  write guard: a no-op with zero terminals (same `canMaximize`
+     *  predicate as `mode()`'s read guard and the `canMaximize` affordance
+     *  guard), so the persisted flag can never be flipped on at zero tiles —
+     *  the safety lives in the receptacle, not in each caller. */
+    toggle: (): void => {
+      if (canMaximize()) store.toggleCanvasMaximized();
+    },
   } as const;
 }
