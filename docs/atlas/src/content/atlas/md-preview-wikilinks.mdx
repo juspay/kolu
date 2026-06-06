@@ -117,16 +117,30 @@ NFC-normalised list of every repo path, already the back-end of the "open this
 file" front door.
 
 <Callout kind="good" title="What the resolver actually does">
-`resolveWikilink(target, repoPaths)` (`ui/lineRef.ts`) matches the target's
-basename against that list — **`.md` implied, Obsidian-style**: a bare
-`[[Architecture]]` matches `Architecture` or `Architecture.md`, and *nothing
-else* (a same-stemmed `Architecture.feature` is **not** a match — matching any
-extension would make near every wikilink spuriously ambiguous). An explicit
-extension (`[[logo.png]]`) matches verbatim; a qualified `[[docs/Note]]` narrows
-to that directory. It returns `unique` / `none` / **`ambiguous` with the
-candidate list** — the one thing the existing `resolveLineRefPath` throws away
-(it collapses ambiguity to `null`), because surfacing the candidates is what
-powers the menu.
+`resolveWikilink(target, repoPaths)` (`@kolu/solid-markdown`'s `wikilink.ts`,
+beside its parser) matches the target's basename against that list — **`.md`
+implied, Obsidian-style**: a bare `[[Architecture]]` matches `Architecture` or
+`Architecture.md`, and *nothing else* (a same-stemmed `Architecture.feature` is
+**not** a match — matching any extension would make near every wikilink
+spuriously ambiguous). An explicit extension (`[[logo.png]]`) matches verbatim; a
+qualified `[[docs/Note]]` narrows to that directory. It returns `unique` /
+`none` / **`ambiguous` with the candidate list** — the one thing the terminal
+resolver throws away (it collapses ambiguity to `null`), because surfacing the
+candidates is what powers the menu.
+</Callout>
+
+<Callout kind="accent" title="Where it lives — by feature, not by topic">
+The wikilink *resolver* lives in `@kolu/solid-markdown` next to its *parser*: a
+wikilink is a Markdown construct, and the resolution rules (`.md` implied,
+alias/heading, ambiguity-surfacing) are defined by the wikilink grammar — nothing
+outside Markdown resolves one. It's a pure, node-pure, host-called export (like
+`url-policy`'s `safeHref`), so it does not couple the renderer to the file list.
+It is **not** in `@kolu/solid-browser`: that package's concern is *browsing*
+(location, history, link interception, GitHub-relative path math). Its
+`resolveLinkHref` — directory-relative `[](…)` resolution with no file list — is
+a *different concept* that genuinely is a browsing concern and stays there. Two
+link resolvers, two packages, split by feature rather than bundled under the word
+"link."
 </Callout>
 
 ## The pieces
@@ -136,23 +150,24 @@ callback, and the `openInCodeTab` front door. Wikilinks add a *parser* in front
 of it and a *resolver + menu* behind it.
 
 <D2
-  caption="The added pieces (accent) bracket the existing open-in-Code-tab front door. The marked extension mints a distinct data-md-wikilink anchor; a dedicated host callback carries the clicked element so an ambiguous target can anchor a menu to it; resolveWikilink surfaces candidates instead of collapsing to null. The sanitizer gains one allowlisted marker (and a guard that strips it from any escaping href — external URL, unsafe scheme, or fragment — so an untrusted document can't route those through the wikilink resolver); the front door and the file list are untouched."
+  caption="The wikilink feature — parser, resolver, and host callback — lives wholly in @kolu/solid-markdown; the client dispatcher only wires it to the menu and the existing open-in-Code-tab front door. The marked extension mints a distinct data-md-wikilink anchor; resolveWikilink does the pathless, .md-implied vault match and surfaces candidates instead of collapsing to null. The sanitizer gains one allowlisted marker (and a guard that strips it from any escaping href); the front door and the file list are untouched."
   code={`direction: down
-md: "@kolu/solid-markdown" {
-  ext: "markedWikilink() — NEW · parses [[Note]] [[a|b]] [[a#h]] ![[embed]] → distinct data-md-wikilink anchor"
-  cb: "onNavigateWikilink(target, anchorEl) — NEW host callback"
+md: "@kolu/solid-markdown — the wikilink feature" {
+  ext: "markedWikilink() — parses [[Note]] [[a|b]] [[a#h]] ![[embed]] → data-md-wikilink anchor"
+  res: "resolveWikilink(target, repoPaths) — pathless, .md-implied vault match → unique | none | ambiguous"
+  cb: "onNavigateWikilink(target, anchorEl) host callback"
 }
-disp: "client / BrowseFileDispatcher — NEW branch" {
-  res: "resolveWikilink(target, repoPaths) → unique | none | ambiguous+candidates"
-  menu: "unique ⇒ open · none ⇒ toast · ambiguous ⇒ OptionMenu anchored to anchorEl"
+disp: "client / BrowseFileDispatcher — host branch" {
+  menu: "unique ⇒ open · none ⇒ toast · ambiguous ⇒ OptionMenu anchored to the link"
 }
 front: "openInCodeTab — front door (existing)"
-list: "treePaths() — fsListAll / git ls-files (existing, threaded as repoPaths)"
-md.ext -> md.cb
-md.cb -> disp.res: "click"
-disp.res -> disp.menu
+list: "treePaths() — fsListAll / git ls-files (existing)"
+md.ext -> md.cb: "click"
+md.cb -> disp.menu: "target + anchor"
+disp.menu -> md.res: "target + repo vault"
+md.res -> disp.menu: "resolution"
 disp.menu -> front: "chosen path"
-list -> disp.res: "the vault"
+list -> disp.menu: "vault paths"
 `}
 />
 

@@ -50,7 +50,8 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
-import { resolveLinkHref, resolveWikilink } from "@kolu/solid-browser";
+import { resolveLinkHref } from "@kolu/solid-browser";
+import { resolveWikilink } from "@kolu/solid-markdown";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
