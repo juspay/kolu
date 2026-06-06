@@ -541,16 +541,11 @@ BeforeAll(async () => {
   // KOLU_X11CAP: go HEADFUL at 2× inside Xvfb so x11grab captures real physical
   // pixels. This global browser backs *browser-chrome* recordings (newContext);
   // app-mode recordings launch their own persistent context in newScenarioPage.
-  // The flags mirror engine.appModeArgs minus `--app` (chrome stays visible).
-  const x11Args = [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    `--force-device-scale-factor=${X11_SCALE}`,
-    "--window-position=0,0",
-    `--window-size=${X11_VIEWPORT.width},${X11_VIEWPORT.height}`,
-    "--hide-scrollbars",
-  ];
+  // Same capture-window base as app mode, minus `--app` (chrome stays visible).
+  const x11Args = engine.captureWindowArgs({
+    scale: X11_SCALE,
+    viewport: X11_VIEWPORT,
+  });
   browser = await chromium.launch({
     headless: X11CAP ? false : process.env.HEADLESS !== "false",
     args: X11CAP ? x11Args : ciArgs,

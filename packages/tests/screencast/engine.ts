@@ -37,10 +37,10 @@ export function startXvfb(
   );
 }
 
-/** Chrome flags for a chromeless, retina **app-mode** window at `url` — the
- *  same frameless surface an installed PWA uses (no tabs, no address bar). */
-export function appModeArgs(opts: {
-  url: string;
+/** The shared geometry/sandbox flags every capture-grade Chrome needs — a
+ *  retina window pinned to the logical viewport, no sandbox, no scrollbars.
+ *  Both app-mode and browser-mode capture build on this single base. */
+export function captureWindowArgs(opts: {
   scale: number;
   viewport: Viewport;
 }): string[] {
@@ -52,8 +52,18 @@ export function appModeArgs(opts: {
     "--window-position=0,0",
     `--window-size=${opts.viewport.width},${opts.viewport.height}`,
     "--hide-scrollbars",
-    `--app=${opts.url}`,
   ];
+}
+
+/** Chrome flags for a chromeless, retina **app-mode** window at `url` — the
+ *  same frameless surface an installed PWA uses (no tabs, no address bar).
+ *  `--app` is the only delta over the shared capture-window base. */
+export function appModeArgs(opts: {
+  url: string;
+  scale: number;
+  viewport: Viewport;
+}): string[] {
+  return [...captureWindowArgs(opts), `--app=${opts.url}`];
 }
 
 /** Begin grabbing the framebuffer to a raw, high-quality H.264 file at a fixed
