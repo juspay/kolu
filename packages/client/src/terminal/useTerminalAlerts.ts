@@ -73,7 +73,7 @@ export function useTerminalAlerts(deps: {
   // notification has no page-level `Notification.onclick`.)
   if ("serviceWorker" in navigator) {
     makeEventListener(navigator.serviceWorker, "message", (event) => {
-      const msg = (event as MessageEvent).data;
+      const msg = event.data;
       if (msg?.type !== SW_MESSAGE_TYPE) return;
       const id = msg.data?.terminalId as TerminalId | undefined;
       if (id !== undefined) deps.activate(id);
