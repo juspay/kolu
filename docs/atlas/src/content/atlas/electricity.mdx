@@ -223,6 +223,15 @@ The crop's clearest *"real axis, wrong time"* — and a lesson in not extracting
 - **Evidence — the shape is real and growing:** five formats in seven weeks — `exportSessionAsHtml`, `exportScrollbackAsPdf`, `screenshotTerminal` (PNG→clipboard), `sessionTransfer` (JSON), `recorder/` (WebM); the leaf `download.ts` (`triggerDownload`) is *already* shared by two of them.
 - **Why defer (the falsifier bites):** each export *welds* its own source to its own sink with **different** readiness guards (popup-block fallback vs hard-error vs clipboard-absent) — the parameters-and-conditionals smell that says *the cases aren't the same thing yet*. No second consumer of a different shape. Verdict: **revisit at the 6th format or a non-UI (CLI) consumer**; until then it's a folder waiting to become wrong. The honest call here is *not* to extract — which is the point of having a method instead of an appetite.
 
+### 🧩 `vt-events` — escape-sequences → typed shell events · <Pill variant="run">candidate · defer</Pill>
+
+A possible future **cleave of an existing electricity** (pty-host), not a greenfield one.
+
+- **Axis:** the mapping from terminal escape sequences (OSC 7 cwd · OSC 633 command marks · OSC 0/2 title · `tcgetpgrp` foreground) to *typed semantic events*, which changes with shell/OSC conventions — **independently** of how the PTY process is spawned and reaped.
+- **The sentence:** *every time a shell convention changes (Kitty, OSC 1337…), we edit parse rules tangled into process-lifecycle code.*
+- **Evidence:** the ~50 lines of OSC handlers at <Cite file="packages/pty-host/src/ptyHost.ts" lines="434-481" />, sitting inside ~450 lines of node-pty lifecycle; one real entanglement (OSC 633 *drives* the foreground re-sample schedule).
+- **Why defer:** the parse ruleset has been **inert since extraction** (no new OSC codes added; the churn has all been *process* concerns — exit tombstones, sample timing). No external consumer wants byte-stream-→-events without the rest of pty-host *today*. Verdict: **document the axis, monitor churn** — split to `@kolu/vt-events` only when a non-kolu consumer (tmux/Zellij control-mode) appears or the rules take 3+ independent edits. A clean Löwy axis whose *volatility hasn't fired yet*.
+
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
 package. It holds **two** volatilities: (1) the **anchoring core** (`core/` — W3C
