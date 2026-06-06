@@ -2,6 +2,7 @@
  *  Watches metadata subscriptions for agent state changes (any AI coding agent). */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { SW_MESSAGE_TYPE } from "@kolu/surface-app";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences } from "../wire";
@@ -73,7 +74,7 @@ export function useTerminalAlerts(deps: {
   if ("serviceWorker" in navigator) {
     makeEventListener(navigator.serviceWorker, "message", (event) => {
       const msg = (event as MessageEvent).data;
-      if (msg?.type !== "notificationclick") return;
+      if (msg?.type !== SW_MESSAGE_TYPE) return;
       const id = msg.data?.terminalId as TerminalId | undefined;
       if (id !== undefined) deps.activate(id);
     });

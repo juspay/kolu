@@ -16,6 +16,7 @@ import {
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
   SHELL_CACHE_CONTROL,
+  SW_MESSAGE_TYPE,
   SW_SOURCE,
 } from "./index";
 
@@ -163,7 +164,10 @@ describe("NOTIFICATION_SW_SOURCE (the fetch-less notification worker)", () => {
   });
 
   it("handles notificationclick and routes the click back to a window", () => {
-    expect(NOTIFICATION_SW_SOURCE).toContain('"notificationclick"');
+    // The worker stamps the shared SW_MESSAGE_TYPE discriminator on the click
+    // envelope (interpolated from the exported constant, not a duplicated literal),
+    // so a rename moves both sides at once instead of silently desyncing the page.
+    expect(NOTIFICATION_SW_SOURCE).toContain(JSON.stringify(SW_MESSAGE_TYPE));
     expect(NOTIFICATION_SW_SOURCE).toContain("client.focus()");
     expect(NOTIFICATION_SW_SOURCE).toContain("client.postMessage");
     expect(NOTIFICATION_SW_SOURCE).toContain("openWindow");

@@ -104,6 +104,17 @@ async function retire() {
 }
 `;
 
+/** The `postMessage` discriminator the notification worker stamps on the click
+ *  envelope it sends to the page (`{ type: SW_MESSAGE_TYPE, data }`). This is the
+ *  receptacle's stable contract: the worker source below interpolates this same
+ *  constant, and the page-side listener imports it to match — so a rename here is
+ *  a compile error on the page instead of a silently-dropped click. */
+export const SW_MESSAGE_TYPE = "notificationclick";
+
+/** The shape of the message the notification worker posts to the page on click:
+ *  the {@link SW_MESSAGE_TYPE} discriminator plus the notification's `data`. */
+export type SwClickMessage<D> = { type: typeof SW_MESSAGE_TYPE; data: D };
+
 /** The notification service worker — the opt-in `/sw.js` source for an app that
  *  shows OS notifications (`ServiceWorkerRegistration.showNotification`, the ONLY
  *  notification path that works in an installed PWA — the page-level
@@ -157,7 +168,7 @@ async function focusApp(data) {
   const client = clients.find((c) => "focus" in c);
   if (client) {
     await client.focus();
-    client.postMessage({ type: "notificationclick", data });
+    client.postMessage({ type: ${JSON.stringify(SW_MESSAGE_TYPE)}, data });
   } else {
     await self.clients.openWindow(data.url || "/");
   }
