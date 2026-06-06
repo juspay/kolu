@@ -9,11 +9,12 @@
 import {
   type ConnectionStatus,
   SurfaceAppProvider,
+  surfaceAppProbe,
   useSurfaceApp,
 } from "@kolu/surface-app/solid";
 import { createSignal, Show } from "solid-js";
 import { buildInfo, type ExampleBuildInfo } from "../common/surface";
-import { clients, probeIdentity, ws } from "./wire";
+import { clients, ws } from "./wire";
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   live: "live",
@@ -147,7 +148,7 @@ export default function App() {
       // is consumed by the scope and does NOT reappear in the path. `.rpc` is
       // typed `unknown` (the dynamic combined link can't be expanded per-key),
       // so the caller pins the probe call shape here.
-      probe={() => probeIdentity()}
+      probe={() => surfaceAppProbe(clients.surfaceApp)}
       // Turnkey `{ ws, probe }` mode: `onError` covers BOTH the buildInfo
       // stream and a failed identity probe (a broken probe would otherwise
       // leave the connection status stuck silently).
