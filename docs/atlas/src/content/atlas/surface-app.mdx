@@ -183,8 +183,8 @@ plugins: [solid(), surfaceApp()]
 
 Every removed line was the app doing the library's job; every surviving line composes a fragment. That's the whole principle.
 
-<Callout kind="accent" title="The composition seams are a stopgap for flat cells">
-`composeSurfaces`, `surfaceAppServer` + `implementSurfaceApp`, the dup-key throw, and the app-visible `connect` all exist because `@kolu/surface` cells are a flat `Record<name, spec>` (only procedures namespace). The foundational fix is **nested sub-surfaces** ([kolu#1197](https://github.com/juspay/kolu/issues/1197)): a surface `mounts` a whole sub-surface under a key, so the cell is truly `surfaceApp.buildInfo`, composition is a plain mount, and the runtime owns the mounted sub-surface's lifecycle. That dissolves all four seams — surface-app becomes *just a mounted sub-surface*. **This is now the plan of record — see [Nested sub-surfaces](#nested-sub-surfaces--the-mount-seam) below.**
+<Callout kind="accent" title="The composition seams are a stopgap for the merge">
+`composeSurfaces`, `surfaceAppServer` + `implementSurfaceApp`, the dup-key throw, and the app-visible `connect` all exist because surface-app is **merged into** the app's one surface — and its `buildInfo` cell (flat) + `surfaceApp.info` probe (two-level) don't merge as one unit. The fix isn't to make merging smarter; it's to **stop merging**: surface-app is already a complete surface, so serve it as a **sibling**, not a fragment to splice in. That dissolves all four seams with *no* change to `SurfaceSpec`. **This is now the plan of record — see [Composing surfaces](#composing-surfaces--multiple-surfaces-one-transport) below.**
 </Callout>
 
 ## The API
@@ -292,88 +292,98 @@ The library ships the headless model, not styled components. These are the chrom
 
 On mobile the rail collapses to the chip + reload; the prompt becomes a bottom banner. Both are built from the same `useSurfaceApp()` model, so kolu's reflect pty divergence and drishti's reflect commit skew with no change to the library.
 
-## Nested sub-surfaces — the mount seam
+## Composing surfaces — multiple surfaces, one transport
 
-<p>Status: <Pill variant="run">proposed</Pill> · [kolu#1197](https://github.com/juspay/kolu/issues/1197) · a `@kolu/surface` core change that dissolves the four composition seams above. The surface-app library shrinks; the wire shape changes.</p>
+<p>Status: <Pill variant="run">proposed</Pill> · [kolu#1197](https://github.com/juspay/kolu/issues/1197) · dissolves the four composition seams above **without touching `SurfaceSpec`**. surface-app shrinks; only a thin plural layer is added to surface core.</p>
 
 <Callout kind="accent">
-Today surface-app contributes **two things at two levels** — a `buildInfo` *cell* (flat name) and a `surfaceApp.info` *probe* (two-level) — so it can't be handed to an app as **one** unit. Every seam (`composeSurfaces`, `implementSurfaceApp`, the dup-key throw, the app-visible `connect`) is glue for that mismatch. A **mount** makes a whole sub-surface one named unit, and the mismatch — and all the glue — disappears.
+The mistake was trying to **merge** surface-app *into* the app's spec. surface-app is *already* a complete, valid surface on its own — a `buildInfo` cell + an `info` probe. So don't merge it; **serve it as a sibling**. An app serves a keyed *map* of independent surfaces, multiplexed over its one transport — and the four seams, which were all glue for the merge, simply have nothing to do.
 </Callout>
+
+### The XY unwind
+
+The issue (#1197) prescribed nested sub-surfaces (`mounts`) — recurse a whole `Surface` inside `SurfaceSpec`. That solves the stated Y (one merged spec) but at the cost of making the core spec recursive and changing every derivation. The real X — *a library can't be handed over as one unit because its cell is flat and its probe is two-level* — dissolves once you stop merging: a standalone surface **is** one unit, and "compose" just means "serve more than one." `SurfaceSpec`, `defineSurface`, the contract derivation, the client proxy, and the channel-key construction are all **untouched**.
 
 ### The seam
 
-`SurfaceSpec` gains one optional field, `mounts`: a map of key → a whole `Surface`. The app mounts surface-app under a key and adds its own primitives alongside:
+Each surface is defined exactly as today — no new field. surface core gains two thin plural wrappers: `implementSurfaces` (server) and `surfaceClients` (client), each keying its entries by a registration name.
 
 ```ts
-defineSurface({
-  mounts: { surfaceApp: surfaceAppSurface },   // a whole Surface, one namespace
-  collections: { hosts },                       // the app's own, unchanged
-  procedures: { hosts },
+// each is a normal, standalone surface — ZERO change to defineSurface / derivation / client proxy
+const surfaceAppSurface = defineSurface({ cells: { buildInfo }, procedures: { app: { info } } });
+const adminSurface      = defineSurface({ collections: { hosts }, procedures: { hosts } });
+
+// SERVER — one transport, a keyed map of surfaces
+const { router, ctx } = implementSurfaces({
+  surfaceApp: { surface: surfaceAppSurface, deps: surfaceAppImpl },   // owns its OWN connect
+  admin:      { surface: adminSurface,      deps: adminImpl },
 });
+
+// CLIENT — one connection, a keyed map of clients
+const c = surfaceClients(link, { surfaceApp: surfaceAppSurface, admin: adminSurface });
+c.surfaceApp.cells.buildInfo.use();   // surface.surfaceApp.buildInfo
+c.admin.collections.hosts.use();      // surface.admin.hosts...
 ```
 
-The runtime treats a mounted sub-surface as a self-contained unit: it derives the contract under the key, walks its cells/procedures when implementing, and **owns its lifecycle** — including firing the async-cell republish (`buildInfo`'s late `system.version` / `bootId`) that the app spells out by hand today.
-
 <D2
-  caption="A mount nests a whole sub-surface under one key; the runtime derives + wires it as a unit, and the wire paths gain exactly one segment."
+  caption="Independent surfaces are multiplexed over one transport; the plural layer keys each by its registration name. SurfaceSpec and every derivation are untouched."
   code={`direction: down
-app: "app surface (defineSurface)" {
-  mounts: "mounts: { surfaceApp }"
-  own: "collections/procedures (app's own)"
+app: "app — declares standalone surfaces" {
+  saSurface: "surfaceAppSurface (buildInfo cell + info probe)"
+  adminSurface: "adminSurface (hosts collection + procedures)"
 }
-sub: "surfaceAppSurface (a whole Surface)" {
-  cell: "buildInfo cell"
-  probe: "info probe"
+plural: "implementSurfaces / surfaceClients (thin plural layer)" {
+  key: "keys each surface by its registration name"
+  chan: "namespaces each surface's channel bus by key"
 }
-impl: "implementSurface — walks mounts, wires the sub-surface as a unit, flows its cells' connect"
-wire: "wire paths (+1 segment)" {
-  c: "surface.surfaceApp.buildInfo.get"
-  ch: "surfaceApp.buildInfo:changed"
-  p: "surface.surfaceApp.info"
+transport: "one transport (WS) — multiplexed" {
+  w1: "surface.surfaceApp.buildInfo · surface.surfaceApp.info"
+  w2: "surface.admin.hosts..."
 }
-app.mounts -> sub: "nests under key"
-sub -> impl: "provided as one impl unit"
-impl -> wire: "derives"
+app.saSurface -> plural: "registered under 'surfaceApp'"
+app.adminSurface -> plural: "registered under 'admin'"
+plural -> transport: "one router, one ctx, keyed"
 `}
 />
 
 ### What it dissolves
 
-| Seam today | After mounts |
+| Seam today | After |
 | --- | --- |
-| `composeSurfaces(surfaceAppSurface, mine)` | `mounts: { surfaceApp: surfaceAppSurface }` — the mount **is** the merge, structurally isolated |
-| `assertNoOverride` dup-key throw | gone — a mount is its own namespace, **cell included**, so nothing can collide |
-| `surfaceAppServer()` + `implementSurfaceApp()` | `implementSurface(surface, { mounts: { surfaceApp: impl }, …mine })` — the sub-surface's impl is just another dep |
-| app-visible `connect` (republish late `buildInfo`) | the runtime owns a mounted sub-surface's cell lifecycle and fires the republish itself |
+| `composeSurfaces` / `ComposedSurfaceSpec` | **gone** — no merge; the surfaces are siblings |
+| `assertNoOverride` dup-key throw | **gone** — each surface is its own top key; nothing to collide |
+| `surfaceAppServer()` + `implementSurfaceApp()` | **gone** — each surface's own `implementSurface` owns its deps |
+| app-visible `connect` (republish late `buildInfo`) | **gone** — each surface's `implementSurface` fires its own cells' `connect` |
 
-The `/surface`, `/server` surface-app entrypoints lose `composeSurfaces`, `surfaceAppServer`, `implementSurfaceApp`; `surfaceAppSurface` and the cell/probe definitions stay. surface-app becomes *just a mounted sub-surface* — the headless model, the fresh-delivery `installSurfaceApp`, and the client build are untouched.
+The plural layer is the *only* new code, and it wraps the **existing** singular `implementSurface` / `surfaceClient` once per entry, handling the two real mechanics:
 
-### The one open decision — how procedures nest
+```ts
+// 1. namespace each surface's channel bus by its key so two surfaces' `buildInfo:changed` can't collide
+implementSurface(surface, { ...deps, channel: (n) => baseChannel(`${key}/${n}`) })
+// 2. key each surface's router + ctx under its registration name (instead of the hardcoded single `surface`)
+```
 
-Cells/collections/streams/events are **flat names** today, so a mount nests them cleanly: `buildInfo` → `surface.surfaceApp.buildInfo`. Procedures are already **two-level** (`namespace.verb`), so a mount has to reconcile depth. Two coherent shapes:
+surface-app's `/surface` and `/server` entrypoints lose `composeSurfaces`, `surfaceAppServer`, `implementSurfaceApp`, `assertNoOverride`; the `surfaceAppSurface` definition + its server impl stay (now served as a sibling). The headless model, `installSurfaceApp`, and the client build are untouched.
 
-| | **A — mount key *is* the procedure namespace** <Pill variant="ok">recommended</Pill> | **B — mount key *prefixes* the existing two levels** |
-| --- | --- | --- |
-| sub-surface declares | procedures flat (`{ info }`) | procedures two-level (`{ probe: { info } }`) |
-| probe wire path | `surface.surfaceApp.info` (matches the issue) | `surface.surfaceApp.probe.info` |
-| uniformity | cells **and** procedures both `surfaceApp.<x>` — one flat namespace | one extra segment for procedures only |
-| cost | a mounted surface's procedures are shaped *differently* from a top-level surface's (a sub-surface isn't a drop-in top-level surface) | a sub-surface **is** a plain `Surface`, mountable or top-level unchanged |
+### Why this is the right boundary
 
-**Recommend A** — it's the issue's wire shape (`surfaceApp.info`), keeps the whole mount one flat namespace, and surface-app's procedure surface is tiny (one probe). The cost is conceptual only: "a thing you mount" gains a one-level procedure shape distinct from "a thing you serve at the top." (Earlier call on this thread: *namespace it, don't care about wire breaking* — which is A.)
+- **Hickey (simplicity):** siblings don't complect — there is *no merge at all*, so the four merge-glue constructs have nothing to do. One namespacing mechanism (the registration key), zero recursion in the spec.
+- **Lowy (volatility):** the unit of contribution is *a whole surface*, encapsulated; a new library (`surface-auth`) is just another entry in the map. Smallest blast radius — the core derivation, the client proxy, and channel-key construction don't move; only a thin plural layer is added.
+- **`connect`** is a *separate* volatility (a cell's value arriving async at boot). It stays internal to each surface's own `implementSurface`, never folded into composition and never app-visible.
 
-### Why a breaking wire change is safe here
+### Why the wire break is free
 
-The channel keys change (`buildInfo:changed` → `surfaceApp.buildInfo:changed`) and so do the RPC paths. That's a hard break for a long-lived client talking to a new server — **except this is the one app class where client and server ship together and a skewed client is *designed* to reload to the deployed build** (invariant #1). surface-app's entire reason to exist is that there is never a stale client pinned against a new server. So no wire-compat shim is needed; kolu, the surface examples, and drishti all re-derive in lockstep with the server they ship beside.
+Wire paths gain the surface key (`surface.buildInfo` → `surface.surfaceApp.buildInfo`; channel `buildInfo:changed` → `surfaceApp/buildInfo:changed`). A hard break for a long-lived client — **except this is the one app class where client and server ship together and a skewed client is *designed* to reload to the deployed build** (invariant #1). No compat shim: kolu, the surface examples, and drishti all re-derive in lockstep with the server they ship beside.
 
 ### Scope & migration
 
-A `@kolu/surface` core change touching the contract derivation, the `implementSurface` runtime walk, the client proxy types, and the channel-key construction — each recursing **one level** under the mount key. Then every consumer re-mounts:
+A `@kolu/surface` change that **adds** `implementSurfaces` + `surfaceClients` and leaves `SurfaceSpec` / `defineSurface` / the contract derivation / the client proxy alone. Then every consumer splits its one merged surface into siblings:
 
-- **kolu** — its main surface mounts `surfaceApp` (extending build identity for the pty-host axis, as today); deletes its `composeSurfaces`/`implementSurfaceApp` calls.
-- **the surface examples** — re-derived against the new core.
-- **drishti** ([srid/drishti](https://github.com/srid/drishti)) — adopts the mount API in a paired PR (the `(should include drishti PR)` ask): `mounts: { surfaceApp }` in `admin-surface.ts`, the sub-surface impl as a dep in `admin-router.ts`, the probe path under `surface.surfaceApp.info`.
+- **kolu** — its `surfaceApp` surface (extending build identity for the pty-host axis, as today) becomes a sibling of its main surface; deletes its `composeSurfaces` / `implementSurfaceApp` calls.
+- **the surface examples** — re-expressed as sibling surfaces against the plural API.
+- **drishti** ([srid/drishti](https://github.com/srid/drishti)) — adopts the plural API in a paired PR (the `(should include drishti PR)` ask): `surfaceAppSurface` + `adminSurface` as siblings in `admin-surface.ts`, `implementSurfaces` in `admin-router.ts`, `c.surfaceApp.cells.buildInfo` / `c.surfaceApp.rpc.app.info` on the client.
 
-A pure refactor in behavior — no on-screen change, no new user-facing surface — so existing surface + surface-app tests are the safety net (extended to cover mounted cell/procedure paths and the mounted-cell `connect`).
+A pure refactor in behavior — no on-screen change, no new user-facing surface — so existing surface + surface-app tests are the safety net (extended to cover the plural layer's per-key channel namespacing and router/ctx keying).
 
 ## Rationale & status
 
@@ -412,7 +422,7 @@ For this class it's **definitional**, not an opinion — but the rationale ships
 2. **Adopt in drishti** (separate PRs, drishti repo) — first a small PR for content-hashed `Bun.build` output; then port drishti onto the library (default identity, same UX). <Pill variant="done">done</Pill> — [srid/drishti#47](https://github.com/srid/drishti/pull/47).
 3. **Extract `@kolu/dev-tls`** — pull kolu's self-signed generator (`server/src/tls.ts`) into a tiny optional package for the localhost/dev escape hatch; document the trusted recipes (`tailscale serve` / mkcert / Caddy). surface-app itself only feature-detects the secure context and hints. <Pill variant="run">deferred</Pill>
 4. **Blog post** — sibling to [surface-framework](https://kolu.dev/blog/surface-framework/), seeded by [cache-bug.md](../../cache-bug.md). <Pill variant="run">deferred</Pill>
-5. **Nested sub-surfaces in `@kolu/surface`** — `mounts: { surfaceApp: … }` makes surface-app *just a mounted sub-surface* and dissolves `composeSurfaces` / `implementSurfaceApp` / the dup-key throw / the app-visible `connect`. A wire-shape change to surface core, its own PR (incl. the paired drishti adoption). Plan of record: [Nested sub-surfaces](#nested-sub-surfaces--the-mount-seam). <Pill variant="run">proposed</Pill> — [kolu#1197](https://github.com/juspay/kolu/issues/1197).
+5. **Compose surfaces as siblings in `@kolu/surface`** — `implementSurfaces` / `surfaceClients` serve a keyed map of standalone surfaces over one transport, so surface-app is *just a sibling surface* and `composeSurfaces` / `implementSurfaceApp` / the dup-key throw / the app-visible `connect` all dissolve — with **no change to `SurfaceSpec`**. A thin plural layer on surface core, its own PR (incl. the paired drishti adoption). Plan of record: [Composing surfaces](#composing-surfaces--multiple-surfaces-one-transport). <Pill variant="run">proposed</Pill> — [kolu#1197](https://github.com/juspay/kolu/issues/1197).
 
 <Callout kind="good" title="The one-line answer">
 Stop re-deriving the app shell per self-hosted app. Do for the installed, always-connected client what surface did for the wire — own delivery, server identity, the connection/update model, and desktop install as importable code; extend by interface where apps differ; and let drishti `import` instead of re-learn.
