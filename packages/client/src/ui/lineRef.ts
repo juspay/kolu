@@ -183,11 +183,12 @@ export type WikilinkResolution =
  *
  *  - A trailing `#heading` is dropped: the file opens; scrolling to the heading
  *    inside it is out of scope (mirrors the relative-link fragment behaviour).
- *  - The extension is implied: an extension-less target matches a file whose
- *    basename equals the target *ignoring its own extension* — so in a code
- *    repo `[[app]]` matches `app.ts` (and `app.md`, and a bare `app`), and
- *    `[[Architecture]]` matches `Architecture.md`. A target that carries an
- *    explicit extension (`[[logo.png]]`) matches that exact basename.
+ *  - Only the `.md` extension is implied, Obsidian-style: an extension-less
+ *    `[[Note]]` matches a file named exactly `Note` **or** `Note.md` — nothing
+ *    else. `[[lua-filters]]` resolves to `lua-filters.md`, NOT a same-stemmed
+ *    `lua-filters.feature` / `.ts` (matching those would make near every wikilink
+ *    spuriously ambiguous). A target with an explicit extension (`[[logo.png]]`)
+ *    matches that exact basename.
  *  - A bare `[[Note]]` matches by basename anywhere in the repo; a qualified
  *    `[[docs/Note]]` additionally requires the parent directory to match, so it
  *    won't open a same-named file in another directory.
@@ -201,14 +202,13 @@ export function resolveWikilink(args: {
   if (target === "") return { kind: "none" };
   const segs = target.split("/").filter(Boolean);
   const leaf = (segs[segs.length - 1] ?? "").normalize("NFC");
-  // Explicit extension in the target ⇒ exact basename match; otherwise compare
-  // the candidate's name with its final extension stripped, so any extension
-  // (`.ts`/`.md`/none) satisfies a bare `[[Name]]`.
-  const exact = hasExtension(leaf);
-  const matchesLeaf = (path: string): boolean => {
-    const base = basename(path).normalize("NFC");
-    return exact ? base === leaf : stripExtension(base) === leaf;
-  };
+  // An extension-less target accepts exactly `leaf` or `leaf.md` (the `.md`
+  // implied form); an explicit extension is matched verbatim. Comparing whole
+  // basenames — never a stem match — is what keeps `[[lua-filters]]` from
+  // also matching `lua-filters.feature`.
+  const wanted = hasExtension(leaf) ? [leaf] : [leaf, `${leaf}.md`];
+  const matchesLeaf = (path: string): boolean =>
+    wanted.includes(basename(path).normalize("NFC"));
   let cands = args.repoPaths.filter(matchesLeaf);
   // Qualified target (`docs/Note`): narrow to files whose parent directory ends
   // with the leading segments, so a same-basename file elsewhere is excluded.
@@ -231,13 +231,6 @@ export function resolveWikilink(args: {
 function hasExtension(name: string): boolean {
   const dot = name.lastIndexOf(".");
   return dot > 0 && dot < name.length - 1;
-}
-
-/** `name` with its final extension removed (`app.ts` → `app`, `app.test.ts` →
- *  `app.test`, `.gitignore` / `README` → unchanged). */
-function stripExtension(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(0, dot) : name;
 }
 
 /** Parent directory of a repo path (`docs/a/x.md` → `docs/a`, `x.md` → ``). */

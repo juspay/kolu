@@ -455,34 +455,59 @@ describe("resolveWikilink", () => {
     ).toEqual({ kind: "unique", path: "docs/deep/Architecture.md" });
   });
 
-  it("matches any extension for an extension-less target", () => {
-    // In a code repo `[[app]]` should find app.ts (not just app.md).
+  it("implies ONLY `.md`, not an arbitrary same-stem extension", () => {
+    // Regression: `[[lua-filters]]` must resolve to lua-filters.md alone — a
+    // same-stemmed `lua-filters.feature` is NOT a candidate (matching any
+    // extension made near every wikilink spuriously ambiguous).
     expect(
-      resolveWikilink({ target: "app", repoPaths: ["nested/app.ts"] }),
-    ).toEqual({ kind: "unique", path: "nested/app.ts" });
+      resolveWikilink({
+        target: "lua-filters",
+        repoPaths: [
+          "docs/guide/lua-filters.md",
+          "tests/features/lua-filters.feature",
+        ],
+      }),
+    ).toEqual({ kind: "unique", path: "docs/guide/lua-filters.md" });
   });
 
-  it("does not match a longer-stemmed sibling (app vs app.test)", () => {
-    // `app.test.ts` has stem `app.test`, so `[[app]]` must not match it.
+  it("matches a bare extension-less file (`Note` with no `.md`)", () => {
     expect(
-      resolveWikilink({ target: "app", repoPaths: ["src/app.test.ts"] }),
+      resolveWikilink({ target: "LICENSE", repoPaths: ["LICENSE"] }),
+    ).toEqual({ kind: "unique", path: "LICENSE" });
+  });
+
+  it("does not match a non-`.md` extension for a bare target", () => {
+    // `[[app]]` finds `app` / `app.md` only — never `app.ts`.
+    expect(
+      resolveWikilink({ target: "app", repoPaths: ["src/app.ts"] }),
     ).toEqual({ kind: "none" });
   });
 
   it("surfaces candidates when the basename is ambiguous", () => {
+    // Two `Note.md` in different directories — a real ambiguity under the
+    // `.md`-implied rule.
     const res = resolveWikilink({
-      target: "app",
-      repoPaths: ["src/app.ts", "nested/src/app.ts"],
+      target: "Note",
+      repoPaths: ["src/Note.md", "nested/src/Note.md"],
     });
     expect(res).toEqual({
       kind: "ambiguous",
-      candidates: ["nested/src/app.ts", "src/app.ts"],
+      candidates: ["nested/src/Note.md", "src/Note.md"],
     });
+  });
+
+  it("treats a bare name and its `.md` twin as ambiguous", () => {
+    expect(
+      resolveWikilink({
+        target: "CHANGES",
+        repoPaths: ["CHANGES", "CHANGES.md"],
+      }),
+    ).toEqual({ kind: "ambiguous", candidates: ["CHANGES", "CHANGES.md"] });
   });
 
   it("returns none when nothing matches", () => {
     expect(
-      resolveWikilink({ target: "Missing", repoPaths: ["src/app.ts"] }),
+      resolveWikilink({ target: "Missing", repoPaths: ["src/app.md"] }),
     ).toEqual({ kind: "none" });
   });
 

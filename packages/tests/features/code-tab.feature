@@ -956,22 +956,41 @@ Feature: Code tab (review + browse)
     And the markdown preview should contain "Arch target reached"
 
   # The ambiguity affordance: when a wikilink's basename matches more than one
-  # file (two `app.ts`), the click surfaces a disambiguation menu anchored to the
-  # link rather than failing closed — the user picks the file they meant.
+  # file (two `Note.md`), the click surfaces a disambiguation menu anchored to the
+  # link rather than failing closed — the user picks the file they meant. Note the
+  # `.md`-only implication: a same-stemmed `Note.txt` is deliberately NOT a third
+  # candidate (only `Note` / `Note.md` resolve).
   Scenario: Ambiguous wikilink surfaces a disambiguation menu
     When I run "rm -rf /tmp/kolu-md-wikiamb && git init /tmp/kolu-md-wikiamb && cd /tmp/kolu-md-wikiamb"
-    And I run "mkdir -p a b && printf 'alpha\n' > a/app.ts && printf 'beta\n' > b/app.ts"
-    And I run "printf '# Home\n\nopen the [[app]] module\n' > README.md"
+    And I run "mkdir -p a b && printf 'alpha\n' > a/Note.md && printf 'beta\n' > b/Note.md && printf 'noise\n' > b/Note.txt"
+    And I run "printf '# Home\n\nopen the [[Note]] doc\n' > README.md"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
     When I click the file "README.md" in the file browser
     Then the markdown preview should be visible
     And the markdown preview should render a "a[data-md-wikilink]" element
-    When I click the wikilink "app"
+    When I click the wikilink "Note"
     Then the wikilink disambiguation menu should be visible
-    When I click the wikilink candidate "b/app.ts"
-    Then the file "b/app.ts" should be selected in the file browser
+    When I click the wikilink candidate "b/Note.md"
+    Then the file "b/Note.md" should be selected in the file browser
+
+  # Regression: a bare `[[Note]]` implies ONLY the `.md` extension, never an
+  # arbitrary same-stem one. `[[lua-filters]]` beside both lua-filters.md and
+  # lua-filters.feature must open the .md straight away — NOT pop a (bogus)
+  # disambiguation menu listing the .feature as a rival match.
+  Scenario: Wikilink implies only .md, not a same-stem sibling extension
+    When I run "rm -rf /tmp/kolu-md-wikimd && git init /tmp/kolu-md-wikimd && cd /tmp/kolu-md-wikimd"
+    And I run "mkdir -p docs/guide tests/features && printf '# Lua Filters\n\nFilters doc reached.\n' > docs/guide/lua-filters.md && printf 'Feature: lua filters\n' > tests/features/lua-filters.feature"
+    And I run "printf '# Home\n\nconfigure [[lua-filters]] next\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    When I click the wikilink "lua-filters"
+    Then the file "docs/guide/lua-filters.md" should be selected in the file browser
+    And the markdown preview should contain "Filters doc reached"
 
   # A wikilink to a name that matches nothing surfaces a toast (not a silent
   # no-op), the same way a dead relative link does.

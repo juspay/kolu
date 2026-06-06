@@ -20,7 +20,7 @@ ask which file you meant). A wikilink <em>can</em> ask: clicking <code>[[app]]</
 <code>app.ts</code> exist opens a small <strong>disambiguation menu anchored to the link</strong> — the
 candidate paths, one click to open. A unique hit opens straight away; a miss
 toasts.</p></div> </aside>
-<div style="margin:1.5rem 0;padding:1.4rem 1.1rem 1.8rem;border:1px solid #e6e2d6;border-radius:12px;background:#fff;font-family:ui-sans-serif,system-ui;box-shadow:0 2px 12px rgba(0,0,0,.06)"><div style="font-size:.9rem;color:#1a1c20;position:relative;display:inline-block">open the <span style="color:#6d4ed6;font-weight:500;border-bottom:1px solid #cdbef2"><span style="color:#b3a3ec">⟦</span>app<span style="color:#b3a3ec">⟧</span></span> module<div style="position:absolute;top:1.7rem;left:2.9rem;min-width:12rem;background:#fff;border:1px solid #e2dcd0;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:.25rem;z-index:1"><div style="font:.72rem/1.2 ui-monospace,monospace;color:#3a3f47;padding:.4rem .55rem;border-radius:5px;cursor:pointer;background:#f1ecff">a/app.ts</div><div style="font:.72rem/1.2 ui-monospace,monospace;color:#3a3f47;padding:.4rem .55rem;border-radius:5px;cursor:pointer;background:transparent">b/app.ts</div></div></div><div style="margin-top:4.2rem;font-size:.72rem;color:#6a6f77">Click on an ambiguous <code>[[app]]</code> → a menu anchored to the link lists every repo file whose basename matched; pick one to open it.</div></div>
+<div style="margin:1.5rem 0;padding:1.4rem 1.1rem 1.8rem;border:1px solid #e6e2d6;border-radius:12px;background:#fff;font-family:ui-sans-serif,system-ui;box-shadow:0 2px 12px rgba(0,0,0,.06)"><div style="font-size:.9rem;color:#1a1c20;position:relative;display:inline-block">open the <span style="color:#6d4ed6;font-weight:500;border-bottom:1px solid #cdbef2"><span style="color:#b3a3ec">⟦</span>Note<span style="color:#b3a3ec">⟧</span></span> doc<div style="position:absolute;top:1.7rem;left:2.9rem;min-width:12rem;background:#fff;border:1px solid #e2dcd0;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:.25rem;z-index:1"><div style="font:.72rem/1.2 ui-monospace,monospace;color:#3a3f47;padding:.4rem .55rem;border-radius:5px;cursor:pointer;background:#f1ecff">a/Note.md</div><div style="font:.72rem/1.2 ui-monospace,monospace;color:#3a3f47;padding:.4rem .55rem;border-radius:5px;cursor:pointer;background:transparent">b/Note.md</div></div></div><div style="margin-top:4.2rem;font-size:.72rem;color:#6a6f77">Click on an ambiguous <code>[[Note]]</code> (two <code>Note.md</code>) → a menu anchored to the link lists the matching files; pick one to open it.</div></div>
 <h2 id="the-hard-part--the-vault-index--already-ships">The hard part — the vault index — already ships</h2>
 <p>The obvious worry with Obsidian wikilinks is <strong>resolution</strong>: <code>[[Architecture]]</code>
 is <em>pathless</em> — it finds <code>Architecture.md</code> by basename, scanning the whole repo,
@@ -30,9 +30,11 @@ materialised as <code>treePaths()</code> in <code>CodeTab.tsx</code> — a live,
 NFC-normalised list of every repo path, already the back-end of the “open this
 file” front door.</p>
 <aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>What the resolver actually does</p> <div class="callout-body" data-astro-cid-mrmim4ef><p><code>resolveWikilink(target, repoPaths)</code> (<code>ui/lineRef.ts</code>) matches the target’s
-basename against that list — <strong>extension implied</strong>, so in a <em>code</em> repo
-<code>[[app]]</code> matches <code>app.ts</code> (and <code>app.md</code>, and a bare <code>app</code>), and
-<code>[[Architecture]]</code> matches <code>Architecture.md</code>. A qualified <code>[[docs/Note]]</code> narrows
+basename against that list — <strong><code>.md</code> implied, Obsidian-style</strong>: a bare
+<code>[[Architecture]]</code> matches <code>Architecture</code> or <code>Architecture.md</code>, and <em>nothing
+else</em> (a same-stemmed <code>Architecture.feature</code> is <strong>not</strong> a match — matching any
+extension would make near every wikilink spuriously ambiguous). An explicit
+extension (<code>[[logo.png]]</code>) matches verbatim; a qualified <code>[[docs/Note]]</code> narrows
 to that directory. It returns <code>unique</code> / <code>none</code> / <strong><code>ambiguous</code> with the
 candidate list</strong> — the one thing the existing <code>resolveLineRefPath</code> throws away
 (it collapses ambiguity to <code>null</code>), because surfacing the candidates is what

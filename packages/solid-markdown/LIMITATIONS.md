@@ -33,9 +33,9 @@ themed for light/dark.
 
 **Obsidian-style wikilinks** (`[[Note]]`, `[[Note|alias]]`, `[[Note#heading]]`)
 render as a visually distinct (violet, bracketed) anchor and resolve *pathless*
-across the whole repo: `[[Architecture]]` opens `Architecture.md` (extension
-implied) wherever it lives, with no directory hint. A qualified `[[docs/Note]]`
-narrows to that directory. Resolution is lazy (on click) and routes through the
+across the whole repo: `[[Architecture]]` opens `Architecture.md` (only `.md`
+implied — never a same-stemmed `Architecture.feature`) wherever it lives, with no
+directory hint. A qualified `[[docs/Note]]` narrows to that directory. Resolution is lazy (on click) and routes through the
 same Code-tab front door; an ambiguous basename surfaces a disambiguation menu
 anchored to the link, and a miss toasts. The `![[…]]` **embed/transclusion**
 form is deliberately left inert (literal text), and a `#heading` opens the file

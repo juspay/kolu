@@ -63,18 +63,18 @@ export const AmbiguityProto = () => (
     <div style={{ fontSize: ".9rem", color: "#1a1c20", position: "relative", display: "inline-block" }}>
       open the{" "}
       <span style={{ color: "#6d4ed6", fontWeight: 500, borderBottom: "1px solid #cdbef2" }}>
-        <span style={{ color: "#b3a3ec" }}>⟦</span>app<span style={{ color: "#b3a3ec" }}>⟧</span>
+        <span style={{ color: "#b3a3ec" }}>⟦</span>Note<span style={{ color: "#b3a3ec" }}>⟧</span>
       </span>{" "}
-      module
+      doc
       <div style={{ position: "absolute", top: "1.7rem", left: "2.9rem", minWidth: "12rem", background: "#fff", border: "1px solid #e2dcd0", borderRadius: "8px", boxShadow: "0 8px 24px rgba(0,0,0,.14)", padding: ".25rem", zIndex: 1 }}>
-        {["a/app.ts", "b/app.ts"].map((p) => (
-          <div style={{ font: ".72rem/1.2 ui-monospace,monospace", color: "#3a3f47", padding: ".4rem .55rem", borderRadius: "5px", cursor: "pointer", background: p === "a/app.ts" ? "#f1ecff" : "transparent" }}>{p}</div>
+        {["a/Note.md", "b/Note.md"].map((p) => (
+          <div style={{ font: ".72rem/1.2 ui-monospace,monospace", color: "#3a3f47", padding: ".4rem .55rem", borderRadius: "5px", cursor: "pointer", background: p === "a/Note.md" ? "#f1ecff" : "transparent" }}>{p}</div>
         ))}
       </div>
     </div>
     <div style={{ marginTop: "4.2rem", fontSize: ".72rem", color: "#6a6f77" }}>
-      Click on an ambiguous <code>[[app]]</code> → a menu anchored to the link
-      lists every repo file whose basename matched; pick one to open it.
+      Click on an ambiguous <code>[[Note]]</code> (two <code>Note.md</code>) → a
+      menu anchored to the link lists the matching files; pick one to open it.
     </div>
   </div>
 );
@@ -118,9 +118,11 @@ file" front door.
 
 <Callout kind="good" title="What the resolver actually does">
 `resolveWikilink(target, repoPaths)` (`ui/lineRef.ts`) matches the target's
-basename against that list — **extension implied**, so in a *code* repo
-`[[app]]` matches `app.ts` (and `app.md`, and a bare `app`), and
-`[[Architecture]]` matches `Architecture.md`. A qualified `[[docs/Note]]` narrows
+basename against that list — **`.md` implied, Obsidian-style**: a bare
+`[[Architecture]]` matches `Architecture` or `Architecture.md`, and *nothing
+else* (a same-stemmed `Architecture.feature` is **not** a match — matching any
+extension would make near every wikilink spuriously ambiguous). An explicit
+extension (`[[logo.png]]`) matches verbatim; a qualified `[[docs/Note]]` narrows
 to that directory. It returns `unique` / `none` / **`ambiguous` with the
 candidate list** — the one thing the existing `resolveLineRefPath` throws away
 (it collapses ambiguity to `null`), because surfacing the candidates is what
