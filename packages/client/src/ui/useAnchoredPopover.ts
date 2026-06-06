@@ -102,15 +102,14 @@ export function useAnchoredPopover(
     // `max-height`), so this reads the actual rendered extent rather than
     // guessing. Falls back to opening downward when neither side fits — the
     // panel's own `max-height` + scroll then keeps it on-screen.
+    const panelH = panelEl?.offsetHeight ?? 0;
+    const roomBelow = window.innerHeight - r.bottom - offset - VIEWPORT_PAD;
+    const roomAbove = r.top - offset - VIEWPORT_PAD;
     const flipUp =
       opts.flip === true &&
       opts.anchor !== "top-start" &&
-      (() => {
-        const h = panelEl?.offsetHeight ?? 0;
-        const roomBelow = window.innerHeight - r.bottom - offset - VIEWPORT_PAD;
-        const roomAbove = r.top - offset - VIEWPORT_PAD;
-        return h > roomBelow && roomAbove > roomBelow;
-      })();
+      panelH > roomBelow &&
+      roomAbove > roomBelow;
     if (opts.anchor === "top-start" || flipUp) {
       setPos({ bottom: window.innerHeight - r.top + offset, left });
       return;

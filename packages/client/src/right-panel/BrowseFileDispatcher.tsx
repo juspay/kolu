@@ -135,8 +135,6 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       allowBasenameFallback: false,
     });
 
-  const openWikilinkPath = (path: string) => openPreviewPath(path);
-
   const [wikiMenu, setWikiMenu] = createSignal<{
     anchor: HTMLElement;
     candidates: string[];
@@ -159,7 +157,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       return;
     }
     if (res.kind === "unique") {
-      openWikilinkPath(res.path);
+      openPreviewPath(res.path);
       return;
     }
     setWikiMenu({ anchor, candidates: res.candidates });
@@ -429,7 +427,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         anchor="bottom-start"
         options={wikiMenuOptions()}
         value=""
-        onSelect={openWikilinkPath}
+        onSelect={openPreviewPath}
         testIdPrefix="wikilink-disambiguation"
         maxHeight={280}
         truncate

@@ -213,9 +213,8 @@ export const Markdown: Component<{
       component={variant() === "inline" ? "span" : "div"}
       ref={(el: HTMLElement) =>
         bindInteractions(el, {
-          onNavigateRelative: (href) => props.onNavigateRelative?.(href),
-          onNavigateWikilink: (target, anchor) =>
-            props.onNavigateWikilink?.(target, anchor),
+          onNavigateRelative: props.onNavigateRelative,
+          onNavigateWikilink: props.onNavigateWikilink,
         })
       }
       class="kolu-md"
