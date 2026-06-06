@@ -1,6 +1,6 @@
 ---
-title: Electricity — identified, and their progress
-description: A tracker for kolu's electricities — infrastructure pulled out from beneath the app into its own thing — and where each stands.
+title: Electricity — kolu's hidden infrastructure, and the method that finds it
+description: Not just a tracker — a generative method (Löwy volatility-based decomposition) for kolu's electricities: three families, a from-zero procedure that re-derives surface, and this pass's crop of twelve newly identified candidates with honest extract/defer/reject verdicts.
 kind: analysis
 maturity: evergreen
 updated: 2026-06-05
@@ -367,7 +367,7 @@ Plus external electricity correctly leaned on instead of hand-rolled: **Corvu** 
 ## Next: extract @kolu/solid-xterm
 
 <Callout kind="accent">
-The one genuine not-yet-built electricity — mis-filed at first as "terminal domain," but a SolidJS adapter for xterm.js is agnostic (the `.agency/lowy.md` §6.5 *"what library is this?"* test). It owns two declared volatility rows — async-init cleanup (the `#598`/`#600` ~900 KB leaks) and canvas/WebGL lifecycle (the `#591` zombie-context hunt, `#575`/`#239`/`#595`).
+The most *scoped* of several not-yet-built electricities — the crop above now lists `createOwnedResource`, `capability-gate`, and `refcounted-fan-out` as fellow *extract-now* finds, so solid-xterm is no longer "the one," just the one with a written interface. Mis-filed at first as "terminal domain," but a SolidJS adapter for xterm.js is agnostic (the `.agency/lowy.md` §6.5 *"what library is this?"* test). It owns two declared volatility rows — async-init cleanup (the `#598`/`#600` ~900 KB leaks — *the same owner-correctness axis `createOwnedResource` would host*) and canvas/WebGL lifecycle (the `#591` zombie-context hunt, `#575`/`#239`/`#595`).
 
 **Inline today** in one `Terminal.tsx` `onMount` (972 lines): `new XTerm` <Cite file="packages/client/src/terminal/Terminal.tsx" lines="472" />, 8× `loadAddon` <Cite file="packages/client/src/terminal/Terminal.tsx" lines="489-509" />, the WebGL single-owner dance <Cite file="packages/client/src/terminal/Terminal.tsx" lines="222-285" />, owner-correct async init <Cite file="packages/client/src/terminal/Terminal.tsx" lines="463-471" />, fit/resize <Cite file="packages/client/src/terminal/Terminal.tsx" lines="179" /> / <Cite file="packages/client/src/terminal/Terminal.tsx" lines="750" />, touch-scroll <Cite file="packages/client/src/terminal/Terminal.tsx" lines="549-596" />.
 </Callout>
@@ -397,3 +397,5 @@ Looked framework-sized (the audit's biggest braids), but fail the bar — record
 ---
 
 *Bar from Juval Löwy, _Righting Software_ (receptacle/volatility) + Rich Hickey, _Simple Made Easy_ (complecting); one-socket-not-a-topic-bundle is `.agency/lowy.md` §6.5. `file:line` verified against the codebase; ③ demonstrated by [drishti](https://github.com/srid/drishti) — a second consumer (kolu is the first) that vendors `@kolu/surface` via npins.*
+
+*Sourcing honesty: **verbatim Löwy** — the two axes of change (same-customer-over-time × all-customers-at-once), the Cooking/Feeding requirement-vs-solution distinction, and "open-ended and… very expensive to contain unless encapsulated." **This note's distillations** (sharper than Löwy's literal text, which frames discovery as requirements "sweat") — the enumerate-then-sweep test, the "second consumer of different shape" gate, the three-family taxonomy (A · Boundary / B · Invariant / C · Appliance), and "foresight names the vault; pain funds it." The Parnas lineage ("begin with a list of… decisions… likely to change") and the falsification side (Metz's "wrong abstraction," YAGNI, the rule of three) are cited where used. The newly-identified crop's evidence was ground out against the codebase this pass; verdicts are falsifiable, with extract-if conditions stated.*
