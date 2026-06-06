@@ -12,6 +12,14 @@
 <blockquote>
 <p>“Decompose based on volatility.” Functional decomposition splits a system by what it <em>does</em>; volatility-based decomposition isolates each area likely to <em>change</em> behind a stable interface — the way a body keeps blood-pressure, pulse, and salinity volatility “encapsulated behind the service called the heart.” An <em>electricity</em>, here, is one such volatility pulled out into its own package. — Juval Löwy, <a href="https://www.informit.com/articles/article.aspx?p=2995357&amp;seqNum=2">Volatility-Based Decomposition</a> (excerpt from <em>Righting Software</em>).</p>
 </blockquote>
+<p>This note does two jobs at once, and they pull in opposite directions. As an <strong>inventory</strong> it tracks what kolu has pulled out from under the app (the table). As a <strong>method</strong> it must <em>generate</em> those extractions, not merely record them — because an inventory that only recognises electricity in hindsight is a museum, not a tool. So the real test is <strong>forward</strong> (<em>“<a href="#the-real-test-does-the-method-generate-or-only-recognise">does it generate, or only recognise?</a>”</em>): could it have produced <code>surface</code> from <em>“a client and a server talk over a wire”</em> before surface existed?</p>
+<p>The lens that does both jobs is <strong>three families of volatility</strong> — every electricity below is exactly one of them, and the un-named ones hide in the <em>seams</em> between:</p>
+<ul>
+<li><strong>A · Boundary</strong> — a live value across a place you don’t control (network · process · host · origin · <em>and time</em>).</li>
+<li><strong>B · Invariant</strong> — a rule run identically at every call-site, silent when forgotten.</li>
+<li><strong>C · Appliance</strong> — a typed blob turned into a safe, addressable view.</li>
+</ul>
+<p>Read the table as the <strong>inventory</strong>; read the sections after it as the <strong>method</strong>.</p>
 <h2 id="the-electricities">The electricities</h2>
 
 

@@ -25,6 +25,16 @@ The live example: asked to add back/forward to the Code-tab preview, a session p
 
 > "Decompose based on volatility." Functional decomposition splits a system by what it *does*; volatility-based decomposition isolates each area likely to *change* behind a stable interface — the way a body keeps blood-pressure, pulse, and salinity volatility "encapsulated behind the service called the heart." An *electricity*, here, is one such volatility pulled out into its own package. — Juval Löwy, [Volatility-Based Decomposition](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) (excerpt from *Righting Software*).
 
+This note does two jobs at once, and they pull in opposite directions. As an **inventory** it tracks what kolu has pulled out from under the app (the table). As a **method** it must *generate* those extractions, not merely record them — because an inventory that only recognises electricity in hindsight is a museum, not a tool. So the real test is **forward** (*"[does it generate, or only recognise?](#the-real-test-does-the-method-generate-or-only-recognise)"*): could it have produced `surface` from *"a client and a server talk over a wire"* before surface existed?
+
+The lens that does both jobs is **three families of volatility** — every electricity below is exactly one of them, and the un-named ones hide in the *seams* between:
+
+- **A · Boundary** — a live value across a place you don't control (network · process · host · origin · *and time*).
+- **B · Invariant** — a rule run identically at every call-site, silent when forgotten.
+- **C · Appliance** — a typed blob turned into a safe, addressable view.
+
+Read the table as the **inventory**; read the sections after it as the **method**.
+
 ## The electricities
 
 | Electricity | Owns (volatility) | PR | Progress |
