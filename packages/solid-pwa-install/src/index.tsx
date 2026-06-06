@@ -151,7 +151,11 @@ export function installInstructions(
 
 export interface PwaInstall {
   canPrompt: Accessor<boolean>; // a real one-click install is available now
-  installed: Accessor<boolean>; // running standalone / already installed
+  /** Running standalone / already installed. Single-owner: this socket does not
+   *  re-derive install state — it surfaces the `isInstalled` accessor injected by
+   *  the consumer (e.g. `@kolu/surface-app`'s `isInstalled`), defaulting to a
+   *  constant `false` when none is given. */
+  installed: Accessor<boolean>;
   platform: Accessor<InstallPlatform>;
   /** Native prompt on Chromium; otherwise opens the @khmyznikov dialog. */
   prompt: () => void;
@@ -159,7 +163,6 @@ export interface PwaInstall {
 
 /** Minimal shape of the `@khmyznikov/pwa-install` custom element we touch. */
 interface PwaInstallElement extends HTMLElement {
-  isUnderStandaloneMode?: boolean;
   showDialog?: (forced?: boolean) => void;
 }
 
@@ -170,24 +173,6 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
-function readInstalled(el: PwaInstallElement | null): boolean {
-  if (typeof window === "undefined") return false;
-  const mm = (q: string) => {
-    try {
-      return window.matchMedia(q).matches;
-    } catch {
-      return false;
-    }
-  };
-  const standalone =
-    mm("(display-mode: standalone)") ||
-    mm("(display-mode: minimal-ui)") ||
-    mm("(display-mode: fullscreen)") ||
-    // iOS Safari's non-standard flag for home-screen apps.
-    (navigator as unknown as { standalone?: boolean }).standalone === true;
-  return standalone || el?.isUnderStandaloneMode === true;
-}
-
 /** Browser-only (touches window/customElements). Call inside a Solid
  *  component/owner so `onMount`/`onCleanup` register against it. */
 export function createPwaInstall(opts?: {
@@ -195,6 +180,11 @@ export function createPwaInstall(opts?: {
   icon?: string;
   name?: string;
   description?: string;
+  /** Whether the app is already installed / running standalone. Single-owner:
+   *  pass the value derived elsewhere (e.g. `@kolu/surface-app`'s `isInstalled`)
+   *  so this socket never runs a second installed-detector. Omit to leave
+   *  `installed` permanently `false` (a consumer that doesn't track it). */
+  isInstalled?: Accessor<boolean>;
 }): PwaInstall {
   const platform: InstallPlatform =
     typeof navigator === "undefined"
@@ -206,7 +196,6 @@ export function createPwaInstall(opts?: {
         });
 
   const [canPrompt, setCanPrompt] = createSignal(false);
-  const [installed, setInstalled] = createSignal(false);
 
   let element: PwaInstallElement | null = null;
   // Stashed Chromium event — replayable once on a user gesture.
@@ -250,9 +239,6 @@ export function createPwaInstall(opts?: {
     document.body.appendChild(el);
     element = el;
 
-    const refreshInstalled = () => setInstalled(readInstalled(element));
-    refreshInstalled();
-
     const onBeforeInstallPrompt = (e: Event) => {
       // Keep the browser's mini-infobar from auto-showing so the host owns the
       // moment — and stash the event so a click can replay it.
@@ -261,19 +247,14 @@ export function createPwaInstall(opts?: {
       setCanPrompt(true);
     };
 
+    // Once installed, a stashed prompt is spent and no longer offerable.
     const onAppInstalled = () => {
       deferredPrompt = null;
       setCanPrompt(false);
-      setInstalled(true);
     };
 
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
     window.addEventListener("appinstalled", onAppInstalled);
-
-    // Keep `installed` reactive to display-mode flips (e.g. the user launches
-    // the installed app, or a window is detached to standalone).
-    const standaloneMq = window.matchMedia("(display-mode: standalone)");
-    standaloneMq.addEventListener("change", refreshInstalled);
 
     // NOTE: we deliberately do NOT drive `canPrompt` from the component's
     // `pwa-install-available-event` / `isInstallAvailable`. Those are broader
@@ -285,7 +266,6 @@ export function createPwaInstall(opts?: {
     onCleanup(() => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onAppInstalled);
-      standaloneMq.removeEventListener("change", refreshInstalled);
       el.remove();
       element = null;
       deferredPrompt = null;
@@ -303,20 +283,14 @@ export function createPwaInstall(opts?: {
       // The browser allows replaying the event only once — drop `canPrompt`
       // immediately so a second click can't re-enter with a consumed event.
       setCanPrompt(false);
-      evt
-        .prompt()
-        .then(() =>
-          evt.userChoice.then((choice) => {
-            if (choice.outcome === "accepted") setInstalled(true);
-          }),
-        )
-        .catch((err: unknown) => {
-          // A consumed/invalid prompt event rejects here (or the choice read
-          // fails). Log it instead of swallowing — an unhandled rejection
-          // otherwise surfaces in the browser console with no context, and a
-          // silently-failed prompt would look like a dead button.
-          console.warn("[pwa-install] native prompt failed:", err);
-        });
+      evt.prompt().catch((err: unknown) => {
+        // A consumed/invalid prompt event rejects here. Log it instead of
+        // swallowing — an unhandled rejection otherwise surfaces in the browser
+        // console with no context, and a silently-failed prompt would look like
+        // a dead button. (The `appinstalled` event, not this promise, is what
+        // clears state once the user accepts.)
+        console.warn("[pwa-install] native prompt failed:", err);
+      });
       return;
     }
     // Everyone else: let the component decide native vs instruction screens.
@@ -325,7 +299,10 @@ export function createPwaInstall(opts?: {
 
   return {
     canPrompt,
-    installed,
+    // Single-owner install state: surface the injected accessor (e.g.
+    // surface-app's `isInstalled`) rather than re-deriving it here. Defaults to
+    // a constant `false` for a consumer that doesn't track it.
+    installed: opts?.isInstalled ?? (() => false),
     platform: () => platform,
     prompt,
   };
