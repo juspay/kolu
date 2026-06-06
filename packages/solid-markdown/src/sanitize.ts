@@ -246,19 +246,20 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
     return;
   }
   const href = anchor.getAttribute("href");
-  // A wikilink (`[[Note]]`, tagged by the renderer) carries its resolver payload
-  // (`Note` / `Note#Heading`) on `data-md-wikilink`, not on `href` — the click
-  // handler reads the marker's value and resolves it pathless through the host's
-  // vault-wide resolver, never against the app origin. The marker bears no URL,
-  // so there is nothing here to validate as a navigable href: leave it alone.
-  //
-  // Any *literal* `href` on the anchor is independent of the marker and falls
-  // through to the normal policy below (external → `target="_blank"
-  // rel="noopener"`, unsafe scheme → unwrapped, `#frag` → in-page anchor). The
-  // marker is in the document allowlist, so a README's *raw* HTML can mint
-  // `<a data-md-wikilink="…" href="…">` directly — but the payload can no longer
-  // smuggle an escaping URL through the href slot, because the two are now
-  // distinct attributes the policy reasons about separately.
+  // Wikilink marker (`[[Note]]`, stamped by the renderer): trust it ONLY on a
+  // parser-minted anchor. The renderer always emits `href="#"` and carries the
+  // resolver payload on `data-md-wikilink` itself, so a genuine wikilink reads
+  // exactly `href="#"`. A README's *raw* HTML can mint `<a data-md-wikilink …>`
+  // too (the marker is in the document allowlist) — but with any *other* href
+  // that's a spoof trying to opt a raw anchor into the host's pathless resolver,
+  // so strip the marker and let the href fall through to the normal policy below
+  // (external → `target=_blank`, relative → `data-md-rel`, unsafe → unwrapped).
+  // Net: the marker is only ever honoured on the renderer's own `href="#"`
+  // output, so raw HTML can't opt into wikilink behaviour.
+  if (anchor.hasAttribute("data-md-wikilink")) {
+    if (href === "#") return;
+    anchor.removeAttribute("data-md-wikilink");
+  }
   const safe = href ? safeHref(href) : undefined;
   if (safe === undefined) {
     unwrap();
