@@ -36,14 +36,14 @@
 # `flock` is system-wide per inode, so claims from different coordinators/PRs are
 # mutually exclusive on the box regardless of who dials in.
 #
-# Usage:  ci/pu-ci-run.sh <pr-number> [extra justci args...]
-#   e.g.  ci/pu-ci-run.sh 1234 --progress json
+# Usage:  ci/pu/run.sh <pr-number> [extra justci args...]
+#   e.g.  ci/pu/run.sh 1234 --progress json
 # Prints the justci output on stdout (so the caller can tail --progress json).
 # Always falls back — saturated pool → cold ephemeral box → hosts.json — so a
 # busy or unreachable pool never blocks CI.
 set -uo pipefail
 
-pr="${1:?usage: ci/pu-ci-run.sh <pr> [justci args...]}"; shift || true
+pr="${1:?usage: ci/pu/run.sh <pr> [justci args...]}"; shift || true
 
 JUSTCI="${KOLU_JUSTCI:-github:juspay/justci}"
 POOL_SIZE="${KOLU_CI_POOL:-8}"
@@ -52,7 +52,7 @@ LOCK="${KOLU_CI_LOCK:-/tmp/kolu-ci.lease}"   # one lock per box ⇒ one run per 
 TTL="${KOLU_CI_LEASE_TTL:-40}"               # box-side read timeout (half-open backstop)
 HEARTBEAT="${KOLU_CI_HEARTBEAT:-10}"         # keepalive interval; must be < TTL
 
-log() { echo "pu-ci-run: $*" >&2; }
+log() { echo "ci/pu/run: $*" >&2; }
 cfg() { echo "$HOME/.pu-state/$1/ssh_config"; }
 dial() { local h="$1"; shift; ssh -F "$(cfg "$h")" -o ConnectTimeout=20 "$h" "$@"; }
 egress_ok() { dial "$1" 'timeout 12 curl -sf -o /dev/null https://api.github.com' >/dev/null 2>&1; }
@@ -143,12 +143,31 @@ fi
 # ── 3) Run justci. With a host: pin the linux lane to it. Without: hosts.json. ──
 # KOLU_CI_DRYRUN=<secs> stands in for the justci run (holds the lease that long)
 # so the lease/contention/release path can be exercised without the full pipeline.
+sha="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+start="$(date +%s)"
 if [ -n "${KOLU_CI_DRYRUN:-}" ]; then
   echo "DRYRUN host=${host:-<hosts.json>} pr=$pr"
-  sleep "$KOLU_CI_DRYRUN"
+  sleep "$KOLU_CI_DRYRUN"; rc=0
 elif [ -n "$host" ]; then
   log "running linux lane on $host"
-  nix run "$JUSTCI" -- run --host "x86_64-linux=$host" "$@"
+  nix run "$JUSTCI" -- run --host "x86_64-linux=$host" "$@"; rc=$?
 else
-  nix run "$JUSTCI" -- run "$@"
+  nix run "$JUSTCI" -- run "$@"; rc=$?
 fi
+end="$(date +%s)"
+
+# Record run facts for ci/pu/report.sh (which box, timing, verdict). Best-effort;
+# never let bookkeeping change the run's exit code.
+if mkdir -p .ci 2>/dev/null; then
+  {
+    echo "PU_BOX=${host:-}"
+    echo "PU_EPHEMERAL=${EPHEMERAL:-}"
+    echo "PU_SHA=$sha"
+    echo "PU_START=$start"
+    echo "PU_END=$end"
+    echo "PU_EXIT=$rc"
+    echo "PU_PR=$pr"
+  } >.ci/pu-run.env 2>/dev/null || true
+fi
+log "linux lane finished in $((end - start))s (exit $rc) on ${host:-hosts.json}"
+exit "$rc"

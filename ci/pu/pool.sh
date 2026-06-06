@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Bring the kolu-ci linux CI pool up to strength: N long-lived warm boxes
-# kolu-ci-1 .. kolu-ci-N that ci/pu-ci-run.sh leases per CI run.
+# kolu-ci-1 .. kolu-ci-N that ci/pu/run.sh leases per CI run.
 #
 # Idempotent. For each slot it probes egress over the box's own ssh_config
 # (the same check the lease uses) and only (re)creates a slot that is missing
@@ -15,9 +15,9 @@
 # re-forking a golden every run.
 #
 # Usage:
-#   ci/pool-ensure.sh            # ensure all N slots are healthy
-#   ci/pool-ensure.sh status     # just report health, change nothing
-#   KOLU_CI_POOL=8 ci/pool-ensure.sh
+#   ci/pu/pool.sh            # ensure all N slots are healthy
+#   ci/pu/pool.sh status     # just report health, change nothing
+#   KOLU_CI_POOL=8 ci/pu/pool.sh
 #
 # Warming is intentionally NOT done here (it's a full linux-lane run per box).
 # Keep the pool warm by letting real CI runs land on it, plus a periodic

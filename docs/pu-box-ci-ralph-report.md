@@ -2,7 +2,7 @@
 
 > **Superseded (2026-06):** the per-run **fork-a-golden** mechanism this report
 > delivered (`ci/pu-ci-host.sh`) has been replaced by a **fixed pool of leased
-> warm boxes** (`kolu-ci-1..8`, `ci/pu-ci-run.sh` + `just ci::pool-ensure`). The
+> warm boxes** (`kolu-ci-1..8`, `ci/pu/run.sh` + `just ci::pool-ensure`). The
 > headline *measurements* below still hold — warming the Nix store is the lever,
 > `ci::nix` collapses 189s → ~12s, and warm boxes are immune to substituter
 > contention. What changed is the *delivery*: leasing an always-warm pool box

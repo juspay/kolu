@@ -18,12 +18,15 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry shape). Two Kolu-specific operational notes layered on top of it:
 
-**Linux build host: a leased pool box per run.** Static darwin (`sincereintent`) lives in `~/.config/justci/hosts.json`; the linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. [`ci/pu-ci-run.sh`](../ci/pu-ci-run.sh) wraps the whole justci invocation: it leases an idle pool box, pins justci's linux lane to it with `--host`, and releases on exit. Just call it with the PR number and your justci args:
+**Linux build host: a leased pool box per run.** Static darwin (`sincereintent`) lives in `~/.config/justci/hosts.json`; the linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. [`ci/pu/run.sh`](../ci/pu/run.sh) wraps the whole justci invocation: it leases an idle pool box, pins justci's linux lane to it with `--host`, and releases on exit. Just call it with the PR number and your justci args:
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
-ci/pu-ci-run.sh "$pr" --progress json     # lease idle kolu-ci-N → run linux lane on it → release; cold-create then hosts.json fallback
+ci/pu/run.sh "$pr" --progress json     # lease idle kolu-ci-N → run linux lane on it → release; cold-create then hosts.json fallback
+ci/pu/report.sh "$pr"                   # after the run: post a PR comment — which box ran CI, per-recipe + lane-wall timings, pool status
 ```
+
+[`ci/pu/report.sh`](../ci/pu/report.sh) reads the sidecar `ci/pu/run.sh` leaves in `.ci/pu-run.env` (leased box, commit, verdict, wall) plus the per-recipe timings in `.ci/pc.log`, and posts a metrics comment so every run records *which* pool box served it, how long each recipe took, and the live pool status. Run it once the lane finishes (it's cheap; safe to skip if `pu` is unavailable).
 
 A warm leased box keeps `ci::nix` ~20s (vs ~180s on a cold box re-realising the closure) and, pulling nothing from the substituter, never triggers the concurrent-load contention that stalls cold boxes when several PRs run at once (juspay/kolu#1173). The wrapper forwards justci's stdout (so the `--progress json` stream below works unchanged) and falls back — saturated/unreachable pool → cold ephemeral `pu create` → `hosts.json` — so CI is never blocked. Box lifecycle is the [`pu`](../.apm/skills/pu/SKILL.md) skill; runner mechanics are the [`ci`](../.claude/skills/ci/SKILL.md) skill.
 
