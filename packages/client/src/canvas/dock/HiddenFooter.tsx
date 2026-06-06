@@ -51,13 +51,23 @@ export const HiddenFooter: Component<{
   // "N hidden by … window" sentence) or it isn't (label the chip plainly
   // so the strip doesn't read "0 hidden by All window").
   const filterActive = createMemo(() => activityWindow() !== "all");
+  // The show-all recovery affordance is one domain decision — when a
+  // filter is active AND rows are parked, offer a single click that
+  // widens the window to "all". The predicate and the action live here,
+  // once; each layout renders only its own chrome (rail count-button vs
+  // cards link) around this shared guard and handler.
+  const showRelax = createMemo(() => filterActive() && props.parkedCount > 0);
+  const relax = () => setActivityWindow("all");
   // `props.rail` flips when the dock toggles rail ↔ cards while this
   // footer instance stays mounted (the parent never remounts it). A
   // bare `if (props.rail)` would read the prop once at create time and
   // freeze the layout, so the rail/cards choice has to live inside the
   // returned tree where Solid can re-run it. `<Show>` does exactly that.
   return (
-    <Show when={props.rail} fallback={<CardsLayout {...props} />}>
+    <Show
+      when={props.rail}
+      fallback={<CardsLayout {...props} showRelax={showRelax} relax={relax} />}
+    >
       <div
         data-testid={props.testId ?? "dock-hidden-footer"}
         data-layout="rail"
@@ -68,11 +78,11 @@ export const HiddenFooter: Component<{
          *  cards footer spells out as a link — there's no room for the
          *  label in 44px, so the click + accessible name carry it. When
          *  nothing is hidden it's a plain count, not interactive. */}
-        <Show when={filterActive() && props.parkedCount > 0}>
+        <Show when={showRelax()}>
           <button
             type="button"
             data-testid="dock-hidden-show-all"
-            onClick={() => setActivityWindow("all")}
+            onClick={relax}
             class="tabular-nums text-[0.6rem] leading-none text-accent cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             aria-label={`${props.parkedCount} terminals hidden by the activity window — show all`}
             title={`${props.parkedCount} hidden by activity window — show all`}
@@ -99,9 +109,15 @@ const CardsLayout: Component<{
   compact?: boolean;
   testId?: string;
   chipTestIdPrefix?: "dock-window" | "mobile-dock-window";
+  /** Shared recovery rule, hoisted into HiddenFooter's body so the
+   *  predicate and action aren't spelled twice across layouts. This
+   *  layout renders only its own chrome (the "show all" link) around
+   *  them. `filterActive` below stays local — it drives the sentence
+   *  words ("N hidden by … window"), a layout-specific concern. */
+  showRelax: () => boolean;
+  relax: () => void;
 }> = (props) => {
   const filterActive = createMemo(() => activityWindow() !== "all");
-  const showRelax = createMemo(() => props.parkedCount > 0 && filterActive());
   return (
     <div
       data-testid={props.testId ?? "dock-hidden-footer"}
@@ -135,11 +151,11 @@ const CardsLayout: Component<{
       <Show when={filterActive()}>
         <span>window</span>
       </Show>
-      <Show when={showRelax()}>
+      <Show when={props.showRelax()}>
         <button
           type="button"
           data-testid="dock-hidden-show-all"
-          onClick={() => setActivityWindow("all")}
+          onClick={props.relax}
           class="ml-auto text-accent shrink-0 cursor-pointer hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded"
           title="Show every terminal, regardless of activity window"
         >
