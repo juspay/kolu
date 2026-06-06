@@ -813,15 +813,16 @@ When(
   },
 );
 
-// Click an Obsidian-style `[[wikilink]]` in the rendered preview. The anchor's
-// href is the bare target (`Architecture` / `Note`), tagged `data-md-wikilink`
-// so styling + click-routing differ from a regular link. Like a relative link
-// it must never open a browser tab — arm a popup watch and fail if one fires.
+// Click an Obsidian-style `[[wikilink]]` in the rendered preview. The bare
+// target (`Architecture` / `Note`) is carried on the `data-md-wikilink`
+// attribute (the href is an inert `#`), so styling + click-routing differ from a
+// regular link. Like a relative link it must never open a browser tab — arm a
+// popup watch and fail if one fires.
 When(
   "I click the wikilink {string}",
   async function (this: KoluWorld, target: string) {
     const link = this.page.locator(
-      `[data-testid="browse-preview-markdown"] a[data-md-wikilink][href="${target}"]`,
+      `[data-testid="browse-preview-markdown"] a[data-md-wikilink="${target}"]`,
     );
     await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const popped = this.page
