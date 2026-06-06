@@ -56,6 +56,7 @@ Measured before cycle 1.
 | --- | --- | --- | --- | --- |
 | 0 | "A good list of packages, audited well, but it tracks *packages* not *volatilities*." | — | baseline | — |
 | 1 | "Before judging depth, the list must at least be *true* — and it isn't." | **C** | Added the 7 shipped-but-untracked packages, each classified honestly: solid-markdown (electricity — the *sanitiser* is the volatility), pty-host (electricity w/ ③-caveat: contract lives in kolu-common), url-shape/nonempty/memorable-names/terminal-themes (leaves), solid-fileview (**leaf mislabeled by package scope** — a composition, not a receptacle). | C↑. Coverage now matches the repo. Surfaced a fresh trap: *being an `@kolu/*` package is not sufficient* — solid-fileview is scoped but isn't electricity. |
+| 2 | "The table lists four transports; they are **one** volatility across four boundaries." | **D**, **S** | New section *"What the table is really a list of — one contract, four boundaries."* Collapses surface / pty-host / surface-nix-host / artifact-sdk-bridge into a single axis: *a live value across a boundary you don't control*, contract = snapshot → deltas → liveness. Names the real electricity as the transport-independent **`Channel` contract**, and the iframe bridge as where it leaked (no `postMessageLink`). Generates a concrete recommendation. | D↑↑ (first genuinely below-module insight), S↑ (a spine the table now hangs from). This is the "huge step back." |
 
 ## Dead ends
 
