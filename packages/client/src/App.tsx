@@ -147,17 +147,14 @@ const App: Component = () => {
   // Welcome overlay state. No "seen" persistence — zero terminals always shows
   // the welcome inline (EmptyState); this just re-summons it on demand via the
   // palette "Tutorial" command. One shared install controller drives both the
-  // inline moments and the overlay (a single <pwa-install> element, not two).
+  // inline moments and the overlay.
   const [welcomeOpen, setWelcomeOpen] = createSignal(false);
-  // No `name`/`icon` overrides — the served manifest is the single source of
-  // app identity. The server stamps a per-host `kolu@<hostname>` name; passing
-  // a static "kolu" here would mask that in the install dialog for every host.
-  // Installed-state is single-owner: surface-app's `isInstalled` is the sole
-  // detector — pwa-install no longer re-derives it, so consumers read
-  // `app.isInstalled()` directly (see WelcomeMoments).
-  const pwaInstall = createPwaInstall({
-    manifestUrl: "/manifest.webmanifest",
-  });
+  // The browser captures `beforeinstallprompt` against the served manifest —
+  // there's no element to point at a manifest URL, so `createPwaInstall` takes
+  // no app-identity overrides. Installed-state is single-owner: surface-app's
+  // `isInstalled` is the sole detector, so consumers read `app.isInstalled()`
+  // directly (see WelcomeMoments).
+  const pwaInstall = createPwaInstall();
 
   // Diagnostic info dialog state (command palette → Debug → Diagnostic info)
   const [diagnosticInfoOpen, setDiagnosticInfoOpen] = createSignal(false);

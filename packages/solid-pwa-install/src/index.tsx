@@ -1,6 +1,5 @@
-/** `@kolu/solid-pwa-install` — a SolidJS adapter over the
- *  `@khmyznikov/pwa-install` web component. One socket: **"install this web
- *  app."**
+/** `@kolu/solid-pwa-install` — a SolidJS adapter for cross-browser PWA install.
+ *  One socket: **"install this web app."**
  *
  *  The volatility it hides is cross-browser PWA-install fragmentation. Chromium
  *  desktop/Android fire a real `beforeinstallprompt` event you can capture and
@@ -9,16 +8,18 @@
  *  Android hides install in a menu, Firefox desktop has nothing. A consumer
  *  that branched on `navigator.userAgent` itself would carry all of that
  *  forever; here it plugs into one stable interface (`PwaInstall`) and the
- *  detection + the instruction-dialog delegation live behind it. Installed-state
- *  is intentionally *not* part of this socket: it has a single owner elsewhere
- *  (e.g. `@kolu/surface-app`'s `isInstalled`) that consumers read directly.
+ *  detection lives behind it. The per-platform manual recipe has a single owner:
+ *  the pure `installInstructions` table, which the consumer renders inline.
+ *  Installed-state is intentionally *not* part of this socket: it has a single
+ *  owner elsewhere (e.g. `@kolu/surface-app`'s `isInstalled`) that consumers
+ *  read directly.
  *
  *  Two layers:
  *  - PURE, fully unit-tested: `detectInstallPlatform` / `installInstructions`.
  *    No DOM — every input is passed in, so the module is import-safe under
  *    vitest's Node environment.
- *  - BROWSER-ONLY: `createPwaInstall` touches `window` / `customElements` and
- *    must run inside a Solid owner. */
+ *  - BROWSER-ONLY: `createPwaInstall` touches `window` and must run inside a
+ *    Solid owner. */
 
 import { type Accessor, createSignal, onCleanup, onMount } from "solid-js";
 
@@ -154,13 +155,10 @@ export function installInstructions(
 export interface PwaInstall {
   canPrompt: Accessor<boolean>; // a real one-click install is available now
   platform: Accessor<InstallPlatform>;
-  /** Native prompt on Chromium; otherwise opens the @khmyznikov dialog. */
+  /** Native one-click prompt on Chromium; a no-op otherwise — non-Chromium
+   *  platforms have no JS prompt, so the consumer renders the per-platform
+   *  `installInstructions` manual steps inline instead. */
   prompt: () => void;
-}
-
-/** Minimal shape of the `@khmyznikov/pwa-install` custom element we touch. */
-interface PwaInstallElement extends HTMLElement {
-  showDialog?: (forced?: boolean) => void;
 }
 
 /** The Chromium `beforeinstallprompt` event — not in the standard lib.dom
@@ -170,14 +168,9 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
-/** Browser-only (touches window/customElements). Call inside a Solid
- *  component/owner so `onMount`/`onCleanup` register against it. */
-export function createPwaInstall(opts?: {
-  manifestUrl?: string;
-  icon?: string;
-  name?: string;
-  description?: string;
-}): PwaInstall {
+/** Browser-only (touches window). Call inside a Solid component/owner so
+ *  `onMount`/`onCleanup` register against it. */
+export function createPwaInstall(): PwaInstall {
   const platform: InstallPlatform =
     typeof navigator === "undefined"
       ? "other"
@@ -189,47 +182,11 @@ export function createPwaInstall(opts?: {
 
   const [canPrompt, setCanPrompt] = createSignal(false);
 
-  let element: PwaInstallElement | null = null;
   // Stashed Chromium event — replayable once on a user gesture.
   let deferredPrompt: BeforeInstallPromptEvent | null = null;
 
   onMount(() => {
-    if (typeof window === "undefined" || typeof document === "undefined")
-      return;
-
-    // Side-effect import: registers the <pwa-install> custom element. Done
-    // inside onMount so the module stays import-safe in a non-browser test.
-    void import("@khmyznikov/pwa-install");
-
-    const el = document.createElement("pwa-install") as PwaInstallElement;
-    // Take ownership of *when* every dialog appears. Without these, the
-    // component auto-shows its own install/how-to UI on page load. The upstream
-    // `_checkInstallAvailable` has three independent branches:
-    //   - Apple: `manual-apple` calls `hideDialog()` so its 500ms
-    //     `isInstallAvailable = true` flip can't render (gate is
-    //     `isInstallAvailable && !isDialogHidden`).
-    //   - Chromium: `manual-chrome` calls `hideDialog()` for the same reason,
-    //     but ONLY when `window.BeforeInstallPromptEvent` exists.
-    //   - Android fallback: a *separate* branch (`!disableFallback && isAndroid`)
-    //     that, on a user gesture, sets `isInstallAvailable = true` after a
-    //     timeout. On Android engines without `BeforeInstallPromptEvent` (e.g.
-    //     Firefox Android), the Chromium branch is skipped, so `manual-chrome`
-    //     never runs and `isDialogHidden` stays false — the fallback would then
-    //     render the dialog unprompted. `disable-android-fallback` turns that
-    //     branch off entirely.
-    // With all three set the element stays dormant until our `prompt()` calls
-    // `showDialog(true)`, so the welcome card is the only thing that opens it.
-    el.setAttribute("manual-apple", "");
-    el.setAttribute("manual-chrome", "");
-    el.setAttribute("disable-android-fallback", "");
-    if (opts?.manifestUrl) el.setAttribute("manifest-url", opts.manifestUrl);
-    if (opts?.icon) el.setAttribute("icon", opts.icon);
-    if (opts?.name) el.setAttribute("name", opts.name);
-    if (opts?.description) {
-      el.setAttribute("install-description", opts.description);
-    }
-    document.body.appendChild(el);
-    element = el;
+    if (typeof window === "undefined") return;
 
     const onBeforeInstallPrompt = (e: Event) => {
       // Keep the browser's mini-infobar from auto-showing so the host owns the
@@ -248,18 +205,14 @@ export function createPwaInstall(opts?: {
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
     window.addEventListener("appinstalled", onAppInstalled);
 
-    // NOTE: we deliberately do NOT drive `canPrompt` from the component's
-    // `pwa-install-available-event` / `isInstallAvailable`. Those are broader
-    // than a real one-click install — the component fires them for the Apple
-    // (Share→Add to Home Screen) and Android-fallback manual paths too. The
-    // only true one-click signal is a captured `beforeinstallprompt`, so
-    // `canPrompt` is set exclusively from `onBeforeInstallPrompt` above.
+    // NOTE: `canPrompt` is set exclusively from `onBeforeInstallPrompt` above —
+    // a captured `beforeinstallprompt` is the only true one-click signal. The
+    // manual platforms (iOS Share→Add to Home Screen, Firefox Android menu,
+    // Safari File→Add to Dock) have no JS prompt and stay `canPrompt() === false`.
 
     onCleanup(() => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onAppInstalled);
-      el.remove();
-      element = null;
       deferredPrompt = null;
     });
   });
@@ -285,8 +238,9 @@ export function createPwaInstall(opts?: {
       });
       return;
     }
-    // Everyone else: let the component decide native vs instruction screens.
-    element?.showDialog?.(true);
+    // No captured event: nothing to replay. Non-Chromium platforms have no JS
+    // prompt, so the consumer renders the per-platform `installInstructions`
+    // manual steps inline — `prompt()` is a no-op here.
   };
 
   return {
