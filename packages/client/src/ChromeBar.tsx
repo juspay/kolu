@@ -29,6 +29,7 @@ import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
+import { useTerminalStore } from "./terminal/useTerminalStore";
 import {
   DockToggleIcon,
   InspectorToggleIcon,
@@ -53,6 +54,7 @@ const ChromeBar: Component<{
 }> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
+  const store = useTerminalStore();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
@@ -60,6 +62,14 @@ const ChromeBar: Component<{
   // doesn't collide with the chrome. Panel-open stays on the floating
   // overlay — the `right:` offset below keeps controls off the panel.
   const docked = createMemo(() => posture.mode() === "maximized");
+
+  // Maximize needs a tile to act on. At zero terminals the canvas is the
+  // empty/restore screen and `posture.mode()` derives to "tiled" regardless
+  // of the persisted `kolu-canvas-maximized` flag (see useViewPosture.ts), so
+  // a blind `toggle()` here would silently invert that hidden flag — flipping
+  // the user's preference with a button that reads "Maximize terminal". Gate
+  // the action on having a tile so it never disagrees with its own label.
+  const canMaximize = createMemo(() => store.terminalIds().length > 0);
 
   // The maximize toggle's affordance describes the action a click performs,
   // so both the tooltip and the aria-label read from one source and can't
@@ -144,9 +154,12 @@ const ChromeBar: Component<{
             class={toggleBtnClass}
             classList={{
               "bg-surface-2 text-fg": docked(),
-              "text-fg-3 hover:bg-surface-2 hover:text-fg": !docked(),
+              "text-fg-3 hover:bg-surface-2 hover:text-fg":
+                !docked() && canMaximize(),
+              "text-fg-3/40 cursor-not-allowed": !canMaximize(),
             }}
             data-active={docked() ? "" : undefined}
+            disabled={!canMaximize()}
             onClick={() => posture.toggle()}
             aria-label={maximizeLabel()}
           >
