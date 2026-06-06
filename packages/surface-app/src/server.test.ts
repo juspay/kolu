@@ -4,19 +4,19 @@
  * async axis settles (so the first wire snapshot never carries a half-shape),
  * the async patch must fold in and reach subscribers through `connect`, and a
  * rejected async source must surface via `onError` instead of being swallowed.
+ *
+ * `surfaceAppServer` — the deps bundle a consumer drops into an
+ * `implementSurfaces` entry: surface-app is served as a SIBLING surface, not
+ * merged into the app surface.
  */
 
-import { defineSurface } from "@kolu/surface/define";
-import { inMemoryChannel, inMemoryStore } from "@kolu/surface/server";
+import type { ImplementSurfaceDeps } from "@kolu/surface/server";
+import { implementSurfaces, inMemoryChannelByName } from "@kolu/surface/server";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import {
-  buildInfoServer,
-  implementSurfaceApp,
-  surfaceAppServer,
-} from "./server";
-import { composeSurfaces, surfaceAppSurface } from "./surface";
+import { buildInfoServer, surfaceAppServer } from "./server";
 import type { BuildInfo } from "./surface";
+import { surfaceAppSurface } from "./surface";
 
 interface ExtBuildInfo extends BuildInfo {
   bootId: string;
@@ -105,97 +105,84 @@ describe("buildInfoServer — equals (cell dedup)", () => {
   });
 });
 
-describe("implementSurfaceApp — one-call server composition", () => {
-  // A tiny app surface: the surface-app fragment (buildInfo cell + the
-  // `surfaceApp.info` probe) composed with the app's OWN `mine` cell.
-  const surface = defineSurface(
-    composeSurfaces(surfaceAppSurface, {
-      cells: {
-        mine: { schema: z.object({ n: z.number() }), default: { n: 0 } },
-      },
-    }),
-  );
+describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
+  it("bundles the buildInfo cell impl (carrying connect) + the identity.info probe impl", async () => {
+    const server = surfaceAppServer({ commit: "abc1234", processId: "pid-1" });
+    // The buildInfo cell entry carries `.connect` — the surface runtime's
+    // cell-dep the core fires automatically (no app-visible connect).
+    expect(typeof server.cells.buildInfo.connect).toBe("function");
+    expect(server.cells.buildInfo.current()).toEqual({ commit: "abc1234" });
+    // The probe impl sits under the `identity` namespace.
+    expect(await server.procedures.identity.info()).toEqual({
+      processId: "pid-1",
+    });
+  });
 
-  /** Invoke a wired surface procedure the way the runtime does — through the
-   *  decorated oRPC handler the router fragment exposes. (`@orpc/server`'s
-   *  `call`/`createRouterClient` aren't reachable from this package, so we drive
-   *  the procedure's `~orpc.handler` directly; it's the same fn the wire calls.) */
-  function callProcedure(
-    router: unknown,
-    ns: string,
-    verb: string,
-    input: unknown,
-  ): Promise<unknown> {
-    // biome-ignore lint/suspicious/noExplicitAny: reaching the decorated procedure's runtime handler.
-    const proc = (router as any).surface[ns][verb];
-    return proc["~orpc"].handler({ input, context: {} });
-  }
-
-  function build() {
-    return implementSurfaceApp(
-      surface,
-      surfaceAppServer({ commit: "abc1234", processId: "pid-1" }),
+  it("serves surface-app as a SIBLING surface under its key, fires buildInfo connect", async () => {
+    const server = surfaceAppServer({ commit: "abc1234", processId: "pid-1" });
+    // Spy on the cell entry's connect to prove the runtime fires it for us.
+    const connect = vi.spyOn(server.cells.buildInfo, "connect");
+    const { router, ctx } = implementSurfaces(
+      { channel: inMemoryChannelByName() },
       {
-        channel: <T>(_name: string) => inMemoryChannel<T>(),
-        // The app passes ONLY its own cell — buildInfo is the fragment's.
-        cells: { mine: { store: inMemoryStore({ n: 7 }) } },
+        surfaceApp: { surface: surfaceAppSurface, deps: asDeps(server) },
       },
     );
-  }
 
-  it("returns { router, ctx }", () => {
-    const result = build();
-    expect(result.router).toBeDefined();
-    expect(result.ctx).toBeDefined();
-  });
+    // The per-key ctx exposes the buildInfo cell carrying the commit.
+    expect(ctx.surfaceApp?.cells.buildInfo?.get()).toEqual({
+      commit: "abc1234",
+    });
 
-  it("wires the fragment's buildInfo cell carrying the commit", () => {
-    const { ctx } = build();
-    expect(ctx.cells.buildInfo).toBeDefined();
-    expect(ctx.cells.buildInfo.get()).toEqual({ commit: "abc1234" });
-  });
+    // The runtime fires the cell-dep connect automatically — no app-visible call.
+    await Promise.resolve();
+    expect(connect).toHaveBeenCalledTimes(1);
 
-  it("wires the app's own `mine` cell alongside the fragment", () => {
-    const { ctx } = build();
-    expect(ctx.cells.mine).toBeDefined();
-    expect(ctx.cells.mine.get()).toEqual({ n: 7 });
-  });
-
-  it("makes the surfaceApp.info probe reachable, returning { processId }", async () => {
-    const { router } = build();
-    const out = await callProcedure(router, "surfaceApp", "info", {});
+    // The probe routes at surface.surfaceApp.identity.info (the key namespaces
+    // the sibling; the probe is in the surface's own `identity` namespace).
+    // biome-ignore lint/suspicious/noExplicitAny: reaching the decorated procedure's runtime handler.
+    const proc = (router as any).surface.surfaceApp.identity.info;
+    const out = await proc["~orpc"].handler({ input: {}, context: {} });
     expect(out).toEqual({ processId: "pid-1" });
   });
 
-  it("throws if an app cell shadows the fragment's buildInfo (matching composeSurfaces)", () => {
-    expect(() =>
-      implementSurfaceApp(
-        surface,
-        surfaceAppServer({ commit: "abc1234", processId: "pid-1" }),
-        {
-          channel: <T>(_name: string) => inMemoryChannel<T>(),
-          // Shadowing the fragment's own cell must fail loud, not silently win.
-          cells: {
-            // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid override.
-            buildInfo: { store: inMemoryStore({ commit: "evil" }) } as any,
-          },
+  it("serves two surfaces whose buildInfo channels don't collide", () => {
+    // A second standalone surface-app sibling (e.g. drishti's admin vs. host)
+    // — each gets a key-namespaced `buildInfo:changed` channel, so the two
+    // can't collide on the wire. We assert both ctxs wire independently.
+    const { ctx } = implementSurfaces(
+      { channel: inMemoryChannelByName() },
+      {
+        a: {
+          surface: surfaceAppSurface,
+          deps: asDeps(
+            surfaceAppServer({ commit: "aaa1111", processId: "pa" }),
+          ),
         },
-      ),
-    ).toThrow(/buildInfo.*surface-app fragment/i);
-  });
-
-  it("throws if an app reuses the fragment's surfaceApp procedure namespace", () => {
-    expect(() =>
-      implementSurfaceApp(
-        surface,
-        surfaceAppServer({ commit: "abc1234", processId: "pid-1" }),
-        {
-          channel: <T>(_name: string) => inMemoryChannel<T>(),
-          cells: { mine: { store: inMemoryStore({ n: 7 }) } },
-          // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid override.
-          procedures: { surfaceApp: { info: async () => ({}) } } as any,
+        b: {
+          surface: surfaceAppSurface,
+          deps: asDeps(
+            surfaceAppServer({ commit: "bbb2222", processId: "pb" }),
+          ),
         },
-      ),
-    ).toThrow(/surfaceApp.*surface-app fragment/i);
+      },
+    );
+    expect(ctx.a?.cells.buildInfo?.get()).toEqual({ commit: "aaa1111" });
+    expect(ctx.b?.cells.buildInfo?.get()).toEqual({ commit: "bbb2222" });
   });
 });
+
+/** Drop the typed `surfaceAppServer` bundle into an `implementSurfaces` entry's
+ *  `deps`. The entry deps type is `ImplementSurfaceDeps<any>` (the map is
+ *  heterogeneous), whose cell-value members (`equals`, `connect`) are typed
+ *  against `unknown` and so reject any concretely-typed cell entry contravariantly
+ *  — the same reason `@kolu/surface`'s own `implementSurfaces` tests cast at the
+ *  router/handler boundary. The runtime shape is exactly right; only the variance
+ *  is unsatisfiable, so we assert it here. */
+function asDeps(
+  server: ReturnType<typeof surfaceAppServer>,
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous-map entry deps are intentionally `any`-spec'd.
+): Omit<ImplementSurfaceDeps<any>, "channel"> {
+  // biome-ignore lint/suspicious/noExplicitAny: variance-only cast; the runtime structure is sound.
+  return server as any;
+}

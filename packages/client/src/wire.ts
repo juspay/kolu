@@ -16,16 +16,17 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
-import { surfaceClient } from "@kolu/surface/solid";
+import { surfaceClients } from "@kolu/surface/solid";
 import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
+  koluSurface,
   type Preferences,
   type PreferencesPatch,
   type RecentAgent,
   type RecentRepo,
   type SavedSession,
-  surface,
+  surfaceAppSurface_kolu,
 } from "kolu-common/surface";
 import { WebSocket as PartySocket } from "partysocket";
 import { toast } from "solid-sonner";
@@ -40,14 +41,40 @@ export const ws = new PartySocket(wsUrl);
 // terminal container. Harmless in production — just an attribute on window.
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
-export const app = surfaceClient(
-  surface,
-  websocketLink<typeof contract>(ws as unknown as WebSocket),
-);
+// The single combined oRPC link over the one transport. The contract is the
+// combined one (`{ surface: { kolu, surfaceApp }, server, terminal, git }`) — the
+// raw oRPC procedures (`terminal`, `git`, `server`) live at its root; the two
+// sibling surfaces live under `surface.<key>`.
+const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
 
-/** Convenience alias — `client.terminal.create(...)`, `client.git.worktreeCreate(...)`,
- *  `client.surface.preferences.patch(...)`, etc. */
-export const client = app.rpc;
+// kolu serves TWO sibling surfaces over one transport (kolu#1197). Build one
+// client per sibling over the single combined link, each scoped to its key's
+// slice (`{ surface: link.surface[key] }`) so its primitives resolve at the wire
+// path `/surface/<key>/<prim>/<verb>` that `implementSurfaces` serves.
+const clients = surfaceClients(link, {
+  kolu: koluSurface,
+  surfaceApp: surfaceAppSurface_kolu,
+});
+
+/** kolu's OWN surface client — `app.cells.preferences.use(...)`,
+ *  `app.collections.terminalMetadata.use(...)`, `app.streams.gitStatus.use(...)`,
+ *  etc. Every existing `app.*` call site reaches kolu's own primitives. */
+export const app = clients.kolu;
+
+/** surface-app's surface client — the build-identity `buildInfo` cell (read via
+ *  `surfaceApp.cells.buildInfo.use({ authority: "server" })`) and the
+ *  `identity.info` restart probe (`surfaceApp.rpc.surface.identity.info({})` —
+ *  the `surfaceApp` key is consumed by the scope, so it does NOT reappear in the
+ *  path). Handed to `<SurfaceAppProvider controlPlane=...>` + `createServerLifecycle`. */
+export const surfaceApp = clients.surfaceApp;
+
+/** Convenience alias — the FULL combined link. `client.terminal.create(...)`,
+ *  `client.git.worktreeCreate(...)`, `client.server.info(...)` reach the raw oRPC
+ *  procedures at the link root; `client.surface.kolu.preferences.patch(...)` /
+ *  `client.surface.surfaceApp.identity.info(...)` reach the sibling surfaces.
+ *  (Note: the surface-bound `.use(...)` hooks come off `app`/`surfaceApp`, which
+ *  wrap a SCOPED slice of this same link.) */
+export const client = link;
 
 // ── Module-level singleton subscriptions ───────────────────────────────
 

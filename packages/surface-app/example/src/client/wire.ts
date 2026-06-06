@@ -1,19 +1,35 @@
 /**
- * Surface client bundle. `app` is the control-plane surface client; `ws` is the
- * raw transport. surface-app derives the connection lifecycle from `ws` + the
- * `surfaceApp.info` probe (passed to <SurfaceAppProvider> in App.tsx) — the example
- * no longer hand-derives a connection status.
+ * Surface client bundle. One websocket link carries BOTH sibling surfaces;
+ * `surfaceClients` splits it into a per-key client bundle. `clients.surfaceApp`
+ * is the control-plane client (buildInfo + the `identity.info` probe);
+ * `clients.app` carries the live `serverStats` cell. `ws` is the raw transport —
+ * surface-app derives the connection lifecycle from `ws` + the `identity.info`
+ * probe (passed to <SurfaceAppProvider> in App.tsx).
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
-import { surfaceClient } from "@kolu/surface/solid";
+import { surfaceClients } from "@kolu/surface/solid";
+import type { ServerProbe } from "@kolu/surface-app/solid";
 import { WebSocket as PartySocket } from "partysocket";
-import { surface } from "../common/surface";
+import { type contract, surfaces } from "../common/surface";
 
 const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/rpc/ws`;
 export const ws = new PartySocket(wsUrl);
 
-export const app = surfaceClient(
-  surface,
-  websocketLink<typeof surface.contract>(ws as unknown as WebSocket),
-);
+// One combined link over the `{ surface: { surfaceApp, app } }` contract, split
+// into per-key clients. Each client's `.rpc` is the SCOPED link slice
+// (`{ surface: link.surface[key] }`), so a primitive reached through it resolves
+// at `/surface/<key>/<prim>/<verb>` — the wire path `implementSurfaces` serves.
+const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
+export const clients = surfaceClients(link, surfaces);
+
+/** The `identity.info` restart probe, on the SCOPED `surfaceApp` client. Its
+ *  `.rpc` is typed `unknown` (the dynamic combined link can't be expanded
+ *  per-key — see `SurfaceClient.rpc`), so the call shape is pinned here once:
+ *  `surface.identity.info` resolves at `/surface/surfaceApp/identity/info`. */
+export const probeIdentity = (): Promise<ServerProbe> =>
+  (
+    clients.surfaceApp.rpc as {
+      surface: { identity: { info: (input: object) => Promise<ServerProbe> } };
+    }
+  ).surface.identity.info({});

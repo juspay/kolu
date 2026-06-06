@@ -25,29 +25,38 @@ Four properties the library guarantees. **#1 is load-bearing**; the rest are gra
 4. **A service worker is an opt-in you own end-to-end — or, for this class, none.** surface-app ships none and actively *retires* any it finds (see "Why no service worker").
 5. **The client always knows its relationship to the server** — host, build, and live status (`live` / `reconnecting` / `restarted` / stale-build) — surfaced as a headless model the app renders.
 
-## Compose, don't hand-wire
+## Compose as siblings, don't merge
 
-The library ships **fragments**; an app is their **composition**, with no bespoke glue. Build identity is one concept with composable faces the app stitches together — never re-derives:
+surface-app is a **complete surface**, not a fragment merged into the app
+surface. An app serves a keyed **map of independent surfaces** multiplexed over
+one transport, each namespaced by its key — surface-app rides under its own key
+(e.g. `surfaceApp`) as a **sibling** of the app's own surface. The multiplexing
+lives in `@kolu/surface` (`implementSurfaces` / `surfaceClients` /
+`composeSurfaceContracts`); surface-app just contributes one of the siblings.
+Build identity is one concept with composable faces the app stitches together —
+never re-derives:
 
-| Face | Library fragment | App composes… |
+| Face | Library piece | App composes… |
 |---|---|---|
-| definition | `buildInfo` (cell schema) | into `defineSurface` |
-| server impl | `buildInfoServer()` | into `implementSurface` |
+| definition | `buildInfo` (cell schema) | into `surfaceAppSurfaceWith` |
+| surface | `surfaceAppSurface` / `surfaceAppSurfaceWith` (a complete `Surface`) | as a sibling in `implementSurfaces` / `surfaceClients` / `composeSurfaceContracts` |
+| server impl | `surfaceAppServer()` (the cell + probe deps bundle) · `buildInfoServer()` (the cell only) | as an `implementSurfaces` entry's `deps` |
 | client model | `useSurfaceApp()` | under `<SurfaceAppProvider>` |
 | commit source | `surfaceApp()` Vite plugin · `buildSurfaceClient()` (Bun) · `resolveCommit()` | into the client build & server boot |
-| restart axis | `serverIdentity` (procedure, `surfaceApp.info`) + `serverIdentity()` (impl) | merged via `composeSurfaces` & into `implementSurface` |
-| surface fragment | `surfaceAppSurface` / `surfaceAppSurfaceWith` + `composeSurfaces`; `surfaceAppServer` (impl) | merged into `defineSurface` & `implementSurface` |
-| server one-call | `implementSurfaceApp` — the server-side counterpart to `composeSurfaces` | one call: merges the fragment's cell + probe impls, runs `implementSurface`, flows `buildInfo.connect` |
+| restart axis | `identity.info` probe (on the surface) + `serverIdentity()` (impl) | rides the same sibling surface |
 
-The **restart axis** is the counterpart to the skew axis: the
-`surface.surfaceApp.info` probe that reads a per-process `processId`. It used to
-be re-derived per app (kolu's `rpc.ts`, the example, drishti); now it's a
-fragment — `serverIdentity` (the procedure shape, namespaced under `surfaceApp`,
-merged via `composeSurfaces`) plus `serverIdentity()` (the impl, spread into
-`implementSurface`) — so the restart axis is as turnkey as the commit axis. The
-build cell + probe travel together as one mergeable surface fragment
-(`surfaceAppSurface` / `surfaceAppSurfaceWith`, server-side `surfaceAppServer`).
-No app hand-writes the `processId` procedure.
+The **restart axis** is the counterpart to the skew axis: the `identity.info`
+probe that reads a per-process `processId`. It used to be re-derived per app
+(kolu's `rpc.ts`, the example, drishti); now it lives in surface-app's own
+surface under the `identity` namespace, so a consumer registering surface-app
+under key `surfaceApp` gets the wire path `surface.surfaceApp.identity.info`. The
+server impl is `serverIdentity()`, bundled with the buildInfo cell impl by
+`surfaceAppServer()`. No app hand-writes the `processId` procedure.
+
+The buildInfo cell's async boot axis (kolu's `system.version`, the example's
+`bootId`) flows through the cell entry's `connect` — which the surface runtime
+now fires **automatically** once the cell ctx is built. There is no app-visible
+`connect` call and no hand-written seed→`ctx.set` dance.
 
 The commit is **resolved once** — `SURFACE_APP_COMMIT` env → `git rev-parse --short HEAD` → `"dev"` (which `clientIsStale` treats as never-stale) — and fed to both the client define and the server cell. **No app writes a sha.** If your build system names the env var otherwise (kolu's `KOLU_COMMIT_HASH`), pass it: `resolveCommit("KOLU_COMMIT_HASH")` / `surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" })` — or just export `SURFACE_APP_COMMIT` in your build (simpler).
 
@@ -89,8 +98,8 @@ extension-carrying package would impose.
 | Entry | Exports | Side |
 |---|---|---|
 | `@kolu/surface-app` | `cacheControlFor`, `isImmutableAssetPath`, `clientIsStale`, `isCleanRef`, `SW_SOURCE` — the pure, framework-free kernels | core |
-| `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer`, `serverIdentity`, `surfaceAppServer`, `implementSurfaceApp` (Hono) | server |
-| `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo`, `serverIdentity`, `surfaceAppSurface`, `surfaceAppSurfaceWith`, `composeSurfaces`, `ServerProbeSchema` — the composable fragments | common |
+| `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer`, `serverIdentity`, `surfaceAppServer` (Hono) | server |
+| `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo`, `surfaceAppSurface`, `surfaceAppSurfaceWith`, `ServerProbeSchema` — the standalone surface | common |
 | `@kolu/surface-app/solid` | `retireServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider`, `useSurfaceApp`, `createServerLifecycle` | client |
 | `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `reloadForUpdate` — framework-free, for root setup before any component | client |
 | `@kolu/surface-app/vite` | `surfaceApp()` plugin, `resolveCommit()` | build (Vite) |
@@ -99,54 +108,51 @@ extension-carrying package would impose.
 
 ## Usage — composition at each layer
 
-### common — surface-app's cell, alongside yours
+### common — surface-app as a sibling surface
 
 ```ts
 // common/surface.ts
 import { defineSurface } from "@kolu/surface/define";
-import { composeSurfaces, surfaceAppSurface } from "@kolu/surface-app/surface";
+import { composeSurfaceContracts } from "@kolu/surface/server";
+import { surfaceAppSurface } from "@kolu/surface-app/surface";
 
-// One mergeable fragment (the build-identity cell + the `surface.surfaceApp.info`
-// restart probe) composed with your OWN surface in a single call — not two
-// hand-wired spreads. Extending build identity? Use
+// Your OWN surface — surface-app is NOT merged into it.
+export const appSurface = defineSurface({
+  cells: {
+    // ...your own cells
+  },
+  // ...your own collections / streams / events / procedures
+});
+
+// The wire contract is the two surfaces composed as SIBLINGS, each under its
+// key. Type your link off `typeof contract`. Extending build identity? Use
 // `surfaceAppSurfaceWith(yourBuildInfoDef)` in place of `surfaceAppSurface`.
-export const surface = defineSurface(
-  composeSurfaces(surfaceAppSurface, {
-    cells: {
-      // ...your own cells
-    },
-    // ...your own collections / streams / events / procedures
-  }),
-);
+export const contract = composeSurfaceContracts({
+  app: appSurface,
+  surfaceApp: surfaceAppSurface,
+});
+// surface.app.* and surface.surfaceApp.* — including surface.surfaceApp.identity.info
 ```
 
-### server — compose the impl, serve the shell
+### server — serve the siblings, serve the shell
 
 ```ts
 // server/main.ts
-import { publisherChannel } from "@kolu/surface/server";
-import {
-  implementSurfaceApp,
-  installSurfaceApp,
-  surfaceAppServer,
-} from "@kolu/surface-app/server";
+import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
+import { installSurfaceApp, surfaceAppServer } from "@kolu/surface-app/server";
 
-// The server-side counterpart to `composeSurfaces`: one call merges the
-// surface-app fragment's buildInfo cell + `surfaceApp.info` probe impls into
-// your OWN `implementSurface` deps, runs `implementSurface`, AND flows the
-// buildInfo cell's `connect` (the async boot axis) internally. So the app passes
-// only its OWN cells/procedures — never hand-spreads the surface-app halves or
-// writes the seed→connect dance.
-const { router, ctx } = implementSurfaceApp(
-  surface,
-  surfaceAppServer(),                       // both impls in one call (commit auto-resolved + processId)
+// Serve a keyed map of independent surfaces over one transport. surface-app is
+// a SIBLING under its key; `surfaceAppServer()` is the deps bundle for that
+// entry (the buildInfo cell + the `identity.info` probe). The runtime supplies
+// each sibling a key-namespaced channel and fires the buildInfo cell's `connect`
+// (the async boot axis) automatically — no hand-written seed→ctx.set dance.
+const { router, ctx } = implementSurfaces(
+  { channel: <T>(name: string) => publisherChannel<T>(publisher, name) },
   {
-    channel: <T>(name: string) => publisherChannel<T>(publisher, name),
-    cells: { /* ...your own only — buildInfo is the fragment's */ },
-    procedures: { /* ...your own only — surfaceApp.info is the fragment's */ },
+    app: { surface: appSurface, deps: { /* ...your own cells/procedures */ } },
+    surfaceApp: { surface: surfaceAppSurface, deps: surfaceAppServer() },
   },
 );
-// buildInfo.connect runs inside implementSurfaceApp — no hand-written ctx.set.
 
 // ...mount the oRPC router over HTTP + WS, registering /rpc BEFORE the static installers...
 
@@ -214,19 +220,31 @@ It emits the hashed JS + extra assets under `/assets/` (the `ASSET_DIR` the serv
 
 ```ts
 // client/App.tsx
+import { surfaceClients } from "@kolu/surface/solid";
 import { SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
+import { appSurface } from "../common/surface";
+import { surfaceAppSurface } from "@kolu/surface-app/surface";
 
 // retireServiceWorker() runs at root setup, before any component — import it from
 // the framework-free /lifecycle subpath (re-exported from /solid for convenience):
 import { retireServiceWorker } from "@kolu/surface-app/lifecycle";
 retireServiceWorker();   // unregister any worker an earlier build left + drop its caches
 
+// One client per sibling surface, scoped by key over the one link. Each client's
+// `.rpc` is the scoped link `{ surface: link.surface[key] }`, so the key is
+// consumed by the scope and does NOT reappear in the call path: the probe is
+// `clients.surfaceApp.rpc.surface.identity.info` — NOT `…surface.surfaceApp.identity.info`.
+const clients = surfaceClients(link, {
+  app: appSurface,
+  surfaceApp: surfaceAppSurface,
+});
+
 // at the root — surface-app derives the connection lifecycle from the transport:
 <SurfaceAppProvider
-  controlPlane={app}                               // typed: must carry the buildInfo cell
+  controlPlane={clients.surfaceApp}                // typed: must carry the buildInfo cell
   clientCommit={__SURFACE_APP_COMMIT__}
   ws={ws}                                          // open/close → connecting/live/down
-  probe={() => app.rpc.surface.surfaceApp.info({})} // { processId } → reconnected vs restarted
+  probe={() => clients.surfaceApp.rpc.surface.identity.info({})} // { processId } → reconnected vs restarted
   // isStale={(srv, cli) => …}                      // optional: override the predicate per section
   // onError={(err) => toast.error(err.message)}    // optional: surface a dead buildInfo stream
 >
@@ -294,32 +312,30 @@ When part of the build identity resolves **asynchronously at boot** — kolu's
 pty-host axis settling over the in-process link *after* the cell is seeded —
 `buildInfo` may be an **async thunk** (or a sync thunk, or a plain value). The
 fragment seeds `{ commit }` synchronously, folds the resolved value in when the
-promise settles, and `connect(ctx.cells.buildInfo)` republishes it over the
-cell's channel. The app **never** seeds-then-`ctx.set`s by hand:
+promise settles, and the cell entry's `connect` republishes it over the cell's
+channel — **the surface runtime fires `connect` automatically** once the cell
+ctx is built, so the app never seeds-then-`ctx.set`s by hand:
 
 ```ts
-const build = buildInfoServer<KoluBuildIdentity>({
-  // resolves over the link a moment after boot — return the FULL T or a Partial<T> patch
-  buildInfo: async () => ({ ptyHost: await system.version() }),
-  // optional: dedup re-publishes the way confStore cells do (default: JSON.stringify)
-  equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
-});
-
-const { ctx } = implementSurface(surface, {
-  cells: { ...build },          // seeds { commit, … } synchronously
-  // …
-});
-
-// flow the late half through the SAME fragment — no hand-written second ctx.set:
-await build.buildInfo.connect(ctx.cells.buildInfo);   // republishes once settled
+surfaceApp: {
+  surface: surfaceAppSurface,             // or surfaceAppSurfaceWith(koluBuildInfo)
+  deps: surfaceAppServer<KoluBuildIdentity>({
+    // resolves over the link a moment after boot — return the FULL T or a Partial<T> patch
+    buildInfo: async () => ({ ptyHost: await system.version() }),
+    // optional: dedup re-publishes the way confStore cells do (default: JSON.stringify)
+    equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+  }),
+}
+// implementSurfaces fires the cell's connect once after wiring — no hand-written ctx.set.
 ```
 
-(`implementSurfaceApp` — the one-call server form above — runs this `connect`
-for you, so an app using it never touches `build.buildInfo.connect` by hand. The
-explicit `connect` here is the lower-level `buildInfoServer` fragment API.)
+If you compose the buildInfo cell by hand into your own surface instead (the
+lower-level `buildInfoServer` fragment, without surface-app's sibling surface),
+the cell entry's `connect` is the same runtime cell-dep — declared on the cell
+deps, fired by `implementSurface` / `implementSurfaces` for you.
 
 - **`buildInfo` source** — `T | (() => T) | (() => Promise<T | Partial<T>>)`. An async source returning a `Partial<T>` patches the `{ commit }` seed; a full `T` replaces it. A failed boot-time axis leaves the seed in place (the skew axis keeps working).
-- **`connect(cell)`** — drives the resolved value through the cell's ctx setter (which routes to the bus + the dedup gate), awaiting the async source first. A no-op for a sync source (re-asserting the seed is deduped). Returns a promise so a boot can `await` it.
+- **`connect(cell)`** — drives the resolved value through the cell's ctx setter (which routes to the bus + the dedup gate), awaiting the async source first. A no-op for a sync source (re-asserting the seed is deduped). The runtime owns the call; apps don't invoke it.
 - **`equals`** — emitted on the cell entry, so the surface runtime suppresses a no-op re-publish on **every** write path (`connect`, a later `ctx.set`, a wire `set`), the same way kolu's confStore-backed cells declare `equals: JSON.stringify`. Defaults to `JSON.stringify` identity.
 - **`build.buildInfo.current()`** / **`build.buildInfo.ready`** — the fragment's own read of the resolved value and a promise that settles once the async source lands (handy for boot logging / tests).
 
@@ -373,6 +389,6 @@ To see the skew rail, give the server a different commit: `SURFACE_APP_COMMIT=de
 
 - **A read-only server cell is read with `app.cells.X.use({ authority: "server" })`** — `{ initial }` is the *local-authority* shape and won't typecheck for it. (`buildInfo` is a server cell.)
 - **The connection lifecycle is derived in-library.** `createServerLifecycle({ ws, probe })` (used by the provider) turns transport open/close + a `processId` probe into `connecting → connected → disconnected → reconnected / restarted` — kolu's `rpc.ts`, encapsulated, so the WS indicator drops into drishti unchanged. `useSurfaceApp().status()` maps it to `live / reconnecting / restarted / down`. Commit (skew) and processId (restart) stay distinct axes.
-- **`SurfaceAppProvider`'s `controlPlane` is structurally typed.** It's constrained to `ControlPlane<T>` — a client whose `cells.buildInfo.use({ authority: "server" })` yields the build identity — so passing a client whose surface lacks `buildInfo` (drishti's admin client vs. its per-host clients) is a compile error, not a silent runtime read. A real `SurfaceClient<S>` whose surface merges the surface-app fragment satisfies it. The internal read is `{ authority: "server" }` (buildInfo is a server cell).
-- **Composition is whole-fragment.** `surfaceAppSurface` (or `surfaceAppSurfaceWith(def)` when extending build identity) carries the buildInfo cell + the `surfaceApp.info` probe as one `SurfaceSpec` fragment; `composeSurfaces(fragment, yourSpec)` field-wise merges it into your `defineSurface` (throwing on a duplicate top-level key or procedure verb). No app merges cell maps and procedure maps by hand.
+- **`SurfaceAppProvider`'s `controlPlane` is structurally typed.** It's constrained to `ControlPlane<T>` — a client whose `cells.buildInfo.use({ authority: "server" })` yields the build identity — so passing a client whose surface lacks `buildInfo` (drishti's admin client vs. its per-host clients) is a compile error, not a silent runtime read. The sibling `surfaceClients(...).surfaceApp` client — whose surface IS the surface-app surface (with its `buildInfo` cell) — satisfies it. The internal read is `{ authority: "server" }` (buildInfo is a server cell).
+- **Composition is sibling, not merge.** `surfaceAppSurface` (or `surfaceAppSurfaceWith(def)` when extending build identity) is a complete `Surface` carrying the buildInfo cell + the `identity.info` probe. A consumer serves it as a SIBLING of their own surface — `implementSurfaces` (server) / `surfaceClients` (client) / `composeSurfaceContracts` (wire) in `@kolu/surface`, each keyed by surface. No app merges cell maps and procedure maps by hand; the two surfaces never share a namespace, so a key collision is structurally impossible.
 - **No second-consumer speculation.** The boundary is shaped by kolu's and drishti's actual edges; it graduates to drishti as the app-agnosticism test.

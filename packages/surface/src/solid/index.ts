@@ -22,7 +22,9 @@ export {
   type BoundEvent,
   type BoundStream,
   type SurfaceClient,
+  type SurfaceClients,
   surfaceClient,
+  surfaceClients,
 } from "./surfaceClient";
 export {
   type Authority,

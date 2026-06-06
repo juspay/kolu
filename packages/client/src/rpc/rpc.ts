@@ -7,8 +7,9 @@
  * open, comparing the returned process UUID against the last-known one to tell a
  * transient drop from a restart). This module is just the kolu-shaped, module-
  * level signal layer above it: it wires the library to kolu's transport
- * (`ws`) and probe (`surface.surfaceApp.info`, the `serverIdentity` fragment) and
- * re-exports the facets under the names kolu's call sites already use.
+ * (`ws`) and probe (`surface.surfaceApp.identity.info`, surface-app's identity
+ * surface served as a sibling) and re-exports the facets under the names kolu's
+ * call sites already use.
  *
  * Transport setup (PartySocket, typed oRPC client) lives in `../wire.ts`.
  */
@@ -16,20 +17,36 @@
 import {
   createServerLifecycle,
   type ServerLifecycleEvent,
+  type ServerProbe,
 } from "@kolu/surface-app/solid";
 import { createMemo } from "solid-js";
 import { match } from "ts-pattern";
-import { app, ws } from "../wire";
+import { surfaceApp, ws } from "../wire";
 
 export type WsStatus = "connecting" | "open" | "closed";
 export type { ServerLifecycleEvent };
 
 // The library derives the lifecycle from kolu's transport + identity probe.
-// The probe is surface-app's `serverIdentity` fragment, surfaced at
-// `surface.surfaceApp.info` (returns `{ processId }`) — composed, not hand-written.
+// The probe is surface-app's identity surface, served as a sibling under the
+// `surfaceApp` key — wire path `surface.surfaceApp.identity.info` (returns
+// `{ processId }`) — composed, not hand-written.
 const { lifecycle, serverProcessId, status } = createServerLifecycle({
   ws,
-  probe: () => app.rpc.surface.surfaceApp.info({}),
+  // surface-app is served as a sibling under the `surfaceApp` key; its client
+  // (`surfaceApp.rpc`) is the SCOPED link `{ surface: link.surface.surfaceApp }`,
+  // so the probe namespace `identity` resolves at the wire path
+  // `/surface/surfaceApp/identity/info` — the key is consumed by the scope and
+  // does NOT reappear in the path. `.rpc` is typed `unknown` (the dynamic
+  // combined link can't be expanded per-key — see `SurfaceClient.rpc`), so the
+  // probe call shape is pinned here once.
+  probe: () =>
+    (
+      surfaceApp.rpc as {
+        surface: {
+          identity: { info: (input: object) => Promise<ServerProbe> };
+        };
+      }
+    ).surface.identity.info({}),
   // A persistently-broken probe would otherwise silently leave the UI stuck in
   // its prior connection state. Log it (the next open retries) — same as the
   // pre-extraction rpc.ts.

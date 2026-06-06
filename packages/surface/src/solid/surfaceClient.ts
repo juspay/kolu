@@ -287,3 +287,53 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     events: events as BoundEventsFor<S>,
   };
 }
+
+// ── surfaceClients — sibling surfaces over one link ─────────────────────
+
+/** The per-key client bundle returned by `surfaceClients`. Each value is a
+ *  full `SurfaceClient` for that key's surface, scoped to the key's slice of
+ *  the combined link. */
+export type SurfaceClients<
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
+  E extends Record<string, Surface<any>>,
+> = {
+  [K in keyof E]: E[K] extends Surface<infer S> ? SurfaceClient<S> : never;
+};
+
+/** Build one `surfaceClient` per sibling surface over a single combined
+ *  link (the counterpart to `implementSurfaces` / `composeSurfaceContracts`).
+ *
+ *  The combined link is shaped `{ surface: { <key>: innerLink } }` — i.e.
+ *  the same `{ surface: { <key>: ... } }` namespacing `composeSurfaceContracts`
+ *  produces. Each per-key client is built over a SCOPED link
+ *  `{ surface: link.surface[key] }`, so the bundle's internal walk
+ *  (`(link as any).surface[<prim>]`) resolves at `link.surface[key].<prim>`
+ *  — i.e. the wire path `/surface/<key>/<prim>/<verb>` that
+ *  `implementSurfaces` serves.
+ *
+ *  Reaching a primitive through a returned client therefore goes through
+ *  that client's `.rpc` (the scoped link), e.g. for a probe procedure under
+ *  surface key `surfaceApp` with namespace `identity` and verb `info`:
+ *
+ *      clients.surfaceApp.rpc.surface.identity.info(...)
+ *
+ *  (NOT `clients.surfaceApp.rpc.surface.surfaceApp.identity.info` — the key
+ *  is already consumed by the scope, so it does not reappear in the path.) */
+export function surfaceClients<
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
+  const E extends Record<string, Surface<any>>,
+>(
+  // biome-ignore lint/suspicious/noExplicitAny: combined link is a dynamic ContractRouterClient; scoping is walk-by-string.
+  link: any,
+  entries: E,
+): SurfaceClients<E> {
+  return Object.fromEntries(
+    Object.entries(entries).map(([k, surface]) => [
+      k,
+      surfaceClient(surface, {
+        surface: link.surface[k],
+        // biome-ignore lint/suspicious/noExplicitAny: scoped link slice is dynamic; the per-surface spec carries call-site safety.
+      } as any),
+    ]),
+  ) as SurfaceClients<E>;
+}

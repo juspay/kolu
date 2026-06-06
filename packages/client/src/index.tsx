@@ -8,7 +8,7 @@ import { render } from "solid-js/web";
 import App from "./App";
 import { toast } from "solid-sonner";
 import { status } from "./rpc/rpc";
-import { app } from "./wire";
+import { surfaceApp } from "./wire";
 import "./index.css";
 
 // kolu does not use a service worker. Retire any one a previous build left
@@ -33,7 +33,7 @@ render(
     // `useSurfaceApp()` and renders its own tailwind chrome (IdentityRail,
     // StaleBadge, TransportOverlay, the mobile sheet).
     <SurfaceAppProvider
-      controlPlane={app}
+      controlPlane={surfaceApp}
       clientCommit={__SURFACE_APP_COMMIT__}
       buildInfo={koluBuildInfo}
       status={status}

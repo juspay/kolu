@@ -89,7 +89,7 @@ export function createServerLifecycle<
 >(opts: {
   ws: WsLike;
   probe: () => Promise<P>;
-  /** Surface a failed identity probe. A broken `surfaceApp.info` otherwise leaves
+  /** Surface a failed identity probe. A broken `identity.info` otherwise leaves
    *  the UI stuck in its prior state with no diagnostic — pass this to log it.
    *  The next `open` still retries; this is observation, not a transition. */
   onProbeError?: (err: unknown) => void;
@@ -291,7 +291,7 @@ export function SurfaceAppProvider<
   const server = () => cell.value();
   // The connection status. Prefer a caller-supplied `status` accessor (the app
   // already derived the lifecycle once — read it, don't re-derive it: a second
-  // `createServerLifecycle` would double the `surfaceApp.info` probe per reconnect
+  // `createServerLifecycle` would double the `identity.info` probe per reconnect
   // and let two observers disagree). Otherwise derive it here from `ws`+`probe`
   // (the turnkey shape), or stay permanently `"live"` when neither is given.
   const status: Accessor<ConnectionStatus> = props.status

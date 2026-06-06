@@ -5,21 +5,17 @@
  * immutable hashed assets, 404 on an asset miss (never the HTML shell), the
  * self-destructing `/sw.js`, and the SPA fallback. `installPwaManifest` serves
  * the desktop-app manifest. `installSurfaceApp` wires both in the common order.
- * `buildInfoServer` is the buildInfo cell's server impl, composed into your
- * surface router. Register your `/rpc/*` (surface) routes BEFORE the static
- * installers — the static catch-all is last.
+ * `buildInfoServer` is the buildInfo cell's server impl; `surfaceAppServer`
+ * bundles it with the `identity.info` probe impl as the deps a consumer drops
+ * into an `implementSurfaces` entry — surface-app is served as a SIBLING surface,
+ * not merged into the app surface. Register your `/rpc/*` (surface) routes
+ * BEFORE the static installers — the static catch-all is last.
  */
 
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { Surface, SurfaceSpec } from "@kolu/surface/define";
-import {
-  type ImplementSurfaceDeps,
-  implementSurface,
-} from "@kolu/surface/server";
 import type { Hono } from "hono";
-import { resolveCommit } from "./vite";
 import {
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
@@ -29,6 +25,7 @@ import {
   SW_SOURCE,
 } from "./index";
 import type { BuildInfo } from "./surface";
+import { resolveCommit } from "./vite";
 
 /** A web app manifest. `name` is required; everything else has a sensible
  *  default, and any extra fields (id, description, orientation, screenshots,
@@ -153,10 +150,12 @@ export interface BuildInfoCellEntry<T extends BuildInfo> {
    *  there is no async source, resolves immediately. */
   ready: Promise<void>;
   /** Drive a late-arriving (async) axis through the cell's publish path so it
-   *  reaches subscribers — `await frag.buildInfo.connect(ctx.cells.buildInfo)`
-   *  once at boot. The fragment owns the seed→resolve→set composition; the app
-   *  never hand-writes the `{ commit }` seed and a second `ctx.set`. A no-op
-   *  (deduped) when the source was sync — nothing late to push. */
+   *  reaches subscribers. This is the surface runtime's cell-dep `connect`: the
+   *  core fires it automatically once the `buildInfo` cell ctx is built, so a
+   *  consumer serving this fragment via `implementSurfaces` never calls it. The
+   *  fragment owns the seed→resolve→set composition; the app never hand-writes
+   *  the `{ commit }` seed and a second `ctx.set`. A no-op (deduped) when the
+   *  source was sync — nothing late to push. */
   connect: (cell: { set: (value: T) => void }) => Promise<void>;
 }
 
@@ -290,108 +289,40 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
   };
 }
 
-/** The `surface.surfaceApp.info` identity procedure's server implementation, as
- *  a composable fragment: `implementSurface(surface, { …, procedures: { ...serverIdentity() } })`.
- *  Mints one `processId` per process (so a reconnect to a *different* process
- *  reads as a restart) — the restart axis's turnkey counterpart to
+/** The `identity.info` probe's server implementation, as a composable
+ *  fragment: it sits in `surfaceAppServer`'s `procedures` under the `identity`
+ *  namespace. Mints one `processId` per process (so a reconnect to a *different*
+ *  process reads as a restart) — the restart axis's turnkey counterpart to
  *  `buildInfoServer()`. Pass `processId` to override (e.g. a stable id in
- *  tests). Pairs with `serverIdentity.procedures` (now `surfaceApp.info`) on the
- *  surface and with the provider's `probe={() => client.rpc.surface.surfaceApp.info({})}`. */
+ *  tests). Pairs with the surface's `identity.info` procedure and with the
+ *  provider's `probe={() => client.rpc.surface.identity.info({})}` (the scoped
+ *  sibling client consumes the `surfaceApp` key). */
 export function serverIdentity(opts: { processId?: string } = {}): {
-  surfaceApp: { info: () => Promise<{ processId: string }> };
+  identity: { info: () => Promise<{ processId: string }> };
 } {
   const processId = opts.processId ?? randomUUID();
-  return { surfaceApp: { info: async () => ({ processId }) } };
+  return { identity: { info: async () => ({ processId }) } };
 }
 
-/** The whole surface-app server fragment in one call — the `buildInfo` cell impl
- *  AND the `surfaceApp.info` probe impl, so a consumer spreads `cells` and
- *  `procedures` once each into `implementSurface`. The buildInfo connect handle
- *  is `result.cells.buildInfo.connect(ctx.cells.buildInfo)`. The turnkey
- *  counterpart to `surfaceAppSurfaceWith` on the surface side. */
+/** The whole surface-app server side in one call — the `buildInfo` cell impl
+ *  AND the `identity.info` probe impl, shaped as the implementation DEPS bundle
+ *  a consumer drops into an `implementSurfaces` entry (`{ surface:
+ *  surfaceAppSurface, deps: surfaceAppServer() }`). No `channel` here —
+ *  `implementSurfaces` supplies a key-namespaced channel per sibling surface.
+ *
+ *  The buildInfo cell entry carries `.connect` (the async boot axis — kolu's
+ *  `system.version`, the example's `bootId`; a deduped no-op for the sync
+ *  `{ commit }` default), which the surface runtime now fires automatically once
+ *  the cell ctx is built — so there is NO app-visible connect to call. The
+ *  turnkey counterpart to `surfaceAppSurfaceWith` on the surface side. */
 export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
   opts: Parameters<typeof buildInfoServer<T>>[0] & { processId?: string } = {},
 ): {
   cells: BuildInfoServerFragment<T>;
-  procedures: { surfaceApp: { info: () => Promise<{ processId: string }> } };
+  procedures: { identity: { info: () => Promise<{ processId: string }> } };
 } {
   return {
     cells: buildInfoServer<T>(opts),
     procedures: serverIdentity({ processId: opts.processId }),
   };
-}
-
-/** Implement the whole surface-app server side in ONE call — the counterpart to
- *  `composeSurfaces` on the surface side. It merges the surface-app fragment's
- *  `buildInfo` cell + `surfaceApp.info` probe impls into your own
- *  `implementSurface` deps, runs `implementSurface`, AND flows the buildInfo
- *  cell's `connect` (the async boot axis — kolu's `system.version`, the example's
- *  `bootId`; a deduped no-op for the sync `{ commit }` default). So the app passes
- *  ONLY its own `cells`/`procedures` and never hand-spreads the surface-app halves
- *  or writes the seed→connect dance. Returns `implementSurface`'s `{ router, ctx }`.
- *
- *  ```ts
- *  const { router, ctx } = implementSurfaceApp(surface, surfaceAppServer<T>(opts), {
- *    channel,
- *    cells: { serverStats: { store } },   // your own only — buildInfo is the fragment's
- *    procedures: { hosts: { … } },        // your own only — surfaceApp.info is the fragment's
- *  });
- *  ``` */
-export function implementSurfaceApp<
-  const S extends SurfaceSpec,
-  T extends BuildInfo = BuildInfo,
->(
-  surface: Surface<S>,
-  server: ReturnType<typeof surfaceAppServer<T>>,
-  appDeps: Omit<ImplementSurfaceDeps<S>, "cells" | "procedures"> & {
-    cells?: Partial<NonNullable<ImplementSurfaceDeps<S>["cells"]>>;
-    procedures?: Partial<NonNullable<ImplementSurfaceDeps<S>["procedures"]>>;
-  },
-) {
-  // The spec-side `composeSurfaces` THROWS on a duplicate cell/procedure key;
-  // the impl-side merge must match it, or a consumer dep silently shadowing the
-  // fragment's `buildInfo` cell / `surfaceApp.info` procedure (an object-spread
-  // override) would break the control plane with no error — the very mismatch
-  // CODEX flagged. Detect collisions against the fragment's own keys and throw.
-  const assertNoOverride = (
-    kind: string,
-    fragment: Record<string, unknown>,
-    app: Record<string, unknown> | undefined,
-  ) => {
-    for (const k of Object.keys(app ?? {})) {
-      if (k in fragment)
-        throw new Error(
-          `implementSurfaceApp: app ${kind} "${k}" collides with the surface-app fragment's own ${kind} — the fragment owns it; remove it from your deps.`,
-        );
-    }
-  };
-  assertNoOverride(
-    "cell",
-    server.cells as unknown as Record<string, unknown>,
-    appDeps.cells as Record<string, unknown> | undefined,
-  );
-  // `procedures` is a namespace map; `surfaceApp.info` lives under the
-  // `surfaceApp` namespace, so a collision is the app reusing that whole
-  // namespace. Throw on a shared top-level namespace key (matching how the
-  // fragment contributes a single `surfaceApp` namespace).
-  assertNoOverride(
-    "procedure namespace",
-    server.procedures as unknown as Record<string, unknown>,
-    appDeps.procedures as Record<string, unknown> | undefined,
-  );
-  const result = implementSurface(surface, {
-    ...appDeps,
-    cells: { ...server.cells, ...(appDeps.cells ?? {}) },
-    procedures: { ...server.procedures, ...(appDeps.procedures ?? {}) },
-  } as ImplementSurfaceDeps<S>);
-  // Flow the buildInfo cell's late (async) axis through the same fragment — and
-  // re-assert the sync seed harmlessly (deduped by the fragment's `equals`). The
-  // app never writes a hand-rolled `ctx.cells.buildInfo.set`. The generic `S`
-  // doesn't statically prove the `buildInfo` cell, but the fragment we just
-  // spread into `cells` guarantees it at runtime — hence the narrow ctx cast.
-  const ctxCells = result.ctx.cells as {
-    buildInfo: { set: (value: T) => void };
-  };
-  void server.cells.buildInfo.connect(ctxCells.buildInfo);
-  return result;
 }
