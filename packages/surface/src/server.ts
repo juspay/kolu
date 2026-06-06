@@ -1468,17 +1468,14 @@ export function implementSurfaces<const E extends SurfaceEntries>(
   router: any;
   ctx: SurfacesCtx<E>;
 } {
-  // Build a COMBINED contract `{ surface: { <key>: innerContract } }` where
-  // `innerContract` is each surface's own `.contract.surface`. We re-key
-  // rather than raw-nest the built routers — a built router keeps its baked
-  // `surface.*` path, which would double-prefix to /surface/<key>/surface/…
-  const combinedContract: { surface: Record<string, unknown> } = {
-    surface: {},
-  };
-  for (const [key, { surface }] of Object.entries(entries)) {
-    // biome-ignore lint/suspicious/noExplicitAny: contract walk-by-string
-    combinedContract.surface[key] = (surface.contract as any).surface;
-  }
+  // Build a COMBINED contract `{ surface: { <key>: innerContract } }` via the
+  // same receptacle the contract side uses, so the envelope shape has a single
+  // definition. We re-key rather than raw-nest the built routers — a built
+  // router keeps its baked `surface.*` path, which would double-prefix to
+  // /surface/<key>/surface/…
+  const combinedContract = composeSurfaceContracts(
+    Object.fromEntries(Object.entries(entries).map(([k, e]) => [k, e.surface])),
+  );
   // biome-ignore lint/suspicious/noExplicitAny: oRPC implement chain is too dynamic for our runtime walk.
   const t = implement(combinedContract as any) as any;
 
