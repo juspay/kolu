@@ -10,7 +10,7 @@
 
 import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import { type Component, For, Show } from "solid-js";
+import { type Component, For, Match, Show, Switch } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
@@ -30,6 +30,22 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
   // works over http; only the one-click prompt + app badge need a secure context.
   const instr = () => installInstructions(props.install.platform());
 
+  // The Pin-it card is a four-state machine, not four overlapping booleans.
+  // One discriminant names the reachable states (mutually exclusive, evaluated
+  // top-down) so each renders in exactly one branch:
+  //   installed       — already a PWA
+  //   one-click       — a real install prompt exists (Chromium, secure origin)
+  //   manual-secure   — no prompt, but secure context (Safari/Firefox/iOS)
+  //   manual-insecure — plain-http origin: manual install works, badge needs HTTPS
+  const pinState = () =>
+    app.isInstalled()
+      ? "installed"
+      : props.install.canPrompt()
+        ? "one-click"
+        : app.canInstallPwa()
+          ? "manual-secure"
+          : "manual-insecure";
+
   return (
     <div class="space-y-3" data-testid="welcome-moments">
       {/* Pin it — one-click where a real prompt exists, else inline per-browser
@@ -40,52 +56,52 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
         </span>
         <div class="min-w-0 flex-1">
           <div class="text-sm font-medium text-fg">Pin it</div>
-          <Show
-            when={!app.isInstalled()}
-            fallback={
+          <Switch>
+            <Match when={pinState() === "installed"}>
               <div class="text-xs text-fg-3">Installed as an app ✓</div>
-            }
-          >
-            <Show
-              when={props.install.canPrompt()}
-              fallback={
-                <div data-testid="welcome-install-manual">
-                  <div class="text-xs text-fg-3">
-                    Add kolu as an app — its own window, dock icon, and a live
-                    agent badge.
-                  </div>
-                  <details class="mt-1 text-xs text-fg-3">
-                    <summary class="cursor-pointer text-accent hover:underline">
-                      {instr().title} →
-                    </summary>
-                    <ol class="mt-1 ml-4 list-decimal space-y-0.5">
-                      <For each={instr().steps}>{(s) => <li>{s}</li>}</For>
-                    </ol>
-                  </details>
-                  <Show when={!app.canInstallPwa()}>
-                    <div class="mt-1 text-xs text-fg-3">
-                      Want one-click install + the live badge? Serve over HTTPS
-                      —{" "}
-                      <a
-                        href={`${GUIDE_URL}#remote`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="text-accent hover:underline"
-                      >
-                        Tailscale →
-                      </a>
-                    </div>
-                  </Show>
-                </div>
-              }
-            >
+            </Match>
+            <Match when={pinState() === "one-click"}>
               <div class="text-xs text-fg-3">
                 Its own window, dock icon, and a live badge for finished agents.
               </div>
-            </Show>
-          </Show>
+            </Match>
+            <Match
+              when={
+                pinState() === "manual-secure" ||
+                pinState() === "manual-insecure"
+              }
+            >
+              <div data-testid="welcome-install-manual">
+                <div class="text-xs text-fg-3">
+                  Add kolu as an app — its own window, dock icon, and a live
+                  agent badge.
+                </div>
+                <details class="mt-1 text-xs text-fg-3">
+                  <summary class="cursor-pointer text-accent hover:underline">
+                    {instr().title} →
+                  </summary>
+                  <ol class="mt-1 ml-4 list-decimal space-y-0.5">
+                    <For each={instr().steps}>{(s) => <li>{s}</li>}</For>
+                  </ol>
+                </details>
+                <Show when={pinState() === "manual-insecure"}>
+                  <div class="mt-1 text-xs text-fg-3">
+                    Want one-click install + the live badge? Serve over HTTPS —{" "}
+                    <a
+                      href={`${GUIDE_URL}#remote`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-accent hover:underline"
+                    >
+                      Tailscale →
+                    </a>
+                  </div>
+                </Show>
+              </div>
+            </Match>
+          </Switch>
         </div>
-        <Show when={!app.isInstalled() && props.install.canPrompt()}>
+        <Show when={pinState() === "one-click"}>
           <button
             type="button"
             data-testid="welcome-install"
