@@ -63,7 +63,9 @@ lane_table() {
     [ -n "$node" ] || continue
     s="$(to_epoch "$sd" "$st")"; e="$(to_epoch "$ed" "$et")"
     [ -n "$s" ] && [ -n "$e" ] || continue
-    dur=$((e - s)); short="${node%@*}"
+    short="${node%@*}"
+    [ "$short" = "ci::default" ] && continue   # DAG root, empty body — not a real recipe
+    dur=$((e - s))
     lines+=("$dur|$short|${code:-?}")
     { [ -z "$minS" ] || [ "$s" -lt "$minS" ]; } && minS="$s"
     { [ -z "$maxE" ] || [ "$e" -gt "$maxE" ]; } && maxE="$e"
@@ -120,7 +122,7 @@ lane_md="$(lane_table x86_64-linux 3>/tmp/.lanewall.$$)"; lane_wall="$(cat /tmp/
   fi
   echo "The **x86_64-linux** lane ran on $host_desc — commit \`${PU_SHA:-?}\`, $verdict"
   echo
-  printf -- "- **Lane wall** (pipeline): **%ss**\n" "${lane_wall:-?}"
+  printf -- "- **Lane wall** (pipeline): **%s**\n" "$([ -n "$lane_wall" ] && fmt_dur "$lane_wall" || echo '?')"
   [ -n "$wrapper_wall" ] && printf -- "- **Wrapper wall** (incl. lease + nix-run startup): %s\n" "$wrapper_wall"
   echo
   echo "$lane_md"
