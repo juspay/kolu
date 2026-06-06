@@ -61,18 +61,6 @@ const mkSubDir = (name: string) => {
  *  session. Each worker getting its own dir eliminates the contention. */
 const claudeSessionsDir = mkSubDir("claude-sessions");
 const claudeProjectsDir = mkSubDir("claude-projects");
-// KOLU_X11CAP recordings launch the REAL claude, whose session lands in the
-// real ~/.claude/projects — so the dirs must be UNSET (not just left as-is) and
-// kolu must watch the real location (the dock then tracks the live agent). If a
-// developer already exported these, DELETE them so an inherited mock/custom dir
-// can't shadow the real one. Normal runs use the per-worker temp dirs.
-if (process.env.KOLU_X11CAP) {
-  delete process.env.KOLU_CLAUDE_SESSIONS_DIR;
-  delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
-} else {
-  process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
-  process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
-}
 
 /** Per-worker temp roots for the Codex and OpenCode mock harnesses —
  *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
@@ -81,14 +69,37 @@ if (process.env.KOLU_X11CAP) {
 const codexDir = mkSubDir("codex");
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
-// KOLU_X11CAP recordings launch the REAL codex (its session lands in the real
-// ~/.codex) — KOLU_CODEX_DIR must be UNSET so kolu watches the real location and
-// the dock tracks the live agent. Delete any inherited value so a developer's
-// exported override can't shadow the real dir. Normal runs use the temp mock dir.
-if (process.env.KOLU_X11CAP) {
-  delete process.env.KOLU_CODEX_DIR;
-} else {
-  process.env.KOLU_CODEX_DIR = codexDir;
+
+/** The agent-dir overrides that point kolu at the mock harnesses' temp dirs.
+ *  KOLU_X11CAP recordings launch the REAL claude/codex (whose sessions land in
+ *  the real ~/.claude/projects + ~/.codex), so every one of these must be ABSENT
+ *  — both deleted from `process.env` (so an inherited developer export can't
+ *  shadow the real dir) AND mapped to `undefined` in the server child env (so the
+ *  `...process.env` spread can't re-introduce one). The invariant — "this exact
+ *  set of vars is the temp-dir mapping normally, all-undefined under X11CAP" —
+ *  lives here once; the loop below mutates `process.env` from it and BeforeAll
+ *  spreads it into the child env. Add a new agent dir → add it here only. */
+const AGENT_DIR_VARS = [
+  "KOLU_CLAUDE_SESSIONS_DIR",
+  "KOLU_CLAUDE_PROJECTS_DIR",
+  "KOLU_CODEX_DIR",
+] as const;
+const agentDirEnv: Record<(typeof AGENT_DIR_VARS)[number], string | undefined> =
+  process.env.KOLU_X11CAP
+    ? {
+        KOLU_CLAUDE_SESSIONS_DIR: undefined,
+        KOLU_CLAUDE_PROJECTS_DIR: undefined,
+        KOLU_CODEX_DIR: undefined,
+      }
+    : {
+        KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
+        KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+        KOLU_CODEX_DIR: codexDir,
+      };
+for (const name of AGENT_DIR_VARS) {
+  const value = agentDirEnv[name];
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
 }
 process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 
@@ -491,22 +502,11 @@ BeforeAll(async () => {
           // `mkdtempSync`'s random suffix guarantees no collisions across
           // parallel workers or worktrees.
           KOLU_STATE_DIR: koluStateDir,
-          // KOLU_X11CAP: the server must watch the real ~/.claude/projects +
-          // ~/.codex so the dock tracks the launched agent live. We already
-          // delete these from process.env above, but set them to undefined here
-          // too so they're stripped from the child env even if the spread ever
-          // re-introduces an inherited value.
-          ...(X11CAP
-            ? {
-                KOLU_CLAUDE_SESSIONS_DIR: undefined,
-                KOLU_CLAUDE_PROJECTS_DIR: undefined,
-                KOLU_CODEX_DIR: undefined,
-              }
-            : {
-                KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
-                KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
-                KOLU_CODEX_DIR: codexDir,
-              }),
+          // The agent-dir overrides, derived once above: temp dirs normally,
+          // all-undefined under X11CAP so the `...process.env` spread can't
+          // re-introduce an inherited value and the server watches the real
+          // ~/.claude/projects + ~/.codex (the dock then tracks the live agent).
+          ...agentDirEnv,
           KOLU_OPENCODE_DB: opencodeDbPath,
         },
       },
