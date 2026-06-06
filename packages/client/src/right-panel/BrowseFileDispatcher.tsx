@@ -80,17 +80,18 @@ export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
   repoPath: string;
   filePath: string;
-  /** The repo's full file list (`fsListAll`), repo-relative — the vault a
-   *  `[[wikilink]]` resolves against, pathless. Threaded from `CodeTab` rather
-   *  than re-subscribed here so resolution shares the one live list. */
-  repoPaths: readonly string[];
-  /** Whether `repoPaths` is still settling (`fsListAll.pending()`). The file
-   *  list briefly resets to `[]` whenever that stream resubscribes (e.g. a
-   *  right-panel tab toggle), so a `[[wikilink]]` clicked in that window must
-   *  not resolve against the empty/stale snapshot — it would toast a bogus "no
-   *  file" or surface stale candidates. Mirrors the `openInCodeTab` pipeline,
-   *  which gates resolution on this same `pending()` for the same reason. */
-  repoPathsPending: boolean;
+  /** The repo's vault a `[[wikilink]]` resolves against — its full file list
+   *  (`fsListAll`, repo-relative, pathless) paired with that list's readiness,
+   *  threaded from `CodeTab` rather than re-subscribed here so resolution shares
+   *  the one live list. The two arrive as one value so they can't drift apart:
+   *  `paths` is the snapshot, `pending` says whether it's still settling
+   *  (`fsListAll.pending()`). The list briefly resets to `[]` whenever that
+   *  stream resubscribes (e.g. a right-panel tab toggle), so a `[[wikilink]]`
+   *  clicked in that window must read `pending` from the same object it would
+   *  resolve `paths` against — gating on the stale flag of a different snapshot
+   *  is exactly the mismatch this single value rules out. Mirrors the
+   *  `openInCodeTab` pipeline, which gates resolution on `pending()` likewise. */
+  repoVault: { paths: readonly string[]; pending: boolean };
   theme: "light" | "dark";
   initialSelectedLines?: SelectedLineRange | null;
   /** Forwarded to the iframe renderer so an in-iframe link click moves the
@@ -114,7 +115,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   );
 
   // ── Wikilink navigation ────────────────────────────────────────────
-  // A `[[Note]]` click resolves pathless against the whole repo (`repoPaths`),
+  // A `[[Note]]` click resolves pathless against the whole repo (`repoVault`),
   // GitHub/Obsidian-style. A unique hit opens through the same front door every
   // other "open this file" producer uses; a miss toasts; an ambiguous basename
   // (two `Note.md` in different folders) surfaces a disambiguation menu anchored
@@ -147,11 +148,11 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     // the user to retry rather than resolve a one-shot click against `[]`; the
     // list settles in a tick. (The `openInCodeTab` effect can simply re-run
     // when `pending()` flips — a click can't, hence the explicit guard.)
-    if (props.repoPathsPending) {
+    if (props.repoVault.pending) {
       toast.error("Repo file list still loading — try the link again");
       return;
     }
-    const res = resolveWikilink({ target, repoPaths: props.repoPaths });
+    const res = resolveWikilink({ target, repoPaths: props.repoVault.paths });
     if (res.kind === "none") {
       toast.error(`No file matching [[${target}]]`);
       return;
