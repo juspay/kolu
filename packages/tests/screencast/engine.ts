@@ -157,47 +157,51 @@ export async function transcodeToWeb(opts: {
   const mp4 = path.join(opts.outDir, `${opts.name}.mp4`);
   const webm = path.join(opts.outDir, `${opts.name}.webm`);
   const poster = path.join(opts.outDir, `${opts.name}.webp`);
-  // mp4: H.264, yuv420p + faststart for universal, instant-start playback.
-  await runFfmpeg([
-    "-y",
-    "-loglevel",
-    "error",
-    "-ss",
-    ss,
-    "-i",
-    opts.raw,
-    "-c:v",
-    "libx264",
-    "-crf",
-    "18",
-    "-preset",
-    "slow",
-    "-pix_fmt",
-    "yuv420p",
-    "-an",
-    "-movflags",
-    "+faststart",
-    mp4,
-  ]);
-  // webm: VP9 (CRF ~32 ≈ x264 crf 18 — NOT 18), served first where supported.
-  await runFfmpeg([
-    "-y",
-    "-loglevel",
-    "error",
-    "-ss",
-    ss,
-    "-i",
-    opts.raw,
-    "-c:v",
-    "libvpx-vp9",
-    "-b:v",
-    "0",
-    "-crf",
-    "32",
-    "-row-mt",
-    "1",
-    "-an",
-    webm,
+  // mp4 (H.264) and webm (VP9) both read from the raw source independently —
+  // encode them in parallel to halve wall-clock transcode time.
+  await Promise.all([
+    // mp4: H.264, yuv420p + faststart for universal, instant-start playback.
+    runFfmpeg([
+      "-y",
+      "-loglevel",
+      "error",
+      "-ss",
+      ss,
+      "-i",
+      opts.raw,
+      "-c:v",
+      "libx264",
+      "-crf",
+      "18",
+      "-preset",
+      "slow",
+      "-pix_fmt",
+      "yuv420p",
+      "-an",
+      "-movflags",
+      "+faststart",
+      mp4,
+    ]),
+    // webm: VP9 (CRF ~32 ≈ x264 crf 18 — NOT 18), served first where supported.
+    runFfmpeg([
+      "-y",
+      "-loglevel",
+      "error",
+      "-ss",
+      ss,
+      "-i",
+      opts.raw,
+      "-c:v",
+      "libvpx-vp9",
+      "-b:v",
+      "0",
+      "-crf",
+      "32",
+      "-row-mt",
+      "1",
+      "-an",
+      webm,
+    ]),
   ]);
   // poster: a representative frame as WebP (LCP element = video frame 1-ish).
   await runFfmpeg([

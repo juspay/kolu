@@ -781,7 +781,12 @@ After(async function (this: KoluWorld, scenario) {
     }
     // Guard against a truncated/empty grab (ffmpeg spawn failure, Xvfb gone):
     // transcoding a 0-byte clip would emit broken assets that still "succeed".
-    const rawSize = fs.existsSync(raw) ? fs.statSync(raw).size : 0;
+    let rawSize = 0;
+    try {
+      rawSize = fs.statSync(raw).size;
+    } catch {
+      // file missing — rawSize stays 0, falls through to the size check below
+    }
     if (rawSize < 1024) {
       throw new Error(
         `KOLU_X11CAP: raw clip ${raw} is missing or too small (${rawSize}B) — ` +
