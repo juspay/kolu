@@ -389,29 +389,35 @@ const tunnels = [
       read this first.
     </p>
 
-    <aside class="callout callout-danger">
-      <strong>Installing needs HTTPS — this is the #1 trap.</strong> Browsers only
-      install a web app from a <em>secure context</em>. The only HTTP origins that
-      qualify are loopback / <code>localhost</code>. A plain <code>http://</code> address
-      on a LAN (<code>192.168.x.x</code>) or a Tailscale <code>100.x</code> IP is
-      <strong>not</strong> secure — so there's <strong>no Install button at all</strong>.
-      If you can't install, you're almost certainly on HTTP. The fix is a real HTTPS
-      URL via Tailscale —
+    <aside class="callout callout-note">
+      <strong>You can pin kolu over plain HTTP — only <em>one-click</em> install needs
+      HTTPS.</strong> The automatic Install prompt and the address-bar Install icon
+      appear only on a <em>secure context</em> (<code>https://…</code> or loopback /
+      <code>localhost</code>), so on a plain <code>http://</code> LAN
+      (<code>192.168.x.x</code>) or Tailscale <code>100.x</code> address they won't
+      show — and the OS app badge and service workers are unavailable there too. You
+      can still <strong>install manually</strong> (Chrome's <em>Create shortcut →
+      Open as window</em>, iOS <em>Add to Home Screen</em>) — see each browser below.
+      For the frictionless one-click path <em>plus</em> the live badge, give kolu a
+      real HTTPS URL via Tailscale —
       <a href="#remote" class="guide-link">jump to Reach it anywhere ↓</a>.
     </aside>
 
     <p class="guide-body">
-      On a secure origin (<code>localhost</code> or an <code>https://…</code> URL),
-      install per browser:
+      Install per browser — the <strong>one-click</strong> paths need HTTPS or
+      <code>localhost</code>; the <strong>manual</strong> paths work over plain
+      <code>http://</code> too:
     </p>
 
     <div class="browser-grid">
       <div class="browser">
         <h4>Chromium desktop / Android</h4>
         <p>
-          Chrome, Edge, Brave, Arc. Look for the <strong>Install</strong> icon in
-          the address bar, or use the <strong>⋮ menu → Install app</strong>. This
-          is the one-click path.
+          Chrome, Edge, Brave, Arc. On HTTPS/localhost: the <strong>Install</strong>
+          icon in the address bar, or <strong>⋮ menu → Install app</strong> (the
+          one-click path). Over plain <code>http://</code>: <strong>⋮ → Save and
+          share → Create shortcut…</strong> and tick <strong>Open as window</strong>
+          for the same app window.
         </p>
       </div>
       <div class="browser">
@@ -456,7 +462,8 @@ const tunnels = [
       Here's the payoff that ties the last two sections together: the <em
         >same</em
       > Tailscale command that makes kolu reachable from your phone is what gives it
-      the HTTPS secure context a PWA needs to install. One move unlocks both.
+      the HTTPS secure context that unlocks <em>one-click</em> install and the app
+      badge. One move unlocks both.
     </p>
 
     <ol class="step-list">
@@ -524,7 +531,8 @@ const tunnels = [
     <aside class="callout callout-note">
       <strong>The full FQDN is mandatory.</strong> Use the complete
       <code>…ts.net</code> hostname. The bare machine name and the
-      <code>100.x</code> IP stay plain HTTP — no secure context, no install.
+      <code>100.x</code> IP stay plain HTTP — no secure context, so no one-click
+      install or app badge (manual pinning still works, as everywhere).
     </aside>
 
     <aside class="callout callout-danger">
@@ -705,16 +713,19 @@ const tunnels = [
       <details class="deep" open>
         <summary>
           <span class="deep-tag deep-tag-alert">#1</span>
-          I see no Install button
+          I see no one-click Install button
         </summary>
         <div class="deep-body">
           <p>
             You're almost certainly on plain <code>http://</code> — a LAN IP or a
-            Tailscale <code>100.x</code> address. Installing requires an HTTPS
-            secure context, so the browser hides the affordance entirely. Open the
+            Tailscale <code>100.x</code> address. The <em>automatic</em> Install
+            prompt needs an HTTPS secure context, so it's hidden there — but you can
+            still pin manually: <strong>Chrome ⋮ → Save and share → Create shortcut →
+            Open as window</strong>, or <strong>iOS Share → Add to Home Screen</strong>.
+            For the one-click prompt plus the live app badge, open the
             <code>https://…ts.net</code> URL from <a href="#remote" class="guide-link"
               >Reach it anywhere</a
-            > instead, and the Install / Add to Home Screen option appears.
+            >.
           </p>
         </div>
       </details>
@@ -727,9 +738,10 @@ const tunnels = [
         <div class="deep-body">
           <p>
             Yes — locally over <code>localhost</code> everything works, including
-            install (loopback is an HTTPS exemption). Tailscale only matters when
-            you want to reach kolu from another device <em>and</em> install it
-            there.
+            one-click install (loopback is an HTTPS exemption). Tailscale only
+            matters when you want to reach kolu from another device — and want the
+            frictionless one-click install plus app badge there (manual pinning
+            works over plain HTTP regardless).
           </p>
         </div>
       </details>

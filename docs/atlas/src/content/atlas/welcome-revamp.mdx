@@ -1,6 +1,6 @@
 ---
 title: "Welcome, revamped — pin it, reach it, run agents"
-description: A bird's-eye in-app welcome plus a full kolu.dev/welcome guide. The spine — the same `tailscale serve` that makes kolu reachable from your phone is what gives it the HTTPS secure context a PWA needs to install. One command unlocks both. Plan of record.
+description: A bird's-eye in-app welcome plus a full kolu.dev/welcome guide. The spine — the same `tailscale serve` that makes kolu reachable from your phone gives it the HTTPS secure context that unlocks one-click PWA install (you can still pin manually over plain HTTP). One command, both wins. Plan of record.
 kind: feature
 status: implemented
 maturity: seedling
@@ -80,12 +80,14 @@ kolu's two onboarding goals — **pin it as an app** and **reach it from
 anywhere** — look separate. They are the same action.
 
 A self-hosted kolu is almost always served over **plain HTTP** on a LAN
-(`192.168.x.x`) or Tailscale (`100.x`) address. Browsers refuse to install a
-PWA from there: installation requires a **secure context**, and the only
-non-HTTPS origins that qualify are loopback / `localhost`. So the blocker for
-*remote install* and the enabler for *remote access* are resolved by the very
-same `tailscale serve` — it gives kolu a real `https://…ts.net` origin. Tell it
-as **one story with one payoff**, never two features.
+(`192.168.x.x`) or Tailscale (`100.x`) address. You can still *pin* it from
+there — Chrome's *Create shortcut → Open as window* and iOS Safari's *Add to
+Home Screen* both work over `http://` — but the **frictionless one-click install**
+(the `beforeinstallprompt` prompt / omnibox install icon) and the **OS app
+badge** need a **secure context** (HTTPS, or the loopback/`localhost` set). The
+very same `tailscale serve` that makes kolu reachable from your phone gives it a
+real `https://…ts.net` origin — so it unlocks the **one-click** install *and*
+remote access in **one command**. Tell it as one story.
 
 export const Node = (props) => (
   <div style={`flex:1;min-width:0;border:1px solid ${props.c}66;border-radius:9px;background:${C.panel};padding:.6rem .55rem;text-align:center`}>
@@ -98,14 +100,14 @@ export const Arrow = () => (<div style={`flex:none;align-self:center;color:${C.f
 export const TailscaleBridge = () => (
   <div style="margin:1.6rem 0;max-width:40rem">
     <div style="display:flex;align-items:stretch;gap:.2rem">
-      <Node c={C.red} h="✗ Plain HTTP" s="http://100.x:PORT — no install, off-LAN unreachable" />
+      <Node c={C.amber} h="Plain HTTP" s="http://100.x:PORT — manual pin only, off-LAN unreachable" />
       <Arrow />
       <Node c={C.amber} h="tailscale serve" s="tailscale serve --bg PORT" />
       <Arrow />
       <Node c={C.green} h="✓ Real HTTPS" s="https://box.tailnet.ts.net" />
     </div>
     <div style={`display:flex;gap:.5rem;margin-top:.6rem;font:600 .68rem/1.3 ui-sans-serif,system-ui`}>
-      <div style={`flex:1;text-align:center;color:${C.green};border:1px dashed ${C.green}66;border-radius:8px;padding:.45rem`}>↳ secure context → <strong>Install unlocked</strong></div>
+      <div style={`flex:1;text-align:center;color:${C.green};border:1px dashed ${C.green}66;border-radius:8px;padding:.45rem`}>↳ secure context → <strong>1-click install + app badge</strong></div>
       <div style={`flex:1;text-align:center;color:${C.blue};border:1px dashed ${C.blue}66;border-radius:8px;padding:.45rem`}>↳ on your tailnet → <strong>Reachable anywhere</strong></div>
     </div>
   </div>
@@ -118,17 +120,26 @@ export const TailscaleBridge = () => (
 Four load-bearing claims, each adversarially fact-checked against current
 (2025–26) primary sources.
 
-<Callout kind="danger" title="No install over plain HTTP — and this is the #1 trap">
-Installability requires a **secure context**
-([W3C Secure Contexts §3.1](https://www.w3.org/TR/secure-contexts/)). The only
-HTTP origins that qualify are loopback (`127.0.0.0/8`, `::1`) and the
-`localhost` name family. A `192.168.x.x` LAN IP or a Tailscale `100.x` IP
-(CGNAT `100.64.0.0/10`) over `http://` is **not** secure: `beforeinstallprompt`
-never fires and Chromium shows **no install affordance at all**
-([MDN](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable)).
-**Never render an Install button or "install me" tip on an insecure origin** —
-it would be a dead control. The one correct runtime gate is
-`window.isSecureContext === true`.
+<Callout kind="warn" title="Plain HTTP: manual install works, one-click doesn't">
+Only the **automatic** path needs a **secure context**
+([W3C Secure Contexts §3.1](https://www.w3.org/TR/secure-contexts/): HTTPS, or
+the loopback/`localhost` set). Over `http://` on a `192.168.x.x` LAN IP or a
+Tailscale `100.x` IP, Chromium's `beforeinstallprompt` / omnibox install icon
+won't fire, and the **OS app badge** (Badging API) and **service workers** are
+unavailable. *That part is real.*
+
+But you can still **pin kolu manually** over plain HTTP — the common self-hosted
+case, and what most users actually do
+([MDN](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable),
+[web.dev](https://web.dev/learn/pwa/installation)):
+
+- **Chrome / Edge desktop**: ⋮ → *Save and share → Create shortcut…* → tick **Open as window** (a windowed app; no manifest install needed). *Confirmed working on macOS Chrome over http.*
+- **iOS Safari**: Share → **Add to Home Screen** — no HTTPS requirement; launches standalone via the manifest's `display`. *Confirmed working on iPhone Safari over http.*
+
+So `window.isSecureContext` gates **which affordance to offer**, not **whether
+install is possible**: on an insecure origin, show **manual instructions** (and
+recommend HTTPS for the one-click prompt + app badge) — never a dead one-click
+button, and never *"you can't install."*
 </Callout>
 
 - **Tailscale Serve = a genuine secure context.** `tailscale serve` reverse-proxies a local port and terminates TLS at `https://machine.tailnet.ts.net` with a real **Let's Encrypt** cert (DNS-01 against `*.ts.net`; private key never leaves your box) — browsers accept it with no warnings, so install + service workers unlock. <Pill variant="ok">confirmed</Pill> Caveats: enable **MagicDNS + HTTPS Certificates** once in the admin console; the **full FQDN** is mandatory (the bare hostname and the `100.x` IP are still plain HTTP); Serve is **tailnet-only**; the FQDN lands in public Certificate-Transparency logs, so don't bake secrets into machine names. ([Serve KB](https://tailscale.com/kb/1312/serve), [HTTPS KB](https://tailscale.com/kb/1153/enabling-https))
@@ -186,7 +197,7 @@ This is where the spine pays off. The card reads the runtime and renders one of
 three states — it **never** shows a button that can't work:
 
 export const states = [
-  { c: C.red, tag: "http:// (insecure)", title: "Installing needs HTTPS", body: "You're on http://box:7777. Set up Tailscale for a real HTTPS URL — then pin it.", cta: "How → Reach it anywhere", solid: false },
+  { c: C.amber, tag: "http:// (insecure)", title: "Pin it manually", body: "You're on http://box:7777. Use the browser menu (Create shortcut → Open as window) or Add to Home Screen. HTTPS via Tailscale adds one-click + a badge.", cta: "How → Reach it anywhere", solid: false },
   { c: C.green, tag: "https + Chromium", title: "Pin kolu to your dock", body: "Its own window, app icon, and a live badge for finished agents.", cta: "Install", solid: true },
   { c: C.blue, tag: "iOS Safari", title: "Add to Home Screen", body: "Tap Share ⬆ , then “Add to Home Screen”. (Instructions — iOS has no install button.)", cta: "Show me", solid: false },
 ];
@@ -213,12 +224,13 @@ export const InstallStates = () => (
 **Gate order** (apply top-down — the first match wins):
 
 ```
-1. !window.isSecureContext      → "needs HTTPS" hint → link to Tailscale section
-2. already installed            → render nothing
+1. already installed            → render nothing
      matchMedia('(display-mode: standalone)').matches
      || navigator.standalone === true
-3. secure + beforeinstallprompt → real one-click Install button (Chromium)
-4. secure, no event             → per-platform manual instructions (table below)
+2. secure + beforeinstallprompt → real one-click Install button (Chromium)
+3. secure, no event             → per-platform manual instructions (table below)
+4. !window.isSecureContext      → manual-install instructions (browser menu /
+     Add to Home Screen) + recommend HTTPS via Tailscale for one-click + badge
 ```
 
 **Per-platform instruction set** (render the literal glyph as inline SVG next to
@@ -232,7 +244,7 @@ numbered steps — visual beats prose):
 | iOS — Safari / Chrome / Edge / Firefox (16.4+) | Illustrated **Share ⬆ → Add to Home Screen** (instructions, not a button) |
 | Safari desktop (macOS Sonoma / Safari 17+) | **File → Add to Dock** (works on any page; no event) |
 | Firefox desktop | Native install not shipped yet (experimental *Taskbar Tabs*) — suggest Chrome/Edge |
-| Any non-secure origin (`http://`) | The HTTPS/Tailscale hint — never an Install button |
+| Any non-secure origin (`http://`) | Manual-pin steps — Chrome *Create shortcut → Open as window*, iOS *Add to Home Screen* — plus *"HTTPS via Tailscale adds one-click + a badge."* Never a dead one-click button |
 
 <Callout kind="good" title="Fact-check (June 2026): non-Chromium still installs — just not via JS">
 The "`beforeinstallprompt` is Chromium-only" claim is accurate **about the
@@ -267,9 +279,9 @@ a focused SolidJS adapter alongside `solid-pierre` / `solid-markdown` /
 </Callout>
 
 The existing tip-gate (<Cite file="packages/client/src/settings/useTips.ts" lines="14" />)
-already filters `amb-pwa-install` when installed; extend that to also drop it on
-an insecure origin — a passive "install me" tip is just as dead as a button on
-`http://`.
+already filters `amb-pwa-install` when installed. Its copy points at the **browser
+menu**, which *does* work over plain HTTP — so the tip stays useful on an insecure
+origin; only drop it once actually installed.
 
 ## The full guide — kolu.dev/welcome
 
