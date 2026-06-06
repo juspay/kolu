@@ -170,7 +170,7 @@ async function focusApp(data) {
     await client.focus();
     client.postMessage({ type: ${JSON.stringify(SW_MESSAGE_TYPE)}, data });
   } else {
-    await self.clients.openWindow(data.url || "/");
+    await self.clients.openWindow("/");
   }
 }
 `;
