@@ -438,3 +438,20 @@ the `KOLU_CLAUDE_*_DIR` overrides so kolu watches the **real** `~/.claude/projec
 **~27s / ~1.3 MB** clip. Reusable bits factored into `helpers.ts`
 (`setupSingleTerminal`, `launchAgentAndAsk`, theme-aware `newTerminal`) for the
 next single-terminal demo.
+
+**11 · Polish: codex (privacy) + clean empty-canvas open + Vaughn theme.**
+Claude Code's banner prints your name/email/plan — bad for a public clip — and
+there's no flag to hide it (the reproducible scrub would be a separate
+`CLAUDE_CONFIG_DIR` profile). **codex** is identity-neutral (provider/model/
+session-uuid only), so the demo switched to it: interactive `codex
+--ask-for-approval never --sandbox read-only` (the `--dangerously-bypass…`
+interactive mode shows a danger-confirm the prompt dismisses → codex exits; exec
+mode isn't interactive so the dock never reaches `awaiting`). Same real-dir fix
+as claude via `KOLU_CODEX_DIR`. Two more fixes: the **dock state is `data-bucket`**
+("working"/"awaiting"), not the raw `data-agent-state` — polling the wrong one
+made clips run 70–150s; and the **app-mode session auto-restores a terminal**, so
+`setupSingleTerminal` `killAll`s it for a genuinely empty opening canvas (then
+creates one **Vaughn**-themed terminal on camera), with `trimStart` skipping the
+load-in. The clip now opens on the empty welcome → terminal → `git clone` kolu →
+codex answers *"Explain this project, in 5 lines"* → the **dock row glows at
+`awaiting`**. ~35s.

@@ -21,6 +21,22 @@ export const setActiveTheme = (name?: string): void => {
  */
 export async function setupSingleTerminal(world: KoluWorld): Promise<string> {
   await world.waitForReady();
+  // Guarantee a clean empty canvas to open on: clear any pre-existing terminal
+  // (the app-mode session can carry one), then wait for the canvas to empty.
+  await world.page
+    .evaluate(() =>
+      fetch("/rpc/terminal/killAll", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    )
+    .catch(() => undefined);
+  for (let i = 0; i < 20; i++) {
+    if ((await world.terminalIds()).length === 0) break;
+    await pause(world, 300);
+  }
+  await pause(world, 3500); // beat on the empty canvas (wide, for a clean trim)
   const id = await newTerminal(world);
   await pause(world, 600);
   await nudgeClearOfDock(world);
@@ -74,22 +90,34 @@ export async function newTerminal(world: KoluWorld): Promise<string> {
   return id;
 }
 
-/** claude, trust-prompt skipped, on the cheap model — the default demo agent.
- *  `--dangerously-skip-permissions` drops the "trust this folder" gate so the
- *  agent boots straight to its input; `--model sonnet` keeps token cost down. */
+/** claude on the cheap model. `--dangerously-skip-permissions` drops per-tool
+ *  prompts but NOT the folder-trust gate (accept it via `acceptTrustGate`).
+ *  Shows the account banner (name/email/plan) — use {@link CODEX_AUTONOMOUS}
+ *  for clips that must not surface personal identity. */
 export const CLAUDE_SONNET =
   "claude --dangerously-skip-permissions --model sonnet";
+
+/** codex, INTERACTIVE + autonomous: `--ask-for-approval never` (no per-command
+ *  prompts) + `--sandbox read-only` (safe; enough to read + explain — and it
+ *  avoids the `--dangerously-bypass…` danger-confirmation). Stays interactive so
+ *  the dock reaches `awaiting` after it answers. Identity-neutral startup
+ *  (provider/model/session-uuid — no name/email/plan), so it's the default. */
+export const CODEX_AUTONOMOUS =
+  "codex --ask-for-approval never --sandbox read-only";
 
 export interface LaunchAgentOptions {
   /** Agent CLI + flags. Defaults to {@link CLAUDE_SONNET}. */
   command?: string;
-  /** A prompt to submit once the agent is up (skipped if absent). */
+  /** The prompt, typed after the agent is up (skipped if absent). */
   prompt?: string;
-  /** ms to wait for the first-run folder-trust gate to appear. */
+  /** Press Enter once to accept a first-run trust prompt (claude's folder-trust
+   *  gate, codex's directory-trust). Default true. */
+  acceptTrustGate?: boolean;
+  /** ms to wait for the trust prompt / startup intro before pressing Enter. */
   trustMs?: number;
-  /** ms to wait for the agent to load the project before typing the prompt. */
+  /** ms to wait for the agent to be ready for input before typing the prompt. */
   bootMs?: number;
-  /** ms to hold on the answer once the agent goes idle (dock → awaiting). */
+  /** ms to hold on the finished answer (dock glowing at awaiting). */
   dwellMs?: number;
 }
 
@@ -111,8 +139,10 @@ export async function launchAgentAndAsk(
   opts: LaunchAgentOptions = {},
 ): Promise<void> {
   await world.terminalRun(opts.command ?? CLAUDE_SONNET);
-  await pause(world, opts.trustMs ?? 2500); // folder-trust gate appears
-  await world.page.keyboard.press("Enter"); // accept "Yes, I trust this folder"
+  if (opts.acceptTrustGate ?? true) {
+    await pause(world, opts.trustMs ?? 2500); // folder-trust gate appears
+    await world.page.keyboard.press("Enter"); // accept "Yes, I trust this folder"
+  }
   await pause(world, opts.bootMs ?? 2500); // agent loads, ready for input
   if (!opts.prompt) return;
 

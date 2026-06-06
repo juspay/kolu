@@ -57,19 +57,25 @@ export const recording: Recording = {
 
 ### `helpers.ts` (the reusable patterns — extend these, don't re-roll)
 
-- `setupSingleTerminal(world)` — the single-terminal-demo opening: themed
-  terminal nudged clear of the dock. Returns the id.
-- `launchAgentAndAsk(world, { prompt })` — launch `CLAUDE_SONNET`, accept the
-  folder-trust gate, submit a prompt, dwell while the dock tracks the agent.
+- `setupSingleTerminal(world)` — the single-terminal-demo opening: clears any
+  auto-restored terminal (clean empty canvas), beats on it, then creates one
+  themed terminal nudged clear of the dock. Returns the id.
+- `launchAgentAndAsk(world, { command, prompt, … })` — launch an agent and ask
+  it something; waits for the dock bucket `working → awaiting`, glows the
+  awaiting row, then holds. `CODEX_AUTONOMOUS` (codex, identity-neutral — no
+  email/name banner) is the default agent; `CLAUDE_SONNET` exists but shows the
+  account banner. Codex needs `acceptTrustGate: false` + a generous `bootMs`
+  (slow typewriter intro); claude needs `acceptTrustGate: true`.
 - `newTerminal(world)` — create a terminal + pin the recording's theme (via the
   `setTheme` RPC; no palette flash).
-- `pause`, `setActiveTheme`, `CLAUDE_SONNET`.
+- `pause`, `setActiveTheme`, `CODEX_AUTONOMOUS`, `CLAUDE_SONNET`.
 
 ## Gotchas (learned the hard way)
 
 - **`ffmpeg-full`, not `ffmpeg`** — plain nixpkgs ffmpeg is built `--disable-xlib`, so it has no x11grab device.
 - **No window manager under Xvfb** — so F11 / the Fullscreen API can't drop Chrome's chrome mid-clip. A browser→app transition needs two concatenated segments, not an in-clip toggle.
-- **Dock won't track the agent unless kolu watches the REAL `~/.claude/projects`.** `hooks.ts` omits the `KOLU_CLAUDE_*_DIR` overrides under `KOLU_X11CAP` so the server sees the launched claude (the mock-harness temp dirs would hide it).
-- **`--dangerously-skip-permissions` does NOT skip the folder-trust gate** — only per-tool prompts. `launchAgentAndAsk` accepts the gate explicitly.
-- **Trim the leading blank** — capture starts before the first navigation; `transcodeToWeb({ trimStart })` drops it.
+- **Dock won't track the agent unless kolu watches the REAL dirs.** `hooks.ts` omits the `KOLU_CLAUDE_*_DIR` + `KOLU_CODEX_DIR` overrides under `KOLU_X11CAP` so the server sees the launched agent (the mock-harness temp dirs would hide it). The dock's high-level state is `data-bucket` ("working"/"awaiting"), NOT the raw `data-agent-state` ("thinking"/"tool_use"/"waiting") — poll the bucket.
+- **codex: don't use `--dangerously-bypass-approvals-and-sandbox` interactively** — it shows a danger-confirmation that the prompt then dismisses (codex exits). Use `--ask-for-approval never --sandbox read-only` (autonomous, safe, no confirm). It also has a slow typewriter intro — wait it out before typing.
+- **`claude --dangerously-skip-permissions` does NOT skip the folder-trust gate** — only per-tool prompts. `launchAgentAndAsk` accepts the gate explicitly (claude); codex shows no gate (`acceptTrustGate: false`).
+- **The app-mode session auto-restores a terminal** — even after the harness's session reset, a terminal reappears on reload. `setupSingleTerminal` `killAll`s it for a clean empty canvas; `transcodeToWeb({ trimStart })` then skips the (multi-second) load-in + killAll so the clip opens on the empty welcome.
 - **`chrome: "app"` vs `"browser"`** — "app" launches a chromeless `--app=` window (the installed-PWA surface, used by the demo); "browser" keeps real tabs + address bar. A browser→app transition *within* one clip isn't possible here (no WM to drop the chrome) — it'd need two concatenated segments.

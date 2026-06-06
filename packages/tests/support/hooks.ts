@@ -77,7 +77,12 @@ if (!process.env.KOLU_X11CAP) {
 const codexDir = mkSubDir("codex");
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
-process.env.KOLU_CODEX_DIR = codexDir;
+// KOLU_X11CAP recordings launch the REAL codex (its session lands in the real
+// ~/.codex) — leave KOLU_CODEX_DIR unset so kolu watches the real location and
+// the dock tracks the live agent. Normal runs use the temp mock dir.
+if (!process.env.KOLU_X11CAP) {
+  process.env.KOLU_CODEX_DIR = codexDir;
+}
 process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 
 /** Fake agent binaries the codex/opencode mock scenarios invoke by
@@ -472,15 +477,16 @@ BeforeAll(async () => {
           // `mkdtempSync`'s random suffix guarantees no collisions across
           // parallel workers or worktrees.
           KOLU_STATE_DIR: koluStateDir,
-          // KOLU_X11CAP: omit the claude dir overrides so the server watches the
-          // real ~/.claude/projects and the dock tracks the launched agent live.
+          // KOLU_X11CAP: omit the claude/codex dir overrides so the server
+          // watches the real ~/.claude/projects + ~/.codex and the dock tracks
+          // the launched agent live.
           ...(X11CAP
             ? {}
             : {
                 KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
                 KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+                KOLU_CODEX_DIR: codexDir,
               }),
-          KOLU_CODEX_DIR: codexDir,
           KOLU_OPENCODE_DB: opencodeDbPath,
         },
       },
@@ -738,7 +744,10 @@ After(async function (this: KoluWorld, scenario) {
         raw: x11RawPath,
         outDir: demoOutDir,
         name,
-        trimStart: 0.4,
+        // Skip the app-mode load-in + Background reload + the killAll that
+        // clears the auto-restored terminal, so the clip opens on the clean
+        // empty-canvas welcome (then the terminal is created on camera).
+        trimStart: 5.3,
         posterAt: 2,
       })
       .then((out) =>

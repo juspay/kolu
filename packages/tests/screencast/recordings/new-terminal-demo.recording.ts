@@ -2,7 +2,12 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { launchAgentAndAsk, pause, setupSingleTerminal } from "./helpers";
+import {
+  CODEX_AUTONOMOUS,
+  launchAgentAndAsk,
+  pause,
+  setupSingleTerminal,
+} from "./helpers";
 import type { Recording } from "./types";
 
 // The demo clones kolu itself into ~/demo — a real, recognizable repo over the
@@ -49,9 +54,15 @@ export const recording: Recording = {
     await world.terminalRun("cd kolu");
     await pause(world, 600);
 
-    // The reusable climax: launch the agent (trust-skipped, sonnet) and ask it
-    // something — the dock row pulses through working → awaiting as it answers.
+    // The reusable climax: launch codex (interactive + autonomous; identity-
+    // neutral banner, unlike claude's name/email/plan) and ask it something —
+    // the dock row pulses through working → awaiting as it answers. Codex shows
+    // no trust gate (banner → input directly), so don't press Enter; give its
+    // typewriter intro a generous beat to become input-ready before typing.
     await launchAgentAndAsk(world, {
+      command: CODEX_AUTONOMOUS,
+      acceptTrustGate: false,
+      bootMs: 7000,
       prompt: "Explain this project, in 5 lines",
     });
   },
