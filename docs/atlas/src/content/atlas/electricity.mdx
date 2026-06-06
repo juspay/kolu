@@ -77,6 +77,28 @@ Every row above is a **boundary** electricity — a socket over a place where by
 
 These never surface in a package audit because their *correct* form **deletes code rather than adding a folder**. That is the signature of family B: the receptacle is a *smaller surface*, not a new noun. Where family A asks *"what boundary is volatile?"*, family B asks *"what rule am I trusting myself to remember?"* — and both clear Löwy's bar (a volatility encapsulated so the blast radius of a change stays contained). Note the connection: snapshot→deltas appears in **both** families — surface (A) defines the contract, but its server-side enforcement is still a family-B invariant leaking out. The two families meet exactly where an electricity is half-built.
 
+## A third family: appliance electricities (blob → safe view)
+
+Families A and B miss the *largest* cluster of rows. solid-markdown, solid-pierre, transcript-html, the planned solid-xterm, the anchoring core — none is a boundary, none is an invariant. They are **appliances**: each takes a *typed blob* and returns a *safe, addressable, disposable view*, hiding the volatility of the rendering stack itself.
+
+> An **appliance electricity** absorbs two churning things behind a stable `(blob, host) → view` interface: (1) the *rendering tech* — which parser, which sanitiser after the next CVE, GPU vs canvas, the next xterm major — and (2) the *growing set of content-types*. The domain ("render *this file* in the Code tab") is the appliance that plugs in; the receptacle never learns it.
+
+| Appliance | Blob in | Volatility absorbed |
+| --- | --- | --- |
+| `@kolu/solid-markdown` | markdown text | marked → DOMPurify → Shiki; the *sanitiser* moves with every XSS CVE |
+| `@kolu/solid-pierre` | file / unified diff | Pierre tree/diff internals, theme churn |
+| `@kolu/solid-xterm` *(to build)* | PTY byte stream | xterm majors, 8-addon orchestration, WebGL context-loss |
+| `@kolu/transcript-core`+`-html` | agent transcript | transcript schema + render |
+| anchoring core *(in artifact-sdk)* | a `Range` in a rendered doc | W3C quote re-find as the DOM mutates |
+
+Now the whole table has a shape — every electricity is exactly one of three kinds:
+
+- **A · Boundary** — a live value across a place you don't control. *(surface · pty-host · nix-host · the bridge transport)*
+- **B · Invariant** — a rule run the same way at every call-site, silent when forgotten. *(snapshot→deltas · owner-correctness · validate-on-read · expected-abort)*
+- **C · Appliance** — a typed blob turned into a safe, addressable view. *(solid-markdown · solid-pierre · solid-xterm · transcript · anchoring)*
+
+And the two **compositions** on the table — `solid-browser` and `solid-fileview` — are revealed for what they are: *not electricities but wiring* that routes a blob (A: link interception) to the right appliance (C) and owns *addressing into* the result (location/history). That is exactly why solid-fileview tested as a leaf in the table above: **a composition of electricities is not itself one.** It also tells you where to look for the *next* one — the seams *between* families, where addressing (anchoring, location) spans A and C, are where the un-named infrastructure hides.
+
 ## The real test: does the method *generate*, or only *recognise*?
 
 A tracker recognises electricity after it ships; a method *predicts* it. Surface sits in the "done" column — but surface only *proves* the method if the method would have **produced** it from "a client and a server talk over a wire," before anyone wrote a line. So the honest test of this whole note is **forward**, not backward: run the procedure on kolu *as it stands today* and write down the electricities it predicts that don't exist yet. If they later ship and a second consumer plugs in, the method generated them. If the predicted axis never actually moves, the method hallucinated one (see falsification, below). Three standing bets, in falsifiable form:
