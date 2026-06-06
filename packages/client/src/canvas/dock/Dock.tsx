@@ -242,7 +242,18 @@ const RailOrCards: Component<{
           </For>
         </Show>
       </div>
-      <HiddenFooter parkedCount={props.tree.parkedCount} />
+      {/* Footer carries the activity-window control + "N hidden by …
+       *  window" disclosure. It governs which rows the window parks, so
+       *  it only earns its place once there is something to park or
+       *  show: at true zero (no visible rows AND nothing parked — the
+       *  empty-canvas Dock) it would read a meaningless "0 hidden by …
+       *  window" and, in rail mode, clip inside the 44px rail under the
+       *  aside's `overflow-hidden`. The all-parked case (no visible rows
+       *  but `parkedCount > 0`) still needs it — that is exactly when
+       *  "show all" is the way back. */}
+      <Show when={props.tree.flatRows.length > 0 || props.tree.parkedCount > 0}>
+        <HiddenFooter parkedCount={props.tree.parkedCount} />
+      </Show>
     </div>
   );
 };

@@ -28,9 +28,20 @@ export type ViewPostureMode = "tiled" | "maximized";
 export function useViewPosture() {
   const store = useTerminalStore();
   return {
-    /** Current canvas-display mode. */
+    /** Current canvas-display mode. `"maximized"` requires a tile to
+     *  maximize: with zero terminals the canvas is the empty/restore
+     *  screen, which has no tile, so the posture is always `"tiled"`
+     *  there regardless of the persisted `kolu-canvas-maximized` flag.
+     *  This is a derivation, not a mutation — the persisted preference
+     *  is left intact so it re-applies the moment a terminal returns.
+     *  It also keeps the empty-canvas Dock (mounted by App.tsx, see
+     *  `Dock.tsx`) in its only reachable posture, instead of taking the
+     *  maximized flush-sidebar classes inside a non-flex host and
+     *  pushing the welcome card off-screen. */
     mode: (): ViewPostureMode =>
-      store.canvasMaximized() ? "maximized" : "tiled",
+      store.canvasMaximized() && store.terminalIds().length > 0
+        ? "maximized"
+        : "tiled",
     /** Toggle between tiled canvas and maximized. Single writer. */
     toggle: store.toggleCanvasMaximized,
   } as const;
