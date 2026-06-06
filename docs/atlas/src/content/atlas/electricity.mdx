@@ -214,6 +214,15 @@ The boldest structural claim of the pass: apply Löwy's **sequence-vs-activity**
 - **Evidence — half-separated:** the *Engine* is already a clean seam — `websocket` / `stdio` / `direct` links all return the same client interface (<Cite file="packages/surface/src/links/_wire.ts" lines="1-9" />). But the *Manager* is still braided to it: `createServerLifecycle({ ws, probe })` derives connecting/connected/reconnected/**restarted** by listening to the raw socket's `open`/`close` (<Cite file="packages/surface-app/src/solid/index.ts" lines="87-103" />), and the retry plugin re-snapshots on reconnect *separately* — two uncoordinated responders to one socket event.
 - **Verdict — candidate (don't split yet):** the seam is real and named, but the axis hasn't *moved* enough to force the split (one transport family in anger so far). Flagged as the place surface will *cleave* if a second transport's lifecycle (e.g. stdio resume semantics) diverges from websocket's. The `postMessageLink` [forward bet](#the-real-test-does-the-method-generate-or-only-recognise) is the most likely trigger: a fourth boundary whose liveness differs is what turns one electricity into a Manager + an Engine.
 
+### 📤 `view → portable artifact` — export (Family C-adjacent) · <Pill variant="run">candidate · defer</Pill>
+
+The crop's clearest *"real axis, wrong time"* — and a lesson in not extracting on momentum.
+
+- **Axis:** turn a live, rendered view into a standalone exportable artifact; the *set of formats and sinks* churns (HTML, PDF, PNG, JSON, WebM…).
+- **The sentence:** *every time we add an export, we re-write `gather view state → serialize → package → hand to a sink`.*
+- **Evidence — the shape is real and growing:** five formats in seven weeks — `exportSessionAsHtml`, `exportScrollbackAsPdf`, `screenshotTerminal` (PNG→clipboard), `sessionTransfer` (JSON), `recorder/` (WebM); the leaf `download.ts` (`triggerDownload`) is *already* shared by two of them.
+- **Why defer (the falsifier bites):** each export *welds* its own source to its own sink with **different** readiness guards (popup-block fallback vs hard-error vs clipboard-absent) — the parameters-and-conditionals smell that says *the cases aren't the same thing yet*. No second consumer of a different shape. Verdict: **revisit at the 6th format or a non-UI (CLI) consumer**; until then it's a folder waiting to become wrong. The honest call here is *not* to extract — which is the point of having a method instead of an appetite.
+
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
 package. It holds **two** volatilities: (1) the **anchoring core** (`core/` — W3C
