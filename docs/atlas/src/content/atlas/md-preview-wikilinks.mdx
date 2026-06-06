@@ -136,7 +136,7 @@ callback, and the `openInCodeTab` front door. Wikilinks add a *parser* in front
 of it and a *resolver + menu* behind it.
 
 <D2
-  caption="The added pieces (accent) bracket the existing open-in-Code-tab front door. The marked extension mints a distinct data-md-wikilink anchor; a dedicated host callback carries the clicked element so an ambiguous target can anchor a menu to it; resolveWikilink surfaces candidates instead of collapsing to null. The sanitizer gains one allowlisted marker (and a guard so raw HTML can't spoof it); the front door and the file list are untouched."
+  caption="The added pieces (accent) bracket the existing open-in-Code-tab front door. The marked extension mints a distinct data-md-wikilink anchor; a dedicated host callback carries the clicked element so an ambiguous target can anchor a menu to it; resolveWikilink surfaces candidates instead of collapsing to null. The sanitizer gains one allowlisted marker (and a guard that strips it from any escaping href — external URL, unsafe scheme, or fragment — so an untrusted document can't route those through the wikilink resolver); the front door and the file list are untouched."
   code={`direction: down
 md: "@kolu/solid-markdown" {
   ext: "markedWikilink() — NEW · parses [[Note]] [[a|b]] [[a#h]] ![[embed]] → distinct data-md-wikilink anchor"
@@ -200,10 +200,14 @@ open-in-Code-tab front door. The genuinely new volatility — "how does this
 token's target become a path, and what happens when it's ambiguous?" — is
 isolated to one marked extension, one resolver, and one dispatcher branch. The
 sanitizer's only contact is mechanical, not conceptual: it allowlists the
-`data-md-wikilink` marker so the parser's tag survives, and guards it (only a
-safe, scheme-less internal target keeps the marker; a raw-HTML anchor that spoofs
-it falls through to the normal link policy) — it never learns what a wikilink
-*means*. The file list and the front door are untouched.
+`data-md-wikilink` marker so the parser's tag survives, and guards it (the marker
+is honored only for a safe, scheme-less, non-fragment href; an *escaping* one —
+external URL, unsafe scheme, or `#frag` — is stripped of the marker and falls
+through to the normal link policy). A README's raw HTML can still mint the marker
+on a safe internal path, and that's deliberately kept: it just routes through the
+host's pathless resolver instead of the directory-relative one, and both stay
+internal — neither escapes the app origin. The sanitizer never learns what a
+wikilink *means*. The file list and the front door are untouched.
 </Callout>
 
 The earlier instinct to call resolution "moderate effort" was wrong: it assumed a
