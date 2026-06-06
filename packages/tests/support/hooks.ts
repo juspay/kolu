@@ -178,6 +178,11 @@ const EVIDENCE_VIEWPORT = { width: 1280, height: 720 };
 const X11CAP = !!process.env.KOLU_X11CAP;
 const X11_SCALE = 2;
 const X11_VIEWPORT = { width: 1280, height: 720 }; // logical; physical = ×scale
+/** Driver-pacing for recorded clips (ms between Playwright actions). Both
+ *  X11CAP launch paths — the app-mode persistent context and the global headful
+ *  browser — reference this so app-mode and browser-chrome clips share one
+ *  capture cadence. */
+const X11_SLOWMO = 250;
 const X11_SCREEN = engine.physicalSize({
   viewport: X11_VIEWPORT,
   scale: X11_SCALE,
@@ -384,7 +389,7 @@ async function newScenarioPage(
       baseURL: baseUrl,
       ignoreHTTPSErrors: true,
       permissions: ["clipboard-write", "clipboard-read"],
-      slowMo: 250,
+      slowMo: X11_SLOWMO,
     });
     const page = context.pages()[0] ?? (await context.waitForEvent("page"));
     return { context, page };
@@ -558,7 +563,7 @@ BeforeAll(async () => {
     // Pace driver actions so the recorded video is legible (the lead-up; the
     // app's own async — e.g. an iframe reload — still runs at real speed, so
     // the payoff is shown via the scenario's own waits).
-    ...(EVIDENCE || X11CAP ? { slowMo: 250 } : {}),
+    ...(EVIDENCE || X11CAP ? { slowMo: X11_SLOWMO } : {}),
   });
 });
 
