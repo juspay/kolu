@@ -564,7 +564,9 @@ Before(async function (this: KoluWorld, scenario) {
       json: {
         // Reset all preferences to defaults (shuffleTheme off for deterministic tests)
         seenTips: [],
-        startupTips: true,
+        // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
+        // tip banners popping in mid-shot. Normal e2e runs keep them on.
+        startupTips: !X11CAP,
         shuffleTheme: false,
         scrollLock: true,
         activityAlerts: true,
@@ -608,6 +610,17 @@ Before(async function (this: KoluWorld, scenario) {
       document.addEventListener("DOMContentLoaded", function() {
         var style = document.createElement("style");
         style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
+        document.head.appendChild(style);
+      });
+    `);
+  }
+  // KOLU_X11CAP: recordings want a quiet canvas — suppress the ambient tip
+  // banner unconditionally (it's desktop-always-on, not the startupTips pref).
+  if (X11CAP) {
+    await this.page.addInitScript(`
+      document.addEventListener("DOMContentLoaded", function() {
+        var style = document.createElement("style");
+        style.textContent = '[data-testid="tip-banner"] { display: none !important; }';
         document.head.appendChild(style);
       });
     `);
