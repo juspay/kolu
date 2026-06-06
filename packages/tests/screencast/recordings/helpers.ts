@@ -13,6 +13,44 @@ export const setActiveTheme = (name?: string): void => {
   activeTheme = name;
 };
 
+/**
+ * The shared opening for a single-terminal demo: wait for the app, create one
+ * themed terminal, and nudge its tile clear of the (visible) dock so the dock
+ * doesn't overlap the content. Returns the terminal id. Recordings then just
+ * run their commands.
+ */
+export async function setupSingleTerminal(world: KoluWorld): Promise<string> {
+  await world.waitForReady();
+  const id = await newTerminal(world);
+  await pause(world, 600);
+  await nudgeClearOfDock(world);
+  await pause(world, 400);
+  return id;
+}
+
+/** Drag the active tile right just far enough that the dock no longer covers
+ *  it (dock-width-aware, with a small margin). No-op if already clear. */
+async function nudgeClearOfDock(world: KoluWorld): Promise<void> {
+  const dock = await world.page
+    .locator('[data-testid="dock"]')
+    .boundingBox()
+    .catch(() => null);
+  const bar = world.page
+    .locator('[data-testid="canvas-tile-titlebar"]')
+    .first();
+  const tile = await bar.boundingBox().catch(() => null);
+  if (!dock || !tile) return;
+  const delta = dock.x + dock.width + 24 - tile.x; // clear the dock + 24px
+  if (delta <= 0) return;
+  const sx = tile.x + tile.width / 2;
+  const sy = tile.y + tile.height / 2;
+  await world.page.mouse.move(sx, sy);
+  await world.page.mouse.down();
+  await world.page.mouse.move(sx + delta, sy, { steps: 12 });
+  await world.page.mouse.up();
+  await world.waitForFrame();
+}
+
 /** Create a terminal and pin the recording's theme on it (via the `setTheme`
  *  RPC — invisible, no palette flash). Use instead of `world.createTerminal()`
  *  in recordings so clips share a consistent look. */

@@ -61,8 +61,14 @@ const mkSubDir = (name: string) => {
  *  session. Each worker getting its own dir eliminates the contention. */
 const claudeSessionsDir = mkSubDir("claude-sessions");
 const claudeProjectsDir = mkSubDir("claude-projects");
-process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
-process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
+// KOLU_X11CAP recordings launch the REAL claude, whose session lands in the
+// real ~/.claude/projects — so leave the dirs unset and let kolu watch the real
+// location (the dock then tracks the live agent). Normal runs use the per-worker
+// temp dirs for the mock harness.
+if (!process.env.KOLU_X11CAP) {
+  process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
+  process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
+}
 
 /** Per-worker temp roots for the Codex and OpenCode mock harnesses —
  *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
@@ -466,8 +472,14 @@ BeforeAll(async () => {
           // `mkdtempSync`'s random suffix guarantees no collisions across
           // parallel workers or worktrees.
           KOLU_STATE_DIR: koluStateDir,
-          KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
-          KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+          // KOLU_X11CAP: omit the claude dir overrides so the server watches the
+          // real ~/.claude/projects and the dock tracks the launched agent live.
+          ...(X11CAP
+            ? {}
+            : {
+                KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
+                KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+              }),
           KOLU_CODEX_DIR: codexDir,
           KOLU_OPENCODE_DB: opencodeDbPath,
         },

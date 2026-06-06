@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { launchAgentAndAsk, newTerminal, pause } from "./helpers";
+import { launchAgentAndAsk, pause, setupSingleTerminal } from "./helpers";
 import type { Recording } from "./types";
 
 // The demo clones kolu itself into ~/demo — a real, recognizable repo over the
@@ -31,11 +31,9 @@ export const recording: Recording = {
     fs.mkdirSync(DEMO_DIR, { recursive: true });
     execSync(`rm -rf "${CLONE_PATH}"`, { stdio: "ignore" });
 
-    await world.waitForReady();
-    await pause(world, 700);
-
-    await newTerminal(world);
-    await pause(world, 1000);
+    // Shared single-terminal-demo opening: themed terminal, clear of the dock.
+    await setupSingleTerminal(world);
+    await pause(world, 800);
 
     await world.terminalRun("cd ~/demo");
     await pause(world, 600);
