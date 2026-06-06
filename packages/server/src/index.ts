@@ -242,23 +242,9 @@ installPwaManifest(app, {
       purpose: "maskable",
     },
   ],
-  // Richer install dialog — Chromium renders these in the install card.
-  screenshots: [
-    {
-      src: "/screenshot-wide.png",
-      sizes: "1280x720",
-      type: "image/png",
-      form_factor: "wide",
-      label: "The kolu canvas with the welcome",
-    },
-    {
-      src: "/screenshot-narrow.png",
-      sizes: "540x720",
-      type: "image/png",
-      form_factor: "narrow",
-      label: "kolu on mobile",
-    },
-  ],
+  // No `screenshots`: they only prettify the install card (install works without
+  // them), and committed product shots go stale as the UI moves. Not worth the
+  // maintenance — the icon + description carry the install entry.
 });
 
 // --- Static files (production) ---

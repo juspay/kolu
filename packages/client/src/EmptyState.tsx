@@ -193,17 +193,22 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
             );
           }}
         </Show>
-        <p class="text-sm font-medium text-fg mb-3">Get started</p>
-        <div class="space-y-2">
-          <For each={features}>
-            {(f) => (
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-fg-3">{f.label}</span>
-                <Kbd>{formatKeybind(f.shortcut)}</Kbd>
-              </div>
-            )}
-          </For>
-        </div>
+        {/* Shortcut list — only where the welcome moments aren't shown (mobile).
+            On desktop the moments above already advertise these, so the list is
+            redundant there. */}
+        <Show when={!showsWelcome()}>
+          <p class="text-sm font-medium text-fg mb-3">Get started</p>
+          <div class="space-y-2">
+            <For each={features}>
+              {(f) => (
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-fg-3">{f.label}</span>
+                  <Kbd>{formatKeybind(f.shortcut)}</Kbd>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
     </div>
   );
