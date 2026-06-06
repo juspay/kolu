@@ -65,6 +65,21 @@ export async function fireActivityAlert(
   // `getRegistration()` resolves immediately — to `undefined` when there's none.
   try {
     const reg = await navigator.serviceWorker.getRegistration();
+    // We gate on `reg.active` alone, NOT on the *notification* worker being the
+    // active one. On the very first alert right after a legacy caching worker
+    // existed, `reg.active` may briefly be that pre-takeover legacy worker:
+    // `registerServiceWorker()` only swaps in the notification worker once it
+    // activates and claims, which is async and may not have finished yet. The
+    // legacy worker has no `notificationclick` handler, so that one click is
+    // inert. We don't try to detect this — checking `navigator.serviceWorker
+    // .controller` would false-negative every clean first load (NOTIFICATION_SW
+    // _SOURCE intentionally does NOT navigate on a no-cache install, so a fresh
+    // tab stays uncontrolled), and threading boot-time registration state into
+    // the alert path complects banner-hosting with app startup. Instead it self-
+    // heals: takeover() (NOTIFICATION_SW_SOURCE) navigates the open clients when
+    // it purges legacy caches, reloading the tab onto a fresh page that re-
+    // registers under the claimed notification worker, so subsequent clicks
+    // route.
     if (!reg?.active) return; // No worker to host the banner — silent no-op.
     await reg.showNotification(`${subject.title} finished`, {
       body: subject.description,
