@@ -285,6 +285,12 @@ const pwa = useSurfaceApp();
 //   pwa.clientCommit  → this bundle's commit
 //   pwa.reload()      → land the deployed build
 //   pwa.setAttention(n) → OS app badge (installed Chromium) + document title
+//   pwa.isInstalled() → running as an installed app (standalone / iOS standalone)
+//   pwa.canInstallPwa() → a secure context where the ONE-CLICK prompt (+ app
+//                         badge / SW) works AND not already installed — false
+//                         over plain http:// on a LAN/tailnet IP, where MANUAL
+//                         install via the browser menu still works. Gate the
+//                         one-click affordance on it, not all install.
 ```
 
 **No styled components ship** — a tailwind app and a different-CSS app render their own chrome from the same model. `controlPlane` takes one client; a many-client app (one per host) passes its *control-plane* client, since the model is global.
@@ -371,7 +377,9 @@ surface-app ships `SW_SOURCE` (a self-destructing worker `installSurfaceApp` ser
 
 ## The desktop layer needs a secure context (HTTPS)
 
-The freshness **core** (delivery, skew over the wire, reload) works on plain HTTP and `ws://`. The **desktop-feel layer** (install, the Badging API) is gated on `window.isSecureContext`, which a self-hosted app reached by bare hostname or private/tailnet IP over plain HTTP does *not* have (`localhost` is exempt). surface-app feature-detects and degrades with an actionable hint — never a hard block. Trusted-cert paths for a self-hosted box:
+The freshness **core** (delivery, skew over the wire, reload) works on plain HTTP and `ws://`. The **one-click desktop-feel layer** (the automatic install prompt, the Badging API, service workers) is gated on `window.isSecureContext`, which a self-hosted app reached by bare hostname or private/tailnet IP over plain HTTP does *not* have (`localhost` is exempt). *Manual* install still works over plain http — Chrome/Edge ⋮ → "Create shortcut → open as window", iOS Safari Share → Add to Home Screen — it's only the one-click prompt and the app badge that need HTTPS. surface-app feature-detects and degrades with an actionable hint — never a hard block. Trusted-cert paths for a self-hosted box:
+
+The model surfaces this as `useSurfaceApp().canInstallPwa()` — `true` only in a secure context and not already installed (`isInstalled()`). Gate the *one-click* install affordance on it: over plain `http://` on a LAN/tailnet IP it returns `false`, so the UI can show the manual browser-menu steps (and offer "set up HTTPS for one-click") instead of dangling a dead one-click button. `isInstalled()` reflects standalone display-mode / iOS `navigator.standalone`, and both accessors re-evaluate on `appinstalled` and display-mode changes.
 
 | Path | Trusted, no warning? | Per-device setup | Best for |
 |---|---|---|---|

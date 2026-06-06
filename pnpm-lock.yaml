@@ -79,6 +79,9 @@ importers:
       '@kolu/solid-pierre':
         specifier: workspace:*
         version: link:../solid-pierre
+      '@kolu/solid-pwa-install':
+        specifier: workspace:*
+        version: link:../solid-pwa-install
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -741,6 +744,22 @@ importers:
       '@pierre/trees':
         specifier: ^1.0.0-beta.4
         version: 1.0.0-beta.4(react@19.2.5)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/solid-pwa-install:
+    dependencies:
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11

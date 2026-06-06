@@ -86,6 +86,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "Install kolu as a native app from your browser menu — unlocks ⌘T, ⌃Tab and friends",
   },
   {
+    id: "amb-welcome",
+    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} → "Tutorial" reopens the welcome anytime — pin kolu as an app, reach it remotely, run agents`,
+  },
+  {
     id: "amb-file-ref-link",
     text: "Click a `packages/foo/bar.ts:42` path in any terminal to open it in the right panel at that line",
   },
