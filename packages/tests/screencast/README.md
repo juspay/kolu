@@ -33,6 +33,18 @@ Per do.md this is meant to run on a **pu box**; today the clips are captured
 box has none). Nix deps (`ffmpeg-full` + `Xvfb`) live in `./shell.nix`, layered
 onto the e2e shell by the recipe — the top-level flake devShells are untouched.
 
+### Time + size
+
+- **~100s per recording** end-to-end on a warm checkout (`just record <name>`):
+  client build + server start + the scripted flow (including a **real** agent
+  query, which dominates) + x11grab + the ffmpeg transcode. A cold checkout is
+  slower (nix fetches + a full client build). Because the agent's answer is a
+  live LLM call, the run time (and clip length) **varies a few seconds run-to-run**.
+- **~3 MB committed per recording** — the on-camera clip is ~30s at 2560×1440:
+  `<name>.mp4` ≈ 2 MB (H.264), `<name>.webm` ≈ 1.1 MB (VP9), `<name>.webp` poster
+  ≈ 30 KB. These live in `website/public/demo/` and are committed (the site needs
+  them at build time).
+
 ## Add a recording
 
 1. Create `recordings/<name>.recording.ts` exporting a `Recording`.
