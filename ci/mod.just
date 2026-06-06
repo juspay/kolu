@@ -155,3 +155,20 @@ biome: install
 # node_modules, so its install never races the root pnpm install above.
 atlas-sync:
     {{ nix_shell }} just atlas::check-sync
+
+
+# ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
+# These run on the machine driving CI (not on a pool box), so they're
+# unreachable from `default` and the runner never schedules them. They manage
+# the fixed pool of warm boxes (kolu-ci-1 .. kolu-ci-N) that ci/pu/run.sh
+# leases per run, replacing the old fork-a-golden-per-run model. See
+# .agency/do.md and docs/pu-box-ci-ralph-report.md.
+
+# Bring the pool up to strength: (re)create any missing/unhealthy slot, leave
+# healthy (warm) slots untouched. Size with KOLU_CI_POOL (default 8).
+pool-ensure:
+    bash ci/pu/pool.sh
+
+# Report pool health without changing anything.
+pool-status:
+    bash ci/pu/pool.sh status
