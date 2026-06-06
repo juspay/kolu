@@ -99,6 +99,25 @@ Now the whole table has a shape — every electricity is exactly one of three ki
 
 And the two **compositions** on the table — `solid-browser` and `solid-fileview` — are revealed for what they are: *not electricities but wiring* that routes a blob (A: link interception) to the right appliance (C) and owns *addressing into* the result (location/history). That is exactly why solid-fileview tested as a leaf in the table above: **a composition of electricities is not itself one.** It also tells you where to look for the *next* one — the seams *between* families, where addressing (anchoring, location) spans A and C, are where the un-named infrastructure hides.
 
+## The seam the families share: addressing (a reference that outlives what it points at)
+
+Walk into that A×C seam and a fourth thing is hiding — not a package, a *capability kolu builds twice and composes by hand*:
+
+> **Addressing** — name a point in content and have the name *survive the content changing under it.* A full address has two levels: **which view** (location) × **where inside it** (anchor). A comment is just `(location, anchor, payload)`.
+
+kolu already owns both halves, in different packages:
+
+- **which view** → solid-browser's location/history (survives *navigation*: the view is replaced)
+- **where inside** → artifact-sdk's anchoring core (survives *re-render*: the DOM mutates; re-find by W3C quote + context)
+
+Nothing owns the *pair*. "Jump to this comment after a reload," "deep-link a diff line," "re-anchor a selection across a re-render *and* a navigation" each re-compose the two halves at the call-site — a family-B smell (a rule kept by remembering) riding on top of two family-A/C receptacles.
+
+And here is the step that earns the word *infrastructure*. An anchor is not a string — it is **Hickey's identity over time.** The W3C quote is a stable *identity*; the concrete `Range` it resolves to is a *value* that changes every epoch as the document mutates. Re-finding that Range on each render is *exactly* surface re-delivering a `Cell` value after a delta — the same snapshot-then-deltas contract, except the boundary it crosses is **time**, not the network. Which means family A was never really about *spatial* boundaries: it is **"a live identity whose value is re-resolved across a boundary you don't control"** — and network, process, origin, *and time* are all just values of "which boundary." Addressing is family A with the boundary dial turned to **time**.
+
+<Callout kind="warn" title="Over-merge check (the note's own trap ①)">
+Is "addressing" one receptacle, or a topic-bundle of location + anchor smuggled together? Honest answer: **undecided — and that's the finding.** The two halves have genuinely *different* volatilities (navigation vs DOM-mutation) and may well stay two sockets. What is real and demonstrable is that the *pair is used together and owned by no one.* Logged as the strongest un-named candidate at the A×C seam — flagged, **not** declared electricity. (The discipline that catches a forced merge is the same one in the three-traps callout at the top.)
+</Callout>
+
 ## The real test: does the method *generate*, or only *recognise*?
 
 A tracker recognises electricity after it ships; a method *predicts* it. Surface sits in the "done" column — but surface only *proves* the method if the method would have **produced** it from "a client and a server talk over a wire," before anyone wrote a line. So the honest test of this whole note is **forward**, not backward: run the procedure on kolu *as it stands today* and write down the electricities it predicts that don't exist yet. If they later ship and a second consumer plugs in, the method generated them. If the predicted axis never actually moves, the method hallucinated one (see falsification, below). Three standing bets, in falsifiable form:
