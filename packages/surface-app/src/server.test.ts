@@ -11,11 +11,63 @@
  */
 
 import { implementSurfaces, inMemoryChannelByName } from "@kolu/surface/server";
+import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { buildInfoServer, surfaceAppServer } from "./server";
+import { NOTIFICATION_SW_SOURCE, SW_SOURCE } from "./index";
+import {
+  buildInfoServer,
+  installFreshStatic,
+  installSurfaceApp,
+  surfaceAppServer,
+} from "./server";
 import type { BuildInfo } from "./surface";
 import { surfaceAppSurface } from "./surface";
+
+describe("installFreshStatic — the /sw.js route", () => {
+  it("serves the self-destructing retirement worker by default", async () => {
+    const app = new Hono();
+    installFreshStatic(app, { root: "/nonexistent" });
+    const res = await app.request("/sw.js");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/javascript");
+    expect(await res.text()).toBe(SW_SOURCE);
+  });
+
+  it("serves the fetch-less notification worker with serviceWorker: 'notify'", async () => {
+    const app = new Hono();
+    installFreshStatic(app, { root: "/nonexistent", serviceWorker: "notify" });
+    const res = await app.request("/sw.js");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(NOTIFICATION_SW_SOURCE);
+  });
+
+  it("serves /sw.js no-cache so the browser's update check always sees a fresh worker", async () => {
+    const app = new Hono();
+    installFreshStatic(app, { root: "/nonexistent", serviceWorker: "notify" });
+    const res = await app.request("/sw.js");
+    expect(res.headers.get("Cache-Control")).toContain("no-cache");
+  });
+});
+
+describe("installSurfaceApp — forwards the serviceWorker option to /sw.js", () => {
+  it("default forwards the retirement worker", async () => {
+    const app = new Hono();
+    installSurfaceApp(app, { clientDist: "/nonexistent" });
+    expect(await (await app.request("/sw.js")).text()).toBe(SW_SOURCE);
+  });
+
+  it("forwards serviceWorker: 'notify' to the notification worker", async () => {
+    const app = new Hono();
+    installSurfaceApp(app, {
+      clientDist: "/nonexistent",
+      serviceWorker: "notify",
+    });
+    expect(await (await app.request("/sw.js")).text()).toBe(
+      NOTIFICATION_SW_SOURCE,
+    );
+  });
+});
 
 interface ExtBuildInfo extends BuildInfo {
   bootId: string;

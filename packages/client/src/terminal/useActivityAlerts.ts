@@ -52,16 +52,28 @@ export async function fireActivityAlert(
 ) {
   playSound();
   if (
-    document.hidden &&
-    "Notification" in window &&
-    Notification.permission === "granted" &&
-    "serviceWorker" in navigator
-  ) {
-    const reg = await navigator.serviceWorker.ready;
+    !document.hidden ||
+    !("Notification" in window) ||
+    Notification.permission !== "granted" ||
+    !("serviceWorker" in navigator)
+  )
+    return;
+  // Use the actual registration, NOT `navigator.serviceWorker.ready`: `ready`
+  // never resolves on an origin that has no active worker (an expected state in
+  // dev, where `/sw.js` isn't served and registration was caught), so awaiting it
+  // would leak a forever-pending promise and never take the no-banner fallback.
+  // `getRegistration()` resolves immediately — to `undefined` when there's none.
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg?.active) return; // No worker to host the banner — silent no-op.
     await reg.showNotification(`${subject.title} finished`, {
       body: subject.description,
       icon: "/favicon.svg",
       data,
     });
+  } catch {
+    // Permission revoked mid-flight, the SW host gone, or showNotification
+    // rejecting — callers `void` this, so swallow rather than reject unhandled.
+    // The in-app dock + sound already covered the alert.
   }
 }

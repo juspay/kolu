@@ -1,6 +1,9 @@
 /// <reference types="vite/client" />
 
-import { registerServiceWorker } from "@kolu/surface-app/lifecycle";
+import {
+  registerServiceWorker,
+  retireServiceWorker,
+} from "@kolu/surface-app/lifecycle";
 import { SurfaceAppProvider } from "@kolu/surface-app/solid";
 import { MetaProvider } from "@solidjs/meta";
 import { koluBuildInfo } from "kolu-common/surface";
@@ -19,11 +22,17 @@ import "./index.css";
 // is illegal in `standalone` display mode). The worker has NO fetch handler, so
 // it never caches and the freshness contract still holds; registering it at `/`
 // also replaces (and so retires) any legacy caching worker, which it purges on
-// activate. Best-effort: a failed registration (e.g. dev, where `/sw.js` isn't
-// served) just means no OS banner — the in-app dock + sound still fire. Run
-// before any component — the framework-free `/lifecycle` subpath.
+// activate. If registration fails (e.g. dev, where `/sw.js` isn't served) we
+// fall back to `retireServiceWorker()` so the origin is still left with NO
+// caching worker — never just "no OS banner" while a legacy stale-serving worker
+// lingers. Either way the in-app dock + sound still fire. Run before any
+// component — the framework-free `/lifecycle` subpath.
 void registerServiceWorker().catch((err) => {
-  console.debug("service worker registration skipped:", err);
+  console.debug(
+    "notification worker registration failed, retiring any SW:",
+    err,
+  );
+  retireServiceWorker();
 });
 
 // Install `window.__kolu` debug hook (dev only) — one-line console access to

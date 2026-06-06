@@ -178,4 +178,13 @@ describe("NOTIFICATION_SW_SOURCE (the fetch-less notification worker)", () => {
       "self.registration.unregister()",
     );
   });
+
+  it("navigates open windows when it purges a legacy cache, so retirement needs no user action", () => {
+    // The stale-client guarantee SW_SOURCE gives: a tab the legacy caching
+    // worker may have served a stale shell to must land on the fresh shell with
+    // no manual reload. Presence of caches is the tell-tale; the navigate is
+    // gated on it so a clean first install never reloads a tab gratuitously.
+    expect(NOTIFICATION_SW_SOURCE).toContain("keys.length > 0");
+    expect(NOTIFICATION_SW_SOURCE).toContain("client.navigate(client.url)");
+  });
 });

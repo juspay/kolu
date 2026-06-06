@@ -116,9 +116,15 @@ async function retire() {
  *  contract bans a *caching* worker, and a worker with no `fetch` handler does
  *  zero caching. On `activate` it still purges any cache a legacy worker left and
  *  `clients.claim()`s, so registering it over an old caching worker heals the
- *  stale-shell bug the same way the self-destructing worker did. `notificationclick`
- *  focuses an open app window (and `postMessage`s the notification's `data` so the
- *  page can route the click — e.g. activate the right terminal) or opens one.
+ *  stale-shell bug the same way the self-destructing worker did. Crucially, when
+ *  it actually finds caches to purge — the tell-tale of a legacy *caching* worker
+ *  that was just controlling these tabs and may have served them a stale shell —
+ *  it also navigates the open window clients, so a tab still running the old
+ *  in-memory build lands on the fresh shell with no user action (the same
+ *  no-reload-needed guarantee `SW_SOURCE` gives). A clean first install finds no
+ *  caches, so it never reloads a tab gratuitously. `notificationclick` focuses an
+ *  open app window (and `postMessage`s the notification's `data` so the page can
+ *  route the click — e.g. activate the right terminal) or opens one.
  *
  *  Pair with `registerServiceWorker()` (the page-side call) and
  *  `installFreshStatic({ serviceWorker: "notify" })` (the server side). */
@@ -129,6 +135,15 @@ async function takeover() {
   const keys = await caches.keys().catch(() => []);
   await Promise.all(keys.map((key) => caches.delete(key)));
   await self.clients.claim();
+  // Caches present means a legacy *caching* worker was just controlling these
+  // tabs — the navigation that triggered this activation may have been served a
+  // stale shell from its cache. Reload the open windows onto the fresh shell so
+  // retirement needs no user action (matching SW_SOURCE). A clean first install
+  // finds no caches and skips this, so it never reloads a tab gratuitously.
+  if (keys.length > 0) {
+    const clients = await self.clients.matchAll({ type: "window" });
+    for (const client of clients) client.navigate(client.url);
+  }
 }
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
