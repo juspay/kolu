@@ -167,6 +167,22 @@ The reason it's called *electricity* isn't decoration — it's **the procedure r
 
 **Contract vs carrier — the part that outlasts the metaphor.** The electrical *contract* (sine wave, nominal voltage, pin spacing) is universal; the *plug* fragmented into ~15 national shapes only because grids were poured before any standard had teeth. In software: spend the enumeration effort on the **contract** — the atomic verbs and wire invariants (snapshot→deltas) — and treat the **carrier** (the library, the framework convention) as disposable. surface is a contract; oRPC is a carrier. Confuse the two and you ship a `WebSocketClient` and rewrite every consumer on the next transport.
 
+## Newly identified this pass — the engine, turned on
+
+A method is only worth the name if running it *produces* electricities you hadn't tabled. So this section is the output of pointing the [procedure](#the-procedure--run-it-on-any-app-before-any-code) at kolu **as it stands today** — each candidate stated as its *axis* (what changes), the tell-tale sentence *"every time ___ changes, we hand-edit ___,"* the kolu evidence (`file:line` / issue), and an honest verdict. The honesty gate: a generator that only ever says "extract" is a tracker with extra steps, so the crop below **defers** four and **rejects** two — and one of them *corrects a claim made earlier in this very note*.
+
+### ⚡ `createOwnedResource` — reactive-owner correctness (Family B) · <Pill variant="fix">extract-now</Pill>
+
+The strongest new find, and a textbook **invariant electricity**.
+
+- **Axis (what changes):** the reactive *scope* that owns a subscription/effect/resource and guarantees its disposal. SolidJS's global `Owner` is `null` across any `await`, so an `onCleanup` registered after an await silently no-ops — and the subsystem leaks with *no runtime error*, visible only in a heap retainer walk.
+- **The sentence:** *every time a setup grows an `await`, we hand-edit the `getOwner()` → `runWithOwner()` dance — or forget it and leak ~900 KB.*
+- **Evidence (dated, recurring — not anticipated):** the manual dance at <Cite file="packages/client/src/terminal/Terminal.tsx" lines="463-471" />; the requirement spelled out at <Cite file="packages/client/src/scrollLock.ts" lines="63-64" />; and `createSharedRoot` is the *same axis solved inversely* (an app-scope owner that outlives any component). Leak history: #591 (190+ orphaned xterm trees), #598, #600, #606.
+- **Why now:** three independent leaks already paid for it; the receptacle — register cleanup at *attach*, hold the owner, dispose explicitly — *deletes* the ceremony at every call-site (the family-B signature). It absorbs `createSharedRoot` as one configuration of itself.
+- **③ prospect:** any SolidJS app that does async setup wants this unchanged — the cleanest second-consumer story of the whole crop.
+
+This promotes the table's `dom/` + `createSharedRoot` rows from "agnostic helpers awaiting graduation" to **two faces of one un-built receptacle.**
+
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
 package. It holds **two** volatilities: (1) the **anchoring core** (`core/` — W3C
