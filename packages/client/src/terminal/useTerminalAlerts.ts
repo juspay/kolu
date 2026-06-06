@@ -116,10 +116,15 @@ export function useTerminalAlerts(deps: {
     } else if (document.hidden) {
       deps.markBadgeAttention(id);
     }
-    if (isBackground || document.hidden)
-      // `fireActivityAlert` only shows the banner when `document.hidden`, and
-      // the worker carries `data` to the click handler above — so always tag the
-      // terminal id; it's moot when no banner shows.
+    // Alert unless the user is *actively watching this very terminal* — i.e.
+    // it's the active terminal AND kolu has focus. `document.hasFocus()` is the
+    // right signal, not `document.hidden`: hidden is only true when kolu is fully
+    // off-screen, which on macOS is almost never the case (switching to another
+    // app while Chrome stays visible keeps it false via occlusion) — so the old
+    // `isBackground || document.hidden` gate meant a banner essentially never
+    // fired. `hasFocus()` is false whenever the doc is hidden too, so it
+    // subsumes the old check and also covers "switched apps, kolu still visible".
+    if (isBackground || !document.hasFocus())
       void fireActivityAlert(deps.getSubject(id), { terminalId: id });
   }
 

@@ -1,12 +1,13 @@
-/** Activity alerts — audio + (hidden-window) OS notification when a
- *  background terminal's agent finishes. The on-canvas Dock
- *  surfaces the same transition ambiently with full repo/branch context
- *  and a reply input, so the redundant in-app toast was retired — the
- *  channels left here cover the case the dock can't: the user isn't
- *  looking at the kolu window at all.
+/** Activity alerts — audio + OS notification when an agent finishes in a
+ *  terminal the user isn't actively watching. The on-canvas Dock surfaces the
+ *  same transition ambiently with full repo/branch context and a reply input, so
+ *  the redundant in-app toast was retired — the channels left here cover the case
+ *  the dock can't: the user isn't looking at that terminal (it's a background
+ *  terminal, or kolu isn't focused).
  *
- *  All output channels live here so `useTerminalAlerts` stays focused
- *  on "decide who to alert". */
+ *  All output channels live here so `useTerminalAlerts` stays focused on "decide
+ *  who to alert" — including the "are they watching it" gate (see
+ *  `alertForTerminal`). This module just plays the channels when asked. */
 
 import type { TerminalId } from "kolu-common/surface";
 import type { TerminalSubject } from "./terminalSubject";
@@ -36,9 +37,14 @@ export function requestNotificationPermission() {
   }
 }
 
-/** Fire audio + (when the window is hidden) an OS notification for a terminal
- *  that finished. The on-canvas dock handles the in-window case — these channels
- *  are only for when the user isn't looking.
+/** Fire audio + an OS notification for a terminal that finished. The caller
+ *  (`alertForTerminal`) owns the *when* — it only calls this when the user isn't
+ *  actively watching that terminal — so there is NO window-visibility gate here:
+ *  the previous `document.hidden` check meant the banner only ever fired when
+ *  kolu was fully off-screen, which on macOS is almost never true (switching apps
+ *  while Chrome stays visible keeps `document.hidden` false via occlusion), so the
+ *  banner was effectively dead. The "are they looking?" decision is now
+ *  `document.hasFocus()`-based, in the caller.
  *
  *  The banner goes through `ServiceWorkerRegistration.showNotification()`, NOT
  *  the page-level `new Notification()` constructor: the latter is an illegal
@@ -52,7 +58,6 @@ export async function fireActivityAlert(
 ) {
   playSound();
   if (
-    !document.hidden ||
     !("Notification" in window) ||
     Notification.permission !== "granted" ||
     !("serviceWorker" in navigator)
