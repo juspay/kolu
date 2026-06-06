@@ -23,16 +23,20 @@ install:
 dev: install
     cd {{ here }} && {{ nix_shell }} pnpm dev
 
-# Full check — astro type-check AND a real build. `astro check` alone does NOT
-# catch MDX/JSX compile errors (malformed inline components, block-body arrow
-# exports, `//` comments glued above an `export const`, …); only the build does.
-# Run both so `just atlas::check` is a true "all errors" gate.
+# Full check — astro type-check AND a real build, plus the build-helper unit
+# tests. `astro check` alone does NOT catch MDX/JSX compile errors (malformed
+# inline components, block-body arrow exports, `//` comments glued above an
+# `export const`, …); only the build does. The `node --test` pass covers the
+# stable-inline-styles normalizer (the #1209 cross-note-locality invariant),
+# which a build can't prove on its own. Run all three so `just atlas::check` is a
+# true "all errors" gate.
 check: install
-    cd {{ here }} && {{ nix_shell }} sh -c 'pnpm check && pnpm build'
+    cd {{ here }} && {{ nix_shell }} sh -c 'pnpm check && pnpm build && node --test build/*.test.mjs'
 
 # Build the self-contained Atlas → ./dist (committed for Code-tab preview).
-# `build.format: "file"` already emits flat <slug>.html with relative links, so
-# there is no post-processing — just build and commit dist/.
+# `build.format: "file"` emits flat <slug>.html with relative links; the
+# stable-inline-styles integration then canonicalizes each page's inlined <head>
+# CSS (see astro.config.mjs / #1209). Just build and commit dist/.
 build: install
     cd {{ here }} && {{ nix_shell }} pnpm build
 
@@ -47,6 +51,13 @@ build: install
 # scrambled timezone + locale; if any output moves, the build leaked a
 # host-dependent value (a TZ-formatted date, a LANG-ordered sort, …) and would
 # render differently per machine — churning dist/ and producing spurious diffs.
+#
+# A third invariant — CROSS-NOTE LOCALITY (editing one note must not rewrite an
+# unrelated note's inlined CSS, #1209) — is enforced structurally by the
+# stable-inline-styles build integration and unit-tested under `check`, not here:
+# a build-based "add a note, diff the rest" probe is vacuous (Astro's chunking
+# doesn't reliably reshuffle on a synthetic note), so it would sail green and
+# hide the regression rather than catch it.
 check-sync: check
     #!/usr/bin/env bash
     set -euo pipefail
