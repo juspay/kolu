@@ -3,7 +3,7 @@
  * SIBLING of the app's OWN live surface, multiplexed over one transport. They
  * are NOT merged: surface-app is already a complete surface (its `buildInfo`
  * cell + `identity.info` restart probe), so the app serves it under the
- * `surfaceApp` key alongside its own `app` surface (the live `serverStats`
+ * `surfaceApp` key alongside its own `demo` surface (the live `serverStats`
  * cell). One transport, two independent surfaces, each namespaced by its key —
  * this is the composition the example exists to show.
  */
@@ -50,21 +50,22 @@ export const EMPTY_STATS: ServerStats = {
 export const surfaceAppSurface = surfaceAppSurfaceWith(buildInfo);
 
 /** The app's OWN surface — just the live `serverStats` cell. A complete surface
- *  in its own right, served as a sibling under the `app` key. */
-export const appSurface = defineSurface({
+ *  in its own right, served as a sibling under the `demo` key. */
+export const demoSurface = defineSurface({
   cells: {
     serverStats: { schema: ServerStatsSchema, default: EMPTY_STATS },
   },
 });
 
-/** The two siblings, keyed. Both server (`implementSurfaces`) and client
+/** The two siblings, keyed: `surfaceApp` (the @kolu/surface-app surface) and
+ *  `demo` (this example's own). Both server (`implementSurfaces`) and client
  *  (`surfaceClients`) iterate this same map, so the keys can't drift. */
 export const surfaces = {
   surfaceApp: surfaceAppSurface,
-  app: appSurface,
+  demo: demoSurface,
 } as const;
 
-/** The combined wire contract — `{ surface: { surfaceApp, app } }`. The server
+/** The combined wire contract — `{ surface: { surfaceApp, demo } }`. The server
  *  wraps `implementSurfaces`' router with `implement(contract).router(...)`; the
  *  client types its `websocketLink` off `typeof contract`. */
 export const contract = composeSurfaceContracts(surfaces);

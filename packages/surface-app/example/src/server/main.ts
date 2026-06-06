@@ -2,10 +2,10 @@
  * Hello-world server for @kolu/surface-app — sibling surfaces, no bespoke glue.
  *
  * surface-app is served as a SIBLING surface (key `surfaceApp`) alongside the
- * app's OWN `app` surface (the live `serverStats` cell), multiplexed over one
+ * app's OWN `demo` surface (the live `serverStats` cell), multiplexed over one
  * transport by `implementSurfaces`. The `surfaceApp` entry's deps come from
  * `surfaceAppServer()` in one call (commit auto-resolved, the buildInfo cell's
- * async `connect` fired internally by the surface runtime); the `app` entry
+ * async `connect` fired internally by the surface runtime); the `demo` entry
  * wires only the example's own cell. `installSurfaceApp` serves the shell fresh
  * + the manifest + the `/sw.js` retirement worker. The example writes no cell
  * store wiring, no `/sw.js` route, and no commit literal. To see skew in dev,
@@ -45,7 +45,7 @@ const publisher = new MemoryPublisher<Record<string, any>>();
 
 // App-specific live state — the example's OWN cell, served as a sibling
 // alongside surface-app's buildInfo. The server pushes updates via
-// ctx.app.cells.serverStats.set.
+// ctx.demo.cells.serverStats.set.
 let stats: ServerStats = {
   ...EMPTY_STATS,
   startedAt: Date.now(),
@@ -64,7 +64,7 @@ const statsStore = {
 // probe come from `surfaceAppServer()`, and the runtime fires the buildInfo
 // cell's async `connect` (the boot axis below) for us — no app-visible connect,
 // no hand-written seed→connect dance. The app's own `serverStats` cell rides
-// the sibling `app` surface. Channels are key-namespaced, so neither surface's
+// the sibling `demo` surface. Channels are key-namespaced, so neither surface's
 // `:changed` channel can collide on the wire.
 //
 // The build-identity surface EXTENDS the default `{ commit }` with a `bootId`
@@ -95,8 +95,8 @@ const { router: surfacesRouter, ctx } = implementSurfaces(
         // biome-ignore lint/suspicious/noExplicitAny: heterogeneous entry deps are `any`-spec'd; the surfaceAppServer bundle's concretely-typed cell entry rejects the `unknown`-typed member contravariantly. Runtime shape is exact.
       }) as any,
     },
-    app: {
-      surface: surfaces.app,
+    demo: {
+      surface: surfaces.demo,
       deps: { cells: { serverStats: { store: statsStore } } },
     },
   },
@@ -104,7 +104,7 @@ const { router: surfacesRouter, ctx } = implementSurfaces(
 
 /** Broadcast a stats patch to every subscriber (snapshot + delta in one call). */
 function pushStats(patch: Partial<ServerStats>): void {
-  ctx.app.cells.serverStats.set({ ...stats, ...patch });
+  ctx.demo.cells.serverStats.set({ ...stats, ...patch });
 }
 
 // Tick the server clock once a second so even a single tab sees the cell update live.

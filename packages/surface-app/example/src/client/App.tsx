@@ -25,10 +25,10 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
 
 function Shell() {
   const pwa = useSurfaceApp<ExampleBuildInfo>();
-  // app-specific cell — a SIBLING surface (`app`) over the same wire as
+  // app-specific cell — a SIBLING surface (`demo`) over the same wire as
   // surface-app's buildInfo. The server pushes it live; Solid re-renders on
   // each delta.
-  const stats = clients.app.cells.serverStats.use({
+  const stats = clients.demo.cells.serverStats.use({
     authority: "server",
     onError: (err) => console.error("serverStats subscription error:", err),
   });
@@ -115,7 +115,7 @@ function Shell() {
           </div>
           <p class="muted small">
             This panel reads an <b>app-specific</b> <code>serverStats</code>{" "}
-            cell on the sibling <code>app</code> surface (the server pushes it
+            cell on the sibling <code>demo</code> surface (the server pushes it
             live); the rail above reads surface-app's <code>buildInfo</code> on
             the sibling <code>surfaceApp</code> surface. Two independent
             surfaces, one wire. Open a second tab — the <b>clients</b> count
