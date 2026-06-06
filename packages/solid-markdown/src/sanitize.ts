@@ -245,14 +245,30 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
     unwrap();
     return;
   }
+  const href = anchor.getAttribute("href");
   // A wikilink (`[[Note]]`, tagged by the renderer) resolves pathless on click
   // through the host's vault-wide resolver — never against the app origin — so
   // keep the anchor and its marker untouched. Its href is the bare target
-  // (`Note` / `Note#Heading`); DOMPurify already dropped any unsafe-scheme
-  // target, so a surviving href is a plain relative reference the click handler
-  // reads, not a URL the browser ever navigates.
-  if (anchor.hasAttribute("data-md-wikilink")) return;
-  const href = anchor.getAttribute("href");
+  // (`Note` / `Note#Heading`), a scheme-less internal reference the click
+  // handler reads, not a URL the browser ever navigates.
+  //
+  // The marker is in the document allowlist, so a README's *raw* HTML can mint
+  // `<a data-md-wikilink href="…">` directly — and an untrusted document must
+  // not be able to opt an anchor out of the normal per-anchor policy (safeHref,
+  // external target/rel stamping, relative tagging) just by stamping the
+  // marker. So only honor it for a target that is actually a safe, scheme-less
+  // internal reference: a marker with a scheme-carrying or unsafe href is
+  // stripped of the marker and falls through to the normal policy below, where
+  // an external URL gets `target="_blank" rel="noopener"` and an unsafe scheme
+  // is unwrapped. (The parser only ever mints the marker on a bare `[[…]]`
+  // target, so this never strips a legitimately-tokenized wikilink.)
+  if (anchor.hasAttribute("data-md-wikilink")) {
+    const safe = href ? safeHref(href) : undefined;
+    if (safe !== undefined && !safe.startsWith("#") && !hasOwnScheme(safe)) {
+      return;
+    }
+    anchor.removeAttribute("data-md-wikilink");
+  }
   const safe = href ? safeHref(href) : undefined;
   if (safe === undefined) {
     unwrap();

@@ -152,7 +152,7 @@ of it and a <em>resolver + menu</em> behind it.</p>
 <rect x="740.000000" y="810.000000" width="84" height="21" fill="black"></rect>
 <rect x="1071.000000" y="446.000000" width="63" height="21" fill="black"></rect>
 </mask></svg></svg>
- <figcaption data-astro-cid-ildmikun>The added pieces (accent) bracket the existing open-in-Code-tab front door. The marked extension mints a distinct data-md-wikilink anchor; a dedicated host callback carries the clicked element so an ambiguous target can anchor a menu to it; resolveWikilink surfaces candidates instead of collapsing to null. Sanitize, the front door, and the file list are untouched.</figcaption> </figure>
+ <figcaption data-astro-cid-ildmikun>The added pieces (accent) bracket the existing open-in-Code-tab front door. The marked extension mints a distinct data-md-wikilink anchor; a dedicated host callback carries the clicked element so an ambiguous target can anchor a menu to it; resolveWikilink surfaces candidates instead of collapsing to null. The sanitizer gains one allowlisted marker (and a guard so raw HTML can&#39;t spoof it); the front door and the file list are untouched.</figcaption> </figure>
 <aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>markedWikilink() — desugar, don&#39;t reinvent</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>A small inline tokenizer extension beside <code>marked-alert</code> / <code>marked-footnote</code> in
 <code>solid-markdown/src/render.ts</code> (document variant only). It parses <code>[[Target]]</code>,
 <code>[[Target|Alias]]</code>, <code>[[Target#Heading]]</code> and emits
@@ -187,7 +187,11 @@ feeding a <em>second resolution model</em> (pathless basename) into the <strong>
 open-in-Code-tab front door. The genuinely new volatility — “how does this
 token’s target become a path, and what happens when it’s ambiguous?” — is
 isolated to one marked extension, one resolver, and one dispatcher branch. The
-sanitizer, the file list, and the front door don’t know wikilinks exist.</p></div> </aside>
+sanitizer’s only contact is mechanical, not conceptual: it allowlists the
+<code>data-md-wikilink</code> marker so the parser’s tag survives, and guards it (only a
+safe, scheme-less internal target keeps the marker; a raw-HTML anchor that spoofs
+it falls through to the normal link policy) — it never learns what a wikilink
+<em>means</em>. The file list and the front door are untouched.</p></div> </aside>
 <p>The earlier instinct to call resolution “moderate effort” was wrong: it assumed a
 file index that turned out to already ship. With that corrected, the whole
 feature — distinct rendering, pathless resolution, and the ambiguity menu — is a

@@ -400,7 +400,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       </Switch>
       {/* Ambiguous-wikilink disambiguation: an anchored list of the repo files
        *  whose basename matched. Picking one opens it; the menu reuses the same
-       *  anchored-option-list scaffold the Dock/minimap pickers use. */}
+       *  anchored-option-list scaffold the Dock/minimap pickers use — but with
+       *  the unbounded-content opts those fixed pickers don't need: an ambiguous
+       *  `[[index]]` can match dozens of long repo paths, so cap the height
+       *  (scroll the overflow), truncate long path labels (full path in the
+       *  hover title), and let the panel flip above the link when it sits near
+       *  the viewport bottom. */}
       <OptionMenu
         triggerRef={() => wikiMenu()?.anchor}
         open={() => wikiMenu() !== null}
@@ -410,6 +415,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         value=""
         onSelect={openWikilinkPath}
         testIdPrefix="wikilink-disambiguation"
+        maxHeight={280}
+        truncate
+        flip
       />
     </>
   );

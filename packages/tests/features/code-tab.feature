@@ -876,6 +876,29 @@ Feature: Code tab (review + browse)
     # The unsafe-scheme anchor is gone; its text remains.
     And the markdown preview should not render a "a[href^=javascript]" element
 
+  # The wikilink marker (data-md-wikilink) lives in the document allowlist so the
+  # PARSER's `[[Note]]` anchors survive sanitization — but a README's RAW HTML can
+  # stamp it too. An untrusted document must not use the marker to opt an anchor
+  # out of the normal per-anchor link policy (safeHref, external target/rel
+  # stamping). So a raw `<a data-md-wikilink href=https://evil.com>` must NOT route
+  # through the pathless wikilink resolver: the sanitizer strips the spoofed marker
+  # and the anchor falls through to the external-link treatment (new tab, severed
+  # opener), exactly like any other external link.
+  Scenario: Markdown preview does not let raw HTML spoof the wikilink marker
+    When I run "rm -rf /tmp/kolu-md-wikispoof && git init /tmp/kolu-md-wikispoof && cd /tmp/kolu-md-wikispoof"
+    And I run "printf '# Spoof\n\n<a data-md-wikilink href=https://evil.example/>spoofed link</a>\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "spoofed link"
+    # The spoofed marker is stripped — the anchor is not routed to the wikilink resolver.
+    And the markdown preview should not render a "a[data-md-wikilink]" element
+    # It falls through to the normal external-link policy instead.
+    And the markdown preview should render a "a[target=_blank]" element
+    And the markdown preview should render a "a[rel~=noopener]" element
+
   # The repro for #1161: clicking a repo-relative link opens the linked file IN
   # the Code tab (GitHub-faithful), resolved against the previewed doc's own
   # directory — it must NOT navigate the app origin in a new browser tab. The
