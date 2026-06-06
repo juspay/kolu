@@ -232,6 +232,17 @@ A possible future **cleave of an existing electricity** (pty-host), not a greenf
 - **Evidence:** the ~50 lines of OSC handlers at <Cite file="packages/pty-host/src/ptyHost.ts" lines="434-481" />, sitting inside ~450 lines of node-pty lifecycle; one real entanglement (OSC 633 *drives* the foreground re-sample schedule).
 - **Why defer:** the parse ruleset has been **inert since extraction** (no new OSC codes added; the churn has all been *process* concerns — exit tombstones, sample timing). No external consumer wants byte-stream-→-events without the rest of pty-host *today*. Verdict: **document the axis, monitor churn** — split to `@kolu/vt-events` only when a non-kolu consumer (tmux/Zellij control-mode) appears or the rules take 3+ independent edits. A clean Löwy axis whose *volatility hasn't fired yet*.
 
+### The reject pile — candidates the engine *refused*
+
+Included on purpose: a method that only ever says "extract" is rationalising, not generating. These looked like electricity and aren't (yet).
+
+| Refused candidate | Why it's a phantom (the falsifier that fired) | Extract-if |
+| --- | --- | --- |
+| **Identity / trust across the wire** — "who may author/read state across a boundary" | The axis **doesn't vary**: kolu is single-user-local (no login, no per-user state; multi-user is *documented future* in `auth.md`). Only two trust sites exist, with *different* mechanisms (iframe `event.source`, daemon token), and each **collapses into its transport** — ssh delegates to ssh keys, the iframe check is *forced* by opaque origin. Fails the independence check; no second consumer; the daemon token was a one-off race-fix, not a recurring volatility. | multi-user lands, *or* a second app embeds the bridge with a different auth model. Then "who's allowed" finally varies independently of "how bytes ship." |
+| **Client multi-tab / fan-out** — "N tabs share one upstream subscription" | **Zero client evidence**: one `PartySocket` per tab, no `BroadcastChannel`/`SharedWorker`/refcount, no issue or PR asking for it. Pure speculative generality (more hooks than things plugged in). *Telling nuance:* fan-out **is** real infrastructure on the **server** (refcounted WAL watchers, drop-slow-subscriber channels) — so the axis exists in kolu, just not at the boundary we were tempted to extract. | a feature needs cross-tab state sync; the *second tab pulling one subscription unmodified* would be the ③ proof — until then, it's a fantasy. |
+
+The second row is the sharper lesson: the same axis (fan-out) is **genuine on one side of the system and speculative on the other.** "Is this volatile?" is never answered in the abstract — only at a specific boundary, with the git log open.
+
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
 package. It holds **two** volatilities: (1) the **anchoring core** (`core/` — W3C
