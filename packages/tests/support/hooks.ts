@@ -20,6 +20,8 @@ import getPort from "get-port";
 import { NIX_ENV_WHITELIST } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
+import * as engine from "../screencast/engine.ts";
+import { getRecording } from "../screencast/recordings/index.ts";
 import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -136,33 +138,36 @@ const serverLogDir = path.resolve(import.meta.dirname, "..", "reports");
  *  recordVideo.size exactly, so the capture is 1:1 with no downscaling. */
 const EVIDENCE_VIEWPORT = { width: 1280, height: 720 };
 
-/** Lossless per-frame capture (set `KOLU_FRAMES=1`): instead of Playwright's
- *  hardcoded ~1 Mbit/s VP8 `recordVideo`, drive a CDP screencast that emits a
- *  PNG on every paint (smooth, paint-driven). Frames + a timing manifest land
- *  under `reports/frames/<scenario>/`; a shell ffmpeg pass assembles them into
- *  a crisp CRF-18 clip. The high-fidelity alternative to `KOLU_EVIDENCE` for
- *  marketing-grade clips (see `welcome-live-screencast.mdx`). */
-const FRAMES = !!process.env.KOLU_FRAMES;
-const framesBaseDir = path.resolve(import.meta.dirname, "..", "reports", "frames");
-// Per-worker scenarios run sequentially, so single module-level capture state
-// (reset in Before) is safe — no cross-scenario bleed within a worker process.
-let frameCdp: import("playwright").CDPSession | undefined;
-let frameBuf: { data: string; ts: number }[] = [];
-
-/** OS-level capture (set `KOLU_X11CAP=1`): the marketing-grade path. Runs Chrome
- *  HEADFUL at 2× (`--force-device-scale-factor=2`) inside an Xvfb virtual display
- *  and records the framebuffer with `ffmpeg -f x11grab` on a fixed 30 fps clock.
- *  Unlike recordVideo (1 Mbit/s VP8) and captureScreenshot polling (compositor-
- *  bound ~3 fps), x11grab samples the X framebuffer off its own clock in physical
- *  pixels — structurally smooth AND crisp at true 2×, quality a free CRF knob.
- *  Per-scenario raw clips land under `reports/videos/<scenario>.x11.mp4`. Run
- *  single-worker (CUCUMBER_PARALLEL=1). See `welcome-live-screencast.mdx`. */
+/** Marketing-grade screencast capture (set `KOLU_X11CAP=1`, via `just record`):
+ *  runs Chrome HEADFUL at 2× inside an Xvfb virtual display and records the
+ *  framebuffer with `ffmpeg -f x11grab` — smooth (fixed clock, off the
+ *  compositor) AND crisp (true 2×). The gnarly bits live in the agnostic engine
+ *  (`../screencast/engine.ts`); this just orchestrates them around the Cucumber
+ *  lifecycle. Per-scenario the recording module (looked up by scenario name)
+ *  decides app-mode vs browser chrome. Run single-worker (CUCUMBER_PARALLEL=1).
+ *  See `welcome-live-screencast.mdx`. */
 const X11CAP = !!process.env.KOLU_X11CAP;
-const X11_SCREEN = { width: 2560, height: 1440 }; // 1280×720 logical @ 2× DPR
+const X11_SCALE = 2;
+const X11_VIEWPORT = { width: 1280, height: 720 }; // logical; physical = ×scale
+const X11_SCREEN = {
+  width: X11_VIEWPORT.width * X11_SCALE,
+  height: X11_VIEWPORT.height * X11_SCALE,
+};
+const demoOutDir = path.resolve(
+  import.meta.dirname,
+  "..",
+  "..",
+  "..",
+  "website",
+  "public",
+  "demo",
+);
 let xvfbProc: ReturnType<typeof spawn> | undefined;
 let ffmpegProc: ReturnType<typeof spawn> | undefined;
 let x11Display: string | undefined;
 let x11RawPath: string | undefined;
+/** The current scenario's recording chrome ("app" | "browser"), set in Before. */
+let x11Chrome: "app" | "browser" = "app";
 
 let baseUrl: string;
 let browser: Browser;
@@ -327,6 +332,29 @@ const ciArgs = [
 async function newScenarioPage(
   isMobile: boolean,
 ): Promise<{ context: BrowserContext; page: Page }> {
+  // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
+  // needs its own persistent context — Playwright drives the page Chrome opens
+  // at launch. Browser-chrome recordings fall through to the headful newContext
+  // path below (the global `browser` is launched headful under X11CAP).
+  if (X11CAP && x11Chrome === "app" && !isMobile) {
+    const userDataDir = fs.mkdtempSync(path.join(testBaseDir, "chrome-app-"));
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      headless: false,
+      args: engine.appModeArgs({
+        url: baseUrl,
+        scale: X11_SCALE,
+        viewport: X11_VIEWPORT,
+      }),
+      viewport: null,
+      baseURL: baseUrl,
+      ignoreHTTPSErrors: true,
+      permissions: ["clipboard-write", "clipboard-read"],
+      slowMo: 250,
+    });
+    const page = context.pages()[0] ?? (await context.waitForEvent("page"));
+    return { context, page };
+  }
+
   let previousContext: BrowserContext | undefined;
   return retryTransient("create Playwright page", async () => {
     if (previousContext) {
@@ -338,19 +366,16 @@ async function newScenarioPage(
       // default hid viewport-size-dependent bugs (e.g. the canvas
       // centering math behaves differently when the tile is small relative
       // to the viewport vs nearly filling it).
-      // KOLU_X11CAP: viewport null → the page fills the headful window (sized
-      // by --window-size + --force-device-scale-factor, i.e. 2560×1440 physical).
+      // KOLU_X11CAP browser-chrome: viewport null → the page fills the headful
+      // window (sized by the launch args, i.e. 2560×1440 physical).
       viewport: isMobile
         ? { width: 390, height: 844 }
         : X11CAP
           ? null
-          : EVIDENCE || FRAMES
+          : EVIDENCE
             ? EVIDENCE_VIEWPORT
             : { width: 1920, height: 1080 },
       ...(isMobile && { hasTouch: true, isMobile: true }),
-      // KOLU_FRAMES: render at 2× backing resolution so the CDP screencast
-      // supersamples — downscaled into the page, text stays razor-sharp.
-      ...(FRAMES && !isMobile ? { deviceScaleFactor: 2 } : {}),
       baseURL: baseUrl,
       ignoreHTTPSErrors: true,
       // clipboard-write: lets tests place images in the clipboard for paste testing.
@@ -393,17 +418,10 @@ BeforeAll(async () => {
   // browser, and point DISPLAY at it so Chrome and ffmpeg share the framebuffer.
   if (X11CAP) {
     x11Display = `:${99 + Number(workerId ?? 0)}`;
-    xvfbProc = spawn(
-      "Xvfb",
-      [
-        x11Display,
-        "-screen",
-        "0",
-        `${X11_SCREEN.width}x${X11_SCREEN.height}x24`,
-        "-nolisten",
-        "tcp",
-      ],
-      { stdio: "ignore" },
+    xvfbProc = engine.startXvfb(
+      x11Display,
+      X11_SCREEN.width,
+      X11_SCREEN.height,
     );
     process.env.DISPLAY = x11Display;
     // Give Xvfb a moment to create the display before Chrome connects.
@@ -490,15 +508,16 @@ BeforeAll(async () => {
 
   // Launch browser — always use CI args for consistency and performance.
   // KOLU_X11CAP: go HEADFUL at 2× inside Xvfb so x11grab captures real physical
-  // pixels (the --force-device-scale-factor=2 + window-size=1280×720 fills the
-  // 2560×1440 screen). Otherwise the standard headless CI args.
+  // pixels. This global browser backs *browser-chrome* recordings (newContext);
+  // app-mode recordings launch their own persistent context in newScenarioPage.
+  // The flags mirror engine.appModeArgs minus `--app` (chrome stays visible).
   const x11Args = [
     "--no-sandbox",
     "--disable-setuid-sandbox",
     "--disable-dev-shm-usage",
-    "--force-device-scale-factor=2",
+    `--force-device-scale-factor=${X11_SCALE}`,
     "--window-position=0,0",
-    "--window-size=1280,720",
+    `--window-size=${X11_VIEWPORT.width},${X11_VIEWPORT.height}`,
     "--hide-scrollbars",
   ];
   browser = await chromium.launch({
@@ -571,6 +590,10 @@ Before(async function (this: KoluWorld, scenario) {
   // desktop context unchanged.
   const isMobile = scenario.pickle.tags.some((t) => t.name === "@mobile");
 
+  // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
+  // browser chrome — read it before creating the page so the launch matches.
+  if (X11CAP) x11Chrome = getRecording(scenario.pickle.name).chrome;
+
   this.browser = browser;
   const created = await newScenarioPage(isMobile);
   this.context = created.context;
@@ -579,7 +602,7 @@ Before(async function (this: KoluWorld, scenario) {
   // prefers-reduced-motion tells well-behaved libraries to skip animations;
   // the style override catches anything that ignores the media query. SKIPPED
   // under KOLU_EVIDENCE — when we're recording a video, motion is the point.
-  if (!EVIDENCE && !FRAMES) {
+  if (!EVIDENCE && !X11CAP) {
     await this.page.emulateMedia({ reducedMotion: "reduce" });
     await this.page.addInitScript(`
       document.addEventListener("DOMContentLoaded", function() {
@@ -612,70 +635,20 @@ Before(async function (this: KoluWorld, scenario) {
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
 
-  // KOLU_FRAMES: start the lossless CDP screencast now (before any navigation
-  // in the steps) so the whole flow is captured. Screencast is paint-driven
-  // and cheap, so it yields a smooth frame rate; each PNG is buffered with its
-  // paint timestamp and the After hook writes them + a timing manifest. The
-  // context renders at 2× DPR, so the CSS-resolution screencast frames are
-  // supersampled (downsampled from the 2× backing store) → crisper than a
-  // native-1× capture, with no VP8 smear.
-  if (FRAMES && !isMobile) {
-    frameBuf = [];
-    frameCdp = await this.context.newCDPSession(this.page);
-    await frameCdp.send("Page.startScreencast", {
-      format: "png",
-      everyNthFrame: 1,
-    });
-    frameCdp.on("Page.screencastFrame", (f) => {
-      frameBuf.push({ data: f.data, ts: f.metadata.timestamp ?? 0 });
-      frameCdp
-        ?.send("Page.screencastFrameAck", { sessionId: f.sessionId })
-        .catch(() => undefined);
-    });
-  }
-
   // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
   // own 30 fps clock independent of Chrome's paint speed, so the recording is
   // smooth regardless of how heavy the scenario is. Leading blank frames (before
   // the first navigation) are trimmed in the transcode step.
   if (X11CAP && x11Display) {
-    fs.mkdirSync(evidenceVideoDir, { recursive: true });
     const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
     x11RawPath = path.join(evidenceVideoDir, `${name}.x11.mp4`);
-    const logFd = fs.openSync(
-      path.join(evidenceVideoDir, `${name}.x11.log`),
-      "w",
-    );
-    ffmpegProc = spawn(
-      "ffmpeg",
-      [
-        "-y",
-        "-f",
-        "x11grab",
-        "-draw_mouse",
-        "0",
-        "-thread_queue_size",
-        "4096",
-        "-framerate",
-        "30",
-        "-video_size",
-        `${X11_SCREEN.width}x${X11_SCREEN.height}`,
-        "-i",
-        `${x11Display}.0+0,0`,
-        "-c:v",
-        "libx264",
-        "-crf",
-        "16",
-        "-preset",
-        "veryfast",
-        "-pix_fmt",
-        "yuv420p",
-        "-r",
-        "30",
-        x11RawPath,
-      ],
-      { stdio: ["ignore", logFd, logFd] },
-    );
+    ffmpegProc = engine.startX11Grab({
+      display: x11Display,
+      width: X11_SCREEN.width,
+      height: X11_SCREEN.height,
+      out: x11RawPath,
+      logFile: path.join(evidenceVideoDir, `${name}.x11.log`),
+    });
     ffmpegProc.on("error", (e) =>
       console.error(`[worker:${workerId}] KOLU_X11CAP: ffmpeg spawn error:`, e),
     );
@@ -710,54 +683,11 @@ After(async function (this: KoluWorld, scenario) {
   // scenario-named under reports/videos/ once closed. saveAs waits for the
   // file to be fully written, so the order (handle → close → save) is safe.
   const video = EVIDENCE ? this.page?.video() : undefined;
-  // KOLU_FRAMES: stop the screencast and flush PNGs + an ffmpeg concat manifest
-  // (per-frame durations from paint timestamps preserve real timing). Done
-  // BEFORE context.close() while the CDP session + page are still alive.
-  if (FRAMES && frameCdp) {
-    await frameCdp.send("Page.stopScreencast").catch(() => undefined);
-    const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
-    const dir = path.join(framesBaseDir, name);
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.mkdirSync(dir, { recursive: true });
-    const lines: string[] = [];
-    const fileName = (i: number) => `frame-${String(i).padStart(6, "0")}.png`;
-    for (let i = 0; i < frameBuf.length; i++) {
-      fs.writeFileSync(
-        path.join(dir, fileName(i)),
-        Buffer.from(frameBuf[i].data, "base64"),
-      );
-      // ffmpeg concat: `duration` applies to the file line it follows.
-      const dur =
-        i < frameBuf.length - 1
-          ? Math.max(0.001, frameBuf[i + 1].ts - frameBuf[i].ts)
-          : 0.6; // hold the final frame for a clean loop seam
-      lines.push(`file '${fileName(i)}'`, `duration ${dur.toFixed(3)}`);
-    }
-    // Repeat the last frame (concat-demuxer last-frame timing workaround).
-    if (frameBuf.length)
-      lines.push(`file '${fileName(frameBuf.length - 1)}'`);
-    fs.writeFileSync(path.join(dir, "frames.txt"), lines.join("\n") + "\n");
-    console.log(
-      `[worker:${workerId}] KOLU_FRAMES: wrote ${frameBuf.length} frames → ${dir}`,
-    );
-    frameCdp = undefined;
-    frameBuf = [];
-  }
-  // KOLU_X11CAP: stop ffmpeg with SIGINT (NOT kill) so it flushes the moov atom,
-  // and await its exit — BEFORE closing the context, or the window vanishes and
-  // the final frames go black.
+  // KOLU_X11CAP: stop the grab cleanly (SIGINT flushes the moov atom) BEFORE
+  // closing the context — or the window vanishes and the final frames go black.
   if (X11CAP && ffmpegProc) {
-    const proc = ffmpegProc;
+    await engine.stopX11Grab(ffmpegProc);
     ffmpegProc = undefined;
-    await new Promise<void>((res) => {
-      proc.once("exit", () => res());
-      proc.kill("SIGINT");
-      // safety net: if ffmpeg ignores SIGINT, force-kill after 5s
-      setTimeout(() => {
-        proc.kill("SIGKILL");
-        res();
-      }, 5000).unref?.();
-    });
     console.log(`[worker:${workerId}] KOLU_X11CAP: saved ${x11RawPath}`);
   }
   if (this.context) await this.context.close();
@@ -772,5 +702,31 @@ After(async function (this: KoluWorld, scenario) {
           err,
         );
       });
+  }
+  // KOLU_X11CAP: now the raw clip is finalized, transcode it into the crisp web
+  // assets the welcome page embeds (mp4 + webm + poster), trimming the leading
+  // blank from before the first navigation.
+  if (X11CAP && x11RawPath) {
+    const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
+    await engine
+      .transcodeToWeb({
+        raw: x11RawPath,
+        outDir: demoOutDir,
+        name,
+        trimStart: 0.4,
+        posterAt: 2,
+      })
+      .then((out) =>
+        console.log(
+          `[worker:${workerId}] KOLU_X11CAP: web assets → ${out.mp4}`,
+        ),
+      )
+      .catch((err) =>
+        console.error(
+          `[worker:${workerId}] KOLU_X11CAP: transcode failed:`,
+          err,
+        ),
+      );
+    x11RawPath = undefined;
   }
 });

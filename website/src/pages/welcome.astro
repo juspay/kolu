@@ -169,52 +169,28 @@ const tunnels = [
       its own tile. kolu watches what you do, so you barely configure anything.
     </p>
 
-    <!-- Live screencast — a real kolu session captured by the e2e harness,
-         transcoded for the web. Two capture paths shown side by side for a
-         crispness comparison (temporary — pick a winner before shipping).
+    <!-- Live screencast of a real kolu session, captured by the screencast
+         engine (packages/tests/screencast) and transcoded for the web.
          Poster-first; autoplay/muted/loop/playsinline; reduced-motion respected
          via the inline script at the end of the file. -->
     <figure class="demo-figure">
-      <div class="demo-compare">
-        <div class="demo-clip">
-          <span class="demo-label">A · recordVideo — VP8, ~1 Mbit/s</span>
-          <div class="demo-frame">
-            <video
-              class="demo-video"
-              autoplay
-              muted
-              loop
-              playsinline
-              preload="metadata"
-              poster="/demo/first-agent.webp"
-            >
-              <source src="/demo/first-agent.webm" type="video/webm" />
-              <source src="/demo/first-agent.mp4" type="video/mp4" />
-            </video>
-          </div>
-        </div>
-        <div class="demo-clip">
-          <span class="demo-label">B · x11grab — 2560×1440, 30 fps, CRF 18</span>
-          <div class="demo-frame">
-            <video
-              class="demo-video"
-              autoplay
-              muted
-              loop
-              playsinline
-              preload="metadata"
-              poster="/demo/first-agent-v2.webp"
-            >
-              <source src="/demo/first-agent-v2.webm" type="video/webm" />
-              <source src="/demo/first-agent-v2.mp4" type="video/mp4" />
-            </video>
-          </div>
-        </div>
+      <div class="demo-frame">
+        <video
+          class="demo-video"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          poster="/demo/new-terminal-demo.webp"
+        >
+          <source src="/demo/new-terminal-demo.webm" type="video/webm" />
+          <source src="/demo/new-terminal-demo.mp4" type="video/mp4" />
+        </video>
       </div>
       <figcaption>
-        The same kolu session — open the palette, pick a repo, launch an agent —
-        captured two ways. Compare the crispness of the terminal text and palette
-        labels at full size.
+        A real kolu session: open a terminal, clone a repo, and launch an
+        agent — the whole loop in one window.
       </figcaption>
     </figure>
 
@@ -437,6 +413,27 @@ const tunnels = [
       badge for finished agents. But there's one rule that trips everyone up, so
       read this first.
     </p>
+
+    <figure class="demo-figure">
+      <div class="demo-frame">
+        <video
+          class="demo-video"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          poster="/demo/pwa-install.webp"
+        >
+          <source src="/demo/pwa-install.webm" type="video/webm" />
+          <source src="/demo/pwa-install.mp4" type="video/mp4" />
+        </video>
+      </div>
+      <figcaption>
+        The welcome carries a "Pin it" card — install kolu as an app straight
+        from there.
+      </figcaption>
+    </figure>
 
     <aside class="callout callout-note">
       <strong>You can pin kolu over plain HTTP — only <em>one-click</em> install needs
@@ -967,22 +964,6 @@ const tunnels = [
   /* ── Live screencast figure ─────────────────────────────────────────── */
   .demo-figure {
     margin-block: 1.6rem;
-  }
-  .demo-compare {
-    display: flex;
-    flex-direction: column;
-    gap: 1.6rem;
-  }
-  .demo-clip {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .demo-label {
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    letter-spacing: 0.04em;
-    color: var(--color-amber-dim);
   }
   .demo-frame {
     border: 1px solid var(--color-rule-strong);

@@ -408,3 +408,17 @@ capture pipeline). First two: ① **PWA install/setup**, ② **installed-PWA dem
 kolu's in-page install card is automatable (<Cite file="packages/client/src/WelcomeMoments.tsx" />,
 `data-testid="welcome-install"` / `welcome-install-manual`), and the terminal /
 git / palette steps for ② already exist in the step library — no new step code.
+
+**9 · Subsystem shipped.** <PrLink pr={1213} /> The agnostic engine
+(<Cite file="packages/tests/screencast/engine.ts" />, nix deps in
+`screencast/shell.nix` — top-level flake devShells untouched), the `Recording`
+modules (<Cite file="packages/tests/screencast/recordings" />), a
+`When I record "<name>"` dispatcher, and a `just record` recipe. Both clips
+captured: ② **app-mode** (chromeless), `git clone` kolu into `~/demo` →
+`cd` → `ls` → **`claude` launches with its trust prompt** (15.6 s, 2560×1440);
+① **browser chrome**, the palette **Tutorial** command summons the welcome with
+the **Pin it** card + expanded install steps (8.6 s). Captured **locally**, not
+on pu: `kolu-ci-1` works (egress OK) but has **no authenticated `claude`**, so
+the demo's climax only renders on a machine already running Claude Code — a
+deliberate, documented tradeoff (quality > box-purity; reproducibility lives in
+the recipe + modules, which *do* run on pu).

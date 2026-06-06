@@ -12,7 +12,8 @@
 // import kolu domain — until a real second consumer earns the package.
 //
 // Requires `ffmpeg-full` (the x11grab input device; plain nixpkgs `ffmpeg` is
-// built --disable-xlib) and `Xvfb` on PATH — both provided by the e2e devShell.
+// built --disable-xlib) and `Xvfb` on PATH — provided by `./shell.nix`, which
+// the `just record` recipe layers onto the e2e shell.
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -135,19 +136,62 @@ export async function transcodeToWeb(opts: {
   const poster = path.join(opts.outDir, `${opts.name}.webp`);
   // mp4: H.264, yuv420p + faststart for universal, instant-start playback.
   await runFfmpeg([
-    "-y", "-loglevel", "error", "-ss", ss, "-i", opts.raw,
-    "-c:v", "libx264", "-crf", "18", "-preset", "slow",
-    "-pix_fmt", "yuv420p", "-an", "-movflags", "+faststart", mp4,
+    "-y",
+    "-loglevel",
+    "error",
+    "-ss",
+    ss,
+    "-i",
+    opts.raw,
+    "-c:v",
+    "libx264",
+    "-crf",
+    "18",
+    "-preset",
+    "slow",
+    "-pix_fmt",
+    "yuv420p",
+    "-an",
+    "-movflags",
+    "+faststart",
+    mp4,
   ]);
   // webm: VP9 (CRF ~32 ≈ x264 crf 18 — NOT 18), served first where supported.
   await runFfmpeg([
-    "-y", "-loglevel", "error", "-ss", ss, "-i", opts.raw,
-    "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-row-mt", "1", "-an", webm,
+    "-y",
+    "-loglevel",
+    "error",
+    "-ss",
+    ss,
+    "-i",
+    opts.raw,
+    "-c:v",
+    "libvpx-vp9",
+    "-b:v",
+    "0",
+    "-crf",
+    "32",
+    "-row-mt",
+    "1",
+    "-an",
+    webm,
   ]);
   // poster: a representative frame as WebP (LCP element = video frame 1-ish).
   await runFfmpeg([
-    "-y", "-loglevel", "error", "-ss", String(opts.posterAt ?? 1.5), "-i", mp4,
-    "-frames:v", "1", "-c:v", "libwebp", "-q:v", "82", poster,
+    "-y",
+    "-loglevel",
+    "error",
+    "-ss",
+    String(opts.posterAt ?? 1.5),
+    "-i",
+    mp4,
+    "-frames:v",
+    "1",
+    "-c:v",
+    "libwebp",
+    "-q:v",
+    "82",
+    poster,
   ]);
   return { mp4, webm, poster };
 }
