@@ -151,6 +151,22 @@ Six steps. Inputs are *interactions*, never features. The falsifiable claim: fed
 
 Step 2 is where functional decomposition dies: the instant you write *what changes* instead of *what it does*, surface stops being a design choice and becomes **inevitable**. (Honest footnote, [§hindsight](#foresight-names-the-vault-pain-funds-it): the method names *where* the vault is and *what its verbs are* before code exists — but historically it's recurring same-shape **pain** that tells you it's time to pour it. Foresight names the vault; pain funds it.)
 
+## The metaphor, made generative: axes in, not decoration
+
+The reason it's called *electricity* isn't decoration — it's **the procedure read backwards.** Löwy lists the power volatilities first — *"power can be AC or DC; 110 volts or 220 volts; … 50 hertz or 60 hertz; produced by solar panels …, a generator …, or plain grid connectivity"* — and *then* the receptacle is whatever interface stays **bit-identical** across every value on every axis. The volatility list is the input; the socket's geometry is the output (its fixed point). Map the axes straight onto a software seam:
+
+| Electricity axis | …is software's | surface's value of it |
+| --- | --- | --- |
+| Voltage (110/220) | wire format / payload shape | snapshot vs delta encoding |
+| Frequency (50/60) | transport / push cadence | poll → SSE → WS → WebTransport |
+| Source (solar/grid) | provider / origin | which server process authors the state |
+| AC vs DC | ordering / consistency model | update sequencing, resume semantics |
+| Phase (1/3) | locality / deployment | LAN vs mobile vs proxied client |
+
+**The sweep test** turns taste into pass/fail: vary each axis end-to-end — grid→solar, poll→WS — and confirm the interface doesn't change *shape* at any point. "Needs only minor changes" means it is **still leaking**; a receptacle doesn't change *at all*. **The naming test** is the cheap proxy: if the best name you can find is a domain noun or an activity gerund (`WebSocketClient`, `BillingManager`), you grouped *function* and the interface will fracture on the first change you forgot to list. *(Enumerate-then-sweep is our generative distillation of the analogy — sharper than Löwy's literal text, which frames discovery as requirements "sweat," not a mechanical catalog.)*
+
+**Contract vs carrier — the part that outlasts the metaphor.** The electrical *contract* (sine wave, nominal voltage, pin spacing) is universal; the *plug* fragmented into ~15 national shapes only because grids were poured before any standard had teeth. In software: spend the enumeration effort on the **contract** — the atomic verbs and wire invariants (snapshot→deltas) — and treat the **carrier** (the library, the framework convention) as disposable. surface is a contract; oRPC is a carrier. Confuse the two and you ship a `WebSocketClient` and rewrite every consumer on the next transport.
+
 <Callout kind="warn" title="Re-evaluating @kolu/artifact-sdk — its electricity framing shifted (open; resolve outside this PR)">
 "Anchoring" (the original <PrLink pr={922} /> framing) now under-describes the
 package. It holds **two** volatilities: (1) the **anchoring core** (`core/` — W3C
