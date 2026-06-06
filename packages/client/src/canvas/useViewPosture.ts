@@ -48,7 +48,13 @@ export function useViewPosture() {
      *  Readers gate the maximize affordance on this so it never disagrees
      *  with `mode()`'s own guard. */
     canMaximize,
-    /** Toggle between tiled canvas and maximized. Single writer. */
-    toggle: store.toggleCanvasMaximized,
+    /** Toggle between tiled canvas and maximized. Single writer, and the
+     *  write guard: a no-op with zero terminals (same `canMaximize`
+     *  predicate as `mode()`'s read guard and the `canMaximize` affordance
+     *  guard), so the persisted flag can never be flipped on at zero tiles —
+     *  the safety lives in the receptacle, not in each caller. */
+    toggle: (): void => {
+      if (canMaximize()) store.toggleCanvasMaximized();
+    },
   } as const;
 }
