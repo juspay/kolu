@@ -49,7 +49,7 @@ import type {
   SavedSession,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { koluSurface, surfaceAppSurface_kolu } from "kolu-common/surface";
+import { koluSurface, surfaces } from "kolu-common/surface";
 import {
   type FsReadFileOutput,
   fsListAllOutputEqual,
@@ -284,6 +284,10 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   // before the pty-host answered fills in its `srv · pty` rail without a reload).
   // No app-visible connect to call, no hand-written `ctx.cells.buildInfo.set`.
   implementSurfaces(
+    // `surfaces` (the keyed Surface map) is the single source shared with the
+    // contract (`composeSurfaceContracts`) and the client (`surfaceClients`);
+    // here we add only the server-only per-surface deps, keyed the same way.
+    surfaces,
     {
       channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
@@ -298,7 +302,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         ),
     },
     {
-      // ── surface-app served as a sibling ──────────────────────────────────
+      // ── surface-app's server deps (sibling under `surfaceApp`) ───────────
       // The build-identity cell's server fragment (skew axis), extended with
       // kolu's pty-host column, PLUS the `identity.info` restart probe pinned to
       // kolu's boot UUID. `commit` is kolu's single source (`serverCommit` ←
@@ -306,37 +310,31 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // in-process pty-host reports its identity async (via `system.version`), so
       // it lands as a `Partial<KoluBuildInfo>` patch after the cell is seeded with
       // `{ commit }`. A failed probe leaves `ptyHost` undefined (the fragment
-      // swallows it); the rail's column shows `—`.
-      surfaceApp: {
-        surface: surfaceAppSurface_kolu,
-        // biome-ignore lint/suspicious/noExplicitAny: entry deps are `any`-spec'd; the surfaceAppServer bundle's concretely-typed cell entry rejects the `unknown`-typed member contravariantly. Runtime shape is exact.
-        deps: surfaceAppServer<KoluBuildInfo>({
-          buildInfo: async () => {
-            const identity = await ptyHostIdentity;
-            return identity ? { ptyHost: identity } : {};
-          },
-          commit: serverCommit,
-          // surface-app's identity probe (restart axis) —
-          // `surface.surfaceApp.identity.info`. Pin it to the existing boot UUID
-          // (`serverProcessId`) so the value is stable within a process and
-          // changes on restart. Composed, not hand-written.
-          processId: serverProcessId,
-          // Surface a failed boot-time pty-host probe — `ptyHost` legitimately
-          // stays undefined when the probe resolves empty, but a *rejection* is a
-          // fault we log rather than swallow (the rail's column shows `—` either way).
-          onError: (err) =>
-            log.error(
-              { err: err instanceof Error ? err.message : String(err) },
-              "buildInfo pty-host axis failed",
-            ),
-        }) as any,
-      },
+      // swallows it); the rail's column shows `—`. Per-key deps are typed against
+      // the surface's own spec, so this needs no cast.
+      surfaceApp: surfaceAppServer<KoluBuildInfo>({
+        buildInfo: async () => {
+          const identity = await ptyHostIdentity;
+          return identity ? { ptyHost: identity } : {};
+        },
+        commit: serverCommit,
+        // surface-app's identity probe (restart axis) —
+        // `surface.surfaceApp.identity.info`. Pin it to the existing boot UUID
+        // (`serverProcessId`) so the value is stable within a process and
+        // changes on restart. Composed, not hand-written.
+        processId: serverProcessId,
+        // Surface a failed boot-time pty-host probe — `ptyHost` legitimately
+        // stays undefined when the probe resolves empty, but a *rejection* is a
+        // fault we log rather than swallow (the rail's column shows `—` either way).
+        onError: (err) =>
+          log.error(
+            { err: err instanceof Error ? err.message : String(err) },
+            "buildInfo pty-host axis failed",
+          ),
+      }),
 
-      // ── kolu's own primitives served as a sibling ────────────────────────
-      // `koluDeps` (above) is the concretely-typed deps; cast only at this
-      // `any`-spec'd entry boundary.
-      // biome-ignore lint/suspicious/noExplicitAny: entry deps are `any`-spec'd; the concretely-typed koluDeps rejects the `unknown`-typed member contravariantly. Runtime shape is exact.
-      kolu: { surface: koluSurface, deps: koluDeps as any },
+      // ── kolu's own server deps (sibling under `kolu`) ────────────────────
+      kolu: koluDeps,
     },
   );
 

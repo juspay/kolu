@@ -657,6 +657,15 @@ export const koluSurface = defineSurface({
   },
 });
 
+/** The two siblings, keyed — the single browser-safe source of which surfaces
+ *  exist under which keys. `composeSurfaceContracts(surfaces)` (contract),
+ *  `surfaceClients(link, surfaces)` (client), and `implementSurfaces(surfaces, …)`
+ *  (server) all read this one map, so the keys can't drift across the three. */
+export const surfaces = {
+  kolu: koluSurface,
+  surfaceApp: surfaceAppSurface_kolu,
+} as const;
+
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────
 // `Surface` lifts `z.infer<schema>` over the spec so consumers reach for
 // `Surface["cells"]["preferences"]["Value"]` etc. The flat aliases below

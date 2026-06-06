@@ -584,27 +584,31 @@ On the server, `implementSurface(surface, deps)` returns `{ router, ctx }`; spre
 An app can serve **more than one independent surface** — its own domain surface plus a library's complete surface (e.g. [`@kolu/surface-app`](../surface-app)'s build-identity + restart-probe surface) — multiplexed over one transport, each namespaced under a key. Don't merge them into a single `defineSurface`; serve them as **siblings** (kolu#1197):
 
 ```ts
-// common — each is a standalone Surface; key their contracts under one `surface` namespace.
-// composeSurfaceContracts lives in @kolu/surface/define (browser-safe — no server import).
-export const contract = composeSurfaceContracts({ kolu: koluSurface, surfaceApp: surfaceAppSurface });
+// common — ONE keyed `surfaces` map is the single source of which surfaces exist
+// under which keys. It's browser-safe (just Surfaces), so the contract AND the
+// client both read it. composeSurfaceContracts lives in @kolu/surface/define.
+export const surfaces  = { kolu: koluSurface, surfaceApp: surfaceAppSurface };
+export const contract  = composeSurfaceContracts(surfaces);
 //   → { surface: { kolu: <koluInner>, surfaceApp: <surfaceAppInner> } }
 //   wire paths: surface.kolu.<prim>.<verb>  ·  surface.surfaceApp.<prim>.<verb>
 
-// server — one router + one keyed ctx; each surface's channels are key-prefixed (`<key>/<name>:changed`)
-// so two siblings' `<cell>:changed` can't collide.
-const { router, ctx } = implementSurfaces(
-  { channel },                                              // the one transport's channel factory
-  { kolu:       { surface: koluSurface,       deps: koluDeps },
-    surfaceApp: { surface: surfaceAppSurface, deps: surfaceAppServer() } },
-);
-ctx.kolu.cells.X.set(...)        // ctx is keyed per surface
+// server — reuse `surfaces`; add only the server-only `deps`, keyed the same way
+// (no { surface, deps } wrapper, no re-listing). Per-key deps are typed against
+// each surface's own spec. Channels are key-prefixed (`<key>/<name>:changed`) so
+// two siblings' `<cell>:changed` can't collide. One router + one keyed ctx.
+const { router, ctx } = implementSurfaces(surfaces, { channel }, {
+  kolu:       koluDeps,            // = Omit<ImplementSurfaceDeps<koluSpec>, "channel">
+  surfaceApp: surfaceAppServer(),  // the library's deps bundle for its surface
+});
+ctx.kolu.cells.X.set(...)         // ctx is keyed per surface
 
-// client — one link, split into a per-key client bundle, each scoped to its surface.<key>.* slice
-const clients = surfaceClients(link, { kolu: koluSurface, surfaceApp: surfaceAppSurface });
-clients.kolu.cells.X.use(...)    // e.g. re-export `app = clients.kolu`, `surfaceApp = clients.surfaceApp`
+// client — reuse `surfaces`; one link split into a per-key client bundle,
+// each scoped to its surface.<key>.* slice
+const clients = surfaceClients(link, surfaces);
+clients.kolu.cells.X.use(...)     // e.g. re-export `app = clients.kolu`, `surfaceApp = clients.surfaceApp`
 ```
 
-Each surface is derived, wired, and typed **independently** — the trio only *keys* them under one `surface` namespace, so `SurfaceSpec` itself never nests. The router-wrapping footgun applies to `implementSurfaces` too: it returns a `{ surface }` fragment, so wrap it with `implement(composeSurfaceContracts(entries)).router({...router})` before serving.
+`surfaces` is the **single source** across all three calls — `composeSurfaceContracts(surfaces)`, `implementSurfaces(surfaces, …)`, `surfaceClients(link, surfaces)` — so the keys can't drift. Each surface is derived, wired, and typed **independently**; the trio only *keys* them under one `surface` namespace, so `SurfaceSpec` itself never nests. The router-wrapping footgun applies to `implementSurfaces` too: it returns a `{ surface }` fragment, so wrap it with `implement(composeSurfaceContracts(surfaces)).router({...router})` before serving.
 
 A cell whose value arrives **asynchronously at boot** (e.g. a build-identity axis resolved over a link *after* construction) declares an optional **`connect?(cell)`** in its impl deps; the runtime fires it once after wiring to republish the late value through the cell's normal `equals → onWrite → store.set → bus.publish` path — so the app never hand-writes a seed-then-`ctx.cells.X.set` dance.
 
@@ -642,11 +646,14 @@ implementSurface(surface, { channel, cells, collections, streams, events, proced
   // a cell dep may carry an optional `connect?(cell)` — the runtime fires it once
   // after wiring to republish a late (async-at-boot) value through the cell's bus
 
-implementSurfaces({ channel, onStreamReadError? }, { <key>: { surface, deps } })
+implementSurfaces(surfaces, { channel, onStreamReadError? }, deps)
+  // surfaces — the keyed SurfaceMap (the same value passed to composeSurfaceContracts/surfaceClients)
+  // deps     — { <key>: Omit<ImplementSurfaceDeps<spec>, "channel"> }, keyed the same as surfaces,
+  //            each typed against its surface's spec (no any-spec'd entry map)
   // → { router: { surface: { <key>: … } }, ctx: { <key>: SurfaceCtx } }
   // N standalone surfaces multiplexed over one transport, each namespaced under <key>;
-  // channels are key-prefixed `<key>/<name>`. Same `{ surface }` fragment + router-wrapping
-  // footgun as implementSurface (wrap via implement(composeSurfaceContracts(entries)).router(...)).
+  // channels key-prefixed `<key>/<name>`. Same `{ surface }` fragment + router-wrapping footgun
+  // as implementSurface (wrap via implement(composeSurfaceContracts(surfaces)).router(...)).
 
 cellHandlers(cell, { store, bus, patch?, onMutate? }): { get, set, patch, test__set }
 collectionHandlers(coll, { readAll, readOne?, upsert, remove, perKeyBus, keysBus }):

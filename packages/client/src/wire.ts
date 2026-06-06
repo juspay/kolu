@@ -25,13 +25,12 @@ import { surfaceClients } from "@kolu/surface/solid";
 import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
-  koluSurface,
   type Preferences,
   type PreferencesPatch,
   type RecentAgent,
   type RecentRepo,
   type SavedSession,
-  surfaceAppSurface_kolu,
+  surfaces,
 } from "kolu-common/surface";
 import { WebSocket as PartySocket } from "partysocket";
 import { toast } from "solid-sonner";
@@ -56,10 +55,7 @@ const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
 // client per sibling over the single combined link, each scoped to its key's
 // slice (`{ surface: link.surface[key] }`) so its primitives resolve at the wire
 // path `/surface/<key>/<prim>/<verb>` that `implementSurfaces` serves.
-const clients = surfaceClients(link, {
-  kolu: koluSurface,
-  surfaceApp: surfaceAppSurface_kolu,
-});
+const clients = surfaceClients(link, surfaces);
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,
  *  `app.collections.terminalMetadata.use(...)`, `app.streams.gitStatus.use(...)`,

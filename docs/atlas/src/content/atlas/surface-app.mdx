@@ -317,21 +317,25 @@ The issue (#1197) prescribed nested sub-surfaces (`mounts`) — recurse a whole 
 
 ### The seam
 
-Each surface is defined exactly as today — no new field. surface core gains two thin plural wrappers: `implementSurfaces` (server) and `surfaceClients` (client), each keying its entries by a registration name.
+Each surface is defined exactly as today — no new field. surface core gains a thin plural layer — `composeSurfaceContracts` (contract), `implementSurfaces` (server), `surfaceClients` (client) — each reading **one shared keyed `surfaces` map**, so the keys can't drift across the three.
 
 ```ts
 // each is a normal, standalone surface — ZERO change to defineSurface / derivation / client proxy
-const surfaceAppSurface = defineSurface({ cells: { buildInfo }, procedures: { app: { info } } });
+const surfaceAppSurface = defineSurface({ cells: { buildInfo }, procedures: { identity: { info } } });
 const adminSurface      = defineSurface({ collections: { hosts }, procedures: { hosts } });
 
-// SERVER — one transport, a keyed map of surfaces
-const { router, ctx } = implementSurfaces({
-  surfaceApp: { surface: surfaceAppSurface, deps: surfaceAppImpl },   // owns its OWN connect
-  admin:      { surface: adminSurface,      deps: adminImpl },
+// ONE keyed map — the single (browser-safe) source of which surfaces exist under which keys
+const surfaces = { surfaceApp: surfaceAppSurface, admin: adminSurface };
+const contract = composeSurfaceContracts(surfaces);   // → { surface: { surfaceApp, admin } }
+
+// SERVER — reuse `surfaces`; add only the server-only deps, keyed the same way (no { surface, deps } wrapper)
+const { router, ctx } = implementSurfaces(surfaces, { channel }, {
+  surfaceApp: surfaceAppServer(),   // the lib's deps bundle; its async buildInfo connect fires in the runtime
+  admin:      adminImpl,
 });
 
-// CLIENT — one connection, a keyed map of clients
-const c = surfaceClients(link, { surfaceApp: surfaceAppSurface, admin: adminSurface });
+// CLIENT — reuse `surfaces`; one connection split into a per-key client bundle
+const c = surfaceClients(link, surfaces);
 c.surfaceApp.cells.buildInfo.use();   // surface.surfaceApp.buildInfo
 c.admin.collections.hosts.use();      // surface.admin.hosts...
 ```
@@ -340,7 +344,7 @@ c.admin.collections.hosts.use();      // surface.admin.hosts...
   caption="Independent surfaces are multiplexed over one transport; the plural layer keys each by its registration name. SurfaceSpec and every derivation are untouched."
   code={`direction: down
 app: "app — declares standalone surfaces" {
-  saSurface: "surfaceAppSurface (buildInfo cell + info probe)"
+  saSurface: "surfaceAppSurface (buildInfo cell + identity probe)"
   adminSurface: "adminSurface (hosts collection + procedures)"
 }
 plural: "implementSurfaces / surfaceClients (thin plural layer)" {
@@ -348,7 +352,7 @@ plural: "implementSurfaces / surfaceClients (thin plural layer)" {
   chan: "namespaces each surface's channel bus by key"
 }
 transport: "one transport (WS) — multiplexed" {
-  w1: "surface.surfaceApp.buildInfo · surface.surfaceApp.info"
+  w1: "surface.surfaceApp.buildInfo · surface.surfaceApp.identity.info"
   w2: "surface.admin.hosts..."
 }
 app.saSurface -> plural: "registered under 'surfaceApp'"
@@ -363,14 +367,14 @@ plural -> transport: "one router, one ctx, keyed"
 | --- | --- |
 | `composeSurfaces` / `ComposedSurfaceSpec` | **gone** — no merge; the surfaces are siblings |
 | `assertNoOverride` dup-key throw | **gone** — each surface is its own top key; nothing to collide |
-| `surfaceAppServer()` + `implementSurfaceApp()` | **gone** — each surface's own `implementSurface` owns its deps |
-| app-visible `connect` (republish late `buildInfo`) | **gone** — each surface's `implementSurface` fires its own cells' `connect` |
+| `implementSurfaceApp()` | **gone** — `implementSurfaces(surfaces, base, deps)` takes each surface's deps in a keyed map; `surfaceAppServer()` survives as surface-app's per-key deps bundle |
+| app-visible `connect` (republish late `buildInfo`) | **gone** — `connect?` is a cell-impl dep the runtime fires once after wiring |
 
-The plural layer is the *only* new code, and it wraps the **existing** singular `implementSurface` / `surfaceClient` once per entry, handling the two real mechanics:
+The plural layer wraps the **existing** singular walk once per surface, handling the two real mechanics:
 
 ```ts
 // 1. namespace each surface's channel bus by its key so two surfaces' `buildInfo:changed` can't collide
-implementSurface(surface, { ...deps, channel: (n) => baseChannel(`${key}/${n}`) })
+walkSurface(t.surface[key], surface, { ...deps, channel: (n) => baseChannel(`${key}/${n}`) })
 // 2. key each surface's router + ctx under its registration name (instead of the hardcoded single `surface`)
 ```
 
@@ -388,11 +392,11 @@ Wire paths gain the surface key (`surface.buildInfo` → `surface.surfaceApp.bui
 
 ### Scope & migration
 
-A `@kolu/surface` change that **adds** `implementSurfaces` + `surfaceClients` and leaves `SurfaceSpec` / `defineSurface` / the contract derivation / the client proxy alone. Then every consumer splits its one merged surface into siblings:
+A `@kolu/surface` change that **adds** `composeSurfaceContracts` + `implementSurfaces` + `surfaceClients` and leaves `SurfaceSpec` / `defineSurface` / the contract derivation / the client proxy alone. All three read one shared keyed `surfaces` map. Then every consumer splits its one merged surface into siblings:
 
-- **kolu** — its `surfaceApp` surface (extending build identity for the pty-host axis, as today) becomes a sibling of its main surface; deletes its `composeSurfaces` / `implementSurfaceApp` calls.
-- **the surface examples** — re-expressed as sibling surfaces against the plural API.
-- **drishti** ([srid/drishti](https://github.com/srid/drishti)) — adopts the plural API in a paired PR (the `(should include drishti PR)` ask): `surfaceAppSurface` + `adminSurface` as siblings in `admin-surface.ts`, `implementSurfaces` in `admin-router.ts`, `c.surfaceApp.cells.buildInfo` / `c.surfaceApp.rpc.app.info` on the client.
+- **kolu** — its `surfaceApp` surface (extending build identity for the pty-host axis, as today) becomes a sibling of its `kolu` surface; deletes its `composeSurfaces` / `implementSurfaceApp` calls. `app = clients.kolu` keeps every existing call site unchanged.
+- **the surface examples** — re-expressed as sibling surfaces against the plural API (a `surfaceApp` sibling + the example's own `demo` sibling).
+- **drishti** ([srid/drishti](https://github.com/srid/drishti)) — adopts the plural API in a paired PR (the `(should include drishti PR)` ask): a `surfaces = { admin: adminSurface, surfaceApp: surfaceAppSurface }` map in `admin-surface.ts`, `implementSurfaces(surfaces, …)` in `admin-router.ts`, `clients.surfaceApp.cells.buildInfo` and the `surfaceAppProbe(clients.surfaceApp)` identity probe on the client.
 
 A pure refactor in behavior — no on-screen change, no new user-facing surface — so existing surface + surface-app tests are the safety net (extended to cover the plural layer's per-key channel namespacing and router/ctx keying).
 

@@ -54,32 +54,28 @@ describe("implementSurfaces routes siblings at /surface/<key>/<prim>/<verb>", ()
   it("matcher tree lands at the right depth for two sibling surfaces", () => {
     const a = surfaceA();
     const b = surfaceB();
+    const surfaces = { a, b };
     const { router } = implementSurfaces(
+      surfaces,
       { channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>() },
       {
         a: {
-          surface: a,
-          deps: {
-            cells: { state: { store: inMemoryStore({ value: 0 }) } },
-            procedures: {
-              math: {
-                double: async ({ input }: { input: unknown }) => ({
-                  y: (input as { x: number }).x * 2,
-                }),
-              },
+          cells: { state: { store: inMemoryStore({ value: 0 }) } },
+          procedures: {
+            math: {
+              double: async ({ input }: { input: unknown }) => ({
+                y: (input as { x: number }).x * 2,
+              }),
             },
           },
         },
-        b: {
-          surface: b,
-          deps: { cells: { state: { store: inMemoryStore({ value: 0 }) } } },
-        },
+        b: { cells: { state: { store: inMemoryStore({ value: 0 }) } } },
       },
     );
     // Same wrapping requirement as `implementSurface`: the bare fragment
     // double-prefixes; `implement(contract).router({...fragment})` lands it
-    // at the right depth. The contract is `composeSurfaceContracts(...)`.
-    const contract = composeSurfaceContracts({ a, b });
+    // at the right depth. The contract is `composeSurfaceContracts(surfaces)`.
+    const contract = composeSurfaceContracts(surfaces);
     const wrapped = implement(contract).router({
       ...router,
       // biome-ignore lint/suspicious/noExplicitAny: implementSurfaces' Lazy<Router> spread isn't accepted by oRPC's RouterImplementer input type; the runtime shape is a valid router.
@@ -101,25 +97,20 @@ describe("implementSurfaces routes siblings at /surface/<key>/<prim>/<verb>", ()
     const a = surfaceA();
     const b = surfaceB();
     const { router } = implementSurfaces(
+      { a, b },
       { channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>() },
       {
         a: {
-          surface: a,
-          deps: {
-            cells: { state: { store: inMemoryStore({ value: 0 }) } },
-            procedures: {
-              math: {
-                double: async ({ input }: { input: unknown }) => ({
-                  y: (input as { x: number }).x * 2,
-                }),
-              },
+          cells: { state: { store: inMemoryStore({ value: 0 }) } },
+          procedures: {
+            math: {
+              double: async ({ input }: { input: unknown }) => ({
+                y: (input as { x: number }).x * 2,
+              }),
             },
           },
         },
-        b: {
-          surface: b,
-          deps: { cells: { state: { store: inMemoryStore({ value: 0 }) } } },
-        },
+        b: { cells: { state: { store: inMemoryStore({ value: 0 }) } } },
       },
     );
     const out = await call(
@@ -142,6 +133,7 @@ describe("implementSurfaces: connect cell-dep", () => {
       onError: () => {},
     });
     implementSurfaces(
+      { a },
       {
         channel: <T>(name: string): Channel<T> =>
           name === "a/state:changed"
@@ -150,22 +142,19 @@ describe("implementSurfaces: connect cell-dep", () => {
       },
       {
         a: {
-          surface: a,
-          deps: {
-            cells: {
-              state: {
-                store,
-                connect: async (cell) => {
-                  cell.set({ value: 99 });
-                },
+          cells: {
+            state: {
+              store,
+              connect: async (cell) => {
+                cell.set({ value: 99 });
               },
             },
-            procedures: {
-              math: {
-                double: async ({ input }: { input: unknown }) => ({
-                  y: (input as { x: number }).x,
-                }),
-              },
+          },
+          procedures: {
+            math: {
+              double: async ({ input }: { input: unknown }) => ({
+                y: (input as { x: number }).x,
+              }),
             },
           },
         },
@@ -187,16 +176,11 @@ describe("implementSurfaces: channels are key-namespaced", () => {
       return inMemoryChannel<unknown>();
     });
     implementSurfaces(
+      { a, b },
       { channel: channel as <T>(name: string) => Channel<T> },
       {
-        a: {
-          surface: a,
-          deps: { cells: { state: { store: inMemoryStore({ value: 0 }) } } },
-        },
-        b: {
-          surface: b,
-          deps: { cells: { state: { store: inMemoryStore({ value: 0 }) } } },
-        },
+        a: { cells: { state: { store: inMemoryStore({ value: 0 }) } } },
+        b: { cells: { state: { store: inMemoryStore({ value: 0 }) } } },
       },
     );
     const names = channel.mock.calls.map((c) => c[0]);

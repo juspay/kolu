@@ -1418,76 +1418,88 @@ export function implementSurface<const S extends SurfaceSpec>(
 
 // ── implementSurfaces — sibling surfaces over one transport ─────────────
 
-/** A keyed map of independent surfaces, each with its own implementation
- *  deps (minus `channel`, which the base supplies key-namespaced). Each
- *  entry is served as a SIBLING namespaced by its key — they are NOT merged
- *  into one surface. */
-export type SurfaceEntries = Record<
-  string,
-  {
-    // biome-ignore lint/suspicious/noExplicitAny: each entry pins its own SurfaceSpec; the map is heterogeneous.
-    surface: Surface<any>;
-    // biome-ignore lint/suspicious/noExplicitAny: deps are typed per-entry against the entry's surface spec.
-    deps: Omit<ImplementSurfaceDeps<any>, "channel">;
-  }
->;
+/** A keyed map of independent surfaces — the single source of *which*
+ *  surfaces exist under *which* keys. Browser-safe (no server impls), so the
+ *  same value feeds `composeSurfaceContracts` (contract), `surfaceClients`
+ *  (client), and `implementSurfaces` (server). Each surface is served as a
+ *  SIBLING namespaced by its key — they are NOT merged into one surface. */
+// biome-ignore lint/suspicious/noExplicitAny: the map is heterogeneous; each value pins its own SurfaceSpec.
+export type SurfaceMap = Record<string, Surface<any>>;
 
-/** The per-key typed mutation ctx returned by `implementSurfaces`. */
-export type SurfacesCtx<E extends SurfaceEntries> = {
-  [K in keyof E]: E[K] extends { surface: Surface<infer S> }
-    ? SurfaceCtx<S>
+/** The per-key server-implementation deps for a `SurfaceMap` — the same
+ *  per-primitive wiring `implementSurface` takes (cell stores, collection
+ *  readers, stream/event sources, procedure handlers) MINUS `channel` (the
+ *  base supplies it, key-namespaced). Typed against each surface's own spec,
+ *  so a key's deps are checked precisely (no `any`-spec'd entry map). */
+export type SurfaceDepsFor<S extends SurfaceMap> = {
+  [K in keyof S]: S[K] extends Surface<infer Spec>
+    ? Omit<ImplementSurfaceDeps<Spec>, "channel">
     : never;
 };
 
-/** Serve a keyed MAP of independent surfaces multiplexed over one
- *  transport, each namespaced by its key. Unlike `implementSurface`, the
- *  surfaces are NOT merged — surface-app stays a complete surface and is
- *  served as a sibling of the app surface under its own key.
+/** The per-key typed mutation ctx returned by `implementSurfaces`. */
+export type SurfacesCtx<S extends SurfaceMap> = {
+  [K in keyof S]: S[K] extends Surface<infer Spec> ? SurfaceCtx<Spec> : never;
+};
+
+/** Serve a keyed MAP of independent surfaces multiplexed over one transport,
+ *  each namespaced by its key. Unlike `implementSurface`, the surfaces are NOT
+ *  merged — surface-app stays a complete surface served as a sibling of the
+ *  app surface under its own key.
+ *
+ *  Three args, mirroring the contract/client side: `surfaces` (the same
+ *  browser-safe `SurfaceMap` you pass to `composeSurfaceContracts` /
+ *  `surfaceClients` — the single source of keys+surfaces), `base` (the one
+ *  transport's `channel` + fallback `onStreamReadError`), and `deps` (the
+ *  server-only per-surface impls, keyed the same as `surfaces`). The surfaces
+ *  aren't re-listed here; only their deps are.
  *
  *  Routing: a combined contract of shape `{ surface: { <key>: innerContract } }`
- *  is built (where `innerContract = surface.contract.surface`), then each
- *  surface's handlers are bound under `t.surface[key]`. Procedures route at
- *  `/surface/<key>/<prim>/<verb>` — no double-prefix, because the inner
- *  contract is re-keyed rather than raw-nested (a built router keeps its
- *  baked `surface.*` path).
+ *  is built from `surfaces` (via `composeSurfaceContracts`, the same receptacle
+ *  the contract side uses), then each surface's handlers are bound under
+ *  `t.surface[key]`. Procedures route at `/surface/<key>/<prim>/<verb>` — no
+ *  double-prefix, because the inner contract is re-keyed rather than raw-nested.
  *
- *  Channels are key-namespaced: each surface's `channel(name)` call is
- *  rewritten to `base.channel(key + "/" + name)`, so two surfaces that each
- *  own e.g. a `buildInfo:changed` channel can't collide on the wire.
- *
- *  `base.onStreamReadError` is the fallback for any entry that doesn't
- *  supply its own. */
-export function implementSurfaces<const E extends SurfaceEntries>(
+ *  Channels are key-namespaced: each surface's `channel(name)` call is rewritten
+ *  to `base.channel(key + "/" + name)`, so two surfaces that each own e.g. a
+ *  `buildInfo:changed` channel can't collide on the wire. `base.onStreamReadError`
+ *  is the fallback for any surface whose deps don't supply their own. */
+export function implementSurfaces<const S extends SurfaceMap>(
+  surfaces: S,
   base: {
     channel: <T>(name: string) => Channel<T>;
     onStreamReadError?: (err: unknown, info: { stream: string }) => void;
   },
-  entries: E,
+  deps: SurfaceDepsFor<S>,
 ): {
   // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
   router: any;
-  ctx: SurfacesCtx<E>;
+  ctx: SurfacesCtx<S>;
 } {
-  // Build a COMBINED contract `{ surface: { <key>: innerContract } }` via the
-  // same receptacle the contract side uses, so the envelope shape has a single
-  // definition. We re-key rather than raw-nest the built routers — a built
-  // router keeps its baked `surface.*` path, which would double-prefix to
-  // /surface/<key>/surface/…
-  const combinedContract = composeSurfaceContracts(
-    Object.fromEntries(Object.entries(entries).map(([k, e]) => [k, e.surface])),
-  );
+  // The combined contract envelope has ONE definition — the receptacle the
+  // contract side already uses. We re-key rather than raw-nest the built
+  // routers (a built router keeps its baked `surface.*` path, which would
+  // double-prefix to /surface/<key>/surface/…).
+  const combinedContract = composeSurfaceContracts(surfaces);
   // biome-ignore lint/suspicious/noExplicitAny: oRPC implement chain is too dynamic for our runtime walk.
   const t = implement(combinedContract as any) as any;
 
   const byKey: Record<string, Record<string, Record<string, unknown>>> = {};
   const ctxByKey: Record<string, unknown> = {};
-  for (const [key, { surface, deps }] of Object.entries(entries)) {
+  for (const [key, surface] of Object.entries(surfaces)) {
     const keyedChannel = <T>(name: string): Channel<T> =>
       base.channel<T>(`${key}/${name}`);
+    const surfaceDeps = (
+      deps as Record<string, Omit<ImplementSurfaceDeps<SurfaceSpec>, "channel">>
+    )[key];
+    if (!surfaceDeps) {
+      throw new Error(`implementSurfaces: missing deps for surface "${key}"`);
+    }
     const { namespaces, ctx } = walkSurface(t.surface[key], surface, {
-      ...deps,
+      ...surfaceDeps,
       channel: keyedChannel,
-      onStreamReadError: deps.onStreamReadError ?? base.onStreamReadError,
+      onStreamReadError:
+        surfaceDeps.onStreamReadError ?? base.onStreamReadError,
     });
     byKey[key] = namespaces;
     ctxByKey[key] = ctx;
@@ -1496,7 +1508,7 @@ export function implementSurfaces<const E extends SurfaceEntries>(
   return {
     // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
     router: { surface: t.router(byKey) } as any,
-    ctx: ctxByKey as SurfacesCtx<E>,
+    ctx: ctxByKey as SurfacesCtx<S>,
   };
 }
 

@@ -23,9 +23,8 @@ import { z } from "zod";
 import {
   CanvasLayoutSchema,
   InitialTerminalMetadataSchema,
-  koluSurface,
   RightPanelPerTerminalStateSchema,
-  surfaceAppSurface_kolu,
+  surfaces,
   TerminalAttachInputSchema,
   TerminalIdSchema,
   TerminalInfoSchema,
@@ -142,10 +141,8 @@ export const contract = oc.router({
   // + identity probe) under `surfaceApp`. `composeSurfaceContracts` keys each
   // inner contract, producing `{ surface: { kolu: …, surfaceApp: … } }` — wire
   // paths are `surface.kolu.<prim>.<verb>` / `surface.surfaceApp.<prim>.<verb>`.
-  ...composeSurfaceContracts({
-    kolu: koluSurface,
-    surfaceApp: surfaceAppSurface_kolu,
-  }),
+  // `surfaces` is the single source shared with the server + client.
+  ...composeSurfaceContracts(surfaces),
   server: {
     info: oc.output(ServerInfoSchema),
   },

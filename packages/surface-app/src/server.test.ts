@@ -10,7 +10,6 @@
  * merged into the app surface.
  */
 
-import type { ImplementSurfaceDeps } from "@kolu/surface/server";
 import { implementSurfaces, inMemoryChannelByName } from "@kolu/surface/server";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -123,10 +122,9 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     // Spy on the cell entry's connect to prove the runtime fires it for us.
     const connect = vi.spyOn(server.cells.buildInfo, "connect");
     const { router, ctx } = implementSurfaces(
+      { surfaceApp: surfaceAppSurface },
       { channel: inMemoryChannelByName() },
-      {
-        surfaceApp: { surface: surfaceAppSurface, deps: asDeps(server) },
-      },
+      { surfaceApp: server },
     );
 
     // The per-key ctx exposes the buildInfo cell carrying the commit.
@@ -151,38 +149,14 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     // — each gets a key-namespaced `buildInfo:changed` channel, so the two
     // can't collide on the wire. We assert both ctxs wire independently.
     const { ctx } = implementSurfaces(
+      { a: surfaceAppSurface, b: surfaceAppSurface },
       { channel: inMemoryChannelByName() },
       {
-        a: {
-          surface: surfaceAppSurface,
-          deps: asDeps(
-            surfaceAppServer({ commit: "aaa1111", processId: "pa" }),
-          ),
-        },
-        b: {
-          surface: surfaceAppSurface,
-          deps: asDeps(
-            surfaceAppServer({ commit: "bbb2222", processId: "pb" }),
-          ),
-        },
+        a: surfaceAppServer({ commit: "aaa1111", processId: "pa" }),
+        b: surfaceAppServer({ commit: "bbb2222", processId: "pb" }),
       },
     );
     expect(ctx.a?.cells.buildInfo?.get()).toEqual({ commit: "aaa1111" });
     expect(ctx.b?.cells.buildInfo?.get()).toEqual({ commit: "bbb2222" });
   });
 });
-
-/** Drop the typed `surfaceAppServer` bundle into an `implementSurfaces` entry's
- *  `deps`. The entry deps type is `ImplementSurfaceDeps<any>` (the map is
- *  heterogeneous), whose cell-value members (`equals`, `connect`) are typed
- *  against `unknown` and so reject any concretely-typed cell entry contravariantly
- *  — the same reason `@kolu/surface`'s own `implementSurfaces` tests cast at the
- *  router/handler boundary. The runtime shape is exactly right; only the variance
- *  is unsatisfiable, so we assert it here. */
-function asDeps(
-  server: ReturnType<typeof surfaceAppServer>,
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous-map entry deps are intentionally `any`-spec'd.
-): Omit<ImplementSurfaceDeps<any>, "channel"> {
-  // biome-ignore lint/suspicious/noExplicitAny: variance-only cast; the runtime structure is sound.
-  return server as any;
-}

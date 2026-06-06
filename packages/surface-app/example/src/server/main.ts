@@ -74,31 +74,26 @@ const statsStore = {
 // patch in when the promise settles, and the runtime republishes it to
 // subscribers — no hand-written second `ctx.cells.buildInfo.set`.
 const { router: surfacesRouter, ctx } = implementSurfaces(
+  // `surfaces` (the keyed map) is the single source shared with the contract
+  // (`composeSurfaceContracts`) and the client (`surfaceClients`); here we add
+  // only the server-only per-surface deps, keyed the same way.
+  surfaces,
   { channel: <T>(name: string) => publisherChannel<T>(publisher, name) },
   {
-    surfaceApp: {
-      // Surface bound off the authoritative `surfaces` map (not a free-standing
-      // import), so a key rename in common/surface.ts can't strand the server.
-      surface: surfaces.surfaceApp,
-      deps: surfaceAppServer<ExampleBuildInfo>({
-        // The schema-valid seed: every required axis at its default. Until the
-        // async source settles, the cell publishes `{ commit, bootId: "" }` — a
-        // full `ExampleBuildInfo`, never a half-shape missing `bootId`.
-        default: exampleBuildInfo.cells.buildInfo.default,
-        buildInfo: async () => {
-          await new Promise((r) => setTimeout(r, 50)); // the link round-trip
-          return { bootId: randomUUID().slice(0, 8) }; // a Partial<T> patch
-        },
-        // Surface a failed boot-time probe instead of silently keeping the seed.
-        onError: (err) =>
-          console.error("buildInfo boot-time axis failed:", err),
-        // biome-ignore lint/suspicious/noExplicitAny: heterogeneous entry deps are `any`-spec'd; the surfaceAppServer bundle's concretely-typed cell entry rejects the `unknown`-typed member contravariantly. Runtime shape is exact.
-      }) as any,
-    },
-    demo: {
-      surface: surfaces.demo,
-      deps: { cells: { serverStats: { store: statsStore } } },
-    },
+    surfaceApp: surfaceAppServer<ExampleBuildInfo>({
+      // The schema-valid seed: every required axis at its default. Until the
+      // async source settles, the cell publishes `{ commit, bootId: "" }` — a
+      // full `ExampleBuildInfo`, never a half-shape missing `bootId`.
+      default: exampleBuildInfo.cells.buildInfo.default,
+      buildInfo: async () => {
+        await new Promise((r) => setTimeout(r, 50)); // the link round-trip
+        return { bootId: randomUUID().slice(0, 8) }; // a Partial<T> patch
+      },
+      // Surface a failed boot-time probe instead of silently keeping the seed.
+      onError: (err) => console.error("buildInfo boot-time axis failed:", err),
+    }),
+    // the example's OWN cell — per-key deps typed against `demoSurface`'s spec
+    demo: { cells: { serverStats: { store: statsStore } } },
   },
 );
 
