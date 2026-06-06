@@ -262,6 +262,26 @@ Already recognised in `.agency/lowy.md` — the crop just confirms it and finds 
 - **Evidence — receptacle exists, but leaks at the edges:** `TerminalProbes` (`() => T | null`) at <Cite file="packages/client/src/terminal/terminalRefs.ts" lines="20-30" /> and the WebGL lifecycle snapshot at <Cite file="packages/client/src/terminal/webglTracker.ts" lines="71-101" /> are the good pattern; but `screenshotTerminal` still pokes `buffer.active.getLine` *directly* (<Cite file="packages/client/src/screenshotTerminal.ts" lines="207-226" />), bypassing the probe wall.
 - **Verdict — extract-now (harden, don't invent):** the electricity is *already designed*; the work is to route the remaining reach-throughs through it and ship it (likely as the diagnostics face of `solid-xterm`, or its own `@kolu/terminal-probes`). Distinct from solid-xterm's *lifecycle* axis: this one is purely *measure-volatile-internals-safely*.
 
+### 📡 `refcounted-fan-out` — one source → N subscribers, refcount + backpressure · <Pill variant="fix">extract-now</Pill>
+
+The pass's **best-evidenced** find — rule-of-three already *quadrupled* — and it resolves the multi-tab reject into a positive.
+
+- **Axis:** share one upstream stream/watcher across N local consumers, with refcount install-on-first / teardown-on-last, a bounded per-subscriber buffer (drop-slow), and fault isolation (one listener throwing doesn't skip peers).
+- **The sentence:** *every time we add a fan-out primitive (PTY output, WAL watcher, dir watcher, git-event tap), we re-hand-roll `Set<Listener>` + refcount + drop-slow.*
+- **Evidence — the same shape at four sites:** `Channel<T>` <Cite file="packages/pty-host/src/channel.ts" lines="51-166" />, the refcounted WAL watcher <Cite file="packages/shared/src/sqlite/wal-subscription.ts" lines="93-149" />, the refcounted dir-watcher <Cite file="packages/integrations/io/src/refcounted-dir-watcher.ts" lines="63-151" />, and the git repo-change compose <Cite file="packages/integrations/git/src/repo-change.ts" lines="53-80" /> — all `subscribe(onChange) → () => void`, install-on-first/retire-on-last, fault-isolated.
+- **Verdict — extract-now:** four independent hand-rolls of one lifecycle is the strongest signal in the crop. A `createFanOut(subscribe, { bound })` receptacle deletes the refcount/backpressure bookkeeping at every site. *This is the server-side fan-out the [reject pile](#the-reject-pile--candidates-the-engine-refused) said was real* — the axis the client lacks, the server has four times over.
+
+<Callout kind="warn" title="This revises an earlier reject — @kolu/fs-watch was judged at the wrong altitude">
+The [Considered table](#considered--not-electricity) rejects `@kolu/fs-watch` as "a refcount/debounce *lifecycle*, not a streaming transport." True — but that compared it to the *wrong* electricity. fs-watch isn't a transport; it is **one of the four instances of `refcounted-fan-out` above.** The reject answered "is this a *surface*-shaped transport?" (no) and missed "is the refcount-fan-out *lifecycle* itself the artifact?" (yes — `.agency/lowy.md`'s Layer-0 prompt). The helper was real; we'd been measuring it against the wrong receptacle. Corrected below.
+</Callout>
+
+### 🔄 `freshness` — running-code identity vs deployed-code identity · <Pill variant="run">candidate · partly in surface-app</Pill>
+
+- **Axis:** the identity of the code currently *running* vs the code *deployed/available*, and deriving "you are stale — reload/restart" from the drift — with **no transport knowledge** in it.
+- **The sentence:** *every time a new identity axis appears (pty-host build-id, client commit, server commit), we hand-edit an `isStale` predicate.*
+- **Evidence:** the nix-baked `currentBuildId()` <Cite file="packages/pty-host/src/buildId.ts" lines="1-29" />, the extensible `isStale` in <Cite file="packages/surface-app/src/surface.ts" lines="37-60" />, the stale badge reading `staleKey` in `IdentityRail.tsx`. Landed incrementally (`606c7a24` build-id intro → `5cc41968` surface-app extraction).
+- **Verdict — candidate (mostly housed):** surface-app *already* owns the lifecycle plumbing, so this isn't greenfield — but naming the **axis** (identity-drift → update-prompt) separates it from surface's *transport* axis, which is why the same app can change its update story without touching its wire. The `③` is real: drishti reuses the `isStale`/`buildInfo` seam with its own identity.
+
 ### The reject pile — candidates the engine *refused*
 
 Included on purpose: a method that only ever says "extract" is rationalising, not generating. These looked like electricity and aren't (yet).
@@ -323,7 +343,7 @@ Looked framework-sized (the audit's biggest braids), but fail the bar — record
 | Candidate | Verdict | Why |
 | --- | --- | --- |
 | **defineMutation** (optimisticOverlay) | <Pill variant="bad">helper</Pill> | One module, one domain (canvas layouts); the write echo is already owned by `surface`'s metadata subscription. Pending is a UI cache, not a transport axis. |
-| **@kolu/fs-watch** | <Pill variant="bad">helper</Pill> | Owns a refcount/debounce *lifecycle*, not a streaming transport — no wire contract, Node-bound. A `@kolu/shared` helper, not a socket. |
+| **@kolu/fs-watch** | <Pill variant="run">re-judged</Pill> | *Original verdict: helper — "a refcount/debounce lifecycle, not a streaming transport."* **Re-judged this pass:** that measured it against the wrong receptacle. It is not a transport, but the refcount/fan-out **lifecycle** it owns *is* the artifact — fs-watch is one of four instances of [`refcounted-fan-out`](#-refcounted-fan-out--one-source--n-subscribers-refcount--backpressure) (extract-now). The reject wasn't wrong about "not a socket"; it stopped one altitude too early. |
 | **@kolu/geometry** | <Pill variant="bad">domain-coupled</Pill> | `TileLayout` binds it to a server-persisted domain type; a `Rect` package re-adapts at every boundary — moves the braid, doesn't dissolve it. |
 | **@kolu/surface-publish** | <Pill variant="bad">already-covered</Pill> | Surface's `cellHandlers`/`collectionHandlers`/`pollOnEvent` already own server snapshot+delta. Only `terminal.attach` is a raw escape hatch. |
 | **@kolu/commands** (palette) | <Pill variant="bad">domain-coupled</Pill> | Palette engine is already agnostic; all coupling is isolated in `createCommands`, which must stay in the app. Extracting deletes ~0 kolu lines. |
