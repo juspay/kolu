@@ -11,17 +11,12 @@
 import { installInstructions, type PwaInstall } from "@kolu/solid-pwa-install";
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { type Component, For, Match, Show, Switch } from "solid-js";
-import { ACTIONS } from "./input/actions";
+import { advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 
 /** The full external guide. The in-app cards stay bird's-eye; depth lives here. */
 const GUIDE_URL = "https://kolu.dev/welcome";
-
-// Cmd+Enter, not Cmd+T: Cmd+T is intercepted by browsers outside PWA-installed
-// mode, so the alt chord is the universally-functional advert (matches EmptyState).
-const newTerminalKey =
-  ACTIONS.createTerminal.altKeybind ?? ACTIONS.createTerminal.keybind;
 
 const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
   const app = useSurfaceApp();
@@ -147,7 +142,7 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
           </div>
         </div>
         <span class="shrink-0 self-center">
-          <Kbd>{formatKeybind(newTerminalKey)}</Kbd>
+          <Kbd>{formatKeybind(advertisedNewTerminalKey)}</Kbd>
         </span>
       </div>
 

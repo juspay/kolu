@@ -5,7 +5,7 @@ import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { showsWelcome } from "./capabilities";
-import { ACTIONS } from "./input/actions";
+import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import { surface } from "./ui/Surface";
@@ -15,13 +15,7 @@ import WelcomeMoments from "./WelcomeMoments";
 const chrome = surface();
 
 const features = [
-  // Show the alt chord (Cmd+Enter): Cmd+T is intercepted by browsers outside
-  // PWA-installed mode, so the alt is the more universally-functional advert.
-  {
-    label: "New terminal",
-    shortcut:
-      ACTIONS.createTerminal.altKeybind ?? ACTIONS.createTerminal.keybind,
-  },
+  { label: "New terminal", shortcut: advertisedNewTerminalKey },
   { label: "New terminal menu", shortcut: ACTIONS.newTerminalMenu.keybind },
   { label: "Command palette", shortcut: ACTIONS.commandPalette.keybind },
   { label: "Cycle terminals", shortcut: ACTIONS.cycleTerminalMru.keybind },
