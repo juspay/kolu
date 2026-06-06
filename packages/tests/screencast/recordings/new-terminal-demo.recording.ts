@@ -51,6 +51,8 @@ export const recording: Recording = {
 
     // The reusable climax: launch the agent (trust-skipped, sonnet) and ask it
     // something — the dock row pulses through working → awaiting as it answers.
-    await launchAgentAndAsk(world, { prompt: "Explain this project" });
+    await launchAgentAndAsk(world, {
+      prompt: "Explain this project, in 5 lines",
+    });
   },
 };

@@ -2,10 +2,8 @@
 // Add a recording: drop a `<name>.recording.ts` file and list it here.
 import type { Recording } from "./types";
 import { recording as newTerminalDemo } from "./new-terminal-demo.recording";
-import { recording as pwaInstall } from "./pwa-install.recording";
 
 export const recordings: Record<string, Recording> = {
-  [pwaInstall.name]: pwaInstall,
   [newTerminalDemo.name]: newTerminalDemo,
 };
 

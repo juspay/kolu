@@ -117,16 +117,26 @@ export async function launchAgentAndAsk(
   if (!opts.prompt) return;
 
   await world.terminalRun(opts.prompt);
-  // Wait for the dock to show the agent actually working, then settling back to
-  // awaiting — the answer is on screen and the row has stopped pulsing.
-  const dockState = (state: string) =>
+  // Wait for the dock bucket to go working → awaiting (the answer is on screen
+  // and the row has stopped pulsing). NB: the high-level state is `data-bucket`
+  // ("working"/"awaiting"/"idle"); `data-agent-state` is the raw state
+  // ("thinking"/"tool_use"/"waiting"), which is NOT what we want here.
+  const dockBucket = (bucket: string, timeout: number) =>
     world.page
-      .waitForSelector(`[data-agent-state="${state}"]`, {
+      .waitForSelector(`[data-bucket="${bucket}"]`, {
         state: "attached",
-        timeout: state === "working" ? 15000 : 120000,
+        timeout,
       })
       .catch(() => undefined);
-  await dockState("working");
-  await dockState("awaiting");
-  await pause(world, opts.dwellMs ?? 2500); // hold on the answer + awaiting dock
+  await dockBucket("working", 20_000);
+  await dockBucket("awaiting", 90_000);
+  // Make the status change unmissable: glow the awaiting dock row, then hold
+  // on it (≥1s) so the viewer registers that the agent has finished.
+  await world.page
+    .addStyleTag({
+      content:
+        '[data-bucket="awaiting"]{box-shadow:0 0 0 2px #e0a45c,0 0 18px 4px rgba(224,164,92,.55)!important;border-radius:10px!important;transition:box-shadow .25s ease}',
+    })
+    .catch(() => undefined);
+  await pause(world, opts.dwellMs ?? 2800); // hold on the answer + glowing dock
 }

@@ -294,9 +294,8 @@ recording still carries its declarative display properties.
   caption="Two sides of the domain line. The agnostic capture engine (own folder, arrow pointing out, publish?-flagged) knows nothing of kolu; each kolu recording is one file carrying its display properties + a drive() closure that uses the existing step/World helpers. Engine options (chrome/pace/size) ≠ kolu display knobs (hide panel / collapse dock)."
   code={`direction: down
 rec: "kolu recordings — DOMAIN (one file each)" {
-  a: "pwa-install.recording.ts"
-  b: "new-terminal-demo.recording.ts"
-  note: "name · display props (hideRightPanel / collapseDock) · drive(world)"
+  a: "new-terminal-demo.recording.ts"
+  note: "name · chrome · theme · display (hideRightPanel/hideDock/hideMinimap) · drive(world)"
 }
 kolu: "kolu app — step library / testids / shortcuts"
 eng: "capture engine — AGNOSTIC (own folder, arrow out, publish?)" {
@@ -422,3 +421,20 @@ on pu: `kolu-ci-1` works (egress OK) but has **no authenticated `claude`**, so
 the demo's climax only renders on a machine already running Claude Code — a
 deliberate, documented tradeoff (quality > box-purity; reproducibility lives in
 the recipe + modules, which *do* run on pu).
+
+**10 · Refined to one hero clip.** Dropped the **pwa-install** recording — an
+in-clip browser→app transition isn't reachable (bare Xvfb has no window manager,
+so F11 / the Fullscreen API can't drop Chrome's chrome; it would need two
+concatenated segments), and the app-mode demo already shows the chromeless app.
+The demo became the real loop: clone kolu → launch `claude --dangerously-skip-
+permissions --model sonnet` → accept the trust gate → ask *"Explain this project,
+in 5 lines"* → wait for the **dock bucket to flip `working` → `awaiting`** (the
+high-level state is `data-bucket`, not the raw `data-agent-state`) → **glow the
+awaiting dock row** and hold so the status change is unmissable. Two harness
+fixes made the dock track the live agent at all: (a) under `KOLU_X11CAP`, omit
+the `KOLU_CLAUDE_*_DIR` overrides so kolu watches the **real** `~/.claude/projects`
+(the mock-harness temp dirs hid the launched claude); (b) a 240s timeout on the
+`I record` step (a real agent query exceeds the default budget). Result: a tight
+**~27s / ~1.3 MB** clip. Reusable bits factored into `helpers.ts`
+(`setupSingleTerminal`, `launchAgentAndAsk`, theme-aware `newTerminal`) for the
+next single-terminal demo.

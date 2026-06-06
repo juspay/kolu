@@ -72,4 +72,4 @@ export const recording: Recording = {
 - **Dock won't track the agent unless kolu watches the REAL `~/.claude/projects`.** `hooks.ts` omits the `KOLU_CLAUDE_*_DIR` overrides under `KOLU_X11CAP` so the server sees the launched claude (the mock-harness temp dirs would hide it).
 - **`--dangerously-skip-permissions` does NOT skip the folder-trust gate** — only per-tool prompts. `launchAgentAndAsk` accepts the gate explicitly.
 - **Trim the leading blank** — capture starts before the first navigation; `transcodeToWeb({ trimStart })` drops it.
-- **app vs browser chrome** is intentional: the demo is the installed-PWA window; the install clip shows a real browser (you install *from* a browser).
+- **`chrome: "app"` vs `"browser"`** — "app" launches a chromeless `--app=` window (the installed-PWA surface, used by the demo); "browser" keeps real tabs + address bar. A browser→app transition *within* one clip isn't possible here (no WM to drop the chrome) — it'd need two concatenated segments.

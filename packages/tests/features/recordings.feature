@@ -7,8 +7,5 @@ Feature: Screencast recordings
   Background:
     Given the terminal is ready
 
-  Scenario: pwa-install
-    When I record "pwa-install"
-
   Scenario: new-terminal-demo
     When I record "new-terminal-demo"
