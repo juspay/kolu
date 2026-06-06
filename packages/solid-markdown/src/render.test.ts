@@ -211,28 +211,27 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
 });
 
 describe("wikilinks", () => {
-  it("renders [[Note]] as a tagged anchor with the bare target href", () => {
+  it("renders [[Note]] as a tagged anchor carrying the bare target payload", () => {
     const out = html("see [[Architecture]] for more");
-    expect(out).toContain("data-md-wikilink");
-    expect(out).toContain('href="Architecture"');
+    expect(out).toContain('data-md-wikilink="Architecture"');
     expect(out).toContain(">Architecture</a>");
   });
 
   it("uses the alias as the display text", () => {
     const out = html("[[Architecture|the arch doc]]");
-    expect(out).toContain('href="Architecture"');
+    expect(out).toContain('data-md-wikilink="Architecture"');
     expect(out).toContain(">the arch doc</a>");
   });
 
-  it("carries a #heading in the href and the default display", () => {
+  it("carries a #heading in the payload and the default display", () => {
     const out = html("[[Architecture#Overview]]");
-    expect(out).toContain('href="Architecture#Overview"');
+    expect(out).toContain('data-md-wikilink="Architecture#Overview"');
     expect(out).toContain(">Architecture#Overview</a>");
   });
 
   it("supports a qualified target path", () => {
     const out = html("[[docs/Guide|read it]]");
-    expect(out).toContain('href="docs/Guide"');
+    expect(out).toContain('data-md-wikilink="docs/Guide"');
     expect(out).toContain(">read it</a>");
   });
 

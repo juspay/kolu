@@ -114,13 +114,14 @@ function useWikilinkExtension(inst: Marked): void {
           // Embeds are out of scope — emit the literal source so `![[Note]]`
           // shows as text rather than being silently expanded or half-linked.
           if (w.embed) return escapeHtml(w.raw);
-          // Carry the heading in the href so the host can resolve (it strips
-          // the fragment) without a second attribute; the marker disambiguates
-          // a wikilink from a `[]()` relative link at the click seam.
-          const href = w.heading ? `${w.target}#${w.heading}` : w.target;
-          const display =
-            w.alias ?? (w.heading ? `${w.target}#${w.heading}` : w.target);
-          return `<a href="${escapeHtml(href)}" data-md-wikilink>${escapeHtml(display)}</a>`;
+          // Carry the resolver payload (`target` / `target#heading`) on its own
+          // `data-md-wikilink` attribute — never on `href`. The host reads it
+          // back at the click seam and strips the fragment; the anchor has no
+          // navigable href to validate (or to masquerade as a URL). The marker
+          // alone disambiguates a wikilink from a `[]()` relative link.
+          const payload = w.heading ? `${w.target}#${w.heading}` : w.target;
+          const display = w.alias ?? payload;
+          return `<a href="#" data-md-wikilink="${escapeHtml(payload)}">${escapeHtml(display)}</a>`;
         },
       },
     ],

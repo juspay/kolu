@@ -107,9 +107,11 @@ function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
       // the whole repo — never against the app origin. Suppress navigation and
       // hand the host the bare target plus the clicked anchor, so it can open
       // the file (or anchor a disambiguation menu here when it's ambiguous).
-      if (anchor.hasAttribute("data-md-wikilink")) {
+      const wikilinkTarget = anchor.getAttribute("data-md-wikilink");
+      if (wikilinkTarget !== null) {
         e.preventDefault();
-        if (href) handlers.onNavigateWikilink?.(href, anchor);
+        if (wikilinkTarget)
+          handlers.onNavigateWikilink?.(wikilinkTarget, anchor);
         return;
       }
       // Repo-relative links (tagged by the link policy) must never resolve

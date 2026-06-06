@@ -246,35 +246,19 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
     return;
   }
   const href = anchor.getAttribute("href");
-  // A wikilink (`[[Note]]`, tagged by the renderer) resolves pathless on click
-  // through the host's vault-wide resolver — never against the app origin — so
-  // keep the anchor and its marker untouched. Its href is the bare target
-  // (`Note` / `Note#Heading`), a scheme-less internal reference the click
-  // handler reads, not a URL the browser ever navigates.
+  // A wikilink (`[[Note]]`, tagged by the renderer) carries its resolver payload
+  // (`Note` / `Note#Heading`) on `data-md-wikilink`, not on `href` — the click
+  // handler reads the marker's value and resolves it pathless through the host's
+  // vault-wide resolver, never against the app origin. The marker bears no URL,
+  // so there is nothing here to validate as a navigable href: leave it alone.
   //
-  // The marker is in the document allowlist, so a README's *raw* HTML can mint
-  // `<a data-md-wikilink href="…">` directly. The safety boundary this guard
-  // enforces is the one that matters: an untrusted document must not be able to
-  // route an *escaping* href (external URL or unsafe scheme) through the
-  // marker. So the marker is honored ONLY for a safe, scheme-less, non-fragment
-  // href — and every other shape is stripped of the marker and falls through to
-  // the normal policy below (external → `target="_blank" rel="noopener"`,
-  // unsafe scheme → unwrapped, `#frag` → in-page anchor).
-  //
-  // What this does NOT (and need not) distinguish: a scheme-less internal path
-  // minted by raw HTML vs by the parser. Both stay internal — a raw-HTML
-  // `<a data-md-wikilink href="Guide">` resolves through the host's pathless
-  // vault resolver instead of the directory-relative one, but neither escapes
-  // the app origin; both end at the same file-open front door. Telling them
-  // apart would need a parser-owned sentinel transformed post-sanitize, and the
-  // only payoff is which *internal* resolver runs — not worth the indirection.
-  if (anchor.hasAttribute("data-md-wikilink")) {
-    const safe = href ? safeHref(href) : undefined;
-    if (safe !== undefined && !safe.startsWith("#") && !hasOwnScheme(safe)) {
-      return;
-    }
-    anchor.removeAttribute("data-md-wikilink");
-  }
+  // Any *literal* `href` on the anchor is independent of the marker and falls
+  // through to the normal policy below (external → `target="_blank"
+  // rel="noopener"`, unsafe scheme → unwrapped, `#frag` → in-page anchor). The
+  // marker is in the document allowlist, so a README's *raw* HTML can mint
+  // `<a data-md-wikilink="…" href="…">` directly — but the payload can no longer
+  // smuggle an escaping URL through the href slot, because the two are now
+  // distinct attributes the policy reasons about separately.
   const safe = href ? safeHref(href) : undefined;
   if (safe === undefined) {
     unwrap();
