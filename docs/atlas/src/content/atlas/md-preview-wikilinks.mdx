@@ -2,7 +2,7 @@
 title: "Markdown preview: Obsidian-style [[wikilinks]]"
 description: Support [[Note]] / [[Note|alias]] / [[Note#heading]] wikilinks in the Code-tab Markdown preview — a distinct rendered style, pathless vault-wide resolution on click, and an inline disambiguation menu when a basename is ambiguous.
 kind: feature
-status: proposed
+status: implemented
 maturity: seedling
 parents: [solid-fileview]
 updated: 2026-06-06
@@ -11,10 +11,11 @@ updated: 2026-06-06
 import Callout from "../../components/Callout.astro";
 import D2 from "../../components/D2.astro";
 import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
 
-Plan of record · branch `still-cause` · builds directly on the relative-link
-work (the `bug` note *"repo-relative links open the target file"*, shipped in
-PR #1190). Verdict: <Pill>~half a day, low risk</Pill>.
+Plan of record · shipped in <PrLink pr={1212} /> · builds directly on the
+relative-link work (the `bug` note *"repo-relative links open the target
+file"*, shipped in PR #1190). Verdict: <Pill>~half a day, low risk</Pill>.
 
 export const LinkProto = () => {
   const ext = { color: "#3454d1", textDecoration: "underline", textUnderlineOffset: "2px" };
