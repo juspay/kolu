@@ -55,6 +55,7 @@ Measured before cycle 1.
 | Cycle | Step-back (one-sentence frame) | Dimension targeted | Change | Result |
 | --- | --- | --- | --- | --- |
 | 0 | "A good list of packages, audited well, but it tracks *packages* not *volatilities*." | — | baseline | — |
+| 1 | "Before judging depth, the list must at least be *true* — and it isn't." | **C** | Added the 7 shipped-but-untracked packages, each classified honestly: solid-markdown (electricity — the *sanitiser* is the volatility), pty-host (electricity w/ ③-caveat: contract lives in kolu-common), url-shape/nonempty/memorable-names/terminal-themes (leaves), solid-fileview (**leaf mislabeled by package scope** — a composition, not a receptacle). | C↑. Coverage now matches the repo. Surfaced a fresh trap: *being an `@kolu/*` package is not sufficient* — solid-fileview is scoped but isn't electricity. |
 
 ## Dead ends
 
