@@ -235,6 +235,33 @@ A possible future **cleave of an existing electricity** (pty-host), not a greenf
 - **Evidence:** the ~50 lines of OSC handlers at <Cite file="packages/pty-host/src/ptyHost.ts" lines="434-481" />, sitting inside ~450 lines of node-pty lifecycle; one real entanglement (OSC 633 *drives* the foreground re-sample schedule).
 - **Why defer:** the parse ruleset has been **inert since extraction** (no new OSC codes added; the churn has all been *process* concerns — exit tombstones, sample timing). No external consumer wants byte-stream-→-events without the rest of pty-host *today*. Verdict: **document the axis, monitor churn** — split to `@kolu/vt-events` only when a non-kolu consumer (tmux/Zellij control-mode) appears or the rules take 3+ independent edits. A clean Löwy axis whose *volatility hasn't fired yet*.
 
+### ⌨️ `chord-arbitration` — who owns a keychord when input consumers stack (Family B) · <Pill variant="run">candidate</Pill>
+
+The most *kolu-shaped* find: a volatility born of running tools **inside** the app's own terminals.
+
+- **Axis:** which layer claims a key chord when consumers are stacked — the kolu app vs a tool running *inside* a kolu PTY. Claude Code's `Ctrl+B`/`Ctrl+J` must reach the terminal, not the app. The set of contested chords **grows as embedded tools are added.**
+- **The sentence:** *every time a tool inside a PTY reserves a chord, we hand-edit `PROHIBITED_KEYBINDS` and manually shift the colliding app action (`Mod+J` → `Mod+Shift+J`).*
+- **Evidence — dated & growing:** `Ctrl+J` reserved 2024, `Ctrl+B` added 2026 (`ee454bc3`); the reserved set at <Cite file="packages/client/src/input/prohibitedKeybinds.ts" lines="21-33" />, the manual action-shifts at <Cite file="packages/client/src/input/actions.ts" lines="224" /> / <Cite file="packages/client/src/input/actions.ts" lines="252" /> (#873/#957), and the collision is *unit-tested* (`PROHIBITED × ACTIONS`) at <Cite file="packages/client/src/input/keyboard.test.ts" lines="218-232" />.
+- **Verdict — candidate:** the invariant is *tested* (good) but the resolution is still hand-shifted per collision. The receptacle is an arbiter that, given the reserved set, *derives* the app's chord remap instead of editing it by hand. Domain-agnostic: any terminal multiplexer hosting passthrough tools has this exact axis. Extract when a **fourth** reserved chord lands — that's the rule-of-three line.
+
+### 🧪 `capability-gate` — degrade when a browser API is absent (Family B) · <Pill variant="fix">extract-now</Pill>
+
+A scattered invariant that wants one seam.
+
+- **Axis:** the set of platform capabilities (clipboard, File-System-Access, WebGL, secure-context/HTTPS, PWA-install) that gate a feature, *with a degrade path when absent* — and that set churns as browsers move.
+- **The sentence:** *every time a feature needs a capability, we re-write `if (!navigator.X) { toast.error(…) }` inline — each site with a different fallback.*
+- **Evidence:** partial home at <Cite file="packages/client/src/capabilities.ts" lines="26-34" /> (form-factor gates only), but the *feature* gates are ad hoc at 5+ sites — `navigator.clipboard?.write` <Cite file="packages/client/src/screenshotTerminal.ts" lines="395" />, `showSaveFilePicker`/`getDisplayMedia` <Cite file="packages/client/src/recorder/useRecorder.ts" lines="103-111" />, the `execCommand` clipboard fallback <Cite file="packages/client/src/ui/clipboard.ts" lines="64" />, WebGL gating in `Terminal.tsx`. The plain-HTTP clipboard fallback (`168e6865`) shows the set growing.
+- **Verdict — extract-now:** same shape (*probe → degrade → notify*) at every site, no app-domain in it. A `tryFeature(capability, { onAbsent })` seam collapses the five hand-rolls and makes "what do we do when the API is missing" answerable in one place. This is the export row's [welded guards](#-view--portable-artifact--export-family-c-adjacent--candidate--defer) seen from the *capability* axis rather than the *format* axis — the two cross here.
+
+### 🔬 `terminal-probes` — read volatile library internals behind null-safe thunks (Family B) · <Pill variant="run">extract-now · partly built</Pill>
+
+Already recognised in `.agency/lowy.md` — the crop just confirms it and finds the leaks.
+
+- **Axis:** reading private/volatile library internals (xterm `_core`/`_bufferService`, the live WebGL-canvas set) behind a *stable thunk* so a library rename or a lost GPU context returns `null` instead of crashing the render path.
+- **The sentence:** *every time xterm's private shape moves, code that reached through it crashes — unless the read went through a probe.*
+- **Evidence — receptacle exists, but leaks at the edges:** `TerminalProbes` (`() => T | null`) at <Cite file="packages/client/src/terminal/terminalRefs.ts" lines="20-30" /> and the WebGL lifecycle snapshot at <Cite file="packages/client/src/terminal/webglTracker.ts" lines="71-101" /> are the good pattern; but `screenshotTerminal` still pokes `buffer.active.getLine` *directly* (<Cite file="packages/client/src/screenshotTerminal.ts" lines="207-226" />), bypassing the probe wall.
+- **Verdict — extract-now (harden, don't invent):** the electricity is *already designed*; the work is to route the remaining reach-throughs through it and ship it (likely as the diagnostics face of `solid-xterm`, or its own `@kolu/terminal-probes`). Distinct from solid-xterm's *lifecycle* axis: this one is purely *measure-volatile-internals-safely*.
+
 ### The reject pile — candidates the engine *refused*
 
 Included on purpose: a method that only ever says "extract" is rationalising, not generating. These looked like electricity and aren't (yet).
