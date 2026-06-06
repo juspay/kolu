@@ -1,11 +1,12 @@
 @import "kolu-fonts";
 @import "tailwindcss";
 
-/* `@kolu/solid-markdown` ships its own Tailwind utility classes (the
- * markdown renderer's styling variants). Make the cross-package source
- * explicit so those classes are always generated — Tailwind v4's
- * auto-detection base shouldn't be relied on to reach a sibling package. */
-@source "../../solid-markdown/src";
+/* `@kolu/solid-markdown`'s rendered-Markdown stylesheet (`.kolu-md`). The
+ * package ships the structural + scale rules; we inline them here — rather
+ * than via a component-level CSS import the package's `sideEffects:false`
+ * could tree-shake — so the rendered preview, intent body, and dock all pick
+ * them up. Theme palette stays here (the sheet reads `--color-accent`). */
+@import "@kolu/solid-markdown/markdown.css";
 
 /* `@kolu/solid-fileview` likewise ships its own Tailwind utility classes
  * (the toggle host + image/iframe appliances), so scan it too — otherwise

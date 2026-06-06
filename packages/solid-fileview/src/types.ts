@@ -1,5 +1,5 @@
 /** The contract for `@kolu/solid-fileview` — the "outlet" the Code-browser
- *  preview plan describes (`docs/plans/code-browser-preview.solid-fileview.html`).
+ *  preview plan describes (`docs/atlas/src/content/atlas/solid-fileview.mdx`).
  *  Pure data + function shapes, no rendering: every concrete renderer is an
  *  appliance the consumer plugs in. */
 

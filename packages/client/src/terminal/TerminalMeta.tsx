@@ -14,6 +14,8 @@
 
 import { prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
+import { StatePip } from "../canvas/dock/RowPips";
+import { agentBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import { agentWorkflow } from "../ui/agentDisplay";
@@ -26,6 +28,11 @@ import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
+  /** True when this terminal has unseen agent activity. Drives the
+   *  leading state pip's attention escalation exactly as the dock row
+   *  does, so the title and the dock can't disagree on what's loud.
+   *  Sourced from view-state at the call site (`store.isUnread(id)`). */
+  unread: boolean;
   /** Open the intent editor for this terminal. Wired in `App.tsx` to
    *  `intentEditor.openTerminal(id)`. */
   onOpenIntent: () => void;
@@ -98,6 +105,21 @@ const TerminalMeta: Component<{
            *  separate glyph chip, so this slot is the canvas tile's
            *  sole intent affordance regardless of git state. */}
           <div class="flex items-center gap-1.5 min-w-0 text-xs">
+            {/* Agent-state pip leading the branch/intent annotation —
+             *  the same shape-distinct StatePip the dock row leads its
+             *  annotation line with (spinning ring = working, dot =
+             *  awaiting), reused verbatim so a working/awaiting agent
+             *  reads identically in the title and the dock, and sits
+             *  beside the same branch/intent context it does there.
+             *  Gated on a live agent: when none is attached the title
+             *  shows no pip (exactly as its agent-kind indicator vanishes
+             *  when the session ends), leaving the dock's idle/parked
+             *  triage states — which fold in recency/staleness — dock-only. */}
+            <Show when={info().meta.agent}>
+              {(agent) => (
+                <StatePip bucket={agentBucket(agent())} unread={props.unread} />
+              )}
+            </Show>
             <Tip label={info().meta.intent ? "Edit intent" : "Set intent"}>
               <button
                 type="button"

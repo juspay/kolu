@@ -35,26 +35,44 @@ export function formatLineRef(
   return start === end ? `${path}:${start}` : `${path}:${start}-${end}`;
 }
 
-// Path char class: word + `.`, `+`, `@`, `-`. `~` is deliberately
-// excluded — home-relative refs can't be resolved against the
-// terminal's worktree without a resolver contract this module
-// doesn't own.
-const PATH_CHARS = "[\\w.+@-]";
+// Path char class: unicode letters/marks/digits + `_`, `.`, `+`, `@`, `-`.
+// `\p{L}`/`\p{N}` (paired with the `u` flag on the regexes below) keep
+// accented, CJK, and other non-ASCII names like `Amélie.md` in one piece;
+// a bare `\w` is ASCII-only, so it would split the ref at the first
+// non-ASCII byte and linkify `Am` and `lie.md` as two stubs. `\p{M}`
+// (combining marks) is load-bearing for *decomposed* (NFD) names: a
+// git/macOS path can arrive as `Ame` + U+0301 (combining acute) + `lie.md`,
+// and without `\p{M}` the class would stop at the bare combining mark and
+// split the ref exactly like the original ASCII bug. `~` is deliberately
+// excluded — home-relative refs can't be resolved against the terminal's
+// worktree without a resolver contract this module doesn't own.
+const PATH_CHARS = "[\\p{L}\\p{M}\\p{N}_.+@-]";
 const LINE_REF_RE = new RegExp(
   // Two path shapes:
   //   1. slash-containing: optional `./`, `../`, or `/` prefix, then
   //      one or more `segment/` followed by a final segment;
   //   2. bare filename with a letter-led extension (`Type.hs`,
   //      `package.json`) — letter-led extension rejects IPv4-style
-  //      `192.168.1.1:8080` and version strings like `1.2.3:5`.
+  //      `192.168.1.1:8080` and version strings like `1.2.3:5`. The
+  //      lead is `\p{L}` (any unicode letter) so a unicode extension
+  //      still counts while a leading digit is still rejected.
   // Both branches require either a `/` or a `.ext`, which keeps plain
   // words (`react`, `init`) from getting linkified when the `:N`
   // suffix is absent.
-  `((?:\\.\\.?\\/|\\/)?(?:${PATH_CHARS}+\\/)+${PATH_CHARS}+|${PATH_CHARS}+\\.[A-Za-z]\\w*)` +
+  `((?:\\.\\.?\\/|\\/)?(?:${PATH_CHARS}+\\/)+${PATH_CHARS}+|${PATH_CHARS}+\\.\\p{L}[\\p{L}\\p{M}\\p{N}_]*)` +
     // Optional `:line[:col|-end]`. When absent the bare path links to
     // the file with no line selected.
-    `(?::(\\d+)(?::\\d+|-(\\d+))?)?`,
-  "g",
+    `(?::(\\d+)(?::\\d+|-(\\d+))?)?` +
+    // The reference must not END in a literal `.`. `.` is a path char
+    // (extensions, dotfiles), so a greedy slash-path used to swallow the
+    // sentence period in prose like `…a single docs/plans/electricity.html.`
+    // and the link resolved to a nonexistent `…html.`. Only the dot is
+    // excluded from the tail — `+`/`@`/`-` are kept so `foo.c++` and
+    // `bin/g++` still link in full. A `:line` suffix ends in a digit, so
+    // this only ever trims a bare path's trailing dot.
+    `(?<!\\.)`,
+  // `u` makes `\p{L}`/`\p{N}` valid and matching code-point-aware.
+  "gu",
 );
 
 /** Find every `path[:line[-end]]` reference in `text`. URL embeds
@@ -87,7 +105,7 @@ export function parseLineRefs(text: string): LineRefMatch[] {
   return out;
 }
 
-const PATH_CHAR_TEST = /[\w.+@~/-]/;
+const PATH_CHAR_TEST = /[\p{L}\p{M}\p{N}_.+@~/-]/u;
 
 /** Reject matches embedded in URLs (`://path:N`) and matches that
  *  fuse into a preceding token (`foopath/bar.ts:1` starting at
@@ -119,33 +137,79 @@ function hasRefBoundary(text: string, index: number): boolean {
  *  compiler output often prints just `Foo.hs:42` without the
  *  `src/lib/` prefix (#898). The fallback only fires when the
  *  basename is unique in the repo; ambiguous matches stay null since
- *  opening the wrong file is worse than the toast. */
+ *  opening the wrong file is worse than the toast.
+ *
+ *  - `allowBasenameFallback`: default true (terminal output, where the
+ *    fuzzy basename match is the whole point of #898). Pass false for
+ *    callers whose path is already exact and unambiguous — a Markdown
+ *    relative link (#1161) carries GitHub-style exact semantics:
+ *    `[guide](docs/guide.md)` must open exactly `docs/guide.md` or
+ *    fail, never silently open a same-basename `src/guide.md`. */
 export function resolveLineRefPath(args: {
   rawPath: string;
   repoRoot: string;
   cwd: string | undefined;
   repoPaths: readonly string[];
+  allowBasenameFallback?: boolean;
 }): string | null {
-  const set = new Set(args.repoPaths);
+  // Compare under NFC so a terminal ref and a repo path that differ only in
+  // unicode normalization still resolve: a git/macOS path can be NFD (`Ame` +
+  // combining acute) while the terminal text is NFC (`Amélie`), and an exact
+  // `Set.has` would miss every accented name. The map keys are normalized but
+  // the *value* is the verbatim `repoPaths` entry — that's what navigation
+  // must open (git addresses files by their actual bytes, not the NFC form).
+  // Distinct repo paths that collide under NFC are dropped from the map so an
+  // ambiguous candidate resolves to null rather than the wrong file.
+  const { byNorm, byBasename } = buildNormalizedIndex(args.repoPaths);
   for (const candidate of candidates(args)) {
-    if (set.has(candidate)) return candidate;
+    const hit = byNorm.get(candidate.normalize("NFC"));
+    if (hit !== undefined && hit !== AMBIGUOUS) return hit;
   }
-  return resolveByBasename(args.rawPath, args.repoPaths);
+  if (args.allowBasenameFallback === false) return null;
+  return resolveByBasename(args.rawPath, byBasename);
+}
+
+/** Sentinel marking an NFC key that maps to two or more distinct repo paths
+ *  — treated as unresolvable rather than guessing. */
+const AMBIGUOUS = Symbol("ambiguous");
+
+/** Both indexes are built in one pass so the NFC normalization of each repo
+ *  path (full path and basename) happens exactly once. `byNorm` keys the full
+ *  path, `byBasename` keys the basename; both drop NFC collisions to AMBIGUOUS
+ *  and keep the verbatim `repoPaths` entry as the value. */
+function buildNormalizedIndex(repoPaths: readonly string[]): {
+  byNorm: Map<string, string | typeof AMBIGUOUS>;
+  byBasename: Map<string, string | typeof AMBIGUOUS>;
+} {
+  const byNorm = new Map<string, string | typeof AMBIGUOUS>();
+  const byBasename = new Map<string, string | typeof AMBIGUOUS>();
+  const add = (
+    index: Map<string, string | typeof AMBIGUOUS>,
+    key: string,
+    p: string,
+  ) => {
+    const existing = index.get(key);
+    if (existing === undefined) {
+      index.set(key, p);
+    } else if (existing !== p) {
+      index.set(key, AMBIGUOUS);
+    }
+  };
+  for (const p of repoPaths) {
+    add(byNorm, p.normalize("NFC"), p);
+    add(byBasename, basename(p).normalize("NFC"), p);
+  }
+  return { byNorm, byBasename };
 }
 
 function resolveByBasename(
   rawPath: string,
-  repoPaths: readonly string[],
+  byBasename: Map<string, string | typeof AMBIGUOUS>,
 ): string | null {
-  const target = basename(rawPath);
+  const target = basename(rawPath).normalize("NFC");
   if (target === "") return null;
-  let unique: string | null = null;
-  for (const p of repoPaths) {
-    if (basename(p) !== target) continue;
-    if (unique !== null) return null;
-    unique = p;
-  }
-  return unique;
+  const hit = byBasename.get(target);
+  return hit === undefined || hit === AMBIGUOUS ? null : hit;
 }
 
 function basename(path: string): string {

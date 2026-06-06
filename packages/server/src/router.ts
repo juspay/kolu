@@ -12,7 +12,6 @@
 import { ORPCError } from "@orpc/server";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
-import { TerminalNotFoundError } from "kolu-common/errors";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
@@ -20,13 +19,16 @@ import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { serverCommit, serverHostname, serverProcessId } from "./hostname.ts";
+import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
-import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
+import {
+  getTerminal,
+  terminalNotFound,
+  type TerminalProcess,
+} from "./terminal-registry.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
-import { ptyHostIdentity } from "./terminalBackend/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
 import {
@@ -45,7 +47,7 @@ import {
 /** Get terminal or throw — shared by all per-terminal handlers. */
 function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
-  if (!entry) throw new TerminalNotFoundError(id);
+  if (!entry) throw terminalNotFound(id);
   return entry;
 }
 
@@ -66,11 +68,12 @@ function bracketedPastePath(entry: TerminalProcess, path: string): void {
 export const appRouter = t.router({
   ...surfaceRouter,
   server: {
+    // Per-host BRANDING the shell needs synchronously at boot (document title,
+    // watermark, PWA theme color). The restart axis (`processId`) and the build
+    // identity (`commit` + `ptyHost`) moved to the surface, owned by
+    // @kolu/surface-app — see `surface.ts`'s `serverIdentity()` / `buildInfoServer`.
     info: t.server.info.handler(async () => ({
       identity: pwaIdentityForHostname(serverHostname),
-      processId: serverProcessId,
-      commit: serverCommit,
-      ptyHost: await ptyHostIdentity,
     })),
   },
   terminal: {
@@ -187,7 +190,7 @@ export const appRouter = t.router({
 
     kill: t.terminal.kill.handler(async ({ input }) => {
       const info = await killTerminal(input.id);
-      if (!info) throw new TerminalNotFoundError(input.id);
+      if (!info) throw terminalNotFound(input.id);
       return info;
     }),
 

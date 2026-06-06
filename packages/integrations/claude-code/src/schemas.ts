@@ -32,21 +32,38 @@ export type ClaudeWorkflow = z.infer<typeof ClaudeWorkflowSchema>;
 
 export const ClaudeCodeInfoSchema = z.object({
   kind: z.literal("claude-code"),
-  /** Current state derived from session JSONL.
-   *  - `awaiting_user`: agent stopped to ask the human via `AskUserQuestion`
-   *    or `ExitPlanMode`. The state literal is kept here for shape uniformity
-   *    with `CodexInfo` / `OpenCodeInfo` and so `deriveState`'s
-   *    `toolUseOrAwaitingUser` helper compiles, but in practice the Claude
-   *    Agent SDK buffers `requiresUserInteraction` tools' assistant messages
-   *    until the user resolves them — the `tool_use` block isn't on disk
-   *    while the prompt is pending, so this case never fires under the
-   *    current SDK. Fix tracked in #905 (PreToolUse hook side-channel).
-   *  - `running_background`: the agent ended its turn (`end_turn`) while a
-   *    background task it launched (a dynamic `Workflow`, a backgrounded
-   *    `Bash` command, or a background `Task`/`Agent`) is still running.
-   *    Without this the end-of-turn would read as `waiting` (needs-user); the
-   *    agent is actually busy-waiting on the background task.
-   *    Claude-Code-specific — see `deriveState`. */
+  /** Current state derived from session JSONL — except `awaiting_user`, which
+   *  can also arrive from a screen scrape (see below).
+   *  - `awaiting_user`: agent stopped to ask the human. Two on-disk shapes hide
+   *    this from the JSONL classifier (`deriveState`'s `toolUseOrAwaitingUser`):
+   *    for `AskUserQuestion` / `ExitPlanMode` the Claude Agent SDK buffers the
+   *    assistant message in memory until the user resolves it, so the `tool_use`
+   *    block isn't on disk and the tail reads the prior entry (often `thinking`,
+   *    sometimes `waiting`); for a tool-permission gate the tool call IS on disk
+   *    (so the tail reads `tool_use`) but the approval decision lives only in the
+   *    on-screen dialog. #905 recovers the missing signal by recognizing the
+   *    prompt on the *rendered screen* (`screen.ts`): the server's screen-scrape
+   *    poll promotes whichever pollable state is active (`thinking` / `tool_use`
+   *    / `waiting`) to `awaiting_user` while the dialog is visible, and the JSONL
+   *    watcher lowers it again once the user answers and the transcript catches
+   *    up. Recognized prompts: `AskUserQuestion` (its `… to navigate` footer) and
+   *    the tool-permission gates (Write/Edit/Bash/WebFetch approval);
+   *    `ExitPlanMode`'s on-screen prompt has no equivalent marker and is a
+   *    deliberate follow-up. So this state fires from the screen source even
+   *    though it stays absent from the transcript tail.
+   *  - `running_background`: the agent ended its turn (`end_turn`) while an
+   *    outstanding background run it launched is still live — either a dynamic
+   *    `Workflow` with an observable run journal
+   *    (`<session>/workflows/<runId>.json`), or a `/fork` sub-agent with a
+   *    streaming transcript (`<session>/subagents/agent-<id>.jsonl`). Without
+   *    this the end-of-turn would read as `waiting` (needs-user); the agent is
+   *    actually busy-waiting on that run. A backgrounded `Bash` command or
+   *    `Task`/`Agent` (no observable anchor) does NOT promote here: its launch
+   *    marker outlives the process, so a lost completion notification would spin
+   *    the pill forever (the phantom-`running_background` bug). The `workflow`
+   *    field below is populated only for the `Workflow` case; a fork promotes
+   *    the state but carries no fan-out journal, so `workflow` stays null.
+   *    Claude-Code-specific — see `deriveState` and the session-watcher. */
   state: z.enum([
     "thinking",
     "tool_use",

@@ -16,6 +16,7 @@ import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL, readBufferText } from "../support/buffer.ts";
 import { nudgeFiles } from "../support/nudge.ts";
+import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
@@ -30,8 +31,18 @@ type MockState =
   | "tool_use"
   | "waiting"
   | "running_background"
+  | "orphaned_workflow"
+  | "journalless_workflow"
+  | "background_bash"
+  | "fork"
   | "interrupted"
-  | "interrupted_tool_use";
+  | "interrupted_tool_use"
+  | "compact";
+
+/** A `/fork` sub-agent id — the `agent-<id>` basename of its on-disk artifacts,
+ *  identical to the completion notification's `<task-id>`. The `a` prefix mirrors
+ *  the real async-agent id format. */
+const FORK_SUBAGENT_ID = "aimplement-it-test00000000000000";
 // Read these lazily rather than at module load — `hooks.ts` sets per-worker
 // temp dirs on `process.env`, and cucumber's step/support module import
 // order is not guaranteed, so a top-level capture here would race.
@@ -112,10 +123,21 @@ function buildTranscript(state: MockState): string {
   const lines = [userMsg];
   if (state === "tool_use") lines.push(assistantMsg("tool_use"));
   if (state === "waiting") lines.push(assistantMsg("end_turn"));
-  // "running_background": a launched-but-uncompleted background task followed
-  // by an end-of-turn — deriveState promotes the bare `waiting` to
-  // `running_background`. The matching journal is written by the mock step.
-  if (state === "running_background") {
+  // "running_background": a launched-but-uncompleted `Workflow` task (carries a
+  // Run ID → has a journal) followed by an end-of-turn — deriveState promotes
+  // the bare `waiting` to `running_background`. "orphaned_workflow" uses the
+  // same transcript, but the mock step back-dates its journal so the run reads
+  // as dead (a restart orphaned it) and the promotion is vetoed.
+  // "journalless_workflow" uses the same Workflow-launch transcript but the mock
+  // step writes NO journal and no `workflows/` dir, so the run carries a Run ID
+  // kolu can never observe. Pre-fix that promoted to `running_background` forever
+  // (the phantom bug F3 flagged); post-fix the gate has no liveness anchor and
+  // demotes to `waiting` rather than spinning indefinitely.
+  if (
+    state === "running_background" ||
+    state === "orphaned_workflow" ||
+    state === "journalless_workflow"
+  ) {
     lines.push(
       JSON.stringify({
         type: "user",
@@ -134,6 +156,54 @@ function buildTranscript(state: MockState): string {
       }),
     );
     lines.push(assistantMsg("end_turn"));
+  }
+  // "background_bash": a backgrounded Bash command (no Run ID → runId null, no
+  // journal) with no completion. The launch marker is permanent in the
+  // transcript, so pre-fix the bare end_turn was promoted to
+  // `running_background` forever; post-fix a detached command kolu can't
+  // observe is not "working" — it reads as `waiting`.
+  if (state === "background_bash") {
+    lines.push(
+      JSON.stringify({
+        type: "user",
+        uuid: "u2",
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tu-bash",
+              content:
+                "Command running in background with ID: bg-bash-0000. Output is being written to: /tmp/bg-bash-0000.output.",
+            },
+          ],
+        },
+      }),
+    );
+    lines.push(assistantMsg("end_turn"));
+  }
+  // "fork": the main agent ended its turn (end_turn → waiting) and then `/fork`
+  // echoed its launch into the transcript as a `system`/`local_command` line —
+  // NOT a `tool_result`, so it never enters the background-task accounting.
+  // `deriveState` walks past the system line to the prior end_turn and reports
+  // `waiting`; the watcher then promotes to `running_background` from the fork's
+  // on-disk subagent artifacts (written by `writeForkSubagent`). The trailing
+  // local-command here makes the fixture faithful and guards that it doesn't
+  // perturb detection.
+  if (state === "fork") {
+    lines.push(assistantMsg("end_turn"));
+    lines.push(
+      JSON.stringify({
+        type: "system",
+        subtype: "local_command",
+        uuid: "u2",
+        timestamp: new Date().toISOString(),
+        content:
+          "<local-command-stdout>⑂ forked implement-it (1483)</local-command-stdout>",
+        level: "info",
+      }),
+    );
   }
   // Esc-interrupt: the trailing `user` entry carries an interrupt marker, which
   // `deriveState` classifies as `waiting` (idle), not `thinking` (#1018).
@@ -163,22 +233,101 @@ function buildTranscript(state: MockState): string {
       interruptTextMsg("u3", "[Request interrupted by user for tool use]"),
     );
   }
+  // "compact": a finished turn (end_turn) followed by the real tail a manual
+  // `/compact` leaves behind — the synthetic summary (`isCompactSummary`) AND
+  // the slash-command bookkeeping Claude Code appends *after* it, all typed
+  // `user`: the caveat, the `<command-name>` invocation, and the
+  // `<local-command-stdout>` capture (the newest entry). After a manual compact
+  // the agent does not auto-respond, so these sit at the tail; the generic
+  // `user` branch read the newest (the command stdout) as a fresh prompt and
+  // pinned the pill in `thinking` forever. `deriveState` now walks past all of
+  // them to the prior `end_turn` → `waiting`. Modelling only the summary (as an
+  // earlier fixture did) never exercised the real bug — the stdout entry sits
+  // newer than the summary, so it, not the summary, is what gets misread.
+  if (state === "compact") {
+    lines.push(assistantMsg("end_turn"));
+    const userArtifact = (uuid: string, content: string) =>
+      JSON.stringify({
+        type: "user",
+        uuid,
+        timestamp: new Date().toISOString(),
+        message: { role: "user", content },
+      });
+    lines.push(
+      JSON.stringify({
+        type: "user",
+        uuid: "u2",
+        isCompactSummary: true,
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: "This session is being continued from a previous…",
+        },
+      }),
+      userArtifact(
+        "u3",
+        "<local-command-caveat>Caveat: The messages below were generated by the user while running local commands.</local-command-caveat>",
+      ),
+      userArtifact(
+        "u4",
+        "<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>",
+      ),
+      userArtifact(
+        "u5",
+        "<local-command-stdout>Compacted (ctrl+o to see full summary)</local-command-stdout>",
+      ),
+    );
+  }
   // "thinking" = user message only (no assistant response yet)
 
   return `${lines.join("\n")}\n`;
 }
 
-/** Write the run journal a `running_background` mock reads its fan-out from. */
-function writeWorkflowJournal(projectDir: string): void {
+/** Write the run journal a `running_background` mock reads its fan-out from.
+ *  `stale: true` back-dates its mtime well past the orphaned-journal window so
+ *  the run reads as dead (the "orphaned_workflow" case). */
+function writeWorkflowJournal(
+  projectDir: string,
+  opts: { stale?: boolean } = {},
+): void {
   const wfDir = path.join(projectDir, SESSION_ID, "workflows");
   fs.mkdirSync(wfDir, { recursive: true });
+  const journalPath = path.join(wfDir, `${WORKFLOW_RUN_ID}.json`);
   fs.writeFileSync(
-    path.join(wfDir, `${WORKFLOW_RUN_ID}.json`),
+    journalPath,
     JSON.stringify({
       workflowName: WORKFLOW_NAME,
       status: "running",
       agentCount: WORKFLOW_AGENTS,
     }),
+  );
+  if (opts.stale) {
+    // 10 min ago — comfortably past WORKFLOW_JOURNAL_STALE_MS (2 min), so the
+    // still-"running" journal reads as orphaned regardless of poll duration.
+    const old = new Date(Date.now() - 10 * 60 * 1000);
+    fs.utimesSync(journalPath, old, old);
+  }
+}
+
+/** Write a `/fork`'s on-disk artifacts under `<projectDir>/<SESSION_ID>/subagents`:
+ *  `agent-<id>.meta.json` tagged `agentType:"fork"` (the discriminator) and a
+ *  freshly-written `agent-<id>.jsonl` (the streaming transcript whose mtime is the
+ *  liveness anchor). With these present and no completion notification, the watcher
+ *  promotes the idle main to `running_background`. Mirrors `writeWorkflowJournal`. */
+function writeForkSubagent(projectDir: string): void {
+  const subagentsDir = path.join(projectDir, SESSION_ID, "subagents");
+  fs.mkdirSync(subagentsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(subagentsDir, `agent-${FORK_SUBAGENT_ID}.meta.json`),
+    JSON.stringify({
+      agentType: "fork",
+      description: "implement it!",
+      name: "implement-it",
+    }),
+  );
+  fs.writeFileSync(
+    path.join(subagentsDir, `agent-${FORK_SUBAGENT_ID}.jsonl`),
+    `${JSON.stringify({ type: "user", message: { role: "user", content: "go" } })}\n`,
   );
 }
 
@@ -242,6 +391,9 @@ When(
     mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
     fs.writeFileSync(mockTranscriptPath, buildTranscript(state as MockState));
     if (state === "running_background") writeWorkflowJournal(mockProjectDir);
+    if (state === "orphaned_workflow")
+      writeWorkflowJournal(mockProjectDir, { stale: true });
+    if (state === "fork") writeForkSubagent(mockProjectDir);
 
     // Now the trigger — session file last.
     fs.mkdirSync(sessionsDir, { recursive: true });
@@ -262,6 +414,18 @@ When(
  *  axis (kernel inotify queue overflow under parallel load). */
 function nudgeMockFiles() {
   nudgeFiles([mockSessionFile, mockTranscriptPath]);
+}
+
+/** Paint a block of lines into the live PTY via a single `printf` invocation.
+ *  Used by step definitions that simulate Claude prompts on screen so the
+ *  server-side screen-scrape poll sees the rendered chrome. */
+async function paintLinesToTerminal(
+  page: KoluWorld["page"],
+  lines: string[],
+): Promise<void> {
+  const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
+  await page.keyboard.type(printf);
+  await page.keyboard.press("Enter");
 }
 
 When(
@@ -307,6 +471,42 @@ When(
   },
 );
 
+When(
+  "the terminal renders a Claude AskUserQuestion prompt",
+  async function (this: KoluWorld) {
+    // #905: an `AskUserQuestion` prompt never reaches the JSONL while it's
+    // pending (the SDK buffers it), so the transcript stays `waiting`. kolu
+    // recovers `awaiting_user` by scraping the *rendered screen* server-side.
+    // Paint the prompt's real v2.1.162 signature — the `↑/↓ to navigate` select
+    // footer — into the live PTY so the screen-scrape poll (which reads
+    // `getScreenText` off the buffer) sees exactly what Claude paints.
+    await paintLinesToTerminal(this.page, [
+      " Which database do you prefer?",
+      "",
+      "❯ 1. Postgres",
+      "  2. SQLite",
+      "",
+      " Enter to select · ↑/↓ to navigate · Esc to cancel",
+    ]);
+  },
+);
+
+When(
+  "the terminal renders a Claude permission prompt",
+  async function (this: KoluWorld) {
+    // A tool-permission gate (here the edit-family one) is on screen while the
+    // tool call sits on disk — so the session reads as `tool_use`. Paint its real
+    // v2.1.162 signature — the `Tab to amend` footer — into the live PTY.
+    await paintLinesToTerminal(this.page, [
+      " Do you want to create notes.txt?",
+      "❯ 1. Yes",
+      "  2. Yes, allow all edits during this session (shift+tab)",
+      "  3. No",
+      " Esc to cancel · Tab to amend",
+    ]);
+  },
+);
+
 When("the Claude Code session ends", async function (this: KoluWorld) {
   cleanup();
 });
@@ -317,22 +517,49 @@ Then(
     // Polled check with periodic mock-file re-touch — see nudgeMockFiles().
     // Same total budget as a bare waitForFunction(POLL_TIMEOUT); we just slice
     // it into ~250ms ticks and re-trigger the server's fs.watch each tick.
-    const start = Date.now();
-    let last: string | null = null;
-    while (Date.now() - start < POLL_TIMEOUT) {
-      nudgeMockFiles();
-      last = await this.page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
-        );
-        return el?.getAttribute("data-agent-state") ?? null;
-      });
-      if (last === expectedState) return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    throw new Error(
-      `Expected agent indicator state "${expectedState}", got "${last}" after ${POLL_TIMEOUT}ms`,
-    );
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
+          );
+          return el?.getAttribute("data-agent-state") ?? null;
+        }),
+      isDone: (v) => v === expectedState,
+      onTick: nudgeMockFiles,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `Expected agent indicator state "${expectedState}", got "${last}" after ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
+Then(
+  "the tile title state pip should be {string}",
+  async function (this: KoluWorld, expectedVariant: string) {
+    // The dock's StatePip is reused verbatim in the canvas-tile title
+    // bar, so it carries the same data-testid ("dock-row-pip") and
+    // data-pip variant — scoped to the title bar here to disambiguate
+    // from the dock's own pips. Polled + nudged like the agent-indicator
+    // check because the variant derives from server-pushed agent state.
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile-titlebar"] [data-testid="dock-row-pip"]',
+          );
+          return el?.getAttribute("data-pip") ?? null;
+        }),
+      isDone: (v) => v === expectedVariant,
+      onTick: nudgeMockFiles,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `Expected title state pip "${expectedVariant}", got "${last}" after ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
@@ -341,22 +568,22 @@ Then(
   async function (this: KoluWorld, expected: string) {
     // Same polled + nudge shape as the agent-indicator check: re-touch the
     // transcript each tick so the server re-derives and re-reads the journal.
-    const start = Date.now();
-    let last: string | null = null;
-    while (Date.now() - start < POLL_TIMEOUT) {
-      nudgeMockFiles();
-      last = await this.page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="canvas-tile"] [data-testid="agent-workflow-badge"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-workflow-badge"]',
-        );
-        return el?.textContent ?? null;
-      });
-      if (last?.includes(expected)) return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    throw new Error(
-      `Expected workflow badge containing "${expected}", got "${last}" after ${POLL_TIMEOUT}ms`,
-    );
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile"] [data-testid="agent-workflow-badge"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-workflow-badge"]',
+          );
+          return el?.textContent ?? null;
+        }),
+      isDone: (v) => v?.includes(expected) ?? false,
+      onTick: nudgeMockFiles,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `Expected workflow badge containing "${expected}", got "${last}" after ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 

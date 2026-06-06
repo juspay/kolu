@@ -16,20 +16,32 @@
  *   - VS Code switched here in 1.62 for the same reasons.
  *
  * On Linux without watchman both libraries pay one inotify slot per
- * directory — that's a kernel constraint, not a library choice. With
- * `.git`, `node_modules`, and common build outputs ignored, a typical repo
- * uses ~500–2000 slots out of the kernel's default budget.
+ * directory — that's a kernel constraint, not a library choice. With git's
+ * ignored paths (`node_modules`, gitignored build outputs) pruned, a typical
+ * repo uses ~500–2000 slots out of the kernel's default budget.
  *
  * Container/WSL2 caveat: parcel-watcher silently falls back to ~1s polling
  * when neither inotify nor FSEvents nor watchman is available (e.g.
  * dev-containers on bind-mounted filesystems). Latency degrades but
  * correctness is preserved.
  *
- * Subscribers can pass a `filePath` to receive only events for that exact
- * file (the `BrowseFileView` case — one selected file, not the whole tree)
- * or omit it to receive every event (the `subscribeRepoChange` case). The
- * filter happens at the listener layer so a single shared watcher serves
- * both consumers — no separate single-file watcher module needed.
+ * The ignore set is derived from git, not a hardcoded list: `listIgnoredPaths`
+ * runs the exact complement of the browse tree's `git ls-files --cached
+ * --others --exclude-standard`, so *anything the Code-tab tree shows is
+ * watched* and anything git ignores is skipped. That single source of truth is
+ * what lets Atlas's **committed** `docs/atlas/dist/*.html` live-reload while a
+ * normal repo's **gitignored** `dist/` stays unwatched — the two used to
+ * disagree (tree gitignore-aware, watcher hardcoded), which silently broke
+ * live-reload for committed build outputs. `.git` is added explicitly (git
+ * never lists its own dir; the git-dir watchers cover it). The set is a
+ * snapshot at install time — a `.gitignore` edit mid-watch isn't reflected
+ * until the next (re)subscribe.
+ *
+ * Subscribers can pass a `filePath` to receive only events for that exact file
+ * (the `BrowseFileView` case — one selected file, not the whole tree) or omit
+ * it to receive every event (the `subscribeRepoChange` case). The filter
+ * happens at the listener layer, so a single shared watcher per repo serves
+ * both consumers — no separate single-file watcher.
  */
 
 import path from "node:path";
@@ -38,40 +50,41 @@ import {
   subscribe as parcelSubscribe,
 } from "@parcel/watcher";
 import type { Logger } from "kolu-shared";
+import { listIgnoredPaths } from "./browse.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
-/** Hard-coded ignore list. Globs are matched against paths relative to the
- *  watched repo root by parcel-watcher's picomatch integration. The leading
- *  `**\/` wildcards catch nested instances (e.g. `packages/foo/node_modules`).
- *
- *  Not gitignore-aware. We accept some over-firing on user-generated build
- *  outputs that aren't in this list — the upstream debounce + the streaming
- *  endpoint's snapshot equality check absorb noise events. */
-const IGNORE_GLOBS = [
-  "**/.git",
-  "**/.git/**",
-  "**/node_modules",
-  "**/node_modules/**",
-  "**/.kolu-dev",
-  "**/.kolu-dev/**",
-  "**/.kolu-state",
-  "**/.kolu-state/**",
-  "**/dist",
-  "**/dist/**",
-  "**/build",
-  "**/build/**",
-  "**/target",
-  "**/target/**",
-  "**/.next",
-  "**/.next/**",
-  "**/.turbo",
-  "**/.turbo/**",
-  "**/.cache",
-  "**/.cache/**",
-  "**/.parcel-cache",
-  "**/.parcel-cache/**",
-  "**/.DS_Store",
-];
+/** `.git` is always ignored: git never lists its own dir, and the git-dir
+ *  watchers (HEAD/reflog/index) cover the parts we care about — watching it
+ *  here would just fire on every git operation. */
+const ALWAYS_IGNORE_RELS = [".git"];
+
+/** Degraded fallback when git can't enumerate ignores (not a repo, git error).
+ *  Keeps `node_modules` — the one unbounded recursive subtree whose watch
+ *  actually threatens the inotify budget — out of the watch, so a git hiccup
+ *  can't unleash a watch storm. The healthy path derives the full set from
+ *  git via `listIgnoredPaths`. */
+const FALLBACK_IGNORE_RELS = ["node_modules"];
+
+/** Absolute paths parcel must not emit events for. parcel treats a non-glob
+ *  path entry as "ignore this file/dir and all its children", so absolute
+ *  directory paths prune whole subtrees. */
+async function computeIgnore(
+  repoRoot: string,
+  log?: Logger,
+): Promise<string[]> {
+  const ignored = await listIgnoredPaths(repoRoot, log);
+  let rels: string[];
+  if (ignored.ok) {
+    rels = [...ALWAYS_IGNORE_RELS, ...ignored.value];
+  } else {
+    log?.warn(
+      { repoRoot },
+      "git: working-tree ignore enumeration failed, using fallback ignore set",
+    );
+    rels = [...ALWAYS_IGNORE_RELS, ...FALLBACK_IGNORE_RELS];
+  }
+  return rels.map((rel) => path.resolve(repoRoot, rel));
+}
 
 interface Listener {
   /** Absolute path to match against incoming events, or `null` to receive
@@ -81,7 +94,7 @@ interface Listener {
 }
 
 interface SharedWorkingTreeWatcher {
-  subscribe(filePath: string | undefined, onChange: () => void): () => void;
+  subscribe(matchAbs: string | null, onChange: () => void): () => void;
 }
 
 const sharedWorkingTreeWatchers = new Map<string, SharedWorkingTreeWatcher>();
@@ -118,44 +131,59 @@ function installSharedWorkingTreeWatcher(
     }, WATCHER_DEBOUNCE_MS);
   };
 
-  // Async install. Filesystem mutations between this call and parcel's
-  // resolve are invisible to parcel — the streaming endpoint already
-  // yielded its initial snapshot before this subscribe ran, so any change
-  // landing in that window leaves the client with a stale view that no
-  // future event will correct on its own. Fire a synthetic tick once
-  // parcel is ready so consumers re-read state and reconcile.
-  parcelSubscribe(
-    repoRoot,
-    (err, events) => {
-      if (cancelled) return;
-      if (err) {
-        log?.error(
-          { err: err.message, repoRoot },
-          "git: working-tree watcher callback error",
-        );
-        return;
-      }
-
-      // Bucket events into the listeners they match. A single batch can
-      // hit several listeners (different filePaths) or none (all-ignored
-      // paths slipped through somehow).
-      for (const event of events) {
-        for (const listener of listeners) {
-          if (listener.matchAbs === null || listener.matchAbs === event.path) {
-            pending.add(listener);
+  // Async install: derive the ignore set from git, then subscribe. Filesystem
+  // mutations between this call and parcel's resolve are invisible to parcel —
+  // the streaming endpoint already yielded its initial snapshot before this
+  // ran, so any change landing in that window leaves the client with a stale
+  // view that no future event would correct on its own. Fire a synthetic tick
+  // once parcel is ready so consumers re-read state and reconcile.
+  void (async () => {
+    const ignore = await computeIgnore(repoRoot, log);
+    if (cancelled) return;
+    try {
+      const sub = await parcelSubscribe(
+        repoRoot,
+        (err, events) => {
+          if (cancelled) return;
+          if (err) {
+            log?.error(
+              { err: err.message, repoRoot },
+              "git: working-tree watcher callback error",
+            );
+            return;
           }
-        }
-      }
 
-      if (pending.size === 0) return;
+          // Bucket events into the listeners they match. A single batch can
+          // hit several listeners (different filePaths) or none (all-ignored
+          // paths slipped through somehow).
+          for (const event of events) {
+            // Normalize to NFC before comparing: macOS FSEvents reports
+            // filenames in the filesystem's native form (often NFD —
+            // `e` + combining acute), while `matchAbs` is derived from a
+            // git/client path that's usually NFC (`é`). A raw `===` would
+            // silently miss every event for a unicode-named file, breaking
+            // the single-file watcher's live-reload. `matchAbs` is already
+            // NFC-normalized at creation, so only the event path needs it here.
+            const eventPath = event.path.normalize("NFC");
+            for (const listener of listeners) {
+              if (
+                listener.matchAbs === null ||
+                listener.matchAbs === eventPath
+              ) {
+                pending.add(listener);
+              }
+            }
+          }
 
-      // Trailing-edge debounce — a burst of events fires the listeners
-      // exactly once, after the burst settles. Reset on every new batch.
-      scheduleFire();
-    },
-    { ignore: IGNORE_GLOBS },
-  )
-    .then((sub) => {
+          if (pending.size === 0) return;
+
+          // Trailing-edge debounce — a burst of events fires the listeners
+          // exactly once, after the burst settles. Reset on every new batch.
+          scheduleFire();
+        },
+        { ignore },
+      );
+
       if (cancelled) {
         void sub.unsubscribe().catch((e: Error) => {
           log?.error(
@@ -168,27 +196,25 @@ function installSharedWorkingTreeWatcher(
       subscription = sub;
       log?.info({ repoRoot }, "git: working-tree watcher installed");
 
-      // Reconcile any mutations that landed in the install window —
-      // parcel didn't see them, but the listener's own re-read will. Add
-      // every current listener to `pending` (the filter doesn't matter
-      // here; reconciliation is a "re-derive your state" signal, not a
-      // path-specific event) and schedule one debounced fire.
+      // Reconcile any mutations that landed in the install window — parcel
+      // didn't see them, but the listener's own re-read will. Add every
+      // current listener to `pending` (the filter doesn't matter here;
+      // reconciliation is a "re-derive your state" signal, not a path-specific
+      // event) and schedule one debounced fire.
       if (listeners.size > 0) {
         for (const listener of listeners) pending.add(listener);
         scheduleFire();
       }
-    })
-    .catch((e: Error) => {
+    } catch (e) {
       log?.error(
-        { err: e.message, repoRoot },
+        { err: e instanceof Error ? e.message : String(e), repoRoot },
         "git: working-tree watcher install failed",
       );
-    });
+    }
+  })();
 
   return {
-    subscribe(filePath, onChange) {
-      const matchAbs =
-        filePath === undefined ? null : path.resolve(repoRoot, filePath);
+    subscribe(matchAbs, onChange) {
       const listener: Listener = { matchAbs, onChange };
       listeners.add(listener);
       return () => {
@@ -225,6 +251,11 @@ export interface WatchWorkingTreeOptions {
  * function. N callers on the same `repoRoot` collapse to one shared
  * `@parcel/watcher` subscription; each listener installs its own optional
  * filePath filter without installing a separate OS handle.
+ *
+ * The watch is always rooted at `repoRoot`; the optional `filePath` only
+ * narrows which events a listener receives (it's resolved to an absolute path
+ * and compared against parcel's event paths), so it can't steer the watch root
+ * or escape the repo.
  */
 export function watchWorkingTree(
   repoRoot: string,
@@ -232,6 +263,12 @@ export function watchWorkingTree(
   log?: Logger,
   options?: WatchWorkingTreeOptions,
 ): () => void {
+  const matchAbs =
+    options?.filePath === undefined
+      ? null
+      : // NFC so it compares equal to NFC-normalized FSEvents paths (see the
+        // event callback) regardless of the input path's composition form.
+        path.resolve(repoRoot, options.filePath).normalize("NFC");
   let entry = sharedWorkingTreeWatchers.get(repoRoot);
   if (!entry) {
     entry = installSharedWorkingTreeWatcher(
@@ -241,7 +278,7 @@ export function watchWorkingTree(
     );
     sharedWorkingTreeWatchers.set(repoRoot, entry);
   }
-  return entry.subscribe(options?.filePath, onChange);
+  return entry.subscribe(matchAbs, onChange);
 }
 
 /** Test-only inspector — number of distinct repoRoots with active shared

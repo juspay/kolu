@@ -1,26 +1,21 @@
-/** Repo-island arrange + per-create placement composition.
+/** Repo-island arrange — glues the pure layout module (`repoIslands.ts`)
+ *  against the live terminal store. Lives outside `App.tsx` per the
+ *  "App.tsx is a thin layout shell" rule (`.claude/rules/solidjs.md`):
+ *  arrange is its own domain (store reads, no-op skip on writes,
+ *  post-arrange recenter), and that domain owns its `useXxx.ts` module.
  *
- *  Glues the pure layout module (`repoIslands.ts`) against the live
- *  terminal store. Lives outside `App.tsx` per the "App.tsx is a thin
- *  layout shell" rule (`.claude/rules/solidjs.md`): placement is its
- *  own domain (store reads, git-race fallback, no-op skip on writes,
- *  post-arrange recenter), and that domain owns its `useXxx.ts` module
- *  like every other feature.
- *
- *  Two arrange concerns live here:
- *  - `placeNew(id, existing)` — per-create policy fed to TerminalCanvas.
- *  - `handleCanvasAutoArrange()` — the one-shot palette command. */
+ *  Repo-island clustering is a one-shot, user-invoked action only —
+ *  `handleCanvasAutoArrange()` (the "Arrange canvas by repo" palette
+ *  command / minimap button). Creating a terminal deliberately does NOT
+ *  arrange: a new tile opens at the canvas's default cascade and no
+ *  existing tile moves. */
 
 import type { TerminalId } from "kolu-common/surface";
 import { supportsSpatialCanvas } from "../capabilities";
 import type { useTerminalCrud } from "../terminal/useTerminalCrud";
 import type { TerminalStore } from "../terminal/useTerminalStore";
-import { getBucketFor, resolvePlacementBucket } from "./placementPolicy";
-import {
-  arrangeRepoIslands,
-  type RepoIslandTile,
-  repackBucket,
-} from "./repoIslands";
+import { getBucketFor } from "./placementPolicy";
+import { arrangeRepoIslands, type RepoIslandTile } from "./repoIslands";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { usePendingLayouts } from "./usePendingLayouts";
 
@@ -47,10 +42,9 @@ export function useCanvasArrange(deps: {
     return bucket ? { id, bucket, layout } : undefined;
   }
 
-  /** Seed pending BEFORE dispatching writes — a follow-on `placeNew`
-   *  reading `existing` from the canvas's pending store must see the
-   *  just-applied layouts, not the still-saved ones. Skips no-op
-   *  writes so a re-arrange doesn't fire N round-trip RPCs. */
+  /** Seed pending BEFORE dispatching writes so the canvas renders the
+   *  arranged layout immediately, ahead of the metadata round-trip.
+   *  Skips no-op writes so a re-arrange doesn't fire N round-trip RPCs. */
   function applyLayoutBatch(layouts: Map<TerminalId, TileLayout>) {
     if (layouts.size === 0) return;
     pendingLayouts.applyMany(layouts);
@@ -60,35 +54,6 @@ export function useCanvasArrange(deps: {
         applyTileGeometry(id, layout);
       }
     }
-  }
-
-  /** Per-create policy fed to `TerminalCanvas`'s `placeNew` prop.
-   *  Sibling layouts dispatched via `applyLayoutBatch`; the new tile's
-   *  layout is returned for the caller to write last. */
-  function placeNew(
-    id: TerminalId,
-    existing: { id: TerminalId; layout: TileLayout }[],
-  ): TileLayout | undefined {
-    const bucket = resolvePlacementBucket(
-      store,
-      id,
-      existing.map((e) => e.id),
-    );
-    if (!bucket) return undefined;
-    const islands = existing.flatMap((e) => {
-      const t = repoIslandTileFor(e.id, e.layout);
-      return t ? [t] : [];
-    });
-    const repacked = repackBucket(bucket, islands, id);
-    if (!repacked) return undefined;
-
-    const siblings = new Map<TerminalId, TileLayout>();
-    for (const [tileId, layout] of repacked) {
-      if (tileId !== id) siblings.set(tileId, layout);
-    }
-    applyLayoutBatch(siblings);
-
-    return repacked.get(id);
   }
 
   /** One-shot rearrange triggered from the command palette. */
@@ -111,5 +76,5 @@ export function useCanvasArrange(deps: {
     if (activeId && arranged.has(activeId)) store.activate(activeId);
   }
 
-  return { applyTileGeometry, placeNew, handleCanvasAutoArrange };
+  return { applyTileGeometry, handleCanvasAutoArrange };
 }

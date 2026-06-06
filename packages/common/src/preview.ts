@@ -84,10 +84,11 @@ export function isMarkdown(filePath: string): boolean {
  *  URL (`/api/terminals/{id}/file/{encoded/path}`). Same kolu-common rationale
  *  as the classifiers above: both sides of the wire must agree. The SERVER
  *  builds the URL (`buildIframePreviewUrl` in `iframePreviewRoute.ts`) and the
- *  CLIENT inverts it (`repoPathFromPreviewPathname` in
- *  `right-panel/iframePreviewNav.ts`, to follow in-iframe link navigation) — a
- *  single source keeps the encode/decode from drifting, so links into
- *  subdirectories or paths with spaces resolve to the right file.
+ *  CLIENT inverts it (`@kolu/solid-browser`'s `pathFromPreviewPathname`, with
+ *  this codec bound in `right-panel/BrowseIframeRenderer.tsx`, to follow
+ *  in-iframe link navigation) — a single source keeps the encode/decode from
+ *  drifting, so links into subdirectories or paths with spaces resolve to the
+ *  right file.
  *
  *  Slashes stay literal (segment boundaries); each segment is percent-encoded
  *  so a name with spaces or reserved characters survives the URL round-trip. */
@@ -99,4 +100,33 @@ export function encodePreviewPath(repoRelPath: string): string {
  *  caller decides whether that means "ignore" or "error"). */
 export function decodePreviewPath(encoded: string): string {
   return encoded.split("/").map(decodeURIComponent).join("/");
+}
+
+/** Kolu's preview-URL codec — the `{ encode, decode }` pairing the inversion
+ *  in `@kolu/solid-browser` (`pathFromPreviewPathname`) injects. The concept
+ *  "these two functions form kolu's codec" lives here, where both halves are
+ *  defined, rather than being rebuilt at each consumer. Typed structurally
+ *  (not against `@kolu/solid-browser`'s `PreviewPathCodec`, which would invert
+ *  the dependency) — the shape is the wire contract both sides agree on. */
+export const previewPathCodec: {
+  encode: (path: string) => string;
+  decode: (encoded: string) => string;
+} = { encode: encodePreviewPath, decode: decodePreviewPath };
+
+/** Base of the per-terminal file route + its `file` segment. Shared so the
+ *  server route registration, the server URL builder, and the client (which
+ *  resolves repo-relative Markdown image srcs) all agree on one shape —
+ *  `${BASE}/{terminalId}/${FILE}/{encoded/path}`. */
+export const TERMINAL_FILE_ROUTE_BASE = "/api/terminals";
+export const TERMINAL_FILE_ROUTE_FILE_SEGMENT = "file";
+
+/** Build the per-terminal file-route URL for a repo-relative path (no cache
+ *  key). The server's `buildIframePreviewUrl` appends `?v=<mtime>` for the
+ *  iframe surface; the client uses the bare URL to point a rendered-Markdown
+ *  image at the actual repo file it references. */
+export function buildTerminalFileUrl(
+  terminalId: string,
+  repoRelPath: string,
+): string {
+  return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodePreviewPath(repoRelPath)}`;
 }

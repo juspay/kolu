@@ -1,0 +1,174 @@
+---
+title: Workflow viewer
+description: Integrating Claude Code dynamic-workflow JSONL into kolu — surfacing fan-out runs on the tile chrome and an Inspector run-list with live timelines.
+kind: feature
+maturity: budding
+updated: 2026-06-02
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+
+Analysis of a live `do-wf` run in `drishti/.worktrees/hm`, generalized to the
+real case: **a session holds many workflow runs at once — some running, some
+finished**. Two-phase proposal, revised after hickey + lowy.
+
+<Callout kind="danger" title="Headline">
+kolu already knows a workflow is running — it just can't say *which* one or *how
+many* agents. The running state works (it comes from the transcript, not the
+journal). The *enrichment* is what's broken: `deriveWorkflowProgress()` reads a
+journal file that no longer exists, returns `null`, so the name/fan-out badge
+stays dark. And the model is single-run — even fixed, it collapses a session's
+whole history to one entry. *(verified: `core.ts:493-552` reads one dead
+`workflows/<runId>.json`; state is set separately at `core.ts:378-385`.)*
+</Callout>
+
+<Callout kind="warn" title="Precisely what fails">
+`deriveState` promotes `waiting → running_background` purely from the
+main-transcript launch marker via `outstandingBackgroundTasks()` — **no journal
+read** (`core.ts:378-385`). So the spinner + "Running in background" label
+already render. The journal is read *only* to fill the `workflow` field
+(`session-watcher.ts:245-247`), and `agentWorkflow()` needs *both*
+`state===running_background` *and* `workflow!=null` (`agentDisplay.ts:43-44`).
+State is true; `workflow` is null → the `do-wf · 5 agents` badge and the
+"Workflow" inspector row are the only things dark.
+</Callout>
+
+## Multiplicity is the normal case (verified)
+
+| Session | Workflow runs | Fan-out |
+| --- | --- | --- |
+| `agency/…/cc-workflow` | **2** runs (`wf_84c9119d`, `wf_e6f94ccf`) | 4 agents, 14 agents |
+| `kolu/…/modest-runner` | **3** runs | — |
+| `drishti/…/hm (live)` | 1 run, in flight | 6 started / 5 done |
+
+So the UI target is a **list** of runs per session, each with its own status and
+timeline — not a single badge value.
+
+## What a dynamic workflow writes, and where status lives
+
+```
+~/.claude/projects/<encoded-cwd>/<session>.jsonl              # main transcript — launch markers + completion notifications
+~/.claude/projects/<encoded-cwd>/<session>/
+├── workflows/scripts/<name>-<runId>.js                       # persisted script — meta.name + meta.phases[]
+└── subagents/workflows/
+    ├── wf_84c9119d-127/  journal.jsonl + agent-*.jsonl       # run 1
+    └── wf_e6f94ccf-a1f/  journal.jsonl + agent-*.jsonl       # run 2 …
+```
+
+The three discrepancies vs. kolu's current reader, all verified:
+
+| kolu assumes | On disk |
+| --- | --- |
+| One journal at `<session>/workflows/<runId>.json` | Many at `<session>/subagents/workflows/<runId>/journal.jsonl` |
+| Snapshot object `{workflowName,status,agentCount}` | **Event log**: `{type:"started",agentId}` / `{type:"result",agentId,result:{status,…}}` |
+| Name + status live in the journal | `name` only in the script meta; **workflow-level status is NOT in the journal at all** |
+
+<Callout kind="warn" title="The subtle one — status is a transcript fact, not a journal fact">
+The journal records per-*agent* started/result, never a "workflow finished"
+event. In the live drishti run, 5 agents *resulted* while the workflow is still
+going (between phases). So "all started agents resulted ⇒ completed" reports
+**false completions between phases**. The authoritative signal is in the main
+transcript: a `<task-notification>` carrying `<status>completed</status>`, keyed
+by the launch `Task ID`, linked to the `Run ID` in the same launch marker. kolu
+already pairs Task↔Run IDs at `core.ts:419, 478`.
+</Callout>
+
+## Proposal — two phases, each shippable alone
+
+### Phase 1 — repoint the reader (name + fan-out count appear)
+
+Bug-fix-shaped, almost entirely in `core.ts`; no UI change. They already consume
+`ClaudeWorkflow {name,status,agents}` (`agentDisplay.ts:42-44`,
+`TerminalMeta.tsx:78-80`, `MetadataInspector.tsx:194-205`):
+
+- Point the journal path at `subagents/workflows/<runId>/journal.jsonl`.
+- Read the event log: `agents` = distinct `started` agentIds; `name` from the script meta.
+- **Status comes from the transcript, not the journal.** A run is `running` iff its taskId is still in `outstandingBackgroundTasks()`; `completed`/`failed` once its terminal `<task-notification>` is seen. No new "all-agents-done" heuristic.
+
+### Phase 2 — a list of workflow runs with live timelines, in the Inspector tab
+
+**Rendered prototype** — a session's runs, newest first; running auto-expanded,
+finished collapsed to a summary you can open:
+
+<div style={{ background: "#161b22", border: "1px solid #30363d", borderRadius: "10px", overflow: "hidden", margin: "1.2rem 0", fontSize: "13px", color: "#e6edf3", fontFamily: "ui-sans-serif,system-ui" }}>
+  <div style={{ display: "flex", borderBottom: "1px solid #30363d", background: "#1c2128" }}>
+    <div style={{ padding: "9px 16px", color: "#e6edf3", boxShadow: "inset 0 -2px 0 #58a6ff", fontSize: "12.5px" }}>Inspector</div>
+    <div style={{ padding: "9px 16px", color: "#9198a1", fontSize: "12.5px" }}>Code</div>
+  </div>
+  <div style={{ padding: "14px 16px" }}>
+    <div style={{ display: "flex", gap: "10px", padding: "5px 0" }}><span style={{ color: "#9198a1", minWidth: "96px" }}>Kind</span><span>claude-code</span></div>
+    <div style={{ display: "flex", gap: "10px", padding: "5px 0" }}><span style={{ color: "#9198a1", minWidth: "96px" }}>State</span><span style={{ color: "#d29922", border: "1px solid #d29922", borderRadius: "10px", padding: "1px 7px", fontSize: "11px", fontFamily: "ui-monospace,monospace" }}>running in background</span></div>
+    <div style={{ display: "flex", gap: "10px", padding: "5px 0" }}><span style={{ color: "#9198a1", minWidth: "96px" }}>Workflows</span><span style={{ color: "#9198a1" }}>3 runs · 1 running</span></div>
+    <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
+      <div style={{ border: "1px solid #30363d", borderRadius: "8px", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 11px", background: "#1c2128" }}>
+          <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#d29922", boxShadow: "0 0 0 3px rgba(210,153,34,.18)" }}></span>
+          <span style={{ fontFamily: "ui-monospace,monospace", color: "#bc8cff" }}>do-wf</span>
+          <span style={{ color: "#d29922", border: "1px solid #d29922", borderRadius: "10px", padding: "1px 7px", fontSize: "11px", fontFamily: "ui-monospace,monospace" }}>running</span>
+          <span style={{ color: "#6e7681", fontSize: "11.5px" }}>6 agents · 4m elapsed</span>
+          <span style={{ color: "#6e7681", marginLeft: "auto", fontSize: "11px" }}>▾</span>
+        </div>
+        <div style={{ padding: "8px 12px 12px", borderLeft: "2px solid #30363d", margin: "8px 0 0 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "5px 0 5px 12px", marginLeft: "-14px", borderLeft: "2px solid #3fb950" }}><span style={{ fontWeight: 600, fontSize: "12.5px" }}>Sync · Research · Implement</span><span style={{ color: "#6e7681", fontSize: "11.5px" }}>done</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "5px 0 5px 12px", marginLeft: "-14px", borderLeft: "2px solid #d29922" }}><span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#d29922" }}></span><span style={{ fontWeight: 600, fontSize: "12.5px" }}>Check</span><span style={{ color: "#6e7681", fontSize: "11.5px" }}>static-correctness gate</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "4px 0 4px 26px", fontSize: "12px" }}><span style={{ fontFamily: "ui-monospace,monospace", color: "#58a6ff", minWidth: "96px" }}>a9b4…61c0</span><div style={{ flex: 1, height: "6px", background: "#010409", borderRadius: "3px", overflow: "hidden" }}><div style={{ height: "100%", width: "20%", marginLeft: "80%", background: "#d29922" }}></div></div><span style={{ color: "#6e7681", fontFamily: "ui-monospace,monospace" }}>…</span></div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "5px 0 5px 12px", marginLeft: "-14px", borderLeft: "2px solid #30363d" }}><span style={{ color: "#9198a1", fontWeight: 600, fontSize: "12.5px" }}>Docs · Format · Commit · Review · …</span><span style={{ color: "#6e7681", fontSize: "11.5px" }}>9 phases pending</span></div>
+        </div>
+      </div>
+      <div style={{ border: "1px solid #30363d", borderRadius: "8px", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 11px", background: "#1c2128" }}><span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#3fb950" }}></span><span style={{ fontFamily: "ui-monospace,monospace", color: "#bc8cff" }}>deep-research</span><span style={{ color: "#3fb950", border: "1px solid #3fb950", borderRadius: "10px", padding: "1px 7px", fontSize: "11px", fontFamily: "ui-monospace,monospace" }}>completed</span><span style={{ color: "#6e7681", fontSize: "11.5px" }}>14 agents · 6m12s</span><span style={{ color: "#6e7681", marginLeft: "auto", fontSize: "11px" }}>▸</span></div>
+        <div style={{ padding: "6px 12px 10px 26px", color: "#6e7681", fontSize: "11.5px" }}>finished 12m ago · click to expand timeline &amp; per-agent transcripts</div>
+      </div>
+      <div style={{ border: "1px solid #30363d", borderRadius: "8px", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 11px", background: "#1c2128" }}><span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#f85149" }}></span><span style={{ fontFamily: "ui-monospace,monospace", color: "#bc8cff" }}>do-wf</span><span style={{ color: "#f85149", border: "1px solid #f85149", borderRadius: "10px", padding: "1px 7px", fontSize: "11px", fontFamily: "ui-monospace,monospace" }}>failed</span><span style={{ color: "#6e7681", fontSize: "11.5px" }}>4 agents · 1m03s</span><span style={{ color: "#6e7681", marginLeft: "auto", fontSize: "11px" }}>▸</span></div>
+        <div style={{ padding: "6px 12px 10px 26px", color: "#6e7681", fontSize: "11.5px" }}>failed at Check (1 agent failed) · click to expand</div>
+      </div>
+    </div>
+    <div style={{ color: "#6e7681", fontSize: "11px", marginTop: "10px" }}>▸ click an agent → opens its transcript (reuses parseClaudeCodeJsonl → TranscriptEvent[] renderer)</div>
+  </div>
+</div>
+
+Wiring (shaped by the review pass below):
+
+- **On-demand fetch, returning a list.** A new RPC `loadWorkflowRuns(session)` *enumerates* `subagents/workflows/wf_*/` and returns `WorkflowRun[]` — each `{runId, name, status, startedEpoch, endedEpoch, agents[]}`. Mirrors the existing `exportTranscriptHtml`/`loadClaudeCodeTranscript` pull pattern.
+- **Live metadata stays scalar.** `ClaudeCodeInfo` still carries only the single running-run summary (plus optionally a small "N runs" count) — the full list is never on the firehose.
+- **Per-agent transcript reuses the canonical seam.** `agent-<id>.jsonl` is a normal transcript → `parseClaudeCodeJsonl()` → `TranscriptEvent[]` → existing `kolu-transcript-html` renderer. No parallel event schema.
+
+## What the hickey + lowy pass changed
+
+<Callout kind="good" title="Reuse the transcript IR seam (lowy headline)">
+Claude JSONL is already normalized to `TranscriptEvent[]` with sub-agent
+boundaries. The per-agent transcript view consumes that; only the journal (a
+distinct runtime format) gets its own tiny reader.
+</Callout>
+
+<Callout kind="good" title="Keep ClaudeWorkflow scalar; never put the run list on live metadata">
+A list of full runs on the firehose would bloat every metadata tick and multiply
+the unenforced "`workflow` non-null only while `running_background`" invariant
+already split across a write gate and a read gate. Fetched on demand instead.
+</Callout>
+
+<Callout kind="good" title="No new right-panel tab (lowy)">
+`RightPanelTabKindSchema = z.enum(["inspector","code"])` is a wire contract with
+persisted `activeTab` + session restore — adding a kind is a protocol change. The
+run list lives inside the existing Inspector tab.
+</Callout>
+
+<Callout kind="warn" title="Two honest gaps">
+(1) The journal doesn't tag each agent with its phase — grouping is inferred from
+start order against `meta.phases`, reliable for a sequential pipeline like
+`do-wf` but not arbitrary `parallel()` fan-out. Fallback: a flat agent timeline +
+the declared phase strip; the real fix is the runtime stamping `phase` into the
+journal (upstream). (2) Status for an *old* completed run needs the terminal
+notification, which may have scrolled out of the transcript tail — so the status
+scan must read the full transcript (or treat dir-present + not-outstanding as
+completed).
+</Callout>
+
+## Cut line
+
+Phase 1 alone is worth shipping: a small correction that makes an already-built
+surface work for the first time, showing the active run. Phase 2 adds the
+multi-run list + timelines and is independently reviewable. When ready, drive it
+with `/do`.

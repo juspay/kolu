@@ -20,9 +20,19 @@ function dirFor(terminalId: string): string {
  *  shell tools that consume the path. Preserves the extension so the
  *  receiving agent still sees a meaningful suffix. Always returns a
  *  non-empty string. */
-function sanitizeUploadName(rawName: string): string {
+export function sanitizeUploadName(rawName: string): string {
   const base = basename(rawName);
-  const sanitized = base.replace(/[^A-Za-z0-9._-]/g, "_");
+  // Unicode-aware allowlist: keep letters/numbers/combining-marks of any
+  // script (so `berichte_märz.pdf`, `文件.txt`, NFD-decomposed names survive)
+  // plus `._-`, and collapse everything else to `_`. This still strips the
+  // dangerous set — path separators (`/`, `\`), control chars, and shell
+  // metacharacters — that could escape the per-terminal dir or break the
+  // tools consuming the pasted path; only the old ASCII-only mangling of
+  // legitimate unicode letters is lifted. `normalize("NFC")` composes
+  // decomposed input first so a base letter + combining accent isn't split.
+  const sanitized = base
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N}\p{M}._-]/gu, "_");
   // Strip leading dots so the result is never a hidden file or `..`.
   const trimmed = sanitized.replace(/^\.+/, "");
   return trimmed.length > 0 ? trimmed : "upload";

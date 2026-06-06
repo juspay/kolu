@@ -54,7 +54,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix home-manager e2e smoke fmt biome unit surface-example-build pnpm-hash-fresh
+default: nix home-manager e2e smoke fmt biome unit surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -129,6 +129,14 @@ unit: install
 surface-example-build: install
     {{ nix_shell }} pnpm --filter @kolu/surface-example build:client
 
+# Build the @kolu/surface-app library's example app (vite client). Same purpose
+# as surface-example-build but for surface-app: catches example-only regressions
+# the workspace-wide typecheck misses — broken composition (installSurfaceApp,
+# composeSurfaces, implementSurfaceApp), Tailwind/JSX errors, missing bundle
+# imports. Cheap (~1s).
+surface-app-example-build: install
+    {{ nix_shell }} pnpm --filter @kolu/surface-app-example build:client
+
 fmt: install
     {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
 
@@ -136,3 +144,31 @@ fmt: install
 # off in biome.jsonc. Each disabled rule has a follow-up PR slot (#710).
 biome: install
     {{ nix_shell }} biome lint .
+
+
+# Atlas sync gate. The check lives in the docs/atlas module
+# (`atlas::check-sync`): it rebuilds the self-contained Atlas and fails if the
+# committed docs/atlas/dist/ is stale (a note changed without committing the
+# regenerated HTML). Co-located with what it guards; this node keeps it in the
+# CI DAG and posts the ci::atlas-sync status. Run locally as
+# `just atlas::check-sync`. atlas uses an isolated (--ignore-workspace)
+# node_modules, so its install never races the root pnpm install above.
+atlas-sync:
+    {{ nix_shell }} just atlas::check-sync
+
+
+# ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
+# These run on the machine driving CI (not on a pool box), so they're
+# unreachable from `default` and the runner never schedules them. They manage
+# the fixed pool of warm boxes (kolu-ci-1 .. kolu-ci-N) that ci/pu/run.sh
+# leases per run, replacing the old fork-a-golden-per-run model. See
+# .agency/do.md and docs/pu-box-ci-ralph-report.md.
+
+# Bring the pool up to strength: (re)create any missing/unhealthy slot, leave
+# healthy (warm) slots untouched. Size with KOLU_CI_POOL (default 8).
+pool-ensure:
+    bash ci/pu/pool.sh
+
+# Report pool health without changing anything.
+pool-status:
+    bash ci/pu/pool.sh status

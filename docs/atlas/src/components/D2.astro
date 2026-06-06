@@ -1,0 +1,71 @@
+---
+// Architectural diagram → self-contained inline SVG, rendered at build time by
+// the `d2` binary (provided by the Nix devShell, pinned to 0.7.1 — see
+// shell.nix). Inlining matches the Atlas model: committed dist/, no external
+// assets, previews in kolu's Code tab without a server.
+//
+// Determinism: `--layout=dagre --sketch=false` make d2's output a pure function
+// of its source (no randomised "sketch" roughness, no salted ids). This is
+// load-bearing — `ci::atlas-sync` rebuilds under a scrambled TZ/locale and
+// fails if the committed SVG moves. Do NOT enable `sketch`.
+//
+// Usage in MDX:
+//   import D2 from "../../components/D2.astro";
+//   <D2 caption="…" code={`
+//     a -> b: label
+//   `} />
+import { execFileSync } from "node:child_process";
+
+interface Props {
+  /** D2 source. Pass a template literal; quote keys/labels with special chars. */
+  code: string;
+  /** Optional caption rendered under the diagram. */
+  caption?: string;
+  /** d2 theme id (0 = neutral default). */
+  theme?: number;
+}
+
+const { code, caption, theme = 0 } = Astro.props;
+
+let svg: string;
+try {
+  svg = execFileSync(
+    "d2",
+    ["--layout=dagre", "--sketch=false", `--theme=${theme}`, "--pad=16", "-", "-"],
+    { input: code, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+  );
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  // Fail the build loudly: a missing binary or a D2 syntax error must not
+  // silently emit an empty diagram into the committed dist/.
+  throw new Error(
+    "D2 render failed (is the 'd2' binary on PATH? it ships in the Nix " +
+      "devShell — run inside `nix develop`):\n" +
+      msg,
+  );
+}
+// Strip the XML prolog so the <svg> inlines cleanly inside HTML flow.
+svg = svg.replace(/^<\?xml[^>]*\?>\s*/, "");
+---
+
+<figure class="d2">
+  <Fragment set:html={svg} />
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .d2 {
+    margin: 1.75rem 0;
+    text-align: center;
+  }
+  .d2 :global(svg) {
+    max-width: 100%;
+    height: auto;
+  }
+  .d2 figcaption {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--faint, #7a8089);
+    font-family: var(--sans, ui-sans-serif, system-ui);
+  }
+</style>

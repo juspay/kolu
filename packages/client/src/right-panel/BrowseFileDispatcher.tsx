@@ -4,7 +4,16 @@
  *  render mechanics here. The img/iframe strategies now live in the library
  *  (`@kolu/solid-fileview/renderers/*`); the pierre-backed source view and
  *  the artifact-sdk comment bridge stay in kolu (they're kolu's volatility),
- *  plugged in as appliances:
+ *  plugged in as appliances.
+ *
+ *  Commentability is decided *here*, once: every renderer is built through
+ *  `withComments(capture, …)`, which declares how that view exposes itself for
+ *  comments — `"text"` (selectable source DOM, line-addressable), `"prose"`
+ *  (rendered text like the Markdown preview — anchored to its host subtree,
+ *  no source line), `"iframe"` (the sandboxed preview owns its own postMessage
+ *  bridge), or `"none"` (nothing to anchor to: a raster image). The renderers
+ *  stay pure presenters; a new one can't silently ship without a comment
+ *  decision because it has to pick a capture mode at this seam:
  *
  *    - `kind: "text"`   → a `FileData` with `content`; FileView renders the
  *      injected pierre source renderer (`BrowseFileView`). Markdown (`.md`)
@@ -30,11 +39,40 @@ import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import { isMarkdown, isRasterImage } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, Match, Switch } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  type JSX,
+  Match,
+  Show,
+  Switch,
+} from "solid-js";
 import { toast } from "solid-sonner";
+import { match, P } from "ts-pattern";
+import { resolveLinkHref } from "@kolu/solid-browser";
+import { CommentTextSurface } from "../comments/CommentTextSurface";
+import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
+import { resolveMarkdownImageSrc } from "./markdownImageSrc";
+import { openInCodeTab } from "./openInCodeTab";
+
+// The "File truncated" banner is rendered as a sibling ABOVE the comment
+// surface in both sourceRenderer and textRenderers: the banner is chrome, not
+// file content, so it must stay out of the commentable host or a user could
+// select "File truncated …" and save a comment whose quote is UI copy the
+// agent can't find in the file.
+const TruncatedBanner: Component<{ show: boolean }> = (p) => (
+  <Show when={p.show}>
+    <div
+      data-testid="browse-truncation-banner"
+      class="border-b border-edge bg-surface-1/30 px-2 py-1 text-[10px] text-warning"
+    >
+      File truncated (exceeds 1 MB)
+    </div>
+  </Show>
+);
 
 export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
@@ -45,6 +83,9 @@ export type BrowseFileDispatcherProps = {
   /** Forwarded to the iframe renderer so an in-iframe link click moves the
    *  tree selection to the linked file (HTML-preview navigation). */
   onNavigate?: (path: string) => void;
+  /** Forwarded to the iframe renderer so the mouse back/forward (X1/X2)
+   *  buttons work over an HTML preview (the sandbox traps them in the frame). */
+  onHistory?: (direction: "back" | "forward") => void;
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
@@ -59,57 +100,151 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     },
   );
 
-  // Kolu's source appliance: pierre's syntax-highlighted CodeView wrapped in
-  // the comment surface, carrying kolu's theme + initial line selection. The
-  // render closure reads `props` reactively (FileView calls it inside its own
-  // JSX), so theme/selection changes flow through without rebuilding it.
+  // The comment address space a view exposes — the single axis this seam
+  // decides on (see the header):
+  //   - "text"   selectable source DOM (Pierre's shadow-rooted CodeView),
+  //              line-addressable → CommentTextSurface, lineRange kept
+  //   - "prose"  rendered text (the Markdown preview, light DOM) — anchored
+  //              against its host subtree, but a rendered line isn't a source
+  //              line, so no lineRange → CommentTextSurface, lineAnchored false
+  //   - "iframe" the sandboxed preview owns its own postMessage bridge (it
+  //              must bind to the element the renderer creates)
+  //   - "none"   nothing to anchor to (a raster image)
+  // `"iframe"` and `"none"` are left untouched; the two text-bearing modes get
+  // the `CommentTextSurface` wrapper.
+  type Capture = "text" | "prose" | "iframe" | "none";
+
+  // Both text-bearing modes mount the same surface and anchor against whatever
+  // root actually holds the selection; they share the same sizing class
+  // (`min-h-0 w-full flex-1`) and differ only in line addressability.
+  // Both sit as a `flex-1` sibling BELOW the (optional) truncation banner —
+  // the banner is chrome, not file content, so it stays out of the commentable
+  // host (see `sourceRenderer` and the `prose` renderer below): a user must
+  // not be able to select "File truncated …" and save a comment whose quote
+  // the agent can't find.
+  const textSurface = (
+    file: FileData,
+    view: JSX.Element,
+    opts: { lineAnchored: boolean; surface?: "source" | "prose" },
+  ): JSX.Element => (
+    <CommentTextSurface
+      terminalId={props.terminalId}
+      path={file.path}
+      // The host's text is the file source, so the highlight overlay
+      // re-anchors when the server bumps content on save.
+      contentTick={file.source?.content ?? ""}
+      // `flex-1 min-h-0` so the host fills the space left under the (optional)
+      // truncation-banner sibling without overflowing it.
+      class="min-h-0 w-full flex-1"
+      lineAnchored={opts.lineAnchored}
+      surface={opts.surface}
+    >
+      {view}
+    </CommentTextSurface>
+  );
+
+  // A comment records its surface only when the file is multi-surface — i.e.
+  // Markdown, which offers the Source ⇄ Rendered toggle. Plain source (no
+  // rendered form, no toggle) leaves it undefined so the tray jump doesn't
+  // try to flip a toggle that isn't there.
+  const surfaceFor = (
+    file: FileData,
+    surface: "source" | "prose",
+  ): "source" | "prose" | undefined =>
+    isMarkdown(file.path) ? surface : undefined;
+
+  const withComments = (
+    capture: Capture,
+    file: FileData,
+    view: JSX.Element,
+  ): JSX.Element =>
+    match(capture)
+      .with("text", () =>
+        textSurface(file, view, {
+          lineAnchored: true,
+          surface: surfaceFor(file, "source"),
+        }),
+      )
+      .with("prose", () =>
+        textSurface(file, view, {
+          lineAnchored: false,
+          surface: surfaceFor(file, "prose"),
+        }),
+      )
+      .with(P.union("iframe", "none"), () => view)
+      .exhaustive();
+
+  // Kolu's source appliance: pierre's syntax-highlighted CodeView, carrying
+  // kolu's theme + initial line selection. The render closure reads `props`
+  // reactively (FileView calls it inside its own JSX), so theme/selection
+  // changes flow through without rebuilding it.
   const sourceRenderer: SourceRenderer = {
     render: (file) => (
-      <BrowseFileView
-        terminalId={props.terminalId}
-        filePath={file.path}
-        content={file.source?.content ?? ""}
-        truncated={file.source?.truncated ?? false}
-        theme={props.theme}
-        initialSelectedLines={props.initialSelectedLines}
-      />
+      <div class="flex h-full w-full flex-col">
+        <TruncatedBanner show={file.source?.truncated ?? false} />
+        {withComments(
+          "text",
+          file,
+          <BrowseFileView
+            filePath={file.path}
+            content={file.source?.content ?? ""}
+            theme={props.theme}
+            initialSelectedLines={props.initialSelectedLines}
+          />,
+        )}
+      </div>
     ),
   };
 
   // Kolu's rendered appliances, tried in order. Raster images take the plain
-  // `<img>` (on a checkerboard so transparency reads); everything else in the
-  // binary set — `.html`/`.svg`/`.pdf` — falls through to the sandboxed
-  // iframe, exactly reproducing the old `!isRasterImage` split.
+  // `<img>` (on a checkerboard so transparency reads) — nothing to anchor a
+  // comment to; everything else in the binary set — `.html`/`.svg`/`.pdf` —
+  // falls through to the sandboxed iframe (which owns its own comment bridge),
+  // exactly reproducing the old `!isRasterImage` split.
   const renderedRenderers: RenderedRenderer[] = [
     {
       match: isRasterImage,
-      render: (file) => (
-        <ImageRenderer
-          path={file.path}
-          url={file.url ?? ""}
-          class="image-preview-checkerboard"
-        />
-      ),
+      render: (file) =>
+        withComments(
+          "none",
+          file,
+          <ImageRenderer
+            path={file.path}
+            url={file.url ?? ""}
+            class="image-preview-checkerboard"
+          />,
+        ),
     },
     {
       match: () => true,
-      render: (file) => (
-        <BrowseIframeRenderer
-          terminalId={props.terminalId}
-          path={file.path}
-          url={file.url ?? ""}
-          onNavigate={props.onNavigate}
-        />
-      ),
+      render: (file) =>
+        withComments(
+          "iframe",
+          file,
+          <BrowseIframeRenderer
+            terminalId={props.terminalId}
+            path={file.path}
+            url={file.url ?? ""}
+            onNavigate={props.onNavigate}
+            onHistory={props.onHistory}
+          />,
+        ),
     },
   ];
 
   // Kolu's rendered appliances for *text* files — just Markdown today. A
   // `.md` file carries source (the text on the wire) AND a rendered form (the
   // same text as a document), so FileView offers a Source ⇄ Rendered toggle,
-  // defaulting to rendered. Non-markdown text matches nothing here and stays
-  // source-only (no toggle). Markdown renders from `content`, not a URL — so
-  // these never appear in the binary `renderedRenderers` list above.
+  // defaulting to rendered. The rendered document is `"prose"`: selectable
+  // light DOM, so it's commentable — anchored against its own host subtree
+  // (not the whole page) and with no source `lineRange` (a rendered line isn't
+  // a source line). It records `surface: "prose"` so the tray jump flips the
+  // toggle back to Rendered before re-finding (the rendered quote "Hello Doc"
+  // needn't appear in source "# Hello Doc", so landing on Source would fail
+  // the re-find); the comment re-anchors within the preview. Non-markdown text
+  // matches nothing here and stays source-only (no toggle). Markdown renders
+  // from `content`, not a URL — so these never appear in the binary
+  // `renderedRenderers` list above.
   const textRenderers: RenderedRenderer[] = [
     {
       match: isMarkdown,
@@ -117,10 +252,47 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       // below), so the `?.`/`?? ""` is type-defensive narrowing of the
       // optional field — never a real blank-document path.
       render: (file) => (
-        <MarkdownRenderer
-          markdown={file.source?.content ?? ""}
-          truncated={file.source?.truncated ?? false}
-        />
+        <div class="flex h-full w-full flex-col">
+          <TruncatedBanner show={file.source?.truncated ?? false} />
+          {withComments(
+            "prose",
+            file,
+            // TruncatedBanner above owns the truncation chrome — keeps it
+            // outside the commentable host so users can't anchor a comment
+            // to UI copy the agent can't find in the file.
+            <MarkdownRenderer
+              markdown={file.source?.content ?? ""}
+              resolveImageSrc={(src) =>
+                resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
+              }
+              onNavigateRelative={(href) => {
+                // A repo-relative link resolves against the previewed doc's own
+                // directory (GitHub-style), then opens through the same front
+                // door terminal `path:line` links use — so a miss surfaces a
+                // toast and any file type opens, not a bogus new tab (#1161).
+                const path = resolveLinkHref(props.filePath, href);
+                // The anchor is tagged `data-md-rel` (so the click was already
+                // preventDefault'd) yet didn't resolve to a repo path — a
+                // traversal that escapes the repo root, or a fragment/query-only
+                // href. Surface it rather than no-op silently, so a dead link
+                // isn't indistinguishable from a working one.
+                if (path === null) {
+                  toast.error(`Can't open link: ${href}`);
+                  return;
+                }
+                openInCodeTab({
+                  ref: { path, startLine: null, endLine: null },
+                  repoRoot: props.repoPath,
+                  targetMode: "browse",
+                  // GitHub-exact: open this path or fail. No fuzzy basename
+                  // fallback — `docs/guide.md` must not silently open a
+                  // same-basename `src/guide.md` (#1161).
+                  allowBasenameFallback: false,
+                });
+              }}
+            />,
+          )}
+        </div>
       ),
     },
   ];
@@ -142,6 +314,19 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     return fc?.kind === "binary" ? { path: props.filePath, url: fc.url } : null;
   });
 
+  // A controlled FileView mode driven by a tray-jump scroll request: when the
+  // pending request targets THIS file and names a surface, force the toggle to
+  // it (prose → rendered, source → source) so the jump lands on the surface
+  // the comment lives on even when the file is already open in the other mode
+  // (same path → no remount, so the toggle wouldn't otherwise move). Returns
+  // null when no request matches — FileView then stays self-controlled.
+  const scroll = useCommentScrollRequest();
+  const jumpMode = createMemo<"source" | "rendered" | null>(() => {
+    const req = scroll.request();
+    if (!req || req.path !== props.filePath || !req.surface) return null;
+    return req.surface === "prose" ? "rendered" : "source";
+  });
+
   return (
     <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
       <Match when={fileContent.error()}>
@@ -155,6 +340,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             file={file()}
             source={sourceRenderer}
             rendered={textRenderers}
+            mode={jumpMode()}
           />
         )}
       </Match>

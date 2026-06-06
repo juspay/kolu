@@ -24,9 +24,14 @@
  */
 
 import type { SurfaceCtx } from "@kolu/surface/server";
-import type { surface } from "kolu-common/surface";
+import type { koluSurface } from "kolu-common/surface";
 
-type Ctx = SurfaceCtx<(typeof surface)["spec"]>;
+// Domain modules mutate only kolu's OWN primitives (preferences, activityFeed,
+// session, terminalList, terminalMetadata, terminalExit) — surface-app's
+// buildInfo/identity live on the sibling `surfaceApp` surface and are driven by
+// the runtime (the buildInfo cell's `.connect`), not by domain code. So this
+// holder is typed against the `kolu` surface ctx (`implementSurfaces(...).ctx.kolu`).
+type Ctx = SurfaceCtx<(typeof koluSurface)["spec"]>;
 
 let held: Ctx | undefined;
 

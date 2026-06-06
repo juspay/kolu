@@ -3,18 +3,84 @@
  *  in `ui/lineRef.ts` — this module is just the xterm adapter:
  *  buffer-line → `parseLineRefs` → `ILink[]`. */
 
-import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
+import type { ILink, ILinkProvider, IBufferLine, Terminal } from "@xterm/xterm";
 import { type LineRef, type LineRefMatch, parseLineRefs } from "../ui/lineRef";
 
 export interface FileRefLinkOpts {
   onActivate: (ref: LineRef, event: MouseEvent) => void;
 }
 
-/** Parse the `path:line` references on a buffer line (0-based index). The one
- *  place both the hover provider and the touch hit-test read a buffer line, so
- *  they can never disagree on what is a link. Returns [] for a missing line or
- *  one with no resolvable reference. */
-function lineRefsAt(terminal: Terminal, bufferLine: number): LineRefMatch[] {
+// Any non-ASCII byte in the line means string offsets and cell columns can
+// diverge (wide CJK = 2 cells per char, combining marks = 0 cells per char).
+// Hoisted so the regex literal is compiled once, not re-created per hover.
+const HAS_NON_ASCII = /[^\x00-\x7f]/;
+
+/** A parsed ref plus its position in *cell* columns rather than JS string
+ *  offsets. `parseLineRefs` reports UTF-16 string offsets, but xterm's hover
+ *  range and the touch hit-test address the buffer by cell column — and the
+ *  two diverge whenever a line holds wide (CJK, width-2) characters or
+ *  combining marks (width-0). `startCol`/`endCol` are 0-based, half-open
+ *  `[startCol, endCol)`. */
+interface CellRefMatch {
+  ref: LineRef;
+  text: string;
+  startCol: number;
+  endCol: number;
+}
+
+/** Map a JS string offset (into `translateToString`'s output) to the buffer
+ *  cell column it begins at. Built by walking the line's cells once: each
+ *  cell contributes its `getChars()` to the string at a known column, and a
+ *  width-2 cell is followed by a width-0 spacer cell that adds no characters.
+ *
+ *  The returned array has `text.length + 1` entries; `colFor[i]` is the cell
+ *  column where string index `i` starts, and `colFor[text.length]` is the
+ *  column one past the last consumed cell (so a half-open `[start, end)` string
+ *  span maps to a half-open cell span). Crucially this end column is the
+ *  *visible* end, not `line.length`: `text` comes from `translateToString(true)`
+ *  which trims trailing blanks, while `line.length` is the full terminal width.
+ *  A ref ending at the last visible char must stop there, not span the trailing
+ *  blank cells out to the row edge. */
+function buildStringToCellMap(line: IBufferLine, text: string): number[] {
+  const colFor: number[] = [];
+  let strIndex = 0;
+  // The column immediately after the last cell we consumed a character from —
+  // the half-open end of the visible text in cell units.
+  let endCol = 0;
+  for (let col = 0; col < line.length && strIndex < text.length; col++) {
+    const cell = line.getCell(col);
+    if (!cell) break;
+    const width = cell.getWidth();
+    // Width-0 cells are the trailing half of a preceding wide glyph; they
+    // hold no characters of their own, so they advance the column without
+    // consuming any string index.
+    if (width === 0) continue;
+    const chars = cell.getChars();
+    // An empty cell (`getChars() === ""`) still renders as a single space in
+    // `translateToString`'s output, so it consumes one string char.
+    const consumed = chars.length > 0 ? chars.length : 1;
+    for (let k = 0; k < consumed && strIndex < text.length; k++) {
+      colFor[strIndex] = col;
+      strIndex++;
+    }
+    // `col + width` is the next column after this glyph (2 for a wide cell, 1
+    // for a normal one). Track it as the running visible end.
+    endCol = col + width;
+  }
+  // `colFor[text.length]` is the half-open end column. Use the visible end we
+  // tracked rather than `line.length` so an end-of-line ref doesn't span the
+  // trailing blank cells. Any further indices (a desync that shouldn't happen
+  // for trimmed text) collapse onto the same column.
+  while (colFor.length <= text.length) colFor.push(endCol);
+  return colFor;
+}
+
+/** Parse the `path:line` references on a buffer line (0-based index), each
+ *  carrying its position as a cell-column range. The one place both the hover
+ *  provider and the touch hit-test read a buffer line, so they can never
+ *  disagree on what is a link or where it sits. Returns [] for a missing line
+ *  or one with no resolvable reference. */
+function cellRefsAt(terminal: Terminal, bufferLine: number): CellRefMatch[] {
   const lineObj = terminal.buffer.active.getLine(bufferLine);
   if (!lineObj) return [];
   const text = lineObj.translateToString(true);
@@ -23,7 +89,32 @@ function lineRefsAt(terminal: Terminal, bufferLine: number): LineRefMatch[] {
   // regex on plain prompts is a meaningful win on a hot path that fires per
   // hover-cell. `:` alone is no longer sufficient since `:N` became optional.
   if (text.indexOf("/") < 0 && text.indexOf(".") < 0) return [];
-  return parseLineRefs(text);
+  const matches = parseLineRefs(text);
+  if (matches.length === 0) return [];
+  // Only pay for the per-cell width walk when there's a non-ASCII char that
+  // could make a string offset and a cell column diverge — the common all-
+  // ASCII line keeps offset === column.
+  const needsCellMap = HAS_NON_ASCII.test(text);
+  const colFor = needsCellMap ? buildStringToCellMap(lineObj, text) : null;
+  return matches.map((match: LineRefMatch) => {
+    const start = colFor ? colFor[match.index] : match.index;
+    const end = colFor
+      ? colFor[match.index + match.text.length]
+      : match.index + match.text.length;
+    return {
+      ref: {
+        path: match.path,
+        startLine: match.startLine,
+        endLine: match.endLine,
+      },
+      text: match.text,
+      // `colFor` is built with `text.length + 1` entries so lookups at
+      // `match.index` and `match.index + match.text.length` are always
+      // in-bounds; the `??` guards are unreachable but kept for safety.
+      startCol: start ?? match.index,
+      endCol: end ?? match.index + match.text.length,
+    };
+  });
 }
 
 export function createFileRefLinkProvider(
@@ -32,28 +123,24 @@ export function createFileRefLinkProvider(
 ): ILinkProvider {
   return {
     provideLinks(bufferLineNumber, callback) {
-      // `bufferLineNumber` is xterm's 1-based row; `lineRefsAt` takes a 0-based
+      // `bufferLineNumber` is xterm's 1-based row; `cellRefsAt` takes a 0-based
       // index into the active buffer (scrollback + viewport).
-      const matches = lineRefsAt(terminal, bufferLineNumber - 1);
+      const matches = cellRefsAt(terminal, bufferLineNumber - 1);
       if (matches.length === 0) {
         callback(undefined);
         return;
       }
       const links: ILink[] = matches.map((match) => ({
         range: {
-          start: { x: match.index + 1, y: bufferLineNumber },
-          end: { x: match.index + match.text.length, y: bufferLineNumber },
+          // xterm's link range is 1-based and inclusive on both ends; our
+          // `[startCol, endCol)` cell span is 0-based half-open. `start.x` is
+          // `startCol + 1`; `end.x` is `endCol` (the last covered column,
+          // 1-based, is `endCol - 1 + 1`).
+          start: { x: match.startCol + 1, y: bufferLineNumber },
+          end: { x: match.endCol, y: bufferLineNumber },
         },
         text: match.text,
-        activate: (event) =>
-          opts.onActivate(
-            {
-              path: match.path,
-              startLine: match.startLine,
-              endLine: match.endLine,
-            },
-            event,
-          ),
+        activate: (event) => opts.onActivate(match.ref, event),
       }));
       callback(links);
     },
@@ -64,7 +151,7 @@ export function createFileRefLinkProvider(
  *  to the hover link provider above. xterm's built-in link activation is
  *  mouse/hover-driven and never fires for a touch tap, so the mobile tap
  *  handler resolves the ref itself: it converts the tap to a (col, buffer-line)
- *  cell and asks here whether a reference covers it. Shares `lineRefsAt` with
+ *  cell and asks here whether a reference covers it. Shares `cellRefsAt` with
  *  the provider, so a tap and a hover never disagree about what is a link.
  *
  *  `col` and `bufferLine` are 0-based xterm buffer indices. Returns the
@@ -74,15 +161,12 @@ export function fileRefAtCell(
   col: number,
   bufferLine: number,
 ): LineRef | null {
-  for (const match of lineRefsAt(terminal, bufferLine)) {
-    // Link range covers source indices [index, index + text.length); the
-    // 0-based tap column maps directly onto that span.
-    if (col >= match.index && col < match.index + match.text.length) {
-      return {
-        path: match.path,
-        startLine: match.startLine,
-        endLine: match.endLine,
-      };
+  for (const match of cellRefsAt(terminal, bufferLine)) {
+    // Cell range covers columns [startCol, endCol); the 0-based tap column
+    // maps directly onto that span — and because both ends are now in cell
+    // units, a wide-character path before/within the ref no longer shifts it.
+    if (col >= match.startCol && col < match.endCol) {
+      return match.ref;
     }
   }
   return null;

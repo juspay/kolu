@@ -1,0 +1,37 @@
+---
+// Recursive list for <Toc>. Renders a <ul> of heading nodes; each node with
+// children recurses via Astro.self, so the ToC nests h3s under their h2, etc.
+interface Item {
+  slug: string;
+  text: string;
+  depth: number;
+  children: Item[];
+}
+interface Props {
+  items: Item[];
+}
+const { items } = Astro.props as Props;
+---
+<ul class="toc-list">
+  {
+    items.map((it) => (
+      <li class="toc-item">
+        <a href={`#${it.slug}`}>{it.text}</a>
+        {it.children.length > 0 && <Astro.self items={it.children} />}
+      </li>
+    ))
+  }
+</ul>
+<style>
+  .toc-list { list-style: none; margin: 0; padding: 0; }
+  .toc-item { margin: 0.2rem 0; }
+  .toc-item a { color: var(--ink-dim); text-decoration: none; font-size: 0.92rem; }
+  .toc-item a:hover { color: var(--amber); }
+  /* nested levels: indent + a guide rule, slightly dimmer/smaller */
+  .toc-item .toc-list {
+    margin: 0.15rem 0 0.35rem 0.2rem;
+    padding-left: 0.8rem;
+    border-left: 1px solid var(--rule);
+  }
+  .toc-item .toc-list a { font-size: 0.85rem; color: var(--ink-muted); }
+</style>

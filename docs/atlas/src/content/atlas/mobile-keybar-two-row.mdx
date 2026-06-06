@@ -1,0 +1,106 @@
+---
+title: Mobile key bar — two rows, no horizontal scroll
+description: Reflow the mobile soft key bar from a single overflow-x row into two rows so every key is reachable without horizontal scrolling. Plan + layout options + test/evidence strategy.
+kind: feature
+maturity: budding
+status: implemented
+parents: [mobile-architecture-review]
+updated: 2026-06-04
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+
+Implemented in <PrLink pr={1181} />. Branch `mobile-keybar-two-row`. Plan of
+record for the `/be` run — **Option B (`grid-cols-6`)** shipped, current key
+order kept.
+
+<Callout kind="note" title="The ask">
+On a phone the soft key bar (`MobileKeyBar.tsx`) is a single horizontally
+scrolling row, so the keys past the fold (`^C`, `/`, `⏎`) require a sideways
+swipe to reach. Make it **two rows** so every key is visible at once — no
+horizontal scrolling.
+</Callout>
+
+## Today
+
+`MobileKeyBar.tsx:88-89` renders all twelve controls in one flex row that scrolls
+sideways:
+
+```
+class="flex gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge overflow-x-auto"
+```
+
+The twelve controls, in DOM order, are the two sticky modifiers then ten keys:
+
+| | | | | | |
+| --- | --- | --- | --- | --- | --- |
+| Ctrl | Alt | Esc | Tab | ⇧Tab | ↑ |
+| ↓ | ← | → | ^C | / | ⏎ |
+
+Each button is `shrink-0 min-w-[2.5rem]` (`KEY_CLASS`, line 65-66), so at ~40px +
+gaps the row is ~520px wide and overflows a ~360px portrait viewport — hence the
+scroll.
+
+## Approach — two candidate layouts
+
+<Pill variant="good">Recommended</Pill> **Option B — fixed `grid-cols-6`.**
+Replace `flex … overflow-x-auto` with `grid grid-cols-6 gap-1`. Twelve controls
+flow row-major into exactly **two rows of six**, regardless of viewport width.
+Drop `shrink-0 min-w-[2.5rem]` from `KEY_CLASS` so each cell stretches to fill its
+column (the grid track sets the width now). The existing DOM order gives:
+
+| Ctrl | Alt | Esc | Tab | ⇧Tab | ↑ |
+| --- | --- | --- | --- | --- | --- |
+| **↓** | **←** | **→** | **^C** | **/** | **⏎** |
+
+Guarantees the "two rows" ask on every screen; no scroll container at all.
+
+**Option A — `flex-wrap`.** Swap `overflow-x-auto` → `flex-wrap`, keep
+`min-w-[2.5rem]`. Smaller diff, buttons keep their natural width and wrap. But the
+row count is viewport-dependent — two on a typical phone, possibly three on a very
+narrow one — so it doesn't *guarantee* two rows. Rejected for not meeting the ask
+precisely.
+
+<Callout kind="note" title="Layout details to settle">
+- **Key order / grouping.** Option B keeps the current order, which leaves the
+  arrow cluster split (`↑` ends row 1; `↓ ← →` start row 2). Acceptable and
+  zero-churn, but if a tidier grouping is wanted we can reorder `KEYS`/`MODS` so
+  each row reads coherently (e.g. modifiers + nav on row 1, arrows + send on row
+  2). Default: keep current order.
+- **Button height.** Two rows roughly doubles the bar height. `py-1.5` per button
+  is unchanged; the bar grows by one button-row. Fine for a bottom accessory bar.
+- The `onTouchStart` swipe guard and the per-button `onPointerDown` /
+  `preventDefault` (keep xterm focused) are layout-agnostic and stay as-is.
+</Callout>
+
+## Files
+
+- `packages/client/src/MobileKeyBar.tsx` — container class swap (`flex … overflow-x-auto`
+  → `grid grid-cols-6`); trim `shrink-0 min-w-[2.5rem]` from `KEY_CLASS`. ~2 lines.
+
+## Test strategy (feature / new behavior)
+
+Add an e2e assertion to the existing `mobile-soft-keyboard.feature` + steps
+(`mobile_soft_keyboard_steps.ts`) that pins the new layout:
+
+- **No horizontal overflow:** the `[data-testid="mobile-key-bar"]` element has
+  `scrollWidth <= clientWidth` (the bug today is `scrollWidth > clientWidth`).
+- **Two rows:** the twelve `mobile-key-*` buttons resolve to exactly **two
+  distinct `offsetTop` values** (row-major grid ⇒ all keys live on one of two
+  baselines).
+
+This is the covering test for the change; it fails red against the current
+single-row bar and green after the grid swap.
+
+## Evidence
+
+Per `.agency/do.md` `## PR evidence` — visible UI impact, so a screenshot of the
+mobile key bar showing all twelve keys in two rows with nothing clipped. Captured
+via the `/evidence` e2e-recording path on a `pu` box (mobile viewport).
+
+## Out of scope
+
+Key set, escape sequences, sticky-modifier behavior, haptics, and the swipe guard
+are unchanged — this is purely a reflow of the existing controls.

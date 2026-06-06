@@ -50,7 +50,14 @@ const { SerializeAddon } =
 /** Opaque PTY identifier. */
 export type PtyId = string;
 
-/** Extract plain text from an xterm buffer within a line range. */
+/** Extract plain text from an xterm buffer within a line range.
+ *
+ *  `tailLines` is a convenience for "the last N rendered lines": it pins
+ *  `startLine` to `buffer.length - tailLines` (clamped at 0), the only place
+ *  the live buffer length is known. Screen-scrape detectors that inspect only
+ *  the screen bottom pass it so a long scrollback (the configured 50k lines)
+ *  isn't allocated, joined, and shipped every poll just to be discarded —
+ *  `tailLines` overrides an explicit `startLine`. */
 export function getScreenText(
   buffer: {
     length: number;
@@ -60,9 +67,12 @@ export function getScreenText(
   },
   startLine?: number,
   endLine?: number,
+  tailLines?: number,
 ): string {
-  const start = Math.max(0, startLine ?? 0);
   const end = Math.min(buffer.length, endLine ?? buffer.length);
+  const tailStart =
+    tailLines === undefined ? startLine : end - Math.max(0, tailLines);
+  const start = Math.max(0, tailStart ?? 0);
   const lines: string[] = [];
   for (let i = start; i < end; i++) {
     lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
@@ -93,8 +103,14 @@ export interface PtyHandle {
   /** Serialized screen state (VT escape sequences) for late-joining
    *  clients. Empty string before any output. */
   getScreenState(): string;
-  /** Plain text content of the terminal buffer (scrollback + viewport). */
-  getScreenText(startLine?: number, endLine?: number): string;
+  /** Plain text content of the terminal buffer (scrollback + viewport).
+   *  `tailLines` reads only the last N rendered lines (see {@link getScreenText});
+   *  pass it instead of fetching the whole buffer when only the tail matters. */
+  getScreenText(
+    startLine?: number,
+    endLine?: number,
+    tailLines?: number,
+  ): string;
 }
 
 /** What a caller hands the host to spawn a PTY. Env/shell prep is the
@@ -226,8 +242,14 @@ export interface PtyHost {
   getTitle(id: PtyId): string | undefined;
   /** Serialized screen state; empty string if gone. */
   getScreenState(id: PtyId): string;
-  /** Plain text of the buffer; empty string if gone. */
-  getScreenText(id: PtyId, startLine?: number, endLine?: number): string;
+  /** Plain text of the buffer; empty string if gone. `tailLines` reads only
+   *  the last N rendered lines (see {@link getScreenText}). */
+  getScreenText(
+    id: PtyId,
+    startLine?: number,
+    endLine?: number,
+    tailLines?: number,
+  ): string;
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
   /** Kill every PTY this host owns. */
@@ -559,10 +581,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     id: PtyId,
     startLine?: number,
     endLine?: number,
+    tailLines?: number,
   ): string {
     const entry = entries.get(id);
     if (!entry) return "";
-    return getScreenText(entry.headless.buffer.active, startLine, endLine);
+    return getScreenText(
+      entry.headless.buffer.active,
+      startLine,
+      endLine,
+      tailLines,
+    );
   }
 
   function write(id: PtyId, data: string): void {
@@ -594,8 +622,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       write: (data) => write(id, data),
       resize: (cols, rows) => resize(id, cols, rows),
       getScreenState: () => getScreenState(id),
-      getScreenText: (startLine, endLine) =>
-        getScreenTextFor(id, startLine, endLine),
+      getScreenText: (startLine, endLine, tailLines) =>
+        getScreenTextFor(id, startLine, endLine, tailLines),
     };
   }
 

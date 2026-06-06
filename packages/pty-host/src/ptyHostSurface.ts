@@ -226,6 +226,7 @@ export const ptyHostSurface = defineSurface({
           id: TerminalIdSchema,
           startLine: z.number().int().optional(),
           endLine: z.number().int().optional(),
+          tailLines: z.number().int().optional(),
         }),
         output: z.object({ text: z.string() }),
       },

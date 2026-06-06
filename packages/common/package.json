@@ -9,7 +9,6 @@
     "./surface": "./src/surface.ts",
     "./terminalBackend": "./src/terminalBackend.ts",
     "./contract": "./src/contract.ts",
-    "./errors": "./src/errors.ts",
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",
     "./terminalKey": "./src/terminalKey.ts",
@@ -29,6 +28,7 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
+    "@kolu/surface-app": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",

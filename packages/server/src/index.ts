@@ -1,7 +1,5 @@
 import { createServer as createHttpsServer } from "node:https";
-import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
 import {
   getPtyHostSocketPath,
@@ -17,7 +15,10 @@ import { DEFAULT_PORT } from "kolu-common/config";
 import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
-import { getCacheControlHeader } from "./cacheControl.ts";
+import {
+  installFreshStatic,
+  installPwaManifest,
+} from "@kolu/surface-app/server";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import {
@@ -160,7 +161,16 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
-  log.fatal({ reason }, "unhandled rejection");
+  // Deliberately fatal — same as an uncaught exception. A floating promise
+  // is as corrupting as a sync throw, and a context-free global handler is
+  // the wrong place to make a recover-or-die call (per-task error boundaries
+  // own that; see the provider DAG). If this fires, a background task is
+  // missing its boundary — fix the source, don't soften the net. The
+  // supervisor (systemd `Restart=on-failure` / launchd) restarts clean.
+  log.fatal(
+    { reason },
+    "unhandled rejection — a background task is missing its error boundary",
+  );
   process.exit(1);
 });
 
@@ -199,7 +209,10 @@ app.get(
     const repoRoot = term?.meta.git?.repoRoot;
     if (!repoRoot) return c.text("terminal has no repo", 404);
 
-    const res = await serveResolvedFile(resolvePreviewPath(repoRoot, rawTail));
+    const res = await serveResolvedFile(
+      resolvePreviewPath(repoRoot, rawTail),
+      repoRoot,
+    );
     // `Buffer` (subclass of `Uint8Array<ArrayBufferLike>`) is a runtime-valid
     // `BodyInit` but the DOM-typed lib.dom.d.ts narrows `BodyInit` to
     // `Uint8Array<ArrayBuffer>` — the unions don't align in TS even though
@@ -212,36 +225,46 @@ app.get(
 );
 
 // --- Dynamic PWA manifest (includes hostname) ---
-app.get("/manifest.webmanifest", (c) => {
-  const identity = pwaIdentityForHostname(serverHostname);
-  return c.json(
+// surface-app owns assembly + the install-friendly defaults (start_url,
+// display); kolu supplies the per-host branding. Served unconditionally — in
+// dev the Vite proxy forwards `/manifest.webmanifest` here, so it must exist
+// without a built client.
+const pwaIdentity = pwaIdentityForHostname(serverHostname);
+installPwaManifest(app, {
+  name: pwaIdentity.name,
+  short_name: "kolu",
+  // `...extra` passthrough in installPwaManifest carries these through to the
+  // served manifest — they upgrade Chromium's native install card (and the
+  // pwa-install preview) from a bare icon to a richer app entry.
+  description:
+    "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
+  themeColor: pwaIdentity.themeColor,
+  backgroundColor: PWA_BACKGROUND_COLOR,
+  icons: [
+    { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    // Maskable variant (logo inside the safe zone on the brand background) so
+    // installed icons fill the OS mask instead of being letterboxed.
     {
-      name: identity.name,
-      short_name: identity.name,
-      start_url: "/",
-      display: "standalone",
-      background_color: PWA_BACKGROUND_COLOR,
-      theme_color: identity.themeColor,
-      icons: [
-        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-      ],
+      src: "/icon-512-maskable.png",
+      sizes: "512x512",
+      type: "image/png",
+      purpose: "maskable",
     },
-    { headers: { "Content-Type": "application/manifest+json" } },
-  );
+  ],
+  // No `screenshots`: they only prettify the install card (install works without
+  // them), and committed product shots go stale as the UI moves. Not worth the
+  // maintenance — the icon + description carry the install entry.
 });
 
 // --- Static files (production) ---
+// surface-app's freshness contract on the wire: no-store shell, immutable
+// hashed `/assets/*`, 404 on an asset miss (never the HTML shell), the
+// self-destructing `/sw.js`, and the SPA fallback. Replaces kolu's hand-rolled
+// cache-control + static-serve block.
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
-  const root = resolve(clientDist);
-  app.use("/*", async (c, next) => {
-    const directive = getCacheControlHeader(c.req.path);
-    if (directive) c.header("Cache-Control", directive);
-    return next();
-  });
-  app.use("/*", serveStatic({ root }));
-  app.get("/*", serveStatic({ root, path: "index.html" }));
+  installFreshStatic(app, { root: clientDist });
 }
 
 // --- TLS setup ---

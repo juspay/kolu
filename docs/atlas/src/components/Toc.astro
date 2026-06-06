@@ -1,0 +1,60 @@
+---
+// Auto-inserted table of contents — built from the note's headings (Astro
+// auto-assigns each heading an `id`, so the anchors resolve). The page route
+// passes `headings` from `render(note)`. Builds a nested tree (h3 under h2, …)
+// and renders it recursively via <TocList>. Renders nothing for <2 headings.
+import TocList from "./TocList.astro";
+
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+interface TocNode extends Heading {
+  children: TocNode[];
+}
+interface Props {
+  headings: Heading[];
+  minDepth?: number;
+  maxDepth?: number;
+}
+const { headings, minDepth = 2, maxDepth = 3 } = Astro.props as Props;
+
+const flat = headings.filter((h) => h.depth >= minDepth && h.depth <= maxDepth);
+
+// Nest by depth using a stack: each heading attaches under the nearest
+// preceding heading of smaller depth.
+const tree: TocNode[] = [];
+const stack: TocNode[] = [];
+for (const h of flat) {
+  const node: TocNode = { ...h, children: [] };
+  while (stack.length > 0 && stack[stack.length - 1].depth >= h.depth) stack.pop();
+  (stack.length > 0 ? stack[stack.length - 1].children : tree).push(node);
+  stack.push(node);
+}
+---
+{
+  flat.length > 1 && (
+    <nav class="toc" aria-label="Table of contents">
+      <p class="toc-title">Contents</p>
+      <TocList items={tree} />
+    </nav>
+  )
+}
+<style>
+  .toc {
+    margin: 1.8rem 0;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .toc-title {
+    margin: 0 0 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+</style>

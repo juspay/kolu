@@ -1,0 +1,255 @@
+---
+title: Is Mobile Electricity?
+description: A Hickey/Lowy review of kolu's mobile support — is mobile an encapsulated change behind a receptacle, or smeared across every consumer measuring the voltage?
+kind: analysis
+maturity: evergreen
+parents: [electricity]
+updated: 2026-06-01
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+
+An adversarially-verified read of kolu's mobile support through two lenses: Rich
+Hickey's *Simple Made Easy* (is mobile *complected* through the app?) and Juval
+Lowy's volatility-based decomposition (is mobile an *encapsulated* change, or
+smeared across every consumer?).
+
+<Callout kind="accent" title="Verdict — half-electricity">
+Two outlets are wired to spec — the rest of the app clips bare leads onto the
+mains. Scope ~11 files · 18 signal reads · 5 mobile components. Method: 24 agents
+— map ▸ dual-lens ▸ verify ▸ synthesize; 16 claims re-checked vs source.
+</Callout>
+
+## ① The analogy — Lowy's receptacle
+
+Lowy uses household power to argue you decompose by what *changes*, not what it
+*does*:
+
+> "Power in a house is highly volatile: AC or DC; 110 or 220 volts; 50 or 60 hertz; solar, generator, or grid. All that volatility is encapsulated behind a receptacle. When it is time to consume power, all the user sees is an opaque receptacle." — Juval Lowy, *Righting Software*
+
+The toaster never exposes the wires or measures the frequency — it *plugs in*.
+Every appliance carrying its own voltmeter and deciding what to do with the raw
+mains is what Lowy calls **functional decomposition** and Hickey calls
+**complecting**. So the question is precise: **does feature code plug into a
+stable interface that already resolved "where am I running," or does each
+consumer measure the voltage (`isMobile()`) and branch itself?** The answer for
+kolu: *two outlets, one good extension cord, and a lot of bare wire.*
+
+## ② The circuit as wired today
+
+One source, two voltages, two clean outlets — then exposed mains:
+
+<div role="img" aria-label="Circuit diagram of kolu mobile wiring — one source, two receptacles, and the bare-mains consumers" style={{ background: "#0e121a", border: "1px solid var(--rule)", borderRadius: "10px", padding: "1rem", margin: "1.2rem 0", overflowX: "auto" }}>
+  <svg viewBox="0 0 980 430" xmlns="http://www.w3.org/2000/svg" fontFamily="ui-monospace, monospace" style={{ width: "100%", height: "auto", minWidth: "640px" }}>
+    <title>kolu mobile wiring — one source, two receptacles, and the bare-mains consumers</title>
+    <defs>
+      <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#7c8aa3" /></marker>
+      <marker id="arrowL" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#e8a44c" /></marker>
+    </defs>
+    <rect x="24" y="170" width="180" height="92" rx="10" fill="#141a26" stroke="#2f3b51" />
+    <text x="114" y="196" fill="#e7ecf3" fontSize="13" fontWeight="700" textAnchor="middle">useMobile.ts</text>
+    <text x="114" y="220" fill="#4cc4a3" fontSize="11.5" textAnchor="middle">isMobile · 639px</text>
+    <text x="114" y="238" fill="#6aa8ff" fontSize="11.5" textAnchor="middle">isTouch · coarse</text>
+    <text x="114" y="158" fill="#7c8aa3" fontSize="10.5" textAnchor="middle">⚡ THE SOURCE (two circuits)</text>
+    <line x1="204" y1="200" x2="330" y2="120" stroke="#4cc4a3" strokeWidth="2.5" markerEnd="url(#arrow)" />
+    <rect x="332" y="78" width="220" height="86" rx="10" fill="#141a26" stroke="#4cc4a3" />
+    <text x="442" y="104" fill="#8fe3cd" fontSize="12.5" fontWeight="700" textAnchor="middle">OUTLET ✓ App.tsx:546</text>
+    <text x="442" y="124" fill="#b4c0d4" fontSize="11" textAnchor="middle">match(isMobile())</text>
+    <text x="442" y="142" fill="#7c8aa3" fontSize="10.5" textAnchor="middle">→ MobileTileView | TerminalCanvas</text>
+    <text x="442" y="158" fill="#7c8aa3" fontSize="10" textAnchor="middle">leaves plug in blind · no per-leaf if</text>
+    <line x1="204" y1="216" x2="330" y2="216" stroke="#4cc4a3" strokeWidth="2.5" markerEnd="url(#arrow)" />
+    <rect x="332" y="182" width="220" height="70" rx="10" fill="#141a26" stroke="#4cc4a3" />
+    <text x="442" y="206" fill="#8fe3cd" fontSize="12.5" fontWeight="700" textAnchor="middle">OUTLET ✓ withKeyboardDismiss</text>
+    <text x="442" y="226" fill="#7c8aa3" fontSize="10.5" textAnchor="middle">isTouch guard lives inside</text>
+    <text x="442" y="242" fill="#7c8aa3" fontSize="10.5" textAnchor="middle">4 drawers inject only their setter</text>
+    <line x1="204" y1="240" x2="330" y2="320" stroke="#e8a44c" strokeWidth="2.5" markerEnd="url(#arrowL)" />
+    <line x1="552" y1="320" x2="610" y2="320" stroke="#e8a44c" strokeWidth="2.5" />
+    <rect x="332" y="286" width="220" height="68" rx="10" fill="#1a1206" stroke="#e8a44c" strokeDasharray="5 4" />
+    <text x="442" y="312" fill="#f0c48b" fontSize="12.5" fontWeight="700" textAnchor="middle">⚠ BARE MAINS</text>
+    <text x="442" y="332" fill="#b4c0d4" fontSize="10.5" textAnchor="middle">raw isMobile() / isTouch() exported</text>
+    <text x="442" y="348" fill="#7c8aa3" fontSize="10" textAnchor="middle">no posture / capability interface</text>
+    <g fontSize="10.5">
+      <rect x="628" y="270" width="330" height="146" rx="10" fill="#141a26" stroke="#2f3b51" />
+      <text x="644" y="290" fill="#7c8aa3" fontSize="10">~18 consumers each measure the voltage:</text>
+      <text x="644" y="312" fill="#f0c48b">🔌 useTips.ts:65,73 — suppress tips ×2</text>
+      <text x="644" y="330" fill="#f0c48b">🔌 commands.tsx:318 — erase canvas section</text>
+      <text x="644" y="348" fill="#f0c48b">🔌 openInCodeTab.ts:76 — fork the intent</text>
+      <text x="644" y="366" fill="#f0c48b">🔌 CodeTab.tsx:103/548 — density + scroll</text>
+      <text x="644" y="384" fill="#f0c48b">🔌 App.tsx:194/225 — center / switcher</text>
+      <text x="644" y="402" fill="#ef6f6f">🔌 Terminal.tsx:538 — contenteditable surgery</text>
+    </g>
+    <line x1="552" y1="320" x2="628" y2="330" stroke="#e8a44c" strokeWidth="1.5" markerEnd="url(#arrowL)" />
+    <rect x="628" y="78" width="330" height="120" rx="10" fill="#1a0e0e" stroke="#ef6f6f" strokeDasharray="5 4" />
+    <text x="793" y="102" fill="#ef9a6f" fontSize="12" fontWeight="700" textAnchor="middle">⚡ VOLTAGE MISMATCH</text>
+    <text x="793" y="128" fill="#b4c0d4" fontSize="11" textAnchor="middle">JS receptacle rated 639px</text>
+    <text x="793" y="146" fill="#b4c0d4" fontSize="11" textAnchor="middle">CSS receptacle (Tailwind sm:) 640px</text>
+    <text x="793" y="172" fill="#7c8aa3" fontSize="10" textAnchor="middle">639–640 band: JS says mobile,</text>
+    <text x="793" y="187" fill="#7c8aa3" fontSize="10" textAnchor="middle">CSS says desktop. Comment misclaims "match".</text>
+  </svg>
+</div>
+
+<div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem 1.4rem", fontFamily: "var(--mono)", fontSize: "0.72rem", color: "var(--ink-muted)", margin: "0 0 0.4rem" }}>
+  <span style={{ display: "inline-flex", alignItems: "center", gap: "0.45em" }}><i style={{ width: "0.8em", height: "0.8em", border: "2px solid #4cc4a3", borderRadius: "2px", display: "inline-block" }} />Encapsulated — appliance plugs in blind</span>
+  <span style={{ display: "inline-flex", alignItems: "center", gap: "0.45em" }}><i style={{ width: "0.8em", height: "0.8em", border: "2px solid #e8a44c", borderRadius: "2px", display: "inline-block" }} />Bare mains — consumer measures the voltage</span>
+  <span style={{ display: "inline-flex", alignItems: "center", gap: "0.45em" }}><i style={{ width: "0.8em", height: "0.8em", border: "2px dashed #ef6f6f", borderRadius: "2px", display: "inline-block" }} />Two voltages for one threshold</span>
+</div>
+
+## ③ Scorecard
+
+| Dimension | Grade | Note |
+| --- | --- | --- |
+| Single source of truth | <Pill variant="md">C</Pill> | Each *concept* has one signal — but the breakpoint *value* is defined twice (JS 639px vs Tailwind `sm:` 640px); the comment misclaims they match. |
+| Encapsulation | <Pill variant="md">C</Pill> | Two receptacles done right; ~18 consumers branch on the raw signal with no posture/capability layer. |
+| Concept separation | <Pill variant="good">B</Pill> | `isMobile` (size) and `isTouch` (modality) are orthogonal; `useViewPosture` refuses to fold mobile in. |
+| CSS vs JS discipline | <Pill variant="bad">D</Pill> | 18 JS signal-reads vs 4 Tailwind classes, 0 custom `@media`. CSS owns almost no structure. |
+| Component duplication | <Pill variant="good">B</Pill> | Verification *refuted* the alarms: row/pip/metadata logic is already shared. Only reviewer-approved JSX shells diverge. |
+| Consumer leakage | <Pill variant="bad">D</Pill> | `openInCodeTab` forks intent inline; tips/commands/canvas each ask "am I mobile?"; the feature layer is functionally decomposed. |
+
+## ④ What's wired right — the parts that already are electricity
+
+<Callout kind="good" title="🔋 The two-axis split is a correct un-braiding">
+`useMobile.ts` ships *two* signals for two genuinely independent volatilities:
+`isMobile = (max-width: 639px)` is form-factor; `isTouch = (pointer: coarse)` is
+interaction model. A 1366px touch iPad resolves to `isMobile()=false /
+isTouch()=true` — desktop layout, soft-keyboard handling. <Pill variant="new">Hickey: one fold</Pill> <Pill variant="new">Lowy: orthogonal</Pill>
+</Callout>
+
+<Callout kind="good" title="🔌 The top-level layout switch is a true receptacle">
+`App.tsx:546` routes the whole UI into two *compositionally separate* subtrees.
+Leaf components plug into one world and never measure voltage — `MobileTileView`'s
+swipe handlers carry *no* `isTouch()` guard because they aren't mounted on the
+desktop side; the minimap is absent from mobile *by composition*, not per-component `if`.
+</Callout>
+
+<Callout kind="good" title="⭐ withKeyboardDismiss — the one feature-level receptacle done right">
+The `isTouch()` guard lives *inside* the wrapper (`dismissSoftKeyboard.ts:33`), so
+all four consumers plug in by injecting *only their own open-state setter*.
+"Dismissing an overlay leaves the keyboard down" is **structural**, not a
+per-overlay convention a new drawer could forget. This is the shape
+`openInCodeTab`, `useTips`, and the canvas gates are missing.
+</Callout>
+
+<Callout kind="good" title="🧭 useViewPosture refuses to fold mobile into canvas posture">
+Its header is Hickey written in prose: *"Mobile is a separate axis … different
+change frequency, different reactivity source, different blast radius. kolu#628."*
+Two things that change for different reasons are kept as two things.
+</Callout>
+
+<Callout kind="good" title="✅ Verification refuted the loudest duplication alarms">
+`setActiveSilently` *is* the bare `setActiveId` setter (used on desktop too);
+dock-row data, pips, sublines, intent markdown are already extracted into shared
+modules consumed by both surfaces. Only JSX *shells* diverge — and `Dock.tsx:386-391`
+records two reviewers explicitly choosing that over a `BaseRow`.
+</Callout>
+
+## ⑤ Where the leads are bare — five leaks that survived verification
+
+<Callout kind="warn" title="⚡ Dual breakpoint — one threshold, two voltages">
+JS query `max-width:639px` vs Tailwind `sm:` at `min-width:640px` (v4 default; no
+`tailwind.config`). In the 639–640 band JS thinks mobile, CSS thinks desktop;
+`useMobile.ts`'s comment claims it *"Matches Tailwind's sm: (640px)"* —
+contradicting its own query. Worse: `ChromeBar`'s `hidden sm:flex` is **dead** at
+that boundary because `App.tsx:507` unmounts the whole `ChromeBar` via `isMobile()`.
+<Pill variant="bad">Verified · real</Pill>
+</Callout>
+
+<Callout kind="warn" title="⚡ openInCodeTab forks one intent into two state mutations inline">
+The producer of a navigation intent measures the voltage itself:
+
+```ts
+// right-panel/openInCodeTab.ts:76-80 — inside batch()
+rp.openCodeAt(req.targetMode);
+if (isMobile()) rp.setDrawerOpen(true);        // mobile mechanism
+else if (rp.collapsed()) rp.expandPanel();     // desktop mechanism
+```
+
+"Reveal the code view" is *one* concept; how it becomes visible is the host's job.
+`useRightPanel` already owns both mechanisms as separate volatilities — the
+natural home for a single `rp.reveal()` that resolves posture internally.
+<Pill variant="bad">Verified · real</Pill>
+</Callout>
+
+<Callout kind="warn" title="⚡ Feature availability is functionally decomposed">
+Tips, canvas commands, and palette gates each independently ask "am I mobile?":
+`useTips.ts:65/73`, `commands.tsx:318` (`...(!deps.isMobile() ? […] : [])`),
+`App.tsx:194/225`. These are **capability** decisions spread across consumers as
+raw *viewport* checks — and several key off `isMobile` when "spatial canvas is
+unusable" is really a touch/pointer concern (the *wrong axis*). The leak is the
+aggregate pattern, not any one guard. <Pill variant="bad">Verified · aggregate</Pill>
+</Callout>
+
+<Callout kind="warn" title="⚡ CodeTab samples the viewport at mount — and on the wrong axis">
+Two non-reactive reads at construction: `treeDensity = isMobile() ? "relaxed" : undefined`
+(line 103) and `if (isMobile()) attachPierreTouchScroll(el)` (line 548). The
+density freeze is acceptable; the **touch-scroll gate keying off `isMobile`
+(viewport) instead of `isTouch` (modality)** is a genuine wrong-axis bug — a 640px+
+touch tablet on the desktop split gets no Pierre touch scroll. <Pill variant="bad">Verified · wrong-axis</Pill>
+</Callout>
+
+<Callout kind="warn" title="🩺 Terminal soft-keyboard adaptation leaks as raw shadow-DOM surgery">
+`Terminal.tsx:538-549` branches on `isTouch()` and reaches into xterm's internal
+`.xterm-screen` to set `contenteditable`/`spellcheck`/`caret-color`. This
+volatility *legitimately must surface* (see §6) — but the knowledge "touch needs a
+contenteditable target" is welded into Terminal.tsx's setup path, coupled to
+undocumented xterm internals. The leak is justified; its *form* is the smell.
+<Pill variant="bad">Verified · confirmed</Pill>
+</Callout>
+
+## ⑥ Where the analogy honestly breaks — a phone is not a 110-volt desktop
+
+<Callout kind="accent" title="The load-bearing nuance">
+Electricity's promise is that *the same appliance* runs on any voltage. That does
+**not** fully hold for mobile — and pretending it does would be the wrong fix.
+</Callout>
+
+Some mobile volatility is not a different *voltage* of the same signal; it is a
+categorically different **appliance**. A soft keyboard is not a 220V keyboard —
+it's a different input device with its own focus model and contenteditable target.
+The pan/zoom canvas is genuinely *unusable* on a phone, so `MobileTileView` and
+the drawers are a second, correctly-built product surface. This is why "just move
+it all to CSS" is wrong:
+
+- **Same appliance, different voltage → CSS.** Spacing, inline-label hide/show, max-widths, density. Today kolu does almost none of this in CSS (18 JS reads vs 4 classes) — the recoverable ground.
+- **Different appliance → JS, behind a seam.** Soft-keyboard input surface, focus suppression, swipe nav, touch-scroll. Lowy's demand isn't "don't branch" — it's "branch in *one named place*, not as raw `isTouch()` poking xterm internals from a setup loop."
+
+There are **four concepts wearing one word** — viewport-size, touch-modality,
+layout-posture, feature-availability. The first two are correctly receptacled; the
+second two are functionally decomposed. The fix is to add the missing posture and
+capability receptacles, not to erase the divergence.
+
+## ⑦ The receptacle that should exist — keep the wiring, add three faceplates
+
+**Keep the wiring.** `isMobile` and `isTouch` stay as the two axes — but unify the
+*rating*: register the breakpoint once (Tailwind v4 `@theme { --breakpoint-sm }`
+or a shared constant) and derive the JS `createMediaQuery` from the same number.
+The 639/640 desync and the misleading comment both vanish. Then three named seams:
+
+1. **`useRightPanel.reveal()`** — one verb that internally resolves drawer-open (mobile) vs uncollapse (desktop). `openInCodeTab` and every future producer call it and never read `isMobile`. ~5 lines; *highest payoff-to-effort fix.*
+2. **A resolved capability object** — `layout.supportsSpatialCanvas`, `showsAmbientTips`, `isCompact` — computed once, each from the *right* axis. Consumers ask about capability, not pixels.
+3. **`enableSoftKeyboardInput(term)`** — owns the contenteditable knowledge + xterm poking so `Terminal.tsx` calls one verb; re-key `CodeTab`'s touch-scroll off touch capability rather than viewport.
+
+`withKeyboardDismiss` is the existence proof these work: a drawer plugs in by
+passing its setter and never measures the voltage.
+
+## ⑧ What to do — ranked by payoff ÷ effort
+
+| Action | Why | Effort | Payoff |
+| --- | --- | --- | --- |
+| **Unify the breakpoint** (639px ⟶ one value) | Register `--breakpoint-sm` once + derive the JS query; fix the contradicting comment. Kills the desync band + orphaned `ChromeBar` `sm:`. | <Pill variant="sm">small</Pill> | <Pill variant="hi">high</Pill> |
+| **Add `useRightPanel.reveal()`** | Move the `isMobile` fork out of `openInCodeTab` into one host-owned verb; mirrors `withKeyboardDismiss`. Near-zero blast radius. | <Pill variant="sm">small</Pill> | <Pill variant="hi">high</Pill> |
+| **A resolved capability seam** | Replace scattered `isMobile()` feature checks with one resolved object, each keyed off the right axis. | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> |
+| **`enableSoftKeyboardInput(term)`** | Wrap the contenteditable surgery behind a named seam; re-key `CodeTab` touch-scroll off touch capability. | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> |
+| **Do *not* extract the dock-row / metadata JSX shells** | The volatile logic is already shared; only JSX shells diverge, for documented touch-target reasons two reviewers chose. A forced `BaseRow` would be worse. | <Pill variant="sm">small</Pill> | <Pill variant="md">guard</Pill> |
+
+The one-line answer: **mobile is electricity for the macro layout switch and the
+keyboard-dismiss wrapper, and bare mains everywhere else.** The wiring discipline
+is good — two correctly-separated circuits — but neither terminates in enough
+receptacles, and the one threshold is rated at two voltages.
+
+---
+
+*Method · 24 subagents over a 4-phase workflow: 5 parallel mappers (66 findings)
+→ independent Hickey + Lowy lenses → 16 structural claims adversarially re-read
+against source → reconciled synthesis. Source: `kolu/packages/client/src`, branch
+`brave-second`, 2026-06-01.*

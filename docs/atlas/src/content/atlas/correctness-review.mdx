@@ -1,0 +1,161 @@
+---
+title: Whole-codebase correctness review
+description: A static audit of path authority, terminal lifecycle, channel cancellation, session-restore fidelity, parser failures, and kill confirmation. Not a style review.
+kind: analysis
+maturity: seedling
+updated: 2026-06-01
+---
+
+import Finding from "../../components/Finding.astro";
+import Pill from "../../components/Pill.astro";
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
+
+A static correctness audit of the codebase, focused on logic errors, false
+safety boundaries, lifecycle leaks, silent failure handling, and restore
+fidelity. Date: 2026-06-01 · commit reviewed `1a62eeeb` · method: repo map,
+targeted static scans, source verification against line anchors.
+
+## Summary
+
+<Callout kind="accent" title="Verdict">
+Six correctness issues worth fixing. The high-severity terminal lifecycle leak
+is fixed by <PrLink pr={1105} />, the OpenCode silent-parse issue by
+<PrLink pr={1108} />, and the high-severity path-authority symlink escape by
+<PrLink pr={1128} />. The remaining open set is three medium-severity issues.
+</Callout>
+
+| Severity | Finding | Primary surface | Status |
+| --- | --- | --- | --- |
+| <Pill variant="hi">High</Pill> | Repo-root guard is lexical only; symlinks can escape the repo for reads, previews, and local diffs. | `kolu-git`, iframe preview | <Pill variant="ok">fixed</Pill> <PrLink pr={1128} /> |
+| <Pill variant="hi">High</Pill> | Terminal exit subscriptions leak forever for explicitly killed terminals. | client terminal lifecycle, server events | <Pill variant="ok">fixed</Pill> <PrLink pr={1105} /> |
+| <Pill variant="md">Medium</Pill> | PTY channel aborts leak subscribers when the abort fires between pulls. | `@kolu/pty-host` | <Pill variant="warn">open</Pill> |
+| <Pill variant="md">Medium</Pill> | Session restore drops persisted metadata and active selection for sub-terminals. | client session restore | <Pill variant="warn">open</Pill> |
+| <Pill variant="md">Medium</Pill> | OpenCode message JSON parse failure is silently treated as "no messages yet". | OpenCode integration watcher | <Pill variant="ok">fixed</Pill> <PrLink pr={1108} /> |
+| <Pill variant="md">Medium</Pill> | Terminal kill unregisters local state even when pty-host kill fails; the client removes the UI anyway. | server terminal backend, client terminal CRUD | <Pill variant="warn">open</Pill> |
+
+## Scope
+
+Reviewed the major correctness-bearing paths across `packages/common`,
+`packages/server`, `packages/client`, `packages/integrations`,
+`packages/pty-host`, `packages/shared`, and `packages/surface` — emphasizing file
+authority, streaming and event lifetimes, session persistence, terminal
+lifecycle, integration parsers, SQLite/watchers, and error fallbacks. Not run
+end-to-end; findings are source-derived and should be paired with focused tests
+as each fix lands.
+
+## Findings
+
+<Finding sev="high" id="symlink-escape" title="Repo-root guard can be bypassed by symlinks">
+`resolveUnder` prevents lexical traversal like `../../etc/passwd`, but it does not
+resolve symlinks. A repo path such as `leak -> /etc/passwd` passes the string
+check because the path still appears to live under the repo. The later filesystem
+calls follow the symlink.
+
+Refs:
+- <Cite file="packages/integrations/git/src/safe-path.ts" lines="24-36" /> — `path.resolve` plus `path.relative`, no `realpath`
+- <Cite file="packages/integrations/git/src/browse.ts" lines="49-68" /> — Code-tab file reads use the resolved absolute path
+- <Cite file="packages/server/src/iframePreviewRoute.ts" lines="88-125" /> — preview resolution then `stat`/`readFile`
+- <Cite file="packages/integrations/git/src/review.ts" lines="219-267" /> — local untracked fallback diffs `/dev/null` against the resolved absolute path
+
+**Risk:** the Code tab, binary preview route, and local diff fallback can read or render files outside the repository root — both a correctness bug and a security boundary failure for any untrusted workspace.
+
+**Fix:** split lexical path normalization from filesystem authority checks. For any operation that reads, stats, or diffs an existing file, compare `fs.realpath` of the root and target before use; reject targets whose real path is outside the real repo root. Keep the lexical helper only for paths that may not exist yet.
+
+**Status — fixed** in <PrLink pr={1128} />. A new `assertRealpathUnder` in `safe-path.ts` resolves symlinks on *both* root and target via `fs.realpath` and rejects any target whose real path escapes (realpath'ing the root keeps a symlinked checkout or `/tmp -> /private/tmp` valid); any `realpath` failure passes through, so a missing file stays a 404 instead of masquerading as an escape. `resolveExistingUnder` composes it for the read/stat/diff case; `resolveUnder` stays lexical-only for not-yet-existing paths. Wired into `browse.ts`, `review.ts`, and the preview route's `serveResolvedFile` (now 403s a symlink escape). Covered by symlink-escape unit tests across `safe-path.test.ts`, `browse.test.ts`, `review.test.ts`, `iframePreviewRoute.test.ts`.
+</Finding>
+
+<Finding sev="high" id="terminal-exit-subscriptions" title="Explicit terminal kills leak exit subscriptions">
+Every terminal gets a per-terminal exit subscription rooted with `createRoot`,
+but the disposer is discarded. The server stream yields once only when
+`terminalExit` is published. Natural exits publish that event; explicit kills
+intentionally do not. The result is a root and event stream that wait forever
+after every explicit kill.
+
+Refs:
+- <Cite file="packages/client/src/terminal/useTerminals.ts" lines="56-79" /> — `subscribeExit` creates a root and drops the disposer
+- <Cite file="packages/server/src/surface.ts" lines="249-254" /> — event source yields only after a bus value
+- <Cite file="packages/server/src/terminalBackend/local.ts" lines="553-573" /> — explicit kill unregisters without publishing `terminalExit`
+- <Cite file="packages/client/src/terminal/useTerminalCrud.ts" lines="163-170" /> — client removes UI after kill and swallows errors
+
+**Risk:** terminal churn accumulates client roots and server event subscribers for terminals already gone — memory growth and stale event channels over time.
+
+**Fix:** make `subscribeExit` return a disposer stored by terminal id (dispose on natural exit, explicit kill, and list removal), or derive exit subscriptions from the terminal list with keyed cleanup.
+
+**Status — fixed** in <PrLink pr={1105} />. Exit subscriptions are now derived from the live terminal list with `mapArray` in `useTerminalExits.ts` — the same list-keyed lifecycle `useTerminalMetadata` uses. Each id owns a reactive owner SolidJS disposes the instant the id leaves the list, so explicit kills, `killAll`, and natural exits all release with no disposer map. Covered by `useTerminalExits.test.ts`.
+</Finding>
+
+<Finding sev="medium" id="channel-abort" title="PTY channel abort can leak when no pull is pending">
+`Channel.subscribe` cleans up immediately when `CLOSE` is pushed into a pending
+`next()`. But an abort that fires between pulls only queues `CLOSE`. If the
+consumer never pulls again after cancellation, the subscriber remains in `subs`
+and the abort listener remains attached.
+
+Refs:
+- <Cite file="packages/pty-host/src/channel.ts" lines="88-138" /> — abort handler calls `sub.push(CLOSE)`
+- <Cite file="packages/pty-host/src/channel.ts" lines="95-114" /> — cleanup happens only on the pending-next close path
+- <Cite file="packages/pty-host/src/channel.test.ts" lines="75-95" /> — current abort coverage only tests a pending `next()`
+
+**Risk:** cancelled attach/tap streams can leave dead subscribers behind if cancellation happens while the consumer isn't actively awaiting.
+
+**Fix:** introduce a single `finish()` path for abort/close that removes the subscriber and listener immediately, resolves any pending `next()` as done, and prevents future buffered delivery.
+</Finding>
+
+<Finding sev="medium" id="subterminal-restore" title="Sub-terminal restore loses saved metadata and active selection">
+Top-level terminals are restored with saved metadata and the old id mapped to the
+new id. Sub-terminals are recreated with only `cwd` — their saved `themeName`,
+`canvasLayout`, panel state, intent, last activity, and agent command are
+ignored, and their old id is never mapped. A saved active terminal pointing to a
+sub-terminal therefore cannot be restored.
+
+Refs:
+- <Cite file="packages/client/src/terminal/useSessionRestore.ts" lines="247-294" /> — top-level pass metadata + populate `oldToNew`; sub-terminals pass only `cwd`
+- <Cite file="packages/client/src/terminal/useTerminalCrud.ts" lines="151-160" /> — `handleCreateSubTerminal` accepts no initial metadata and returns no id
+- <Cite file="packages/common/src/surface.ts" lines="318-327" /> — saved sessions persist metadata for every saved terminal
+
+**Risk:** restoring a workspace with sub-terminals silently changes saved UI and agent state; if the active terminal was a sub-terminal, restore falls back instead of reselecting it.
+
+**Fix:** change `handleCreateSubTerminal` to accept `InitialTerminalMetadata` and return the new id; during restore pass the same persisted fields used for top-level terminals, seed sub/right-panel state, populate `oldToNew`, and reselect the mapped active sub-terminal.
+</Finding>
+
+<Finding sev="medium" id="opencode-parse" title="OpenCode message parse failures are silently treated as empty state">
+The OpenCode integration reads OpenCode-owned JSON from SQLite. If the latest
+`message.data` is malformed, `parseMessageState` catches the parse error and
+returns `null`. The watcher then logs the same debug message used for a
+legitimate empty session: "no messages yet".
+
+Refs:
+- <Cite file="packages/integrations/opencode/src/core.ts" lines="299-331" /> — `deriveSessionState` returns `null` when parsing returns `null`; JSON parse failure swallowed
+- <Cite file="packages/integrations/opencode/src/session-watcher.ts" lines="59-67" /> — `null` is logged as "no messages yet"
+
+**Risk:** upstream schema drift or DB corruption hides behind a normal empty-state log; the terminal badge can disappear or stale out without an actionable error.
+
+**Fix:** return a discriminated parse result or pass logging context into `parseMessageState`; treat malformed latest-row JSON as a warn/error distinct from "no row".
+
+**Status — fixed** in <PrLink pr={1108} />. `parseMessageState` logs malformed JSON as `error` (tagged with the session); the genuine no-row "no messages yet" `debug` moved into `deriveSessionState`'s `!row` branch. `session-watcher.ts` no longer flattens both into one ambiguous line. Covered by unit tests in `index.test.ts`.
+</Finding>
+
+<Finding sev="medium" id="kill-confirmation" title="Kill failures are hidden while local terminal state is removed">
+The server comment says kill awaits daemon confirmation so a failed kill cannot
+orphan the PTY. The implementation catches pty-host kill failure, logs it, and
+unregisters anyway. `killAll` drains every terminal after a failed killAll too.
+The client then swallows kill errors and removes the local UI regardless.
+
+Refs:
+- <Cite file="packages/server/src/terminals.ts" lines="97-100" /> — documented invariant says a failed kill cannot orphan the PTY
+- <Cite file="packages/server/src/terminalBackend/local.ts" lines="553-588" /> — single kill + killAll unregister/drain after catch
+- <Cite file="packages/client/src/terminal/useTerminalCrud.ts" lines="163-170" /> — client catches and removes terminal anyway
+
+**Risk:** if the pty-host kill RPC or transport fails, kolu can forget a still-running PTY and remove the user's UI handle to it. The in-process host makes this rare, but the backend is written around a daemon/socket confirmation model.
+
+**Fix:** do not unregister on kill RPC failure — propagate the error and leave the terminal visible, mark it kill-failed while retrying, or unregister only after a natural exit/tombstone. For `killAll`, only drain terminals confirmed killed.
+</Finding>
+
+## Triage order
+
+1. **Path authority is fixed.** <PrLink pr={1128} /> split lexical normalization from `fs.realpath` authority and closed the symlink escape — the only issue crossing from correctness into a workspace boundary violation.
+2. **Terminal subscription lifecycle is fixed.** <PrLink pr={1105} /> landed the list-keyed cleanup + regression coverage.
+3. **Fix channel abort cleanup before daemon work expands** — a small primitive with a large downstream blast radius.
+4. **Fix sub-terminal restore and kill-confirmation together** — both terminal lifecycle fidelity issues, covered by restore/CRUD scenarios.
+5. **OpenCode parser errors are hardened.** <PrLink pr={1108} /> landed the malformed-JSON error path + the empty-vs-malformed log split.

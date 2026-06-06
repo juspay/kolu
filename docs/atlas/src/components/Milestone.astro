@@ -1,0 +1,29 @@
+---
+// One roadmap item with a status marker: done ✓ / now ▸ / next ○.
+interface Props {
+  status: "done" | "now" | "next";
+  label?: string;
+}
+const { status, label } = Astro.props;
+const mark = status === "done" ? "✓" : status === "now" ? "▸" : "○";
+---
+<li class={`ms ms-${status}`}>
+  <span class="ms-mark" aria-hidden="true">{mark}</span>
+  <span class="ms-text">{label && <strong class="ms-label">{label}</strong>}<slot /></span>
+</li>
+<style>
+  .ms { display: flex; gap: 0.55rem; align-items: baseline; margin: 0.55rem 0; }
+  .ms-mark {
+    flex: none;
+    width: 1.1em;
+    text-align: center;
+    font-family: var(--mono);
+    font-weight: 700;
+  }
+  .ms-done .ms-mark { color: var(--green); }
+  .ms-now .ms-mark { color: var(--amber); }
+  .ms-next .ms-mark { color: var(--ink-faint); }
+  .ms-text { color: var(--ink-dim); }
+  .ms-next .ms-text { color: var(--ink-muted); }
+  .ms-label { color: var(--ink); margin-right: 0.4em; }
+</style>

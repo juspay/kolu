@@ -15,6 +15,17 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "thinking"
     And there should be no page errors
 
+  Scenario: Tile title leads with the dock's agent-state pip
+    # The dock surfaces agent state via a shape-distinct StatePip
+    # (spinning ring = working, dim dot = awaiting). The same pip now
+    # leads the canvas-tile title bar, reused verbatim, so the title and
+    # the dock speak one agent-state vocabulary and track state together.
+    When a Claude Code session is mocked with state "thinking"
+    Then the tile title state pip should be "working"
+    When the Claude Code session state changes to "waiting"
+    Then the tile title state pip should be "awaiting"
+    And there should be no page errors
+
   Scenario: Claude Code state updates from thinking to waiting
     When a Claude Code session is mocked with state "thinking"
     Then the tile chrome should show an agent indicator with state "thinking"
@@ -73,6 +84,61 @@ Feature: Claude Code status detection
     When a Claude Code session is mocked with state "running_background"
     Then the tile chrome should show an agent indicator with state "running_background"
     And the tile chrome should show workflow badge "deep-research"
+    And there should be no page errors
+
+  Scenario: A backgrounded Bash command is not a running-in-background state
+    When a Claude Code session is mocked with state "background_bash"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
+  Scenario: A running /fork promotes the idle main to running-in-background
+    # A `/fork` ends the main's turn (idle) and runs a sub-agent in the
+    # background. Its launch is a local-command echo, not a tool_result, so it's
+    # invisible to the background-task accounting; the watcher detects it from the
+    # fork's on-disk subagent transcript and promotes the idle main to working.
+    # No workflow fan-out journal exists, so no badge — just the working pip.
+    When a Claude Code session is mocked with state "fork"
+    Then the tile chrome should show an agent indicator with state "running_background"
+    And the tile title state pip should be "working"
+    And there should be no page errors
+
+  Scenario: An orphaned workflow (stale journal) settles to idle, not running
+    When a Claude Code session is mocked with state "orphaned_workflow"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
+  Scenario: A workflow launch with a Run ID but no journal does not spin forever
+    When a Claude Code session is mocked with state "journalless_workflow"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
+  Scenario: A trailing /compact summary reads as idle, not stuck working
+    When a Claude Code session is mocked with state "compact"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
+  Scenario: An AskUserQuestion prompt on screen promotes thinking to awaiting (screen scrape, #905)
+    # A pending AskUserQuestion reads as `thinking` on disk — the user's prompt is
+    # the newest JSONL entry and the assistant's tool_use reply is buffered in the
+    # SDK, so the screen scrape MUST promote from `thinking`, not only `waiting`
+    # (gating to `waiting` left the dock stuck on "Thinking" with the prompt up).
+    # kolu recognizes its `↑/↓ to navigate` footer on the rendered screen and
+    # promotes to awaiting_user — the full pipeline from the real starting state.
+    When a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When the terminal renders a Claude AskUserQuestion prompt
+    Then the tile chrome should show an agent indicator with state "awaiting_user"
+    And there should be no page errors
+
+  Scenario: A tool-permission prompt on screen promotes tool_use to awaiting (screen scrape, #905)
+    # A permission gate (Write/Edit/Bash/WebFetch approval) is on screen while the
+    # tool call sits on disk, so the session reads as `tool_use`. kolu recognizes
+    # the gate's footer (`Tab to amend`) on the rendered screen and promotes to
+    # awaiting_user — same pipeline as AskUserQuestion, from the tool_use state.
+    When a Claude Code session is mocked with state "tool_use"
+    Then the tile chrome should show an agent indicator with state "tool_use"
+    When the terminal renders a Claude permission prompt
+    Then the tile chrome should show an agent indicator with state "awaiting_user"
     And there should be no page errors
 
   Scenario: Claude Code indicator disappears when session ends

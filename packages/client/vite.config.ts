@@ -1,11 +1,10 @@
+import { surfaceApp } from "@kolu/surface-app/vite";
 import tailwindcss from "@tailwindcss/vite";
 import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 import { DEFAULT_PORT } from "kolu-common/config";
-import { defineConfig } from "vite";
-import { VitePWA } from "vite-plugin-pwa";
+import { defineConfig, type PluginOption } from "vite";
 import solid from "vite-plugin-solid";
 
-const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
 const xtermVersion = xtermPackage.version;
 
 // Ports for the dev instance. Default to the canonical 7681/5173 so a bare
@@ -24,20 +23,18 @@ if (!fontsDir) {
 }
 
 export default defineConfig({
+  // No VitePWA / service worker: kolu doesn't use one (it can't work offline and
+  // a precaching worker only served stale builds across deploys — see
+  // docs/cache-bug.md). Freshness is surface-app's contract: the server's
+  // `no-store` shell + immutable hashed assets; surface-app serves a
+  // self-destructing `/sw.js` that retires any SW an earlier build registered.
+  //
+  // `surfaceApp()` stamps `__SURFACE_APP_COMMIT__` from kolu's `KOLU_COMMIT_HASH`
+  // env (→ git → "dev"), the single commit source shared with the server cell.
   plugins: [
     solid(),
     tailwindcss(),
-    VitePWA({
-      registerType: "autoUpdate",
-      manifest: false,
-      workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
-        // Raised from the 2 MiB default to accommodate the shiki bundle
-        // pulled in by @pierre/diffs. Precaching keeps the Code tab snappy
-        // offline.
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-      },
-    }),
+    surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" }) as PluginOption,
   ],
   resolve: {
     alias: {
@@ -58,7 +55,6 @@ export default defineConfig({
     },
   },
   define: {
-    __KOLU_COMMIT__: JSON.stringify(commitHash),
     __XTERM_VERSION__: JSON.stringify(xtermVersion),
   },
   build: {

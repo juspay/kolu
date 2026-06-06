@@ -1,0 +1,38 @@
+---
+// A typed callout box — replaces docs/plans' 33× `<div class="panel accent">`.
+// Children are MDX, so markdown works inside. e.g.
+// <Callout kind="warn" title="Heads up">Body **markdown** here.</Callout>
+interface Props {
+  kind?: "note" | "accent" | "good" | "warn" | "danger";
+  title?: string;
+}
+const { kind = "note", title } = Astro.props;
+---
+<aside class={`callout callout-${kind}`}>
+  {title && <p class="callout-title">{title}</p>}
+  <div class="callout-body"><slot /></div>
+</aside>
+<style>
+  .callout {
+    margin: 1.4rem 0;
+    padding: 0.85rem 1.1rem;
+    border: 1px solid var(--rule);
+    border-left-width: 3px;
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .callout-title {
+    margin: 0 0 0.4rem;
+    font-weight: 650;
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+  }
+  .callout-body :global(> :first-child) { margin-top: 0; }
+  .callout-body :global(> :last-child) { margin-bottom: 0; }
+  .callout-note { border-left-color: var(--ink-faint); }
+  .callout-accent { border-left-color: var(--amber); background: #fbf4e6; }
+  .callout-good { border-left-color: var(--green); background: #eff6f0; }
+  .callout-warn { border-left-color: #b8860b; background: #fbf6e8; }
+  .callout-danger { border-left-color: var(--alert); background: #fcf0ef; }
+</style>

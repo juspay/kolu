@@ -32,8 +32,8 @@ Feature: Mobile tile swipe
   @mobile
   Scenario: Swiping on the soft key bar does not cycle terminals
     # The key bar lives inside the swipe wrapper. A finger drag across the
-    # keys (or a scroll of its overflow-x row) must NOT bubble up and switch
-    # terminals mid-type — the bar stops touchstart propagation. Contrast with
+    # keys must NOT bubble up and switch terminals mid-type — the bar stops
+    # touchstart propagation. Contrast with
     # the tile-view scenario above, where the same leftward swipe cycles the
     # tile; here the active terminal must be unchanged.
     Given I run "echo from-t0"

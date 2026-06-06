@@ -1,0 +1,4 @@
+node_modules/
+.astro/
+# dist/ is intentionally committed (self-contained Code-tab preview) — see
+# the repo-root .gitignore carve-out and .gitattributes.

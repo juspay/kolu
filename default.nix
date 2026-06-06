@@ -27,9 +27,12 @@ let
       ./tsconfig.base.json
       ./packages/surface
       ./packages/surface-nix-host
+      ./packages/surface-app
       ./packages/solid-pierre
       ./packages/solid-markdown
+      ./packages/solid-pwa-install
       ./packages/solid-fileview
+      ./packages/solid-browser
       ./packages/common
       ./packages/integrations
       ./packages/nonempty
@@ -44,6 +47,7 @@ let
       ./packages/transcript-html
       ./packages/artifact-sdk
       ./packages/html-escape
+      ./packages/url-shape
       ./packages/log
     ];
   };
@@ -59,7 +63,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-etT3O4sLpavhfLbhNYfFZ8418OOVPj//N0yt1ekychQ=";
+    hash = "sha256-kAkiERNc4Z/q1zPJ0/TvfZZ0c+gNGGiJ4Bg/+7tzv7g=";
     fetcherVersion = 3;
   };
 
@@ -251,6 +255,12 @@ let
     inherit pkgs src pnpmDeps;
   };
 
+  # @kolu/solid-browser docsite — a standalone second consumer of createBrowser
+  # (the history electricity), built so CI proves the reuse claim doesn't rot.
+  docsiteExample = import ./packages/solid-browser/example/docsite/default.nix {
+    inherit pkgs src pnpmDeps;
+  };
+
   # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
   # package. Reuses this build's `src` + `pnpmDeps` — every package with a
   # typecheck script is in the `src` fileset above (see its INVARIANT
@@ -263,4 +273,4 @@ let
 in
 {
   inherit default koluBin kolu-tui koluEnv pnpmDeps typecheck;
-} // remoteProcessMonitor // miniCi
+} // remoteProcessMonitor // miniCi // docsiteExample

@@ -60,6 +60,29 @@ describe("getScreenText", () => {
     expect(text).toContain("only line");
     term.dispose();
   });
+
+  it("tailLines reads only the last N rendered lines", async () => {
+    const term = createTerminal({ rows: 10 });
+    await writeAndFlush(term, "line0\r\nline1\r\nline2\r\nline3\r\n");
+    // Buffer has line0..line3 then blank rows; tail of 2 painted lines yields
+    // the last two non-empty rows (and possibly trailing blanks), never line0/1.
+    const text = getScreenText(term.buffer.active, undefined, 4, 2);
+    expect(text).not.toContain("line0");
+    expect(text).not.toContain("line1");
+    expect(text).toContain("line2");
+    expect(text).toContain("line3");
+    term.dispose();
+  });
+
+  it("tailLines overrides startLine and clamps at 0", async () => {
+    const term = createTerminal({ rows: 5 });
+    await writeAndFlush(term, "only line\r\n");
+    // A tail larger than the buffer just yields everything (start clamps to 0),
+    // and the explicit startLine is ignored in favor of the tail.
+    const text = getScreenText(term.buffer.active, 999, undefined, 1000);
+    expect(text).toContain("only line");
+    term.dispose();
+  });
 });
 
 // ── PTY host (real node-pty children) ──────────────────────────────────

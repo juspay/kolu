@@ -37,13 +37,14 @@
  */
 
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type {
   AgentInfoShape,
   AgentProvider,
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
-import { parseAgentCommand } from "anyagent";
+import { agentInfoEqual, parseAgentCommand } from "anyagent";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
 import { subscribeGitInfo } from "kolu-git";
@@ -129,6 +130,21 @@ export interface ProviderHooks {
    *  (recent-repos / recent-agents); a host with no activity feed omits them. */
   trackRecentRepo?: (root: string, name: string) => void;
   trackRecentAgent?: (cmd: string) => void;
+  /** Optional — read the terminal's current rendered screen as VT-resolved
+   *  plain text. Provided by hosts that can reach the PTY screen buffer (the
+   *  local backend, via pty-host's `getScreenText`); omitted by hosts that
+   *  can't. Async + host-supplied, so the DAG keeps its zero *synchronous*
+   *  dependency on the PTY host — a remote ssh pty-host serves the same read
+   *  over the wire. Drives `AgentProvider.screenScrape` promotion (Claude's
+   *  `AskUserQuestion` / `ExitPlanMode` — #905); without it, screen scrape is
+   *  simply inactive.
+   *
+   *  `tailLines` reads only the last N rendered lines: the screen-scrape
+   *  detector inspects just the screen bottom, so the poll asks for exactly
+   *  its tail (`screenScrape.tailLines`) rather than the whole buffer — a long
+   *  scrollback (the configured 50k lines) isn't allocated, joined, shipped,
+   *  and discarded once a second while a session waits. */
+  readScreenText?: (tailLines?: number) => Promise<string>;
 }
 
 // ── Foreground process observer ──────────────────────────────────────
@@ -354,11 +370,35 @@ function getActivation(kind: string): ExternalChangesActivation {
  *  own settle window — these delays only re-check the agent-state files. */
 const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
 
+/** Cadence of the screen-scrape poll (`AgentProvider.screenScrape`). The prompt
+ *  appears asynchronously after the JSONL settles to `waiting` and produces no
+ *  fs event, so the scrape needs its own ~1 s clock to catch it. Runs ONLY
+ *  while the agent is in a pollable (idle) state, so it's off the hot path. */
+const SCREEN_SCRAPE_POLL_MS = 1000;
+
+/** True for the pty-host's "no PTY with id" ORPCError — the benign teardown
+ *  race where the terminal vanished between a poll being scheduled and its
+ *  screen read landing. Read `.code` structurally rather than via `instanceof`
+ *  so it still classifies a deserialized error from a remote pty-host (the
+ *  error crosses a socket in R-2 and is no longer the same class). */
+function isNotFoundError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: unknown }).code === "NOT_FOUND"
+  );
+}
+
 function setAgentMetadataVia(
   record: ProviderRecord,
   hooks: ProviderHooks,
   nextAgent: AgentInfo | null,
 ): void {
+  // Publish-if-changed: the canonical AgentInfo comparator is the one gate for
+  // "did the published state already reflect this?", so every publisher —
+  // watcher and screen-scrape poll alike — funnels through one equality check.
+  if (agentInfoEqual(record.meta.agent, nextAgent)) return;
   const bump = shouldBumpRecencyForAgentChange(
     record.meta.agent,
     nextAgent,
@@ -382,7 +422,26 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   hooks: ProviderHooks,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
-  let current: { watcher: AgentWatcher; key: string } | null = null;
+  let current: {
+    watcher: AgentWatcher;
+    key: string;
+    stopPoll: () => void;
+  } | null = null;
+  // The most recent watcher-derived info for the matched session — the screen
+  // scrape merges against this (not the published metadata, which it may itself
+  // have promoted). Null between sessions; reset in `destroyCurrent`.
+  let latestInfo: Info | null = null;
+  // The published agent metadata, but only when it's this provider's own —
+  // i.e. the `published?.kind === provider.kind` narrowing, defined once and
+  // shared by both writers that ask "has the published state diverged from
+  // this candidate?": the watcher callback (to *skip* the raw publish the
+  // poll owns) and the poll tick (to *do* the republish). Returns null when
+  // nothing is published yet, or when a different provider owns the tile, so
+  // a caller can read the divergence test declaratively off the result.
+  const publishedAgent = (): AgentInfo | null => {
+    const published = record.meta.agent;
+    return published?.kind === provider.kind ? published : null;
+  };
   let registeredForExternal = false;
   let stopped = false;
   let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
@@ -406,7 +465,20 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   };
   plog.debug("started");
 
+  // `reconcile` must never throw. It is called bare from four channel
+  // `onEvent` callbacks — and a throw inside `onEvent` breaks out of
+  // `buildConsume`'s `for await` loop (see surface/server.ts), silently
+  // freezing that subscription for the terminal's life — and synchronously
+  // on the foreground snapshot fire. One try/catch here is the single place
+  // that invariant lives, so the bare call sites stay honest.
   function reconcile() {
+    try {
+      reconcileInner();
+    } catch (err) {
+      plog.error({ err }, "reconcile failed");
+    }
+  }
+  function reconcileInner() {
     const state = snapshotTerminalState(
       currentForeground,
       record.pid,
@@ -422,13 +494,9 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
         const slog = log.child({ provider: provider.kind });
         provider.externalChanges.install(
           () => {
-            for (const fn of [...activation.reconcilers]) {
-              try {
-                fn();
-              } catch (err) {
-                slog.error({ err }, "reconcile threw on external change");
-              }
-            }
+            // Every reconciler is a `reconcile` (above) and cannot throw, so
+            // the fan-out needs no per-callback guard.
+            for (const fn of [...activation.reconcilers]) fn();
           },
           (err) => slog.error({ err }, "external-change listener threw"),
           slog,
@@ -439,8 +507,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     const nextKey = next ? provider.sessionKey(next) : null;
     if ((current?.key ?? null) === nextKey) return;
     const hadCurrent = current !== null;
-    current?.watcher.destroy();
-    current = null;
+    destroyCurrent();
     if (!next || !nextKey) {
       if (hadCurrent) plog.debug("agent session ended");
       if (record.meta.agent?.kind === provider.kind) {
@@ -454,10 +521,134 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
       watcher: provider.createWatcher(
         next,
         (info) => {
+          // The watcher's data-source-derived info is the source of truth; the
+          // screen scrape only promotes off it. Always stash it so the poll
+          // merges against the latest.
+          latestInfo = info;
+          // The screen-scrape poll is the single writer for the promote/demote
+          // state edge: it lifts a pollable working state (thinking / tool_use /
+          // waiting — a pending prompt leaves the JSONL on whichever of these
+          // preceded the buffered reply) to `awaiting_user`, and is the only path
+          // that settles it back (the watcher's change gate silently drops a
+          // structurally-equal re-publish of the underlying state). So while that
+          // promotion is live — the published agent sits at `awaiting_user` over
+          // this still-pollable watcher info — publishing this info raw would
+          // demote it (e.g. a late `refreshSummary` resolving mid-prompt),
+          // flickering the dock and double-bumping recency. Skip that one raw
+          // publish and let the poll own the edge: it re-confirms the promotion
+          // while the marker is on screen and self-demotes (republishing the raw
+          // info) within a tick once the prompt clears, and it republishes on any
+          // *structural* divergence, so a held prompt's summary update still lands
+          // on the next tick rather than waiting for it to clear.
+          const published = publishedAgent();
+          const scrape = provider.screenScrape;
+          // Suppress only when a live promotion sits over a still-pollable state
+          // AND this host can run the poll that settles it back (`readScreenText`
+          // is optional; a screen-less host gets a no-op poll, so it must always
+          // publish raw or the tile would freeze at `awaiting_user` forever). When
+          // nothing is promoted (`published` isn't `awaiting_user`), every real
+          // state transition publishes immediately.
+          if (
+            scrape &&
+            hooks.readScreenText &&
+            scrape.isPollable(info) &&
+            published?.state === "awaiting_user"
+          ) {
+            return;
+          }
           setAgentMetadataVia(record, hooks, info as unknown as AgentInfo);
         },
         plog,
       ),
+      stopPoll: startScreenScrapePoll(),
+    };
+  }
+
+  /** Tear down the matched session's watcher + screen-scrape poll and forget its
+   *  derived info, so a stale read can't leak across a session change. */
+  function destroyCurrent() {
+    current?.watcher.destroy();
+    current?.stopPoll();
+    current = null;
+    latestInfo = null;
+  }
+
+  /** Arm the idle-gated screen-scrape poll, or a no-op when this provider
+   *  doesn't scrape or the host can't read the screen. While `isPollable` holds
+   *  for the latest watcher info, read the rendered screen each tick and, if the
+   *  scrape promotes it (e.g. `waiting → awaiting_user`), republish the promoted
+   *  info. Idempotent: it republishes only when the resolved info differs
+   *  structurally from the published agent, so a held prompt with no field
+   *  change doesn't churn metadata, while a non-state update (e.g. a summary
+   *  refreshing mid-prompt) still lands. It also self-demotes: if the screen
+   *  no longer prompts but the published state is still a stale scrape-
+   *  promotion, it republishes the raw watcher info, since the watcher's
+   *  change gate can silently drop the settling write that would otherwise
+   *  demote. Recursive
+   *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
+  function startScreenScrapePoll(): () => void {
+    const scrape = provider.screenScrape;
+    const readScreen = hooks.readScreenText;
+    if (!scrape || !readScreen) return () => {};
+    let pollStopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      try {
+        const info = latestInfo;
+        if (!info || !scrape.isPollable(info)) return;
+        const text = await readScreen(scrape.tailLines);
+        if (pollStopped || latestInfo !== info) return;
+
+        // The desired info is whatever the scrape resolves to: an
+        // `awaiting_user`-promotion when the screen prompts, or the raw
+        // watcher `info` when it doesn't. Republish on any *structural*
+        // divergence from the published agent — not just a state edge. This
+        // subsumes the promote (don't churn a held prompt), the self-demote
+        // (the watcher's change gate can silently drop the JSONL write that
+        // settles a stale promotion back to a structurally-equal `waiting`,
+        // so it never demotes on its own), AND non-state updates the watcher
+        // carried while the onChange skip path was deferring to this poll:
+        // a `refreshSummary`/token update that resolves mid-prompt keeps the
+        // held `awaiting_user` state, so a state-only gate would drop it for
+        // the whole prompt window — comparing all fields republishes it here.
+        const desired = scrape.promote(info, text);
+        const published = publishedAgent();
+        if (published && !isDeepStrictEqual(published, desired)) {
+          setAgentMetadataVia(record, hooks, desired as unknown as AgentInfo);
+        }
+      } catch (err) {
+        // A NOT_FOUND is the benign teardown race — the PTY vanished between
+        // this tick being scheduled and the screen read landing (the local
+        // handle / a remote pty-host throws "no PTY with id"). Keep that at
+        // debug; anything else is an unexpected failure in the scrape path
+        // (a broken read leaves the prompt silently un-promoted), so surface
+        // it at error per the project's logging rule.
+        if (isNotFoundError(err)) {
+          plog.debug({ err }, "screen-scrape poll tick raced teardown");
+        } else {
+          plog.error({ err }, "screen-scrape poll tick failed");
+        }
+      } finally {
+        // Re-arm from `finally` so the guard-clause early returns above still
+        // reschedule the poll.
+        if (!pollStopped) timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
+      }
+    };
+    timer = setTimeout(tick, SCREEN_SCRAPE_POLL_MS);
+    plog.info(
+      { terminal: terminalId },
+      "claude-code: screen-scrape poll installed",
+    );
+    return () => {
+      pollStopped = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      plog.info(
+        { terminal: terminalId },
+        "claude-code: screen-scrape poll retired",
+      );
     };
   }
 
@@ -467,11 +658,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   }
   function reconcileFromCommandRun(idx: number) {
     if (stopped) return;
-    try {
-      reconcile();
-    } catch (err) {
-      plog.error({ err }, "command-run reconcile failed");
-    }
+    reconcile();
     if (current !== null) return;
     const nextIdx = idx + 1;
     const next = COMMAND_RUN_RECONCILE_DELAYS_MS[nextIdx];
@@ -520,7 +707,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     if (registeredForExternal) {
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }
-    current?.watcher.destroy();
+    destroyCurrent();
     plog.debug("stopped");
   };
 }

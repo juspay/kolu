@@ -118,6 +118,26 @@ Then(
   },
 );
 
+// The annotation slot is the package's links-OFF inline variant: its own click
+// handler (open the intent editor) must win, so a markdown link must degrade to
+// inert text — no `<a>` survives the sanitize pass. The slot's text still shows
+// the link label, asserted alongside this in the scenario.
+Then(
+  "the active terminal annotation slot should render no anchor",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      () => {
+        const slot = document.querySelector(
+          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
+        );
+        return slot !== null && slot.querySelector("a") === null;
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "the active terminal annotation slot should show the placeholder",
   async function (this: KoluWorld) {

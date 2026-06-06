@@ -13,7 +13,15 @@
  *  available mode renders with no chrome (today's behaviour for code, images,
  *  and documents alike). */
 
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  Show,
+} from "solid-js";
 import type {
   FileData,
   FileViewMode,
@@ -33,6 +41,14 @@ export type FileViewProps = {
   /** Which mode to show when *both* are available. Defaults to "rendered" —
    *  a document's rendered form is what a reader expects first. */
   defaultMode?: FileViewMode;
+  /** Optional CONTROLLED override of the resolved mode. When non-null it wins
+   *  over both the user's in-toggle pick and `defaultMode` — the host drives
+   *  the surface (e.g. a comment-tray jump forcing the toggle back to the
+   *  surface the comment lives on). Each new non-null value re-asserts even if
+   *  the user has since toggled away, so re-issuing the same jump re-lands it;
+   *  pass a fresh-identity signal value per assertion. Null/undefined → the
+   *  component stays self-controlled (toggle + `defaultMode`). */
+  mode?: FileViewMode | null;
 };
 
 export const FileView: Component<FileViewProps> = (props) => {
@@ -46,6 +62,23 @@ export const FileView: Component<FileViewProps> = (props) => {
   // The user's explicit pick for this mount; null until they touch the
   // toggle, so the resolved mode tracks `defaultMode` reactively until then.
   const [chosen, setChosen] = createSignal<FileViewMode | null>(null);
+
+  // A controlled `mode` assertion adopts the same `chosen` slot the toggle
+  // writes — so the host forces the surface, yet the user can still toggle
+  // away afterward (their click overwrites `chosen` in turn). A null value is
+  // a no-op (the component stays self-controlled on `defaultMode` + toggle);
+  // only a non-null value moves the surface, and it fires on the initial run
+  // too so a fresh mount whose host already names a surface (a tray jump that
+  // remounted this view) lands on it instead of falling back to `defaultMode`.
+  createEffect(
+    on(
+      () => props.mode,
+      (m) => {
+        if (m != null) setChosen(m);
+      },
+    ),
+  );
+
   const mode = createMemo<FileViewMode>(() => {
     const picked = chosen();
     if (picked) return picked;

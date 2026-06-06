@@ -5,6 +5,7 @@
  *  About dialog (the client build commit) so the linkable guard can't drift
  *  between the two call sites. */
 
+import { isCleanRef } from "@kolu/surface-app";
 import { type Component, Show } from "solid-js";
 
 const REPO_URL = "https://github.com/juspay/kolu";
@@ -12,10 +13,7 @@ const REPO_URL = "https://github.com/juspay/kolu";
 const Commit: Component<{ sha: string | undefined; class?: string }> = (
   props,
 ) => {
-  const linkable = () => {
-    const c = props.sha;
-    return !!c && c !== "dev" && !c.includes("-dirty");
-  };
+  const linkable = () => isCleanRef(props.sha);
   return (
     <Show
       when={linkable()}

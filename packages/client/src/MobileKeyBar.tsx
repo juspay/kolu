@@ -62,8 +62,15 @@ const MODS: readonly Mod[] = [
   { label: "Alt", testId: "alt", armed: stickyAlt, toggle: toggleStickyAlt },
 ];
 
+// Column count derived from the control lists so the "two rows" invariant is
+// mechanical, not a hardcoded literal that silently goes ragged when a key is
+// added. ceil(total / 2) is the minimal column count that yields exactly two
+// rows for any control count — including an odd total, where a plain /2 would
+// produce a fractional `repeat()` and break the grid.
+const COLS = Math.ceil((KEYS.length + MODS.length) / 2);
+
 const KEY_CLASS =
-  "shrink-0 min-w-[2.5rem] px-2 py-1.5 text-xs rounded-md transition-colors cursor-pointer font-mono";
+  "px-2 py-1.5 text-xs text-center rounded-md transition-colors cursor-pointer font-mono";
 const KEY_UNARMED_CLASS =
   "bg-surface-2 text-fg-2 hover:bg-surface-3 active:bg-surface-3";
 
@@ -86,12 +93,18 @@ const MobileKeyBar: Component<{
   return (
     <Show when={isTouch()}>
       <div
-        class="flex gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge overflow-x-auto"
+        // COLS (half the control count, rounded up) lays the controls out in
+        // exactly two rows, so every key is reachable without the horizontal
+        // scroll the old single overflow-x row forced. Inline grid-template
+        // because the column count is data-derived — a dynamic Tailwind class
+        // would be purged. Mirrors WorkspaceGrid.tsx's data-driven columns.
+        class="grid gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge"
+        style={{ "grid-template-columns": `repeat(${COLS}, minmax(0, 1fr))` }}
         data-testid="mobile-key-bar"
         // The key bar lives inside MobileTileView's swipe wrapper, whose
         // touchstart/touchend cycle terminals on a horizontal swipe. A
-        // finger drag across these keys (or a scroll of the overflow-x row)
-        // would otherwise bubble up and switch the active terminal mid-type.
+        // finger drag across these keys would otherwise bubble up and switch
+        // the active terminal mid-type.
         // stopPropagation on touchstart keeps the wrapper from ever recording
         // a swipe origin here — same guard the pull/dock handles use.
         onTouchStart={(e: TouchEvent) => e.stopPropagation()}

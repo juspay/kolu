@@ -1,0 +1,163 @@
+---
+title: Video evidence for PRs
+description: Screencast capture + a shared Pages player — the substrate the evidence skill and per-release demos build on. Capture now rides the existing Cucumber harness.
+kind: reference
+maturity: evergreen
+updated: 2026-06-02
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+
+Let `/do` attach *video* to a PR — not just screenshots — for changes about
+motion (animations, transitions, multi-step interactions). The **delivery** layer
+(GIF inline + a shared GitHub-Pages player, hosted on each project's
+`evidence-assets` release) already shipped — see *History* below. The question
+this page answers: **where to drive capture from**. For kolu, reuse the e2e
+Cucumber harness rather than a hand-rolled script.
+
+## Capture source — reuse the Cucumber harness
+
+Capture has been driven two ways: the chrome-devtools MCP screencast, and a
+bespoke Playwright `capture.mjs` on an ephemeral `pu` box. Both *hand-drive the
+UI*, re-implementing clicks the e2e step library already owns.
+
+<Callout kind="good" title="Drive capture from the existing Cucumber + Playwright e2e harness">
+Kolu already owns the whole scaffold — a custom `KoluWorld extends World`, the
+`browser.newContext()` call in `support/hooks.ts`, the ~880-line
+`code-tab.feature` step library, and the `html:reports/report.html` formatter in
+`cucumber.js`. Wiring Playwright's `recordVideo` into the test context is a few
+lines and *deletes* the parallel UI-driving logic `capture.mjs` re-implements by
+hand.
+</Callout>
+
+### The ecosystem does exactly this — two models
+
+One dominant, framework-agnostic path: capture media in a hook, push it into the
+run via the runner's attach API (`this.attach` in cucumber-js), let a formatter
+render it. The only real variation is *when capture fires*:
+
+| | Explicit-attach | Record-everything |
+| --- | --- | --- |
+| Trigger | hook/step calls capture (often failure-gated) | framework records implicitly from config |
+| Granularity | per-step / per-scenario / per-failure | per spec (coarse) |
+| Green-run cost | ~zero if failure-gated | pays on every test unless pruned |
+| Examples | cucumber-js `this.attach`; Serenity BDD; Playwright trace | Cypress `video:true`; `wdio-video-reporter` |
+
+Even Cypress retreated from record-everything: video is **off by default** since
+Cypress 13 (Aug 2023), citing CI cost. For evidence of a *known, deliberate*
+change (kolu's case), explicit-attach of one scenario is the right model.
+
+### Per-ecosystem, condensed
+
+| Stack | Capture | Surfaced via |
+| --- | --- | --- |
+| **cucumber-js + Playwright** <Pill variant="new">kolu</Pill> | `recordVideo` on `newContext`; `page.screenshot()`; optional `context.tracing` | `this.attach` → html formatter, or save `.webm` + upload |
+| cucumber-js + Cypress | auto 1 video/feature; auto failure shot | screenshots auto-embedded; video = sidecar mp4 |
+| WebdriverIO + Cucumber | `wdio-video-reporter` stitches frames via ffmpeg | auto-embeds into Allure |
+| cucumber-jvm + Serenity BDD | auto screenshot-*per-step* | "living documentation" HTML |
+| Playwright Trace Viewer | `context.tracing.start/stop` → `trace.zip` | open in trace.playwright.dev; link from PR |
+
+### The kolu wiring
+
+**1** — env-gate `recordVideo` on the existing context (it is a *context* option, verified — not a `launch()` option):
+
+```ts
+// support/hooks.ts — inside newScenarioPage(), extending the existing newContext call
+const context = await browser.newContext({
+  viewport, baseURL, ignoreHTTPSErrors: true,
+  permissions: ["clipboard-write", "clipboard-read"],
+  ...(process.env.KOLU_EVIDENCE
+    ? { recordVideo: { dir: videoDir, size: { width: 1366, height: 768 } } }
+    : {}),                                     // normal runs pay nothing
+});
+```
+
+**2** — the file is finalized *only* on `context.close()` (verified). Grab the handle *before* closing, read *after*:
+
+```ts
+// support/hooks.ts — extending the existing After hook
+const video = this.page?.video();             // handle BEFORE close
+if (this.context) await this.context.close();  // flushes the .webm
+if (video && process.env.KOLU_EVIDENCE) {
+  const webm = await video.path();            // valid only post-close
+  // leave on disk → feed the SAME ffmpeg → GIF/mp4 → evidence-assets flow (History)
+}
+```
+
+**3** — run one scenario, reusing the step library:
+
+```bash
+KOLU_EVIDENCE=1 just test-quick features/code-tab.feature --name "Editing an HTML file refreshes the iframe preview live"
+```
+
+<Callout kind="warn" title="The real legibility trap isn't speed — it's animation">
+"Machine-speed video" is trivially fixable: `ffmpeg setpts` post-hoc, or
+`chromium.launch({ slowMo })` + a trailing dwell. The genuine gotcha: `hooks.ts`
+injects `transition-duration:0s` / `prefers-reduced-motion: reduce` for test
+determinism. If the evidence is *about motion*, an evidence run must **skip that
+animations-off init script** under `KOLU_EVIDENCE` — else you film the effect
+with its motion suppressed.
+</Callout>
+
+### Corrections the verification pass forced
+
+- **Per-*page*, not per-context, never per-step.** `recordVideo` writes one `.webm` per page; kolu opens one page per scenario → one file per scenario. There is *no* per-step video (screenshots can be per-step; video can't).
+- **`this.attach` takes an options object now** — `this.attach(buf, { mediaType, fileName })`; the bare-string form is legacy-compat. `KoluWorld extends World` inherits `attach`; it's unavailable in `BeforeAll`/`AfterAll`.
+- **Don't base64-inline a `.webm` into `report.html`** (bloat) — externalize, or skip the report and upload the clip (what the delivery layer already does).
+- Comparison nits: `@wdio/video-reporter` (scoped) doesn't exist — it's the unscoped `wdio-video-reporter`; `playwright-video` is abandoned-in-practice. Neither affects kolu.
+
+### Recommended design
+
+1. Env-gate `recordVideo` (+ optional `slowMo`, + skip the animations-off init) in `support/hooks.ts` under `KOLU_EVIDENCE`.
+2. Pick (or author) a scenario reusing existing steps and select it by `--name` — no hand-driven clicks, no feature-file edit.
+3. Grab the `.webm` in `After`; hand it to the **unchanged** ffmpeg → GIF/mp4 → `evidence-assets` release → Pages-player flow (History). Capture *source* changes; delivery is identical.
+4. Point the harness at the pu-served packaged binary via the existing `KOLU_SERVER=<url>` support (it already accepts a running-server URL) — the one piece of genuinely new plumbing.
+
+Trace Viewer (`context.tracing`) is the richer-but-not-inline alternative for
+deep-debug artifacts; it can't render in a PR, so it complements an inline GIF
+rather than replacing it.
+
+## History — what shipped
+
+The **delivery + embedding layer is solved and durable**; only the capture
+*source* is still evolving (above).
+
+| PR | What it shipped |
+| --- | --- |
+| [nix-chrome-devtools-mcp#2](https://github.com/juspay/nix-chrome-devtools-mcp/pull/2) | Screencast capability: the launcher runs `nix shell …#ffmpeg` and passes `--experimentalScreencast=true`, exposing the MCP's `screencast_start/stop`. No host install. |
+| <PrLink pr={1033} /> | The original "video evidence" feature: MCP-screencast capture + the embedding solution + the 3-repo split + the `.agency/do.md` video procedure + this plan. |
+| <PrLink pr={1037} /> | Moved capture *off-machine*: PR evidence runs on an ephemeral `pu` box via a bespoke Playwright `capture.mjs`; extracted the reusable `pu` + `evidence` skills. *This is the capture path the harness-reuse work above replaces.* |
+| <PrLink pr={1080} /> | Let Codex load the `pu` + `evidence` skills. |
+
+### The durable constraint: GitHub video embedding
+
+<Callout kind="warn">
+GitHub auto-mounts a `<video>` player **only** for files uploaded through the web
+composer (a `user-attachments` URL needing a session cookie + CSRF — `gh`/PAT
+can't mint it). A release-hosted or git-committed `raw.` mp4 renders as a
+*download link*, and a hand-authored `<video>` tag is stripped by the comment
+sanitizer. Hence two outputs:
+
+- **Animated GIF** — embeds inline via `![](release-url)` (a GIF is an image to GitHub). The at-a-glance proof.
+- **MP4 + Pages player** — a real `<video>` on the shared `juspay/video-evidence` Pages page (`evidence.html?repo=<owner/repo>&v=<file>`, org-allowlisted); the comment links to it for HD + audio + seeking.
+
+Clips live on *each project's own* `evidence-assets` release; the
+`video-evidence` repo holds only the parametrized player — one artifact, reused
+across projects.
+</Callout>
+
+```bash
+# the delivery half of the /do evidence flow — unchanged regardless of capture source
+ffmpeg -i clip.webm -vf "fps=12,scale=900:-1:flags=lanczos" -loop 0 clip.gif
+gh release upload evidence-assets clip.gif clip.mp4 --clobber          # this project's release
+# comment: ![](…/evidence-assets/<slug>.gif)
+#          ▶ HD: …/video-evidence/evidence.html?repo=juspay/kolu&v=<slug>.mp4
+```
+
+## Follow-up
+
+- **Wire env-gated `recordVideo` into `packages/tests/support/hooks.ts`** and move PR-evidence capture onto the Cucumber harness (record a scenario by `--name`), retiring the bespoke `capture.mjs` for kolu.
+- [nix-chrome-devtools-mcp#2](https://github.com/juspay/nix-chrome-devtools-mcp/pull/2) has merged — if `apm.yml` still pins `#screencast`, drop the ref and re-run `just ai::apm-update`.
+- Picking up a new MCP launcher requires a Claude restart (the MCP server is spawned at session start).

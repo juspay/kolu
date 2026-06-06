@@ -272,90 +272,9 @@ Then(
 );
 
 Then(
-  "canvas tile {int} should be to the right of and in the same row as canvas tile {int}",
-  async function (this: KoluWorld, a: number, b: number) {
-    await this.page.waitForFunction(
-      ({ sel, i, j }: { sel: string; i: number; j: number }) => {
-        const tiles = document.querySelectorAll(
-          `${sel} [data-terminal-id][data-visible]`,
-        );
-        const tileA = tiles.item(i) as HTMLElement | null;
-        const tileB = tiles.item(j) as HTMLElement | null;
-        if (!tileA || !tileB) return false;
-        const rA = tileA.getBoundingClientRect();
-        const rB = tileB.getBoundingClientRect();
-        // Same row: tops match (sub-pixel rounding tolerance); the
-        // subject tile (A) sits to the right of the reference (B).
-        return Math.abs(rA.top - rB.top) <= 2 && rA.left > rB.left;
-      },
-      { sel: CANVAS_SELECTOR, i: a - 1, j: b - 1 },
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
-Then(
-  "canvas tile {int} should be below canvas tile {int} in the same column",
-  async function (this: KoluWorld, a: number, b: number) {
-    await this.page.waitForFunction(
-      ({ sel, i, j }: { sel: string; i: number; j: number }) => {
-        const tiles = document.querySelectorAll(
-          `${sel} [data-terminal-id][data-visible]`,
-        );
-        const tileA = tiles.item(i) as HTMLElement | null;
-        const tileB = tiles.item(j) as HTMLElement | null;
-        if (!tileA || !tileB) return false;
-        const rA = tileA.getBoundingClientRect();
-        const rB = tileB.getBoundingClientRect();
-        return Math.abs(rA.left - rB.left) <= 2 && rA.top > rB.top;
-      },
-      { sel: CANVAS_SELECTOR, i: a - 1, j: b - 1 },
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
-Then(
   "the active canvas tile should be centered in the viewport",
   async function (this: KoluWorld) {
     await waitForTileCenteredInViewport(this, "active");
-  },
-);
-
-Then(
-  "arrange should have seeded pending overrides for all current tiles",
-  async function (this: KoluWorld) {
-    // Architectural invariant: `useCanvasArrange.handleCanvasAutoArrange`
-    // calls `pendingLayouts.applyMany(arranged)` synchronously inside
-    // the click handler. Without that call, a new terminal (worktree)
-    // created right after arrange resolves `placeNew(existing)` against
-    // pre-arrange layouts and overlaps the cluster — a race a polled
-    // tile-position assertion can't catch because metadata echoes
-    // arrive within its polling window.
-    //
-    // We assert against the append-only `__koluPendingApplyHistory`
-    // hook rather than the live pending store, because under CI load
-    // the cleanup effect (`dropEvicted`) can fire faster than the
-    // polling can observe the seeded window. The history survives the
-    // cleanup; what we care about is that `applyMany` was called for
-    // every visible tile.
-    await this.page.waitForFunction(
-      () => {
-        const ids = Array.from(
-          document.querySelectorAll(
-            "[data-testid='canvas-container'] [data-terminal-id][data-visible]",
-          ),
-        )
-          .map((el) => (el as HTMLElement).getAttribute("data-terminal-id"))
-          .filter((id): id is string => id !== null);
-        const history = window.__koluPendingApplyHistory ?? [];
-        if (ids.length === 0 || history.length === 0) return false;
-        const seeded = new Set(history.flat());
-        return ids.every((id) => seeded.has(id));
-      },
-      undefined,
-      { timeout: POLL_TIMEOUT },
-    );
   },
 );
 
@@ -510,7 +429,7 @@ Then(
 
 // Deterministic race-forcer. Installs a Playwright init script that runs
 // before every subsequent navigation and patches `window.WebSocket` so the
-// first EVENT_ITERATOR yield for `/surface/session/get` is held for `ms`
+// first EVENT_ITERATOR yield for `/surface/kolu/session/get` is held for `ms`
 // before being dispatched. `terminalList.get`'s first yield reaches the
 // surface client unblocked, so the canvas first-mount centering effect
 // (`TerminalCanvas.tsx:331`) always observes a null `activeId`, takes the
@@ -528,7 +447,7 @@ Given(
     // a hand-written IIFE sidesteps the toolchain entirely.
     await this.page.addInitScript(`(() => {
       const Original = globalThis.WebSocket;
-      const SESSION_PATH = "/surface/session/get";
+      const SESSION_PATH = "/surface/kolu/session/get";
       const DELAY_MS = ${ms};
       function readJsonHeader(bytes) {
         const delim = bytes.indexOf(255);
@@ -1186,6 +1105,97 @@ Then(
         left: saved.left,
         top: saved.top,
       },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When(
+  "I move every canvas tile to a distinct scattered position",
+  async function (this: KoluWorld) {
+    // Distinct, far-apart, off-grid coordinates — deliberately NOT
+    // anywhere an auto-layout would place tiles, so that ANY re-arrange on
+    // the next create would visibly snap a tile off its spot and fail the
+    // position-preservation assertion. Scattering is the whole point: tiles
+    // sitting in auto-grid positions could be "rearranged" right back onto
+    // themselves, masking the bug.
+    const SCATTER = [
+      { x: 220, y: 160 },
+      { x: 2860, y: 360 },
+      { x: 360, y: 2420 },
+      { x: 3040, y: 2580 },
+      { x: 1500, y: 1180 },
+    ];
+    const ids: string[] = await this.page.evaluate(
+      (sel: string) =>
+        Array.from(
+          document.querySelectorAll(`${sel} [data-terminal-id][data-visible]`),
+        )
+          .map((el) => (el as HTMLElement).getAttribute("data-terminal-id"))
+          .filter((id): id is string => id !== null),
+      CANVAS_SELECTOR,
+    );
+    if (ids.length === 0) throw new Error("No canvas tiles to scatter");
+    for (const [i, id] of ids.entries()) {
+      const pos = SCATTER[i % SCATTER.length];
+      if (!pos) continue;
+      await setCanvasLayoutById(this, id, pos.x, pos.y);
+    }
+  },
+);
+
+When("I record all canvas tile positions", async function (this: KoluWorld) {
+  this.recordedTilePositions = await this.page.evaluate((sel: string) => {
+    const out: Record<string, { left: number; top: number }> = {};
+    for (const inner of document.querySelectorAll(
+      `${sel} [data-terminal-id][data-visible]`,
+    )) {
+      const id = (inner as HTMLElement).getAttribute("data-terminal-id");
+      const tile = (inner as HTMLElement).closest(
+        "[style*='left']",
+      ) as HTMLElement | null;
+      if (id && tile) {
+        out[id] = {
+          left: parseFloat(tile.style.left),
+          top: parseFloat(tile.style.top),
+        };
+      }
+    }
+    return out;
+  }, CANVAS_SELECTOR);
+});
+
+Then(
+  "previously-recorded canvas tiles should not have moved",
+  async function (this: KoluWorld) {
+    const recorded = this.recordedTilePositions;
+    if (!recorded || Object.keys(recorded).length === 0) {
+      throw new Error("No recorded canvas tile positions to compare against");
+    }
+    // Positions are canvas-space (`style.left`/`top`) — pan/zoom rides the
+    // tile's `transform`, so this is immune to the create flow recentring
+    // the viewport. If creating a terminal re-arranged the island, an
+    // existing tile would land at a new left/top and this never settles.
+    await this.page.waitForFunction(
+      ({
+        sel,
+        recorded,
+      }: {
+        sel: string;
+        recorded: Record<string, { left: number; top: number }>;
+      }) => {
+        for (const [id, pos] of Object.entries(recorded)) {
+          const tile = document
+            .querySelector(`${sel} [data-terminal-id="${id}"]`)
+            ?.closest("[style*='left']") as HTMLElement | null;
+          if (!tile) return false;
+          if (Math.abs(parseFloat(tile.style.left) - pos.left) >= 1)
+            return false;
+          if (Math.abs(parseFloat(tile.style.top) - pos.top) >= 1) return false;
+        }
+        return true;
+      },
+      { sel: CANVAS_SELECTOR, recorded },
       { timeout: POLL_TIMEOUT },
     );
   },

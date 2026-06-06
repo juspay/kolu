@@ -36,6 +36,50 @@ should hold things that are genuinely shared across the host app and
 have no other natural home — not be a barrel for every external
 schema the app happens to use.
 
+### no-thin-wrapper-functions
+
+A function whose entire body forwards its arguments to one other function —
+optionally binding a constant or renaming params — adds no logic and must not
+exist. Inline the call at its (single) site; when a bound constant is involved,
+make it a module-level `const` next to the call, not a function. This is the
+function-level sibling of `no-re-export-bridge-modules`: the same
+fake-indirection smell, applied to call-forwarding instead of symbol
+re-exporting.
+
+Bad — a wrapper that only injects a constant codec and forwards every arg
+(`iframePreviewNav.ts`, whose sole caller was `BrowseIframeRenderer`):
+
+```ts
+export function repoPathFromPreviewPathname(reported, currentUrl, currentPath) {
+  return pathFromPreviewPathname(reported, currentUrl, currentPath, {
+    encode: encodePreviewPath,
+    decode: decodePreviewPath,
+  });
+}
+```
+
+Good — bind the constant once where it's used, call the real function directly:
+
+```ts
+const previewCodec = { encode: encodePreviewPath, decode: decodePreviewPath };
+// …in the handler:
+const next = pathFromPreviewPathname(pathname, props.url, props.path, previewCodec);
+```
+
+_Allowed_: a function that does real work beyond forwarding — composes ≥2 calls,
+adds a null/error transform, narrows a type, or has ≥3 callers that would
+otherwise repeat the same binding (the rule-of-three from `dry-rule-of-three`).
+`resolveMarkdownImageSrc` (resolve → null-check → build a file-route URL) is
+fine: it composes and transforms; it isn't a pass-through.
+
+_Rationale_: a single-caller pass-through is indirection a reader has to chase
+only to discover it does nothing — the same drift/lie cost as a re-export
+bridge, minus even the excuse of crossing a package boundary. Bind constants
+where they're used and let the one caller reach the real function directly.
+Codified after `repoPathFromPreviewPathname` ([kolu#1191](https://github.com/juspay/kolu/pull/1191)) —
+a wrapper that existed only to inject kolu's preview-URL codec into
+`@kolu/solid-browser`'s `pathFromPreviewPathname`.
+
 ### subscription-use-pending
 
 Never check `sub() === undefined` as a proxy for loading — use `sub.pending()`.
@@ -214,6 +258,32 @@ function useEvent(..., options: { onError: (err) => void; ... }): void {
 ```
 
 _Rationale_: a hook returning `Subscription<T>` with `.error()` lets consumers read the error reactively and render it — optional `onError` is fine there. Void return with no error surface in the result type is a category mismatch; the type system has to require the handler or the failure is invisible by construction. Codified after `useEvent.onError` and `pollOnEvent.onReadError` were tightened to required in `@kolu/surface`.
+
+### callback-fanout-guarded-at-funnel
+
+A watcher/subscription that invokes a caller-supplied callback (`onChange`, `onEvent`, an `emit` helper) from **more than one emission path** must place the try/catch at the single shared funnel the callback passes through — never on a subset of the call sites. A throwing consumer that escapes is not a benign log line: floated through a `void fetchAndEmit()` it surfaces as an **unhandled rejection** (fatal — the global handler in `index.ts` calls `process.exit(1)`), and from a synchronous `channel.consume({ onEvent })` callback it **breaks out of `buildConsume`'s `for await` loop** (`@kolu/surface`), silently freezing that subscription for the rest of the terminal's life.
+
+Bad — boundary on the async path only, leaving the synchronous pending emit uncontained:
+```ts
+async function fetchAndEmit(root) {
+  try { emit(await resolveGitHubPr(root)); } catch (err) { log?.error(…); }
+}
+function setGit(...) {
+  emit({ kind: "pending" }); // ← still runs onChange synchronously, unguarded
+  void fetchAndEmit(root);
+}
+```
+
+Good — boundary inside `emit`, the one point every path funnels through:
+```ts
+function emit(pr) {
+  if (stopped || prResultEqual(pr, lastPr)) return;
+  lastPr = pr;
+  try { onChange(pr); } catch (err) { log?.error({ err }, "…: emit failed"); }
+}
+```
+
+_Rationale_: the dangerous escape is the *uncovered* path, and watchers routinely emit from several (a synchronous "pending" on change + an async resolved value + a poll tick). Guarding one path reads as "handled" in review while another stays a live throw vector. Putting the boundary at the shared invocation point makes "the consumer callback cannot throw out of this watcher" a single-site invariant instead of a per-call-site discipline. Complements `silent-handler-required-on-void-subscriptions` (which requires the *primitive's* `onError` at the type level); this rule is about the *watcher implementation* containing the consumer it fans out to. Codified after a `subscribeGitHubPr` fix guarded `fetchAndEmit` but missed `setGit`'s synchronous `emit({ pending })` ([kolu#1143](https://github.com/juspay/kolu/pull/1143)).
 
 ### migration-shape-guard
 

@@ -19,6 +19,11 @@
  *  resolving the current terminal id from `useTerminalStore` internally. */
 
 import {
+  type Browser,
+  createBrowser,
+  DEFAULT_MAX_ENTRIES,
+} from "@kolu/solid-browser";
+import {
   type CodeTabView,
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
   type RightPanelPerTerminalState,
@@ -31,6 +36,27 @@ import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { isMobile } from "../useMobile";
 import { client, preferences, updatePreferences } from "../wire";
+
+/** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
+ *  history records. `mode` is the All/Local/Branch sub-view, carried *inside*
+ *  the location so back/forward cross modes naturally; `path` is the selected
+ *  repo-relative file (null when the mode has no selection yet); `ref` is an
+ *  optional line range to re-highlight when the entry is revisited (terminal
+ *  `path:N` links, comment jumps), absent for plain file picks. */
+export type BrowserLocation = {
+  mode: CodeTabView;
+  path: string | null;
+  ref?: { startLine: number; endLine: number };
+};
+
+/** Two locations name the "same page" — same file in the same mode — when
+ *  their mode+path match. `navigate` then refreshes the entry's `ref` in place
+ *  instead of recording a duplicate (re-opening the current file at a new line
+ *  doesn't deepen history). This idempotence is what lets every navigation
+ *  funnel — including Pierre's echoed re-selects — call `recordNavigation`
+ *  without risking double history entries. */
+const SAME_LOCATION = (a: BrowserLocation, b: BrowserLocation): boolean =>
+  a.mode === b.mode && a.path === b.path;
 
 const MIN_PANEL_SIZE = 0.05;
 /** Lower bound for the Code-tab vertical split — keep the tree and content
@@ -57,6 +83,73 @@ const [perTerminal, setPerTerminal] = createStore<
  *  `RightPanelDrawer`'s mobile branch owns the open/close gestures; the
  *  desktop branch ignores this signal entirely. */
 const [drawerOpen, setDrawerOpen] = createSignal(false);
+
+/** Per-terminal navigation history — one record per terminal bundling the
+ *  back/forward stack with the repo it was captured against. Both fields share
+ *  a single lifecycle (seeded in `seedPanel`, dropped in `removePanel`, reset
+ *  together on a repo change), so they live in one Map entry rather than two
+ *  parallel maps that must be kept in sync by hand.
+ *
+ *  - **`browser`** — the back/forward stack for the terminal's Code tab.
+ *    In-memory only: history is session-local, and the persisted
+ *    `selectedFileByMode` remains the single render + restore truth. This stack
+ *    only *records* the sequence of visited locations so back/forward can
+ *    re-apply earlier ones. Lazily created for a fresh terminal on its first
+ *    navigation.
+ *  - **`lastRepo`** — the repo root the stack was last captured against. The
+ *    recorded locations are repo-relative `{ mode, path }` with no repo
+ *    identity of their own, so a stack built in repo A is meaningless in repo B;
+ *    this field is how we tell, per terminal, whether the repo *that terminal*
+ *    sits in has moved since its history was last touched. Keyed per terminal
+ *    (not a single "previously active" value) on purpose: a terminal's repo can
+ *    change while it is INACTIVE — a `cd` in its PTY updates its server metadata
+ *    even though `CodeTab` (a singleton over the active terminal) isn't watching
+ *    it. Comparing only against the immediately previous active tuple would miss
+ *    that and let a stale A-relative stack replay against A's new repo on
+ *    switch-back. Per-terminal tracking catches it whenever the terminal next
+ *    becomes active. `undefined` means "no repo recorded yet" (fresh or
+ *    not-yet-in-a-repo terminal); `syncRepo` keys its first-sight decision off
+ *    that, so it is distinct from `null` ("recorded, and that terminal is in no
+ *    repo"). */
+type TerminalHistory = {
+  browser: Browser<BrowserLocation>;
+  lastRepo: string | null | undefined;
+};
+const history = new Map<TerminalId, TerminalHistory>();
+
+/** Single owner of a terminal history controller's construction contract:
+ *  `isSameEntry: SAME_LOCATION` (idempotent on mode+path) and the explicit
+ *  `DEFAULT_MAX_ENTRIES` cap, wired in exactly one place. Always an empty
+ *  stack — seeding (session restore) and clearing (repo change) happen *in
+ *  place* via `browser.reset(...)`, never by building a replacement, so the
+ *  instance (and the toolbar's reactive subscriptions to its enablement
+ *  signals) survives every reset. */
+function newBrowserFor(): Browser<BrowserLocation> {
+  return createBrowser<BrowserLocation>({
+    isSameEntry: SAME_LOCATION,
+    maxEntries: DEFAULT_MAX_ENTRIES,
+  });
+}
+
+/** Resolve (creating if absent) a terminal's history record. The browser
+ *  instance is created once and then **never replaced** — resets clear it in
+ *  place — so reading `.canBack()/.canForward()` through it is reactive on the
+ *  controller's own signals: the toolbar's ◀/▶ enablement, subscribed to this
+ *  stable instance on first render, keeps tracking navigation across repo
+ *  resets and session re-seeds without re-wiring. (Replacing the instance
+ *  would strand that subscription on the dead object and freeze the buttons.) */
+function historyFor(id: TerminalId): TerminalHistory {
+  let h = history.get(id);
+  if (!h) {
+    h = { browser: newBrowserFor(), lastRepo: undefined };
+    history.set(id, h);
+  }
+  return h;
+}
+
+function browserFor(id: TerminalId): Browser<BrowserLocation> {
+  return historyFor(id).browser;
+}
 
 function ensureState(id: TerminalId): void {
   if (perTerminal[id]) return;
@@ -223,17 +316,103 @@ export function useRightPanel() {
       });
     },
 
+    // ── Navigation history (back / forward) ──────────────────────────
+    /** Record a visit to `loc` in the active terminal's history — the
+     *  address-bar path. Idempotent on mode+path (re-recording the current
+     *  location refreshes its `ref` in place rather than duplicating it), so
+     *  it's safe to call from every navigation funnel — tree click, in-iframe
+     *  link, resolved front-door open, and Pierre's echoed re-selects alike.
+     *  Records only; `selectedFileByMode` stays the render truth. */
+    recordNavigation: (loc: BrowserLocation) => {
+      const id = store.activeId();
+      if (id !== null) browserFor(id).navigate(loc);
+    },
+    /** Step back one entry, returning the now-current location to re-apply (or
+     *  null when there's nowhere to go). Traversal, not a new visit — does NOT
+     *  record. */
+    navigateBack: (): BrowserLocation | null => {
+      const id = store.activeId();
+      return id === null ? null : browserFor(id).back();
+    },
+    /** Step forward one entry, returning the now-current location (or null). */
+    navigateForward: (): BrowserLocation | null => {
+      const id = store.activeId();
+      return id === null ? null : browserFor(id).forward();
+    },
+    /** Reactive: is there an earlier entry to return to? Drives ◀ enablement. */
+    canNavigateBack: (): boolean => {
+      const id = store.activeId();
+      return id === null ? false : browserFor(id).canBack();
+    },
+    /** Reactive: is there a later entry to advance to? Drives ▶ enablement. */
+    canNavigateForward: (): boolean => {
+      const id = store.activeId();
+      return id === null ? false : browserFor(id).canForward();
+    },
+    /** Reconcile a terminal's history with the repo it currently sits in,
+     *  dropping the stack only when *that terminal's own* repo has changed
+     *  since the history was last touched.
+     *
+     *  The recorded locations are repo-relative paths (`{ mode, path }`) with
+     *  no repo identity of their own, so they are only meaningful within the
+     *  repo they were captured in. When a terminal `cd`s from repo A to repo B,
+     *  re-applying an A-relative entry inside B would open the wrong same-named
+     *  file (or a path B's membership effect then clears). Resetting on a
+     *  genuine repo change keeps back/forward scoped to the repo currently
+     *  shown; the next `recordNavigation` re-seeds the stack.
+     *
+     *  The decision is keyed PER TERMINAL (`history.get(id).lastRepo`), not
+     *  against the previously active terminal: `CodeTab` is a singleton over the active
+     *  terminal and only calls this for whichever terminal is active, but a
+     *  terminal's repo can change while it is INACTIVE (a `cd` in its PTY
+     *  updates server metadata unobserved). Tracking each terminal's last-seen
+     *  repo independently catches that change the moment the terminal next
+     *  becomes active — even if other terminals were active in between — without
+     *  wiping a freshly-activated terminal's history just because the active
+     *  repo shifted on a plain switch. The first call for a terminal records
+     *  its repo without resetting, so a session-restored (seeded) stack
+     *  survives the initial mount. */
+    syncRepo: (id: TerminalId, repo: string | null) => {
+      // `historyFor` resolves (creating if absent) the terminal's record, so a
+      // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker —
+      // distinct from `null` ("recorded, terminal is in no repo").
+      const h = historyFor(id);
+      const prevRepo = h.lastRepo;
+      h.lastRepo = repo;
+      // First sight of this terminal (fresh mount or session restore): adopt
+      // its repo as the baseline, leaving any seeded stack intact. A genuine
+      // repo move on a terminal we've already seen drops the now-stale stack —
+      // cleared in place so the toolbar stays subscribed to the live instance.
+      if (prevRepo !== undefined && repo !== prevRepo) {
+        h.browser.reset();
+      }
+    },
+
     // ── Session restore + lifecycle ──────────────────────────────────
     /** Seed per-terminal state from server data — no report-back to
      *  server. Called by `useSessionRestore` during hydration and after
      *  recreating a saved terminal. */
     seedPanel: (id: TerminalId, state: RightPanelPerTerminalState) => {
       setPerTerminal(id, state);
+      // Seed the history with the restored location so back/forward have a
+      // starting point matching what's shown — but only when a file was
+      // actually selected; a restored-but-empty mode starts with no history.
+      // `lastRepo: undefined` resets the repo baseline so the next `syncRepo`
+      // re-adopts this terminal's current repo without resetting — the stack we
+      // just seeded is the truth, and re-seeding is a "this is a fresh start"
+      // event, same as first mount.
+      const path = state.selectedFileByMode?.[state.codeMode] ?? null;
+      const h = historyFor(id);
+      h.browser.reset(
+        path !== null ? { mode: state.codeMode, path } : undefined,
+      );
+      h.lastRepo = undefined;
     },
     /** Clean up state for a terminal that no longer exists. Mirrors
      *  `useSubPanel.removePanel`. */
     removePanel: (id: TerminalId) => {
       setPerTerminal(produce((s) => delete s[id]));
+      history.delete(id);
     },
   } as const;
 }

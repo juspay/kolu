@@ -71,6 +71,25 @@ export const pierreTreesStyle: JSX.CSSProperties = {
   "--trees-density-override": "0.85",
 };
 
+/** Injected into Pierre's shadow root via `<FileTree shadowCss>`. Pierre marks
+ *  every ancestor of a changed file with `data-item-contains-git-change` but
+ *  only paints a half-opacity dot in the git lane (`[data-item-section='git']`)
+ *  — it exposes no theme variable to tint the folder itself. This rule colors
+ *  the folder's name (`[data-item-section='content']`) and brightens its dot
+ *  with the same modified color the dot already uses, so a changed subtree
+ *  reads at a glance, the way changed files do. Pierre exposes only a boolean
+ *  roll-up (no aggregate status), so every contained-change folder reads in the
+ *  one modified color regardless of whether the change underneath was an add or
+ *  a delete — matching Pierre's own dot. */
+export const pierreTreesShadowCss = `
+  [data-item-contains-git-change='true'] > [data-item-section='content'] {
+    color: var(--trees-git-modified-color);
+  }
+  [data-item-contains-git-change='true'] > [data-item-section='git'] {
+    opacity: 1;
+  }
+`;
+
 /** Rendered code-row height (px) for Pierre `CodeView` hosts. It drives both
  *  the CSS row height (`--diffs-line-height` below) and the numeric metric
  *  Pierre's virtualizer needs (`itemMetrics.lineHeight`, via the wrapper's

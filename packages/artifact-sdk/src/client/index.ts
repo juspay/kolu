@@ -24,12 +24,14 @@ export type {
   IframeToParent,
   Locator,
   ParentToIframe,
+  QuoteRoot,
   SelectionRect,
   SelectMsg,
 } from "../types";
 export {
   type BindOptions,
   bindArtifactSdk,
+  observeIframeHistory,
   observeIframeNavigation,
   pushHighlightsTo,
 } from "./bridge";

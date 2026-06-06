@@ -59,6 +59,11 @@ export type DockTree = {
   /** How many rows the activity window filtered out. The dock surfaces
    *  this as a footer hint with a "show all" link. */
   parkedCount: number;
+  /** The dock has substantive content — visible rows or parked rows.
+   *  This is the boolean the empty-canvas Dock is defined by (true zero
+   *  is the only state with no content), so the HiddenFooter reads it to
+   *  decide whether the activity-window control earns its place. */
+  hasContent: boolean;
 };
 
 export function buildDockTree(
@@ -97,7 +102,12 @@ export function buildDockTree(
   groups.sort(compareGroups);
 
   const flatRows = groups.flatMap((g) => g.rows);
-  return { groups, flatRows, parkedCount };
+  return {
+    groups,
+    flatRows,
+    parkedCount,
+    hasContent: flatRows.length > 0 || parkedCount > 0,
+  };
 }
 
 /** Sort rows inside each label cluster by `-ts`, then order clusters

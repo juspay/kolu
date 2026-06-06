@@ -14,14 +14,15 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
+import { attachBackForwardMouse } from "@kolu/solid-browser";
+import { FileTree } from "@kolu/solid-pierre";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import {
-  CodeView,
-  type CodeViewItem,
-  diffItem,
-  FileTree,
-  useCodeViewSelection,
-} from "@kolu/solid-pierre";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+  type CodeTabView,
+  type TerminalId,
+  type TerminalMetadata,
+  viewLabel,
+} from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type Component,
@@ -30,6 +31,7 @@ import {
   createSignal,
   Match,
   on,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -41,21 +43,24 @@ import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { isMobile, isTouch } from "../useMobile";
-import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
+import {
+  ChevronRightIcon,
+  FileBrowseIcon,
+  FileDiffIcon,
+  GitBranchIcon,
+} from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
+import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
+import { makeTreeContextMenu } from "../ui/pierreAdapters";
 import {
-  renderTreeContextMenu,
-  toGitStatusEntries,
-} from "../ui/pierreAdapters";
-import {
-  koluCodeViewProps,
   pierreIconConfig,
+  pierreTreesShadowCss,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { app } from "../wire";
+import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
-import CodeMenuFrame from "./CodeMenuFrame";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
@@ -65,7 +70,7 @@ import {
   openInCodeTab,
   pendingOpen,
 } from "./openInCodeTab";
-import { useRightPanel } from "./useRightPanel";
+import { type BrowserLocation, useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -114,7 +119,62 @@ const CodeTab: Component<{
   const view = rightPanel.codeMode;
   const setView = rightPanel.setCodeMode;
 
+  // Tree right-click menu: "Copy path" plus view-switch entries (All files ⇄
+  // Local / Branch diff). Built once — `nav.view()` is read fresh on each
+  // right-click, so the closure tracks the live mode even though Pierre
+  // snapshots the menu config at mount. For a file row, navigation seeds the
+  // destination view's selection slot *before* switching so the same file
+  // lands selected there (a file absent from that view's changed set — e.g. an
+  // untracked file in Branch mode, or anything in a base-less Branch — falls
+  // out and the membership effect clears it; the view still switches, the
+  // asked-for behavior). For a directory row `path` is null (directories
+  // aren't selectable), so the target keeps its own last pick.
+  const renderTreeMenu = makeTreeContextMenu({
+    view,
+    navigate: (target, path) => {
+      // This guard is the *single* enforcement point for the adapter's
+      // documented "null = leave the target's slot untouched" contract
+      // (pierreAdapters.ts `TreeContextMenuNav.navigate`): a null path is the
+      // adapter's "directories aren't selectable" verdict, so the target keeps
+      // its own last pick. It is load-bearing, not removable defensive code —
+      // the adapter never calls setSelectedFile itself, so the no-op lives only
+      // here. Do NOT pass null straight through to setSelectedFile: there, null
+      // *deletes* the slot (useRightPanel.ts), the opposite of "keep last pick".
+      // Hoisting the no-op into navigate's caller forfeits the contract unless
+      // setSelectedFile's null semantics change first.
+      if (path !== null) rightPanel.setSelectedFile(target, path);
+      setView(target);
+    },
+  });
+
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
+
+  // History records repo-relative `{ mode, path }` locations with no repo
+  // identity of their own, so a stack captured in repo A must not be replayed
+  // against repo B after a `cd`. `syncRepo` drops a terminal's history whenever
+  // *that same terminal's* repo changes — back/forward then only ever retraces
+  // locations from the repo currently shown, and the next selection re-seeds the
+  // fresh stack.
+  //
+  // `CodeTab` is a singleton over the active terminal, so this effect only ever
+  // feeds `syncRepo` the *active* terminal's `(id, repo)`. The reset decision
+  // can't live here as a compare-against-previous-tick: `repoPath()` shifts on
+  // both a `cd` (genuine transition) and a plain terminal switch (NOT a
+  // transition), and — the case a previous-tick compare misses entirely — a
+  // terminal's repo can change while it is INACTIVE (its PTY `cd`s while another
+  // terminal is shown). `syncRepo` owns the call: it keys the comparison per
+  // terminal (`history.get(id).lastRepo`), so the stale repo is caught the moment that
+  // terminal next becomes active, while a freshly-switched-to terminal in a
+  // different repo keeps its own history. The first call per terminal just
+  // records the baseline, so a session-restored stack survives initial mount.
+  createEffect(
+    on(
+      () => [props.terminalId, repoPath()] as const,
+      ([tid, repo]) => {
+        if (tid !== null) rightPanel.syncRepo(tid, repo);
+      },
+    ),
+  );
 
   // Dismiss any open comment composer when the user navigates away from
   // the file/mode/repo the draft was anchored to. Without this, the
@@ -143,8 +203,23 @@ const CodeTab: Component<{
   // search-reset effect below; collision-safe by construction since
   // `view()` is a typed enum and `repoPath()` is absolute-or-null.
   const selectedPath = (): string | null => rightPanel.selectedFile(view());
-  const setSelectedPath = (path: string | null) => {
-    rightPanel.setSelectedFile(view(), path);
+  // The single selection funnel: set the shown file AND record it in history.
+  // Recording can never drift from selection because they are one call —
+  // routing every selection-mutation site through here replaces the old
+  // convention of placing a paired `recordNavigation` next to each write.
+  // Recording is skipped when `record === false` (mechanical clears, history
+  // replay) or when `path === null` (clearing the slot is not a navigation).
+  const select = (
+    mode: CodeTabView,
+    path: string | null,
+    opts?: {
+      ref?: { startLine: number; endLine: number };
+      record?: boolean;
+    },
+  ) => {
+    rightPanel.setSelectedFile(mode, path);
+    if (opts?.record === false || path === null) return;
+    rightPanel.recordNavigation({ mode, path, ref: opts?.ref });
   };
   const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
 
@@ -191,6 +266,39 @@ const CodeTab: Component<{
     },
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
+    },
+  );
+
+  // Browse decorates the full-repo tree with git status too — overlaying local
+  // status (primary) on branch status (fallback) in `treeGitStatus` below.
+  // Both inert outside browse (input fn → null), so Local/Branch modes — which
+  // read decoration straight off the `status` stream — pay nothing for these.
+  const browseLocalStatus = app.streams.gitStatus.use(
+    () => {
+      const p = repoPath();
+      return p && view() === "browse"
+        ? { repoPath: p, mode: "local" as const }
+        : null;
+    },
+    {
+      onError: (err) => toast.error(`Git status stream: ${err.message}`),
+    },
+  );
+  // Best-effort branch layer: a repo with no `origin/<default>` errors with
+  // BASE_BRANCH_NOT_FOUND (review.ts `resolveBase`) — an expected, not broken,
+  // state in this passive overlay. Swallow it (no toast): the merge falls back
+  // to the always-available local layer. The explicit Branch *mode* still
+  // surfaces the same error via its own `status` subscription, where it's
+  // actionable ("run git fetch").
+  const browseBranchStatus = app.streams.gitStatus.use(
+    () => {
+      const p = repoPath();
+      return p && view() === "browse"
+        ? { repoPath: p, mode: "branch" as const }
+        : null;
+    },
+    {
+      onError: () => {},
     },
   );
 
@@ -267,13 +375,26 @@ const CodeTab: Component<{
           repoRoot: repo,
           cwd: req.cwd,
           repoPaths: paths,
+          allowBasenameFallback: req.allowBasenameFallback,
         });
         if (rel === null) {
           toast.error(`File reference not found: ${req.ref.path}`);
           setHandled({ request: req, resolvedPath: null });
           return;
         }
-        setSelectedPath(rel);
+        // Record the front-door open in history *with* its line ref, so a
+        // later back() re-issues it through this same pipeline and repaints
+        // the highlight (cheap-v1 "restore where you were"). Idempotent on
+        // mode+path, so a re-click of the same path:line refreshes the entry
+        // in place rather than deepening history. The echoed Pierre
+        // `onSelect(rel)` is suppressed in `handleSelect` so it can't clobber
+        // this ref with a plain (mode, path) record.
+        select(req.targetMode, rel, {
+          ref:
+            req.ref.startLine !== null && req.ref.endLine !== null
+              ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
+              : undefined,
+        });
         setHandled({ request: req, resolvedPath: rel });
       },
       { defer: true },
@@ -361,15 +482,22 @@ const CodeTab: Component<{
       },
       (cur, prev) => {
         if (prev && prev.sk !== cur.sk) return;
-        if (cur.s && !cur.pathExists) setSelectedPath(null);
+        if (cur.s && !cur.pathExists) select(view(), null, { record: false });
       },
       { defer: true },
     ),
   );
 
   const treeGitStatus = createMemo(() => {
+    // Browse overlays both layers (local primary, branch fallback). Outside
+    // browse, decoration comes straight off the active mode's `status` stream.
+    if (view() === "browse") {
+      const local = browseLocalStatus()?.files ?? [];
+      const branch = browseBranchStatus()?.files ?? [];
+      return mergeGitStatusEntries(local, branch);
+    }
     const s = status();
-    return s ? toGitStatusEntries(s.files) : undefined;
+    return s ? mergeGitStatusEntries(s.files, []) : undefined;
   });
 
   const handleSelect = (path: string | null) => {
@@ -386,14 +514,81 @@ const CodeTab: Component<{
     // file in the tree would resurrect the line range, surprising the
     // user who treated their tree click as a fresh intent. Same-file
     // tree-clicks don't trip this branch (Pierre fires `onSelect(rel)`
-    // after our own programmatic `setSelectedPath(rel)` and the path
+    // after our own programmatic `select(..., rel)` and the path
     // equals `handled.resolvedPath` in that case — leaving the highlight
     // intact for the lifetime of the request).
     const h = handled();
     if (h && h.resolvedPath !== null && h.resolvedPath !== path) {
       setHandled(null);
     }
-    setSelectedPath(path);
+    // Record the visit — unless this is Pierre's echoed re-select of the file a
+    // front-door open just resolved (its resolution effect already recorded it
+    // *with* the line ref; re-recording here would overwrite the ref with a
+    // plain entry). A genuine tree/iframe pick records a (mode, path) entry,
+    // dropping the line highlight exactly as the selection itself does.
+    select(view(), path, { record: h?.resolvedPath !== path });
+  };
+
+  // Re-apply a history location on back/forward. A location carrying a line
+  // ref is re-issued through the same front door a terminal `path:N` click
+  // uses, so the existing resolve → `handled` → `selectedRange` pipeline
+  // repaints the line (cheap-v1 "restore where you were"); a plain selection
+  // just moves the mode + file. Either way the `recordNavigation` these
+  // re-applies trigger is idempotent on mode+path, so re-applying never
+  // deepens or forks history — the cursor stays where back()/forward() left it.
+  const applyLocation = (loc: BrowserLocation) => {
+    if (loc.ref && loc.path !== null) {
+      const repo = repoPath();
+      if (repo === null) return;
+      openInCodeTab({
+        ref: {
+          path: loc.path,
+          startLine: loc.ref.startLine,
+          endLine: loc.ref.endLine,
+        },
+        repoRoot: repo,
+        targetMode: loc.mode,
+        allowBasenameFallback: false,
+      });
+      return;
+    }
+    setView(loc.mode);
+    select(loc.mode, loc.path, { record: false });
+  };
+  const goBack = () => {
+    const loc = rightPanel.navigateBack();
+    if (loc) applyLocation(loc);
+  };
+  const goForward = () => {
+    const loc = rightPanel.navigateForward();
+    if (loc) applyLocation(loc);
+  };
+  // Browser-style back/forward, scoped to the Code tab via imperative listeners
+  // on its root so the inputs only act while the user is *in* the browser, never
+  // in a terminal. Two channels:
+  //   - keyboard: Alt+←/→ (cross-platform; not in the global shortcut registry,
+  //     so it can't shadow a PTY byte the way a `mod`-based chord would);
+  //   - mouse: the dedicated back/forward (X1/X2) buttons, decoded by
+  //     `@kolu/solid-browser`'s shared `attachBackForwardMouse` — it owns the
+  //     button-number truth and the swallow-on-down / act-on-up /
+  //     preventDefault-on-both protocol so the buttons drive the Code tab, not
+  //     the SPA.
+  // Both bubble through Pierre's shadow root, so an event over a tree row or the
+  // preview reaches here. `makeEventListener` auto-cleans on unmount; the
+  // mouse binder's disposer is tied to the component owner via `onCleanup`.
+  const attachBackForwardInputs = (el: HTMLDivElement) => {
+    makeEventListener(el, "keydown", (e) => {
+      if (e.altKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        goBack();
+      } else if (e.altKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        goForward();
+      }
+    });
+    onCleanup(
+      attachBackForwardMouse(el, { onBack: goBack, onForward: goForward }),
+    );
   };
 
   const treeError = (): Error | undefined =>
@@ -409,7 +604,7 @@ const CodeTab: Component<{
     return [
       {
         view: "browse",
-        label: "All files",
+        label: viewLabel("browse"),
         hint: "Browse the whole repo",
         testId: "diff-mode-browse",
         icon: FileBrowseIcon,
@@ -417,7 +612,7 @@ const CodeTab: Component<{
       {
         view: "local",
         group: "Git",
-        label: "Local",
+        label: viewLabel("local"),
         hint: "Working tree vs HEAD",
         testId: "diff-mode-local",
         icon: GitBranchIcon,
@@ -425,7 +620,7 @@ const CodeTab: Component<{
       {
         view: "branch",
         group: "Git",
-        label: "Branch",
+        label: viewLabel("branch"),
         hint: ref ? `vs ${ref}` : "Working tree vs branch base",
         testId: "diff-mode-branch",
         icon: GitBranchIcon,
@@ -471,8 +666,33 @@ const CodeTab: Component<{
       <div
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
+        ref={attachBackForwardInputs}
       >
         <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+          <div class="flex items-center gap-0.5 shrink-0">
+            <button
+              type="button"
+              data-testid="code-tab-back-button"
+              aria-label="Go back"
+              title="Go back (Alt+←)"
+              disabled={!rightPanel.canNavigateBack()}
+              onClick={goBack}
+              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronRightIcon class="h-3.5 w-3.5 rotate-180" />
+            </button>
+            <button
+              type="button"
+              data-testid="code-tab-forward-button"
+              aria-label="Go forward"
+              title="Go forward (Alt+→)"
+              disabled={!rightPanel.canNavigateForward()}
+              onClick={goForward}
+              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronRightIcon class="h-3.5 w-3.5" />
+            </button>
+          </div>
           <ModeChipPicker
             view={view()}
             onViewChange={setView}
@@ -562,10 +782,11 @@ const CodeTab: Component<{
                       search={false}
                       expandPaths={treeSearch().expandedAncestors}
                       icons={pierreIconConfig}
+                      shadowCss={pierreTreesShadowCss}
                       contextMenu={{
                         enabled: true,
                         triggerMode: "both",
-                        render: renderTreeContextMenu,
+                        render: renderTreeMenu,
                       }}
                       onError={(err) =>
                         toast.error(`File tree render failed: ${err.message}`)
@@ -671,66 +892,27 @@ const CodeTab: Component<{
                           const repo = repoPath();
                           const tid = props.terminalId;
                           if (repo === null || tid === null) return null;
-                          // Single-file diff → one CodeView item. The wrapper
-                          // virtualizes long diffs internally (50k-line lockfile,
-                          // #809 / #514 Phase 8) — no separate scroll context
-                          // component required.
-                          const items = createMemo<CodeViewItem[]>(() => {
-                            const item = diffItem(
-                              path,
-                              d().hunks[0] ?? "",
-                              (err) =>
-                                toast.error(
-                                  `Diff parse failed: ${err.message}`,
-                                ),
-                            );
-                            return item ? [item] : [];
-                          });
+                          // The comment capture surface is applied here at the
+                          // seam — `BrowseDiffView` is a pure presenter, exactly
+                          // like `BrowseFileView`, so "is this commentable?"
+                          // lives in one place per view family rather than being
+                          // re-open-coded inside the leaf. `contentTick` is the
+                          // raw hunk string so the highlight overlay re-anchors
+                          // when a live edit re-diffs the file.
                           return (
                             <CommentTextSurface
                               terminalId={tid}
                               path={path}
                               contentTick={d().hunks[0] ?? ""}
                               class="h-full w-full"
+                              lineAnchored={true}
                             >
-                              <CodeMenuFrame
+                              <BrowseDiffView
                                 path={path}
-                                onOpen={(ref) => {
-                                  openInCodeTab({
-                                    ref,
-                                    repoRoot: repo,
-                                    targetMode: "browse",
-                                  });
-                                }}
-                              >
-                                {(selection) => {
-                                  const codeViewSelection =
-                                    useCodeViewSelection(
-                                      () => path,
-                                      selection.range,
-                                    );
-                                  return (
-                                    <CodeView
-                                      items={items()}
-                                      theme={diffTheme()}
-                                      diffStyle="unified"
-                                      enableLineSelection
-                                      selectedLines={codeViewSelection()}
-                                      onSelectedLinesChange={(s) =>
-                                        selection.handleSelect(s?.range ?? null)
-                                      }
-                                      onError={(err) =>
-                                        toast.error(
-                                          `Diff render failed: ${err.message}`,
-                                        )
-                                      }
-                                      class="h-full w-full overflow-auto"
-                                      {...koluCodeViewProps()}
-                                      data-testid="pierre-diff-view"
-                                    />
-                                  );
-                                }}
-                              </CodeMenuFrame>
+                                hunk={d().hunks[0] ?? ""}
+                                theme={diffTheme()}
+                                repoRoot={repo}
+                              />
                             </CommentTextSurface>
                           );
                         }}
@@ -753,6 +935,13 @@ const CodeTab: Component<{
                           // same intent as a tree click: move selection to the
                           // new file and drop any line-range highlight.
                           onNavigate={handleSelect}
+                          // The mouse back/forward (X1/X2) buttons pressed over
+                          // the sandboxed preview can't reach the Code-tab
+                          // listener (the frame traps them), so the in-iframe
+                          // SDK forwards them here to drive the same history.
+                          onHistory={(direction) =>
+                            direction === "back" ? goBack() : goForward()
+                          }
                         />
                       );
                     })()}
@@ -793,10 +982,27 @@ const CodeTab: Component<{
                     });
                   } else {
                     setView("browse");
-                    setSelectedPath(comment.path);
+                    // A no-line comment jump moves the visible file just like a
+                    // tree click — `select` records it so back/forward retraces
+                    // it too. The lineRange branch above records via the
+                    // `openInCodeTab` → resolution-effect pipeline. Idempotent
+                    // on mode+path, so jumping to the already-shown file is a
+                    // harmless in-place refresh, not a duplicate entry.
+                    select("browse", comment.path);
                   }
+                  // Carry the comment's surface so the dispatcher flips the
+                  // Source ⇄ Rendered toggle back to it before the overlay
+                  // re-finds the quote: a prose ("Hello Doc") comment landing
+                  // on the source view ("# Hello Doc") would fail to re-anchor
+                  // (and the source view wouldn't even highlight it). When the
+                  // file is already open in the other mode, `select` is a
+                  // no-op selection (same path → no remount), so the toggle
+                  // flip is the only thing that moves the user back to the
+                  // right view.
                   useCommentScrollRequest().set({
                     commentId: comment.id,
+                    path: comment.path,
+                    surface: comment.surface,
                   });
                 }}
               />

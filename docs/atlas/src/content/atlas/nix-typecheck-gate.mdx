@@ -1,0 +1,118 @@
+---
+title: nix build ≠ typecheck
+description: A talk-mode diagnosis of #1049 — a green `nix build` exits 0 with broken server types; the fix is a cached `checks.typecheck` flake derivation that closes the local false-confidence gap and deletes a CI node.
+kind: reference
+maturity: evergreen
+status: accepted
+updated: 2026-06-02
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import Cite from "../../components/Cite.astro";
+
+*Talk-mode response · diagnosis confirmed against source · design reviewed (Lowy + Hickey) and revised.*
+
+<Callout kind="accent" title="Verdict — the diagnosis is correct, with one sharpening: CI already catches this">
+The `typecheck` node already runs in the CI DAG (<Cite file="ci/mod.just" lines="34" label="ci/mod.just:34,69-70" />), so a server type error *cannot* reach `master` through CI today. The real, narrower gap is **local false confidence**: a standalone `nix build` exits 0 with broken types (incident #1034), and `nix build` is therefore not the proof people treat it as. The fix the issue asks for — make `nix build` itself a type-proof — is worth doing, and it also lets us *delete* a CI node rather than add one.
+</Callout>
+
+## What I verified
+
+| Claim in the issue | Status | Source |
+| --- | --- | --- |
+| nix build only runs the Vite client bundle, no `tsc` | <Pill variant="ok">true</Pill> | <Cite file="default.nix" lines="87-95" /> — `buildPhase` = `pnpm --filter kolu-client build` only |
+| Server ships as `.ts`, run under `tsx` (transpile-only) | <Pill variant="ok">true</Pill> | <Cite file="default.nix" lines="154-155" /> — `tsx … server/src/index.ts` |
+| `typescript` pruned from the production closure | <Pill variant="ok">true</Pill> | <Cite file="default.nix" lines="109" /> — in `installPhase` (after build, before `cp -r . $out`) |
+| No `checkPhase` / `doCheck` on the derivation | <Pill variant="ok">true</Pill> | <Cite file="default.nix" lines="59-126" /> |
+| The real gate is `just check` / CI | <Pill variant="warn">partly</Pill> | CI *does* gate: <Cite file="ci/mod.just" lines="34" /> DAG includes `typecheck` → `pnpm typecheck`. `just check` (<Cite file="justfile" lines="67-68" />) is the local inner loop. |
+
+So the path that gives false confidence:
+
+<div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", fontFamily: "var(--mono)", fontSize: "0.8rem", margin: "0.8rem 0" }}>
+  <span style={{ background: "var(--code-bg)", border: "1px solid var(--rule)", borderRadius: "6px", padding: "0.3rem 0.55rem" }}>edit server <code>.ts</code></span>
+  <span style={{ color: "var(--ink-faint)" }}>→</span>
+  <span style={{ background: "var(--code-bg)", border: "1px solid var(--rule)", borderRadius: "6px", padding: "0.3rem 0.55rem" }}>nix build .#default</span>
+  <span style={{ color: "var(--ink-faint)" }}>→</span>
+  <span style={{ background: "#fcf0ef", border: "1px solid #e8b9b5", color: "#b42318", borderRadius: "6px", padding: "0.3rem 0.55rem" }}>no tsc runs</span>
+  <span style={{ color: "var(--ink-faint)" }}>→</span>
+  <span style={{ background: "#eff6f0", border: "1px solid #bce3c8", color: "#1b7a3a", borderRadius: "6px", padding: "0.3rem 0.55rem" }}>exit 0</span>
+  <span style={{ color: "var(--ink-faint)" }}>→</span>
+  <span style={{ background: "var(--code-bg)", border: "1px solid var(--rule)", borderRadius: "6px", padding: "0.3rem 0.55rem" }}>"safe to deploy" ✗</span>
+</div>
+
+## Recommendation — a `checks.typecheck` derivation
+
+Add a typecheck *derivation* to the root `flake.nix` that reuses `pnpmDeps`, runs `pnpm -r typecheck`, and `touch $out` on success. Three things fall out of this:
+
+- **It becomes a hard, un-skippable gate.** The CI `nix` node builds *all* flake outputs via devour-flake (<Cite file="ci/mod.just" lines="63-64" />). A new `checks.*` output is picked up automatically — no new CI recipe needed.
+- **It's content-addressed.** The derivation only re-runs when its source changes, and the result is shared through `cache.nixos.asia/oss`. The current `ci::typecheck` recipe re-runs `pnpm typecheck` unconditionally every pipeline.
+- **It lets us delete a node.** Once typecheck is a flake output covered by the `nix` node, the standalone `typecheck` recipe and its DAG edge are redundant → remove them. Net: **3 typecheck loci → 3** (package.json script, `just check`, nix derivation), one fewer CI node, all still delegating to the one shared `pnpm -r typecheck` mechanism.
+
+<Callout kind="good" title="Why a separate derivation and not .#default's buildPhase">
+"Produce a runnable artifact" and "prove types are sound" are independent axes of change — incident #1034 *is* the proof they diverge. Folding `tsc` into `.#default` would complect them: a type-only edit would bust the artifact cache, and `nix run .` / `smoke` / `e2e` would pay a typecheck tax for nothing. The build needs node-gyp + Vite + font symlinks + commit stamping; typecheck needs only `tsc` + node_modules. Keep them as causally independent outputs sharing `pnpmDeps`. *(Lowy: correct seam, Nix layer is where the burned consumer lives.)*
+</Callout>
+
+### The trap to avoid — fileset drift <Pill variant="bad">must-fix</Pill>
+
+The build's `src` fileset (<Cite file="default.nix" lines="15-38" />) is a hand-maintained allowlist of package dirs — and it **omits `packages/tests`**. If the typecheck derivation reused that fileset, it would typecheck a *different, smaller* set than `just check` (which sees the whole working tree). A package added to `pnpm-workspace.yaml` but forgotten in the fileset would type-error while the derivation exits 0 — reintroducing the exact false-green #1049 is about, just relocated.
+
+<Callout kind="warn" title="Resolution (chosen): give the typecheck derivation its own broad fileset">
+Source it from `./packages` wholesale (plus root `tsconfig.base.json`, `package.json`, `pnpm-workspace.yaml`, lockfile) rather than the narrow shipping allowlist. There is then **no per-package list to drift** — `pnpm -r typecheck` sees exactly the workspace, by construction. This is simpler than the alternative (a second `checks.fileset-completeness` derivation diffing the workspace against the allowlist), and the broader source is *correct* for typecheck anyway: it *should* re-run whenever any typechecked package changes. The build keeps its tight allowlist for cache reasons; the two filesets have opposite goals, so they should differ.
+</Callout>
+
+### Pin to one platform <Pill variant="warn">cost</Pill>
+
+devour-flake builds `checks.${system}` for all three systems. TypeScript typecheck is platform-independent, so attaching it to all three triples CI cost for identical results. Pin it to one — following the existing precedent <Cite file="nix/home/example/flake.nix" lines="70" /> (`checks.${linuxSystem}.vm-test`) and <Cite file="nix/home/example/flake.nix" lines="114" /> (`checks.${darwinSystem}`).
+
+## Concrete change (single PR — infra, not user-visible, no phasing)
+
+### 1 · `flake.nix` — add the check output
+
+```diff
++# typecheck the whole workspace as a cached, devour-flake-gated proof.
++# Own broad fileset (all of ./packages) — NOT default.nix's narrow shipping
++# allowlist — so a new package can never silently escape the gate (#1049).
++# Pinned to one system: tsc is platform-independent (cf. nix/home/example).
++checks.${linuxSystem}.typecheck = import ./nix/typecheck.nix { inherit pkgs; };
+```
+
+A small `nix/typecheck.nix` leaf: `mkDerivation` reusing `pnpmDeps` + `pnpmConfigHook`, `buildPhase = "pnpm -r typecheck"`, `installPhase = "touch $out"`. No node-gyp rebuild — `tsc --noEmit` needs `.d.ts`, not the compiled `.node`.
+
+### 2 · `ci/mod.just` — delete the now-redundant recipe
+
+```diff
+-default: nix home-manager e2e smoke fmt typecheck biome unit surface-example-build pnpm-hash-fresh
++default: nix home-manager e2e smoke fmt biome unit surface-example-build pnpm-hash-fresh
+
+-typecheck: install
+-    {{ nix_shell }} pnpm typecheck
+```
+
+And one comment at the `nix:` recipe (<Cite file="ci/mod.just" lines="63" />) noting that `checks.typecheck` (built here via devour-flake) replaced the standalone recipe — so the temporal coupling ("the `nix` node is now load-bearing for typecheck") is documented, not folklore.
+
+### 3 · `default.nix` — one comment at the buildPhase
+
+```diff
+ buildPhase = ''
+   runHook preBuild
+   ...
++  # NOTE: this does NOT typecheck — only the Vite client bundle is built and
++  # the server runs under tsx. The type gate is `nix build .#checks…typecheck`
++  # (run by CI's `nix` node). A green `nix build .#default` is not a type-proof.
+   pnpm --filter kolu-client build
+   runHook postBuild
+ '';
+```
+
+Leave `just check` (<Cite file="justfile" lines="67-68" />) exactly as-is — it stays the fast local inner loop. No pre-push hook needed: making `nix build` a type-proof and keeping the CI gate is sufficient; a hook would be a fourth locus for the same concept.
+
+## What I deliberately rejected
+
+- **Folding `tsc` into `.#default`.** Complects artifact-production with type-proof; taxes `nix run` / smoke / e2e; busts the build cache on type-only edits.
+- **A separate `checks.fileset-completeness` guard.** Hickey's fix for the drift trap is valid, but the broad-fileset approach above kills the same failure mode *by construction* with no new abstraction — preferred unless a narrow fileset must be kept for caching (it needn't be).
+- **Docs-only ("just rely on the existing CI `typecheck` node").** Honest and zero-abstraction, but it leaves `nix build` a non-proof — which is the issue's actual ask — and forgoes the cache win. The buildPhase comment ships regardless; the derivation is the part that closes the gap.
+
+---
+
+*Ready to build? Invoke `/do` and this becomes the implementation brief. `do` re-runs Hickey + Lowy on the real diff, so the must-fix (broad fileset) and the cost-fix (single-platform pin) will be re-checked against the actual derivation.*

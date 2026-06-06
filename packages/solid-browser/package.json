@@ -1,0 +1,26 @@
+{
+  "name": "@kolu/solid-browser",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./backForward": "./src/backForwardInput.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.0"
+  },
+  "dependencies": {
+    "@kolu/url-shape": "workspace:*",
+    "solid-js": "^1.9.0"
+  }
+}

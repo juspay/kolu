@@ -15,6 +15,7 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 mod website 'website/mod.just'
+mod atlas 'docs/atlas/mod.just'
 
 # List available recipes
 default:
@@ -88,10 +89,26 @@ test-unit: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
+    # Raise the fd soft limit before spawning workers/servers. macOS defaults
+    # to 256, which a kolu server under parallel load can exhaust on accept()
+    # (silent EMFILE — no crash, just refused connections). Hard limit is
+    # unlimited; this is free insurance on every platform.
+    ulimit -n 65536 2>/dev/null || true
+    # Worker count scales with the host unless CUCUMBER_PARALLEL is set
+    # explicitly: ~1 worker per 3 cores, clamped to [4,8]. The 24-core darwin
+    # CI host (rasam) gets 8 — ~45% faster than the old fixed 4 — while laptops
+    # and smaller CI stay at 4. Past 8 the slowest-scenario tail dominates and
+    # extra workers only add contention (PAR=12 measured *slower* than PAR=8 on
+    # a 24-core host). See docs/ci-e2e-macos-ralph-report.md.
+    cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+    par=$(( cores / 3 ))
+    if (( par < 4 )); then par=4; fi
+    if (( par > 8 )); then par=8; fi
+    par="${CUCUMBER_PARALLEL:-$par}"
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell_e2e }} pnpm test
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.

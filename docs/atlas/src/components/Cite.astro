@@ -1,0 +1,31 @@
+---
+// A linked `file:line` citation — the Atlas's answer to docs/plans' 110×
+// `<span class="cite">:472</span>`. Turns an inert line-range into a real
+// GitHub blob link. e.g. <Cite file="packages/server/src/x.ts" lines="489-509" />
+interface Props {
+  file: string;
+  lines?: string; // "472" or "489-509"
+  repo?: string;
+  rev?: string;
+  label?: string; // override the displayed text
+}
+const { file, lines, repo = "juspay/kolu", rev = "master", label } = Astro.props;
+const anchor = lines ? `#L${lines.replace("-", "-L")}` : "";
+const href = `https://github.com/${repo}/blob/${rev}/${file}${anchor}`;
+const text = label ?? (lines ? `${file}:${lines}` : file);
+---
+<a href={href} rel="noopener" class="cite">{text}</a>
+<style>
+  .cite {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    color: var(--ink);
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    padding: 0.04em 0.35em;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .cite:hover { color: var(--amber); border-color: var(--amber); }
+</style>

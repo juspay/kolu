@@ -1,0 +1,58 @@
+---
+import { getCollection } from "astro:content";
+import IndexTree from "../components/IndexTree.astro";
+import AtlasLayout from "../layouts/AtlasLayout.astro";
+import { buildCategoryGroups } from "../lib/indexTree";
+
+// Generated index: one section per category (bug · feature · analysis ·
+// reference), with `parents` nesting notes *within* a category (cross-category
+// edges become "related" links). Drafts are hidden from the build but reachable
+// in `astro dev`. Membership is automatic — a note's `kind` always lands it in a
+// section, so nothing falls through unfiled. Links are relative (`./<slug>.html`)
+// so the committed pages navigate both in kolu's Code tab and externally via
+// htmlpreview.github.io.
+const notes = (await getCollection("atlas")).filter(
+  (n) => import.meta.env.DEV || !n.data.draft,
+);
+const groups = buildCategoryGroups(notes);
+---
+
+<AtlasLayout
+  title="Atlas"
+  description="kolu's in-repo Atlas — plans, designs, reviews, and research, as a generated tree."
+>
+  <div class="wrap wrap-index">
+    <p class="eyebrow">the kolu atlas</p>
+    <h1 class="atlas-title">The <span class="accent">Atlas</span>.</h1>
+    <p class="lede">
+      kolu's in-repo knowledge base — grouped by kind, with related notes nested
+      under their <code>parents</code>; nothing falls through unfiled.
+      <strong>{notes.length}</strong> notes.
+    </p>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-dot m-seedling" />seedling</span>
+      <span class="legend-item"><span class="legend-dot m-budding" />budding</span>
+      <span class="legend-item"><span class="legend-dot m-evergreen" />evergreen</span>
+    </div>
+
+    {
+      groups.length > 0 ? (
+        groups.map((g) => (
+          <section class={`cat cat-${g.category}`}>
+            <div class="cat-head">
+              <span class="cat-bar" />
+              <h2 class="cat-title">{g.label}</h2>
+              <span class="cat-count">{g.count}</span>
+              <span class="cat-blurb">{g.blurb}</span>
+            </div>
+            <IndexTree nodes={g.roots} />
+          </section>
+        ))
+      ) : (
+        <p class="mono" style="color:var(--ink-muted);padding:3rem 0;text-align:center">
+          // the Atlas is empty
+        </p>
+      )
+    }
+  </div>
+</AtlasLayout>

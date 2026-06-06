@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# …except the self-contained Atlas output, committed for in-app Code-tab preview.
+!/docs/atlas/dist/
+!/docs/atlas/dist/**
 result
 .direnv/
 # APM: generated metadata + per-user state (not vendored)
@@ -18,3 +21,7 @@ packages/client/public/fonts
 .ralph-logs/
 # /codex-debate skill: per-worktree scratch (verdicts, rebuttals, transcript)
 .codex-debate/
+# /lens-debate skill: per-worktree scratch (commit-message files)
+.lens-debate/
+# /be-review orchestrator: per-track scratch (commit-message + PR-comment files; worktrees live under .worktrees/ above)
+.be-review/

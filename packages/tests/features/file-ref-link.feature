@@ -135,15 +135,34 @@ Feature: File-ref autolinking in terminal
     And the selected file should show content "gamma"
     And line 3 should be selected in the file content
 
-  # `@skip`: known regression noted in c89a85f3 — the second xterm `path:line`
-  # click after a manual collapse fails to re-open the panel under the bundled
-  # build (passes in dev). Suspected production-Solid reactive elision or
-  # xterm link-decoration cache invalidation after the layout reflow.
-  # `equals: false` on `pendingOpen` and imperative dispatch from
-  # `openInCodeTab` both fail to clear it; deeper diagnosis is tracked
-  # separately. Run with `CUCUMBER_TAGS='@skip' just test-quick
-  # features/file-ref-link.feature` to exercise this scenario locally.
-  @skip
+  Scenario: A trailing sentence period does not break a slash-containing file-ref
+    # The reported bug: prose like "There's now a single
+    # docs/plans/electricity.html." ends the path with a sentence period. `.`
+    # is a path char (extensions, dotfiles), so the greedy match used to
+    # swallow the period and the link pointed at a nonexistent
+    # `…electricity.html.` — clicking it silently no-opped. The link must stop
+    # at the real filename and open the file.
+    When I run "git init /tmp/kolu-file-ref-trailing-dot && cd /tmp/kolu-file-ref-trailing-dot"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p docs/plans"
+    # Create the file via a subshell so the full `docs/plans/electricity.html`
+    # only ever appears contiguously in the period-bearing prose below — if a
+    # setup line printed the clean path, the link hit-test would land there and
+    # mask the bug.
+    And I run "(cd docs/plans && printf '<h1>electricity</h1>\n' > electricity.html)"
+    And I run "echo 'There is now a single docs/plans/electricity.html.'"
+    And I trigger the terminal file-ref link "docs/plans/electricity.html"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the file preview iframe should be visible
+    And the file preview iframe should contain "electricity"
+
+  # Guards the c89a85f3 regression: a second click on the same `path:line`
+  # after manually collapsing the panel must re-open it. The bug was
+  # production-only (passes in dev) — see right-panel/openInCodeTab.ts for
+  # the deferred-effect-elision mechanism and the imperative-reveal fix.
+  # This scenario is the canary for that fix, so it must run against the
+  # bundled build (`just test-quick`), not just dev.
   Scenario: Re-clicking the same file-ref after closing the panel re-selects the line
     When I run "git init /tmp/kolu-file-ref-861-reclick && cd /tmp/kolu-file-ref-861-reclick"
     And I run "git commit --allow-empty -m init"

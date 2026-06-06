@@ -363,6 +363,50 @@ Feature: Code tab (review + browse)
     And I click the context menu item "Copy path"
     Then the clipboard should contain "api/handler.ts"
 
+  # ── Pierre tree right-click menu (view switching) ──
+  # The menu carries view-switch entries so a right-click on a file row jumps
+  # straight to that file in another view: All files → "Open Local diff" /
+  # "Open Branch diff"; a git-diff view → "Open in All files" returns to
+  # browse. The clicked file rides along as the destination view's selection,
+  # so the destination must actually render that file's diff — not just flip
+  # the mode chip. Browse lists the whole repo, so it offers BOTH git targets:
+  # Local (always available, includes untracked) and Branch (vs origin base).
+
+  Scenario: Right-click in All files opens the Local diff of that file
+    When I run "git init /tmp/kolu-tree-tolocal && cd /tmp/kolu-tree-tolocal"
+    And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
+    And I run "printf 'two\n' >> seed.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab mode should be "browse"
+    When I right-click the changed file "seed.txt" in the Code tab
+    And I click the context menu item "Open Local diff"
+    Then the Code tab mode should be "local"
+    And the file "seed.txt" should be selected in the file browser
+    And the Code tab should render a diff view
+
+  Scenario: Right-click in All files opens the Branch diff of that file
+    Given a Code tab in "branch" mode showing file "seed.txt" with content "two"
+    When I click the Code tab mode "browse"
+    Then the Code tab mode should be "browse"
+    When I right-click the changed file "seed.txt" in the Code tab
+    And I click the context menu item "Open Branch diff"
+    Then the Code tab mode should be "branch"
+    And the file "seed.txt" should be selected in the file browser
+    And the Code tab should render a diff view
+
+  Scenario: Right-click in a git diff returns to All files
+    When I run "git init /tmp/kolu-tree-tobrowse && cd /tmp/kolu-tree-tobrowse"
+    And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
+    And I run "printf 'two\n' >> seed.txt"
+    And I click the Code tab
+    Then the Code tab mode should be "local"
+    And the Code tab should list a changed file "seed.txt"
+    When I right-click the changed file "seed.txt" in the Code tab
+    And I click the context menu item "Open in All files"
+    Then the Code tab mode should be "browse"
+    And the file "seed.txt" should be selected in the file browser
+
   # ── Browse mode: file tree + content viewer ──
 
   Scenario: File browser shows the repo file tree
@@ -384,6 +428,111 @@ Feature: Code tab (review + browse)
     When I click the file "greeting.txt" in the file browser
     Then the file content should contain "hello world"
 
+  # ── Back / forward navigation (phase 2: the Code tab is a browser) ──
+  # Selecting files records history in @kolu/solid-browser's createBrowser; the
+  # toolbar ◀ ▶ buttons retrace it across the files you've viewed. The buttons
+  # are disabled at the ends of the stack (canBack/canForward), proving the
+  # reactive enablement is wired through the controller.
+  Scenario: Code tab back and forward retrace file navigation
+    Given a Code tab in "browse" mode showing files:
+      | path  | content |
+      | a.txt | aaa     |
+      | b.txt | bbb     |
+      | c.txt | ccc     |
+    When I click the file "a.txt" in the file browser
+    Then the selected file should show content "aaa"
+    And the Code tab "back" button should be disabled
+    When I click the file "b.txt" in the file browser
+    Then the selected file should show content "bbb"
+    When I click the file "c.txt" in the file browser
+    Then the selected file should show content "ccc"
+    And the Code tab "forward" button should be disabled
+    When I go back in the Code tab
+    Then the selected file should show content "bbb"
+    When I go back in the Code tab
+    Then the selected file should show content "aaa"
+    When I go forward in the Code tab
+    Then the selected file should show content "bbb"
+    When I go forward in the Code tab
+    Then the selected file should show content "ccc"
+    And the Code tab "forward" button should be disabled
+
+  # Regression: history records repo-relative `{ mode, path }` with no repo
+  # identity of its own, so it must be scoped to the repo it was captured in.
+  # When the SAME terminal `cd`s from one repo to another that happens to hold a
+  # same-named file, re-applying a stale entry would open the wrong file (the
+  # other repo's `shared.txt`). The history reset on `repoPath()` change makes
+  # back/forward scoped to the repo currently shown: after the `cd`, the fresh
+  # stack has only the new repo's selection, so "back" is disabled and the old
+  # repo's content is never reachable.
+  Scenario: Code tab history is scoped per repo — back cannot cross a cd into another repo
+    When I run "rm -rf /tmp/kolu-hist-a && git init /tmp/kolu-hist-a && cd /tmp/kolu-hist-a"
+    And I run "printf 'from-repo-A\n' > shared.txt && printf 'only-in-A\n' > a-only.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "a-only.txt" in the file browser
+    Then the selected file should show content "only-in-A"
+    When I click the file "shared.txt" in the file browser
+    Then the selected file should show content "from-repo-A"
+    # Two entries recorded in repo A — back is live here.
+    And the Code tab "back" button should be enabled
+    When I run "rm -rf /tmp/kolu-hist-b && git init /tmp/kolu-hist-b && cd /tmp/kolu-hist-b"
+    And I run "printf 'from-repo-B\n' > shared.txt && git add . && git commit -m init"
+    When I click the file "shared.txt" in the file browser
+    Then the selected file should show content "from-repo-B"
+    # History was reset on the repo change: the B stack holds only this one
+    # entry, so back is disabled and can never surface repo A's "from-repo-A".
+    And the Code tab "back" button should be disabled
+
+  # Regression: history is PER TERMINAL, and the per-repo reset must fire only
+  # when a terminal's OWN repo changes (a `cd`), never when the user merely
+  # switches the active terminal to one that sits in a different repo. CodeTab
+  # is a singleton over the active terminal, so `repoPath()` shifts on both
+  # events; an over-broad reset keyed on `repoPath()` alone would wipe the
+  # newly-activated terminal's history just by switching to it. Two terminals
+  # in two repos each build a back-stack; switching A→B→A must leave each
+  # terminal's "back" button live (its history intact), not reset.
+  Scenario: Code tab history survives switching between terminals in different repos
+    When I run "rm -rf /tmp/kolu-hist-term-a && git init /tmp/kolu-hist-term-a && cd /tmp/kolu-hist-term-a"
+    And I run "printf 'one-A\n' > one.txt && printf 'two-A\n' > two.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "one.txt" in the file browser
+    Then the selected file should show content "one-A"
+    When I click the file "two.txt" in the file browser
+    Then the selected file should show content "two-A"
+    # Two entries in terminal A's repo — back is live.
+    And the Code tab "back" button should be enabled
+    # Second terminal in a DIFFERENT repo, with its own back-stack. A new
+    # terminal defaults to the Inspector tab (DEFAULT_RIGHT_PANEL_PER_TERMINAL),
+    # so re-select the Code tab for it before driving the mode chip.
+    When I create a terminal
+    And I run "rm -rf /tmp/kolu-hist-term-b && git init /tmp/kolu-hist-term-b && cd /tmp/kolu-hist-term-b"
+    And I run "printf 'one-B\n' > one.txt && printf 'two-B\n' > two.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "one.txt" in the file browser
+    Then the selected file should show content "one-B"
+    When I click the file "two.txt" in the file browser
+    Then the selected file should show content "two-B"
+    And the Code tab "back" button should be enabled
+    # Switch back to terminal A: its history must be untouched by the switch —
+    # back is still live and retraces A's own stack, not wiped by the reset.
+    When I select workspace switcher entry 1
+    Then the selected file should show content "two-A"
+    And the Code tab "back" button should be enabled
+    When I go back in the Code tab
+    Then the selected file should show content "one-A"
+    # And terminal B's history is likewise intact when we return to it.
+    When I select workspace switcher entry 2
+    Then the selected file should show content "two-B"
+    And the Code tab "back" button should be enabled
+    When I go back in the Code tab
+    Then the selected file should show content "one-B"
+
   Scenario: File browser wraps long lines by default
     When I run "git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
     And I run "printf 'prefix-' > long.txt && printf '%*s' 240 '' | tr ' ' x >> long.txt && printf '\n' >> long.txt"
@@ -393,6 +542,43 @@ Feature: Code tab (review + browse)
     When I click the file "long.txt" in the file browser
     Then the file content should contain "prefix-"
     And the file content should wrap long lines
+
+  # ── Browse mode: git-status decoration ──
+  # "All files" overlays local status (primary) on branch status (fallback),
+  # so a browsed file shows whether it's changed — the same signal Local and
+  # Branch modes give, now without leaving the whole-repo view. Pierre stamps
+  # `data-item-git-status="<word>"` on a decorated row; a clean committed file
+  # carries no such attribute. (This repo has no `origin/<default>`, so the
+  # branch layer resolves to nothing and the local layer alone decorates —
+  # exercising the best-effort fallback without an error toast.)
+  Scenario: Browse mode decorates changed files with git status
+    When I run "rm -rf /tmp/kolu-browse-gitstatus && git init /tmp/kolu-browse-gitstatus && cd /tmp/kolu-browse-gitstatus"
+    And I run "printf 'tracked\n' > tracked.txt && printf 'stable\n' > stable.txt && git add . && git commit -m init"
+    And I run "printf 'edited\n' > tracked.txt"
+    And I run "printf 'brand new\n' > fresh.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab should show file "stable.txt"
+    And the Code tab file "tracked.txt" should have git status "modified"
+    And the Code tab file "fresh.txt" should have git status "untracked"
+    And the Code tab file "stable.txt" should have no git status
+
+  # Pierre marks every ancestor of a changed file with
+  # `data-item-contains-git-change` but only paints a faint dot; kolu injects a
+  # shadow-root rule (FileTree.shadowCss) that tints the ancestor folder names
+  # in the modified color, so a changed subtree reads at a glance. A clean
+  # sibling directory stays unmarked and untinted. (`src` carries two children
+  # so single-child flattening doesn't fold it into `src/feature`.)
+  Scenario: Browse mode tints ancestor folders that contain a change
+    When I run "rm -rf /tmp/kolu-browse-foldertint && git init /tmp/kolu-browse-foldertint && cd /tmp/kolu-browse-foldertint"
+    And I run "mkdir -p src/feature lib && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && git add . && git commit -m init"
+    And I run "printf 'edited\n' > src/feature/a.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab should show a directory node "src"
+    And the Code tab directory "src" should be marked as containing a change
+    And the Code tab directory "lib" should not be marked as containing a change
+    And the Code tab directory "src" name should be tinted differently from directory "lib"
 
   # ── Browse mode: route-served preview for .html / .svg / .pdf / images ──
   # Files whose extension matches `isBinaryPreviewable` (see
@@ -461,11 +647,11 @@ Feature: Code tab (review + browse)
   # Regression: a >1 MB .md file is read back truncated (first 1 MB only). It
   # still defaults to the rendered view, so the rendered appliance must carry
   # the same "File truncated" banner the source view shows — otherwise a partial
-  # document renders silently with no warning. The marker sits in the first
-  # bytes so it survives the 1 MB cut and proves content rendered.
-  Scenario: Truncated Markdown still warns in the rendered view
+  # document renders silently with no warning. The marker + task item sit in the
+  # first bytes so they survive the 1 MB cut and prove content rendered.
+  Scenario: Truncated Markdown warns and renders task checkboxes read-only
     When I run "rm -rf /tmp/kolu-md-trunc && git init /tmp/kolu-md-trunc && cd /tmp/kolu-md-trunc"
-    And I run "printf '# Truncated Doc\n\nbody marker\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
+    And I run "printf '# Truncated Doc\n\nbody marker\n\n- [ ] guard me\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
@@ -473,6 +659,10 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     And the markdown preview should contain "Truncated Doc"
     And the markdown preview should show the truncation warning
+    # The preview is read-only: the task checkbox renders presentational
+    # (disabled, never interactive).
+    And the markdown preview should render a "input[type=checkbox][disabled]" element
+    And the markdown preview should not render a "input[data-md-task]" element
 
   Scenario: Markdown source toggle reveals the raw markdown
     When I run "rm -rf /tmp/kolu-md-src && git init /tmp/kolu-md-src && cd /tmp/kolu-md-src"
@@ -485,6 +675,181 @@ Feature: Code tab (review + browse)
     When I switch the file view to "source"
     Then the file content should contain "# Heading One"
     And the markdown preview should not be visible
+
+  # ── Rendered Markdown: GFM + inline HTML + sanitization ──
+  # The rendered view is a marked(GFM) → DOMPurify pipeline
+  # (@kolu/solid-markdown), so it must produce real GitHub-Flavored structure —
+  # headings, tables, task lists — plus the inline HTML a README leans on
+  # (<kbd>, alignment wrappers), while stripping anything script-capable. The
+  # `printf` fixtures avoid inner single quotes (the `I run` step has no escape
+  # for them); `<script>`/`align=center`/`javascript:` carry none.
+
+  Scenario: Markdown preview renders GFM tables, task lists, and inline HTML
+    When I run "rm -rf /tmp/kolu-md-gfm && git init /tmp/kolu-md-gfm && cd /tmp/kolu-md-gfm"
+    And I run "printf '# Doc Title\n\n| Col A | Col B |\n|:------|------:|\n| 1 | 2 |\n\n- [x] shipped\n- [ ] pending\n\nPress <kbd>Ctrl</kbd> to go.\n\n<p align=center>centered note</p>\n\n<img src=docs/logo.png alt=brand-logo />\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "h1" element
+    And the markdown preview should contain "Doc Title"
+    And the markdown preview should render a "table" element
+    And the markdown preview should contain "Col A"
+    And the markdown preview should render a "input[type=checkbox]" element
+    And the markdown preview should render a "kbd" element
+    And the markdown preview should render a "[align=center]" element
+    And the markdown preview should contain "centered note"
+    # A repo-relative inline `<img>` resolves against the doc's directory to the
+    # per-terminal file route — a real <img>, not raw text or a broken icon.
+    # Load-vs-fallback coverage is in the "lists, footnotes, alerts, and
+    # resolves repo images" scenario below.
+    And the markdown preview should render a "img[src*='/api/terminals/']" element
+
+  Scenario: Markdown preview strips script-capable HTML and links
+    When I run "rm -rf /tmp/kolu-md-xss && git init /tmp/kolu-md-xss && cd /tmp/kolu-md-xss"
+    And I run "printf '# Safe Render\n\nintro paragraph here\n\n<script>window.__xss=1</script>\n\n[evil link](javascript:window.__xss=2)\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Safe Render"
+    And the markdown preview should contain "evil link"
+    And the markdown preview should not render a "script" element
+    And the markdown preview should not render a "a[href^=javascript]" element
+
+  # The sanitizer is a tight allowlist, not DOMPurify's broad defaults: inline
+  # `style`/`class`, SVG, and non-checkbox form controls must all be dropped so
+  # an untrusted README can't restyle, frame, or plant focusable controls in
+  # the app. (`printf` fixtures avoid inner single quotes — see note above.)
+  Scenario: Markdown preview drops style, class, SVG, and form controls
+    When I run "rm -rf /tmp/kolu-md-tight && git init /tmp/kolu-md-tight && cd /tmp/kolu-md-tight"
+    And I run "printf '# Tight Allowlist\n\n<p style=color:red class=takeover>styled para</p>\n\n<svg width=10 height=10><rect width=10 height=10 /></svg>\n\n<button>press me</button>\n\n<input type=text value=injected />\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "styled para"
+    # The text survives but its presentational + structural escape hatches don't.
+    And the markdown preview should not render a "[style]" element
+    And the markdown preview should not render a ".takeover" element
+    And the markdown preview should not render a "svg" element
+    And the markdown preview should not render a "button" element
+    And the markdown preview should not render a "input[type=text]" element
+
+  # The renderer only stamps the anchors it mints; a raw inline `<a>` from the
+  # README must still pick up the link policy in the sanitize pass — a repo-
+  # relative href is tagged for in-app interception (so it opens the file in the
+  # Code tab, never a new tab — #1161), a genuine external href is forced to a
+  # new tab with a severed opener, and an unsafe scheme is unwrapped to text.
+  Scenario: Markdown preview applies the link policy to raw inline anchors
+    When I run "rm -rf /tmp/kolu-md-rawa && git init /tmp/kolu-md-rawa && cd /tmp/kolu-md-rawa"
+    And I run "printf '# Raw Anchors\n\n<a href=docs/guide.md>relative doc</a>\n\n<a href=https://example.com/>external link</a>\n\n<a href=javascript:1>raw evil</a>\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "relative doc"
+    And the markdown preview should contain "external link"
+    And the markdown preview should contain "raw evil"
+    # Repo-relative anchor is tagged for in-app interception, NOT sent to a new tab.
+    And the markdown preview should render a "a[data-md-rel]" element
+    And the markdown preview should not render a "a[data-md-rel][target=_blank]" element
+    # The genuine external anchor still opens in a new tab with a severed opener.
+    And the markdown preview should render a "a[target=_blank]" element
+    And the markdown preview should render a "a[rel~=noopener]" element
+    # The unsafe-scheme anchor is gone; its text remains.
+    And the markdown preview should not render a "a[href^=javascript]" element
+
+  # The repro for #1161: clicking a repo-relative link opens the linked file IN
+  # the Code tab (GitHub-faithful), resolved against the previewed doc's own
+  # directory — it must NOT navigate the app origin in a new browser tab. The
+  # click step fails if a popup/new tab opens.
+  Scenario: Markdown preview opens a repo-relative link in the Code tab
+    When I run "rm -rf /tmp/kolu-md-rellink && git init /tmp/kolu-md-rellink && cd /tmp/kolu-md-rellink"
+    And I run "mkdir -p docs && printf '# Guide Doc\n\nRelative target reached.\n' > docs/guide.md"
+    And I run "printf '# Home\n\n[the guide](docs/guide.md)\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "a[data-md-rel]" element
+    When I click the repo-relative markdown link "docs/guide.md"
+    Then the file "docs/guide.md" should be selected in the file browser
+    And the markdown preview should contain "Relative target reached"
+
+  # Regression for the #1161 follow-up: a relative link must open its EXACT
+  # path or fail — never the terminal resolver's fuzzy unique-basename
+  # fallback (#898), which is right for compiler output but wrong for a
+  # GitHub-style link. Here the link points at a missing `docs/guide.md`
+  # while a same-basename `src/guide.md` exists uniquely; the click must
+  # surface a toast and leave `src/guide.md` unselected, not silently open it.
+  Scenario: Markdown relative link to a missing path does not open a same-basename file
+    When I run "rm -rf /tmp/kolu-md-relexact && git init /tmp/kolu-md-relexact && cd /tmp/kolu-md-relexact"
+    And I run "mkdir -p src && printf '# Other Guide\n\nWrong file.\n' > src/guide.md"
+    And I run "printf '# Home\n\n[the guide](docs/guide.md)\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "a[data-md-rel]" element
+    When I click the repo-relative markdown link "docs/guide.md"
+    Then a toast should appear with text "File reference not found: docs/guide.md"
+    And the file "src/guide.md" should not be selected in the file browser
+
+  # Regression guard for a feature audit's findings: Tailwind v4 preflight
+  # blanking list markers, footnotes + GitHub alerts being unsupported, and
+  # repo-relative images degrading to a chip instead of loading from the
+  # per-terminal file route. The SVG asset gives the relative image something
+  # real to resolve to.
+  Scenario: Markdown preview renders lists, footnotes, alerts, and resolves repo images
+    When I run "rm -rf /tmp/kolu-md-rich && git init /tmp/kolu-md-rich && cd /tmp/kolu-md-rich"
+    And I run "printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"><rect width=\"8\" height=\"8\"/></svg>' > logo.svg"
+    And I run "printf '# Rich Doc\n\n![logo](logo.svg)\n\n- one\n- two\n\n1. a\n2. b\n\nclaim[^x]\n\n[^x]: the footnote\n\n> [!WARNING]\n> heads up\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Rich Doc"
+    # Lists show real markers (Tailwind preflight would otherwise blank them).
+    And the markdown preview list markers should be visible
+    # Footnotes render as a section + superscript ref, not literal [^x] text.
+    And the markdown preview should render a "section" element
+    And the markdown preview should render a "sup a" element
+    And the markdown preview should not contain "[^x]"
+    # The GitHub alert renders with its type carried on a data attribute.
+    And the markdown preview should render a "[data-md-alert=warning]" element
+    # The repo-relative image resolves to the per-terminal file route and is a
+    # real <img>, not a fallback chip.
+    And the markdown preview should render a "img[src*='/api/terminals/']" element
+    And the markdown preview should not render a "span.kolu-md-img-fallback" element
+
+  # Syntax highlighting (Shiki), GitHub-faithful soft breaks (document folds a
+  # single newline to a space), and read-only task-list checkboxes (the preview
+  # never writes back to the file).
+  Scenario: Markdown preview highlights code, folds soft breaks, and renders task checkboxes
+    When I run "rm -rf /tmp/kolu-md-rich2 && git init /tmp/kolu-md-rich2 && cd /tmp/kolu-md-rich2"
+    And I run "printf '# Doc\n\nline one\nline two\n\n```js\nconst x = 1;\n```\n\n- [ ] todo item\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    # Fenced code gets a copy-button wrapper and is syntax-highlighted (Shiki
+    # loads async; the steps poll).
+    And the markdown preview should render a "div.kolu-md-code" element
+    And the markdown preview should render a "button.kolu-md-copy" element
+    And the markdown preview should render a "pre.shiki" element
+    # GitHub-faithful soft breaks: the two source lines fold into one paragraph.
+    And the markdown preview should not render a "p br" element
+    # The task checkbox renders read-only (presentational, disabled).
+    And the markdown preview should render a "input[type=checkbox][disabled]" element
 
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
@@ -766,6 +1131,35 @@ Feature: Code tab (review + browse)
     Then the file preview iframe should contain "second page"
     And the file "second.html" should be selected in the file browser
 
+  # Regression (CONFIRMED live on the Atlas docs): reaching a file via an
+  # IN-IFRAME LINK CLICK (not a tree click) desyncs the live-reload watch from
+  # the displayed file. Mirrors the real case: an index.html in a nested dist/
+  # dir links (relative href) to a sibling page; the inner document navigates
+  # browser-side, the tree highlight + iframe `src` follow via the artifact-sdk
+  # `ReadyMsg.pathname` report — but the `fsReadFile` WATCH does not re-arm on
+  # the navigated-to file, so a later edit fires events nobody listens for and
+  # the preview freezes on the navigated content. (Re-selecting the file via a
+  # tree click repairs it.) The nested dist/ layout matches the live repro;
+  # a flat repo did NOT trip the bug.
+  Scenario: Editing a file reached via an in-iframe link still refreshes the preview live
+    When I run "rm -rf /tmp/kolu-nav-edit && git init /tmp/kolu-nav-edit && cd /tmp/kolu-nav-edit"
+    And I run "mkdir dist"
+    And I run "printf '<!doctype html><h1>first page</h1><a href=second.html>go to second</a>\n' > dist/index.html"
+    And I run "printf '<!doctype html><h1>second page ALPHA</h1>\n' > dist/second.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the directory "dist" in the file browser
+    And I click the file "dist/index.html" in the file browser
+    Then the file preview iframe should be visible
+    And the file preview iframe should contain "first page"
+    When I click the link "go to second" in the file preview iframe
+    Then the file preview iframe should contain "second page ALPHA"
+    And the file "dist/second.html" should be selected in the file browser
+    When I click the terminal canvas
+    And I run "printf '<!doctype html><h1>second page BETA</h1>\n' > dist/second.html"
+    Then the file preview iframe should contain "second page BETA"
+
   Scenario: Committing the selected local diff clears the stale content pane
     When I run "rm -rf /tmp/kolu-clear-selected-local && git init /tmp/kolu-clear-selected-local && cd /tmp/kolu-clear-selected-local"
     And I run "git commit --allow-empty -m init"
@@ -815,10 +1209,12 @@ Feature: Code tab (review + browse)
   # ── Comments on files (#881) ──
   #
   # End-to-end coverage of the select → pill → composer → tray → copy
-  # flow. Selection is driven by walking Pierre's shadow DOM to find
-  # the target text node, then calling `Selection.addRange` directly
-  # (Chromium fires `selectionchange` on the document for shadow-DOM
-  # selections, which the `useTextSelection` adapter listens to).
+  # flow. Selection is driven by `dragSelectText` (code_tab_steps.ts):
+  # walk the container's DOM (descending Pierre's shadow root, or the
+  # light DOM of the Markdown preview) to find the target text node,
+  # compute its viewport rect, then drive a REAL `page.mouse` drag so
+  # the browser fires the same pointer + `selectionchange` events a
+  # user would, which the `useTextSelection` adapter listens to.
   # Pure-logic coverage of the underlying anchoring + clipboard payload
   # algorithms lives in `packages/artifact-sdk/src/core/findQuote.test.ts`,
   # `packages/artifact-sdk/src/server/inject.test.ts`, and
@@ -857,6 +1253,106 @@ Feature: Code tab (review + browse)
     And the comments tray should be visible
     And the comments tray should contain "agent should reword this"
     And the comments tray should have 1 comments
+
+  # The rendered Markdown preview is commentable too (#1162) — not just the
+  # source toggle. Selection there is plain light DOM, so the quote anchors
+  # against the preview's own host subtree (NOT the whole app page), and the
+  # same select → pill → composer → tray flow works straight on the document.
+  Scenario: Commenting on the rendered Markdown preview
+    When I run "rm -rf /tmp/kolu-comments-md && git init /tmp/kolu-comments-md && cd /tmp/kolu-comments-md"
+    And I run "printf '# Doc Title\n\nmd-preview-marker in the body.\n' > README.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "md-preview-marker"
+    When I select text "md-preview-marker" in the markdown preview
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "rendered-preview comment" into the comment composer
+    And I click the composer "Save" button
+    Then the comment composer should not be visible
+    And the comments tray should be visible
+    And the comments tray should contain "rendered-preview comment"
+    And the comments tray should have 1 comments
+
+  # Regression (#1162): a rendered-preview comment carries no source line, so
+  # the tray jump can't use Pierre's line selection — it must instead flip the
+  # Source ⇄ Rendered toggle back to Rendered. Here the user has since switched
+  # the SAME open file to Source (no remount, so the toggle is "stuck" on
+  # source); clicking the tray item must return them to the rendered preview,
+  # where the quote ("md-preview-marker") actually lives.
+  Scenario: Tray jump returns to the rendered Markdown surface
+    When I run "rm -rf /tmp/kolu-comments-md-jump && git init /tmp/kolu-comments-md-jump && cd /tmp/kolu-comments-md-jump"
+    And I run "printf '# Doc Title\n\nmd-jump-marker in the body.\n' > README.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    When I select text "md-jump-marker" in the markdown preview
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "jump-back comment" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should contain "jump-back comment"
+    When I switch the file view to "source"
+    Then the file view should be showing "source"
+    When I click the tray comment "jump-back comment"
+    Then the file view should be showing "rendered"
+    And the markdown preview should be visible
+
+  # Regression: a tray jump to a comment with NO source lineRange (a
+  # rendered-Markdown / prose comment) used to bypass the history front door —
+  # it set the browse view + selection directly without recording. Back/forward
+  # then skipped the jump even though it moved the visible file. The no-line
+  # branch now records the navigation, so after jumping to the comment's file
+  # from a different file, "back" is enabled and returns to where you were.
+  Scenario: No-line comment tray jump records Code tab history
+    When I run "rm -rf /tmp/kolu-comments-md-history && git init /tmp/kolu-comments-md-history && cd /tmp/kolu-comments-md-history"
+    And I run "printf '# Doc Title\n\nmd-history-marker in the body.\n' > README.md && printf 'other-file-body\n' > other.txt && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "md-history-marker"
+    When I select text "md-history-marker" in the markdown preview
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "history-tray comment" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should contain "history-tray comment"
+    # Move to another file so the tray jump back to README is a real transition.
+    When I click the file "other.txt" in the file browser
+    Then the selected file should show content "other-file-body"
+    # Jump via the tray to the no-line comment on README — this records history.
+    When I click the tray comment "history-tray comment"
+    Then the markdown preview should be visible
+    # The jump was recorded, so back retraces it to the file we left.
+    And the Code tab "back" button should be enabled
+    When I go back in the Code tab
+    Then the selected file should show content "other-file-body"
+
+  # Regression (#1162): the rendered Markdown preview reassigns its innerHTML
+  # AFTER mount — the lazy Shiki highlighter warms and the html memo re-runs,
+  # swapping every text node. A comment highlight applied before that swap
+  # points at detached nodes and silently disappears. The overlay watches the
+  # prose host's subtree and re-applies, so the highlight survives. The doc has
+  # a fenced code block (triggers the Shiki load) and a commentable paragraph.
+  Scenario: Rendered Markdown comment highlight survives the Shiki re-render
+    When I run "rm -rf /tmp/kolu-comments-md-shiki && git init /tmp/kolu-comments-md-shiki && cd /tmp/kolu-comments-md-shiki"
+    And I run "printf '# Doc\n\nmd-shiki-marker paragraph.\n\n```js\nconst x = 1;\n```\n' > README.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "md-shiki-marker"
+    When I select text "md-shiki-marker" in the markdown preview
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "survives shiki" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should contain "survives shiki"
+    And the comment highlight should be present
 
   Scenario: Cancel button dismisses the composer without saving
     When I run "rm -rf /tmp/kolu-comments-cancel && git init /tmp/kolu-comments-cancel && cd /tmp/kolu-comments-cancel"
@@ -952,10 +1448,11 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     Then the comments tray should contain "should survive reload"
 
-  # A .md file opens rendered, where there's no selectable source surface to
-  # anchor a comment to — so comments on Markdown live in the source view
-  # (plan phase-3 v1 decision: rendered Markdown is read-only). Flipping the
-  # toggle to source brings back Pierre's CommentTextSurface and the pill.
+  # A .md file opens rendered — and the rendered preview is itself commentable
+  # (see the "Commenting on the rendered Markdown preview" scenario above).
+  # This scenario covers the *other* surface: flipping the toggle to source
+  # brings back Pierre's shadow-rooted CommentTextSurface, where a comment
+  # anchors to a real source line (line-addressable, unlike the prose preview).
   Scenario: Comments on a Markdown file work in the source view
     When I run "rm -rf /tmp/kolu-comments-md && git init /tmp/kolu-comments-md && cd /tmp/kolu-comments-md"
     And I run "printf '# Doc\n\nmd-source-comment-marker line\n' > notes.md && git add . && git commit -m init"
