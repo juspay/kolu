@@ -222,12 +222,29 @@ app.get(
 const pwaIdentity = pwaIdentityForHostname(serverHostname);
 installPwaManifest(app, {
   name: pwaIdentity.name,
+  short_name: "kolu",
+  // `...extra` passthrough in installPwaManifest carries these through to the
+  // served manifest — they upgrade Chromium's native install card (and the
+  // pwa-install preview) from a bare icon to a richer app entry.
+  description:
+    "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
   themeColor: pwaIdentity.themeColor,
   backgroundColor: PWA_BACKGROUND_COLOR,
   icons: [
     { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
     { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    // Maskable variant (logo inside the safe zone on the brand background) so
+    // installed icons fill the OS mask instead of being letterboxed.
+    {
+      src: "/icon-512-maskable.png",
+      sizes: "512x512",
+      type: "image/png",
+      purpose: "maskable",
+    },
   ],
+  // No `screenshots`: they only prettify the install card (install works without
+  // them), and committed product shots go stale as the UI moves. Not worth the
+  // maintenance — the icon + description carry the install entry.
 });
 
 // --- Static files (production) ---

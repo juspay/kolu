@@ -21,6 +21,7 @@
     "@kolu/solid-fileview": "workspace:*",
     "@kolu/solid-markdown": "workspace:*",
     "@kolu/solid-pierre": "workspace:*",
+    "@kolu/solid-pwa-install": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
     "@orpc/client": "^1.13.13",

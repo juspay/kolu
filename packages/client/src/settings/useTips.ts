@@ -12,6 +12,9 @@ import { preferences, updatePreferences } from "../wire";
 import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
+// Drop the install tip only when already installed. Its "install from your
+// browser menu" copy works over plain http too — manual install isn't gated on a
+// secure context (only the one-click prompt and the app badge are).
 const ambientPool = AMBIENT_TIPS.filter(
   (t) => !(isPWA && t.id === "amb-pwa-install"),
 );

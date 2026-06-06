@@ -6,6 +6,7 @@
  *  bar via `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Dialog from "@corvu/dialog";
+import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
@@ -35,6 +36,7 @@ import { showsWorkspaceSwitcher, supportsSpatialCanvas } from "./capabilities";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
+import WelcomeDialog from "./WelcomeDialog";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
 import { exportSession, importSession } from "./sessionTransfer";
@@ -141,6 +143,18 @@ const App: Component = () => {
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
+
+  // Welcome overlay state. No "seen" persistence — zero terminals always shows
+  // the welcome inline (EmptyState); this just re-summons it on demand via the
+  // palette "Tutorial" command. One shared install controller drives both the
+  // inline moments and the overlay.
+  const [welcomeOpen, setWelcomeOpen] = createSignal(false);
+  // The browser captures `beforeinstallprompt` against the served manifest —
+  // there's no element to point at a manifest URL, so `createPwaInstall` takes
+  // no app-identity overrides. Installed-state is single-owner: surface-app's
+  // `isInstalled` is the sole detector, so consumers read `app.isInstalled()`
+  // directly (see WelcomeMoments).
+  const pwaInstall = createPwaInstall();
 
   // Diagnostic info dialog state (command palette → Debug → Diagnostic info)
   const [diagnosticInfoOpen, setDiagnosticInfoOpen] = createSignal(false);
@@ -295,6 +309,7 @@ const App: Component = () => {
     handleSetTheme,
     handleEditActiveIntent: intentEditor.openActive,
     setAboutOpen,
+    setWelcomeOpen,
     setDiagnosticInfoOpen,
     handleCreateWorktree: (repoPath, name, initialCommand) =>
       void worktree.handleCreateWorktree(repoPath, name, initialCommand),
@@ -479,6 +494,11 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
+      <WelcomeDialog
+        open={welcomeOpen()}
+        onOpenChange={withRefocus(setWelcomeOpen)}
+        install={pwaInstall}
+      />
       <CloseConfirm
         target={closeConfirmTarget()}
         onCancel={() => {
@@ -535,6 +555,7 @@ const App: Component = () => {
               >
                 <CanvasWatermark text={appTitle()} />
                 <EmptyState
+                  install={pwaInstall}
                   savedSession={session.savedSession() ?? undefined}
                   isRestoring={session.isRestoring()}
                   onRestore={(opts) => void session.handleRestoreSession(opts)}

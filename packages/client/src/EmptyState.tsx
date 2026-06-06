@@ -1,24 +1,21 @@
 /** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
 
+import type { PwaInstall } from "@kolu/solid-pwa-install";
 import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
-import { ACTIONS } from "./input/actions";
+import { showsWelcome } from "./capabilities";
+import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import { surface } from "./ui/Surface";
 import Toggle from "./ui/Toggle";
+import WelcomeMoments from "./WelcomeMoments";
 
 const chrome = surface();
 
 const features = [
-  // Show the alt chord (Cmd+Enter): Cmd+T is intercepted by browsers outside
-  // PWA-installed mode, so the alt is the more universally-functional advert.
-  {
-    label: "New terminal",
-    shortcut:
-      ACTIONS.createTerminal.altKeybind ?? ACTIONS.createTerminal.keybind,
-  },
+  { label: "New terminal", shortcut: advertisedNewTerminalKey },
   { label: "New terminal menu", shortcut: ACTIONS.newTerminalMenu.keybind },
   { label: "Command palette", shortcut: ACTIONS.commandPalette.keybind },
   { label: "Cycle terminals", shortcut: ACTIONS.cycleTerminalMru.keybind },
@@ -57,6 +54,8 @@ function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
 }
 
 interface EmptyStateProps {
+  /** The shared PWA-install controller — drives the "Pin it" moment. */
+  install: PwaInstall;
   savedSession?: SavedSession;
   /** True while `handleRestoreSession` is running. The restore card
    *  stays mounted (button disabled, label changes to "Restoring…")
@@ -94,6 +93,12 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
       class="flex items-center justify-center h-full"
     >
       <div class={`${chrome.class} p-5 max-w-md w-full`}>
+        {/* The bird's-eye welcome — desktop only (no mobile welcome, by design). */}
+        <Show when={showsWelcome()}>
+          <div class="mb-5 pb-5 border-b border-edge">
+            <WelcomeMoments install={props.install} />
+          </div>
+        </Show>
         <Show when={props.savedSession}>
           {(session) => {
             const subCount = () =>
@@ -188,17 +193,22 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
             );
           }}
         </Show>
-        <p class="text-sm font-medium text-fg mb-3">Get started</p>
-        <div class="space-y-2">
-          <For each={features}>
-            {(f) => (
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-fg-3">{f.label}</span>
-                <Kbd>{formatKeybind(f.shortcut)}</Kbd>
-              </div>
-            )}
-          </For>
-        </div>
+        {/* Shortcut list — only where the welcome moments aren't shown (mobile).
+            On desktop the moments above already advertise these, so the list is
+            redundant there. */}
+        <Show when={!showsWelcome()}>
+          <p class="text-sm font-medium text-fg mb-3">Get started</p>
+          <div class="space-y-2">
+            <For each={features}>
+              {(f) => (
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-fg-3">{f.label}</span>
+                  <Kbd>{formatKeybind(f.shortcut)}</Kbd>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
     </div>
   );

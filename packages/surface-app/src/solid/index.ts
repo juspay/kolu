@@ -158,6 +158,53 @@ export function createServerLifecycle<
   };
 }
 
+/** The environment facts that decide PWA install state — passed in so the
+ *  decision is pure and unit-testable (the provider reads them from the DOM). */
+export interface InstallEnv {
+  /** `window.isSecureContext` — true for https + the localhost/loopback set. */
+  isSecureContext: boolean;
+  /** Any installed display-mode (standalone / minimal-ui / fullscreen). */
+  displayModeStandalone: boolean;
+  /** iOS Safari's legacy `navigator.standalone`. */
+  navigatorStandalone: boolean;
+}
+
+/** Already installed / running as an app. */
+export function isInstalledFromEnv(env: InstallEnv): boolean {
+  return env.displayModeStandalone || env.navigatorStandalone;
+}
+
+/** A secure context where the **one-click** install prompt (and the app badge /
+ *  service workers) can work, and not already installed. False over plain
+ *  `http://` on a LAN/Tailscale IP — only https and the localhost/loopback set
+ *  are secure contexts. Gate the *one-click* affordance on this; manual install
+ *  via the browser menu still works over http, so don't use it to hide install
+ *  entirely. */
+export function canInstallFromEnv(env: InstallEnv): boolean {
+  return env.isSecureContext && !isInstalledFromEnv(env);
+}
+
+/** Read the live install environment from the browser (SSR/test-safe). */
+function readInstallEnv(): InstallEnv {
+  if (typeof window === "undefined") {
+    return {
+      isSecureContext: false,
+      displayModeStandalone: false,
+      navigatorStandalone: false,
+    };
+  }
+  const standalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.matchMedia("(display-mode: minimal-ui)").matches ||
+    window.matchMedia("(display-mode: fullscreen)").matches;
+  return {
+    isSecureContext: window.isSecureContext,
+    displayModeStandalone: standalone,
+    navigatorStandalone:
+      (navigator as Navigator & { standalone?: boolean }).standalone === true,
+  };
+}
+
 /** The headless model `useSurfaceApp()` returns. */
 export interface SurfaceAppModel<
   T extends { commit: string } = { commit: string },
@@ -179,6 +226,14 @@ export interface SurfaceAppModel<
   /** Set an attention/unread count: OS app badge if installed (best-effort) +
    *  the document title — degrades per browser. Pass 0 to clear. */
   setAttention: (count: number) => void;
+  /** Running as an installed app (standalone display-mode / iOS `navigator.standalone`). */
+  isInstalled: Accessor<boolean>;
+  /** A secure context where the **one-click** install prompt — plus the OS app
+   *  badge and service workers — can work (https or localhost), and not already
+   *  installed. False over plain `http://` on a LAN/Tailscale IP, where *manual*
+   *  install via the browser menu still works; gate the one-click affordance on
+   *  this, not the existence of any install path. */
+  canInstallPwa: Accessor<boolean>;
 }
 
 /** The structural slice of a surface client the provider needs: a `buildInfo`
@@ -315,6 +370,23 @@ export function SurfaceAppProvider<
   const isStale = (srv: T | undefined): boolean =>
     def.isStale(srv ?? def.cells.buildInfo.default, props.clientCommit);
   const stale = () => isStale(server());
+  // Install environment — a signal so `isInstalled`/`canInstallPwa` update when
+  // the app gets installed (`appinstalled`) or its display-mode flips (the user
+  // launches it standalone). Listeners detach on dispose under an owner.
+  const [installEnv, setInstallEnv] = createSignal<InstallEnv>(
+    readInstallEnv(),
+  );
+  if (typeof window !== "undefined") {
+    const refresh = () => setInstallEnv(readInstallEnv());
+    window.addEventListener("appinstalled", refresh);
+    const mq = window.matchMedia("(display-mode: standalone)");
+    mq.addEventListener?.("change", refresh);
+    if (getOwner())
+      onCleanup(() => {
+        window.removeEventListener("appinstalled", refresh);
+        mq.removeEventListener?.("change", refresh);
+      });
+  }
   const model: SurfaceAppModel<T> = {
     status,
     stale,
@@ -326,6 +398,8 @@ export function SurfaceAppProvider<
     updateReady: () => status() === "restarted" || stale(),
     reload: reloadForUpdate,
     setAttention,
+    isInstalled: () => isInstalledFromEnv(installEnv()),
+    canInstallPwa: () => canInstallFromEnv(installEnv()),
   };
   return createComponent(SurfaceAppContext.Provider, {
     value: model as SurfaceAppModel,

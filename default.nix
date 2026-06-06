@@ -30,6 +30,7 @@ let
       ./packages/surface-app
       ./packages/solid-pierre
       ./packages/solid-markdown
+      ./packages/solid-pwa-install
       ./packages/solid-fileview
       ./packages/solid-browser
       ./packages/common

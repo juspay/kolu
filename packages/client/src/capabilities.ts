@@ -32,3 +32,7 @@ export const showsWorkspaceSwitcher = () => !isMobile();
 /** Ambient and contextual tips render only where there is room for the banner —
  *  suppressed on the compact mobile layout. */
 export const showsAmbientTips = () => !isMobile();
+
+/** The bird's-eye welcome — the three "moments" and the install card — renders
+ *  only on the desktop layout. Mobile has no welcome, by design. */
+export const showsWelcome = () => !isMobile();
