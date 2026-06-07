@@ -174,9 +174,10 @@ app.get("/api/health", (c) => c.text("kolu"));
 // Self-contained — registers the SDK bundle route and a middleware that
 // splices the SDK <script> into text/html responses on the iframe-preview
 // route. The byte-streaming `iframePreviewRoute` below stays untouched.
+const PREVIEW_ROUTE_PATTERN = `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
 mountArtifactSdk(app, {
   sdkScriptPath: "/api/artifact-sdk.js",
-  htmlRoutePrefix: `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`,
+  htmlRoutePrefix: PREVIEW_ROUTE_PATTERN,
 });
 
 // --- Iframe preview file route ---
@@ -184,38 +185,35 @@ mountArtifactSdk(app, {
 // URL contract (base + builder + parser) all lives in `iframePreviewRoute.ts`.
 // Registered before the static-serve catch-all so production builds don't
 // shadow this route with `serveStatic`'s `/*` matcher.
-app.get(
-  `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`,
-  async (c) => {
-    const terminalId = c.req.param("terminalId");
-    // Slice the tail off the RAW request pathname — NOT `c.req.path` (`decodeURI`d)
-    // or `c.req.param("*")` (`decodeURIComponent`d), both of which decode it
-    // before `@kolu/serve-dir` decodes again, double-decoding the tail.
-    // `previewTailFromRawUrl` documents why (correctness for `%`-bearing names +
-    // `%2f` traversal defense) and is unit-tested in `iframePreviewRoute.test.ts`.
-    const rawTail = previewTailFromRawUrl(c.req.raw.url, terminalId);
+app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
+  const terminalId = c.req.param("terminalId");
+  // Slice the tail off the RAW request pathname — NOT `c.req.path` (`decodeURI`d)
+  // or `c.req.param("*")` (`decodeURIComponent`d), both of which decode it
+  // before `@kolu/serve-dir` decodes again, double-decoding the tail.
+  // `previewTailFromRawUrl` documents why (correctness for `%`-bearing names +
+  // `%2f` traversal defense) and is unit-tested in `iframePreviewRoute.test.ts`.
+  const rawTail = previewTailFromRawUrl(c.req.raw.url, terminalId);
 
-    // The one kolu binding: which directory this terminal serves. Kept as the
-    // git repo root for now (behavior-preserving — the browse tree, git-status
-    // decoration, and diff are all repo-relative); switching the injected root
-    // to the terminal's `$PWD` (`meta.cwd`) is a one-line change here, deferred
-    // because it's a browse-model/decoration product decision, not this refactor.
-    const root = getTerminal(terminalId)?.meta.git?.repoRoot;
-    if (!root) return c.text("terminal has no repo", 404);
+  // The one kolu binding: which directory this terminal serves. Kept as the
+  // git repo root for now (behavior-preserving — the browse tree, git-status
+  // decoration, and diff are all repo-relative); switching the injected root
+  // to the terminal's `$PWD` (`meta.cwd`) is a one-line change here, deferred
+  // because it's a browse-model/decoration product decision, not this refactor.
+  const root = getTerminal(terminalId)?.meta.git?.repoRoot;
+  if (!root) return c.text("terminal has no repo", 404);
 
-    // The agnostic receptacle owns range/content-type/the lexical guard and
-    // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
-    // above) rewrites it downstream for text/html. Range header is read from the
-    // request inside. We inject kolu's realpath guard (`previewRealpathGuard`)
-    // so a repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
-    // rejected with 403 before any byte is read — the stage the lexical guard
-    // inside `@kolu/serve-dir` can't cover.
-    return createDirServer(root, previewRealpathGuard(root)).fetch(
-      rawTail,
-      c.req.raw,
-    );
-  },
-);
+  // The agnostic receptacle owns range/content-type/the lexical guard and
+  // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
+  // above) rewrites it downstream for text/html. Range header is read from the
+  // request inside. We inject kolu's realpath guard (`previewRealpathGuard`)
+  // so a repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
+  // rejected with 403 before any byte is read — the stage the lexical guard
+  // inside `@kolu/serve-dir` can't cover.
+  return createDirServer(root, previewRealpathGuard(root)).fetch(
+    rawTail,
+    c.req.raw,
+  );
+});
 
 // --- Dynamic PWA manifest (includes hostname) ---
 // surface-app owns assembly + the install-friendly defaults (start_url,

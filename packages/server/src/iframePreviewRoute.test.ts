@@ -14,11 +14,11 @@ import path from "node:path";
 import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
 import {
   BINARY_PREVIEWABLE_EXTENSIONS,
+  buildTerminalFileUrl,
   RASTER_IMAGE_EXTENSIONS,
   SANDBOX_PREVIEWABLE_EXTENSIONS,
   VIDEO_EXTENSIONS,
 } from "kolu-common/preview";
-import { buildTerminalFileUrl } from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   previewRealpathGuard,

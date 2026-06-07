@@ -185,7 +185,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   //              line, so no lineRange → CommentTextSurface, lineAnchored false
   //   - "iframe" the sandboxed preview owns its own postMessage bridge (it
   //              must bind to the element the renderer creates)
-  //   - "none"   nothing to anchor to (a raster image)
+  //   - "none"   nothing to anchor to (a raster image or a video)
   // `"iframe"` and `"none"` are left untouched; the two text-bearing modes get
   // the `CommentTextSurface` wrapper.
   type Capture = "text" | "prose" | "iframe" | "none";
