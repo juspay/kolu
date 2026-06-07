@@ -239,7 +239,10 @@ const _ACTIONS = {
     keybind: { key: "C", code: "KeyC", ctrl: true, shift: true },
   },
   toggleRightPanel: {
-    label: "Toggle inspector panel",
+    // The action toggles panel *visibility* only; it lands on whichever tab
+    // is active (Code by default), so the label is tab-agnostic rather than
+    // "inspector".
+    label: "Toggle right panel",
     keybind: { key: "b", code: "KeyB", mod: true, alt: true },
     handler: (ctx) => ctx.toggleRightPanel(),
   },

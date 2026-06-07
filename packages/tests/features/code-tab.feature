@@ -28,15 +28,20 @@ Feature: Code tab (review + browse)
     When I run "git init /tmp/kolu-review-clean && cd /tmp/kolu-review-clean"
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should show the empty-changes message
 
   # ── Mode picker ──
 
-  Scenario: Mode toggle defaults to Local
+  # A fresh terminal seeds its per-terminal Code-tab state from
+  # DEFAULT_RIGHT_PANEL_PER_TERMINAL, which defaults the mode to "browse"
+  # (the All-files repo browser) so the Code tab lands on a populated tree
+  # rather than a diff that reads empty on a clean tree.
+  Scenario: Mode toggle defaults to browse
     When I run "git init /tmp/kolu-review-toggle && cd /tmp/kolu-review-toggle"
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
-    Then the Code tab mode should be "local"
+    Then the Code tab mode should be "browse"
 
   Scenario: Code tab mode survives panel close and reopen
     When I run "git init /tmp/kolu-review-mode-persist && cd /tmp/kolu-review-mode-persist"
@@ -205,6 +210,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "printf 'hello\n' > note.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should list a changed file "note.txt"
     When I click the changed file "note.txt" in the Code tab
     Then the Code tab should render a diff view
@@ -326,6 +332,7 @@ Feature: Code tab (review + browse)
     And I run "printf 'modified\n' > tracked.txt"
     And I run "printf 'new\n' > untracked.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should list a changed file "tracked.txt"
     And the Code tab should list a changed file "untracked.txt"
 
@@ -336,6 +343,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p src/components && printf 'a\n' > src/index.ts && printf 'b\n' > src/components/Button.tsx"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should show a directory node "src"
     And the Code tab should list a changed file "src/index.ts"
     And the Code tab should list a changed file "src/components/Button.tsx"
@@ -345,6 +353,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p pkg && printf 'x\n' > pkg/a.ts && printf 'y\n' > pkg/b.ts"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should list a changed file "pkg/a.ts"
     When I click the directory node "pkg" in the Code tab
     Then the Code tab should not list a changed file "pkg/a.ts"
@@ -358,6 +367,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p api && printf 'q\n' > api/handler.ts"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should list a changed file "api/handler.ts"
     When I right-click the changed file "api/handler.ts" in the Code tab
     And I click the context menu item "Copy path"
@@ -400,6 +410,7 @@ Feature: Code tab (review + browse)
     And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
     And I run "printf 'two\n' >> seed.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab mode should be "local"
     And the Code tab should list a changed file "seed.txt"
     When I right-click the changed file "seed.txt" in the Code tab
@@ -518,6 +529,7 @@ Feature: Code tab (review + browse)
     And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
     And I run "printf 'two\n' >> seed.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab mode should be "local"
     And the Code tab should list a changed file "seed.txt"
     When I click the file "seed.txt" in the file browser
@@ -618,8 +630,9 @@ Feature: Code tab (review + browse)
     # Two entries in terminal A's repo — back is live.
     And the Code tab "back" button should be enabled
     # Second terminal in a DIFFERENT repo, with its own back-stack. A new
-    # terminal defaults to the Inspector tab (DEFAULT_RIGHT_PANEL_PER_TERMINAL),
-    # so re-select the Code tab for it before driving the mode chip.
+    # terminal defaults to the Code tab (DEFAULT_RIGHT_PANEL_PER_TERMINAL),
+    # but we click it explicitly so this stays robust to the default and to
+    # which tab the terminal-1 interactions left active.
     When I create a terminal
     And I run "rm -rf /tmp/kolu-hist-term-b && git init /tmp/kolu-hist-term-b && cd /tmp/kolu-hist-term-b"
     And I run "printf 'one-B\n' > one.txt && printf 'two-B\n' > two.txt"
@@ -1167,6 +1180,7 @@ Feature: Code tab (review + browse)
     And I run "printf 'a-one\na-two\na-three\n' > file-a.txt"
     And I run "printf 'b-one\nb-two\nb-three\n' > file-b.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should list a changed file "file-a.txt"
     And the Code tab should list a changed file "file-b.txt"
     When I click the changed file "file-a.txt" in the Code tab
@@ -1192,6 +1206,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p docs && printf 'first\nsecond\nthird\n' > docs/notes.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should list a changed file "docs/notes.txt"
     When I click the changed file "docs/notes.txt" in the Code tab
     Then the diff view should contain "second"
@@ -1229,6 +1244,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "printf 'PNG\0fake\1\2' > image.png"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should list a changed file "image.png"
     When I click the changed file "image.png" in the Code tab
     Then the Code tab should show the binary placeholder
@@ -1238,6 +1254,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "printf 'hello\nworld\n' > note.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should list a changed file "note.txt"
     When I click the changed file "note.txt" in the Code tab
     Then the Code tab should render a diff view
@@ -1256,6 +1273,7 @@ Feature: Code tab (review + browse)
     And I run "git mv old.png new.png"
     And I run "printf 'PNG\0fake\1\2\3\4\5\6\7\10\11\12\13\14\15\16\17modified' > new.png"
     And I click the Code tab
+    And I click the Code tab mode "local"
     Then the Code tab should list a changed file "new.png"
     When I click the changed file "new.png" in the Code tab
     Then the Code tab should show the binary placeholder
@@ -1269,6 +1287,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "printf 'PNG\0fake\1\2' > note.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     And I click the changed file "note.txt" in the Code tab
     Then the Code tab should show the binary placeholder
     When I click the terminal canvas
@@ -1281,6 +1300,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "printf 'before\n' > note.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     And I click the changed file "note.txt" in the Code tab
     Then the diff view should contain "before"
     When I click the terminal canvas
@@ -1379,6 +1399,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "printf 'before\n' > note.txt"
     And I click the Code tab
+    And I click the Code tab mode "local"
     And I click the changed file "note.txt" in the Code tab
     Then the diff view should contain "before"
     When I click the terminal canvas
@@ -1698,6 +1719,7 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "for i in $(seq 1 199); do echo \"const line_$i = $i;\"; done > long.ts && echo 'const LAST_LINE_MARKER = 200;' >> long.ts"
     And I click the Code tab
+    And I click the Code tab mode "local"
     And I click the changed file "long.ts" in the Code tab
     And I scroll the file preview to the bottom
     Then the diff view should contain "LAST_LINE_MARKER"
