@@ -42,7 +42,7 @@ by the recipe — the top-level flake devShells are untouched.
   parallel). A cold checkout is slower (nix fetches + a full client build).
   Because the agent's answer is a live LLM call, the run time (and clip length)
   **varies a few seconds run-to-run**.
-- Each clip is 2560×1440; the three artifacts (`<name>.{mp4,webm,webp}`) live in
+- Each clip is 3200×1800 (logical 1600×900 ×2); the three artifacts (`<name>.{mp4,webm,webp}`) live in
   `website/public/demo/` and are committed (the site needs them at build time).
 
 **Per recording** (clip duration drives the file sizes; measured, expect ±a few
@@ -53,9 +53,14 @@ from `packages/terminal-themes`), so the three look visually different.
 
 | Recording | Theme | Clip | mp4 (H.264) | webm (VP9) | webp poster | Embedded on |
 | --- | --- | --- | --- | --- | --- | --- |
-| `new-terminal-demo` | Dracula | ~28s | ~2.0 MB | ~1.4 MB | ~29 KB | `/welcome` §02 |
-| `dock-alert-demo` | Vaughn + Catppuccin Latte | ~29s | ~2.5 MB | ~1.7 MB | ~0.13 MB | `/` (home hero) |
-| `code-review-demo` | Django | ~15s | ~0.9 MB | ~0.7 MB | ~0.11 MB | `/welcome` §03 |
+| `new-terminal-demo` | Dracula | ~26s | ~1.7 MB | ~1.4 MB | ~30 KB | `/welcome` §02 |
+| `dock-alert-demo` | Vaughn + Catppuccin Latte | ~27s | ~2.7 MB | ~2.0 MB | ~0.13 MB | `/` (home hero) |
+| `code-review-demo` | Django | ~12s | ~0.7 MB | ~0.5 MB | ~0.11 MB | `/welcome` §03 |
+
+The **right panel stays open** in every clip (the app's default — Code tab on the
+active terminal's repo). Recordings flip the harness's collapse-on-reset off
+under `KOLU_X11CAP` (`hooks.ts`) and run at a wider `viewport` (1600×900 → 3200
+×1800) so the dock, tiles, and panel all fit.
 
 `dock-alert-demo` is the richest clip: it opens on an empty canvas, **clicks the
 "+"** to create terminals (every on-camera click is telegraphed with a coral
@@ -92,7 +97,8 @@ export const recording: Recording = {
   name: "my-demo",
   chrome: "app", // "app" = chromeless PWA window · "browser" = real chrome
   theme: "Vaughn", // pinned per recording (packages/terminal-themes)
-  display: { hideRightPanel: true, hideMinimap: true }, // dock stays in for live status
+  display: { hideMinimap: true }, // dock + right panel stay (live status / Code tab)
+  viewport: { width: 1600, height: 900 }, // room for the dock, tile(s), and panel
   async drive(world) {
     await setupSingleTerminal(world); // themed terminal, clear of the dock
     await world.terminalRun("…");

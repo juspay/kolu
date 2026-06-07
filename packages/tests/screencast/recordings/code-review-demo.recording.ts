@@ -49,7 +49,7 @@ export const recording: Recording = {
   name: "code-review-demo",
   chrome: "app",
   theme: "Django", // distinct per recording (new-terminal=Dracula, dock-alert=Vaughn/Latte)
-  display: { hideRightPanel: true, hideMinimap: true }, // panel starts collapsed; we open it on camera
+  display: { hideMinimap: true }, // right panel stays open (new app default)
   viewport: { width: 1600, height: 900 },
   // Payoff is the selected source + comment composer; sample it near the end.
   posterAt: 12,
@@ -63,13 +63,9 @@ export const recording: Recording = {
     await world.terminalRun("cd ~/demo/kolu");
     await pause(world, 1000); // let the cwd/repo register for the Code tab
 
-    // Open the right panel → Code tab → "All files" (the whole tree, not just
-    // the working-tree diff).
-    await world.page
-      .locator('header button[aria-label*="Toggle inspector"]')
-      .click();
-    await world.waitForFrame();
-    await pause(world, 400);
+    // The right panel is already open on the Code tab / All-files (the new app
+    // default), so no toggle — just make sure (idempotent) it's the Code tab and
+    // browse mode, and point the viewer at it.
     await clickWithArrow(
       world,
       '[data-testid="right-panel-tab-code"]',

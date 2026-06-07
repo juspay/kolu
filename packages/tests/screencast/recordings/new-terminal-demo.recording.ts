@@ -30,8 +30,11 @@ const OWNERSHIP_MARKER = path.join(CLONE_PATH, ".kolu-demo-fixture");
 export const recording: Recording = {
   name: "new-terminal-demo",
   chrome: "app",
-  theme: "Dracula", // distinct per recording (dock-alert=Vaughn/Latte, code-review=Nord)
-  display: { hideRightPanel: true, hideMinimap: true },
+  theme: "Dracula", // distinct per recording (dock-alert=Vaughn/Latte, code-review=Django)
+  // Right panel stays visible (the new app default — Code tab on the repo); wide
+  // enough that the terminal + panel both fit.
+  display: { hideMinimap: true },
+  viewport: { width: 1600, height: 900 },
   async drive(world) {
     // Idempotent fixture: a fresh ~/demo/kolu each run (the terminal's $HOME is
     // this same user, so this clears what the shell is about to clone). Remove

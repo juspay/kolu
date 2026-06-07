@@ -80,7 +80,9 @@ export const recording: Recording = {
   name: "dock-alert-demo",
   chrome: "app",
   theme: "Vaughn", // T1; T2 overrides to a light theme below
-  display: { hideRightPanel: true, hideMinimap: true }, // dock stays — it's the star
+  // Dock stays — it's the star; the right panel also stays (new app default).
+  display: { hideMinimap: true },
+  viewport: { width: 1600, height: 900 }, // room for dock + two tiles + the panel
   // The payoff is the dock alert near the end; sample the poster there so the
   // still shows the arrow on the dock, not the load-in. Tuned to the clip.
   posterAt: 23,

@@ -699,7 +699,10 @@ Before(async function (this: KoluWorld, scenario) {
         // NOT overridden here, so they flow from DEFAULT_RIGHT_PANEL_PER_-
         // TERMINAL and are asserted by right-panel.feature / code-tab.feature.
         rightPanel: {
-          collapsed: true,
+          // Recordings (X11CAP) want the right panel visible by default (it's
+          // the new app default, and the Code tab is part of what we show);
+          // normal tests keep it collapsed (right-panel.feature asserts that).
+          collapsed: !X11CAP,
           size: 0.25,
           codeTabTreeSize: 0.35,
         },
