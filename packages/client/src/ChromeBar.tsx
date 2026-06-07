@@ -184,7 +184,7 @@ const ChromeBar: Component<{
           </button>
         </Tip>
         <Tip
-          label={`Toggle inspector (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
+          label={`Toggle right panel (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
         >
           <button
             type="button"
@@ -197,7 +197,7 @@ const ChromeBar: Component<{
             }}
             data-active={!rightPanel.collapsed() ? "" : undefined}
             onClick={() => rightPanel.togglePanel()}
-            aria-label="Toggle inspector"
+            aria-label="Toggle right panel"
           >
             <InspectorToggleIcon active={!rightPanel.collapsed()} />
           </button>

@@ -1046,7 +1046,9 @@ async function activateCodeTabMode(
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await tab.click();
   await world.waitForFrame();
-  if (mode === "local") return; // default
+  // The Code tab now defaults to "browse" (DEFAULT_RIGHT_PANEL_PER_TERMINAL),
+  // so every mode — including local — must be selected explicitly via the
+  // chip; there is no implicit default to short-circuit on.
   const chip = world.page.locator(`[data-testid="diff-filter-chip"]`);
   await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await chip.click();
