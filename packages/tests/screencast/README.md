@@ -36,15 +36,21 @@ by the recipe — the top-level flake devShells are untouched.
 
 ### Time + size
 
-- **~100s per recording** end-to-end on a warm checkout (`just record <name>`):
+- **~85s per recording** end-to-end on a warm checkout (`just record <name>`):
   client build + server start + the scripted flow (including a **real** agent
-  query, which dominates) + x11grab + the ffmpeg transcode. A cold checkout is
-  slower (nix fetches + a full client build). Because the agent's answer is a
-  live LLM call, the run time (and clip length) **varies a few seconds run-to-run**.
-- **~3 MB committed per recording** — the on-camera clip is ~30s at 2560×1440:
-  `<name>.mp4` ≈ 2 MB (H.264), `<name>.webm` ≈ 1.1 MB (VP9), `<name>.webp` poster
-  ≈ 30 KB. These live in `website/public/demo/` and are committed (the site needs
-  them at build time).
+  query, which dominates) + x11grab + the ffmpeg transcode (mp4 + webm encode in
+  parallel). A cold checkout is slower (nix fetches + a full client build).
+  Because the agent's answer is a live LLM call, the run time (and clip length)
+  **varies a few seconds run-to-run**.
+- Each clip is 2560×1440; the three artifacts (`<name>.{mp4,webm,webp}`) live in
+  `website/public/demo/` and are committed (the site needs them at build time).
+
+**Per recording** (clip duration drives the file sizes; measured, expect ±a few
+seconds since the agent's answer is live):
+
+| Recording | Clip | mp4 (H.264) | webm (VP9) | webp poster |
+| --- | --- | --- | --- | --- |
+| `new-terminal-demo` | ~32s | ~2.4 MB | ~1.4 MB | ~29 KB |
 
 ## Add a recording
 
