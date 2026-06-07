@@ -41,14 +41,14 @@ function ensureClone(repo: { url: string; dir: string }): void {
   });
 }
 
-// Engineered so claude comes back with a QUESTION and waits (rather than
-// charging ahead) — that's the `awaiting` ("needs you") state the dock surfaces
-// while claude's tile is buried.
+// Drives claude to invoke its **AskUserQuestion** tool — the real
+// multiple-choice prompt — and wait on the pick (rather than charging ahead or
+// asking in plain text). We hand it the exact options so the rendered question
+// is well-formed. That wait is the `awaiting` ("needs you") state the dock
+// surfaces while claude's tile is buried. The answer side selects an option in
+// that prompt with the keyboard (↓ then Enter) — see drive().
 const CLAUDE_ASK =
-  "I want to add a small feature to this project. Before writing any code, ask me ONE clarifying question about scope, then stop and wait for my answer.";
-// A generic answer that coheres with almost any scope question claude raises.
-const CLAUDE_ANSWER =
-  "Keep it minimal — the smallest change that works, and no new dependencies.";
+  'Use your AskUserQuestion tool to ask me how I want to add a small feature to this project. Present exactly these options to pick from: "A CLI flag", "A config-file setting", "An environment variable". Do not write any code — just ask and wait for my pick.';
 // codex gets real work so its row reads `working` (a live contrast to claude's
 // `awaiting`) while we point at the dock.
 const CODEX_TASK =
@@ -59,15 +59,16 @@ const CODEX_TASK =
  * tiles you can't even see:
  *
  *  1. Empty canvas → click "+" to open a terminal (Vaughn). `cd` into **kolu**
- *     and launch claude; ask it a question so it stops and waits on you.
+ *     and launch claude; have it call its **AskUserQuestion** tool (a real
+ *     multiple-choice prompt) so it stops and waits on your pick.
  *  2. Click "+" for a second terminal (a LIGHT theme), which opens on top and
  *     **buries** claude's tile. `cd` into **drishti** and run codex. Now the
  *     dock groups two repos, each with its agent's live status: drishti · codex
  *     `working`, kolu · claude `awaiting`.
  *  3. claude's tile is hidden, but the dock flags it — a coral arrow points at
  *     claude's `awaiting` row.
- *  4. You act on it: click that dock row to raise the buried tile, and answer
- *     claude's question. The loop closes.
+ *  4. You act on it: click that dock row to raise the buried tile, and pick an
+ *     option in claude's AskUserQuestion prompt. The loop closes.
  *
  * Every on-camera mouse click is telegraphed with a coral arrow. Two different
  * agents in two different repos, end to end — realistic, and it shows repo
@@ -144,8 +145,13 @@ export const recording: Recording = {
       "click the row → jump straight to it",
       "left",
     );
-    await pause(world, 500); // claude's tile lifts to the front
-    await world.terminalRun(CLAUDE_ANSWER);
-    await pause(world, 900); // claude takes the answer and gets back to work
+    await pause(world, 600); // claude's tile lifts to the front
+    // Answer claude's AskUserQuestion prompt: focus the (now-raised) tile, move
+    // the selection to a choice, and confirm — a real pick, not typed text.
+    await world.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    await world.page.keyboard.press("ArrowDown"); // highlight the 2nd option
+    await pause(world, 500);
+    await world.page.keyboard.press("Enter"); // pick it
+    await pause(world, 1200); // claude takes the choice and gets back to work
   },
 };
