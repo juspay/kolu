@@ -800,12 +800,15 @@ After(async function (this: KoluWorld, scenario) {
       // Skip the app-mode load-in + Background reload + the killAll that
       // clears the auto-restored terminal, so the clip opens on the clean
       // empty-canvas welcome (then the terminal is created on camera).
-      trimStart: 5.3,
-      // Poster is sampled from the trimmed timeline; pick a beat where the
-      // demo terminal is already on the clean canvas (past the welcome card +
-      // the nudge), so the first paint / reduced-motion still frame is the
-      // deliberate empty-canvas demo state, not the restore-session card.
-      posterAt: 6,
+      // Trim the load-in (app-mode reload + the killAll that clears the
+      // auto-restored terminal) so the clip opens on the clean empty canvas. A
+      // recording can override when its opening timing differs.
+      trimStart: getRecording(scenario.pickle.name).trimStart ?? 5.3,
+      // Poster is sampled from the trimmed timeline. Default (6s) lands on the
+      // clean empty-canvas demo state (past the welcome card + the nudge), not
+      // the restore-session card. A recording can override `posterAt` when its
+      // payoff is later (e.g. dock-alert-demo samples its end-of-clip alert).
+      posterAt: getRecording(scenario.pickle.name).posterAt ?? 6,
     });
     console.log(`[worker:${workerId}] KOLU_X11CAP: web assets → ${out.mp4}`);
   }

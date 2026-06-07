@@ -9,3 +9,6 @@ Feature: Screencast recordings
 
   Scenario: new-terminal-demo
     When I record "new-terminal-demo"
+
+  Scenario: dock-alert-demo
+    When I record "dock-alert-demo"

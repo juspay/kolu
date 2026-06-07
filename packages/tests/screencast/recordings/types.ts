@@ -27,6 +27,19 @@ export interface Recording {
   theme?: string;
   /** kolu-domain display tweaks applied before `drive()`. */
   display?: RecordingDisplay;
+  /**
+   * Seconds of leading load-in to trim off the front of the raw grab (app-mode
+   * reload + the killAll that clears the auto-restored terminal), so the clip
+   * opens on the clean empty canvas. Default 5.3.
+   */
+  trimStart?: number;
+  /**
+   * Seconds into the FINAL (trimmed) clip to sample the poster / first-paint /
+   * reduced-motion still frame. Default 6 (good for an opening-on-the-canvas
+   * demo). Set later for clips whose payoff is at the end (e.g. an annotated
+   * dock alert) so the still shows the point, not the load-in.
+   */
+  posterAt?: number;
   /** Drive the flow. Uses World helpers (createTerminal/terminalRun/…). */
   drive(world: KoluWorld): Promise<void>;
 }

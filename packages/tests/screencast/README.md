@@ -48,9 +48,18 @@ by the recipe — the top-level flake devShells are untouched.
 **Per recording** (clip duration drives the file sizes; measured, expect ±a few
 seconds since the agent's answer is live):
 
-| Recording | Clip | mp4 (H.264) | webm (VP9) | webp poster |
-| --- | --- | --- | --- | --- |
-| `new-terminal-demo` | ~32s | ~2.4 MB | ~1.4 MB | ~29 KB |
+| Recording | Clip | mp4 (H.264) | webm (VP9) | webp poster | Embedded on |
+| --- | --- | --- | --- | --- | --- |
+| `new-terminal-demo` | ~32s | ~2.4 MB | ~1.4 MB | ~29 KB | `/welcome` §02 |
+| `dock-alert-demo` | ~27s | ~2.5 MB | ~1.7 MB | ~0.13 MB | `/` (home hero) |
+
+`dock-alert-demo` is the richer clip: it opens on an empty canvas, **clicks the
+"+"** to create terminals (every on-camera click is telegraphed with a coral
+arrow), runs **two agents in two repos** (claude in kolu, codex in drishti —
+they group by repo in the dock), buries claude's tile behind codex's, and shows
+the dock flagging the buried agent that needs you — then clicks that dock row to
+raise the tile and answers. T2 uses a **light theme** (Catppuccin Latte) to set
+it apart from T1's dark Vaughn.
 
 ## Add a recording
 
@@ -75,22 +84,37 @@ export const recording: Recording = {
 
 ### `helpers.ts` (the reusable patterns — extend these, don't re-roll)
 
-- `setupSingleTerminal(world)` — the single-terminal-demo opening: clears any
-  auto-restored terminal (clean empty canvas), beats on it, then creates one
-  themed terminal nudged clear of the dock. Returns the id.
-- `launchAgentAndAsk(world, { command, prompt, … })` — launch an agent and ask
-  it something; waits for the dock bucket `working → awaiting`, glows the
-  awaiting row, then holds. `CODEX_AUTONOMOUS` (codex, identity-neutral — no
-  email/name banner) is the default agent; `CLAUDE_SONNET` exists but shows the
-  account banner. Codex needs `acceptTrustGate: false` + a generous `bootMs`
-  (slow typewriter intro); claude needs `acceptTrustGate: true`.
-- `newTerminal(world)` — create a terminal + pin the recording's theme (via the
-  `setTheme` RPC; no palette flash).
-- `pause`, `setActiveTheme`, `CODEX_AUTONOMOUS`, `CLAUDE_SONNET`.
+- `clearCanvas(world, beatMs?)` — kill any auto-restored terminal and beat on the
+  empty canvas (the clean opening every clip starts from).
+- `setupSingleTerminal(world)` — `clearCanvas` + create one themed terminal (via
+  the keyboard shortcut) nudged clear of the dock. Returns the id.
+- `createTerminalByClick(world, theme?, label?)` — create a terminal by **clicking
+  the dock "+"** (telegraphed with a coral arrow), confirming the new-terminal
+  palette with Enter ("In current directory"). The visible, on-camera way to open
+  a terminal. Per-terminal `theme` override.
+- `openOverlappingTerminal(world, { theme })` — `createTerminalByClick` + drag the
+  new tile to a deterministic offset that **buries** the previous tile.
+- `clickWithArrow(world, selector, label, dir?)` — arrow → hold → click → clear.
+  Use for every on-camera mouse click so the viewer sees what's clicked.
+- `launchAgentAndAsk(world, { command, prompt, … })` — launch an agent and ask it
+  something; waits for the dock bucket `working → awaiting`, annotates, holds.
+- `annotate(world, selector, label, dir)` / `clearAnnotations(world)` — coral
+  arrow + label pointing at any element.
+- `waitForDockBucket(world, bucket, timeout)` — wait (THROWS on timeout) for a dock
+  row to reach `working`/`awaiting`/`idle`. Qualified on `dock-row` so it never
+  matches a minimap rect.
+- Agents: `CLAUDE_SONNET` (shows the account banner — name/email/plan),
+  `CODEX_AUTONOMOUS` (identity-neutral). Both show a first-run **directory-trust
+  prompt** on a fresh checkout — press Enter to accept ("Yes, I trust" / "Yes,
+  continue") before typing the prompt, or it leaks to the shell.
+- `pause`, `setActiveTheme`, `setTerminalThemeRpc`, `newTerminal`.
 
 ## Gotchas (learned the hard way)
 
 - **`ffmpeg-full`, not `ffmpeg`** — plain nixpkgs ffmpeg is built `--disable-xlib`, so it has no x11grab device.
+- **Fonts must be supplied to the capture Chrome** — under bare Xvfb, Chrome has no fonts unless `shell.nix` provides them. `shell.nix` builds a `makeFontsConf` (Noto + Noto Color Emoji + CJK + DejaVu + Liberation + Nerd-Fonts-Symbols) and exports `FONTCONFIG_FILE`; without it, emoji and powerline/Nerd glyphs (the shell prompt's git segment, agent banners) render as tofu boxes. Keep fonts **free-licensed** — an unfree font (e.g. `symbola`) makes the `nix-shell` build fail.
+- **A full-screen agent TUI (codex) paints its own background** — so a light terminal theme shows mostly in the tile *chrome* (titlebar/border), not behind the agent's output.
+- **The "+" opens the new-terminal palette, not a terminal directly** — `createTerminalByClick` clicks it, then presses Enter to confirm "In current directory". That row inherits the *active* terminal's cwd, so a second terminal opens in the first's directory until you `cd`.
 - **No window manager under Xvfb** — so F11 / the Fullscreen API can't drop Chrome's chrome mid-clip. A browser→app transition needs two concatenated segments, not an in-clip toggle.
 - **Dock won't track the agent unless kolu watches the REAL dirs.** `hooks.ts` omits the `KOLU_CLAUDE_*_DIR` + `KOLU_CODEX_DIR` overrides under `KOLU_X11CAP` so the server sees the launched agent (the mock-harness temp dirs would hide it). The dock's high-level state is `data-bucket` ("working"/"awaiting"), NOT the raw `data-agent-state` ("thinking"/"tool_use"/"waiting") — poll the bucket.
 - **codex: don't use `--dangerously-bypass-approvals-and-sandbox` interactively** — it shows a danger-confirmation that the prompt then dismisses (codex exits). Use `--ask-for-approval never --sandbox read-only` (autonomous, safe, no confirm). It also has a slow typewriter intro — wait it out before typing.
