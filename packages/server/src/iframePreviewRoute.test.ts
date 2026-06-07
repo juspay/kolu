@@ -285,8 +285,24 @@ describe("serveResolvedFile", () => {
       tmpRoot,
     );
     expect(res.status).toBe(200);
-    expect(res.headers["Content-Length"]).toBe("10");
     expect(res.body.toString()).toBe("0123456789");
+  });
+
+  it("sets NO Content-Length on a full 200 — the runtime derives it from the bytes sent", async () => {
+    // Load-bearing: the artifact-sdk HTML decorator splices a <script> into
+    // text/html responses *after* this handler returns, lengthening the body.
+    // A Content-Length pinned here to the pre-splice size truncates the injected
+    // script and silently breaks in-iframe link navigation (regression caught
+    // by the code-tab "Clicking an in-page link moves the file tree selection"
+    // e2e). Deriving the length from the sent bytes is also race-free on this
+    // live-reloading route. The 206 path above still sets it (partial responses
+    // must, and they're never HTML-decorated).
+    const res = await serveResolvedFile(
+      resolvePreviewPath(tmpRoot, "page.html"),
+      tmpRoot,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers["Content-Length"]).toBeUndefined();
   });
 
   it("returns 416 for an unsatisfiable Range", async () => {

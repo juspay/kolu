@@ -287,11 +287,14 @@ export async function serveResolvedFile(
         // `range === null`: header present but not a single satisfiable range
         // (open `bytes=-`, multi-range, malformed). Fall through to a full 200,
         // reusing the handle we already opened so the body is the same file
-        // state we just stat'd.
+        // state we just stat'd. No `Content-Length` here for the same reason as
+        // the no-Range 200 below: this is a full 200 that the artifact-sdk HTML
+        // decorator may splice into, so the length must come from the bytes
+        // actually sent, not the pre-splice buffer.
         const buf = await handle.readFile();
         return {
           status: 200,
-          headers: { ...baseHeaders, "Content-Length": String(buf.length) },
+          headers: { ...baseHeaders },
           body: buf,
         };
       } finally {
@@ -300,10 +303,18 @@ export async function serveResolvedFile(
     }
 
     // No Range header: buffer the whole file (the original behaviour for HTML
-    // and image previews). `Content-Length` comes from the buffer actually
-    // being sent, not an earlier `stat` — if an agent rewrites the file between
-    // a stat and the read the two could differ, producing a truncated body or
-    // `ERR_CONTENT_LENGTH_MISMATCH` on this live-reloading route.
+    // and image previews). Deliberately set NO `Content-Length` here — the
+    // runtime derives it from the bytes actually written to the socket. That's
+    // load-bearing for two reasons: (1) the artifact-sdk HTML decorator
+    // (`mountArtifactSdk` in `index.ts`) splices a `<script>` into text/html
+    // responses *after* this handler returns, lengthening the body — a
+    // Content-Length pinned to the pre-splice size truncates the injected
+    // script, silently breaking in-iframe link navigation (the script reports
+    // the loaded path back to the parent); (2) deriving the length from the
+    // sent bytes is also race-free on this live-reloading route, where a stat
+    // and a later read could otherwise disagree. The 206 branch above DOES set
+    // Content-Length: a partial response must, and it's never HTML-decorated
+    // (the decorator only touches status 200).
     const s = await stat(res.abs);
     if (!s.isFile()) {
       return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
@@ -311,7 +322,7 @@ export async function serveResolvedFile(
     const buf = await readFile(res.abs);
     return {
       status: 200,
-      headers: { ...baseHeaders, "Content-Length": String(buf.length) },
+      headers: { ...baseHeaders },
       body: buf,
     };
   } catch (e: unknown) {
