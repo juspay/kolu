@@ -33,6 +33,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   previewRealpathGuard,
   previewTailFromRawUrl,
+  rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 
 describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifier", () => {
@@ -245,15 +246,15 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
     fs.writeFileSync(path.join(tmpRoot, "clip.mp4"), "video-bytes");
     fs.writeFileSync(path.join(tmpRoot, "secret.html"), "SECRET");
 
-    // Mirror the production wiring in index.ts: read the RAW target from
-    // `c.env.incoming.url` (NOT `c.req.raw.url`), slice the tail, hand it to
-    // serve-dir with the shipped realpath guard.
+    // Drive the SAME shipped target-selection adapter production uses
+    // (`rawTargetFromContext`, which reads the RAW `c.env.incoming.url` and falls
+    // back to `c.req.raw.url`), slice the tail, hand it to serve-dir with the
+    // shipped realpath guard — so this test can't drift from index.ts's wiring.
     const app = new Hono<{ Bindings: HttpBindings }>();
     const pattern = `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
     app.get(pattern, async (c) => {
       const id = c.req.param("terminalId");
-      const rawTarget = c.env.incoming?.url ?? c.req.raw.url;
-      const rawTail = previewTailFromRawUrl(rawTarget, id);
+      const rawTail = previewTailFromRawUrl(rawTargetFromContext(c), id);
       return createDirServer(tmpRoot, previewRealpathGuard(tmpRoot)).fetch(
         rawTail,
         c.req.raw,

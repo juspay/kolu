@@ -1,6 +1,5 @@
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
-import type { HttpBindings } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
 import { createDirServer } from "@kolu/serve-dir";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
@@ -26,6 +25,7 @@ import { serverHostname } from "./hostname.ts";
 import {
   previewRealpathGuard,
   previewTailFromRawUrl,
+  rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
@@ -198,13 +198,13 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   // request target (origin-form `/path?query`); that's what serve-dir must see.
   // `previewTailFromRawUrl` documents the rest (correctness for `%`-bearing
   // names + `%2f` traversal defense) and is unit-tested in
-  // `iframePreviewRoute.test.ts`. Fallback to `c.req.raw.url` keeps the route
-  // total if `incoming` is ever absent (non-node adapter / test harness).
-  // `c.env` is typed per-route (not on the app) so the @hono/node-server
-  // binding doesn't leak into the other mounts' `Hono<BlankEnv>` expectations.
-  const incoming = (c.env as Partial<HttpBindings>).incoming;
-  const rawTarget = incoming?.url ?? c.req.raw.url;
-  const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
+  // `iframePreviewRoute.test.ts`. `rawTargetFromContext` owns the raw-target
+  // selection (incoming.url, falling back to `c.req.raw.url`) as one shipped
+  // adapter the integration test drives too, so the two halves of this guard
+  // can't drift. It reads `c.env` as `Partial<HttpBindings>` so the
+  // @hono/node-server binding doesn't leak into the other mounts'
+  // `Hono<BlankEnv>` expectations.
+  const rawTail = previewTailFromRawUrl(rawTargetFromContext(c), terminalId);
 
   // The one kolu binding: which directory this terminal serves. Kept as the
   // git repo root for now (behavior-preserving — the browse tree, git-status

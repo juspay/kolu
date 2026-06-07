@@ -9,7 +9,9 @@
  *      (`previewRealpathGuard`), defined once here so `index.ts` and its test
  *      use the SAME shipped adapter rather than each re-deriving it. */
 
+import type { HttpBindings } from "@hono/node-server";
 import type { RealpathGuard } from "@kolu/serve-dir";
+import type { Context } from "hono";
 import {
   buildTerminalFileUrl,
   TERMINAL_FILE_ROUTE_BASE,
@@ -28,6 +30,22 @@ export function buildIframePreviewUrl(
   mtimeMs: number,
 ): string {
   return `${buildTerminalFileUrl(terminalId, filePath)}?v=${Math.floor(mtimeMs)}`;
+}
+
+/** The RAW, un-normalized request target `previewTailFromRawUrl` must slice —
+ *  resolved here so the unsafe fallback lives in ONE place the route and its
+ *  test both call (sibling to `previewRealpathGuard`'s rule: one shipped adapter,
+ *  not two copies that drift). Prefer the Node `IncomingMessage.url`
+ *  (`c.env.incoming.url`), the origin-form target @hono/node-server receives
+ *  before any normalization. Fall back to `c.req.raw.url` only when `incoming`
+ *  is absent (a non-node adapter / test harness) to keep the route total —
+ *  note that fallback is built via `new URL(...).href` and HAS run WHATWG path
+ *  normalization, so it can't defend the `..` guard; it exists purely so the
+ *  handler never throws on a missing binding. `c.env` is read as
+ *  `Partial<HttpBindings>` so this works whether or not the caller's app typed
+ *  the node binding into its env. */
+export function rawTargetFromContext(c: Context): string {
+  return (c.env as Partial<HttpBindings>).incoming?.url ?? c.req.raw.url;
 }
 
 /** Extract the still-encoded path tail for a terminal's preview route from a
