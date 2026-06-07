@@ -12,7 +12,16 @@ const cliHasFeatureArgs = process.argv
 // Default tag filter: exclude @skip'd scenarios (regression harnesses for
 // known-broken behavior). `CUCUMBER_TAGS` fully replaces the default — e.g.
 // `CUCUMBER_TAGS='@skip'` runs only skipped scenarios for local development.
-const baseTags = process.env.CUCUMBER_TAGS || "not @skip";
+//
+// `@recording` (the marketing screencasts in recordings.feature) is also
+// excluded by default: those scenarios launch the REAL claude/codex agents and
+// only make sense under X11 capture (`just record`, which sets KOLU_X11CAP).
+// In the plain `ci::e2e` lane they have no reason to resolve and flake (#1226),
+// so gate them behind KOLU_X11CAP — present only via `just record`.
+const X11CAP = !!process.env.KOLU_X11CAP;
+const baseTags =
+  process.env.CUCUMBER_TAGS ||
+  (X11CAP ? "not @skip" : "not @skip and not @recording");
 
 // Platform-conditional skip. `@skip-darwin` scenarios run on Linux but are
 // excluded on aarch64-darwin, where macOS `fs.watch`/FSEvents makes some
