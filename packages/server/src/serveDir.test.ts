@@ -344,10 +344,12 @@ describe("serveFile", () => {
     try {
       const secret = path.join(outside, "secret.html");
       fs.writeFileSync(secret, "<!doctype html><h1>SECRET</h1>");
-      fs.symlinkSync(secret, path.join(tmpRoot, "leak.html"));
+      // Unique link name per symlink test so they can't collide in the shared
+      // tmpRoot regardless of run order.
+      fs.symlinkSync(secret, path.join(tmpRoot, "leak-guarded.html"));
       const res = await serveFile(
         tmpRoot,
-        "leak.html",
+        "leak-guarded.html",
         undefined,
         realpathGuardUnder(tmpRoot),
       );
@@ -355,7 +357,7 @@ describe("serveFile", () => {
       expect(res.body.toString()).not.toContain("SECRET");
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
-      fs.rmSync(path.join(tmpRoot, "leak.html"), { force: true });
+      fs.rmSync(path.join(tmpRoot, "leak-guarded.html"), { force: true });
     }
   });
 
@@ -369,13 +371,15 @@ describe("serveFile", () => {
     try {
       const secret = path.join(outside, "secret.html");
       fs.writeFileSync(secret, "<!doctype html><h1>SECRET</h1>");
-      fs.symlinkSync(secret, path.join(tmpRoot, "leak.html"));
-      const res = await serveFile(tmpRoot, "leak.html");
+      // Unique link name per symlink test so they can't collide in the shared
+      // tmpRoot regardless of run order.
+      fs.symlinkSync(secret, path.join(tmpRoot, "leak-unguarded.html"));
+      const res = await serveFile(tmpRoot, "leak-unguarded.html");
       expect(res.status).toBe(200);
       expect(res.body.toString()).toContain("SECRET");
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
-      fs.rmSync(path.join(tmpRoot, "leak.html"), { force: true });
+      fs.rmSync(path.join(tmpRoot, "leak-unguarded.html"), { force: true });
     }
   });
 });
