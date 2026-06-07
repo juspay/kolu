@@ -83,7 +83,7 @@ const features = [
        CSS to convey real, changing state — the "this is live" feel
        without bundling xterm.js into the marketing page.
   -->
-  <section class="mx-auto max-w-[72rem] px-6 pt-20 pb-16 md:pt-28 md:pb-20 relative">
+  <section class="mx-auto max-w-[72rem] px-6 pt-20 pb-8 md:pt-24 md:pb-10 relative">
     <span
       aria-hidden="true"
       class="absolute top-10 left-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
@@ -97,10 +97,11 @@ const features = [
       v0.1 ┐
     </span>
 
-    <div class="grid md:grid-cols-[0.85fr_1.15fr] gap-8 md:gap-10 items-stretch mt-8">
-      <!-- Left: copy pane -->
-      <div class="reveal reveal-1 flex flex-col justify-center">
-        <p class="eyebrow flex items-center gap-2">
+    <div class="mt-8 mx-auto max-w-3xl text-center">
+      <!-- Centered hero copy; the big demo video is the centerpiece, full-width
+           in its own section just below. -->
+      <div class="reveal reveal-1 flex flex-col items-center">
+        <p class="eyebrow flex items-center justify-center gap-2">
           <span class="text-amber-dim">$</span>
           <span>kolu — the terminal, done right</span>
         </p>
@@ -120,7 +121,7 @@ const features = [
         </p>
 
         <p
-          class="reveal reveal-3 mt-6 max-w-xl text-lg leading-relaxed text-ink-dim"
+          class="reveal reveal-3 mt-6 mx-auto max-w-2xl text-lg leading-relaxed text-ink-dim"
         >
           Real <span class="mono text-ink">xterm.js</span> tiles on an infinite 2D
           canvas, with a dock that surfaces every terminal's live state at a glance.
@@ -129,7 +130,7 @@ const features = [
           > — anything you can run in a shell, runs in kolu.
         </p>
 
-        <div class="reveal reveal-4 mt-8 flex flex-wrap items-center gap-3">
+        <div class="reveal reveal-4 mt-8 flex flex-wrap items-center justify-center gap-3">
           <a
             href={href('/welcome')}
             class="inline-flex items-center gap-2 rounded-sm bg-amber text-void px-5 py-2.5 mono text-[0.82rem] font-medium hover:bg-amber-bright transition-colors"
@@ -150,35 +151,34 @@ const features = [
           </a>
         </div>
       </div>
-
-      <!-- Right: a REAL captured kolu session (replaces the former faux xterm).
-           The clip already carries kolu's own chrome — dock, titlebar, live
-           agent status, a real theme — so it needs no mock frame around it,
-           just a bordered, amber-glowing video frame. Captured by the
-           screencast engine (packages/tests/screencast). Poster-first;
-           reduced-motion is gated by the inline script at the end of the file
-           (markup ships WITHOUT `autoplay`), so the still stands for
-           reduced-motion visitors with native controls. -->
-      <figure class="reveal reveal-3 hero-demo flex flex-col justify-center">
-        <div class="hero-demo-frame">
-          <video
-            class="demo-video"
-            muted
-            loop
-            playsinline
-            preload="metadata"
-            poster="/demo/new-terminal-demo.webp"
-          >
-            <source src="/demo/new-terminal-demo.webm" type="video/webm" />
-            <source src="/demo/new-terminal-demo.mp4" type="video/mp4" />
-          </video>
-        </div>
-        <figcaption class="hero-demo-cap">
-          A real kolu session — open a terminal, clone a repo, launch an agent.
-          The dock tracks it live. No edits, no mock.
-        </figcaption>
-      </figure>
     </div>
+  </section>
+
+  <!-- ── HERO DEMO — the real product, full-width centerpiece ─────────────
+       A real kolu session, shown big right under the hero copy: two agents in
+       two repos, and the dock flagging the one (buried behind another tile)
+       that needs you. Poster-first / reduced-motion-gated (.demo-video → the
+       inline script at the end of the file governs autoplay). -->
+  <section class="mx-auto max-w-[82rem] px-6 pt-2 pb-14 md:pb-16">
+    <figure class="reveal reveal-4 full-demo">
+      <div class="full-demo-frame">
+        <video
+          class="demo-video"
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          poster="/demo/dock-alert-demo.webp"
+        >
+          <source src="/demo/dock-alert-demo.webm" type="video/webm" />
+          <source src="/demo/dock-alert-demo.mp4" type="video/mp4" />
+        </video>
+      </div>
+      <figcaption class="hero-demo-cap mx-auto max-w-2xl">
+        The dock finds what you can't see: two agents in two repos, and one —
+        buried behind another tile — asking for you. The dock still says so.
+      </figcaption>
+    </figure>
   </section>
 
   <!-- ── DIVIDER ──────────────────────────────────────────────────────── -->
@@ -619,21 +619,8 @@ const features = [
   }
 
   /* ── Hero demo video (the real captured kolu session) ────────────────────
-     Replaces the former faux .hero-term frame on the right hero column. The
-     clip carries kolu's own chrome, so this is just a bordered, amber-glowing
-     frame around a 16:9 video. */
-  .hero-demo {
-    margin: 0;
-  }
-  .hero-demo-frame {
-    border: 1px solid var(--color-rule-strong);
-    border-radius: 6px;
-    overflow: hidden;
-    background: var(--color-void-sunk);
-    box-shadow: 0 0 80px -25px
-      color-mix(in srgb, var(--color-amber) 38%, transparent);
-    line-height: 0;
-  }
+     The full-width centerpiece right under the hero copy. The clip carries
+     kolu's own chrome, so this is just a bordered, amber-glowing 16:9 frame. */
   .demo-video {
     display: block;
     width: 100%;
@@ -641,11 +628,23 @@ const features = [
     aspect-ratio: 16 / 9;
   }
   .hero-demo-cap {
-    margin-top: 0.7rem;
-    font-size: 0.8rem;
-    line-height: 1.5;
+    margin-top: 0.9rem;
+    font-size: 0.85rem;
+    line-height: 1.55;
     color: var(--color-ink-muted);
     text-align: center;
+  }
+  .full-demo {
+    margin: 0;
+  }
+  .full-demo-frame {
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 0.7rem;
+    overflow: hidden;
+    background: var(--color-void-sunk);
+    box-shadow: 0 0 90px -30px
+      color-mix(in srgb, var(--color-amber) 35%, transparent);
+    line-height: 0;
   }
 
   .hero-term {
