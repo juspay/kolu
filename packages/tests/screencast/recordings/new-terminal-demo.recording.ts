@@ -30,7 +30,7 @@ const OWNERSHIP_MARKER = path.join(CLONE_PATH, ".kolu-demo-fixture");
 export const recording: Recording = {
   name: "new-terminal-demo",
   chrome: "app",
-  theme: "Vaughn",
+  theme: "Dracula", // distinct per recording (dock-alert=Vaughn/Latte, code-review=Nord)
   display: { hideRightPanel: true, hideMinimap: true },
   async drive(world) {
     // Idempotent fixture: a fresh ~/demo/kolu each run (the terminal's $HOME is

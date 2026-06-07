@@ -48,11 +48,14 @@ by the recipe — the top-level flake devShells are untouched.
 **Per recording** (clip duration drives the file sizes; measured, expect ±a few
 seconds since the agent's answer is live):
 
-| Recording | Clip | mp4 (H.264) | webm (VP9) | webp poster | Embedded on |
-| --- | --- | --- | --- | --- | --- |
-| `new-terminal-demo` | ~32s | ~2.4 MB | ~1.4 MB | ~29 KB | `/welcome` §02 |
-| `dock-alert-demo` | ~29s | ~2.5 MB | ~1.7 MB | ~0.13 MB | `/` (home hero) |
-| `code-review-demo` | ~15s | ~1.0 MB | ~0.7 MB | ~0.11 MB | `/welcome` §03 |
+Each clip pins a **distinct predefined terminal theme** (reproducible — a name
+from `packages/terminal-themes`), so the three look visually different.
+
+| Recording | Theme | Clip | mp4 (H.264) | webm (VP9) | webp poster | Embedded on |
+| --- | --- | --- | --- | --- | --- | --- |
+| `new-terminal-demo` | Dracula | ~28s | ~2.0 MB | ~1.4 MB | ~29 KB | `/welcome` §02 |
+| `dock-alert-demo` | Vaughn + Catppuccin Latte | ~29s | ~2.5 MB | ~1.7 MB | ~0.13 MB | `/` (home hero) |
+| `code-review-demo` | Nord | ~15s | ~0.9 MB | ~0.7 MB | ~0.11 MB | `/welcome` §03 |
 
 `dock-alert-demo` is the richest clip: it opens on an empty canvas, **clicks the
 "+"** to create terminals (every on-camera click is telegraphed with a coral
