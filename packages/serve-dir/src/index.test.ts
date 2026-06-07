@@ -298,6 +298,12 @@ describe("serveFile", () => {
     const res = await serveFile(tmpRoot, "clip.mp4", "bytes=50-60");
     expect(res.status).toBe(416);
     expect(res.headers["Content-Range"]).toBe("bytes */10");
+    expect(res.headers["Accept-Ranges"]).toBe("bytes");
+    // The 416 body is plain-text error copy, so it must be typed `text/plain`
+    // — NOT the target's `video/mp4`. Under `nosniff`, advertising the media
+    // type would tell clients the error text is an MP4.
+    expect(res.headers["Content-Type"]).toBe("text/plain; charset=utf-8");
+    expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
   });
 
   it("serves a nested asset", async () => {

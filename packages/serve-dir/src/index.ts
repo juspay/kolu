@@ -254,9 +254,20 @@ export async function serveFile(
     const range = rangeHeader ? parseByteRange(rangeHeader, s.size) : null;
     if (range === "invalid") {
       await handle.close();
+      // The body is a plain-text error, so type it `text/plain` — NOT the
+      // target file's `res.mime` from `baseHeaders`. Under `nosniff`, reusing
+      // `video/mp4`/`text/html` here would tell clients/debuggers the error
+      // text is media/HTML; an HTML 416 would also dodge the artifact
+      // middleware while still advertising `text/html`. Keep the range-specific
+      // `Accept-Ranges`/`Content-Range`/`nosniff` headers, just not the mime.
       return {
         status: 416,
-        headers: { ...baseHeaders, "Content-Range": `bytes */${s.size}` },
+        headers: {
+          ...TEXT_PLAIN,
+          "X-Content-Type-Options": "nosniff",
+          "Accept-Ranges": "bytes",
+          "Content-Range": `bytes */${s.size}`,
+        },
         body: "range not satisfiable",
       };
     }

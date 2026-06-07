@@ -31,6 +31,8 @@ export const VideoRenderer: Component<VideoRendererProps> = (props) => (
       src={props.url}
       controls
       preload="metadata"
+      title={props.path}
+      aria-label={props.path}
       class="max-h-full max-w-full object-contain"
     >
       {props.path}

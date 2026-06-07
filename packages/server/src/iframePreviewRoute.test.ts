@@ -162,6 +162,54 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     }
   });
 
+  it("keeps a literal `..` dot segment intact (no URL normalization)", async () => {
+    // `new URL(rawUrl).pathname` would collapse `foo/../secret.html` to
+    // `secret.html` BEFORE the slice, so serve-dir would never see the `..` and
+    // would serve the sibling. Slicing the raw string keeps the `..` segment so
+    // serve-dir's per-segment check rejects it with 400.
+    const url = `http://host/api/terminals/${terminalId}/file/foo/../secret.html`;
+    const tail = previewTailFromRawUrl(url, terminalId);
+    expect(tail).toBe("foo/../secret.html");
+
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
+    try {
+      fs.writeFileSync(path.join(tmpRoot, "secret.html"), "SECRET");
+      const res = await serveFile(tmpRoot, tail);
+      expect(res.status).toBe(400);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an encoded `%2e%2e` dot segment intact (no URL normalization)", async () => {
+    // WHATWG normalization also decodes-then-collapses `%2e%2e` → `..`. Slicing
+    // the raw string leaves it encoded for serve-dir's single decode, which then
+    // produces a `..` segment the per-segment check rejects with 400.
+    const url = `http://host/api/terminals/${terminalId}/file/foo/%2e%2e/secret.html`;
+    const tail = previewTailFromRawUrl(url, terminalId);
+    expect(tail).toBe("foo/%2e%2e/secret.html");
+
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
+    try {
+      fs.writeFileSync(path.join(tmpRoot, "secret.html"), "SECRET");
+      const res = await serveFile(tmpRoot, tail);
+      expect(res.status).toBe(400);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts the tail from an origin-form URL (path only, no authority)", () => {
+    // Node may hand the handler an origin-form target (`/path?query`); the raw
+    // slicer must handle it as well as absolute-form.
+    expect(
+      previewTailFromRawUrl(
+        `/api/terminals/${terminalId}/file/clip.mp4?v=123`,
+        terminalId,
+      ),
+    ).toBe("clip.mp4");
+  });
+
   it("returns empty for a URL that doesn't match the prefix", () => {
     expect(previewTailFromRawUrl("http://host/other/path", terminalId)).toBe(
       "",
