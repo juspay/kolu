@@ -32,70 +32,6 @@ const tunnels = [
   },
 ];
 
-// Features — ordered to lead with what makes kolu unmistakable (real
-// xterm.js tiles on a 2D canvas with live agent status). Positioning
-// claims (agent-agnostic, zero setup) follow as *consequences* of the
-// terminal-as-substrate decision, not as the headline.
-//
-// The first tile spans 2 cols on large screens so the terminal story
-// reads loudest.
-const features = [
-  {
-    num: '01',
-    key: 'real-terminals',
-    title: 'Real terminals. Real xterm.js.',
-    body: "Every kolu tile is a full xterm.js terminal — WebGL rendering, clickable URLs, inline images (sixel, iTerm2, kitty), splits, tabs, 200+ themes, a mobile key bar. The terminal is the universal interface, so anything you run in a shell — claude, codex, opencode, a plain zsh — gets first-class status with zero adapter code.",
-    wide: true,
-  },
-  {
-    num: '02',
-    key: 'canvas',
-    title: 'Infinite 2D canvas',
-    body: "Every terminal is a draggable, resizable tile. Pan, zoom, snap-to-grid. The left-edge dock is the canonical navigator — chip rail or repo-grouped cards. Cmd+Shift+K opens the unified palette into a workspace grid with repo facets and agent-state columns. On phones, the active tile fills the screen and the same dock lives behind a left-edge swipe.",
-  },
-  {
-    num: '03',
-    key: 'agent-status',
-    title: 'Live agent status in the dock',
-    body: "Detects Claude Code, Codex, and OpenCode sessions — thinking, tool use, waiting on you. Each dock row carries a repo-tinted chip that pulses while the agent is working and breathes when it's waiting, so a glance tells you which agent needs attention.",
-  },
-  {
-    num: '04',
-    key: 'agent-agnostic',
-    title: 'Agent-agnostic, by design',
-    body: "claude, codex, opencode, or whatever ships next week — kolu doesn't wrap any of them. No adapters, no registry, no vendor lock-in. Drop to a plain shell whenever you want.",
-  },
-  {
-    num: '05',
-    key: 'zero-setup',
-    title: 'Zero setup — kolu watches what you do',
-    body: 'Recent repos track your cd events. Run an agent CLI once — it appears in the palette the next time you create a worktree. Branch, PR, CI status derive from each terminal\'s CWD. The surface grows with your workflow, not with a preferences pane.',
-  },
-  {
-    num: '06',
-    key: 'git-aware',
-    title: 'Git & GitHub aware',
-    body: "Repo name, branch, PR number, CI status derived from each terminal's CWD. Worktree create + agent launch in one palette step.",
-  },
-  {
-    num: '07',
-    key: 'comment-on-any-file',
-    title: 'Comment on any file',
-    body: "Select text in any file the Code tab shows — source, branch diff, or rendered HTML artifact the agent produced — and a floating pill lets you leave a free-text note anchored to the exact quote. Notes accumulate in a per-terminal tray across every file you touch. \"Copy to clipboard\" flushes the queue as plain Markdown ready to paste back into the agent's prompt — the agent re-locates each comment by quote-matching, robust to file edits.",
-  },
-  {
-    num: '08',
-    key: 'transcript-export',
-    title: 'Share what your agent did',
-    body: 'Export any Claude Code, Codex, or OpenCode session as a single self-contained .html — warm-parchment editorial layout, shiki-tokenized code, real diff views for every Edit/Write/apply_patch, j/k prompt navigation, dark/light toggle. No external assets, no upload — opens offline in any browser.',
-  },
-  {
-    num: '09',
-    key: 'recording',
-    title: 'Record your workspace',
-    body: 'One click in the chrome bar captures the whole kolu tab with microphone and optional webcam PiP, streamed straight to a local .webm. Pause/resume with ⌘⇧., mic picker with live level meter, circular webcam overlay baked into the recording.',
-  },
-];
 ---
 
 <BaseLayout title="kolu">
@@ -154,7 +90,9 @@ const features = [
           class="reveal reveal-3 mt-6 mx-auto max-w-2xl text-lg leading-relaxed text-ink-dim"
         >
           Real <span class="mono text-ink">xterm.js</span> tiles on an infinite 2D
-          canvas, with a dock that surfaces every terminal's live state at a glance.
+          canvas, with a dock that surfaces every terminal's live state at a glance
+          — and a code browser where you comment on any file and hand it straight
+          to the agent.
           <span class="mono text-ink">claude</span>, <span class="mono text-ink">codex</span>, <span
             class="mono text-ink">opencode</span
           > — anything you can run in a shell, runs in kolu.
@@ -209,49 +147,6 @@ const features = [
         buried behind another tile — asking for you. The dock still says so.
       </figcaption>
     </figure>
-  </section>
-
-  <!-- ── FEATURES ─────────────────────────────────────────────────────── -->
-  <section class="mx-auto max-w-[68rem] px-6 py-20">
-    <div class="mb-14 flex items-baseline justify-between">
-      <p class="eyebrow">what you get</p>
-      <p class="mono text-[0.72rem] text-ink-faint">09 features</p>
-    </div>
-
-    <ul class="grid md:grid-cols-2 gap-px bg-rule">
-      {
-        features.map((f) => (
-          <li
-            class:list={[
-              'relative group bg-void p-7 md:p-9 transition-colors hover:bg-void-raised',
-              f.wide && 'md:col-span-2',
-            ]}
-          >
-            {/* Left amber accent bar on hover */}
-            <span
-              aria-hidden="true"
-              class="absolute left-0 top-0 bottom-0 w-px bg-amber scale-y-0 group-hover:scale-y-100 origin-top transition-transform duration-300"
-            />
-            <div class="flex items-baseline gap-4 mb-4">
-              <span class="mono text-[0.72rem] text-amber-dim tracking-widest">
-                {f.num}
-              </span>
-              <span class="mono text-[0.72rem] text-ink-faint tracking-widest">
-                — {f.key}
-              </span>
-            </div>
-            <h3
-              class="display-sm text-[1.55rem] md:text-[1.8rem] mb-3 text-ink"
-            >
-              {f.title}
-            </h3>
-            <p class="text-ink-dim leading-relaxed max-w-xl">
-              {f.body}
-            </p>
-          </li>
-        ))
-      }
-    </ul>
   </section>
 
   <!-- ── 01 · QUICKSTART ──────────────────────────────────────────────── -->
@@ -407,7 +302,7 @@ const features = [
     </div>
 
     <p class="guide-lede">
-      Six ideas cover almost everything. Learn these and the rest of kolu reads
+      Eight ideas cover almost everything. Learn these and the rest of kolu reads
       like plain language.
     </p>
 
@@ -424,8 +319,9 @@ const features = [
         <dt>Tiles</dt>
         <dd>
           Every terminal is a draggable, resizable tile — a real xterm.js
-          instance with its own theme, splits, and title bar. Double-click the
-          title bar to maximize.
+          instance: WebGL rendering, clickable URLs, inline images (sixel /
+          iTerm2 / kitty), splits, 200+ themes, and a mobile key bar. Double-click
+          the title bar to maximize.
         </dd>
       </div>
       <div class="concept">
@@ -460,6 +356,24 @@ const features = [
             >cd</code
           > events, recent agents from shell command marks, branch / PR / CI from
           each terminal's working directory. If kolu knows it, the shell told it.
+        </dd>
+      </div>
+      <div class="concept">
+        <dt>Git &amp; GitHub</dt>
+        <dd>
+          Each terminal knows its repo: branch, PR number, and CI status are read
+          from its working directory and shown right on the dock row — no token
+          pasting, no config. Creating a worktree and launching the agent in it is
+          a single palette step.
+        </dd>
+      </div>
+      <div class="concept">
+        <dt>Comment on any file</dt>
+        <dd>
+          Select text in the Code tab — source, a branch diff, or a rendered
+          artifact — and pin a quoted note to it. The per-terminal tray flushes to
+          Markdown you paste straight back into the agent, which re-locates each
+          comment by quote-matching even after the file changes.
         </dd>
       </div>
     </dl>
@@ -847,6 +761,29 @@ const features = [
           <li>
             A fresh agent transition automatically resurfaces a hidden terminal,
             so nothing important stays buried.
+          </li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="deep">
+      <summary>
+        <span class="deep-tag">how-to</span>
+        Export &amp; record what your agent did
+      </summary>
+      <div class="deep-body">
+        <p>Two ways to share a session beyond the live workspace:</p>
+        <ul>
+          <li>
+            <strong>Transcript export</strong> — save any Claude Code, Codex, or
+            OpenCode session as a single self-contained <code>.html</code>: shiki
+            code, real diff views for every edit, dark/light toggle, no external
+            assets. Opens offline anywhere.
+          </li>
+          <li>
+            <strong>Workspace recording</strong> — one click in the chrome bar
+            captures the whole kolu tab with mic and optional webcam PiP, streamed
+            to a local <code>.webm</code>. Pause / resume with <kbd>⌘⇧.</kbd>.
           </li>
         </ul>
       </div>
