@@ -1,6 +1,7 @@
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
+import { createDirServer } from "@kolu/serve-dir";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -26,7 +27,6 @@ import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
-import { createDirServer } from "./serveDir.ts";
 import { initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import { snapshotSession } from "./terminals.ts";

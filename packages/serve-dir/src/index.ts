@@ -1,16 +1,18 @@
-/** Agnostic, fetch-native directory file server: given an ABSOLUTE root, answer
- *  a request for a file under it with a streaming byte-range `Response`. The
- *  whole module is `(root, relPath, request) -> Response` — it knows nothing
- *  about terminals, git, or kolu, so it's publishable as `@kolu/serve-dir` once
- *  a second consumer appears. The kolu glue stays in the consumer:
- *    - WHICH root (a terminal's repo root / `$PWD`) is injected by the caller
- *      (`index.ts`), never decided here;
- *    - the artifact-sdk `<script>` injection is an orthogonal *downstream*
- *      middleware that rewrites the HTML `Response` this returns — it composes
- *      for free precisely because `fetch` returns a real Fetch `Response` and
- *      omits `Content-Length` on full 200s (see the 200 branch);
- *    - the per-terminal preview URL shape (`?v=<mtime>`) lives in
- *      `iframePreviewRoute.ts`.
+/** `@kolu/serve-dir` — agnostic, fetch-native directory file server: given an
+ *  ABSOLUTE root, answer a request for a file under it with a streaming
+ *  byte-range `Response`. The whole package is `(root, relPath, request) ->
+ *  Response` — it knows nothing about terminals, git, or kolu (zero workspace
+ *  deps; only `node:fs`/`node:path`/`node:stream`), so any app serving files
+ *  from a dynamic absolute root can plug in. The consumer keeps its own glue:
+ *    - WHICH root (e.g. a terminal's repo root / `$PWD`) is injected by the
+ *      caller, never decided here;
+ *    - any response transform (e.g. kolu's artifact-sdk `<script>` injection)
+ *      is an orthogonal *downstream* middleware that rewrites the HTML
+ *      `Response` this returns — it composes for free precisely because `fetch`
+ *      returns a real Fetch `Response` and omits `Content-Length` on full 200s
+ *      (see the 200 branch);
+ *    - any URL contract (e.g. kolu's `?v=<mtime>` cache key) lives in the
+ *      consumer.
  *
  *  Why this isn't an off-the-shelf static server: the shape needed here is a
  *  function that RETURNS a `Response`. Every static-serve package
@@ -22,17 +24,17 @@
  *  ~`createReadStream({start,end}) -> Readable.toWeb -> Response` shape is the
  *  only one that does (what Deno `@std/http` and SvelteKit/Vite converge on).
  *
- *  Path safety is two-stage. Stage 1 is LEXICAL and lives here: decode-then-split
- *  rejects `..`/empty/absolute segments (defense against URL-encoded `..` and
- *  `%2f` smuggling), then a `path.relative` containment check. Stage 2 is the
- *  realpath/symlink-escape check the old route carried (kolu-git
- *  `assertRealpathUnder`): it touches the filesystem and is kolu-specific, so it
- *  is NOT hard-coded here — it's an INJECTED `realpathGuard` the caller passes so
- *  this primitive stays agnostic. The kolu caller (`index.ts`) wires in the git
- *  guard; the guard runs *before* any `open`/`stat`/`readFile`, so a repo-local
- *  symlink pointing outside the root (`leak.html -> /etc/passwd`) is rejected
- *  with 403 before a single byte is read. Omitting it (no second consumer needs
- *  it yet) keeps the lexical-only behavior for that caller. */
+ *  Path safety is two-stage by volatility. Stage 1 is LEXICAL and lives here:
+ *  decode-then-split rejects `..`/empty/absolute segments (defense against
+ *  URL-encoded `..` and `%2f` smuggling), then a `path.relative` containment
+ *  check — pure and universal, so it's built in. Stage 2 is the
+ *  realpath/symlink-escape check: it touches the filesystem and encodes the
+ *  consumer's threat model, so it is NOT hard-coded here — it's an INJECTED
+ *  `realpathGuard` the caller passes (e.g. kolu wires its git
+ *  `assertRealpathUnder`), keeping this package agnostic. When supplied, the
+ *  guard runs *before* any `open`/`stat`/`readFile`, so a planted symlink
+ *  pointing outside the root (`leak.html -> /etc/passwd`) is rejected with 403
+ *  before a single byte is read; omitting it keeps lexical-only behavior. */
 
 import { open, readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -41,9 +43,10 @@ import { Readable } from "node:stream";
 const TEXT_PLAIN = { "Content-Type": "text/plain; charset=utf-8" };
 
 /** Content-Type per extension. A file with no entry serves as
- *  `application/octet-stream` (the browser downloads rather than renders), so
- *  every previewable kind must have a real entry — the coverage invariant for
- *  kolu's `BINARY_PREVIEWABLE_EXTENSIONS` is asserted in `serveDir.test.ts`.
+ *  `application/octet-stream` (the browser downloads rather than renders). A
+ *  consumer can assert its own previewable set is fully covered here — kolu does
+ *  (the `BINARY_PREVIEWABLE_EXTENSIONS` coverage invariant lives in the
+ *  kolu-server integration test, since it couples this map to kolu's classifier).
  *  The `.css`/`.js`/font entries are asset siblings a previewable HTML page
  *  references via relative `<link>`/`<script>`/`<img>`. */
 const CONTENT_TYPES: Record<string, string> = {

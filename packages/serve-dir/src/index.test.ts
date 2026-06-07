@@ -1,21 +1,16 @@
 import fs from "node:fs";
+import { realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { assertRealpathUnder } from "kolu-git";
-import {
-  BINARY_PREVIEWABLE_EXTENSIONS,
-  RASTER_IMAGE_EXTENSIONS,
-  SANDBOX_PREVIEWABLE_EXTENSIONS,
-  VIDEO_EXTENSIONS,
-} from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   contentTypeForPath,
   createDirServer,
   parseByteRange,
+  type RealpathGuard,
   resolvePathUnder,
   serveFile,
-} from "./serveDir";
+} from "./index";
 
 // Ranged 206 bodies are a `ReadableStream` (bytes flow from a bounded file
 // handle, never the whole file through the heap), so assertions read them to a
@@ -26,43 +21,24 @@ async function readBody(body: Uint8Array | string | ReadableStream) {
   return Buffer.from(body).toString();
 }
 
-describe("CONTENT_TYPES covers every binary-previewable extension", () => {
-  // `isBinaryPreviewable` routes these to `kind:"binary"`; if any lacks a real
-  // Content-Type the route serves `application/octet-stream` and the browser
-  // downloads instead of rendering. Couples the agnostic content-type map to
-  // kolu's classifier list (which lives in a different package).
-  it.each(
-    BINARY_PREVIEWABLE_EXTENSIONS,
-  )("%s has a non-octet Content-Type", (ext) => {
-    expect(contentTypeForPath(`file${ext}`)).not.toBe(
-      "application/octet-stream",
-    );
-  });
-
-  // Beyond "non-octet", assert the MIME FAMILY per classifier bucket: the
-  // client dispatches `VIDEO_EXTENSIONS` into a `<video>` element and
-  // `RASTER_IMAGE_EXTENSIONS` into an `<img>`, so a video extension typo'd to
-  // `image/*` (or vice versa) would still pass the non-octet check yet break
-  // playback/rendering. These family invariants catch that.
-  it.each(VIDEO_EXTENSIONS)("%s maps to a video/* type", (ext) => {
-    expect(contentTypeForPath(`file${ext}`)).toMatch(/^video\//);
-  });
-
-  it.each(RASTER_IMAGE_EXTENSIONS)("%s maps to an image/* type", (ext) => {
-    expect(contentTypeForPath(`file${ext}`)).toMatch(/^image\//);
-  });
-
-  // Sandbox-previewable kinds (.html/.htm/.svg/.pdf) span families (text/html,
-  // image/svg+xml, application/pdf), so the family-agnostic non-octet check is
-  // the right invariant for that bucket.
-  it.each(
-    SANDBOX_PREVIEWABLE_EXTENSIONS,
-  )("%s has a non-octet Content-Type", (ext) => {
-    expect(contentTypeForPath(`file${ext}`)).not.toBe(
-      "application/octet-stream",
-    );
-  });
-});
+// A realpath-based escape guard, written locally so this package's tests stay
+// agnostic (no kolu-git). It exercises the *injection mechanism*; the kolu
+// consumer wires its own `assertRealpathUnder` and verifies that wiring in the
+// kolu-server integration test.
+function realpathGuardUnder(root: string): RealpathGuard {
+  return async (abs) => {
+    try {
+      const [realRoot, real] = await Promise.all([
+        realpath(root),
+        realpath(abs),
+      ]);
+      const rel = path.relative(realRoot, real);
+      return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+    } catch {
+      return true; // fail-open on a missing path; serveFile then 404s
+    }
+  };
+}
 
 describe("contentTypeForPath", () => {
   it("maps the iframe-previewable extensions", () => {
@@ -239,13 +215,11 @@ describe("serveFile", () => {
   });
 
   it("sets NO Content-Length on a full 200 — the runtime derives it from the bytes sent", async () => {
-    // Load-bearing: a downstream HTML-transform middleware (kolu's artifact-sdk
-    // decorator) splices a <script> into text/html responses *after* this
-    // returns, lengthening the body. A Content-Length pinned here to the
-    // pre-splice size truncates the injected script and silently breaks
-    // in-iframe link navigation (regression caught by the code-tab "Clicking an
-    // in-page link moves the file tree selection" e2e). The 206 path below
-    // still sets it (partial responses must, and they're never decorated).
+    // Load-bearing: a downstream HTML-transform middleware (e.g. kolu's
+    // artifact-sdk decorator) splices bytes into a text/html response *after*
+    // this returns, lengthening the body. A Content-Length pinned here to the
+    // pre-splice size truncates the injected body. The 206 path below still sets
+    // it (partial responses must, and they're never decorated).
     const res = await serveFile(tmpRoot, "page.html");
     expect(res.status).toBe(200);
     expect(res.headers["Content-Length"]).toBeUndefined();
@@ -309,17 +283,16 @@ describe("serveFile", () => {
     expect(res.status).toBe(404);
   });
 
-  it("rejects a lexical traversal with 400 (the guard that remains)", async () => {
+  it("rejects a lexical traversal with 400 (the guard that's always on)", async () => {
     const res = await serveFile(tmpRoot, "../escape");
     expect(res.status).toBe(400);
   });
 
-  it("403s a repo-local symlink escaping the root when the injected realpath guard is supplied (no content leaks)", async () => {
-    // A repo or agent can plant `leak.html -> /etc/passwd`; the lexical guard
-    // can't see that the real target escapes the root. We inject the same
-    // kolu-git `assertRealpathUnder` guard the production caller wires in
-    // (`index.ts`) so the read is rejected with 403 BEFORE any byte is touched.
-    // This is the stage `resolvePathUnder` (lexical only) cannot cover.
+  it("403s a symlink escaping the root when an injected realpath guard is supplied (no content leaks)", async () => {
+    // A planted `leak -> outside/secret` symlink passes the lexical guard (the
+    // link name is a clean in-root segment); only resolving the symlink reveals
+    // it escapes. An injected realpath guard rejects it with 403 BEFORE any byte
+    // is read — the stage `resolvePathUnder` (lexical only) cannot cover.
     const outside = fs.mkdtempSync(
       path.join(os.tmpdir(), "kolu-serve-dir-outside-"),
     );
@@ -333,7 +306,7 @@ describe("serveFile", () => {
         tmpRoot,
         "leak-guarded.html",
         undefined,
-        async (abs) => (await assertRealpathUnder(tmpRoot, abs)).ok,
+        realpathGuardUnder(tmpRoot),
       );
       expect(res.status).toBe(403);
       expect(res.body.toString()).not.toContain("SECRET");
@@ -343,9 +316,9 @@ describe("serveFile", () => {
     }
   });
 
-  it("follows a repo-local symlink when NO realpath guard is injected (the primitive stays lexical-only by default)", async () => {
+  it("follows a symlink when NO realpath guard is injected (the package stays lexical-only by default)", async () => {
     // The guard is the caller's choice: a consumer with no symlink concern omits
-    // it and gets pure lexical safety. Documents that the primitive does not
+    // it and gets pure lexical safety. Documents that the package does not
     // silently impose a filesystem-authority check.
     const outside = fs.mkdtempSync(
       path.join(os.tmpdir(), "kolu-serve-dir-outside-"),
@@ -353,8 +326,6 @@ describe("serveFile", () => {
     try {
       const secret = path.join(outside, "secret.html");
       fs.writeFileSync(secret, "<!doctype html><h1>SECRET</h1>");
-      // Unique link name per symlink test so they can't collide in the shared
-      // tmpRoot regardless of run order.
       fs.symlinkSync(secret, path.join(tmpRoot, "leak-unguarded.html"));
       const res = await serveFile(tmpRoot, "leak-unguarded.html");
       expect(res.status).toBe(200);
