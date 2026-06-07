@@ -901,7 +901,7 @@ After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
       // Poster is sampled from the trimmed timeline. Default (6s) lands on the
       // clean empty-canvas demo state (past the welcome card + the nudge), not
       // the restore-session card. A recording can override `posterAt` when its
-      // payoff is later (e.g. dock-alert-demo samples its end-of-clip alert).
+      // payoff is later (e.g. hero-demo samples its end-of-clip alert).
       posterAt: getRecording(scenario.pickle.name).posterAt ?? 6,
     });
     console.log(`[worker:${workerId}] KOLU_X11CAP: web assets → ${out.mp4}`);

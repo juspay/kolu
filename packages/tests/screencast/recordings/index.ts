@@ -1,10 +1,10 @@
 // Registry of all recordings, keyed by name (= scenario name = output stem).
 // Add a recording: drop a `<name>.recording.ts` file and list it here.
 import type { Recording } from "./types";
-import { recording as dockAlertDemo } from "./dock-alert-demo.recording";
+import { recording as heroDemo } from "./hero-demo.recording";
 
 export const recordings: Record<string, Recording> = {
-  [dockAlertDemo.name]: dockAlertDemo,
+  [heroDemo.name]: heroDemo,
 };
 
 export function getRecording(name: string): Recording {

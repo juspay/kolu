@@ -3,7 +3,7 @@
 This produces the short, crisp, looping clip embedded on the `kolu.dev` home page
 (`website/public/demo/<name>.{mp4,webm,webp}`). It drives a **real** kolu (the
 e2e harness + step library) and records the screen, so the clip is reproducible
-from source rather than hand-recorded. (One recording today — `dock-alert-demo`,
+from source rather than hand-recorded. (One recording today — `hero-demo`,
 the home hero — but the subsystem is built for N.)
 
 > Plan of record + the full build journal (why it's built this way):
@@ -26,12 +26,12 @@ Cucumber lifecycle.
 
 ```sh
 just record                    # all recordings
-just record dock-alert-demo    # one, by name
+just record hero-demo    # one, by name
 ```
 
 Per do.md this is meant to run on a **pu box**; today the clips are captured
 **locally** because the demo's climax launches a **real, authenticated agent**
-(`dock-alert-demo` runs **both** `codex` and a write-capable `claude` — a clean
+(`hero-demo` runs **both** `codex` and a write-capable `claude` — a clean
 box has no logged-in CLI). Nix
 deps (`ffmpeg-full` + `Xvfb`) live in `./shell.nix`, layered onto the e2e shell
 by the recipe — the top-level flake devShells are untouched.
@@ -53,14 +53,14 @@ themes (a name from `packages/terminal-themes`):
 
 | Recording | Theme | Clip | mp4 (H.264) | webm (VP9) | webp poster | Embedded on |
 | --- | --- | --- | --- | --- | --- | --- |
-| `dock-alert-demo` | Vaughn + Catppuccin Latte | ~45s | ~3.9 MB | ~2.9 MB | ~0.17 MB | `/` (home hero) |
+| `hero-demo` | Vaughn + Catppuccin Latte | ~45s | ~3.9 MB | ~2.9 MB | ~0.17 MB | `/` (home hero) |
 
 The **right panel stays open** (the app's default — Code tab on the active
 terminal's repo). The recording flips the harness's collapse-on-reset off under
 `KOLU_X11CAP` (`hooks.ts`) and runs at a wider `viewport` (1600×900 → 3200×1800)
 so the dock, both tiles, and the panel all fit.
 
-`dock-alert-demo` is the **hero** — one real workflow that exercises the whole
+`hero-demo` is the **hero** — one real workflow that exercises the whole
 surface (Dock + terminals + the right-panel code browser), ending on a live edit:
 **click "+"** to open claude in kolu, **"+"** again for codex in drishti (a
 **light theme**, Catppuccin Latte, vs T1's Vaughn) which buries claude's tile —

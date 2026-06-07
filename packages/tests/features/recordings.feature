@@ -7,5 +7,5 @@ Feature: Screencast recordings
   Background:
     Given the terminal is ready
 
-  Scenario: dock-alert-demo
-    When I record "dock-alert-demo"
+  Scenario: hero-demo
+    When I record "hero-demo"

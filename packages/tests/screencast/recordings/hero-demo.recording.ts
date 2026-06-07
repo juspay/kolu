@@ -82,7 +82,7 @@ const REVIEW_NOTE = "Also escape the backtick character here.";
  * dock, tiles, and panel all fit.
  */
 export const recording: Recording = {
-  name: "dock-alert-demo",
+  name: "hero-demo",
   chrome: "app",
   theme: "Vaughn", // T1; T2 overrides to a light theme below
   // Dock + right panel both stay (new app default); minimap out of shot.
