@@ -15,7 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL, readBufferText } from "../support/buffer.ts";
-import { nudgeFiles } from "../support/nudge.ts";
+import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -416,6 +416,20 @@ function nudgeMockFiles() {
   nudgeFiles([mockSessionFile, mockTranscriptPath]);
 }
 
+/** Re-fire the SESSIONS_DIR watcher for the *disappearance* assertions.
+ *  `nudgeMockFiles` re-touches the mock files to recover a dropped
+ *  appearance event — but after `the Claude Code session ends` deletes
+ *  them there's nothing left to touch, so a dropped *deletion* event would
+ *  leave the server wedged on stale "session present" state and the
+ *  indicator never clears (the warm-CI darwin flake at claude-code.feature:144,
+ *  failing both cucumber attempts because the same race loses twice). A
+ *  create+unlink of a sentinel inside SESSIONS_DIR re-fires the dir watcher
+ *  so the server re-reads `<pid>.json`, finds it gone, and drops the
+ *  indicator — symmetric with the appearance-side nudge. */
+function nudgeSessionsDir() {
+  nudgeDir(getSessionsDir());
+}
+
 /** Paint a block of lines into the live PTY via a single `printf` invocation.
  *  Used by step definitions that simulate Claude prompts on screen so the
  *  server-side screen-scrape poll sees the rendered chrome. */
@@ -590,13 +604,25 @@ Then(
 Then(
   "the tile chrome should not show an agent indicator",
   async function (this: KoluWorld) {
-    await this.page.waitForFunction(
-      () =>
-        document.querySelector(
-          '[data-testid="canvas-tile"] [data-testid="agent-indicator"]',
-        ) === null,
-      { timeout: POLL_TIMEOUT },
-    );
+    // Poll + nudge the SESSIONS_DIR so a dropped deletion event (darwin
+    // FSEvents under load) can't wedge the indicator on stale state — see
+    // nudgeSessionsDir(). Same total budget as the bare waitForFunction.
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(
+          () =>
+            document.querySelector(
+              '[data-testid="canvas-tile"] [data-testid="agent-indicator"]',
+            ) === null,
+        ),
+      isDone: (gone) => gone === true,
+      onTick: nudgeSessionsDir,
+      onTimeout: (_last, elapsed) =>
+        new Error(
+          `Expected the tile-chrome agent indicator to disappear, but it was still present after ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
@@ -704,9 +730,21 @@ When(
 Then(
   "the header should not show an agent indicator",
   async function (this: KoluWorld) {
-    await this.page.waitForFunction(
-      () => document.querySelector('[data-testid="agent-indicator"]') === null,
-      { timeout: POLL_TIMEOUT },
-    );
+    // Poll + nudge SESSIONS_DIR for the same dropped-deletion recovery as the
+    // tile-chrome disappearance assertion above.
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(
+          () =>
+            document.querySelector('[data-testid="agent-indicator"]') === null,
+        ),
+      isDone: (gone) => gone === true,
+      onTick: nudgeSessionsDir,
+      onTimeout: (_last, elapsed) =>
+        new Error(
+          `Expected the header agent indicator to disappear, but it was still present after ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
