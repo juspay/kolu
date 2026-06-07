@@ -139,7 +139,7 @@ const MobileChromeSheet: Component<{
             rightPanel.setDrawerOpen(!rightPanel.drawerOpen());
             props.onClose();
           }}
-          aria-label="Toggle inspector"
+          aria-label="Toggle right panel"
         >
           <InspectorToggleIcon active={rightPanel.drawerOpen()} />
         </button>

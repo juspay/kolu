@@ -1129,7 +1129,9 @@ async function activateCodeTabMode(
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await tab.click();
   await world.waitForFrame();
-  if (mode === "local") return; // default
+  // The Code tab now defaults to "browse" (DEFAULT_RIGHT_PANEL_PER_TERMINAL),
+  // so every mode — including local — must be selected explicitly via the
+  // chip; there is no implicit default to short-circuit on.
   // The mode chip is Code-tab chrome that only paints once the repo view has
   // hydrated — hydration budget so a loaded runner doesn't lose the switch
   // before the tree-readiness gate downstream even runs (see waitTreeReady).

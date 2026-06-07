@@ -22,11 +22,10 @@ When("I collapse the right panel", async function (this: KoluWorld) {
 When(
   "I click the inspector toggle icon in the header",
   async function (this: KoluWorld) {
-    // The inspector toggle is the right-oriented PanelToggleIcon in the header.
-    // It doesn't have a dedicated data-testid, so locate by aria-label.
-    const toggle = this.page.locator(
-      'header button[aria-label*="Toggle inspector"]',
-    );
+    // The right-panel toggle in the header — `data-testid="inspector-toggle"`
+    // (the test-id is kept stable even though the visible label is now
+    // "Toggle right panel").
+    const toggle = this.page.locator('header [data-testid="inspector-toggle"]');
     await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await toggle.click();
     await this.waitForFrame();

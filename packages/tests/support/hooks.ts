@@ -546,11 +546,19 @@ Before(async function (this: KoluWorld, scenario) {
         activityAlerts: true,
         colorScheme: "dark",
         terminalRenderer: "auto",
+        // `rightPanel` preferences hold only workspace-level chrome
+        // (collapsed/size/codeTabTreeSize) — `activeTab`/`codeMode` are
+        // per-terminal state (DEFAULT_RIGHT_PANEL_PER_TERMINAL), not
+        // preferences, so they don't belong here. We deliberately pin
+        // `collapsed: true` for the suite so the many toggle-and-assert
+        // scenarios get a deterministic collapsed starting point; the
+        // shipped runtime default is open (DEFAULT_PREFERENCES.rightPanel
+        // .collapsed = false). The per-terminal Code/browse defaults are
+        // NOT overridden here, so they flow from DEFAULT_RIGHT_PANEL_PER_-
+        // TERMINAL and are asserted by right-panel.feature / code-tab.feature.
         rightPanel: {
           collapsed: true,
           size: 0.25,
-          activeTab: "inspector",
-          codeMode: "local",
           codeTabTreeSize: 0.35,
         },
       },
