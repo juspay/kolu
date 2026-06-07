@@ -7,6 +7,7 @@ import {
   contentTypeForPath,
   createDirServer,
   parseByteRange,
+  rawPathname,
   type RealpathGuard,
   resolvePathUnder,
   serveFile,
@@ -157,6 +158,54 @@ describe("resolvePathUnder", () => {
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.status).toBe(400);
+  });
+});
+
+describe("rawPathname", () => {
+  it("returns an origin-form target unchanged (already starts with /)", () => {
+    expect(rawPathname("/files/abc/file/docs/output.html")).toBe(
+      "/files/abc/file/docs/output.html",
+    );
+  });
+
+  it("strips scheme://authority from an absolute-form target", () => {
+    expect(rawPathname("http://host:8080/files/abc/page.html")).toBe(
+      "/files/abc/page.html",
+    );
+  });
+
+  it("cuts the query at the first ?", () => {
+    expect(rawPathname("/files/abc/page.html?v=123")).toBe(
+      "/files/abc/page.html",
+    );
+  });
+
+  it("cuts the fragment at the first #", () => {
+    expect(rawPathname("/files/abc/page.html#section")).toBe(
+      "/files/abc/page.html",
+    );
+  });
+
+  it("cuts at whichever of ?/# comes first", () => {
+    expect(rawPathname("/files/abc/page.html#frag?notquery")).toBe(
+      "/files/abc/page.html",
+    );
+  });
+
+  it("preserves dot segments WITHOUT normalizing — the whole point vs new URL", () => {
+    // `new URL("http://x/a/../secret").pathname` collapses to `/secret`,
+    // defeating the lexical guard. rawPathname must leave `..` intact for
+    // resolvePathUnder's per-segment check to reject it.
+    expect(rawPathname("http://x/a/../secret")).toBe("/a/../secret");
+    expect(rawPathname("/a/%2e%2e/secret")).toBe("/a/%2e%2e/secret");
+  });
+
+  it("preserves %2f without decoding it to a slash", () => {
+    // A pre-decode here would erase the segment boundary resolvePathUnder relies
+    // on; the raw bytes must survive to its single internal decode.
+    expect(rawPathname("/files/abc/foo%2f..%2fpasswd")).toBe(
+      "/files/abc/foo%2f..%2fpasswd",
+    );
   });
 });
 
