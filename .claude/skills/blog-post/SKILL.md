@@ -38,11 +38,17 @@ logs that produced the work, not invented marketing copy.
    unless told otherwise, and settle the inline house style up front. Match the
    register of the existing posts; a new post often pairs as a sequel to one.
 
-4. **Wire it into the site.** Posts live in `website/src/content/blog/`. Use the
-   site's components for callouts, GitHub PR/issue references, and the table of
-   contents; cite the real PRs behind each claim, and give the post a two-level
-   heading outline so the TOC nests. Balance prose with screenshots and code —
-   host images in the site, don't hotlink.
+4. **Wire it into the site.** Posts live in `website/src/content/blog/` under a
+   short, stable slug (the filename is the URL). Use the site's components for
+   callouts, GitHub PR/issue references, and the table of contents; cite the real
+   PRs behind each claim, and give the post a two-level heading outline so the TOC
+   nests — write the headings as plain signposts of each section's point, not
+   teasers, so the contents list reads as the argument in miniature. **Link every
+   technology, tool, library, format, and product on its first mention** —
+   `[Playwright](https://playwright.dev/)`, `[ffmpeg](https://ffmpeg.org/)`, a CDP
+   method to its own doc page — the way the existing posts do; a named technology
+   with no link is a miss. Balance prose with screenshots and code — host images
+   in the site, don't hotlink.
 
 5. **Verify and ship.** Build the site and confirm it renders, open the PR with
    the `forge-pr` skill, and run only the CI lane a docs change can touch (the
