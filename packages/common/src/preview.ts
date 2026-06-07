@@ -96,6 +96,15 @@ export function isVideo(filePath: string): boolean {
   return hasExtension(filePath, VIDEO_EXTENSIONS);
 }
 
+/** Client: of the binary-previewable files, render this one in the sandboxed
+ *  iframe (`.html`/`.htm`/`.svg`/`.pdf`) rather than an `<img>` or `<video>`?
+ *  Names the sandbox branch of the three-way partition at the dispatch site so
+ *  an unclassified binary surfaces as a visible no-match instead of silently
+ *  landing in an iframe that can't render it. */
+export function isSandboxPreviewable(filePath: string): boolean {
+  return hasExtension(filePath, SANDBOX_PREVIEWABLE_EXTENSIONS);
+}
+
 /** Client: does this text file have a rendered Markdown form, so the Code
  *  browser offers a Source ⇄ Rendered toggle (defaulting to rendered)? */
 export function isMarkdown(filePath: string): boolean {

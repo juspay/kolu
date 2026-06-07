@@ -6,6 +6,7 @@ import {
   isBinaryPreviewable,
   isMarkdown,
   isRasterImage,
+  isSandboxPreviewable,
   isVideo,
   MARKDOWN_EXTENSIONS,
   RASTER_IMAGE_EXTENSIONS,
@@ -68,6 +69,22 @@ describe("isVideo", () => {
   });
 });
 
+describe("isSandboxPreviewable", () => {
+  it("matches sandbox extensions case-insensitively", () => {
+    expect(isSandboxPreviewable("out.html")).toBe(true);
+    expect(isSandboxPreviewable("page.HTM")).toBe(true);
+    expect(isSandboxPreviewable("logo.svg")).toBe(true);
+    expect(isSandboxPreviewable("doc.PDF")).toBe(true);
+  });
+
+  it("excludes raster images and videos — those get <img>/<video>, not the iframe", () => {
+    expect(isSandboxPreviewable("icon-512.png")).toBe(false);
+    expect(isSandboxPreviewable("photo.jpeg")).toBe(false);
+    expect(isSandboxPreviewable("demo.mp4")).toBe(false);
+    expect(isSandboxPreviewable("clip.webm")).toBe(false);
+  });
+});
+
 describe("isMarkdown", () => {
   it("matches markdown extensions case-insensitively", () => {
     expect(isMarkdown("README.md")).toBe(true);
@@ -103,17 +120,19 @@ describe("the binary-previewable partition is structural", () => {
     expect(RASTER_IMAGE_EXTENSIONS.filter((e) => video.has(e))).toEqual([]);
   });
 
-  it("every binary-previewable extension is raster, video, or sandbox — no silent fourth category", () => {
-    // Guards the client's `isRasterImage` → `isVideo` → iframe dispatch: a
-    // future non-image, non-video, non-document binary (`.wasm`, a font)
-    // cannot slip in without landing in one of the three sets.
-    const sandbox: readonly string[] = SANDBOX_PREVIEWABLE_EXTENSIONS;
+  it("every binary-previewable extension matches exactly one of isRasterImage/isVideo/isSandboxPreviewable — no silent fourth category", () => {
+    // Guards the client's `isRasterImage` → `isVideo` → `isSandboxPreviewable`
+    // dispatch: a future non-image, non-video, non-document binary (`.wasm`, a
+    // font) cannot slip in without landing in exactly one of the three sets —
+    // the runtime counterpart to the explicit "unsupported" no-match renderer.
     for (const ext of BINARY_PREVIEWABLE_EXTENSIONS) {
-      expect(
-        isRasterImage(`file${ext}`) ||
-          isVideo(`file${ext}`) ||
-          sandbox.includes(ext),
-      ).toBe(true);
+      const path = `file${ext}`;
+      const matched = [
+        isRasterImage(path),
+        isVideo(path),
+        isSandboxPreviewable(path),
+      ].filter(Boolean);
+      expect(matched).toHaveLength(1);
     }
   });
 

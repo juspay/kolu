@@ -38,7 +38,12 @@ import { ImageRenderer } from "@kolu/solid-fileview/renderers/image";
 import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
 import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
-import { isMarkdown, isRasterImage, isVideo } from "kolu-common/preview";
+import {
+  isMarkdown,
+  isRasterImage,
+  isSandboxPreviewable,
+  isVideo,
+} from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -267,12 +272,17 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     ),
   };
 
-  // Kolu's rendered appliances, tried in order — mirroring the three-way
-  // binary partition in `kolu-common/preview`. Raster images take the plain
-  // `<img>` (on a checkerboard so transparency reads); videos take a
-  // `<video controls>` element; both have nothing to anchor a comment to.
-  // Everything else in the binary set — `.html`/`.svg`/`.pdf` — falls through
-  // to the sandboxed iframe (which owns its own comment bridge).
+  // Kolu's rendered appliances, tried in order — one branch per set of the
+  // three-way binary partition in `kolu-common/preview`, each named by its own
+  // predicate so the routing decision isn't a positional catch-all. Raster
+  // images take the plain `<img>` (on a checkerboard so transparency reads);
+  // videos take a `<video controls>` element; both have nothing to anchor a
+  // comment to. The sandbox set — `.html`/`.htm`/`.svg`/`.pdf` — takes the
+  // sandboxed iframe (which owns its own comment bridge). A binary that matches
+  // none of the three (a future `.wasm`/font that slipped into
+  // `BINARY_PREVIEWABLE_EXTENSIONS` without a category) falls to the explicit
+  // "unsupported" renderer below rather than silently landing in an iframe that
+  // can't render it — the partition has no silent fourth category at runtime.
   const renderedRenderers: RenderedRenderer[] = [
     {
       match: isRasterImage,
@@ -297,7 +307,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         ),
     },
     {
-      match: () => true,
+      match: isSandboxPreviewable,
       render: (file) =>
         withComments(
           "iframe",
@@ -309,6 +319,20 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             onNavigate={props.onNavigate}
             onHistory={props.onHistory}
           />,
+        ),
+    },
+    // Final, explicit no-match: a binary that's neither raster, video, nor
+    // sandbox. Surfaces the gap visibly instead of FileView rendering blank
+    // (no source on the wire, no matched rendered appliance → empty outlet).
+    {
+      match: () => true,
+      render: (file) =>
+        withComments(
+          "none",
+          file,
+          <div class="px-2 py-1 text-fg-3/50">
+            No preview available for this file type
+          </div>,
         ),
     },
   ];
