@@ -1,5 +1,6 @@
 import { Given, Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
+import { nudgeDir } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -1023,7 +1024,7 @@ async function setupCodeTabFixture(
   world: KoluWorld,
   mode: CodeTabMode,
   writeFiles: string,
-): Promise<void> {
+): Promise<string> {
   const { work, origin } = modeFixturePaths(mode);
   if (mode === "local") {
     await runShell(world, `git init ${work} && cd ${work}`);
@@ -1047,12 +1048,13 @@ async function setupCodeTabFixture(
     // Branch mode's gitStatus stream resolves `origin/<default>` on its FIRST
     // read. If `git push -u origin HEAD` above is still in flight when the
     // stream subscribes (it forks git + writes the bare repo — slow under
-    // darwin CI load), that read throws BASE_BRANCH_NOT_FOUND, which
-    // PERMANENTLY errors the subscription (no watcher, no recovery); every
-    // file-row wait then burns its full POLL_TIMEOUT and the scenario
-    // hard-fails on BOTH cucumber attempts (the same race loses twice). Block
-    // on an explicit shell-completion barrier so the whole setup — crucially
-    // the push — is done before `activateCodeTabMode` subscribes. The marker
+    // darwin CI load), that read throws BASE_BRANCH_NOT_FOUND and the tree
+    // stays empty — the residual branch-mode flake that loses both cucumber
+    // attempts. Two layers guard it: (1) this shell-completion barrier so the
+    // whole setup — crucially the push — is done before `activateCodeTabMode`
+    // subscribes; (2) `waitForCodeTabReady` nudges the work tree each tick so
+    // a first-read that still raced re-resolves on the next repo-change event
+    // (the stream re-reads `getStatus` on `subscribeRepoChange`). The marker
     // is split across a shell string-concat (`SET""TLED`) so the search text
     // matches only the command's OUTPUT, never the typed-command echo — a real
     // ordering barrier, not a sleep.
@@ -1066,6 +1068,7 @@ async function setupCodeTabFixture(
   } else {
     throw new Error(`unknown mode: ${mode}`);
   }
+  return work;
 }
 
 async function activateCodeTabMode(
@@ -1094,26 +1097,57 @@ async function activateCodeTabMode(
  *  per-path assertion has to absorb both "tree mounted" and "specific row
  *  rendered" against a single timeout; under darwin CI load the combined
  *  chain (fs.watcher → server → SSE → SolidJS → Pierre mount) repeatedly
- *  exceeded 20 s and was the single most-recurring flake site (#955). */
-async function waitForCodeTabReady(world: KoluWorld): Promise<void> {
-  await world.page
+ *  exceeded 20 s and was the single most-recurring flake site (#955).
+ *
+ *  `nudgeWork` (branch mode) re-fires the repo's working-tree watcher each
+ *  tick. The gitStatus stream re-reads `getStatus`→`resolveBase` on every
+ *  `subscribeRepoChange` event, so if the FIRST resolve raced the push and
+ *  errored `BASE_BRANCH_NOT_FOUND` (origin/<default> not yet visible — the
+ *  residual branch-mode flake that loses both cucumber attempts), a sentinel
+ *  create+unlink in the work tree fires a repo change that re-resolves
+ *  against the now-settled repo and the tree populates. The sentinel is
+ *  untracked (excluded from the branch diff) and removed immediately, so it
+ *  never appears in the tree. */
+async function waitForCodeTabReady(
+  world: KoluWorld,
+  nudgeWork?: string,
+): Promise<void> {
+  const row = world.page
     .locator(
       `${TREE} [data-item-path][data-item-type]:not([data-file-tree-sticky-row])`,
     )
-    .first()
-    .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+    .first();
+  if (!nudgeWork) {
+    await row.waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+    return;
+  }
+  await pollFor({
+    observe: () => row.isVisible().catch(() => false),
+    isDone: (visible) => visible === true,
+    onTick: () => nudgeDir(nudgeWork),
+    onTimeout: (_last, elapsed) =>
+      new Error(
+        `Code tab tree never hydrated a row within ${elapsed}ms (work=${nudgeWork}) — ` +
+          `branch-mode gitStatus likely stuck on BASE_BRANCH_NOT_FOUND`,
+      ),
+    timeoutMs: HYDRATION_TIMEOUT,
+    intervalMs: 500,
+  });
 }
 
 async function waitForFixturePath(
   world: KoluWorld,
   mode: CodeTabMode,
   path: string,
+  work?: string,
 ): Promise<void> {
   // Two-step wait — first the tree's hydration, then the specific path.
   // Each step carries its own timeout against its own volatility axis;
   // the fused single-locator wait (the prior shape) made both axes share
   // POLL_TIMEOUT and starved the slow hydration side on loaded runners.
-  await waitForCodeTabReady(world);
+  // Branch mode passes `work` so the hydration wait can nudge a stuck
+  // gitStatus subscription back to life (see waitForCodeTabReady).
+  await waitForCodeTabReady(world, mode === "branch" ? work : undefined);
   if (mode === "browse") return;
   await world.page
     .locator(fileRow(path))
@@ -1133,9 +1167,13 @@ Given(
     content: string,
   ) {
     const m = mode as CodeTabMode;
-    await setupCodeTabFixture(this, m, writeFileCommand(path, content));
+    const work = await setupCodeTabFixture(
+      this,
+      m,
+      writeFileCommand(path, content),
+    );
     await activateCodeTabMode(this, m);
-    await waitForFixturePath(this, m, path);
+    await waitForFixturePath(this, m, path, work);
   },
 );
 
@@ -1150,11 +1188,11 @@ Given(
     const m = mode as CodeTabMode;
     const rows = table.rawTable.slice(1); // skip header
     const writes = rows.map(([p, c]) => writeFileCommand(p, c)).join(" && ");
-    await setupCodeTabFixture(this, m, writes);
+    const work = await setupCodeTabFixture(this, m, writes);
     await activateCodeTabMode(this, m);
     const firstPath = rows[0]?.[0];
     if (firstPath) {
-      await waitForFixturePath(this, m, firstPath);
+      await waitForFixturePath(this, m, firstPath, work);
     }
   },
 );
