@@ -1329,7 +1329,7 @@ Feature: Code tab (review + browse)
     And the file preview iframe should contain "preview version one"
     When I click the terminal canvas
     And I run "printf '<!doctype html><h1>preview version two</h1>\n' > page.html"
-    Then the file preview iframe should contain "preview version two"
+    Then the file preview iframe should refresh to "preview version two" after editing "/tmp/kolu-live-html/page.html"
 
   # In-iframe navigation must move the tree selection. The preview iframe is
   # sandboxed at an opaque origin (`allow-scripts`, no `allow-same-origin`), so
@@ -1381,7 +1381,7 @@ Feature: Code tab (review + browse)
     And the file "dist/second.html" should be selected in the file browser
     When I click the terminal canvas
     And I run "printf '<!doctype html><h1>second page BETA</h1>\n' > dist/second.html"
-    Then the file preview iframe should contain "second page BETA"
+    Then the file preview iframe should refresh to "second page BETA" after editing "/tmp/kolu-nav-edit/dist/second.html"
 
   Scenario: Committing the selected local diff clears the stale content pane
     When I run "rm -rf /tmp/kolu-clear-selected-local && git init /tmp/kolu-clear-selected-local && cd /tmp/kolu-clear-selected-local"
