@@ -1,7 +1,7 @@
 import fs from "node:fs";
-import { realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { assertRealpathUnder } from "kolu-git";
 import {
   BINARY_PREVIEWABLE_EXTENSIONS,
   RASTER_IMAGE_EXTENSIONS,
@@ -24,24 +24,6 @@ async function readBody(body: Uint8Array | string | ReadableStream) {
   if (typeof body === "string") return body;
   if (body instanceof ReadableStream) return new Response(body).text();
   return Buffer.from(body).toString();
-}
-
-// Mirrors the production guard wired in `index.ts`
-// (`assertRealpathUnder(root, abs)`): resolve symlinks on both sides and reject
-// a real target that escapes the root. Fails open on realpath error (missing /
-// EACCES) so a 404 stays a 404 rather than masquerading as a 403.
-function realpathGuardUnder(root: string) {
-  return async (abs: string): Promise<boolean> => {
-    let realRoot: string;
-    let realAbs: string;
-    try {
-      [realRoot, realAbs] = await Promise.all([realpath(root), realpath(abs)]);
-    } catch {
-      return true;
-    }
-    const rel = path.relative(realRoot, realAbs);
-    return !(rel.startsWith("..") || path.isAbsolute(rel));
-  };
 }
 
 describe("CONTENT_TYPES covers every binary-previewable extension", () => {
@@ -334,10 +316,10 @@ describe("serveFile", () => {
 
   it("403s a repo-local symlink escaping the root when the injected realpath guard is supplied (no content leaks)", async () => {
     // A repo or agent can plant `leak.html -> /etc/passwd`; the lexical guard
-    // can't see that the real target escapes the root. The kolu caller injects
-    // kolu-git's `assertRealpathUnder` (mirrored here) so the read is rejected
-    // with 403 BEFORE any byte is touched. This is the stage `resolvePathUnder`
-    // (lexical only) cannot cover.
+    // can't see that the real target escapes the root. We inject the same
+    // kolu-git `assertRealpathUnder` guard the production caller wires in
+    // (`index.ts`) so the read is rejected with 403 BEFORE any byte is touched.
+    // This is the stage `resolvePathUnder` (lexical only) cannot cover.
     const outside = fs.mkdtempSync(
       path.join(os.tmpdir(), "kolu-serve-dir-outside-"),
     );
@@ -351,7 +333,7 @@ describe("serveFile", () => {
         tmpRoot,
         "leak-guarded.html",
         undefined,
-        realpathGuardUnder(tmpRoot),
+        async (abs) => (await assertRealpathUnder(tmpRoot, abs)).ok,
       );
       expect(res.status).toBe(403);
       expect(res.body.toString()).not.toContain("SECRET");
