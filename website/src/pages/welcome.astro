@@ -361,6 +361,29 @@ const tunnels = [
       </div>
     </details>
 
+    <!-- Live capture of the code-browser → comment → agent loop (the deep-dive
+         above, shown). Poster-first / reduced-motion-gated via the .demo-video
+         inline script at the end of the file. -->
+    <figure class="demo-figure">
+      <div class="demo-frame">
+        <video
+          class="demo-video"
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          poster="/demo/code-review-demo.webp"
+        >
+          <source src="/demo/code-review-demo.webm" type="video/webm" />
+          <source src="/demo/code-review-demo.mp4" type="video/mp4" />
+        </video>
+      </div>
+      <figcaption>
+        The Code tab in action: browse the repo, select text in any file, and
+        leave a comment — copied as Markdown to paste straight back to your agent.
+      </figcaption>
+    </figure>
+
     <details class="deep">
       <summary>
         <span class="deep-tag">how-to</span>
