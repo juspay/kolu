@@ -46,16 +46,26 @@ const TEXT_PLAIN = { "Content-Type": "text/plain; charset=utf-8" };
 
 /** Content-Type for a path. Backed by `mrmime`'s complete IANA-derived table
  *  (the same one Vite/sirv use), so this is "any file → its real MIME", NOT a
- *  curated subset of any consumer's previewable set: a consumer adding a format
- *  to *its* classifier needs no edit here — mrmime already knows it. A file with
- *  no known type serves as `application/octet-stream` (the browser downloads
- *  rather than renders).
+ *  curated subset of any consumer's previewable set: for every format mrmime
+ *  knows, a consumer adding it to *its* classifier needs no edit here — mrmime
+ *  already types it, so the ext↔MIME coupling is dissolved. A file with no known
+ *  type serves as `application/octet-stream` (the browser downloads rather than
+ *  renders).
  *
  *  serve-dir's deviations from mrmime's defaults: (1) a tiny `OVERRIDES` map for
  *  generic extensions mrmime happens to omit (`.m4v`, `.ico`) — these are
  *  universal formats any file server should type, NOT a consumer's preview list;
  *  (2) append an explicit `; charset=utf-8` to text-bearing types (any
- *  `text/...`, plus the `javascript`/`json` subtypes) so non-ASCII renders. */
+ *  `text/...`, plus the `javascript`/`json` subtypes) so non-ASCII renders.
+ *
+ *  The mrmime gap set (`.m4v`/`.ico`, and any future classifier entry mrmime
+ *  doesn't know) is the one case the coupling is NOT dissolved but
+ *  contained-by-test: the MIME lives here, the consumer's classifier asserts the
+ *  appliance, and the two must co-vary. Drop an `OVERRIDES` row and the
+ *  classifier still serves a `<video>`/`<img>`, but this returns
+ *  `application/octet-stream` → silent download. The coverage invariant in the
+ *  consumer's `iframePreviewRoute.test.ts` is load-bearing for exactly that
+ *  axis, not a thin sanity check. */
 const OVERRIDES: Record<string, string> = {
   m4v: "video/mp4",
   ico: "image/x-icon",
