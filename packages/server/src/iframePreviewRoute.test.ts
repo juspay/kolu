@@ -10,6 +10,17 @@ import {
   serveResolvedFile,
 } from "./iframePreviewRoute";
 
+// Ranged 206 bodies are a `ReadableStream` (bytes flow from a bounded file
+// handle, never the whole file through the heap), so the assertions read them
+// to a string instead of `.toString()`-ing the body directly.
+async function readBody(body: Uint8Array | string | ReadableStream) {
+  if (typeof body === "string") return body;
+  if (body instanceof ReadableStream) {
+    return new Response(body).text();
+  }
+  return Buffer.from(body).toString();
+}
+
 // The classifier (`isBinaryPreviewable` / `isRasterImage`) and its own tests
 // live in `kolu-common/preview`. This suite covers the route's serving
 // layer and the one invariant that couples it to that classifier:
@@ -217,7 +228,7 @@ describe("serveResolvedFile", () => {
     expect(res.headers["Content-Range"]).toBe("bytes 2-5/10");
     expect(res.headers["Content-Length"]).toBe("4");
     expect(res.headers["Accept-Ranges"]).toBe("bytes");
-    expect(res.body.toString()).toBe("2345");
+    expect(await readBody(res.body)).toBe("2345");
   });
 
   it("serves the whole file (200) when no Range header is present", async () => {

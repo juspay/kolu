@@ -15,8 +15,10 @@
  *  (`allow-scripts` only, no `allow-same-origin`) are the iframe element's
  *  responsibility — the route is plain HTTP. */
 
+import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { buildTerminalFileUrl } from "kolu-common/preview";
 import { assertRealpathUnder, resolveUnder } from "kolu-git";
 
@@ -143,8 +145,11 @@ export interface ServeResult {
   headers: Record<string, string>;
   /** `Uint8Array` covers `Buffer` (subclass) and satisfies `Response`'s
    *  `BodyInit` directly — `Buffer` alone confuses TS in the DOM-typed
-   *  Response constructor. Strings come back for error responses. */
-  body: Uint8Array | string;
+   *  Response constructor. Strings come back for error responses. A
+   *  `ReadableStream` is the ranged-media body: bytes flow straight from a
+   *  bounded file handle to the socket, so a multi-GB video never lands in the
+   *  server's heap (see the 206 branch in `serveResolvedFile`). */
+  body: Uint8Array | string | ReadableStream;
 }
 
 /** Parse a single-range HTTP `Range: bytes=…` header against a known file
@@ -242,25 +247,36 @@ export async function serveResolvedFile(
       };
     }
 
-    // The whole file is read regardless of range — these are preview-sized
-    // assets and it keeps the read path identical to the non-ranged case; a
-    // satisfiable range just slices the buffer before responding.
-    const buf = await readFile(res.abs);
+    // A satisfiable range streams straight from a bounded file handle —
+    // `createReadStream({ start, end })` only ever reads those bytes, so a
+    // `Range: bytes=0-1` against a multi-GB video moves two bytes, not the
+    // whole file through the heap. `Content-Length` is the range width, derived
+    // from the same `s.size` that bounded the stream, so body and header can't
+    // diverge. (`end` is inclusive for both the HTTP range and the fs option.)
     if (range) {
-      const slice = buf.subarray(range.start, range.end + 1);
+      const stream = createReadStream(res.abs, {
+        start: range.start,
+        end: range.end,
+      });
       return {
         status: 206,
         headers: {
           ...baseHeaders,
           "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
-          "Content-Length": String(slice.length),
+          "Content-Length": String(range.end - range.start + 1),
         },
-        body: slice,
+        body: Readable.toWeb(stream) as ReadableStream,
       };
     }
+    // No range: the whole file is buffered (the original behaviour for HTML and
+    // image previews). `Content-Length` comes from the buffer actually being
+    // sent, not the earlier `stat` — if an agent rewrites the file between
+    // `stat()` and `readFile()` the two could differ, producing a truncated
+    // body or `ERR_CONTENT_LENGTH_MISMATCH` on this live-reloading route.
+    const buf = await readFile(res.abs);
     return {
       status: 200,
-      headers: { ...baseHeaders, "Content-Length": String(s.size) },
+      headers: { ...baseHeaders, "Content-Length": String(buf.length) },
       body: buf,
     };
   } catch (e: unknown) {
