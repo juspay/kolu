@@ -1,6 +1,6 @@
 import { Given, Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
-import { nudgeDir } from "../support/nudge.ts";
+import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -636,6 +636,39 @@ Then(
       onTimeout: (last) =>
         new Error(
           `iframe preview never contained "${expected}"; last body text: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
+  },
+);
+
+// Edit-then-refresh variant: after a file is rewritten in the shell, the live
+// preview reloads only when the file-change watch (`subscribeFileChange` →
+// `watchWorkingTree(repoRoot, { filePath })`) fires. On darwin that single
+// FSEvents notification is sometimes dropped under the post-koluBin-build
+// storm, so the iframe freezes on the pre-edit body and the bare assertion
+// above (even at HYDRATION_TIMEOUT) waits forever — no further event ever
+// comes. Re-touch the edited file's mtime each poll tick: each touch is a
+// fresh notification, so a dropped one is recovered, and a new mtime re-points
+// the iframe `src` (`?v=<mtime>`) to force the reload. The file already holds
+// the post-edit content, so this recovers the lost event without changing what
+// is asserted — it does NOT mask a broken watch re-arm (a touch of a file the
+// watch isn't armed on still fires nothing). `absFile` is the absolute on-disk
+// path the shell wrote (the scenario's repo cwd + relative path).
+Then(
+  "the file preview iframe should refresh to {string} after editing {string}",
+  async function (this: KoluWorld, expected: string, absFile: string) {
+    const body = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .locator("body");
+    await pollFor({
+      observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
+      isDone: (text) => text?.includes(expected) ?? false,
+      onTick: () => nudgeFiles([absFile]),
+      onTimeout: (last) =>
+        new Error(
+          `iframe preview never refreshed to "${expected}" after editing ${absFile}; ` +
+            `last body text: ${JSON.stringify(last)}`,
         ),
       timeoutMs: HYDRATION_TIMEOUT,
     });
