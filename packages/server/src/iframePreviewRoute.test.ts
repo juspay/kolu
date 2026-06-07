@@ -1,13 +1,12 @@
-/** kolu-server integration tests for `@kolu/serve-dir` — the couplings that
- *  belong to the consumer, not the agnostic package:
+/** Tests for kolu's preview-serving glue (`iframePreviewRoute.ts`) — the
+ *  kolu-specific contracts the agnostic `@kolu/serve-dir` package can't own:
  *    1. kolu's `BINARY_PREVIEWABLE_EXTENSIONS` classifier is fully covered by
  *       serve-dir's Content-Type map (and the per-family MIME invariants the
  *       client's `<video>`/`<img>` dispatch relies on);
- *    2. the realpath guard kolu actually wires (`assertRealpathUnder`) rejects a
- *       symlink escaping the root with 403 — i.e. the SHIPPED guard, not a
- *       hand-rolled mirror.
- *  serve-dir's own tests stay agnostic (no kolu imports); these live here so the
- *  kolu-specific contracts are verified against the code kolu ships. */
+ *    2. the realpath guard kolu actually ships (`previewRealpathGuard`, the
+ *       adapter `index.ts` injects into `createDirServer`) rejects a symlink
+ *       whose real target escapes the root — exercising the shipped adapter, not
+ *       a re-derived copy. */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -19,10 +18,10 @@ import {
   SANDBOX_PREVIEWABLE_EXTENSIONS,
   VIDEO_EXTENSIONS,
 } from "kolu-common/preview";
-import { assertRealpathUnder } from "kolu-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { previewRealpathGuard } from "./iframePreviewRoute.ts";
 
-describe("serve-dir Content-Type covers kolu's binary-previewable classifier", () => {
+describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifier", () => {
   // If any previewable extension lacked a real type, serve-dir would serve it as
   // `application/octet-stream` and the browser would download instead of render.
   it.each(
@@ -57,11 +56,11 @@ describe("serve-dir Content-Type covers kolu's binary-previewable classifier", (
   });
 });
 
-describe("kolu's wired realpath guard (assertRealpathUnder) blocks symlink escape", () => {
+describe("previewRealpathGuard (the guard index.ts injects) blocks symlink escape", () => {
   let tmpRoot: string;
 
   beforeAll(() => {
-    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-serve-dir-int-"));
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-preview-guard-"));
   });
 
   afterAll(() => {
@@ -69,10 +68,11 @@ describe("kolu's wired realpath guard (assertRealpathUnder) blocks symlink escap
   });
 
   it("403s a symlink whose real target escapes the root (no content leaks)", async () => {
-    // This is the EXACT guard `index.ts` injects into createDirServer, verified
-    // against the shipped `assertRealpathUnder` rather than a test-local mirror.
+    // Drives the SHIPPED adapter — the same `previewRealpathGuard(root)` value
+    // `index.ts` hands to `createDirServer` — through `serveFile`, so this
+    // verifies what runs in production, not a hand-rolled mirror.
     const outside = fs.mkdtempSync(
-      path.join(os.tmpdir(), "kolu-serve-dir-int-outside-"),
+      path.join(os.tmpdir(), "kolu-preview-guard-outside-"),
     );
     try {
       const secret = path.join(outside, "secret.html");
@@ -82,12 +82,27 @@ describe("kolu's wired realpath guard (assertRealpathUnder) blocks symlink escap
         tmpRoot,
         "leak.html",
         undefined,
-        async (abs) => (await assertRealpathUnder(tmpRoot, abs)).ok,
+        previewRealpathGuard(tmpRoot),
       );
       expect(res.status).toBe(403);
       expect(res.body.toString()).not.toContain("SECRET");
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
     }
+  });
+
+  it("allows an in-root file through the same guard", async () => {
+    fs.writeFileSync(
+      path.join(tmpRoot, "ok.html"),
+      "<!doctype html><h1>ok</h1>",
+    );
+    const res = await serveFile(
+      tmpRoot,
+      "ok.html",
+      undefined,
+      previewRealpathGuard(tmpRoot),
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.toString()).toContain("ok");
   });
 });

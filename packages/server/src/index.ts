@@ -9,7 +9,6 @@ import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { DEFAULT_PORT } from "kolu-common/config";
-import { assertRealpathUnder } from "kolu-git";
 import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
@@ -20,6 +19,7 @@ import {
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import {
+  previewRealpathGuard,
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "./iframePreviewRoute.ts";
@@ -206,14 +206,14 @@ app.get(
     // The agnostic receptacle owns range/content-type/the lexical guard and
     // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
     // above) rewrites it downstream for text/html. Range header is read from the
-    // request inside. We inject kolu-git's filesystem-authority guard so a
-    // repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
-    // rejected with 403 before any byte is read — the stage `resolvePathUnder`
-    // (lexical only) can't cover.
-    return createDirServer(
-      root,
-      async (abs) => (await assertRealpathUnder(root, abs)).ok,
-    ).fetch(rawTail, c.req.raw);
+    // request inside. We inject kolu's realpath guard (`previewRealpathGuard`)
+    // so a repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
+    // rejected with 403 before any byte is read — the stage the lexical guard
+    // inside `@kolu/serve-dir` can't cover.
+    return createDirServer(root, previewRealpathGuard(root)).fetch(
+      rawTail,
+      c.req.raw,
+    );
   },
 );
 
