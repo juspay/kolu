@@ -20,6 +20,7 @@ import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import {
   previewRealpathGuard,
+  previewTailFromRawUrl,
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "./iframePreviewRoute.ts";
@@ -185,15 +186,12 @@ app.get(
   `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`,
   async (c) => {
     const terminalId = c.req.param("terminalId");
-    const prefix = `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/`;
-    // Slice the tail off `c.req.path` (Hono applies `decodeURI` here, so
-    // `%2f` stays encoded) rather than read `c.req.param("*")` (which
-    // applies `decodeURIComponent` — that would decode `%2f` → `/` and
-    // destroy segment boundaries before `createDirServer`'s decode-then-split
-    // could see them, letting `foo%2f..%2fpasswd` through the guard).
-    const rawTail = c.req.path.startsWith(prefix)
-      ? c.req.path.slice(prefix.length)
-      : "";
+    // Slice the tail off the RAW request pathname — NOT `c.req.path` (`decodeURI`d)
+    // or `c.req.param("*")` (`decodeURIComponent`d), both of which decode it
+    // before `@kolu/serve-dir` decodes again, double-decoding the tail.
+    // `previewTailFromRawUrl` documents why (correctness for `%`-bearing names +
+    // `%2f` traversal defense) and is unit-tested in `iframePreviewRoute.test.ts`.
+    const rawTail = previewTailFromRawUrl(c.req.raw.url, terminalId);
 
     // The one kolu binding: which directory this terminal serves. Kept as the
     // git repo root for now (behavior-preserving — the browse tree, git-status

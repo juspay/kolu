@@ -10,7 +10,11 @@
  *      use the SAME shipped adapter rather than each re-deriving it. */
 
 import type { RealpathGuard } from "@kolu/serve-dir";
-import { buildTerminalFileUrl } from "kolu-common/preview";
+import {
+  buildTerminalFileUrl,
+  TERMINAL_FILE_ROUTE_BASE,
+  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
+} from "kolu-common/preview";
 import { assertRealpathUnder } from "kolu-git";
 
 // The route-shape contract (`TERMINAL_FILE_ROUTE_BASE`,
@@ -34,6 +38,33 @@ export function buildIframePreviewUrl(
   mtimeMs: number,
 ): string {
   return `${buildTerminalFileUrl(terminalId, filePath)}?v=${Math.floor(mtimeMs)}`;
+}
+
+/** Extract the still-encoded path tail for a terminal's preview route from a
+ *  RAW request URL. Slices off `${BASE}/{terminalId}/${FILE}/`, returning the
+ *  remaining percent-encoded segments (or `""` when the URL doesn't match the
+ *  prefix — the route registration guarantees it does, but the guard keeps this
+ *  pure and total).
+ *
+ *  Must be fed the RAW, undecoded pathname (`new URL(req.url).pathname`), NOT
+ *  Hono's `c.req.path` (`decodeURI`d) or `c.req.param("*")` (`decodeURIComponent`d):
+ *  `@kolu/serve-dir` decodes the tail exactly once (decode-then-split), so any
+ *  pre-decoded source double-decodes. That breaks both correctness and security:
+ *    - a real file `100% done.mp4` is URL-built as `100%25%20done.mp4`; pre-
+ *      decoding to `100% done.mp4` then makes serve-dir's `decodeURIComponent`
+ *      throw on the bare `% ` → a spurious 400 for a legitimate file;
+ *    - pre-decoding `%2f` → `/` erases segment boundaries before serve-dir's
+ *      per-segment `..` check runs, letting `foo%2f..%2fpasswd` traverse out.
+ *  The raw tail keeps `%`-bearing names round-tripping AND a literal `%2f` as
+ *  one segment, while an attacker's encoded `%2f` becomes a real boundary the
+ *  per-segment check rejects. */
+export function previewTailFromRawUrl(
+  rawUrl: string,
+  terminalId: string,
+): string {
+  const prefix = `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/`;
+  const pathname = new URL(rawUrl).pathname;
+  return pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "";
 }
 
 /** The filesystem-authority guard kolu injects into `@kolu/serve-dir` for a

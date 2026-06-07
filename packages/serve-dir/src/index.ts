@@ -36,7 +36,7 @@
  *  pointing outside the root (`leak.html -> /etc/passwd`) is rejected with 403
  *  before a single byte is read; omitting it keeps lexical-only behavior. */
 
-import { open, readFile, stat } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 
@@ -137,12 +137,14 @@ export function resolvePathUnder(
 export interface ServeResult {
   status: number;
   headers: Record<string, string>;
-  /** `Uint8Array` covers `Buffer` (subclass) and satisfies `Response`'s
-   *  `BodyInit` directly — `Buffer` alone confuses TS in the DOM-typed
-   *  `Response` constructor. Strings come back for error responses. A
-   *  `ReadableStream` is the ranged-media body: bytes flow straight from a
-   *  bounded file handle to the socket, so a multi-GB video never lands in the
-   *  server's heap (see the 206 branch in `serveFile`). */
+  /** A `ReadableStream` is the success body (200 and 206 alike): bytes flow
+   *  straight from a bounded file handle to the socket, so a multi-GB video
+   *  never lands in the server's heap, whether the client sent a Range header or
+   *  not (see `serveFile`). Strings come back for error responses (400/403/404/
+   *  416/500). `Uint8Array` stays in the union for callers/tests that hand in a
+   *  buffered body — it covers `Buffer` (subclass) and satisfies `Response`'s
+   *  `BodyInit` directly, where `Buffer` alone confuses TS in the DOM-typed
+   *  `Response` constructor. */
   body: Uint8Array | string | ReadableStream;
 }
 
@@ -214,6 +216,23 @@ export async function serveFile(
   if (realpathGuard && !(await realpathGuard(res.abs))) {
     return { status: 403, headers: TEXT_PLAIN, body: "escapes root" };
   }
+  // Every successful response — 200 and 206 alike — streams from a single open
+  // file handle: `open` → `handle.stat()` (the size that drives range math AND
+  // the headers) → `handle.createReadStream`. Deriving the size and the bytes
+  // from the *same* open file description — rather than a `stat(path)` then a
+  // separate `createReadStream(path)` — tightens the stat/read race on a
+  // live-reloading root: the handle pins one inode, so an *atomic* replace
+  // (write-temp-then-rename) leaves the already-sized headers and the streamed
+  // body describing one consistent file. Open/stat failures throw here and map
+  // to 404/500 below, *before* any 200/206 is returned.
+  //
+  // Streaming the full 200 (not just the ranged 206) is the load-bearing reason
+  // a multi-GB video never lands in the server heap: a client that omits a Range
+  // header — or sends a multi-range one we collapse to 200 — would otherwise
+  // force the whole file through `readFile`. The downstream HTML decorator still
+  // works because it consumes only `text/html` (via `res.text()`), and a
+  // `ReadableStream` body answers `.text()` just as a buffer does.
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
     // `Accept-Ranges: bytes` advertises that this route can range-serve, which
     // is what lets a `<video>` element seek.
@@ -224,79 +243,64 @@ export async function serveFile(
       "Accept-Ranges": "bytes",
     };
 
-    // A Range request streams from a single open file handle: `open` →
-    // `handle.stat()` (for the size that drives range math AND the headers) →
-    // `handle.createReadStream`. Deriving the size and the bytes from the *same*
-    // open file description — rather than a `stat(path)` then a separate
-    // `createReadStream(path)` — tightens the stat/read race on a live-reloading
-    // root: the handle pins one inode, so an *atomic* replace
-    // (write-temp-then-rename) leaves the already-sized headers and the streamed
-    // body describing one consistent file. Open/stat failures throw here and map
-    // to 404/500 below, *before* any 206 is returned.
-    if (rangeHeader) {
-      const handle = await open(res.abs, "r");
-      // Set once the handle is handed off to a ReadableStream that owns its
-      // lifecycle; every other exit closes the handle in `finally`.
-      let streamed = false;
-      try {
-        const s = await handle.stat();
-        if (!s.isFile()) {
-          return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
-        }
-        const range = parseByteRange(rangeHeader, s.size);
-        if (range === "invalid") {
-          return {
-            status: 416,
-            headers: { ...baseHeaders, "Content-Range": `bytes */${s.size}` },
-            body: "range not satisfiable",
-          };
-        }
-        if (range) {
-          // `createReadStream({ start, end })` reads only those bytes, so a
-          // `Range: bytes=0-1` against a multi-GB video moves two bytes, not the
-          // whole file, through the heap. The stream owns `handle` and closes it
-          // on end/error (`autoClose` defaults on), so we skip the `finally`.
-          const stream = handle.createReadStream({
-            start: range.start,
-            end: range.end,
-          });
-          streamed = true;
-          return {
-            status: 206,
-            headers: {
-              ...baseHeaders,
-              "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
-              "Content-Length": String(range.end - range.start + 1),
-            },
-            body: Readable.toWeb(stream) as ReadableStream,
-          };
-        }
-        // `range === null`: header present but not a single satisfiable range
-        // (open `bytes=-`, multi-range, malformed). Fall through to a full 200,
-        // reusing the handle we already opened. No `Content-Length` — see below.
-        const buf = await handle.readFile();
-        return { status: 200, headers: { ...baseHeaders }, body: buf };
-      } finally {
-        if (!streamed) await handle.close();
+    handle = await open(res.abs, "r");
+    // Set once the handle is handed off to a ReadableStream that owns its
+    // lifecycle (closing it on end/error — `autoClose` defaults on); every
+    // other exit closes the handle in the `finally` below. Everything after the
+    // `open` runs inside that try so a `stat`/`isFile` failure can't leak it.
+    let streamed = false;
+    try {
+      const s = await handle.stat();
+      if (!s.isFile()) {
+        return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
       }
-    }
 
-    // No Range header: buffer the whole file (the original behaviour for HTML
-    // and image previews). Deliberately set NO `Content-Length` — the runtime
-    // derives it from the bytes actually written to the socket. Load-bearing:
-    // (1) a downstream HTML-transform middleware (kolu's artifact-sdk decorator)
-    // may splice bytes into a text/html response *after* this returns; a
-    // Content-Length pinned to the pre-splice size truncates the injected body.
-    // (2) deriving from the sent bytes is race-free on a live-reloading root,
-    // where a stat and a later read could disagree. The 206 branch above DOES
-    // set Content-Length: a partial response must, and it's never decorated
-    // (an HTML transform only touches status 200).
-    const s = await stat(res.abs);
-    if (!s.isFile()) {
-      return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
+      const streamBody = (start?: number, end?: number): ReadableStream => {
+        const stream = handle!.createReadStream(
+          start === undefined ? {} : { start, end },
+        );
+        streamed = true;
+        return Readable.toWeb(stream) as ReadableStream;
+      };
+
+      const range = rangeHeader ? parseByteRange(rangeHeader, s.size) : null;
+      if (range === "invalid") {
+        return {
+          status: 416,
+          headers: { ...baseHeaders, "Content-Range": `bytes */${s.size}` },
+          body: "range not satisfiable",
+        };
+      }
+      if (range) {
+        // `createReadStream({ start, end })` reads only those bytes, so a
+        // `Range: bytes=0-1` against a multi-GB video moves two bytes, not the
+        // whole file, through the heap.
+        return {
+          status: 206,
+          headers: {
+            ...baseHeaders,
+            "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
+            "Content-Length": String(range.end - range.start + 1),
+          },
+          body: streamBody(range.start, range.end),
+        };
+      }
+
+      // Full 200: no Range header, or a header we collapse to the whole file
+      // (open `bytes=-`, multi-range, malformed). Stream it too — see the
+      // heap note above. Deliberately set NO `Content-Length`; the runtime
+      // derives it from the bytes actually written to the socket. Load-bearing:
+      // (1) a downstream HTML-transform middleware (kolu's artifact-sdk
+      // decorator) may splice bytes into a text/html response *after* this
+      // returns; a Content-Length pinned to the pre-splice size truncates the
+      // injected body. (2) deriving from the sent bytes is race-free on a
+      // live-reloading root, where a stat and a later read could disagree. The
+      // 206 branch above DOES set Content-Length: a partial response must, and
+      // it's never decorated (an HTML transform only touches status 200).
+      return { status: 200, headers: { ...baseHeaders }, body: streamBody() };
+    } finally {
+      if (!streamed) await handle.close();
     }
-    const buf = await readFile(res.abs);
-    return { status: 200, headers: { ...baseHeaders }, body: buf };
   } catch (e: unknown) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {

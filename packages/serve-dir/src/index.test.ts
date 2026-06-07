@@ -211,7 +211,7 @@ describe("serveFile", () => {
     expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
     // Advertised on every successful response so the <video> player can seek.
     expect(res.headers["Accept-Ranges"]).toBe("bytes");
-    expect(res.body.toString()).toBe("<!doctype html><h1>hi</h1>");
+    expect(await readBody(res.body)).toBe("<!doctype html><h1>hi</h1>");
   });
 
   it("sets NO Content-Length on a full 200 — the runtime derives it from the bytes sent", async () => {
@@ -258,7 +258,26 @@ describe("serveFile", () => {
   it("serves the whole file (200) when no Range header is present", async () => {
     const res = await serveFile(tmpRoot, "clip.mp4");
     expect(res.status).toBe(200);
-    expect(res.body.toString()).toBe("0123456789");
+    expect(await readBody(res.body)).toBe("0123456789");
+  });
+
+  it("streams the full 200 body (no Range) so a large file never lands in the heap", async () => {
+    // The full 200 path uses `createReadStream` (a `ReadableStream`), not a
+    // buffered `readFile`. A client that omits a Range header — or a plain
+    // download — must not force the whole file through the server heap.
+    const res = await serveFile(tmpRoot, "clip.mp4");
+    expect(res.status).toBe(200);
+    expect(res.body).toBeInstanceOf(ReadableStream);
+    expect(res.headers["Content-Length"]).toBeUndefined();
+  });
+
+  it("collapses a multi-range header to a streamed full 200", async () => {
+    // Multi-range is deliberately not honored (falls back to a spec-valid full
+    // 200); that fallback must stream too, not buffer.
+    const res = await serveFile(tmpRoot, "clip.mp4", "bytes=0-1,4-5");
+    expect(res.status).toBe(200);
+    expect(res.body).toBeInstanceOf(ReadableStream);
+    expect(await readBody(res.body)).toBe("0123456789");
   });
 
   it("returns 416 for an unsatisfiable Range", async () => {
@@ -329,7 +348,7 @@ describe("serveFile", () => {
       fs.symlinkSync(secret, path.join(tmpRoot, "leak-unguarded.html"));
       const res = await serveFile(tmpRoot, "leak-unguarded.html");
       expect(res.status).toBe(200);
-      expect(res.body.toString()).toContain("SECRET");
+      expect(await readBody(res.body)).toContain("SECRET");
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
       fs.rmSync(path.join(tmpRoot, "leak-unguarded.html"), { force: true });

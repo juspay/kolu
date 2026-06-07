@@ -11,7 +11,7 @@
  *  comments — `"text"` (selectable source DOM, line-addressable), `"prose"`
  *  (rendered text like the Markdown preview — anchored to its host subtree,
  *  no source line), `"iframe"` (the sandboxed preview owns its own postMessage
- *  bridge), or `"none"` (nothing to anchor to: a raster image). The renderers
+ *  bridge), or `"none"` (nothing to anchor to: a raster image or a video). The renderers
  *  stay pure presenters; a new one can't silently ship without a comment
  *  decision because it has to pick a capture mode at this seam:
  *
@@ -20,8 +20,8 @@
  *      additionally gets a rendered appliance, so FileView shows a Source ⇄
  *      Rendered toggle (defaulting to rendered); other text stays source-only.
  *    - `kind: "binary"` → a `FileData` with `url`; FileView picks a rendered
- *      appliance by extension (image `<img>` or sandboxed iframe). Rendered-
- *      only — no source on the wire to toggle to.
+ *      appliance by extension (raster `<img>`, `<video>` player, or sandboxed
+ *      iframe). Rendered-only — no source on the wire to toggle to.
  *
  *  The Source ⇄ Rendered toggle lights up wherever a file carries *both*
  *  forms — Markdown today (plan phase 3); a `renderable` wire kind for

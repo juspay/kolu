@@ -18,8 +18,12 @@ import {
   SANDBOX_PREVIEWABLE_EXTENSIONS,
   VIDEO_EXTENSIONS,
 } from "kolu-common/preview";
+import { buildTerminalFileUrl } from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { previewRealpathGuard } from "./iframePreviewRoute.ts";
+import {
+  previewRealpathGuard,
+  previewTailFromRawUrl,
+} from "./iframePreviewRoute.ts";
 
 describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifier", () => {
   // If any previewable extension lacked a real type, serve-dir would serve it as
@@ -103,6 +107,65 @@ describe("previewRealpathGuard (the guard index.ts injects) blocks symlink escap
       previewRealpathGuard(tmpRoot),
     );
     expect(res.status).toBe(200);
-    expect(res.body.toString()).toContain("ok");
+    // Success bodies stream (200 and 206 alike), so read the stream rather than
+    // `.toString()`-ing it directly.
+    expect(await readServeBody(res.body)).toContain("ok");
+  });
+});
+
+// Success bodies come back as a `ReadableStream` (bytes flow from a bounded file
+// handle straight to the socket); read it as text.
+async function readServeBody(
+  body: Uint8Array | string | ReadableStream,
+): Promise<string> {
+  if (typeof body === "string") return body;
+  if (body instanceof ReadableStream) return new Response(body).text();
+  return Buffer.from(body).toString();
+}
+
+describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)", () => {
+  const terminalId = "abc";
+
+  it("round-trips a filename with a literal % through encode → extract → serve-dir decode", async () => {
+    // The bug class: a real file `100% done.mp4` is built as
+    // `100%25%20done.mp4`. Decoding the tail once before serve-dir (as
+    // `c.req.path`'s `decodeURI` would) yields `100% done.mp4`, and serve-dir's
+    // `decodeURIComponent` then throws on the bare `% ` → a spurious 400. The raw
+    // tail keeps it encoded so serve-dir's single decode recovers the real name.
+    const filePath = "100% done.mp4";
+    const url = `http://host${buildTerminalFileUrl(terminalId, filePath)}`;
+    const tail = previewTailFromRawUrl(url, terminalId);
+    expect(tail).toBe("100%25%20done.mp4");
+
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
+    try {
+      fs.writeFileSync(path.join(tmpRoot, filePath), "video-bytes");
+      const res = await serveFile(tmpRoot, tail);
+      expect(res.status).toBe(200);
+      expect(await readServeBody(res.body)).toBe("video-bytes");
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves segment boundaries so an encoded %2f traversal is rejected", async () => {
+    // An attacker sends a literal `%2f` to smuggle a `/` past the per-segment
+    // `..` check. The raw tail keeps `%2f` encoded; serve-dir decodes it to `/`,
+    // splits, and the per-segment check rejects the `..` → 400 (not a traversal).
+    const url = `http://host/api/terminals/${terminalId}/file/foo%2f..%2fpasswd`;
+    const tail = previewTailFromRawUrl(url, terminalId);
+    expect(tail).toBe("foo%2f..%2fpasswd");
+
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
+    try {
+      const res = await serveFile(tmpRoot, tail);
+      expect(res.status).toBe(400);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns empty for a URL that doesn't match the prefix", () => {
+    expect(previewTailFromRawUrl("http://host/other/path", terminalId)).toBe("");
   });
 });
