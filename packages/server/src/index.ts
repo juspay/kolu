@@ -1,6 +1,7 @@
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
+import { createDirServer } from "@kolu/serve-dir";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -18,8 +19,7 @@ import {
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import {
-  resolvePreviewPath,
-  serveResolvedFile,
+  previewRealpathGuard,
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "./iframePreviewRoute.ts";
@@ -189,30 +189,31 @@ app.get(
     // Slice the tail off `c.req.path` (Hono applies `decodeURI` here, so
     // `%2f` stays encoded) rather than read `c.req.param("*")` (which
     // applies `decodeURIComponent` — that would decode `%2f` → `/` and
-    // destroy segment boundaries before `resolvePreviewPath`'s split
+    // destroy segment boundaries before `createDirServer`'s decode-then-split
     // could see them, letting `foo%2f..%2fpasswd` through the guard).
     const rawTail = c.req.path.startsWith(prefix)
       ? c.req.path.slice(prefix.length)
       : "";
 
-    const term = getTerminal(terminalId);
-    const repoRoot = term?.meta.git?.repoRoot;
-    if (!repoRoot) return c.text("terminal has no repo", 404);
+    // The one kolu binding: which directory this terminal serves. Kept as the
+    // git repo root for now (behavior-preserving — the browse tree, git-status
+    // decoration, and diff are all repo-relative); switching the injected root
+    // to the terminal's `$PWD` (`meta.cwd`) is a one-line change here, deferred
+    // because it's a browse-model/decoration product decision, not this refactor.
+    const root = getTerminal(terminalId)?.meta.git?.repoRoot;
+    if (!root) return c.text("terminal has no repo", 404);
 
-    const res = await serveResolvedFile(
-      resolvePreviewPath(repoRoot, rawTail),
-      repoRoot,
-      // Forwarded so a `<video>` preview can seek (206 Partial Content).
-      c.req.header("range"),
+    // The agnostic receptacle owns range/content-type/the lexical guard and
+    // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
+    // above) rewrites it downstream for text/html. Range header is read from the
+    // request inside. We inject kolu's realpath guard (`previewRealpathGuard`)
+    // so a repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
+    // rejected with 403 before any byte is read — the stage the lexical guard
+    // inside `@kolu/serve-dir` can't cover.
+    return createDirServer(root, previewRealpathGuard(root)).fetch(
+      rawTail,
+      c.req.raw,
     );
-    // `Buffer` (subclass of `Uint8Array<ArrayBufferLike>`) is a runtime-valid
-    // `BodyInit` but the DOM-typed lib.dom.d.ts narrows `BodyInit` to
-    // `Uint8Array<ArrayBuffer>` — the unions don't align in TS even though
-    // node-server forwards the buffer unchanged. Cast at the boundary.
-    return new Response(res.body as BodyInit, {
-      status: res.status,
-      headers: res.headers,
-    });
   },
 );
 
