@@ -1,5 +1,6 @@
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
+import type { HttpBindings } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
 import { createDirServer } from "@kolu/serve-dir";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
@@ -187,12 +188,23 @@ mountArtifactSdk(app, {
 // shadow this route with `serveStatic`'s `/*` matcher.
 app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const terminalId = c.req.param("terminalId");
-  // Slice the tail off the RAW request pathname — NOT `c.req.path` (`decodeURI`d)
-  // or `c.req.param("*")` (`decodeURIComponent`d), both of which decode it
-  // before `@kolu/serve-dir` decodes again, double-decoding the tail.
-  // `previewTailFromRawUrl` documents why (correctness for `%`-bearing names +
-  // `%2f` traversal defense) and is unit-tested in `iframePreviewRoute.test.ts`.
-  const rawTail = previewTailFromRawUrl(c.req.raw.url, terminalId);
+  // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
+  // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
+  // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
+  // last is built by @hono/node-server as `new URL(...).href`, which has ALREADY
+  // run WHATWG path normalization — collapsing `foo/../secret` and `foo/%2e%2e/`
+  // to `secret` BEFORE the handler sees it, defeating serve-dir's `..` guard. The
+  // Node `IncomingMessage.url` (`c.env.incoming.url`) is the raw, un-normalized
+  // request target (origin-form `/path?query`); that's what serve-dir must see.
+  // `previewTailFromRawUrl` documents the rest (correctness for `%`-bearing
+  // names + `%2f` traversal defense) and is unit-tested in
+  // `iframePreviewRoute.test.ts`. Fallback to `c.req.raw.url` keeps the route
+  // total if `incoming` is ever absent (non-node adapter / test harness).
+  // `c.env` is typed per-route (not on the app) so the @hono/node-server
+  // binding doesn't leak into the other mounts' `Hono<BlankEnv>` expectations.
+  const incoming = (c.env as Partial<HttpBindings>).incoming;
+  const rawTarget = incoming?.url ?? c.req.raw.url;
+  const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
 
   // The one kolu binding: which directory this terminal serves. Kept as the
   // git repo root for now (behavior-preserving — the browse tree, git-status

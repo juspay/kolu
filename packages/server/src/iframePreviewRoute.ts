@@ -73,8 +73,10 @@ function rawPathname(rawUrl: string): string {
   // Strip `scheme://authority` if present (absolute-form); origin-form already
   // starts with `/`.
   const afterAuthority = rawUrl.replace(/^[a-zA-Z][\w+.-]*:\/\/[^/]*/, "");
-  // Path ends at the first `?` (query) or `#` (fragment).
-  return afterAuthority.split(/[?#]/, 1)[0];
+  // Path ends at the first `?` (query) or `#` (fragment). `search` is -1 when
+  // neither is present, so `slice(0, -1)` would be wrong — guard it explicitly.
+  const search = afterAuthority.search(/[?#]/);
+  return search === -1 ? afterAuthority : afterAuthority.slice(0, search);
 }
 
 /** The filesystem-authority guard kolu injects into `@kolu/serve-dir` for a

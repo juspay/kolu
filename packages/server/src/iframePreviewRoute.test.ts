@@ -8,15 +8,25 @@
  *       whose real target escapes the root — exercising the shipped adapter, not
  *       a re-derived copy. */
 
+import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
+import { serve } from "@hono/node-server";
+import type { HttpBindings } from "@hono/node-server";
+import {
+  contentTypeForPath,
+  createDirServer,
+  serveFile,
+} from "@kolu/serve-dir";
+import { Hono } from "hono";
 import {
   BINARY_PREVIEWABLE_EXTENSIONS,
   buildTerminalFileUrl,
   RASTER_IMAGE_EXTENSIONS,
   SANDBOX_PREVIEWABLE_EXTENSIONS,
+  TERMINAL_FILE_ROUTE_BASE,
+  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
   VIDEO_EXTENSIONS,
 } from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -214,5 +224,98 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     expect(previewTailFromRawUrl("http://host/other/path", terminalId)).toBe(
       "",
     );
+  });
+});
+
+// The unit tests above feed `previewTailFromRawUrl` a literal raw string, but
+// production hands it a value from a real Hono + @hono/node-server request. That
+// adapter builds `c.req.raw.url` via `new URL(...).href`, which WHATWG-normalizes
+// dot segments BEFORE the handler runs — so a route reading `c.req.raw.url` would
+// have the `..` collapsed away and serve the sibling file. These tests boot the
+// real adapter and drive it over HTTP to prove the shipped route sources the RAW
+// target (`c.env.incoming.url`) and the `..` guard holds end-to-end.
+describe("iframe-preview route over real @hono/node-server (raw target survives the adapter)", () => {
+  const terminalId = "abc";
+  let tmpRoot: string;
+  let server: ReturnType<typeof serve>;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-route-int-"));
+    fs.writeFileSync(path.join(tmpRoot, "clip.mp4"), "video-bytes");
+    fs.writeFileSync(path.join(tmpRoot, "secret.html"), "SECRET");
+
+    // Mirror the production wiring in index.ts: read the RAW target from
+    // `c.env.incoming.url` (NOT `c.req.raw.url`), slice the tail, hand it to
+    // serve-dir with the shipped realpath guard.
+    const app = new Hono<{ Bindings: HttpBindings }>();
+    const pattern = `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
+    app.get(pattern, async (c) => {
+      const id = c.req.param("terminalId");
+      const rawTarget = c.env.incoming?.url ?? c.req.raw.url;
+      const rawTail = previewTailFromRawUrl(rawTarget, id);
+      return createDirServer(tmpRoot, previewRealpathGuard(tmpRoot)).fetch(
+        rawTail,
+        c.req.raw,
+      );
+    });
+
+    server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" });
+    await new Promise<void>((resolve) =>
+      server.on("listening", () => resolve()),
+    );
+    const addr = server.address();
+    if (!addr || typeof addr === "string") {
+      throw new Error("expected a TCP address from the test server");
+    }
+    baseUrl = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  // Issue a raw GET with a verbatim request target (no `new URL` normalization
+  // on our side) so the dot segment reaches the server exactly as sent.
+  function rawGet(target: string): Promise<{ status: number; body: string }> {
+    const { port, hostname } = new URL(baseUrl);
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        { host: hostname, port: Number(port), method: "GET", path: target },
+        (res) => {
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => {
+            body += chunk;
+          });
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  it("serves an in-root file (sanity: the route is wired)", async () => {
+    const res = await rawGet(`/api/terminals/${terminalId}/file/clip.mp4?v=1`);
+    expect(res.status).toBe(200);
+    expect(res.body).toBe("video-bytes");
+  });
+
+  it("400s a literal `..` dot segment instead of serving the sibling", async () => {
+    const res = await rawGet(
+      `/api/terminals/${terminalId}/file/foo/../secret.html`,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body).not.toContain("SECRET");
+  });
+
+  it("400s an encoded `%2e%2e` dot segment instead of serving the sibling", async () => {
+    const res = await rawGet(
+      `/api/terminals/${terminalId}/file/foo/%2e%2e/secret.html`,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body).not.toContain("SECRET");
   });
 });
