@@ -81,7 +81,7 @@ export async function setupSingleTerminal(world: KoluWorld): Promise<string> {
 
 /** Drag the active tile right just far enough that the dock no longer covers
  *  it (dock-width-aware, with a small margin). No-op if already clear. */
-async function nudgeClearOfDock(world: KoluWorld): Promise<void> {
+export async function nudgeClearOfDock(world: KoluWorld): Promise<void> {
   const dock = await world.page
     .locator('[data-testid="dock"]')
     .boundingBox()

@@ -10,6 +10,7 @@ import {
   clearCanvas,
   clickWithArrow,
   createTerminalByClick,
+  nudgeClearOfDock,
   openFileBySearch,
   openOverlappingTerminal,
   pause,
@@ -56,8 +57,10 @@ const CODEX_TASK =
 // open source view.
 const REVIEW_FILE = "packages/html-escape/src/index.ts";
 const SELECT_PHRASE = "HTML_ENTITIES";
-const CLAUDE_EDIT =
-  "Apply the review comment I just left on packages/html-escape/src/index.ts: add an entry to the HTML_ENTITIES map that escapes the backtick character as &#96;. Just make the edit, no preamble.";
+// The review note left in the comment composer (no "@claude" — it's a normal
+// review comment). kolu copies it as Markdown with the file path + quoted line;
+// that whole block is pasted to claude, which acts on it.
+const REVIEW_NOTE = "Also escape the backtick character here.";
 
 /**
  * The hero — one real workflow that exercises the whole surface: **Dock,
@@ -87,21 +90,22 @@ export const recording: Recording = {
   viewport: { width: 1600, height: 900 },
   // Poster: the live-edit climax — claude's diff in the terminal + the Code
   // panel. The most compelling single frame ("watch an agent edit your code").
-  posterAt: 42,
+  posterAt: 35,
   async drive(world) {
     ensureClone(KOLU);
     ensureClone(DRISHTI);
 
     // T1: claude in kolu, left idle at its prompt (it makes the edit later).
-    await clearCanvas(world, 800);
+    await clearCanvas(world, 500);
     const claudeId = await createTerminalByClick(world, "Vaughn");
+    await nudgeClearOfDock(world); // move the tile right so the dock isn't covered
     await pause(world, 400);
     await world.terminalRun("cd ~/demo/kolu");
     await pause(world, 500);
     await world.terminalRun(CLAUDE_SONNET);
-    await pause(world, 2000); // folder-trust gate
+    await pause(world, 1400); // folder-trust gate
     await world.page.keyboard.press("Enter"); // "Yes, I trust this folder"
-    await pause(world, 3000); // claude boots, idle at its prompt
+    await pause(world, 2200); // claude boots, idle at its prompt
 
     // T2: codex in drishti, opened on top so it buries claude's tile. Two repos
     // → the dock groups them; codex works → live status.
@@ -111,9 +115,9 @@ export const recording: Recording = {
     await world.terminalRun("cd ~/demo/drishti");
     await pause(world, 500);
     await world.terminalRun(CODEX_AUTONOMOUS);
-    await pause(world, 2000); // codex directory-trust prompt
+    await pause(world, 1400); // codex directory-trust prompt
     await world.page.keyboard.press("Enter"); // "Yes, continue"
-    await pause(world, 4500); // codex boots
+    await pause(world, 3200); // codex boots
     await world.terminalRun(CODEX_TASK);
     await waitForDockBucket(world, "working", 20_000); // codex live
 
@@ -124,7 +128,7 @@ export const recording: Recording = {
       "two repos, two agents — the dock tracks each",
       "right",
     );
-    await pause(world, 1500);
+    await pause(world, 1000);
     await clearAnnotations(world);
 
     // Jump to claude's (buried) tile via its dock row — the dock is the
@@ -136,9 +140,9 @@ export const recording: Recording = {
       "click a row → jump to its tile",
       "left",
     );
-    await pause(world, 900);
+    await pause(world, 500);
 
-    // The Code tab (open by default) now browses kolu. Open the README and
+    // The Code tab (open by default) now browses kolu. Open a source file and
     // comment on a line — the comment-on-any-file → agent handoff.
     await clickWithArrow(
       world,
@@ -168,7 +172,7 @@ export const recording: Recording = {
       "select text → comment on any file",
       "down",
     );
-    await pause(world, 800);
+    await pause(world, 600);
     await world.page
       .locator('[data-testid="kolu-comment-pill"]')
       .dispatchEvent("mousedown");
@@ -176,7 +180,7 @@ export const recording: Recording = {
     await clearAnnotations(world);
     await world.page
       .locator('[data-testid="kolu-comment-composer"] textarea')
-      .fill("@claude — also escape the backtick character here.");
+      .fill(REVIEW_NOTE);
     await pause(world, 600);
     await world.page
       .locator('[data-testid="kolu-comment-composer"]')
@@ -192,17 +196,38 @@ export const recording: Recording = {
     await clickWithArrow(
       world,
       '[data-testid="kolu-tray-copy"]',
-      "copy it for the agent",
+      "copy the comment",
       "down",
       700,
     );
-    await pause(world, 700);
+    await pause(world, 500);
 
-    // Hand it to claude (its tile is the active one) — it edits README.md on
-    // disk. Wait for claude to finish (its dock row → awaiting); by then the
-    // open README preview has live-reloaded with the change.
+    // Hand it to claude (its tile is the active one) by pasting the COPIED
+    // comment AS-IS — no handwritten prompt. kolu wrote the comment to the
+    // clipboard as Markdown (path + quoted line + the note); read it back and
+    // dispatch a real paste event (bracketed paste) on the focused terminal so
+    // the multi-line block lands intact. Enter submits; claude acts on the
+    // review note and edits the file. Wait for it to finish (dock → awaiting);
+    // by then the open source view has live-reloaded with the change.
+    const comment = await world.page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
     await world.focusForTyping("[data-visible]:not([data-sub-terminal])");
-    await world.terminalRun(CLAUDE_EDIT);
+    await world.page.evaluate((text) => {
+      const el = document.activeElement;
+      if (!el) return;
+      const dt = new DataTransfer();
+      dt.setData("text/plain", text);
+      el.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }, comment);
+    await pause(world, 600); // let the pasted block render
+    await world.page.keyboard.press("Enter");
     await world.page
       .waitForSelector(`${claudeRow}[data-bucket="working"]`, {
         state: "attached",
@@ -224,7 +249,7 @@ export const recording: Recording = {
       "claude edited the file — live",
       "left",
     );
-    await pause(world, 3000); // hold on the changed file + the arrow
+    await pause(world, 1800); // hold on the changed file + the arrow
     await clearAnnotations(world);
   },
 };
