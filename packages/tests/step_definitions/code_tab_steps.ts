@@ -623,6 +623,12 @@ Then(
     const body = this.page
       .frameLocator('[data-testid="browse-preview-iframe"]')
       .locator("body");
+    // Hydration budget: the preview content arrives over a server
+    // subscription (selection → fsReadFile, or an *edit* re-firing the live
+    // watch which re-points the iframe `src` at a fresh `?v=<mtime>`). That
+    // fs.watch → SSE → reload round-trip is the slow axis under darwin CI
+    // load — the edit-then-refresh regression guard (code-tab.feature:1364)
+    // froze on the pre-edit body for >20 s under the post-build storm.
     await pollFor({
       observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
       isDone: (text) => text !== null && text.includes(expected),
@@ -630,7 +636,7 @@ Then(
         new Error(
           `iframe preview never contained "${expected}"; last body text: ${JSON.stringify(last)}`,
         ),
-      timeoutMs: POLL_TIMEOUT,
+      timeoutMs: HYDRATION_TIMEOUT,
     });
   },
 );
@@ -709,6 +715,9 @@ Then(
   "the markdown preview should contain {string}",
   async function (this: KoluWorld, expected: string) {
     const md = this.page.locator('[data-testid="browse-preview-markdown"]');
+    // Hydration budget: the rendered content arrives over the fsReadFile
+    // subscription after selection — the slow propagation axis under darwin
+    // CI load, like the iframe preview above.
     await pollFor({
       observe: () => md.textContent({ timeout: 1_000 }).catch(() => null),
       isDone: (text) => text !== null && text.includes(expected),
@@ -716,7 +725,7 @@ Then(
         new Error(
           `markdown preview never contained "${expected}"; last text: ${JSON.stringify(last)}`,
         ),
-      timeoutMs: POLL_TIMEOUT,
+      timeoutMs: HYDRATION_TIMEOUT,
     });
   },
 );
