@@ -1,9 +1,10 @@
 # screencast — marketing-grade clips of a real kolu
 
-This produces the short, crisp, looping clips embedded on `kolu.dev/welcome`
+This produces the short, crisp, looping clip embedded on the `kolu.dev` home page
 (`website/public/demo/<name>.{mp4,webm,webp}`). It drives a **real** kolu (the
-e2e harness + step library) and records the screen, so the clips are
-reproducible from source rather than hand-recorded.
+e2e harness + step library) and records the screen, so the clip is reproducible
+from source rather than hand-recorded. (One recording today — `dock-alert-demo`,
+the home hero — but the subsystem is built for N.)
 
 > Plan of record + the full build journal (why it's built this way):
 > `docs/atlas/src/content/atlas/welcome-live-screencast.mdx`. **Keep both that
@@ -25,42 +26,39 @@ Cucumber lifecycle.
 
 ```sh
 just record                    # all recordings
-just record new-terminal-demo  # one, by name
+just record dock-alert-demo    # one, by name
 ```
 
 Per do.md this is meant to run on a **pu box**; today the clips are captured
 **locally** because the demo's climax launches a **real, authenticated agent**
-(the `new-terminal-demo` runs `codex` — a clean box has no logged-in CLI). Nix
+(`dock-alert-demo` runs **both** `codex` and a write-capable `claude` — a clean
+box has no logged-in CLI). Nix
 deps (`ffmpeg-full` + `Xvfb`) live in `./shell.nix`, layered onto the e2e shell
 by the recipe — the top-level flake devShells are untouched.
 
 ### Time + size
 
-- **~85s per recording** end-to-end on a warm checkout (`just record <name>`):
-  client build + server start + the scripted flow (including a **real** agent
-  query, which dominates) + x11grab + the ffmpeg transcode (mp4 + webm encode in
-  parallel). A cold checkout is slower (nix fetches + a full client build).
-  Because the agent's answer is a live LLM call, the run time (and clip length)
-  **varies a few seconds run-to-run**.
+- **~3–4 min** end-to-end on a warm checkout (`just record <name>`): client build
+  + server start + the scripted flow (two **real** agents, including a live edit,
+  dominate) + x11grab + the ffmpeg transcode (a ~45s 3200×1800 clip; mp4 + webm
+  encode in parallel and take a couple of minutes). A cold checkout is slower.
+  Because the agents are live LLM calls, the run time (and clip length) **varies
+  a few seconds run-to-run**.
 - Each clip is 3200×1800 (logical 1600×900 ×2); the three artifacts (`<name>.{mp4,webm,webp}`) live in
   `website/public/demo/` and are committed (the site needs them at build time).
 
-**Per recording** (clip duration drives the file sizes; measured, expect ±a few
-seconds since the agent's answer is live):
-
-Each clip pins a **distinct predefined terminal theme** (reproducible — a name
-from `packages/terminal-themes`), so the three look visually different.
+**The clip** (duration drives the file sizes; measured, expect ±a few seconds
+since the agents are live LLM calls). Its two terminals use distinct predefined
+themes (a name from `packages/terminal-themes`):
 
 | Recording | Theme | Clip | mp4 (H.264) | webm (VP9) | webp poster | Embedded on |
 | --- | --- | --- | --- | --- | --- | --- |
-| `new-terminal-demo` | Dracula | ~26s | ~1.7 MB | ~1.4 MB | ~30 KB | `/welcome` §02 |
-| `dock-alert-demo` | Vaughn + Catppuccin Latte | ~46s | ~3.9 MB | ~2.9 MB | ~0.17 MB | `/` (home hero) |
-| `code-review-demo` | Django | ~12s | ~0.7 MB | ~0.5 MB | ~0.11 MB | `/welcome` §03 |
+| `dock-alert-demo` | Vaughn + Catppuccin Latte | ~45s | ~3.9 MB | ~2.9 MB | ~0.17 MB | `/` (home hero) |
 
-The **right panel stays open** in every clip (the app's default — Code tab on the
-active terminal's repo). Recordings flip the harness's collapse-on-reset off
-under `KOLU_X11CAP` (`hooks.ts`) and run at a wider `viewport` (1600×900 → 3200
-×1800) so the dock, tiles, and panel all fit.
+The **right panel stays open** (the app's default — Code tab on the active
+terminal's repo). The recording flips the harness's collapse-on-reset off under
+`KOLU_X11CAP` (`hooks.ts`) and runs at a wider `viewport` (1600×900 → 3200×1800)
+so the dock, both tiles, and the panel all fit.
 
 `dock-alert-demo` is the **hero** — one real workflow that exercises the whole
 surface (Dock + terminals + the right-panel code browser), ending on a live edit:
@@ -75,11 +73,6 @@ arrowed; claude is write-capable, so its account banner shows briefly. Because i
 edits the checkout, `ensureClone` reverts tracked files to pristine each run so
 the edit is always a fresh, visible change.)
 
-`code-review-demo` is short and agent-free: a terminal in a repo → the **Code tab
-→ "All files"** → open a source file (by file search — robust against the
-virtualized Pierre tree) → select text → the inline **"+ Comment"** pill → leave
-a note → **copy the tray as Markdown** for an agent. The comment-on-any-file →
-agent loop in one tight clip.
 
 > **Comment surfaces:** the comment seam mounts on the rendered Markdown preview
 > (`prose`) and the source view (`text`) — both selectable from the parent — but
@@ -95,7 +88,7 @@ agent loop in one tight clip.
 1. Create `recordings/<name>.recording.ts` exporting a `Recording`.
 2. Register it in `recordings/index.ts`.
 3. Add a `Scenario: <name>` to `features/recordings.feature`.
-4. `just record <name>`, eyeball the frames, then embed in `welcome.astro`.
+4. `just record <name>`, eyeball the frames, then embed in `index.astro`.
 
 ```ts
 export const recording: Recording = {
