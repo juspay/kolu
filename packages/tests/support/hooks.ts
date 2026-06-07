@@ -799,7 +799,10 @@ Before(async function (this: KoluWorld, scenario) {
   }
 });
 
-After(async function (this: KoluWorld, scenario) {
+// Generous timeout: under KOLU_X11CAP this hook transcodes the raw grab (mp4 +
+// VP9 webm + poster). A long clip at 3200×1800 takes well over Cucumber's 70s
+// default, so give it room.
+After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
   // Screenshot on failure
   if (scenario.result?.status === Status.FAILED && this.page) {
     const dir = path.resolve(

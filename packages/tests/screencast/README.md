@@ -54,7 +54,7 @@ from `packages/terminal-themes`), so the three look visually different.
 | Recording | Theme | Clip | mp4 (H.264) | webm (VP9) | webp poster | Embedded on |
 | --- | --- | --- | --- | --- | --- | --- |
 | `new-terminal-demo` | Dracula | ~26s | ~1.7 MB | ~1.4 MB | ~30 KB | `/welcome` §02 |
-| `dock-alert-demo` | Vaughn + Catppuccin Latte | ~27s | ~2.7 MB | ~2.0 MB | ~0.13 MB | `/` (home hero) |
+| `dock-alert-demo` | Vaughn + Catppuccin Latte | ~46s | ~3.9 MB | ~2.9 MB | ~0.17 MB | `/` (home hero) |
 | `code-review-demo` | Django | ~12s | ~0.7 MB | ~0.5 MB | ~0.11 MB | `/welcome` §03 |
 
 The **right panel stays open** in every clip (the app's default — Code tab on the
@@ -62,13 +62,18 @@ active terminal's repo). Recordings flip the harness's collapse-on-reset off
 under `KOLU_X11CAP` (`hooks.ts`) and run at a wider `viewport` (1600×900 → 3200
 ×1800) so the dock, tiles, and panel all fit.
 
-`dock-alert-demo` is the richest clip: it opens on an empty canvas, **clicks the
-"+"** to create terminals (every on-camera click is telegraphed with a coral
-arrow), runs **two agents in two repos** (claude in kolu, codex in drishti —
-they group by repo in the dock), buries claude's tile behind codex's, shows the
-dock flagging the buried agent that needs you, then clicks that dock row to raise
-the tile and picks an option in claude's **AskUserQuestion** prompt. T2 uses a
-**light theme** (Catppuccin Latte) to set it apart from T1's dark Vaughn.
+`dock-alert-demo` is the **hero** — one real workflow that exercises the whole
+surface (Dock + terminals + the right-panel code browser), ending on a live edit:
+**click "+"** to open claude in kolu, **"+"** again for codex in drishti (a
+**light theme**, Catppuccin Latte, vs T1's Vaughn) which buries claude's tile —
+so the dock **groups two repos** with live agent status. Then **click claude's
+dock row** to jump to its tile (the Code tab follows kolu), **open a file**,
+**select + comment** on it, **copy** the comment, and hand it to claude — which
+**edits the file**, the change landing **live** in the open source view. The
+comment-on-any-file → agent → result loop, end to end. (Every on-camera click is
+arrowed; claude is write-capable, so its account banner shows briefly. Because it
+edits the checkout, `ensureClone` reverts tracked files to pristine each run so
+the edit is always a fresh, visible change.)
 
 `code-review-demo` is short and agent-free: a terminal in a repo → the **Code tab
 → "All files"** → open a source file (by file search — robust against the
