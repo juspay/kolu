@@ -1,0 +1,69 @@
+---
+/**
+ * A line the author typed into an agent's CLI prompt box (Claude Code, Codex,
+ * …) during the build — rendered to *look* like that input field, so a quoted
+ * instruction reads as "a human typed this into the agent," not as a generic
+ * blockquote or a shell command. Pairs with the blog's narrative voice where
+ * the real verbatim prompts are the turning points.
+ *
+ *   <Prompt>so the user can fucking see</Prompt>
+ *
+ * The slot is the typed text; a leading `>` and a trailing blinking caret sell
+ * the prompt-box look (caret stops under prefers-reduced-motion).
+ */
+---
+
+<div class="agent-prompt">
+  <span class="agent-prompt-bar" aria-hidden="true">&gt;</span>
+  <span class="agent-prompt-text"
+    ><slot /><span class="agent-prompt-caret" aria-hidden="true"></span></span
+  >
+</div>
+
+<style>
+  .agent-prompt {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6em;
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    line-height: 1.55;
+    color: var(--color-ink);
+    background: var(--color-void-sunk);
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 0.55rem;
+    padding: 0.65rem 0.85rem;
+    margin: 1.6rem 0;
+  }
+  .agent-prompt-bar {
+    flex: none;
+    color: var(--color-amber);
+    font-weight: 700;
+    user-select: none;
+  }
+  .agent-prompt-text {
+    flex: 1;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .agent-prompt-caret {
+    display: inline-block;
+    width: 0.5em;
+    height: 1.05em;
+    margin-left: 0.15em;
+    vertical-align: text-bottom;
+    background: var(--color-amber);
+    opacity: 0.65;
+    animation: agent-prompt-blink 1.15s steps(1, end) infinite;
+  }
+  @keyframes agent-prompt-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .agent-prompt-caret {
+      animation: none;
+    }
+  }
+</style>
