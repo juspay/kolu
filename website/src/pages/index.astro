@@ -32,73 +32,19 @@ const tunnels = [
   },
 ];
 
-// Features — ordered to lead with what makes kolu unmistakable (real
-// xterm.js tiles on a 2D canvas with live agent status). Positioning
-// claims (agent-agnostic, zero setup) follow as *consequences* of the
-// terminal-as-substrate decision, not as the headline.
-//
-// The first tile spans 2 cols on large screens so the terminal story
-// reads loudest.
-const features = [
-  {
-    num: '01',
-    key: 'real-terminals',
-    title: 'Real terminals. Real xterm.js.',
-    body: "Every kolu tile is a full xterm.js terminal — WebGL rendering, clickable URLs, inline images (sixel, iTerm2, kitty), splits, tabs, 200+ themes, a mobile key bar. The terminal is the universal interface, so anything you run in a shell — claude, codex, opencode, a plain zsh — gets first-class status with zero adapter code.",
-    wide: true,
-  },
-  {
-    num: '02',
-    key: 'canvas',
-    title: 'Infinite 2D canvas',
-    body: "Every terminal is a draggable, resizable tile. Pan, zoom, snap-to-grid. The left-edge dock is the canonical navigator — chip rail or repo-grouped cards. Cmd+Shift+K opens the unified palette into a workspace grid with repo facets and agent-state columns. On phones, the active tile fills the screen and the same dock lives behind a left-edge swipe.",
-  },
-  {
-    num: '03',
-    key: 'agent-status',
-    title: 'Live agent status in the dock',
-    body: "Detects Claude Code, Codex, and OpenCode sessions — thinking, tool use, waiting on you. Each dock row carries a repo-tinted chip that pulses while the agent is working and breathes when it's waiting, so a glance tells you which agent needs attention.",
-  },
-  {
-    num: '04',
-    key: 'agent-agnostic',
-    title: 'Agent-agnostic, by design',
-    body: "claude, codex, opencode, or whatever ships next week — kolu doesn't wrap any of them. No adapters, no registry, no vendor lock-in. Drop to a plain shell whenever you want.",
-  },
-  {
-    num: '05',
-    key: 'zero-setup',
-    title: 'Zero setup — kolu watches what you do',
-    body: 'Recent repos track your cd events. Run an agent CLI once — it appears in the palette the next time you create a worktree. Branch, PR, CI status derive from each terminal\'s CWD. The surface grows with your workflow, not with a preferences pane.',
-  },
-  {
-    num: '06',
-    key: 'git-aware',
-    title: 'Git & GitHub aware',
-    body: "Repo name, branch, PR number, CI status derived from each terminal's CWD. Worktree create + agent launch in one palette step.",
-  },
-  {
-    num: '07',
-    key: 'comment-on-any-file',
-    title: 'Comment on any file',
-    body: "Select text in any file the Code tab shows — source, branch diff, or rendered HTML artifact the agent produced — and a floating pill lets you leave a free-text note anchored to the exact quote. Notes accumulate in a per-terminal tray across every file you touch. \"Copy to clipboard\" flushes the queue as plain Markdown ready to paste back into the agent's prompt — the agent re-locates each comment by quote-matching, robust to file edits.",
-  },
-  {
-    num: '08',
-    key: 'transcript-export',
-    title: 'Share what your agent did',
-    body: 'Export any Claude Code, Codex, or OpenCode session as a single self-contained .html — warm-parchment editorial layout, shiki-tokenized code, real diff views for every Edit/Write/apply_patch, j/k prompt navigation, dark/light toggle. No external assets, no upload — opens offline in any browser.',
-  },
-  {
-    num: '09',
-    key: 'recording',
-    title: 'Record your workspace',
-    body: 'One click in the chrome bar captures the whole kolu tab with microphone and optional webcam PiP, streamed straight to a local .webm. Pause/resume with ⌘⇧., mic picker with live level meter, circular webcam overlay baked into the recording.',
-  },
-];
 ---
 
 <BaseLayout title="kolu">
+  <Fragment slot="head">
+    {/* The hero poster is the LCP element — preload it so it paints fast,
+        ahead of the (deferred, in-view-only) demo video bytes. */}
+    <link
+      rel="preload"
+      as="image"
+      href="/demo/hero-demo.webp"
+      fetchpriority="high"
+    />
+  </Fragment>
   <!-- ── HERO ─────────────────────────────────────────────────────────────
        Centered copy; the real product video (next section) is the visual.
        No hand-coded mockups — the live capture carries the "this is real" feel.
@@ -144,7 +90,9 @@ const features = [
           class="reveal reveal-3 mt-6 mx-auto max-w-2xl text-lg leading-relaxed text-ink-dim"
         >
           Real <span class="mono text-ink">xterm.js</span> tiles on an infinite 2D
-          canvas, with a dock that surfaces every terminal's live state at a glance.
+          canvas, with a dock that surfaces every terminal's live state at a glance
+          — and a code browser where you comment on any file and hand it straight
+          to the agent.
           <span class="mono text-ink">claude</span>, <span class="mono text-ink">codex</span>, <span
             class="mono text-ink">opencode</span
           > — anything you can run in a shell, runs in kolu.
@@ -187,7 +135,7 @@ const features = [
           muted
           loop
           playsinline
-          preload="metadata"
+          preload="none"
           poster="/demo/hero-demo.webp"
         >
           <source src="/demo/hero-demo.webm" type="video/webm" />
@@ -201,48 +149,19 @@ const features = [
     </figure>
   </section>
 
-  <!-- ── FEATURES ─────────────────────────────────────────────────────── -->
-  <section class="mx-auto max-w-[68rem] px-6 py-20">
-    <div class="mb-14 flex items-baseline justify-between">
-      <p class="eyebrow">what you get</p>
-      <p class="mono text-[0.72rem] text-ink-faint">09 features</p>
-    </div>
-
-    <ul class="grid md:grid-cols-2 gap-px bg-rule">
-      {
-        features.map((f) => (
-          <li
-            class:list={[
-              'relative group bg-void p-7 md:p-9 transition-colors hover:bg-void-raised',
-              f.wide && 'md:col-span-2',
-            ]}
-          >
-            {/* Left amber accent bar on hover */}
-            <span
-              aria-hidden="true"
-              class="absolute left-0 top-0 bottom-0 w-px bg-amber scale-y-0 group-hover:scale-y-100 origin-top transition-transform duration-300"
-            />
-            <div class="flex items-baseline gap-4 mb-4">
-              <span class="mono text-[0.72rem] text-amber-dim tracking-widest">
-                {f.num}
-              </span>
-              <span class="mono text-[0.72rem] text-ink-faint tracking-widest">
-                — {f.key}
-              </span>
-            </div>
-            <h3
-              class="display-sm text-[1.55rem] md:text-[1.8rem] mb-3 text-ink"
-            >
-              {f.title}
-            </h3>
-            <p class="text-ink-dim leading-relaxed max-w-xl">
-              {f.body}
-            </p>
-          </li>
-        ))
-      }
-    </ul>
-  </section>
+  <!-- ── 01 · QUICKSTART ──────────────────────────────────────────────── -->
+  <!-- ── ON THIS PAGE — sticky scroll-spy rail over the guide sections ──── -->
+  <nav class="section-rail" aria-label="On this page">
+    <ol>
+      <li><a href="#quickstart"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Quickstart</span></a></li>
+      <li><a href="#first"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">First 5 minutes</span></a></li>
+      <li><a href="#concepts"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Core concepts</span></a></li>
+      <li><a href="#install"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Pin it as an app</span></a></li>
+      <li><a href="#remote"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Reach it anywhere</span></a></li>
+      <li><a href="#power"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Power features</span></a></li>
+      <li><a href="#faq"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">FAQ</span></a></li>
+    </ol>
+  </nav>
 
   <!-- ── 01 · QUICKSTART ──────────────────────────────────────────────── -->
   <section id="quickstart" class="guide-section scroll-mt-20">
@@ -383,7 +302,7 @@ const features = [
     </div>
 
     <p class="guide-lede">
-      Six ideas cover almost everything. Learn these and the rest of kolu reads
+      Eight ideas cover almost everything. Learn these and the rest of kolu reads
       like plain language.
     </p>
 
@@ -400,8 +319,9 @@ const features = [
         <dt>Tiles</dt>
         <dd>
           Every terminal is a draggable, resizable tile — a real xterm.js
-          instance with its own theme, splits, and title bar. Double-click the
-          title bar to maximize.
+          instance: WebGL rendering, clickable URLs, inline images (sixel /
+          iTerm2 / kitty), splits, 200+ themes, and a mobile key bar. Double-click
+          the title bar to maximize.
         </dd>
       </div>
       <div class="concept">
@@ -436,6 +356,24 @@ const features = [
             >cd</code
           > events, recent agents from shell command marks, branch / PR / CI from
           each terminal's working directory. If kolu knows it, the shell told it.
+        </dd>
+      </div>
+      <div class="concept">
+        <dt>Git &amp; GitHub</dt>
+        <dd>
+          Each terminal knows its repo: branch, PR number, and CI status are read
+          from its working directory and shown right on the dock row — no token
+          pasting, no config. Creating a worktree and launching the agent in it is
+          a single palette step.
+        </dd>
+      </div>
+      <div class="concept">
+        <dt>Comment on any file</dt>
+        <dd>
+          Select text in the Code tab — source, a branch diff, or a rendered
+          artifact — and pin a quoted note to it. The per-terminal tray flushes to
+          Markdown you paste straight back into the agent, which re-locates each
+          comment by quote-matching even after the file changes.
         </dd>
       </div>
     </dl>
@@ -1617,6 +1555,91 @@ const features = [
       gap: 0.8rem;
     }
   }
+
+  /* ── On-this-page rail — sticky scroll-spy over the guide sections ─────── */
+  .section-rail {
+    position: fixed;
+    top: 50%;
+    left: 1.5rem;
+    transform: translateY(-50%);
+    z-index: 30;
+    display: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .section-rail.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .section-rail ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .section-rail a {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.28rem 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    color: var(--color-ink-faint);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s ease;
+  }
+  .section-rail a:hover {
+    color: var(--color-ink-dim);
+  }
+  .section-rail a.is-active {
+    color: var(--color-amber);
+  }
+  .rail-dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.55;
+    transition:
+      opacity 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+  .section-rail a.is-active .rail-dot {
+    opacity: 1;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-amber) 22%, transparent);
+  }
+  .rail-label {
+    opacity: 0;
+    transform: translateX(-4px);
+    transition:
+      opacity 0.2s ease,
+      transform 0.2s ease;
+  }
+  .section-rail:hover .rail-label,
+  .section-rail a.is-active .rail-label {
+    opacity: 1;
+    transform: none;
+  }
+  /* Only when the centered 52rem guide column leaves room in the left margin. */
+  @media (min-width: 1200px) {
+    .section-rail {
+      display: block;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .section-rail,
+    .section-rail a,
+    .rail-dot,
+    .rail-label {
+      transition: none;
+    }
+  }
 </style>
 
 <script>
@@ -1651,9 +1674,18 @@ const features = [
   //    low-power-mode rejection falls back to the poster gracefully).
   //  - motion reduced → leave the poster standing and expose native `controls`
   //    so the visitor has a visible play affordance.
+  // The clip ships with preload="none", so its bytes never race the LCP
+  // poster — playback starts only once it scrolls into view (below).
   // Re-evaluated on preference change while the page stays open.
   (function () {
     var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    var io = null;
+    function play(v) {
+      v.preload = "auto";
+      v.setAttribute("autoplay", "");
+      var p = v.play();
+      if (p && typeof p.catch === "function") p.catch(function () {});
+    }
     function apply() {
       var vids = document.querySelectorAll(".demo-video");
       for (var i = 0; i < vids.length; i++) {
@@ -1664,9 +1696,24 @@ const features = [
           v.pause();
         } else {
           v.removeAttribute("controls");
-          v.setAttribute("autoplay", "");
-          var p = v.play();
-          if (p && typeof p.catch === "function") p.catch(function () {});
+          if ("IntersectionObserver" in window) {
+            if (!io) {
+              io = new IntersectionObserver(
+                function (entries) {
+                  entries.forEach(function (e) {
+                    if (e.isIntersecting) {
+                      play(e.target);
+                      io.unobserve(e.target);
+                    }
+                  });
+                },
+                { rootMargin: "200px 0px" },
+              );
+            }
+            io.observe(v);
+          } else {
+            play(v);
+          }
         }
       }
     }
@@ -1674,5 +1721,55 @@ const features = [
     if (mq.addEventListener) mq.addEventListener("change", apply);
     else if (mq.addListener) mq.addListener(apply);
   })();
+</script>
+
+<script>
+  // Scroll-spy for the on-this-page rail: show it only while a guide section
+  // is on screen, and highlight whichever section the reader is currently in.
+  const rail = document.querySelector<HTMLElement>(".section-rail");
+  const sections = Array.from(
+    document.querySelectorAll<HTMLElement>(".guide-section"),
+  );
+  if (rail && sections.length) {
+    const links = new Map<string, HTMLAnchorElement>(
+      Array.from(rail.querySelectorAll("a")).map((a) => [
+        a.getAttribute("href")?.slice(1) ?? "",
+        a,
+      ]),
+    );
+    let ticking = false;
+    function update() {
+      ticking = false;
+      const line = window.innerHeight * 0.3;
+      let activeId: string | null = null;
+      let inGuide = false;
+      for (const s of sections) {
+        const r = s.getBoundingClientRect();
+        if (r.top < window.innerHeight && r.bottom > 0) inGuide = true;
+        if (r.top <= line) activeId = s.id;
+      }
+      // Before any section crosses the line, treat the topmost on-screen
+      // section as active so a visible rail never highlights nothing.
+      if (!activeId && inGuide) {
+        for (const s of sections) {
+          if (s.getBoundingClientRect().bottom > 0) {
+            activeId = s.id;
+            break;
+          }
+        }
+      }
+      rail!.classList.toggle("is-visible", inGuide);
+      links.forEach((a, id) => a.classList.toggle("is-active", id === activeId));
+    }
+    function onScroll() {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    update();
+  }
 </script>
 
