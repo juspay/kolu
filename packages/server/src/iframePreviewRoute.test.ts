@@ -115,12 +115,9 @@ describe("previewRealpathGuard (the guard index.ts injects) blocks symlink escap
 
 // Success bodies come back as a `ReadableStream` (bytes flow from a bounded file
 // handle straight to the socket); read it as text.
-async function readServeBody(
-  body: Uint8Array | string | ReadableStream,
-): Promise<string> {
+async function readServeBody(body: string | ReadableStream): Promise<string> {
   if (typeof body === "string") return body;
-  if (body instanceof ReadableStream) return new Response(body).text();
-  return Buffer.from(body).toString();
+  return new Response(body).text();
 }
 
 describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)", () => {
@@ -166,6 +163,8 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
   });
 
   it("returns empty for a URL that doesn't match the prefix", () => {
-    expect(previewTailFromRawUrl("http://host/other/path", terminalId)).toBe("");
+    expect(previewTailFromRawUrl("http://host/other/path", terminalId)).toBe(
+      "",
+    );
   });
 });

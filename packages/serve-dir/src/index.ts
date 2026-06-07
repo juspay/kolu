@@ -141,11 +141,8 @@ export interface ServeResult {
    *  straight from a bounded file handle to the socket, so a multi-GB video
    *  never lands in the server's heap, whether the client sent a Range header or
    *  not (see `serveFile`). Strings come back for error responses (400/403/404/
-   *  416/500). `Uint8Array` stays in the union for callers/tests that hand in a
-   *  buffered body — it covers `Buffer` (subclass) and satisfies `Response`'s
-   *  `BodyInit` directly, where `Buffer` alone confuses TS in the DOM-typed
-   *  `Response` constructor. */
-  body: Uint8Array | string | ReadableStream;
+   *  416/500). */
+  body: string | ReadableStream;
 }
 
 /** Parse a single-range HTTP `Range: bytes=…` header against a known file

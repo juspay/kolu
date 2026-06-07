@@ -15,10 +15,9 @@ import {
 // Ranged 206 bodies are a `ReadableStream` (bytes flow from a bounded file
 // handle, never the whole file through the heap), so assertions read them to a
 // string instead of `.toString()`-ing the body directly.
-async function readBody(body: Uint8Array | string | ReadableStream) {
+async function readBody(body: string | ReadableStream) {
   if (typeof body === "string") return body;
-  if (body instanceof ReadableStream) return new Response(body).text();
-  return Buffer.from(body).toString();
+  return new Response(body).text();
 }
 
 // A realpath-based escape guard, written locally so this package's tests stay
