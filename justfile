@@ -95,15 +95,22 @@ test: install
     # unlimited; this is free insurance on every platform.
     ulimit -n 65536 2>/dev/null || true
     # Worker count scales with the host unless CUCUMBER_PARALLEL is set
-    # explicitly: ~1 worker per 3 cores, clamped to [4,8]. The 24-core darwin
-    # CI host (rasam) gets 8 — ~45% faster than the old fixed 4 — while laptops
-    # and smaller CI stay at 4. Past 8 the slowest-scenario tail dominates and
-    # extra workers only add contention (PAR=12 measured *slower* than PAR=8 on
-    # a 24-core host). See docs/ci-e2e-macos-ralph-report.md.
+    # explicitly: ~1 worker per 3 cores, clamped to [4,cap]. The cap is 6 on
+    # darwin, 8 elsewhere. PAR=8 on the 24-core darwin host (rasam) maximizes
+    # throughput but its higher concurrent load pressures the slow-hydration
+    # tail — under load a handful of interaction waits (per-terminal Code-tab
+    # history enablement, content settle) intermittently miss their POLL budget
+    # and a scenario loses all its retries, which is fatal to a *consecutive*-
+    # green requirement. PAR=6 trades ~part of the speed win for markedly fewer
+    # load-correlated races (the report's PAR=6 hardened runs were 0/3
+    # catastrophic). Linux's watch/render stack is reliable, so it keeps 8.
+    # Past the cap the slowest-scenario tail dominates anyway (PAR=12 measured
+    # *slower* than PAR=8 on a 24-core host). See docs/ci-e2e-macos-ralph-report.md.
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+    cap=8; [ "$(uname)" = Darwin ] && cap=6
     par=$(( cores / 3 ))
     if (( par < 4 )); then par=4; fi
-    if (( par > 8 )); then par=8; fi
+    if (( par > cap )); then par=cap; fi
     par="${CUCUMBER_PARALLEL:-$par}"
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
