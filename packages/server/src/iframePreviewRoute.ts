@@ -51,6 +51,8 @@ export function buildIframePreviewUrl(
  *  asserted in `iframePreviewRoute.test.ts`. The extra `.css`/`.js`/font
  *  entries below are asset siblings a previewable HTML page references via
  *  relative `<link>`/`<script>`/`<img>` — not themselves previewable. */
+const TEXT_PLAIN = { "Content-Type": "text/plain; charset=utf-8" };
+
 const CONTENT_TYPES: Record<string, string> = {
   // Sandbox-previewable kinds.
   ".html": "text/html; charset=utf-8",
@@ -202,7 +204,7 @@ export async function serveResolvedFile(
   if (!res.ok) {
     return {
       status: res.status,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      headers: TEXT_PLAIN,
       body: res.reason,
     };
   }
@@ -213,7 +215,7 @@ export async function serveResolvedFile(
   if (!authority.ok) {
     return {
       status: 403,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      headers: TEXT_PLAIN,
       body: "escapes root",
     };
   }
@@ -251,11 +253,7 @@ export async function serveResolvedFile(
       try {
         const s = await handle.stat();
         if (!s.isFile()) {
-          return {
-            status: 404,
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-            body: "not a file",
-          };
+          return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
         }
         const range = parseByteRange(rangeHeader, s.size);
         if (range === "invalid") {
@@ -308,11 +306,7 @@ export async function serveResolvedFile(
     // `ERR_CONTENT_LENGTH_MISMATCH` on this live-reloading route.
     const s = await stat(res.abs);
     if (!s.isFile()) {
-      return {
-        status: 404,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: "not a file",
-      };
+      return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
     }
     const buf = await readFile(res.abs);
     return {
@@ -323,17 +317,13 @@ export async function serveResolvedFile(
   } catch (e: unknown) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
-      return {
-        status: 404,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: "not found",
-      };
+      return { status: 404, headers: TEXT_PLAIN, body: "not found" };
     }
     // Unexpected I/O error (EACCES, EIO, …) — surface as 500 so it doesn't
     // masquerade as a missing file.
     return {
       status: 500,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      headers: TEXT_PLAIN,
       body: e instanceof Error ? e.message : "internal error",
     };
   }
