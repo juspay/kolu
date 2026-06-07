@@ -17,7 +17,11 @@ import { After, Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL, readBufferText } from "../support/buffer.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  HYDRATION_TIMEOUT,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
 /** Dynamic-workflow fixtures: a launched background task + its run journal. */
@@ -606,7 +610,10 @@ Then(
   async function (this: KoluWorld) {
     // Poll + nudge the SESSIONS_DIR so a dropped deletion event (darwin
     // FSEvents under load) can't wedge the indicator on stale state — see
-    // nudgeSessionsDir(). Same total budget as the bare waitForFunction.
+    // nudgeSessionsDir(). Hydration budget: clearing the indicator is a
+    // server re-derivation that propagates through the same fs.watch → SSE
+    // chain as a fresh appearance, and under the post-koluBin-build cold-cache
+    // storm that round-trip can exceed POLL_TIMEOUT even once re-fired.
     await pollFor({
       observe: () =>
         this.page.evaluate(
@@ -621,7 +628,7 @@ Then(
         new Error(
           `Expected the tile-chrome agent indicator to disappear, but it was still present after ${elapsed}ms`,
         ),
-      timeoutMs: POLL_TIMEOUT,
+      timeoutMs: HYDRATION_TIMEOUT,
     });
   },
 );
@@ -730,8 +737,8 @@ When(
 Then(
   "the header should not show an agent indicator",
   async function (this: KoluWorld) {
-    // Poll + nudge SESSIONS_DIR for the same dropped-deletion recovery as the
-    // tile-chrome disappearance assertion above.
+    // Poll + nudge SESSIONS_DIR for the same dropped-deletion recovery and
+    // hydration budget as the tile-chrome disappearance assertion above.
     await pollFor({
       observe: () =>
         this.page.evaluate(
@@ -744,7 +751,7 @@ Then(
         new Error(
           `Expected the header agent indicator to disappear, but it was still present after ${elapsed}ms`,
         ),
-      timeoutMs: POLL_TIMEOUT,
+      timeoutMs: HYDRATION_TIMEOUT,
     });
   },
 );

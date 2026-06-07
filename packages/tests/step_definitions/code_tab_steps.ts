@@ -37,14 +37,38 @@ function dirRow(path: string): string {
   return `${TREE} [data-item-path="${path}/"][data-item-type="folder"]:not([data-file-tree-sticky-row])`;
 }
 
+/** First-appearance wait for a Pierre tree row / Code-tab chrome element.
+ *
+ *  Populating the tree (browse mode: a full server-side repo walk; diff
+ *  modes: a `git status` / `git diff` round-trip) then rendering it through
+ *  fs.watch → SSE → SolidJS → Pierre's virtualized mount is a HYDRATION
+ *  axis, distinct from the fast interaction that follows. The mode-helper
+ *  path already encodes this (`waitForCodeTabReady` waits under
+ *  HYDRATION_TIMEOUT), but the *inline* browse scenarios — `git init` +
+ *  `I click the Code tab` + `I click the Code tab mode "browse"` + a direct
+ *  row click — bypass that helper and charged the first row's appearance to
+ *  POLL_TIMEOUT. Under darwin CI load — especially the cold-cache moment
+ *  right after the per-commit koluBin rebuild — that population repeatedly
+ *  exceeds 20 s, which was the single largest residual flake (the whole
+ *  browse-mode file-tree scenario family). Give the *first* appearance the
+ *  hydration budget; once the tree mounts every row is present, so one wait
+ *  suffices and the in-tree interactions after it stay on POLL_TIMEOUT. */
+async function waitTreeReady(
+  world: KoluWorld,
+  selector: string,
+): Promise<void> {
+  await world.page
+    .locator(selector)
+    .first()
+    .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+}
+
 /** Wait for a changed file to appear. The Code tab subscribes to a live
  *  filesystem watcher; saves and `git add` reflect within the upstream
- *  150ms debounce + the round-trip. POLL_TIMEOUT covers slow runners and
- *  the parcel-watcher initial walk on first subscribe. */
+ *  150ms debounce + the round-trip. Hydration budget — first population of
+ *  the tree under darwin load is the slow axis (see `waitTreeReady`). */
 async function waitForChangedFile(world: KoluWorld, path: string) {
-  await world.page
-    .locator(fileRow(path))
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await waitTreeReady(world, fileRow(path));
 }
 
 // ── Actions ──
@@ -59,9 +83,8 @@ When("I click the Code tab", async function (this: KoluWorld) {
 When(
   "I click the changed file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click();
+    await waitTreeReady(this, fileRow(path));
+    await this.page.locator(fileRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -70,9 +93,12 @@ When(
   "I click the Code tab mode {string}",
   async function (this: KoluWorld, mode: string) {
     // The mode picker is a chip + popover: open the chip, then pick
-    // the option. The chip closes itself after a selection.
+    // the option. The chip closes itself after a selection. The chip is
+    // Code-tab chrome that only appears once the repo view has hydrated —
+    // hydration budget (see waitTreeReady); the popover option below is
+    // instant once the chip is clicked, so it stays on POLL_TIMEOUT.
     const chip = this.page.locator(`[data-testid="diff-filter-chip"]`);
-    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, `[data-testid="diff-filter-chip"]`);
     await chip.click();
     const opt = this.page.locator(`[data-testid="diff-mode-${mode}"]`);
     await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -84,9 +110,8 @@ When(
 When(
   "I right-click the changed file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click({ button: "right" });
+    await waitTreeReady(this, fileRow(path));
+    await this.page.locator(fileRow(path)).click({ button: "right" });
     await this.waitForFrame();
   },
 );
@@ -297,8 +322,7 @@ Then(
 Then(
   "the Code tab should show a directory node {string}",
   async function (this: KoluWorld, path: string) {
-    const dir = this.page.locator(dirRow(path));
-    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, dirRow(path));
   },
 );
 
@@ -313,9 +337,8 @@ Then(
 When(
   "I click the directory node {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const dir = this.page.locator(dirRow(path));
-    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await dir.click();
+    await waitTreeReady(this, dirRow(path));
+    await this.page.locator(dirRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -333,9 +356,9 @@ Then(
   async function (this: KoluWorld) {
     // Pierre's `FileDiff` mounts the wrapper even with zero hunks; assert on
     // an actual rendered diff line. `[data-line]` is set per-row by Pierre's
-    // `processLine` (see @pierre/diffs/utils/processLine).
-    const row = this.page.locator(`${DIFF_VIEW} [data-line]`).first();
-    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // `processLine` (see @pierre/diffs/utils/processLine). First diff render
+    // follows a `git diff` round-trip + virtualized mount — hydration budget.
+    await waitTreeReady(this, `${DIFF_VIEW} [data-line]`);
   },
 );
 
@@ -373,9 +396,8 @@ Then(
 When(
   "I click the file {string} in the file browser",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click();
+    await waitTreeReady(this, fileRow(path));
+    await this.page.locator(fileRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -383,9 +405,8 @@ When(
 When(
   "I click the directory {string} in the file browser",
   async function (this: KoluWorld, path: string) {
-    const dir = this.page.locator(dirRow(path));
-    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await dir.click();
+    await waitTreeReady(this, dirRow(path));
+    await this.page.locator(dirRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -395,16 +416,14 @@ When(
 Then(
   "the file browser should show a directory {string}",
   async function (this: KoluWorld, path: string) {
-    const dir = this.page.locator(dirRow(path));
-    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, dirRow(path));
   },
 );
 
 Then(
   "the file browser should show a file {string}",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, fileRow(path));
   },
 );
 
@@ -425,10 +444,12 @@ Then(
 Then(
   "the file {string} should be selected in the file browser",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(
+    // Selection lands after the click's mode/diff round-trip resolves; under
+    // darwin load that first settle is on the hydration axis (waitTreeReady).
+    await waitTreeReady(
+      this,
       `${TREE} [data-item-path="${path}"][data-item-type="file"][aria-selected="true"]:not([data-file-tree-sticky-row])`,
     );
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -1047,8 +1068,11 @@ async function activateCodeTabMode(
   await tab.click();
   await world.waitForFrame();
   if (mode === "local") return; // default
+  // The mode chip is Code-tab chrome that only paints once the repo view has
+  // hydrated — hydration budget so a loaded runner doesn't lose the switch
+  // before the tree-readiness gate downstream even runs (see waitTreeReady).
   const chip = world.page.locator(`[data-testid="diff-filter-chip"]`);
-  await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await waitTreeReady(world, `[data-testid="diff-filter-chip"]`);
   await chip.click();
   const opt = world.page.locator(`[data-testid="diff-mode-${mode}"]`);
   await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -1133,9 +1157,8 @@ Given(
 When(
   "I open file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click();
+    await waitTreeReady(this, fileRow(path));
+    await this.page.locator(fileRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -1144,9 +1167,7 @@ When(
 Then(
   "the Code tab should show file {string}",
   async function (this: KoluWorld, path: string) {
-    await this.page
-      .locator(fileRow(path))
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, fileRow(path));
   },
 );
 
@@ -1166,9 +1187,12 @@ Then(
 Then(
   "the Code tab file {string} should have git status {string}",
   async function (this: KoluWorld, path: string, status: string) {
-    await this.page
-      .locator(`${fileRow(path)}[data-item-git-status="${status}"]`)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The decorated row appears as the gitStatus stream lands — first
+    // settle is on the hydration axis under darwin load (waitTreeReady).
+    await waitTreeReady(
+      this,
+      `${fileRow(path)}[data-item-git-status="${status}"]`,
+    );
   },
 );
 
@@ -1183,8 +1207,8 @@ Then(
     // row. Read through the Playwright locator (which pierces Pierre's open
     // shadow root); a raw `document.querySelector` inside `waitForFunction`
     // would not cross the shadow boundary — see SHADOW_DFS_FN_SRC below.
+    await waitTreeReady(this, fileRow(path));
     const row = this.page.locator(fileRow(path));
-    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const value = await row.getAttribute("data-item-git-status");
     if (value !== null) {
       throw new Error(
@@ -1204,17 +1228,18 @@ Then(
 Then(
   "the Code tab directory {string} should be marked as containing a change",
   async function (this: KoluWorld, path: string) {
-    await this.page
-      .locator(`${dirRow(path)}[data-item-contains-git-change="true"]`)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(
+      this,
+      `${dirRow(path)}[data-item-contains-git-change="true"]`,
+    );
   },
 );
 
 Then(
   "the Code tab directory {string} should not be marked as containing a change",
   async function (this: KoluWorld, path: string) {
+    await waitTreeReady(this, dirRow(path));
     const row = this.page.locator(dirRow(path));
-    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const value = await row.getAttribute("data-item-contains-git-change");
     if (value !== null) {
       throw new Error(
@@ -1239,10 +1264,12 @@ Then(
       return name.evaluate((el) => getComputedStyle(el).color);
     };
     // Wait for the roll-up to land on the changed folder before sampling, so
-    // the tint has been applied by the time we read its color.
-    await this.page
-      .locator(`${dirRow(changed)}[data-item-contains-git-change="true"]`)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // the tint has been applied by the time we read its color. First settle
+    // of the gitStatus decoration is on the hydration axis (waitTreeReady).
+    await waitTreeReady(
+      this,
+      `${dirRow(changed)}[data-item-contains-git-change="true"]`,
+    );
     const changedColor = await nameColor(changed);
     const cleanColor = await nameColor(clean);
     if (changedColor === cleanColor) {
