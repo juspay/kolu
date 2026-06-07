@@ -107,7 +107,14 @@ test: install
     par="${CUCUMBER_PARALLEL:-$par}"
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
-    {{ nix_shell_e2e }} pnpm install
+    # No `pnpm install` here: the `install` dep (and, in CI, the ci::install
+    # node) already installed the whole workspace, packages/tests included. A
+    # second `pnpm install` re-links the shared workspace `node_modules/.bin`,
+    # and running concurrently with the `unit` lane's `vitest` it transiently
+    # makes `.bin/vitest` non-executable → "Permission denied" (exit 126) — the
+    # very "two recipes shelling out to pnpm install race and corrupt each
+    # other's node_modules" hazard ci/mod.just documents. CI invokes this recipe
+    # with `just --no-deps test` so even the `install` dep can't race the unit lane.
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
