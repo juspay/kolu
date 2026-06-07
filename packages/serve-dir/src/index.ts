@@ -241,63 +241,68 @@ export async function serveFile(
     };
 
     handle = await open(res.abs, "r");
-    // Set once the handle is handed off to a ReadableStream that owns its
-    // lifecycle (closing it on end/error — `autoClose` defaults on); every
-    // other exit closes the handle in the `finally` below. Everything after the
-    // `open` runs inside that try so a `stat`/`isFile` failure can't leak it.
-    let streamed = false;
+    // Handle ownership is a value carried by each exit, not a flag over time.
+    // The stat/isFile check is the only window where a throw can leak the
+    // handle before a stream takes ownership, so it alone closes on throw.
+    // After it, every exit decides explicitly: the non-streaming 404/416
+    // branches close the handle before returning; the streaming 200/206
+    // branches hand it to `Readable.toWeb`, whose underlying createReadStream
+    // owns the lifecycle (`autoClose` defaults on, closing on end/error).
+    let s: Awaited<ReturnType<typeof handle.stat>>;
     try {
-      const s = await handle.stat();
-      if (!s.isFile()) {
-        return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
-      }
-
-      const streamBody = (start?: number, end?: number): ReadableStream => {
-        const stream = handle!.createReadStream(
-          start === undefined ? {} : { start, end },
-        );
-        streamed = true;
-        return Readable.toWeb(stream) as ReadableStream;
-      };
-
-      const range = rangeHeader ? parseByteRange(rangeHeader, s.size) : null;
-      if (range === "invalid") {
-        return {
-          status: 416,
-          headers: { ...baseHeaders, "Content-Range": `bytes */${s.size}` },
-          body: "range not satisfiable",
-        };
-      }
-      if (range) {
-        // `createReadStream({ start, end })` reads only those bytes, so a
-        // `Range: bytes=0-1` against a multi-GB video moves two bytes, not the
-        // whole file, through the heap.
-        return {
-          status: 206,
-          headers: {
-            ...baseHeaders,
-            "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
-            "Content-Length": String(range.end - range.start + 1),
-          },
-          body: streamBody(range.start, range.end),
-        };
-      }
-
-      // Full 200: no Range header, or a header we collapse to the whole file
-      // (open `bytes=-`, multi-range, malformed). Stream it too — see the
-      // heap note above. Deliberately set NO `Content-Length`; the runtime
-      // derives it from the bytes actually written to the socket. Load-bearing:
-      // (1) a downstream HTML-transform middleware (kolu's artifact-sdk
-      // decorator) may splice bytes into a text/html response *after* this
-      // returns; a Content-Length pinned to the pre-splice size truncates the
-      // injected body. (2) deriving from the sent bytes is race-free on a
-      // live-reloading root, where a stat and a later read could disagree. The
-      // 206 branch above DOES set Content-Length: a partial response must, and
-      // it's never decorated (an HTML transform only touches status 200).
-      return { status: 200, headers: { ...baseHeaders }, body: streamBody() };
-    } finally {
-      if (!streamed) await handle.close();
+      s = await handle.stat();
+    } catch (e) {
+      await handle.close();
+      throw e;
     }
+    if (!s.isFile()) {
+      await handle.close();
+      return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
+    }
+
+    const streamBody = (start?: number, end?: number): ReadableStream => {
+      const stream = handle!.createReadStream(
+        start === undefined ? {} : { start, end },
+      );
+      return Readable.toWeb(stream) as ReadableStream;
+    };
+
+    const range = rangeHeader ? parseByteRange(rangeHeader, s.size) : null;
+    if (range === "invalid") {
+      await handle.close();
+      return {
+        status: 416,
+        headers: { ...baseHeaders, "Content-Range": `bytes */${s.size}` },
+        body: "range not satisfiable",
+      };
+    }
+    if (range) {
+      // `createReadStream({ start, end })` reads only those bytes, so a
+      // `Range: bytes=0-1` against a multi-GB video moves two bytes, not the
+      // whole file, through the heap.
+      return {
+        status: 206,
+        headers: {
+          ...baseHeaders,
+          "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
+          "Content-Length": String(range.end - range.start + 1),
+        },
+        body: streamBody(range.start, range.end),
+      };
+    }
+
+    // Full 200: no Range header, or a header we collapse to the whole file
+    // (open `bytes=-`, multi-range, malformed). Stream it too — see the
+    // heap note above. Deliberately set NO `Content-Length`; the runtime
+    // derives it from the bytes actually written to the socket. Load-bearing:
+    // (1) a downstream HTML-transform middleware (kolu's artifact-sdk
+    // decorator) may splice bytes into a text/html response *after* this
+    // returns; a Content-Length pinned to the pre-splice size truncates the
+    // injected body. (2) deriving from the sent bytes is race-free on a
+    // live-reloading root, where a stat and a later read could disagree. The
+    // 206 branch above DOES set Content-Length: a partial response must, and
+    // it's never decorated (an HTML transform only touches status 200).
+    return { status: 200, headers: { ...baseHeaders }, body: streamBody() };
   } catch (e: unknown) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
