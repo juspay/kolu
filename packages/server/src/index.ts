@@ -9,6 +9,10 @@ import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { DEFAULT_PORT } from "kolu-common/config";
+import {
+  TERMINAL_FILE_ROUTE_BASE,
+  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
+} from "kolu-common/preview";
 import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
@@ -21,8 +25,6 @@ import { serverHostname } from "./hostname.ts";
 import {
   previewRealpathGuard,
   previewTailFromRawUrl,
-  TERMINAL_FILE_ROUTE_BASE,
-  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";

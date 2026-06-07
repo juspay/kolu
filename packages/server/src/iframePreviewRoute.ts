@@ -17,16 +17,6 @@ import {
 } from "kolu-common/preview";
 import { assertRealpathUnder } from "kolu-git";
 
-// The route-shape contract (`TERMINAL_FILE_ROUTE_BASE`,
-// `TERMINAL_FILE_ROUTE_FILE_SEGMENT`, `buildTerminalFileUrl`) lives in
-// `kolu-common/preview` so the client can build the same URLs. Re-exported here
-// so the Hono route registration in `index.ts` keeps importing them from this
-// module.
-export {
-  TERMINAL_FILE_ROUTE_BASE,
-  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
-} from "kolu-common/preview";
-
 /** Canonical URL shape for the iframe-served file route, used in
  *  `FsReadFileOutput.kind === "binary"` and matched by the Hono route in
  *  `index.ts`. `mtimeMs` is rounded down so a stable file always produces the
