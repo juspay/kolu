@@ -55,7 +55,7 @@ from `packages/terminal-themes`), so the three look visually different.
 | --- | --- | --- | --- | --- | --- | --- |
 | `new-terminal-demo` | Dracula | ~28s | ~2.0 MB | ~1.4 MB | ~29 KB | `/welcome` §02 |
 | `dock-alert-demo` | Vaughn + Catppuccin Latte | ~29s | ~2.5 MB | ~1.7 MB | ~0.13 MB | `/` (home hero) |
-| `code-review-demo` | Nord | ~15s | ~0.9 MB | ~0.7 MB | ~0.11 MB | `/welcome` §03 |
+| `code-review-demo` | Django | ~15s | ~0.9 MB | ~0.7 MB | ~0.11 MB | `/welcome` §03 |
 
 `dock-alert-demo` is the richest clip: it opens on an empty canvas, **clicks the
 "+"** to create terminals (every on-camera click is telegraphed with a coral

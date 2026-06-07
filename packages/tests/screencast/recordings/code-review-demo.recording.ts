@@ -48,7 +48,7 @@ function ensureClone(repo: { url: string; dir: string }): void {
 export const recording: Recording = {
   name: "code-review-demo",
   chrome: "app",
-  theme: "Nord", // distinct per recording (new-terminal=Dracula, dock-alert=Vaughn/Latte)
+  theme: "Django", // distinct per recording (new-terminal=Dracula, dock-alert=Vaughn/Latte)
   display: { hideRightPanel: true, hideMinimap: true }, // panel starts collapsed; we open it on camera
   viewport: { width: 1600, height: 900 },
   // Payoff is the selected source + comment composer; sample it near the end.
@@ -58,7 +58,7 @@ export const recording: Recording = {
 
     // A terminal in kolu — the Code tab browses the active terminal's repo.
     await clearCanvas(world, 800);
-    await createTerminalByClick(world, "Nord");
+    await createTerminalByClick(world, "Django");
     await pause(world, 400);
     await world.terminalRun("cd ~/demo/kolu");
     await pause(world, 1000); // let the cwd/repo register for the Code tab
