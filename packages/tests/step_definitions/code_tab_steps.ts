@@ -1031,35 +1031,52 @@ async function setupCodeTabFixture(
     await runShell(world, `git commit --allow-empty -m init`);
     await runShell(world, writeFiles);
   } else if (mode === "branch") {
-    // `git init --bare` produces a remote we can push to; then push the
-    // initial commit so `origin/<default>` resolves and `merge-base` is
-    // the initial commit. Files have to be staged (`git add`) for branch
-    // mode to see them — Kolu's branch-mode listing is
-    // `git diff --name-status <merge-base>`, which excludes untracked
-    // files (see packages/integrations/git/src/review.ts:124).
-    await runShell(world, `git init --bare ${origin}`);
-    await runShell(world, `git init ${work} && cd ${work}`);
+    // Branch mode's listing is `git diff --name-status merge-base(HEAD,
+    // origin/<default>)`, which excludes untracked files — so files must be
+    // staged (`git add`) and `origin/<default>` must resolve. The server
+    // detects `<default>` via `git symbolic-ref refs/remotes/origin/HEAD`
+    // (then falls back to origin/main, origin/master). If none resolves it
+    // returns BASE_BRANCH_NOT_FOUND and the tree stays empty — and because
+    // the gitStatus stream dedups identical error snapshots, a later re-read
+    // that ALSO errors doesn't re-emit, so the tree never recovers until the
+    // base actually exists. This was the residual branch-mode flake that lost
+    // both cucumber attempts (the push occasionally not having produced a
+    // resolvable `origin/master` by the time the subscription's first read
+    // ran). Make the base deterministic and verified, not raced:
+    //   - `git init -b master` pins the default branch name (host default is
+    //     not guaranteed to be master), so the bare repo + push + detection
+    //     all agree on `master`.
+    //   - `git remote set-head origin master` sets `origin/HEAD` so the
+    //     server's FIRST detection branch (symbolic-ref) resolves immediately,
+    //     never falling through to the origin/main/master guesses.
+    //   - retry the push once, then gate the SETTLED barrier on
+    //     `origin/master` actually being verifiable — so the subscription that
+    //     `activateCodeTabMode` opens next can never read before the base ref
+    //     exists. `waitForCodeTabReady`'s per-tick work-tree nudge remains as
+    //     a belt-and-suspenders re-read trigger.
+    // The marker is split across a shell string-concat (`SET""TLED`) so the
+    // search text matches only the command's OUTPUT, never the typed echo.
+    await runShell(world, `git init --bare -b master ${origin}`);
+    await runShell(world, `git init -b master ${work} && cd ${work}`);
     await runShell(world, `git remote add origin ${origin}`);
     await runShell(world, `git commit --allow-empty -m init`);
-    await runShell(world, `git push -u origin HEAD`);
+    await runShell(
+      world,
+      `git push -u origin master || git push -u origin master`,
+    );
+    await runShell(world, `git remote set-head origin master`);
     await runShell(world, `git checkout -b feature`);
     await runShell(world, writeFiles);
     await runShell(world, `git add .`);
-    // Branch mode's gitStatus stream resolves `origin/<default>` on its FIRST
-    // read. If `git push -u origin HEAD` above is still in flight when the
-    // stream subscribes (it forks git + writes the bare repo — slow under
-    // darwin CI load), that read throws BASE_BRANCH_NOT_FOUND and the tree
-    // stays empty — the residual branch-mode flake that loses both cucumber
-    // attempts. Two layers guard it: (1) this shell-completion barrier so the
-    // whole setup — crucially the push — is done before `activateCodeTabMode`
-    // subscribes; (2) `waitForCodeTabReady` nudges the work tree each tick so
-    // a first-read that still raced re-resolves on the next repo-change event
-    // (the stream re-reads `getStatus` on `subscribeRepoChange`). The marker
-    // is split across a shell string-concat (`SET""TLED`) so the search text
-    // matches only the command's OUTPUT, never the typed-command echo — a real
-    // ordering barrier, not a sleep.
     const token = work.replace(/[^a-zA-Z0-9]/g, "");
-    await runShell(world, `echo "KOLU_SET""TLED_${token}"`);
+    // Only emit the barrier marker once origin/master is verifiably resolvable;
+    // a missing base emits a distinct marker so the wait fails loudly instead
+    // of racing on into a permanently-empty branch tree.
+    await runShell(
+      world,
+      `git rev-parse --verify origin/master >/dev/null 2>&1 ` +
+        `&& echo "KOLU_SET""TLED_${token}" || echo "KOLU_BASE""MISSING_${token}"`,
+    );
     await waitForBufferContains(world.page, `KOLU_SETTLED_${token}`);
   } else if (mode === "browse") {
     await runShell(world, `git init ${work} && cd ${work}`);
