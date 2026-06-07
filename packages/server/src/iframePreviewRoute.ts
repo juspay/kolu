@@ -56,6 +56,14 @@ const CONTENT_TYPES: Record<string, string> = {
   ".htm": "text/html; charset=utf-8",
   ".svg": "image/svg+xml",
   ".pdf": "application/pdf",
+  // Video-previewable kinds (rendered with a <video> element). Range support
+  // below lets the player seek; the explicit type keeps the browser from
+  // sniffing/downloading.
+  ".mp4": "video/mp4",
+  ".m4v": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".ogv": "video/ogg",
   // Assets a previewable HTML page can reference via relative <link>/<script>/<img>.
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -139,12 +147,53 @@ export interface ServeResult {
   body: Uint8Array | string;
 }
 
+/** Parse a single-range HTTP `Range: bytes=…` header against a known file
+ *  size. The `<video>` element relies on byte ranges to seek (and Safari
+ *  refuses to play media a server can't range-serve), so this is the seam
+ *  that turns a route which only ever served whole files into one that can
+ *  answer `206 Partial Content`.
+ *
+ *  Returns inclusive `{ start, end }` for a satisfiable single range,
+ *  `"invalid"` when the range can't be satisfied (→ 416), or `null` to serve
+ *  the whole file (no header, an open `bytes=-`, or a multi-range / malformed
+ *  header we deliberately don't honor — falling back to a full 200 is always
+ *  spec-valid). */
+export function parseByteRange(
+  header: string | null | undefined,
+  size: number,
+): { start: number; end: number } | "invalid" | null {
+  if (!header) return null;
+  // Single range only: `bytes=start-end`, `bytes=start-`, or `bytes=-suffix`.
+  // A comma (multi-range) won't match, so we serve the whole file instead.
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m) return null;
+  const [, rawStart, rawEnd] = m;
+  if (rawStart === "" && rawEnd === "") return null;
+  if (size === 0) return "invalid";
+
+  let start: number;
+  let end: number;
+  if (rawStart === "") {
+    // Suffix range: the last N bytes.
+    const suffix = Number(rawEnd);
+    if (suffix === 0) return "invalid";
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(rawStart);
+    end = rawEnd === "" ? size - 1 : Math.min(Number(rawEnd), size - 1);
+  }
+  if (start > end || start >= size) return "invalid";
+  return { start, end };
+}
+
 /** Read the resolved file and assemble the HTTP response. Separated from
  *  `resolvePreviewPath` so the guard logic is testable without filesystem
  *  fixtures, and the I/O failure modes are testable without crafting URLs. */
 export async function serveResolvedFile(
   res: PathResolution,
   root: string,
+  rangeHeader?: string | null,
 ): Promise<ServeResult> {
   if (!res.ok) {
     return {
@@ -173,17 +222,45 @@ export async function serveResolvedFile(
         body: "not a file",
       };
     }
+    // `Accept-Ranges: bytes` advertises that this route can range-serve, which
+    // is what lets a `<video>` element seek. The `?v=<mtime>` query is our
+    // cache key, so a same-URL request can safely hit the browser cache;
+    // mtime change → new URL → fresh fetch.
+    const baseHeaders: Record<string, string> = {
+      "Content-Type": res.mime,
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "private, max-age=60",
+      "Accept-Ranges": "bytes",
+    };
+
+    const range = parseByteRange(rangeHeader, s.size);
+    if (range === "invalid") {
+      return {
+        status: 416,
+        headers: { ...baseHeaders, "Content-Range": `bytes */${s.size}` },
+        body: "range not satisfiable",
+      };
+    }
+
+    // The whole file is read regardless of range — these are preview-sized
+    // assets and it keeps the read path identical to the non-ranged case; a
+    // satisfiable range just slices the buffer before responding.
     const buf = await readFile(res.abs);
+    if (range) {
+      const slice = buf.subarray(range.start, range.end + 1);
+      return {
+        status: 206,
+        headers: {
+          ...baseHeaders,
+          "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
+          "Content-Length": String(slice.length),
+        },
+        body: slice,
+      };
+    }
     return {
       status: 200,
-      headers: {
-        "Content-Type": res.mime,
-        "X-Content-Type-Options": "nosniff",
-        // Browsers cache aggressively — the URL's `?v=<mtime>` query is the
-        // cache key on our side, so a same-URL request can safely hit the
-        // browser cache. mtime change → new URL → fresh fetch.
-        "Cache-Control": "private, max-age=60",
-      },
+      headers: { ...baseHeaders, "Content-Length": String(s.size) },
       body: buf,
     };
   } catch (e: unknown) {

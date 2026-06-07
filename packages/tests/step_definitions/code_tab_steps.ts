@@ -640,6 +640,20 @@ Then(
 );
 
 Then(
+  "the file preview video should be visible",
+  async function (this: KoluWorld) {
+    const video = this.page.locator('[data-testid="browse-preview-video"]');
+    await video.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The container alone could be an empty box; assert a real <video controls>
+    // element mounted inside it so the test proves the renderer dispatched to
+    // the video appliance, not a stray div.
+    await this.page
+      .locator('[data-testid="browse-preview-video"] video[controls]')
+      .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
   "the Code tab tree pane split handle should be visible",
   async function (this: KoluWorld) {
     // The handle's own bounding box is intentionally zero-height (`h-0`);

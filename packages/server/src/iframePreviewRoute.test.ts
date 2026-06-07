@@ -5,6 +5,7 @@ import { BINARY_PREVIEWABLE_EXTENSIONS } from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   contentTypeForPath,
+  parseByteRange,
   resolvePreviewPath,
   serveResolvedFile,
 } from "./iframePreviewRoute";
@@ -41,6 +42,13 @@ describe("contentTypeForPath", () => {
       "application/javascript; charset=utf-8",
     );
     expect(contentTypeForPath("icon.png")).toBe("image/png");
+  });
+
+  it("maps video containers so the <video> element gets a real type", () => {
+    expect(contentTypeForPath("demo.mp4")).toBe("video/mp4");
+    expect(contentTypeForPath("clip.WEBM")).toBe("video/webm");
+    expect(contentTypeForPath("trailer.mov")).toBe("video/quicktime");
+    expect(contentTypeForPath("old.ogv")).toBe("video/ogg");
   });
 
   it("falls back to octet-stream for unknown types", () => {
@@ -126,6 +134,46 @@ describe("resolvePreviewPath", () => {
   });
 });
 
+describe("parseByteRange", () => {
+  it("returns null (serve whole file) when there is no Range header", () => {
+    expect(parseByteRange(undefined, 100)).toBeNull();
+    expect(parseByteRange(null, 100)).toBeNull();
+    expect(parseByteRange("", 100)).toBeNull();
+  });
+
+  it("parses a closed range inclusively", () => {
+    expect(parseByteRange("bytes=0-9", 100)).toEqual({ start: 0, end: 9 });
+    expect(parseByteRange("bytes=10-19", 100)).toEqual({ start: 10, end: 19 });
+  });
+
+  it("treats an open-ended range as through end-of-file", () => {
+    expect(parseByteRange("bytes=50-", 100)).toEqual({ start: 50, end: 99 });
+  });
+
+  it("clamps an end past EOF to the last byte", () => {
+    expect(parseByteRange("bytes=90-999", 100)).toEqual({ start: 90, end: 99 });
+  });
+
+  it("resolves a suffix range to the last N bytes", () => {
+    expect(parseByteRange("bytes=-20", 100)).toEqual({ start: 80, end: 99 });
+    // Suffix larger than the file → whole file.
+    expect(parseByteRange("bytes=-500", 100)).toEqual({ start: 0, end: 99 });
+  });
+
+  it("marks an unsatisfiable range invalid (→ 416)", () => {
+    expect(parseByteRange("bytes=100-200", 100)).toBe("invalid");
+    expect(parseByteRange("bytes=50-10", 100)).toBe("invalid");
+    expect(parseByteRange("bytes=-0", 100)).toBe("invalid");
+    expect(parseByteRange("bytes=0-0", 0)).toBe("invalid");
+  });
+
+  it("falls back to whole-file for multi-range or malformed headers", () => {
+    expect(parseByteRange("bytes=0-9,20-29", 100)).toBeNull();
+    expect(parseByteRange("kbytes=0-9", 100)).toBeNull();
+    expect(parseByteRange("bytes=-", 100)).toBeNull();
+  });
+});
+
 describe("serveResolvedFile", () => {
   let tmpRoot: string;
 
@@ -137,6 +185,7 @@ describe("serveResolvedFile", () => {
     );
     fs.mkdirSync(path.join(tmpRoot, "sub"));
     fs.writeFileSync(path.join(tmpRoot, "sub", "child.svg"), "<svg/>");
+    fs.writeFileSync(path.join(tmpRoot, "clip.mp4"), "0123456789");
   });
 
   afterAll(() => {
@@ -151,7 +200,44 @@ describe("serveResolvedFile", () => {
     expect(res.status).toBe(200);
     expect(res.headers["Content-Type"]).toBe("text/html; charset=utf-8");
     expect(res.headers["X-Content-Type-Options"]).toBe("nosniff");
+    // Advertised on every successful response so the <video> player knows it
+    // can seek.
+    expect(res.headers["Accept-Ranges"]).toBe("bytes");
     expect(res.body.toString()).toBe("<!doctype html><h1>hi</h1>");
+  });
+
+  it("answers a Range request with 206 Partial Content and the byte slice", async () => {
+    const res = await serveResolvedFile(
+      resolvePreviewPath(tmpRoot, "clip.mp4"),
+      tmpRoot,
+      "bytes=2-5",
+    );
+    expect(res.status).toBe(206);
+    expect(res.headers["Content-Type"]).toBe("video/mp4");
+    expect(res.headers["Content-Range"]).toBe("bytes 2-5/10");
+    expect(res.headers["Content-Length"]).toBe("4");
+    expect(res.headers["Accept-Ranges"]).toBe("bytes");
+    expect(res.body.toString()).toBe("2345");
+  });
+
+  it("serves the whole file (200) when no Range header is present", async () => {
+    const res = await serveResolvedFile(
+      resolvePreviewPath(tmpRoot, "clip.mp4"),
+      tmpRoot,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers["Content-Length"]).toBe("10");
+    expect(res.body.toString()).toBe("0123456789");
+  });
+
+  it("returns 416 for an unsatisfiable Range", async () => {
+    const res = await serveResolvedFile(
+      resolvePreviewPath(tmpRoot, "clip.mp4"),
+      tmpRoot,
+      "bytes=50-60",
+    );
+    expect(res.status).toBe(416);
+    expect(res.headers["Content-Range"]).toBe("bytes */10");
   });
 
   it("serves a nested asset", async () => {

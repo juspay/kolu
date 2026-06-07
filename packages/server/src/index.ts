@@ -202,6 +202,8 @@ app.get(
     const res = await serveResolvedFile(
       resolvePreviewPath(repoRoot, rawTail),
       repoRoot,
+      // Forwarded so a `<video>` preview can seek (206 Partial Content).
+      c.req.header("range"),
     );
     // `Buffer` (subclass of `Uint8Array<ArrayBufferLike>`) is a runtime-valid
     // `BodyInit` but the DOM-typed lib.dom.d.ts narrows `BodyInit` to

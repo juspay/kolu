@@ -692,12 +692,13 @@ Feature: Code tab (review + browse)
     And the Code tab directory "lib" should not be marked as containing a change
     And the Code tab directory "src" name should be tinted differently from directory "lib"
 
-  # ── Browse mode: route-served preview for .html / .svg / .pdf / images ──
+  # ── Browse mode: route-served preview for .html / .svg / .pdf / images / video ──
   # Files whose extension matches `isBinaryPreviewable` (see
-  # `kolu-git/previewable`) render in `BrowsePreviewView` from the per-terminal
-  # file route instead of Pierre's syntax-highlighted `FileView`. The wire kind
-  # (`FsReadFileOutput.kind`) only says "binary"; the client then renders raster
-  # images (`isRasterImage`) with a plain `<img>` and documents in a sandboxed
+  # `kolu-common/preview`) render from the per-terminal file route instead of
+  # Pierre's syntax-highlighted `FileView`. The wire kind
+  # (`FsReadFileOutput.kind`) only says "binary"; the client then dispatches by
+  # extension — raster images (`isRasterImage`) to a plain `<img>`, videos
+  # (`isVideo`) to a `<video controls>` element, and documents to a sandboxed
   # `<iframe>`.
 
   Scenario: HTML file renders in an iframe instead of as code
@@ -726,6 +727,16 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "icon.png" in the file browser
     Then the file preview image should be visible
+    And the file preview iframe should not be visible
+
+  Scenario: Video file renders as a <video> preview, not an iframe
+    When I run "rm -rf /tmp/kolu-vid-mp4 && git init /tmp/kolu-vid-mp4 && cd /tmp/kolu-vid-mp4"
+    And I run "printf 'fake\0mp4\1\2\3\4' > clip.mp4"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "clip.mp4" in the file browser
+    Then the file preview video should be visible
     And the file preview iframe should not be visible
 
   Scenario: Plain text file still renders as syntax-highlighted code (no iframe)

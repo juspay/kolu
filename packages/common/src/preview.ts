@@ -14,17 +14,20 @@
  *      `@kolu/solid-fileview` — a plain `<img>`, a sandboxed iframe, or a
  *      rendered Markdown document.
  *
- *  Two disjoint sets partition the binary-previewable space:
+ *  Three disjoint sets partition the binary-previewable space:
  *    - SANDBOX — rendered in an `allow-scripts`, opaque-origin iframe.
  *      `.html`/`.htm`/`.svg` can carry scripts; `.pdf` rides the same
  *      sandbox. The set is the security boundary and changes rarely.
  *    - RASTER — rendered with a plain `<img>` (image bytes can't execute).
- *      This is the volatile axis (new formats: avif, jxl, …).
+ *      This is a volatile axis (new formats: avif, jxl, …).
+ *    - VIDEO — rendered with a `<video controls>` element (the file route
+ *      serves it with a real `video/*` Content-Type and HTTP range support
+ *      so the player can seek). Also volatile (new codecs/containers).
  *
  *  `BINARY_PREVIEWABLE_EXTENSIONS` is their union, so a new previewable
  *  format cannot be added without being placed in exactly one category —
- *  the "every non-document binary is an image" assumption is structural,
- *  not a convention a future edit can quietly break.
+ *  the "every non-document binary is an image or a video" assumption is
+ *  structural, not a convention a future edit can quietly break.
  *
  *  Markdown is a *separate* axis: it stays `kind:"text"` on the wire (there's
  *  no server URL — the client renders it from `content`), so `isMarkdown`
@@ -47,9 +50,22 @@ export const RASTER_IMAGE_EXTENSIONS = [
   ".ico",
 ] as const;
 
+/** Video containers the `<video>` element can play across the browsers Kolu
+ *  targets. `.mov` is QuickTime but ships H.264/AAC in practice, which Chrome
+ *  and Safari play; non-web codecs (`.mkv`, `.avi`) are deliberately absent —
+ *  they'd serve as a binary URL the player can't decode. */
+export const VIDEO_EXTENSIONS = [
+  ".mp4",
+  ".m4v",
+  ".webm",
+  ".mov",
+  ".ogv",
+] as const;
+
 export const BINARY_PREVIEWABLE_EXTENSIONS = [
   ...SANDBOX_PREVIEWABLE_EXTENSIONS,
   ...RASTER_IMAGE_EXTENSIONS,
+  ...VIDEO_EXTENSIONS,
 ] as const;
 
 /** Text files the Code browser can render as a document. Stays
@@ -72,6 +88,12 @@ export function isBinaryPreviewable(filePath: string): boolean {
  *  `<img>` rather than the sandboxed iframe? */
 export function isRasterImage(filePath: string): boolean {
   return hasExtension(filePath, RASTER_IMAGE_EXTENSIONS);
+}
+
+/** Client: of the binary-previewable files, render this one with a
+ *  `<video controls>` element rather than an `<img>` or the iframe? */
+export function isVideo(filePath: string): boolean {
+  return hasExtension(filePath, VIDEO_EXTENSIONS);
 }
 
 /** Client: does this text file have a rendered Markdown form, so the Code

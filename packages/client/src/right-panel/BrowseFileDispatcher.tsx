@@ -36,8 +36,9 @@ import {
 } from "@kolu/solid-fileview";
 import { ImageRenderer } from "@kolu/solid-fileview/renderers/image";
 import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
+import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
-import { isMarkdown, isRasterImage } from "kolu-common/preview";
+import { isMarkdown, isRasterImage, isVideo } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -266,11 +267,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     ),
   };
 
-  // Kolu's rendered appliances, tried in order. Raster images take the plain
-  // `<img>` (on a checkerboard so transparency reads) — nothing to anchor a
-  // comment to; everything else in the binary set — `.html`/`.svg`/`.pdf` —
-  // falls through to the sandboxed iframe (which owns its own comment bridge),
-  // exactly reproducing the old `!isRasterImage` split.
+  // Kolu's rendered appliances, tried in order — mirroring the three-way
+  // binary partition in `kolu-common/preview`. Raster images take the plain
+  // `<img>` (on a checkerboard so transparency reads); videos take a
+  // `<video controls>` element; both have nothing to anchor a comment to.
+  // Everything else in the binary set — `.html`/`.svg`/`.pdf` — falls through
+  // to the sandboxed iframe (which owns its own comment bridge).
   const renderedRenderers: RenderedRenderer[] = [
     {
       match: isRasterImage,
@@ -283,6 +285,15 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             url={file.url ?? ""}
             class="image-preview-checkerboard"
           />,
+        ),
+    },
+    {
+      match: isVideo,
+      render: (file) =>
+        withComments(
+          "none",
+          file,
+          <VideoRenderer path={file.path} url={file.url ?? ""} />,
         ),
     },
     {
