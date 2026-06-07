@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { BINARY_PREVIEWABLE_EXTENSIONS } from "kolu-common/preview";
+import {
+  RASTER_IMAGE_EXTENSIONS,
+  SANDBOX_PREVIEWABLE_EXTENSIONS,
+  VIDEO_EXTENSIONS,
+} from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   contentTypeForPath,
@@ -30,8 +34,24 @@ describe("CONTENT_TYPES covers every binary-previewable extension", () => {
   // real Content-Type the route serves `application/octet-stream` and the
   // browser downloads instead of rendering. Keeps the two in step now that
   // the extension list lives in a different package from CONTENT_TYPES.
+  //
+  // For the categorized sets we assert the mime *family*, not merely non-octet:
+  // a `.mov` mistyped as `image/quicktime` would dodge the octet check yet
+  // still break the `<video>` player. Pinning VIDEO → `video/*` and RASTER →
+  // `image/*` makes the category→family coupling mechanical, so adding a codec
+  // or format can't quietly land on the wrong appliance.
+  it.each(VIDEO_EXTENSIONS)("%s has a video/* Content-Type", (ext) => {
+    expect(contentTypeForPath(`file${ext}`)).toMatch(/^video\//);
+  });
+
+  it.each(RASTER_IMAGE_EXTENSIONS)("%s has an image/* Content-Type", (ext) => {
+    expect(contentTypeForPath(`file${ext}`)).toMatch(/^image\//);
+  });
+
+  // The sandbox set legitimately spans text/html, image/svg+xml, and
+  // application/pdf, so only the non-octet floor applies here.
   it.each(
-    BINARY_PREVIEWABLE_EXTENSIONS,
+    SANDBOX_PREVIEWABLE_EXTENSIONS,
   )("%s has a non-octet Content-Type", (ext) => {
     expect(contentTypeForPath(`file${ext}`)).not.toBe(
       "application/octet-stream",
