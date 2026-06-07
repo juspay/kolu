@@ -22,12 +22,17 @@
  *  ~`createReadStream({start,end}) -> Readable.toWeb -> Response` shape is the
  *  only one that does (what Deno `@std/http` and SvelteKit/Vite converge on).
  *
- *  Path safety is LEXICAL only: decode-then-split rejects `..`/empty/absolute
- *  segments (defense against URL-encoded `..` and `%2f` smuggling), then a
- *  `path.relative` containment check. The realpath/symlink-escape stage the old
- *  route carried (kolu-git `assertRealpathUnder`) is intentionally NOT here yet
- *  — to be reintroduced as an *injected* guard so this primitive stays agnostic.
- *  Until then a repo-local symlink pointing outside the root is followed. */
+ *  Path safety is two-stage. Stage 1 is LEXICAL and lives here: decode-then-split
+ *  rejects `..`/empty/absolute segments (defense against URL-encoded `..` and
+ *  `%2f` smuggling), then a `path.relative` containment check. Stage 2 is the
+ *  realpath/symlink-escape check the old route carried (kolu-git
+ *  `assertRealpathUnder`): it touches the filesystem and is kolu-specific, so it
+ *  is NOT hard-coded here — it's an INJECTED `realpathGuard` the caller passes so
+ *  this primitive stays agnostic. The kolu caller (`index.ts`) wires in the git
+ *  guard; the guard runs *before* any `open`/`stat`/`readFile`, so a repo-local
+ *  symlink pointing outside the root (`leak.html -> /etc/passwd`) is rejected
+ *  with 403 before a single byte is read. Omitting it (no second consumer needs
+ *  it yet) keeps the lexical-only behavior for that caller. */
 
 import { open, readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -79,7 +84,14 @@ export function contentTypeForPath(filePath: string): string {
 
 export type PathResolution =
   | { ok: true; abs: string; mime: string }
-  | { ok: false; status: 400 | 404; reason: string };
+  | { ok: false; status: 400 | 403 | 404; reason: string };
+
+/** Filesystem-authority guard, injected by the caller so this primitive stays
+ *  agnostic. Given the lexically-validated absolute path, resolve `true` to
+ *  allow the read or `false` to reject it as a 403 (a symlink whose real target
+ *  escapes the root). The kolu caller wires in kolu-git's `assertRealpathUnder`;
+ *  callers with no symlink concern omit it (lexical guard only). */
+export type RealpathGuard = (abs: string) => Promise<boolean>;
 
 /** Resolve a raw URL tail to an absolute path under `root`, lexically. Pure (no
  *  I/O) so the guard is unit-testable. Decode the whole tail FIRST, then split:
@@ -186,10 +198,18 @@ export async function serveFile(
   root: string,
   rawTail: string,
   rangeHeader?: string | null,
+  realpathGuard?: RealpathGuard,
 ): Promise<ServeResult> {
   const res = resolvePathUnder(root, rawTail);
   if (!res.ok) {
     return { status: res.status, headers: TEXT_PLAIN, body: res.reason };
+  }
+  // Stage 2 (injected): filesystem-authority check. `resolvePathUnder` is
+  // lexical only, so a repo-local `leak.html -> /etc/passwd` slips through it;
+  // the caller's guard resolves symlinks and rejects anything whose real path
+  // escapes the root, BEFORE any open/stat/read below.
+  if (realpathGuard && !(await realpathGuard(res.abs))) {
+    return { status: 403, headers: TEXT_PLAIN, body: "escapes root" };
   }
   try {
     // `Accept-Ranges: bytes` advertises that this route can range-serve, which
@@ -291,14 +311,24 @@ export async function serveFile(
 
 /** The receptacle: bind an absolute `root`, get a fetch-native file responder.
  *  `fetch(relPath, request)` resolves the tail under `root` and returns a
- *  streaming-range `Response` (200 | 206 | 416 | 404 | 500). The caller injects
- *  the root and may wrap the returned `Response` with downstream middleware. */
-export function createDirServer(root: string): {
+ *  streaming-range `Response` (200 | 206 | 416 | 403 | 404 | 500). The caller
+ *  injects the root, the optional symlink-escape `realpathGuard` (see
+ *  `RealpathGuard`), and may wrap the returned `Response` with downstream
+ *  middleware. */
+export function createDirServer(
+  root: string,
+  realpathGuard?: RealpathGuard,
+): {
   fetch: (relPath: string, request: Request) => Promise<Response>;
 } {
   return {
     async fetch(relPath, request) {
-      const r = await serveFile(root, relPath, request.headers.get("range"));
+      const r = await serveFile(
+        root,
+        relPath,
+        request.headers.get("range"),
+        realpathGuard,
+      );
       // `Buffer` (a `Uint8Array<ArrayBufferLike>`) is a runtime-valid
       // `BodyInit`, but lib.dom narrows `BodyInit` to `Uint8Array<ArrayBuffer>`;
       // node-server forwards the buffer unchanged, so cast at the boundary.

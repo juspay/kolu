@@ -8,6 +8,7 @@ import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { DEFAULT_PORT } from "kolu-common/config";
+import { assertRealpathUnder } from "kolu-git";
 import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
@@ -202,10 +203,17 @@ app.get(
     const root = getTerminal(terminalId)?.meta.git?.repoRoot;
     if (!root) return c.text("terminal has no repo", 404);
 
-    // The agnostic receptacle owns range/content-type/guard and returns a Fetch
-    // `Response`; the artifact-sdk HTML decorator (mounted above) rewrites it
-    // downstream for text/html. Range header is read from the request inside.
-    return createDirServer(root).fetch(rawTail, c.req.raw);
+    // The agnostic receptacle owns range/content-type/the lexical guard and
+    // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
+    // above) rewrites it downstream for text/html. Range header is read from the
+    // request inside. We inject kolu-git's filesystem-authority guard so a
+    // repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
+    // rejected with 403 before any byte is read — the stage `resolvePathUnder`
+    // (lexical only) can't cover.
+    return createDirServer(
+      root,
+      async (abs) => (await assertRealpathUnder(root, abs)).ok,
+    ).fetch(rawTail, c.req.raw);
   },
 );
 
