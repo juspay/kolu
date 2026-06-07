@@ -151,6 +151,32 @@ test-quick *args: install
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 
+# Capture marketing screencasts (KOLU_X11CAP): headful Chrome at 2x under Xvfb,
+# grabbed by `ffmpeg -f x11grab`, transcoded into website/public/demo/. Per do.md
+# this is meant to run on a pu box. Layers the screencast nix deps (ffmpeg-full +
+# Xvfb, from packages/tests/screencast/shell.nix) onto the e2e shell — the
+# top-level flake devShells are untouched.
+#   just record                       # all recordings
+#   just record new-terminal-demo     # one recording, by name
+record name="": install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ nix_shell_e2e }} pnpm --filter kolu-client build
+    wrapper="$(mktemp)"
+    trap 'rm -f "$wrapper"' EXIT
+    cat > "$wrapper" <<SCRIPT
+    #!/bin/sh
+    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
+    SCRIPT
+    chmod +x "$wrapper"
+    name_filter=""
+    [ -n "{{ name }}" ] && name_filter="--name {{ name }}"
+    cd packages/tests
+    {{ nix_shell_e2e }} pnpm install
+    KOLU_SERVER="$wrapper" KOLU_X11CAP=1 CUCUMBER_PARALLEL=1 \
+        {{ nix_shell_e2e }} nix-shell screencast/shell.nix --run \
+        "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui features/recordings.feature $name_filter"
+
 # Boot the packaged Kolu and verify /api/health — production-like runtime smoke
 smoke:
     {{ nix_shell }} bash ci/smoke.sh
