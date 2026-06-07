@@ -10,6 +10,7 @@ const isActive = (p: string) =>
   p === '/' ? normalized === '/' : normalized.startsWith(p);
 
 const nav = [
+  { label: 'Get started', href: href('/welcome'), path: '/welcome' },
   { label: 'Blog', href: href('/blog'), path: '/blog' },
   { label: 'GitHub', href: 'https://github.com/juspay/kolu', external: true },
 ];

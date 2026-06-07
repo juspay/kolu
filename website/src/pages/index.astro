@@ -10,35 +10,6 @@ const posts = (await getCollection('blog')).sort(
 );
 const latest = posts[0];
 
-// Marketing dock — one demo roster, rendered twice (hero terminal frame
-// + canvas demo strip). Keeping the chip list as data avoids two parallel
-// blocks of markup that have to stay visually consistent by memory.
-type DockChip = {
-  label: string;
-  repoTint: 'a' | 'b' | 'c';
-  state?: 'working' | 'awaiting';
-  hasBadge?: boolean;
-  title: string;
-};
-
-const dockChips: DockChip[] = [
-  {
-    label: 'Kd',
-    repoTint: 'a',
-    state: 'working',
-    title: 'kolu · feat-dock — claude · thinking',
-  },
-  {
-    label: 'Kc',
-    repoTint: 'a',
-    state: 'awaiting',
-    hasBadge: true,
-    title: 'kolu · feat-canvas — codex · awaiting you',
-  },
-  { label: 'Am', repoTint: 'b', title: 'api · main — zsh' },
-  { label: 'Db', repoTint: 'c', title: 'docs · blog' },
-];
-
 // Features — ordered to lead with what makes kolu unmistakable (real
 // xterm.js tiles on a 2D canvas with live agent status). Positioning
 // claims (agent-agnostic, zero setup) follow as *consequences* of the
@@ -166,6 +137,12 @@ const features = [
             <span aria-hidden="true">$</span> run with nix
           </a>
           <a
+            href={href('/welcome')}
+            class="inline-flex items-center gap-2 rounded-sm border border-rule-strong px-5 py-2.5 mono text-[0.82rem] text-ink hover:border-ink-dim hover:bg-void-raised transition-colors"
+          >
+            Get started <span aria-hidden="true">→</span>
+          </a>
+          <a
             href="https://github.com/juspay/kolu"
             rel="noopener"
             class="inline-flex items-center gap-2 rounded-sm border border-rule-strong px-5 py-2.5 mono text-[0.82rem] text-ink hover:border-ink-dim hover:bg-void-raised transition-colors"
@@ -180,69 +157,33 @@ const features = [
         </div>
       </div>
 
-      <!-- Right: faux xterm frame, dock on its left edge.
-           theme-phala = deep purple-magenta palette (one of Kolu's 200+
-           themes); the other tiles on the page wear different themes. -->
-      <div class="reveal reveal-3 hero-term theme-phala">
-        <div class="dock-col hero-term-dock" aria-hidden="true">
-          {
-            dockChips.map((c) => (
-              <div
-                class:list={[
-                  'hero-chip',
-                  `hero-chip-repo-${c.repoTint}`,
-                  c.state === 'working' && 'live-chip-working',
-                  c.state === 'awaiting' && 'live-chip-awaiting',
-                ]}
-                title={c.title}
-              >
-                {c.hasBadge && <span class="live-badge" />}
-                {c.label}
-              </div>
-            ))
-          }
+      <!-- Right: a REAL captured kolu session (replaces the former faux xterm).
+           The clip already carries kolu's own chrome — dock, titlebar, live
+           agent status, a real theme — so it needs no mock frame around it,
+           just a bordered, amber-glowing video frame. Captured by the
+           screencast engine (packages/tests/screencast). Poster-first;
+           reduced-motion is gated by the inline script at the end of the file
+           (markup ships WITHOUT `autoplay`), so the still stands for
+           reduced-motion visitors with native controls. -->
+      <figure class="reveal reveal-3 hero-demo flex flex-col justify-center">
+        <div class="hero-demo-frame">
+          <video
+            class="demo-video"
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            poster="/demo/new-terminal-demo.webp"
+          >
+            <source src="/demo/new-terminal-demo.webm" type="video/webm" />
+            <source src="/demo/new-terminal-demo.mp4" type="video/mp4" />
+          </video>
         </div>
-        <div class="hero-term-stack">
-          <div class="hero-term-titlebar">
-            <span class="hero-tldot hero-tldot-close"></span>
-            <span class="hero-tldot hero-tldot-minimize"></span>
-            <span class="hero-tldot hero-tldot-maximize"></span>
-            <span class="hero-term-label">
-              kolu · <span class="hero-branch">feat-dock</span> · #974
-            </span>
-            <span class="hero-agent-pip">
-              <span class="hero-agent-dot live-dot"></span>
-              <span>claude · thinking · 47K</span>
-            </span>
-            <span class="hero-term-theme">Phala Green Dark</span>
-          </div>
-          <div class="hero-term-body">
-            <div><span class="hero-prompt">~/code/kolu</span> <span class="hero-prompt">❯</span> claude</div>
-            <div class="hero-blank">&nbsp;</div>
-            <div>
-              <span class="hero-user">&gt;</span> Rebuild the hero so it leads with terminals,
-            </div>
-            <div>
-              <span class="hero-user">&nbsp;&nbsp;</span> not with the generic ADE phrasing.
-            </div>
-            <div class="hero-blank">&nbsp;</div>
-            <div class="hero-narr">⏺ I'll replace the centered serif hero with a two-column</div>
-            <div class="hero-narr">&nbsp;&nbsp;layout — copy on the left, an animated xterm frame</div>
-            <div class="hero-narr">&nbsp;&nbsp;on the right that <em>is</em> the demo.</div>
-            <div class="hero-blank">&nbsp;</div>
-            <div>
-              <span class="hero-tool-bullet">●</span>
-              <span class="hero-tool">Read</span>(<span class="hero-path">website/src/pages/index.astro</span>)
-            </div>
-            <div class="hero-dim">&nbsp;&nbsp;⎿ 432 lines</div>
-            <div>
-              <span class="hero-tool-bullet">●</span>
-              <span class="hero-tool">Edit</span>(<span class="hero-path">website/src/pages/index.astro</span>)
-            </div>
-            <div class="hero-dim">&nbsp;&nbsp;⎿ Updated <span class="hero-add">6 lines</span><span class="cursor" aria-hidden="true"></span></div>
-          </div>
-        </div>
-      </div>
+        <figcaption class="hero-demo-cap">
+          A real kolu session — open a terminal, clone a repo, launch an agent.
+          The dock tracks it live. No edits, no mock.
+        </figcaption>
+      </figure>
     </div>
   </section>
 
@@ -681,6 +622,36 @@ const features = [
     --term-bg: #1a0a04;
     --term-bg-bar: #2a1208;
     --term-glow: var(--color-live-alert);
+  }
+
+  /* ── Hero demo video (the real captured kolu session) ────────────────────
+     Replaces the former faux .hero-term frame on the right hero column. The
+     clip carries kolu's own chrome, so this is just a bordered, amber-glowing
+     frame around a 16:9 video. */
+  .hero-demo {
+    margin: 0;
+  }
+  .hero-demo-frame {
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--color-void-sunk);
+    box-shadow: 0 0 80px -25px
+      color-mix(in srgb, var(--color-amber) 38%, transparent);
+    line-height: 0;
+  }
+  .demo-video {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  .hero-demo-cap {
+    margin-top: 0.7rem;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--color-ink-muted);
+    text-align: center;
   }
 
   .hero-term {
@@ -1386,5 +1357,38 @@ const features = [
       }, 1400);
     });
   });
+</script>
+
+<script is:inline>
+  // Reduced-motion gate for the hero demo clip. The markup ships WITHOUT
+  // `autoplay`, so nothing plays until this decides — no race against first
+  // playback.
+  //  - motion allowed → enable autoplay + .play() (with a .catch so iOS
+  //    low-power-mode rejection falls back to the poster gracefully).
+  //  - motion reduced → leave the poster standing and expose native `controls`
+  //    so the visitor has a visible play affordance.
+  // Re-evaluated on preference change while the page stays open.
+  (function () {
+    var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    function apply() {
+      var vids = document.querySelectorAll(".demo-video");
+      for (var i = 0; i < vids.length; i++) {
+        var v = vids[i];
+        if (mq.matches) {
+          v.removeAttribute("autoplay");
+          v.setAttribute("controls", "");
+          v.pause();
+        } else {
+          v.removeAttribute("controls");
+          v.setAttribute("autoplay", "");
+          var p = v.play();
+          if (p && typeof p.catch === "function") p.catch(function () {});
+        }
+      }
+    }
+    apply();
+    if (mq.addEventListener) mq.addEventListener("change", apply);
+    else if (mq.addListener) mq.addListener(apply);
+  })();
 </script>
 
