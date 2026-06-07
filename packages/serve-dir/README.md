@@ -31,18 +31,24 @@ Workspace-private package. Wire it into the consuming server package:
 `createDirServer(root, realpathGuard?)` is the receptacle. The consumer injects the two things that are *its* concern — **which** root, and **whether** to enforce a filesystem-authority guard — and the package owns everything else (range parsing, content types, lexical traversal safety, status mapping):
 
 ```ts
-import { createDirServer } from "@kolu/serve-dir";
+import { createDirServer, rawPathname } from "@kolu/serve-dir";
 
 // In a Hono route handler — root resolved per request, guard wired by the consumer:
 app.get("/files/:id/*", (c) => {
-  const root = lookupRoot(c.req.param("id"));        // consumer's domain
+  const id = c.req.param("id");
+  const root = lookupRoot(id);                        // consumer's domain
   if (!root) return c.text("not found", 404);
+  // The RAW request target, NOT `c.req.raw.url` parsed through `new URL`. On
+  // @hono/node-server that's `c.env.incoming.url` (origin-form, un-normalized);
+  // `rawPathname` strips the query/fragment without normalizing dot segments.
+  const prefix = `/files/${id}/`;
+  const tail = rawPathname(c.env.incoming.url).slice(prefix.length);
   return createDirServer(root, myRealpathGuard(root))
-    .fetch(tailFromRawUrl(c.req.raw.url), c.req.raw); // → 200 | 206 | 416 | 403 | 404 | 500
+    .fetch(tail, c.req.raw);                          // → 200 | 206 | 416 | 403 | 404 | 500
 });
 ```
 
-Slice the tail from the **raw, undecoded** URL (`new URL(c.req.raw.url).pathname`), not a framework-decoded path — `resolvePathUnder` decodes once internally, so a pre-decode would double-decode `%`-bearing filenames *and* lose the `%2f`-smuggling defense.
+Get the tail with serve-dir's exported **`rawPathname`**, which slices the path off the raw request-target string — strip `scheme://authority`, then cut at the first `?`/`#` — explicitly **without** `new URL`. Do **not** use `new URL(...).pathname`, Hono's `c.req.path`, or `c.req.param("*")`: `new URL().pathname` runs WHATWG path normalization that **collapses `..`/`%2e%2e` segments before the lexical guard can reject them** (reopening the directory-traversal hole this package exists to close), and the decoding helpers double-decode `%`-bearing filenames and erase the `%2f`-smuggling boundary — `resolvePathUnder` decodes exactly once internally. Feed it the raw, undecoded tail.
 
 ### Path safety (two stages, by volatility)
 
@@ -58,6 +64,7 @@ This split keeps the package agnostic: it ships no default symlink behavior, so 
 | `createDirServer` | `(root: string, realpathGuard?: RealpathGuard) → { fetch(relPath, request): Promise<Response> }` | The receptacle. Reads the `Range` header off the request; returns a Fetch `Response`. |
 | `serveFile` | `(root, relPath, rangeHeader?, realpathGuard?) → Promise<ServeResult>` | The I/O half as a plain value (no `Response`), for testing the status/header/body without crafting a `Request`. |
 | `resolvePathUnder` | `(root, rawTail) → PathResolution` | Pure lexical guard (no I/O). `{ ok, abs, mime } \| { ok: false, status, reason }`. |
+| `rawPathname` | `(rawUrl: string) → string` | The path of a request URL **without** WHATWG normalization — strips `scheme://authority`, cuts at the first `?`/`#`. Use this to get the tail for `fetch`/`serveFile`; `new URL().pathname` would collapse `..` segments past the lexical guard (see Usage). |
 | `parseByteRange` | `(header, size) → { start, end } \| "invalid" \| null` | Single-range `bytes=` parser. `null` = serve whole file (no/open/multi-range); `"invalid"` → 416. Hand-rolled deliberately (`range-parser` regresses the RFC-9110 suffix-overflow case). |
 | `contentTypeForPath` | `(filePath) → string` | Extension → Content-Type, backed by `mrmime`'s **complete** IANA table (not a curated subset) + a tiny `OVERRIDES` map for generic types mrmime omits (`.m4v`, `.ico`); text-bearing types get `; charset=utf-8`. `application/octet-stream` for unknowns. The ext↔MIME coupling is **dissolved** for every mrmime-known format; for the **mrmime gap set** (`.m4v`/`.ico`, and any future classifier entry mrmime doesn't know) it is **contained-by-test** — `OVERRIDES` and the consumer's classifier must co-vary, and the `iframePreviewRoute.test.ts` coverage invariant is load-bearing for that axis (drop an entry and the file silently serves as `octet-stream` → download). |
 | `RealpathGuard` | `type (abs: string) => Promise<boolean>` | Injected filesystem-authority guard. `true` allows, `false` → 403. |

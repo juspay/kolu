@@ -79,6 +79,31 @@ export function contentTypeForPath(filePath: string): string {
     : mime;
 }
 
+/** The path portion of a request URL WITHOUT WHATWG normalization — the RAW,
+ *  still-encoded tail `serveFile`/`createDirServer().fetch` need. Slice this, do
+ *  NOT pass `new URL(rawUrl).pathname`: `URL` runs WHATWG path normalization,
+ *  which COLLAPSES dot segments (`…/foo/%2e%2e/secret` and `…/foo/../secret`
+ *  both become `…/secret`) BEFORE `resolvePathUnder`'s per-segment `..` check
+ *  ever sees them — so a consumer slicing via `URL` reopens the very
+ *  directory-traversal hole the lexical guard exists to close. Decoding helpers
+ *  (`decodeURI`/`decodeURIComponent`, Hono's `c.req.path`/`c.req.param("*")`)
+ *  are equally unsafe: `resolvePathUnder` decodes exactly once internally, so a
+ *  pre-decode double-decodes `%`-bearing filenames and erases `%2f` segment
+ *  boundaries.
+ *
+ *  So this slices the raw string instead: drop the `scheme://authority` prefix
+ *  (absolute-form `scheme://host/path`; origin-form `/path?query` already
+ *  starts with `/`), then cut at the first `?` (query) or `#` (fragment). The
+ *  `..`/`%2f`/`%`-bearing bytes survive untouched for serve-dir's single
+ *  decode-then-split to be the sole, authoritative normalization. */
+export function rawPathname(rawUrl: string): string {
+  const afterAuthority = rawUrl.replace(/^[a-zA-Z][\w+.-]*:\/\/[^/]*/, "");
+  // `search` is -1 when neither `?` nor `#` is present, so `slice(0, -1)` would
+  // be wrong — guard it explicitly.
+  const search = afterAuthority.search(/[?#]/);
+  return search === -1 ? afterAuthority : afterAuthority.slice(0, search);
+}
+
 export type PathResolution =
   | { ok: true; abs: string; mime: string }
   | { ok: false; status: 400 | 403 | 404; reason: string };
