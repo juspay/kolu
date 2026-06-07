@@ -28,6 +28,13 @@ export interface Recording {
   /** kolu-domain display tweaks applied before `drive()`. */
   display?: RecordingDisplay;
   /**
+   * Logical capture viewport (CSS px; physical = ×scale). Default 1280×720
+   * (→ 2560×1440). Widen/enlarge for clips that need room — the dock + an open
+   * Code panel + several tiles without overlap, and more of the infinite canvas.
+   * Capped by the Xvfb screen size (`X11_MAX_VIEWPORT` in hooks.ts).
+   */
+  viewport?: { width: number; height: number };
+  /**
    * Seconds of leading load-in to trim off the front of the raw grab (app-mode
    * reload + the killAll that clears the auto-restored terminal), so the clip
    * opens on the clean empty canvas. Default 5.3.

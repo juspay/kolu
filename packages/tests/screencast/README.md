@@ -51,15 +51,31 @@ seconds since the agent's answer is live):
 | Recording | Clip | mp4 (H.264) | webm (VP9) | webp poster | Embedded on |
 | --- | --- | --- | --- | --- | --- |
 | `new-terminal-demo` | ~32s | ~2.4 MB | ~1.4 MB | ~29 KB | `/welcome` §02 |
-| `dock-alert-demo` | ~27s | ~2.5 MB | ~1.7 MB | ~0.13 MB | `/` (home hero) |
+| `dock-alert-demo` | ~29s | ~2.5 MB | ~1.7 MB | ~0.13 MB | `/` (home hero) |
+| `code-review-demo` | ~15s | ~1.0 MB | ~0.7 MB | ~0.11 MB | `/welcome` §03 |
 
-`dock-alert-demo` is the richer clip: it opens on an empty canvas, **clicks the
+`dock-alert-demo` is the richest clip: it opens on an empty canvas, **clicks the
 "+"** to create terminals (every on-camera click is telegraphed with a coral
 arrow), runs **two agents in two repos** (claude in kolu, codex in drishti —
-they group by repo in the dock), buries claude's tile behind codex's, and shows
-the dock flagging the buried agent that needs you — then clicks that dock row to
-raise the tile and answers. T2 uses a **light theme** (Catppuccin Latte) to set
-it apart from T1's dark Vaughn.
+they group by repo in the dock), buries claude's tile behind codex's, shows the
+dock flagging the buried agent that needs you, then clicks that dock row to raise
+the tile and picks an option in claude's **AskUserQuestion** prompt. T2 uses a
+**light theme** (Catppuccin Latte) to set it apart from T1's dark Vaughn.
+
+`code-review-demo` is short and agent-free: a terminal in a repo → the **Code tab
+→ "All files"** → open a source file (by file search — robust against the
+virtualized Pierre tree) → select text → the inline **"+ Comment"** pill → leave
+a note → **copy the tray as Markdown** for an agent. The comment-on-any-file →
+agent loop in one tight clip.
+
+> **Comment surfaces:** the comment seam mounts on the rendered Markdown preview
+> (`prose`) and the source view (`text`) — both selectable from the parent — but
+> NOT inside a rendered `.html` artifact (opaque-origin iframe; it uses the
+> in-iframe SDK). Comment on source or the Markdown preview, never the iframe.
+> Open files by **search** (`openFileBySearch`), not a direct tree-row click —
+> the Pierre file tree is virtualized, so a root-level row (e.g. `README.md`) can
+> fail to resolve, and a filename like `README` is ambiguous; a full-path search
+> is reliable.
 
 ## Add a recording
 

@@ -12,3 +12,6 @@ Feature: Screencast recordings
 
   Scenario: dock-alert-demo
     When I record "dock-alert-demo"
+
+  Scenario: code-review-demo
+    When I record "code-review-demo"

@@ -404,3 +404,101 @@ export async function clickWithArrow(
   await world.waitForFrame();
   await clearAnnotations(world);
 }
+
+// Walk open shadow trees (Pierre's file view nests one; the Markdown preview is
+// light DOM and the same DFS handles it). Used by selectTextInView.
+const SHADOW_DFS_FN_SRC = `
+function shadowDfs(root, visit) {
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    const r = visit(node);
+    if (r) return r;
+    if (node.nodeType === 1) {
+      if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
+      for (const ch of node.childNodes) stack.push(ch);
+    }
+  }
+}`;
+
+/**
+ * Drive a REAL mouse drag to select the `target` text inside the element matched
+ * by `containerSelector` (e.g. the Code-tab file view). Mirrors the e2e harness's
+ * `dragSelectText` so a recording can demo the comment-on-any-file flow: the
+ * selection wakes kolu's floating comment pill. Throws if the text isn't found.
+ */
+export async function selectTextInView(
+  world: KoluWorld,
+  containerSelector: string,
+  target: string,
+): Promise<void> {
+  const c = JSON.stringify(containerSelector);
+  const t = JSON.stringify(target);
+  await world.page.waitForFunction(
+    `(() => { ${SHADOW_DFS_FN_SRC}
+      const view = document.querySelector(${c});
+      if (!view) return false;
+      let found = false;
+      shadowDfs(view, (n) => { if (n.nodeType === 3 && (n.nodeValue || "").indexOf(${t}) !== -1) { found = true; return true; } });
+      return found;
+    })()`,
+    undefined,
+    { timeout: 15_000 },
+  );
+  const rect = (await world.page.evaluate(
+    `(() => { ${SHADOW_DFS_FN_SRC}
+      const view = document.querySelector(${c});
+      if (!view) return null;
+      let node = null, off = -1;
+      shadowDfs(view, (n) => { if (n.nodeType === 3) { const i = (n.nodeValue || "").indexOf(${t}); if (i !== -1) { node = n; off = i; return true; } } });
+      if (!node || off < 0) return null;
+      const range = document.createRange();
+      range.setStart(node, off);
+      range.setEnd(node, off + ${t}.length);
+      const rects = range.getClientRects();
+      const first = rects[0], last = rects[rects.length - 1];
+      if (!first || !last) return null;
+      return { sx: first.left, sy: first.top + first.height / 2, ex: last.right, ey: last.top + last.height / 2 };
+    })()`,
+  )) as { sx: number; sy: number; ex: number; ey: number } | null;
+  if (!rect) {
+    throw new Error(`Could not locate "${target}" in ${containerSelector}`);
+  }
+  // Three move steps keep Chromium's selection model awake for short ranges.
+  await world.page.mouse.move(rect.sx, rect.sy);
+  await world.page.mouse.down();
+  await world.page.mouse.move(
+    (rect.sx + rect.ex) / 2,
+    (rect.sy + rect.ey) / 2,
+    {
+      steps: 3,
+    },
+  );
+  await world.page.mouse.move(rect.ex, rect.ey, { steps: 3 });
+  await world.page.mouse.up();
+  await world.waitForFrame();
+}
+
+/**
+ * Open a file in the Code tab's "All files" browser by typing `query` into the
+ * file-filter search and clicking the row whose path is `filePath`. Faster +
+ * more robust than expanding nested folders by hand. Pass `arrowLabel` to
+ * telegraph the click with a coral arrow.
+ */
+export async function openFileBySearch(
+  world: KoluWorld,
+  query: string,
+  filePath: string,
+  arrowLabel?: string,
+): Promise<void> {
+  await world.page.locator('[data-testid="diff-filter-search"]').fill(query);
+  await world.waitForFrame();
+  await pause(world, 400);
+  const row = `[data-testid="pierre-file-tree"] [data-item-path=${JSON.stringify(filePath)}][data-item-type="file"]:not([data-file-tree-sticky-row])`;
+  if (arrowLabel) {
+    await clickWithArrow(world, row, arrowLabel, "left", 500);
+  } else {
+    await world.page.locator(row).click();
+    await world.waitForFrame();
+  }
+}

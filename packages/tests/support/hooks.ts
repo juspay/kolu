@@ -177,14 +177,19 @@ const EVIDENCE_VIEWPORT = { width: 1280, height: 720 };
  *  See `welcome-live-screencast.mdx`. */
 const X11CAP = !!process.env.KOLU_X11CAP;
 const X11_SCALE = 2;
-const X11_VIEWPORT = { width: 1280, height: 720 }; // logical; physical = ×scale
+const X11_VIEWPORT = { width: 1280, height: 720 }; // logical default; physical = ×scale
+// The Xvfb screen is sized ONCE (BeforeAll), before the scenario is known, so it
+// must fit the LARGEST per-recording viewport. Each recording's window + x11grab
+// are then sized to its own viewport within this screen (the window is pinned at
+// 0,0 by captureWindowArgs, so the grab from 0,0 captures exactly that window).
+const X11_MAX_VIEWPORT = { width: 1728, height: 972 };
 /** Driver-pacing for recorded clips (ms between Playwright actions). Both
  *  X11CAP launch paths — the app-mode persistent context and the global headful
  *  browser — reference this so app-mode and browser-chrome clips share one
  *  capture cadence. */
 const X11_SLOWMO = 250;
 const X11_SCREEN = engine.physicalSize({
-  viewport: X11_VIEWPORT,
+  viewport: X11_MAX_VIEWPORT,
   scale: X11_SCALE,
 });
 /** Scenario name → file stem. The grab path (Before) and transcode path (After)
@@ -371,6 +376,7 @@ const ciArgs = [
 async function newScenarioPage(
   isMobile: boolean,
   chrome: "app" | "browser",
+  vp: { width: number; height: number } = X11_VIEWPORT,
 ): Promise<{ context: BrowserContext; page: Page }> {
   // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
   // needs its own persistent context — Playwright drives the page Chrome opens
@@ -383,7 +389,7 @@ async function newScenarioPage(
       args: engine.appModeArgs({
         url: baseUrl,
         scale: X11_SCALE,
-        viewport: X11_VIEWPORT,
+        viewport: vp,
       }),
       viewport: null,
       baseURL: baseUrl,
@@ -634,11 +640,13 @@ Before(async function (this: KoluWorld, scenario) {
   const isMobile = scenario.pickle.tags.some((t) => t.name === "@mobile");
 
   // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
-  // browser chrome — read it so the launch matches.
-  const chrome = X11CAP ? getRecording(scenario.pickle.name).chrome : "browser";
+  // browser chrome and its capture viewport — read it so the launch + grab match.
+  const rec = X11CAP ? getRecording(scenario.pickle.name) : undefined;
+  const chrome = rec?.chrome ?? "browser";
+  const vp = rec?.viewport ?? X11_VIEWPORT;
 
   this.browser = browser;
-  const created = await newScenarioPage(isMobile, chrome);
+  const created = await newScenarioPage(isMobile, chrome, vp);
   this.context = created.context;
   this.page = created.page;
   // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
@@ -695,10 +703,13 @@ Before(async function (this: KoluWorld, scenario) {
   // the first navigation) are trimmed in the transcode step.
   if (X11CAP && x11Display) {
     x11RawPath = path.join(evidenceVideoDir, `${x11Stem}.x11.mp4`);
+    // Grab exactly this recording's window (pinned at 0,0), sized to its own
+    // viewport — which may be smaller than the (max-sized) Xvfb screen.
+    const grab = engine.physicalSize({ viewport: vp, scale: X11_SCALE });
     ffmpegProc = engine.startX11Grab({
       display: x11Display,
-      width: X11_SCREEN.width,
-      height: X11_SCREEN.height,
+      width: grab.width,
+      height: grab.height,
       out: x11RawPath,
       logFile: path.join(evidenceVideoDir, `${x11Stem}.x11.log`),
     });
