@@ -43,6 +43,8 @@ import { Readable } from "node:stream";
 import { lookup } from "mrmime";
 
 const TEXT_PLAIN = { "Content-Type": "text/plain; charset=utf-8" };
+const RE_TEXT_BEARING = /^text\/|\/(javascript|json)$/;
+const RE_BYTE_RANGE = /^bytes=(\d*)-(\d*)$/;
 
 /** Content-Type for a path. Backed by `mrmime`'s complete IANA-derived table
  *  (the same one Vite/sirv use), so this is "any file → its real MIME", NOT a
@@ -74,9 +76,7 @@ const OVERRIDES: Record<string, string> = {
 export function contentTypeForPath(filePath: string): string {
   const ext = path.extname(filePath).slice(1).toLowerCase();
   const mime = OVERRIDES[ext] ?? lookup(filePath) ?? "application/octet-stream";
-  return /^text\/|\/(javascript|json)$/.test(mime)
-    ? `${mime}; charset=utf-8`
-    : mime;
+  return RE_TEXT_BEARING.test(mime) ? `${mime}; charset=utf-8` : mime;
 }
 
 /** The path portion of a request URL WITHOUT WHATWG normalization — the RAW,
@@ -190,7 +190,7 @@ export function parseByteRange(
   if (!header) return null;
   // Single range only: `bytes=start-end`, `bytes=start-`, or `bytes=-suffix`.
   // A comma (multi-range) won't match, so we serve the whole file instead.
-  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  const m = RE_BYTE_RANGE.exec(header.trim());
   if (!m) return null;
   const [, rawStart, rawEnd] = m;
   if (rawStart === "" && rawEnd === "") return null;
@@ -332,7 +332,7 @@ export async function serveFile(
     // live-reloading root, where a stat and a later read could disagree. The
     // 206 branch above DOES set Content-Length: a partial response must, and
     // it's never decorated (an HTML transform only touches status 200).
-    return { status: 200, headers: { ...baseHeaders }, body: streamBody() };
+    return { status: 200, headers: baseHeaders, body: streamBody() };
   } catch (e: unknown) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
