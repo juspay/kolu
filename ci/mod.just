@@ -112,11 +112,19 @@ smoke:
 # concurrently with the big build (koluBin drv deduped via store locking)
 # instead of strictly after it. This is the single largest critical-path win.
 e2e: install
-    # CUCUMBER_RETRY=1 is the residual safety net for darwin-runner-load
-    # flakes that survive the structural fixes in #955. Local
-    # `just test-quick` runs leave it unset (0 = off) so real failures
-    # surface on the first attempt.
-    CUCUMBER_RETRY=1 {{ nix_shell }} just test
+    # CUCUMBER_RETRY is the residual safety net for darwin-runner-load flakes
+    # that survive the structural fixes in #955. Darwin runs at 2, linux at 1:
+    # the darwin residual is an fs-event-drop class (e.g. the live-reload
+    # edit→preview refresh whose single FSEvents notification the kernel
+    # occasionally drops under the post-koluBin-build storm) that can lose two
+    # attempts; the third absorbs that tail. Linux's filesystem watch is
+    # reliable, so it stays at 1. Local `just test-quick` leaves it unset
+    # (0 = off) so real failures surface on the first attempt.
+    # `--no-deps`: ci::install already installed the workspace; without it the
+    # `test: install` dep re-runs `pnpm install` concurrently with the unit lane
+    # and the two races corrupt the shared node_modules/.bin (vitest exit 126).
+    # See the funnel rule at the top of this file and the `test` recipe comment.
+    CUCUMBER_RETRY=$([ "$(uname)" = Darwin ] && echo 2 || echo 1) {{ nix_shell }} just --no-deps test
 
 # Run vitest unit tests (server + client).
 unit: install

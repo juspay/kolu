@@ -20,7 +20,9 @@ Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry s
 
 > **Banned flags: never pass `--no-post`, `--no-strict`, or `--no-snapshot`.** CI on this repo is **always strict and always posts** GitHub commit statuses. A run that doesn't post statuses doesn't update the PR's checks — so it isn't CI, it's a private dry-run that leaves the PR looking unverified. Every CI invocation here (PR runs *and* the master pool-warming runs below) runs strict and posts. If you catch yourself reaching for an opt-out flag to "avoid disturbing the checks," that's exactly the run the PR needs.
 
-**Linux build host: a leased pool box per run.** Static darwin (`sincereintent`) lives in `~/.config/justci/hosts.json`; the linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. [`ci/pu/run.sh`](../ci/pu/run.sh) wraps the whole justci invocation: it leases an idle pool box, pins justci's linux lane to it with `--host`, and releases on exit. Just call it with the PR number and your justci args:
+**Darwin build host: `rasam`, not `sincereintent`.** The `aarch64-darwin` lane runs on **`rasam`** (Apple Silicon `T6020`, 24 cores, 128 GB, macOS 15.5) — the entry in `~/.config/justci/hosts.json` is `"aarch64-darwin": "nix-infra@rasam.tail12b27.ts.net"`. (The old `sincereintent` box is retired for kolu CI; if you see it in stale docs or an old `hosts.json`, switch it to `rasam`.)
+
+**Linux build host: a leased pool box per run.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. [`ci/pu/run.sh`](../ci/pu/run.sh) wraps the whole justci invocation: it leases an idle pool box, pins justci's linux lane to it with `--host`, and releases on exit. Just call it with the PR number and your justci args:
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
@@ -85,7 +87,7 @@ Keep these docs in sync:
 
 - **`README.md`** (top-level) — user-facing changes, architecture prose, transport-resilience description.
 - **`packages/surface/README.md`** — the `@kolu/surface` framework reference. The "How Kolu uses this framework" section is a concrete inventory of every cell, collection, and stream descriptor plus the raw-oRPC procedures that stay outside the framework. Update it whenever a new descriptor lands or whenever a contract entry's classification changes (added mutation, retired stream, …).
-- **`website/src/pages/index.astro`** — the kolu.dev marketing page. Its hero terminal + canvas-strip mockups (dock cards, split tile with `claude` + `just test`, codex apply_patch tile, opencode planning tile, Code-tab tree + preview) approximate the running Kolu app. When a user-facing surface changes shape — a new dock-row affordance, a renamed agent integration, a different split layout, a new chip state, a new Code-tab tab, a new theme name worth name-dropping — refresh the mockup so the marketing visual doesn't drift from the product. Drive the running app via `chrome-devtools` MCP if you want a reference screenshot to model from (`just dev-auto` boots Kolu on two free ports with HMR and prints the client URL).
+- **`website/src/pages/index.astro`** — the kolu.dev marketing page. Its hero terminal + canvas-strip mockups (dock cards, split tile with `claude` + `just test`, codex apply_patch tile, opencode planning tile, Code-tab tree + preview) approximate the running Kolu app. When a user-facing surface changes shape — a new dock-row affordance, a renamed agent integration, a different split layout, a new chip state, a new Code-tab tab, a new theme name worth name-dropping — refresh the mockup so the marketing visual doesn't drift from the product. Drive the running app via `chrome-devtools` MCP if you want a reference screenshot to model from — launch it with the `dev-server` skill (`just dev-auto` on two random free ports, remembered for the session), never `just dev` on the fixed defaults that collide with production.
 
 ## PR evidence
 
@@ -103,6 +105,8 @@ KOLU_EVIDENCE=1 just test-quick features/<file>.feature --name "<scenario name>"
 ```
 
 Rationale + the ecosystem survey: [`docs/atlas/src/content/atlas/video-evidence.mdx`](../docs/atlas/src/content/atlas/video-evidence.mdx).
+
+**Capturing a state no scenario reaches (live chrome-devtools path).** When the evidence skill's "drive the state live" step (§A2) runs on *your machine* rather than a `pu` box, launch kolu with the `dev-server` skill — it boots on two random free ports via `just dev-auto`, remembers them for the session, and hands chrome-devtools the right client URL. This is mandatory: an agent that ran a bare `just dev` for evidence on [#1109](https://github.com/juspay/kolu/issues/1109) bound production's fixed ports and disrupted the live `kolu.service`. Never run the app for evidence any other way; never touch the systemd unit.
 
 ### Agent-state scenarios
 

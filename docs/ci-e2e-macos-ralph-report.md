@@ -272,3 +272,35 @@ aren't a real timing).
   already being read off the pipe — negligible.
 - **code-tab barrier / codex transaction**: one extra `echo`+buffer-wait per
   branch fixture; a single SQLite transaction per codex fixture — sub-ms.
+
+---
+
+## Follow-up: 10-consecutive-green hardening (rasam)
+
+A later pass drove the darwin `ci::e2e` + `ci::unit` lanes to **10 consecutive
+green `/ci` runs on `rasam`** (`nix run github:juspay/justci -- run
+ci::e2e@aarch64-darwin ci::unit@aarch64-darwin`, stop-on-first-red). Reaching
+that streak surfaced — and fixed — a tail of distinct flake classes the earlier
+single-run validation didn't expose. Each fix is test-harness / CI-config only
+(no app behaviour change), and the host is **rasam**, not the retired
+`sincereintent`.
+
+| Flake class | Symptom | Fix |
+| --- | --- | --- |
+| Claude session-end | `indicator disappears when session ends` lost both attempts: a dropped SESSIONS_DIR *deletion* FSEvent wedged the server on stale state | symmetric `nudgeDir()` (create+unlink a sentinel to re-fire the dir watcher) + poll-and-nudge the disappearance assertions |
+| Code-tab tree readiness | inline browse scenarios charged the first Pierre-tree population (server walk → watcher → SSE → mount) to POLL_TIMEOUT (20 s) and timed out under load | `waitTreeReady()` gives the *first* row/chip appearance the HYDRATION budget — the same split the helper path already used, extended to the inline scenarios |
+| Browse preview propagation | iframe/markdown `should contain` froze on pre-edit content | HYDRATION budget for the content-propagation wait |
+| Port squatter (404 queue-drain) | a stale orphan kolu on the ephemeral port answered `/api/health` 200 but 404'd every test RPC → one wedged worker drained the queue, failing all 433 | gate readiness on OUR child announcing `kolu listening` on the expected port; retry a fresh port on EADDRINUSE |
+| Branch-mode base ref | `gitStatus` returned `BASE_BRANCH_NOT_FOUND` (origin/master not resolvable when the subscription first read) and the tree never populated | `git init -b master` + explicit `git remote set-head origin master` + push retry + a barrier that verifies `origin/master` before the subscription opens; plus a per-tick work-tree nudge that re-fires `getStatus` |
+| iframe live-reload edit | an edit's single FSEvents notification dropped, so the preview never reloaded | `should refresh to … after editing <absFile>` re-touches the edited file each tick (recovers the dropped event; still catches a broken watch re-arm) |
+| e2e ⇄ unit pnpm-install race | `unit` failed with `.bin/vitest: Permission denied` (126) — e2e's `just test` re-ran a workspace `pnpm install` concurrently with the unit lane, re-linking the shared `.bin` | make `ci::e2e` a pure consumer of `ci::install`: `just --no-deps test` + drop the recipe body's redundant `pnpm install` |
+
+Two load levers complement the structural fixes: **`CUCUMBER_RETRY=2` on
+darwin** (linux stays 1) absorbs the residual fs-event-drop tail, and the
+**darwin worker cap is lowered 8 → 6** (linux stays 8) to shrink the
+concurrent-load window that pushed scattered interaction waits (e.g. the
+per-terminal Code-tab history `back`-button enablement) past their budget. This
+trades part of the earlier PAR=8 throughput win for consecutive-green
+stability; the 10/10 streak ran while an unrelated `vira` service was pinning
+~6 cores on rasam, so the suite stays green even under heavy external load (at
+the cost of wall-clock — runs were ~23–28 min each under that contention).

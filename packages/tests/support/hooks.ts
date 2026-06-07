@@ -443,20 +443,41 @@ async function newScenarioPage(
   });
 }
 
-async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
+/** Wait until the server WE spawned owns the port and answers health.
+ *
+ *  A bare `/api/health` probe is not enough on a shared CI host: a stale
+ *  orphan kolu from a previous run (or another consumer of the box) can be
+ *  squatting the ephemeral port `get-port` just handed us. Our child then
+ *  fails to bind, but the probe hits the *orphan* — which answers
+ *  `/api/health` (200) yet 404s every test-only RPC. The suite would then run
+ *  against a foreign server, one wedged worker drains the cucumber queue, and
+ *  hundreds of scenarios fail with an opaque 404 (the same single-bad-worker
+ *  catastrophe class as the ECONNREFUSED queue-drain in #?, different cause).
+ *
+ *  So gate on OUR child first announcing `kolu listening` on the expected
+ *  port (`ownsPort`) — proof it actually bound it — and only then confirm
+ *  HTTP health. Returns false (caller retries a fresh port) if the child
+ *  exits early (EADDRINUSE) or never claims the port within the budget. */
+async function waitForOwnedServer(
+  url: string,
+  ownsPort: () => boolean,
+  hasExited: () => boolean,
+  timeoutMs: number,
+): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    try {
-      const resp = await httpGet(url);
-      if (resp.ok) return;
-    } catch {
-      // server not up yet
+    if (hasExited()) return false;
+    if (ownsPort()) {
+      try {
+        const resp = await httpGet(`${url}/api/health`);
+        if (resp.ok) return true;
+      } catch {
+        // bound but HTTP not answering yet — keep polling
+      }
     }
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error(
-    `Server did not become healthy at ${url} within ${timeoutMs}ms`,
-  );
+  return false;
 }
 
 BeforeAll(async () => {
@@ -482,10 +503,6 @@ BeforeAll(async () => {
     // Reuse an already-running server
     baseUrl = koluServer;
   } else {
-    // Spawn the binary on a random port
-    const port = await getPort();
-    baseUrl = `http://localhost:${port}`;
-    console.log(`[worker:${workerId}] Starting server on port ${port}...`);
     // Extend NIX_ENV_WHITELIST with GIT_AUTHOR_*/GIT_COMMITTER_* so PTY
     // shells in fixtures like `code-tab.feature` (which run `git init &&
     // git commit` inside the terminal under test) inherit the same
@@ -495,63 +512,115 @@ BeforeAll(async () => {
       NIX_ENV_WHITELIST,
       "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
     ].join(",");
-    serverProcess = spawn(
-      koluServer,
-      [
-        "--allow-nix-shell-with-env-whitelist",
-        envWhitelist,
-        "--port",
-        String(port),
-      ],
-      {
-        stdio: "pipe",
-        env: {
-          ...process.env,
-          // Route server state to an ephemeral $TMPDIR path so test runs
-          // never touch ~/.config and the dir can be wiped in AfterAll.
-          // `mkdtempSync`'s random suffix guarantees no collisions across
-          // parallel workers or worktrees.
-          KOLU_STATE_DIR: koluStateDir,
-          // The agent-dir overrides, derived once above: temp dirs normally,
-          // all-undefined under X11CAP so the `...process.env` spread can't
-          // re-introduce an inherited value and the server watches the real
-          // ~/.claude/projects + ~/.codex (the dock then tracks the live agent).
-          ...agentDirEnv,
-          KOLU_OPENCODE_DB: opencodeDbPath,
-        },
-      },
-    );
-    // Tee the spawned server's stdout+stderr to a per-worker file. A server
-    // that dies mid-run otherwise leaves NO trace in the suite log (its only
-    // visible symptom is downstream `ECONNREFUSED` resets on its port); the
-    // file preserves the crash stack / clean-exit / silence-then-gone that
-    // distinguishes a crash from a wedge. Append-mode so a re-spawn doesn't
-    // clobber the prior life. Cheap, always on (replaces the KOLU_TEST_VERBOSE
-    // stdout gate — stdout is still drained so the pipe can't block pino).
+    // Append-mode per-worker server log: a server that dies mid-run otherwise
+    // leaves NO trace in the suite log; the file preserves the crash stack /
+    // clean-exit / silence-then-gone that distinguishes a crash from a wedge.
     fs.mkdirSync(serverLogDir, { recursive: true });
     const serverLog = fs.createWriteStream(
       path.join(serverLogDir, `server-w${workerId}.log`),
       { flags: "a" },
     );
-    serverProcess.stderr?.on("data", (data: Buffer) => {
-      serverLog.write(data);
-      process.stderr.write(`[server:${workerId}] ${data}`);
-    });
-    serverProcess.stdout?.on("data", (data: Buffer) => {
-      serverLog.write(data);
-      if (process.env.KOLU_TEST_VERBOSE) {
-        process.stderr.write(`[server:${workerId}:out] ${data}`);
+
+    // Spawn on a random port, retrying on a fresh port if our child can't take
+    // ownership of it (a stale orphan may be squatting — see waitForOwnedServer).
+    const MAX_SPAWN_ATTEMPTS = 5;
+    let started = false;
+    for (
+      let attempt = 1;
+      attempt <= MAX_SPAWN_ATTEMPTS && !started;
+      attempt++
+    ) {
+      const port = await getPort();
+      const url = `http://localhost:${port}`;
+      console.log(
+        `[worker:${workerId}] Starting server on port ${port} (attempt ${attempt}/${MAX_SPAWN_ATTEMPTS})...`,
+      );
+      const child = spawn(
+        koluServer,
+        [
+          "--allow-nix-shell-with-env-whitelist",
+          envWhitelist,
+          "--port",
+          String(port),
+        ],
+        {
+          stdio: "pipe",
+          env: {
+            ...process.env,
+            // Route server state to an ephemeral $TMPDIR path so test runs
+            // never touch ~/.config and the dir can be wiped in AfterAll.
+            KOLU_STATE_DIR: koluStateDir,
+            // The agent-dir overrides, derived once above: temp dirs normally,
+            // all-undefined under X11CAP so the `...process.env` spread can't
+            // re-introduce an inherited value and the server watches the real
+            // ~/.claude/projects + ~/.codex (the dock then tracks the live agent).
+            ...agentDirEnv,
+            KOLU_OPENCODE_DB: opencodeDbPath,
+          },
+        },
+      );
+
+      // Detect when OUR child announces it bound the port. The address in the
+      // `kolu listening {...,"address":"http://127.0.0.1:<port>"}` log proves
+      // ownership; buffer across chunks so a split line still matches.
+      let outBuf = "";
+      let ownsPort = false;
+      let exited = false;
+      const scan = (data: Buffer) => {
+        serverLog.write(data);
+        if (!ownsPort) {
+          outBuf += data.toString();
+          if (outBuf.includes("kolu listening") && outBuf.includes(`:${port}`))
+            ownsPort = true;
+          // Cap the scan buffer — once it's clearly past the boot banner and
+          // still no match, keep only the tail so memory can't grow unbounded.
+          if (outBuf.length > 16_384) outBuf = outBuf.slice(-4_096);
+        }
+      };
+      child.stderr?.on("data", (data: Buffer) => {
+        scan(data);
+        process.stderr.write(`[server:${workerId}] ${data}`);
+      });
+      child.stdout?.on("data", (data: Buffer) => {
+        scan(data);
+        if (process.env.KOLU_TEST_VERBOSE) {
+          process.stderr.write(`[server:${workerId}:out] ${data}`);
+        }
+      });
+      // Record the death itself: code/signal disambiguates crash (code≠0 or a
+      // signal) from a clean exit from a never-fired handler (wedge). A bind
+      // failure (port squatted) shows up here and flips `exited`.
+      child.on("exit", (code, signal) => {
+        exited = true;
+        const line = `[server:${workerId}] process exited code=${code} signal=${signal}\n`;
+        serverLog.write(line);
+        process.stderr.write(line);
+      });
+
+      const owned = await waitForOwnedServer(
+        url,
+        () => ownsPort,
+        () => exited,
+        15_000,
+      );
+      if (owned) {
+        serverProcess = child;
+        baseUrl = url;
+        started = true;
+        console.log(`[worker:${workerId}] Server is healthy on ${port}.`);
+      } else {
+        console.log(
+          `[worker:${workerId}] Server did not take ownership of port ${port} ` +
+            `(ownsPort=${ownsPort} exited=${exited}) — likely a squatter; retrying on a fresh port.`,
+        );
+        child.kill("SIGKILL");
       }
-    });
-    // Record the death itself: code/signal disambiguates crash (code≠0 or a
-    // signal) from a clean exit from a never-fired handler (wedge).
-    serverProcess.on("exit", (code, signal) => {
-      const line = `[server:${workerId}] process exited code=${code} signal=${signal}\n`;
-      serverLog.write(line);
-      process.stderr.write(line);
-    });
-    await waitForHealth(`${baseUrl}/api/health`, 10_000);
-    console.log(`[worker:${workerId}] Server is healthy.`);
+    }
+    if (!started) {
+      throw new Error(
+        `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempts`,
+      );
+    }
   }
 
   // Launch browser — always use CI args for consistency and performance.
