@@ -47,8 +47,17 @@ logs that produced the work, not invented marketing copy.
    technology, tool, library, format, and product on its first mention** —
    `[Playwright](https://playwright.dev/)`, `[ffmpeg](https://ffmpeg.org/)`, a CDP
    method to its own doc page — the way the existing posts do; a named technology
-   with no link is a miss. Balance prose with screenshots and code — host images
-   in the site, don't hotlink.
+   with no link is a miss. When content is a sequence of steps or a short
+   enumeration (e.g. two API methods that each fail, two gotchas), use a markdown
+   list or table instead of a dense paragraph — keep the *argument* in prose, but
+   stop hiding enumerable content in paragraphs (a deliberate post-specific
+   loosening of the `pg` skill's "don't replace argument with bullets" rule).
+   When you quote something the author literally typed into an agent's CLI prompt
+   box (Claude Code, Codex, etc.) as a turning point, render it with the `Prompt`
+   component (`website/src/components/Prompt.astro`) — `<Prompt>…</Prompt>` — not a
+   plain blockquote, so it reads as a human typing into the agent's input field;
+   see `auto-demo.mdx` for the reference usage. Balance prose with screenshots and
+   code — host images in the site, don't hotlink.
 
 5. **Verify and ship.** Build the site and confirm it renders, open the PR with
    the `forge-pr` skill, and run only the CI lane a docs change can touch (the
