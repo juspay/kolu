@@ -247,14 +247,19 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
     fs.writeFileSync(path.join(tmpRoot, "secret.html"), "SECRET");
 
     // Drive the SAME shipped target-selection adapter production uses
-    // (`rawTargetFromContext`, which reads the RAW `c.env.incoming.url` and falls
-    // back to `c.req.raw.url`), slice the tail, hand it to serve-dir with the
-    // shipped realpath guard — so this test can't drift from index.ts's wiring.
+    // (`rawTargetFromContext`, which reads the RAW `c.env.incoming.url` and
+    // fails CLOSED to a 500 when `incoming` is absent rather than serving the
+    // WHATWG-normalized `c.req.raw.url`), slice the tail, hand it to serve-dir
+    // with the shipped realpath guard — so this test can't drift from index.ts.
     const app = new Hono<{ Bindings: HttpBindings }>();
     const pattern = `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
     app.get(pattern, async (c) => {
       const id = c.req.param("terminalId");
-      const rawTail = previewTailFromRawUrl(rawTargetFromContext(c), id);
+      const rawTarget = rawTargetFromContext(c);
+      if (rawTarget === undefined) {
+        return c.text("raw request target unavailable", 500);
+      }
+      const rawTail = previewTailFromRawUrl(rawTarget, id);
       return createDirServer(tmpRoot, previewRealpathGuard(tmpRoot)).fetch(
         rawTail,
         c.req.raw,

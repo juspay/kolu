@@ -199,12 +199,18 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   // `previewTailFromRawUrl` documents the rest (correctness for `%`-bearing
   // names + `%2f` traversal defense) and is unit-tested in
   // `iframePreviewRoute.test.ts`. `rawTargetFromContext` owns the raw-target
-  // selection (incoming.url, falling back to `c.req.raw.url`) as one shipped
-  // adapter the integration test drives too, so the two halves of this guard
-  // can't drift. It reads `c.env` as `Partial<HttpBindings>` so the
-  // @hono/node-server binding doesn't leak into the other mounts'
-  // `Hono<BlankEnv>` expectations.
-  const rawTail = previewTailFromRawUrl(rawTargetFromContext(c), terminalId);
+  // selection (`incoming.url`) as one shipped adapter the integration test
+  // drives too, so the two halves of this guard can't drift. It reads `c.env`
+  // as `Partial<HttpBindings>` so the @hono/node-server binding doesn't leak
+  // into the other mounts' `Hono<BlankEnv>` expectations. When `incoming` is
+  // absent it returns `undefined` — a fail-CLOSED 500 here, NOT a silent
+  // fallback to the WHATWG-normalized `c.req.raw.url` that would defeat the `..`
+  // guard. Kolu's only production adapter (@hono/node-server) always supplies
+  // `incoming`, so this arm signals a genuinely broken host, not a degraded one.
+  const rawTarget = rawTargetFromContext(c);
+  if (rawTarget === undefined)
+    return c.text("raw request target unavailable", 500);
+  const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
 
   // The one kolu binding: which directory this terminal serves. Kept as the
   // git repo root for now (behavior-preserving — the browse tree, git-status
