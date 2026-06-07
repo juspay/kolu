@@ -163,7 +163,16 @@ export interface ServeResult {
  *  `"invalid"` when the range can't be satisfied (→ 416), or `null` to serve
  *  the whole file (no header, an open `bytes=-`, or a multi-range / malformed
  *  header we deliberately don't honor — falling back to a full 200 is always
- *  spec-valid). */
+ *  spec-valid).
+ *
+ *  Hand-rolled on purpose — NOT a candidate for `range-parser`. A 20-agent
+ *  prior-art survey (see `docs/atlas/src/content/atlas/electricity.mdx`) found
+ *  no library fits this route, and `range-parser` specifically would *regress*
+ *  two RFC-9110 behaviors this function gets right: the suffix floor below
+ *  (`Math.max(0, size - suffix)` serves the whole file when the suffix exceeds
+ *  the size; `range-parser` returns -1 → a spurious 416) and the deliberate
+ *  multi-range → full-200 collapse. Adopting it would relocate, not shrink, the
+ *  logic AND reintroduce a known correctness bug. */
 export function parseByteRange(
   header: string | null | undefined,
   size: number,

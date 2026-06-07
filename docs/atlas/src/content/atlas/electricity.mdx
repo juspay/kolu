@@ -3,7 +3,7 @@ title: Electricity — identified, and their progress
 description: A tracker for kolu's electricities — infrastructure pulled out from beneath the app into its own thing — and where each stands.
 kind: analysis
 maturity: evergreen
-updated: 2026-06-05
+updated: 2026-06-07
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -97,6 +97,7 @@ Looked framework-sized (the audit's biggest braids), but fail the bar — record
 | **@kolu/surface-publish** | <Pill variant="bad">already-covered</Pill> | Surface's `cellHandlers`/`collectionHandlers`/`pollOnEvent` already own server snapshot+delta. Only `terminal.attach` is a raw escape hatch. |
 | **@kolu/commands** (palette) | <Pill variant="bad">domain-coupled</Pill> | Palette engine is already agnostic; all coupling is isolated in `createCommands`, which must stay in the app. Extracting deletes ~0 kolu lines. |
 | God-procedure split | <Pill variant="run">refactor</Pill> | Its biggest dissolvable chunk *is* `solid-xterm` (above); the rest is kolu orchestration — a refactor, not a receptacle. |
+| **Preview file route** (`serveResolvedFile` / `parseByteRange`, <PrLink pr={1219} />) | <Pill variant="bad">in-app receptacle</Pill> | A 20-agent prior-art survey found **no drop-in fits**, *and* it isn't even a lean-on-external case. Every full static server (`send` / `serve-static` / `@fastify/static` / `koa-send` / `st` / `sirv`) pipes straight to a Node `res` socket — severing **both** the Fetch-`Response` contract *and* the artifact-sdk HTML-decorator composition (the in-iframe-nav regression class: a serving lib pins `Content-Length`, the downstream `<script>` splice can't fix it) — and **none** does a realpath symlink guard, which kolu *needs* for agent-written repos (cf. `@hapi/inert` leaking `/etc/shadow`; CVE-2026-6414 `%2f` bypass vindicates kolu's decode-then-split). `@hono/node-server`'s `serveStatic` additionally can't take an absolute per-terminal root. The only full-fit shape is exactly what the route already does — `createReadStream({start,end})` → `Readable.toWeb` → `Response`, omit `Content-Length` on 200 — independently converged on by Deno `@std/http` and SvelteKit/Vite. Three kolu-only contracts converge here (per-terminal `repoRoot`, decorator composition, symlink threat), so it's a local **receptacle**, not a leaf; `range-parser` would even *regress* RFC-9110 suffix handling. Hand-rolled is justified. |
 
 ---
 
