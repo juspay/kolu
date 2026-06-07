@@ -1,5 +1,6 @@
 import { Given, Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
+import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -37,14 +38,38 @@ function dirRow(path: string): string {
   return `${TREE} [data-item-path="${path}/"][data-item-type="folder"]:not([data-file-tree-sticky-row])`;
 }
 
+/** First-appearance wait for a Pierre tree row / Code-tab chrome element.
+ *
+ *  Populating the tree (browse mode: a full server-side repo walk; diff
+ *  modes: a `git status` / `git diff` round-trip) then rendering it through
+ *  fs.watch → SSE → SolidJS → Pierre's virtualized mount is a HYDRATION
+ *  axis, distinct from the fast interaction that follows. The mode-helper
+ *  path already encodes this (`waitForCodeTabReady` waits under
+ *  HYDRATION_TIMEOUT), but the *inline* browse scenarios — `git init` +
+ *  `I click the Code tab` + `I click the Code tab mode "browse"` + a direct
+ *  row click — bypass that helper and charged the first row's appearance to
+ *  POLL_TIMEOUT. Under darwin CI load — especially the cold-cache moment
+ *  right after the per-commit koluBin rebuild — that population repeatedly
+ *  exceeds 20 s, which was the single largest residual flake (the whole
+ *  browse-mode file-tree scenario family). Give the *first* appearance the
+ *  hydration budget; once the tree mounts every row is present, so one wait
+ *  suffices and the in-tree interactions after it stay on POLL_TIMEOUT. */
+async function waitTreeReady(
+  world: KoluWorld,
+  selector: string,
+): Promise<void> {
+  await world.page
+    .locator(selector)
+    .first()
+    .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+}
+
 /** Wait for a changed file to appear. The Code tab subscribes to a live
  *  filesystem watcher; saves and `git add` reflect within the upstream
- *  150ms debounce + the round-trip. POLL_TIMEOUT covers slow runners and
- *  the parcel-watcher initial walk on first subscribe. */
+ *  150ms debounce + the round-trip. Hydration budget — first population of
+ *  the tree under darwin load is the slow axis (see `waitTreeReady`). */
 async function waitForChangedFile(world: KoluWorld, path: string) {
-  await world.page
-    .locator(fileRow(path))
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await waitTreeReady(world, fileRow(path));
 }
 
 // ── Actions ──
@@ -59,9 +84,8 @@ When("I click the Code tab", async function (this: KoluWorld) {
 When(
   "I click the changed file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click();
+    await waitTreeReady(this, fileRow(path));
+    await this.page.locator(fileRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -70,9 +94,12 @@ When(
   "I click the Code tab mode {string}",
   async function (this: KoluWorld, mode: string) {
     // The mode picker is a chip + popover: open the chip, then pick
-    // the option. The chip closes itself after a selection.
+    // the option. The chip closes itself after a selection. The chip is
+    // Code-tab chrome that only appears once the repo view has hydrated —
+    // hydration budget (see waitTreeReady); the popover option below is
+    // instant once the chip is clicked, so it stays on POLL_TIMEOUT.
     const chip = this.page.locator(`[data-testid="diff-filter-chip"]`);
-    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, `[data-testid="diff-filter-chip"]`);
     await chip.click();
     const opt = this.page.locator(`[data-testid="diff-mode-${mode}"]`);
     await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -84,9 +111,8 @@ When(
 When(
   "I right-click the changed file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click({ button: "right" });
+    await waitTreeReady(this, fileRow(path));
+    await this.page.locator(fileRow(path)).click({ button: "right" });
     await this.waitForFrame();
   },
 );
@@ -297,8 +323,7 @@ Then(
 Then(
   "the Code tab should show a directory node {string}",
   async function (this: KoluWorld, path: string) {
-    const dir = this.page.locator(dirRow(path));
-    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, dirRow(path));
   },
 );
 
@@ -313,9 +338,8 @@ Then(
 When(
   "I click the directory node {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const dir = this.page.locator(dirRow(path));
-    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await dir.click();
+    await waitTreeReady(this, dirRow(path));
+    await this.page.locator(dirRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -333,9 +357,9 @@ Then(
   async function (this: KoluWorld) {
     // Pierre's `FileDiff` mounts the wrapper even with zero hunks; assert on
     // an actual rendered diff line. `[data-line]` is set per-row by Pierre's
-    // `processLine` (see @pierre/diffs/utils/processLine).
-    const row = this.page.locator(`${DIFF_VIEW} [data-line]`).first();
-    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // `processLine` (see @pierre/diffs/utils/processLine). First diff render
+    // follows a `git diff` round-trip + virtualized mount — hydration budget.
+    await waitTreeReady(this, `${DIFF_VIEW} [data-line]`);
   },
 );
 
@@ -373,9 +397,8 @@ Then(
 When(
   "I click the file {string} in the file browser",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click();
+    await waitTreeReady(this, fileRow(path));
+    await this.page.locator(fileRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -383,9 +406,8 @@ When(
 When(
   "I click the directory {string} in the file browser",
   async function (this: KoluWorld, path: string) {
-    const dir = this.page.locator(dirRow(path));
-    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await dir.click();
+    await waitTreeReady(this, dirRow(path));
+    await this.page.locator(dirRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -395,16 +417,14 @@ When(
 Then(
   "the file browser should show a directory {string}",
   async function (this: KoluWorld, path: string) {
-    const dir = this.page.locator(dirRow(path));
-    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, dirRow(path));
   },
 );
 
 Then(
   "the file browser should show a file {string}",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, fileRow(path));
   },
 );
 
@@ -425,10 +445,12 @@ Then(
 Then(
   "the file {string} should be selected in the file browser",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(
+    // Selection lands after the click's mode/diff round-trip resolves; under
+    // darwin load that first settle is on the hydration axis (waitTreeReady).
+    await waitTreeReady(
+      this,
       `${TREE} [data-item-path="${path}"][data-item-type="file"][aria-selected="true"]:not([data-file-tree-sticky-row])`,
     );
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -602,6 +624,12 @@ Then(
     const body = this.page
       .frameLocator('[data-testid="browse-preview-iframe"]')
       .locator("body");
+    // Hydration budget: the preview content arrives over a server
+    // subscription (selection → fsReadFile, or an *edit* re-firing the live
+    // watch which re-points the iframe `src` at a fresh `?v=<mtime>`). That
+    // fs.watch → SSE → reload round-trip is the slow axis under darwin CI
+    // load — the edit-then-refresh regression guard (code-tab.feature:1364)
+    // froze on the pre-edit body for >20 s under the post-build storm.
     await pollFor({
       observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
       isDone: (text) => text !== null && text.includes(expected),
@@ -609,7 +637,40 @@ Then(
         new Error(
           `iframe preview never contained "${expected}"; last body text: ${JSON.stringify(last)}`,
         ),
-      timeoutMs: POLL_TIMEOUT,
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
+  },
+);
+
+// Edit-then-refresh variant: after a file is rewritten in the shell, the live
+// preview reloads only when the file-change watch (`subscribeFileChange` →
+// `watchWorkingTree(repoRoot, { filePath })`) fires. On darwin that single
+// FSEvents notification is sometimes dropped under the post-koluBin-build
+// storm, so the iframe freezes on the pre-edit body and the bare assertion
+// above (even at HYDRATION_TIMEOUT) waits forever — no further event ever
+// comes. Re-touch the edited file's mtime each poll tick: each touch is a
+// fresh notification, so a dropped one is recovered, and a new mtime re-points
+// the iframe `src` (`?v=<mtime>`) to force the reload. The file already holds
+// the post-edit content, so this recovers the lost event without changing what
+// is asserted — it does NOT mask a broken watch re-arm (a touch of a file the
+// watch isn't armed on still fires nothing). `absFile` is the absolute on-disk
+// path the shell wrote (the scenario's repo cwd + relative path).
+Then(
+  "the file preview iframe should refresh to {string} after editing {string}",
+  async function (this: KoluWorld, expected: string, absFile: string) {
+    const body = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .locator("body");
+    await pollFor({
+      observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
+      isDone: (text) => text?.includes(expected) ?? false,
+      onTick: () => nudgeFiles([absFile]),
+      onTimeout: (last) =>
+        new Error(
+          `iframe preview never refreshed to "${expected}" after editing ${absFile}; ` +
+            `last body text: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: HYDRATION_TIMEOUT,
     });
   },
 );
@@ -702,6 +763,9 @@ Then(
   "the markdown preview should contain {string}",
   async function (this: KoluWorld, expected: string) {
     const md = this.page.locator('[data-testid="browse-preview-markdown"]');
+    // Hydration budget: the rendered content arrives over the fsReadFile
+    // subscription after selection — the slow propagation axis under darwin
+    // CI load, like the iframe preview above.
     await pollFor({
       observe: () => md.textContent({ timeout: 1_000 }).catch(() => null),
       isDone: (text) => text !== null && text.includes(expected),
@@ -709,7 +773,7 @@ Then(
         new Error(
           `markdown preview never contained "${expected}"; last text: ${JSON.stringify(last)}`,
         ),
-      timeoutMs: POLL_TIMEOUT,
+      timeoutMs: HYDRATION_TIMEOUT,
     });
   },
 );
@@ -1007,41 +1071,59 @@ async function setupCodeTabFixture(
   world: KoluWorld,
   mode: CodeTabMode,
   writeFiles: string,
-): Promise<void> {
+): Promise<string> {
   const { work, origin } = modeFixturePaths(mode);
   if (mode === "local") {
     await runShell(world, `git init ${work} && cd ${work}`);
     await runShell(world, `git commit --allow-empty -m init`);
     await runShell(world, writeFiles);
   } else if (mode === "branch") {
-    // `git init --bare` produces a remote we can push to; then push the
-    // initial commit so `origin/<default>` resolves and `merge-base` is
-    // the initial commit. Files have to be staged (`git add`) for branch
-    // mode to see them — Kolu's branch-mode listing is
-    // `git diff --name-status <merge-base>`, which excludes untracked
-    // files (see packages/integrations/git/src/review.ts:124).
-    await runShell(world, `git init --bare ${origin}`);
-    await runShell(world, `git init ${work} && cd ${work}`);
+    // Branch mode's listing is `git diff --name-status merge-base(HEAD,
+    // origin/<default>)`, which excludes untracked files — so files must be
+    // staged (`git add`) and `origin/<default>` must resolve. The server
+    // detects `<default>` via `git symbolic-ref refs/remotes/origin/HEAD`
+    // (then falls back to origin/main, origin/master). If none resolves it
+    // returns BASE_BRANCH_NOT_FOUND and the tree stays empty — and because
+    // the gitStatus stream dedups identical error snapshots, a later re-read
+    // that ALSO errors doesn't re-emit, so the tree never recovers until the
+    // base actually exists. This was the residual branch-mode flake that lost
+    // both cucumber attempts (the push occasionally not having produced a
+    // resolvable `origin/master` by the time the subscription's first read
+    // ran). Make the base deterministic and verified, not raced:
+    //   - `git init -b master` pins the default branch name (host default is
+    //     not guaranteed to be master), so the bare repo + push + detection
+    //     all agree on `master`.
+    //   - `git remote set-head origin master` sets `origin/HEAD` so the
+    //     server's FIRST detection branch (symbolic-ref) resolves immediately,
+    //     never falling through to the origin/main/master guesses.
+    //   - retry the push once, then gate the SETTLED barrier on
+    //     `origin/master` actually being verifiable — so the subscription that
+    //     `activateCodeTabMode` opens next can never read before the base ref
+    //     exists. `waitForCodeTabReady`'s per-tick work-tree nudge remains as
+    //     a belt-and-suspenders re-read trigger.
+    // The marker is split across a shell string-concat (`SET""TLED`) so the
+    // search text matches only the command's OUTPUT, never the typed echo.
+    await runShell(world, `git init --bare -b master ${origin}`);
+    await runShell(world, `git init -b master ${work} && cd ${work}`);
     await runShell(world, `git remote add origin ${origin}`);
     await runShell(world, `git commit --allow-empty -m init`);
-    await runShell(world, `git push -u origin HEAD`);
+    await runShell(
+      world,
+      `git push -u origin master || git push -u origin master`,
+    );
+    await runShell(world, `git remote set-head origin master`);
     await runShell(world, `git checkout -b feature`);
     await runShell(world, writeFiles);
     await runShell(world, `git add .`);
-    // Branch mode's gitStatus stream resolves `origin/<default>` on its FIRST
-    // read. If `git push -u origin HEAD` above is still in flight when the
-    // stream subscribes (it forks git + writes the bare repo — slow under
-    // darwin CI load), that read throws BASE_BRANCH_NOT_FOUND, which
-    // PERMANENTLY errors the subscription (no watcher, no recovery); every
-    // file-row wait then burns its full POLL_TIMEOUT and the scenario
-    // hard-fails on BOTH cucumber attempts (the same race loses twice). Block
-    // on an explicit shell-completion barrier so the whole setup — crucially
-    // the push — is done before `activateCodeTabMode` subscribes. The marker
-    // is split across a shell string-concat (`SET""TLED`) so the search text
-    // matches only the command's OUTPUT, never the typed-command echo — a real
-    // ordering barrier, not a sleep.
     const token = work.replace(/[^a-zA-Z0-9]/g, "");
-    await runShell(world, `echo "KOLU_SET""TLED_${token}"`);
+    // Only emit the barrier marker once origin/master is verifiably resolvable;
+    // a missing base emits a distinct marker so the wait fails loudly instead
+    // of racing on into a permanently-empty branch tree.
+    await runShell(
+      world,
+      `git rev-parse --verify origin/master >/dev/null 2>&1 ` +
+        `&& echo "KOLU_SET""TLED_${token}" || echo "KOLU_BASE""MISSING_${token}"`,
+    );
     await waitForBufferContains(world.page, `KOLU_SETTLED_${token}`);
   } else if (mode === "browse") {
     await runShell(world, `git init ${work} && cd ${work}`);
@@ -1050,6 +1132,7 @@ async function setupCodeTabFixture(
   } else {
     throw new Error(`unknown mode: ${mode}`);
   }
+  return work;
 }
 
 async function activateCodeTabMode(
@@ -1061,8 +1144,11 @@ async function activateCodeTabMode(
   await tab.click();
   await world.waitForFrame();
   if (mode === "local") return; // default
+  // The mode chip is Code-tab chrome that only paints once the repo view has
+  // hydrated — hydration budget so a loaded runner doesn't lose the switch
+  // before the tree-readiness gate downstream even runs (see waitTreeReady).
   const chip = world.page.locator(`[data-testid="diff-filter-chip"]`);
-  await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await waitTreeReady(world, `[data-testid="diff-filter-chip"]`);
   await chip.click();
   const opt = world.page.locator(`[data-testid="diff-mode-${mode}"]`);
   await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -1075,26 +1161,57 @@ async function activateCodeTabMode(
  *  per-path assertion has to absorb both "tree mounted" and "specific row
  *  rendered" against a single timeout; under darwin CI load the combined
  *  chain (fs.watcher → server → SSE → SolidJS → Pierre mount) repeatedly
- *  exceeded 20 s and was the single most-recurring flake site (#955). */
-async function waitForCodeTabReady(world: KoluWorld): Promise<void> {
-  await world.page
+ *  exceeded 20 s and was the single most-recurring flake site (#955).
+ *
+ *  `nudgeWork` (branch mode) re-fires the repo's working-tree watcher each
+ *  tick. The gitStatus stream re-reads `getStatus`→`resolveBase` on every
+ *  `subscribeRepoChange` event, so if the FIRST resolve raced the push and
+ *  errored `BASE_BRANCH_NOT_FOUND` (origin/<default> not yet visible — the
+ *  residual branch-mode flake that loses both cucumber attempts), a sentinel
+ *  create+unlink in the work tree fires a repo change that re-resolves
+ *  against the now-settled repo and the tree populates. The sentinel is
+ *  untracked (excluded from the branch diff) and removed immediately, so it
+ *  never appears in the tree. */
+async function waitForCodeTabReady(
+  world: KoluWorld,
+  nudgeWork?: string,
+): Promise<void> {
+  const row = world.page
     .locator(
       `${TREE} [data-item-path][data-item-type]:not([data-file-tree-sticky-row])`,
     )
-    .first()
-    .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+    .first();
+  if (!nudgeWork) {
+    await row.waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+    return;
+  }
+  await pollFor({
+    observe: () => row.isVisible().catch(() => false),
+    isDone: (visible) => visible === true,
+    onTick: () => nudgeDir(nudgeWork),
+    onTimeout: (_last, elapsed) =>
+      new Error(
+        `Code tab tree never hydrated a row within ${elapsed}ms (work=${nudgeWork}) — ` +
+          `branch-mode gitStatus likely stuck on BASE_BRANCH_NOT_FOUND`,
+      ),
+    timeoutMs: HYDRATION_TIMEOUT,
+    intervalMs: 500,
+  });
 }
 
 async function waitForFixturePath(
   world: KoluWorld,
   mode: CodeTabMode,
   path: string,
+  work?: string,
 ): Promise<void> {
   // Two-step wait — first the tree's hydration, then the specific path.
   // Each step carries its own timeout against its own volatility axis;
   // the fused single-locator wait (the prior shape) made both axes share
   // POLL_TIMEOUT and starved the slow hydration side on loaded runners.
-  await waitForCodeTabReady(world);
+  // Branch mode passes `work` so the hydration wait can nudge a stuck
+  // gitStatus subscription back to life (see waitForCodeTabReady).
+  await waitForCodeTabReady(world, mode === "branch" ? work : undefined);
   if (mode === "browse") return;
   await world.page
     .locator(fileRow(path))
@@ -1114,9 +1231,13 @@ Given(
     content: string,
   ) {
     const m = mode as CodeTabMode;
-    await setupCodeTabFixture(this, m, writeFileCommand(path, content));
+    const work = await setupCodeTabFixture(
+      this,
+      m,
+      writeFileCommand(path, content),
+    );
     await activateCodeTabMode(this, m);
-    await waitForFixturePath(this, m, path);
+    await waitForFixturePath(this, m, path, work);
   },
 );
 
@@ -1131,11 +1252,11 @@ Given(
     const m = mode as CodeTabMode;
     const rows = table.rawTable.slice(1); // skip header
     const writes = rows.map(([p, c]) => writeFileCommand(p, c)).join(" && ");
-    await setupCodeTabFixture(this, m, writes);
+    const work = await setupCodeTabFixture(this, m, writes);
     await activateCodeTabMode(this, m);
     const firstPath = rows[0]?.[0];
     if (firstPath) {
-      await waitForFixturePath(this, m, firstPath);
+      await waitForFixturePath(this, m, firstPath, work);
     }
   },
 );
@@ -1147,9 +1268,8 @@ Given(
 When(
   "I open file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click();
+    await waitTreeReady(this, fileRow(path));
+    await this.page.locator(fileRow(path)).click();
     await this.waitForFrame();
   },
 );
@@ -1158,9 +1278,7 @@ When(
 Then(
   "the Code tab should show file {string}",
   async function (this: KoluWorld, path: string) {
-    await this.page
-      .locator(fileRow(path))
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(this, fileRow(path));
   },
 );
 
@@ -1180,9 +1298,12 @@ Then(
 Then(
   "the Code tab file {string} should have git status {string}",
   async function (this: KoluWorld, path: string, status: string) {
-    await this.page
-      .locator(`${fileRow(path)}[data-item-git-status="${status}"]`)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The decorated row appears as the gitStatus stream lands — first
+    // settle is on the hydration axis under darwin load (waitTreeReady).
+    await waitTreeReady(
+      this,
+      `${fileRow(path)}[data-item-git-status="${status}"]`,
+    );
   },
 );
 
@@ -1197,8 +1318,8 @@ Then(
     // row. Read through the Playwright locator (which pierces Pierre's open
     // shadow root); a raw `document.querySelector` inside `waitForFunction`
     // would not cross the shadow boundary — see SHADOW_DFS_FN_SRC below.
+    await waitTreeReady(this, fileRow(path));
     const row = this.page.locator(fileRow(path));
-    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const value = await row.getAttribute("data-item-git-status");
     if (value !== null) {
       throw new Error(
@@ -1218,17 +1339,18 @@ Then(
 Then(
   "the Code tab directory {string} should be marked as containing a change",
   async function (this: KoluWorld, path: string) {
-    await this.page
-      .locator(`${dirRow(path)}[data-item-contains-git-change="true"]`)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitTreeReady(
+      this,
+      `${dirRow(path)}[data-item-contains-git-change="true"]`,
+    );
   },
 );
 
 Then(
   "the Code tab directory {string} should not be marked as containing a change",
   async function (this: KoluWorld, path: string) {
+    await waitTreeReady(this, dirRow(path));
     const row = this.page.locator(dirRow(path));
-    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const value = await row.getAttribute("data-item-contains-git-change");
     if (value !== null) {
       throw new Error(
@@ -1253,10 +1375,12 @@ Then(
       return name.evaluate((el) => getComputedStyle(el).color);
     };
     // Wait for the roll-up to land on the changed folder before sampling, so
-    // the tint has been applied by the time we read its color.
-    await this.page
-      .locator(`${dirRow(changed)}[data-item-contains-git-change="true"]`)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // the tint has been applied by the time we read its color. First settle
+    // of the gitStatus decoration is on the hydration axis (waitTreeReady).
+    await waitTreeReady(
+      this,
+      `${dirRow(changed)}[data-item-contains-git-change="true"]`,
+    );
     const changedColor = await nameColor(changed);
     const cleanColor = await nameColor(clean);
     if (changedColor === cleanColor) {

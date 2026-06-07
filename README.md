@@ -313,9 +313,12 @@ Requires [Nix](https://nixos.asia/en/install) with flakes enabled.
 
 ```sh
 nix develop     # enter devshell
-just dev        # run server + client with hot reload
+just dev        # run server + client with hot reload (fixed 7681/5173)
+just dev-auto   # same, but on two random free ports — for a second instance
 just test       # e2e tests (full nix build)
 ```
+
+`just dev-auto` is the safe way to run a second kolu (or to drive one from an agent) without colliding with an instance already holding the default ports; agents capturing evidence launch via the [`dev-server`](.apm/skills/dev-server/SKILL.md) skill.
 
 ## Contributing
 
