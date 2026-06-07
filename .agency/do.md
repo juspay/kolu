@@ -20,7 +20,9 @@ Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry s
 
 > **Banned flags: never pass `--no-post`, `--no-strict`, or `--no-snapshot`.** CI on this repo is **always strict and always posts** GitHub commit statuses. A run that doesn't post statuses doesn't update the PR's checks — so it isn't CI, it's a private dry-run that leaves the PR looking unverified. Every CI invocation here (PR runs *and* the master pool-warming runs below) runs strict and posts. If you catch yourself reaching for an opt-out flag to "avoid disturbing the checks," that's exactly the run the PR needs.
 
-**Linux build host: a leased pool box per run.** Static darwin (`sincereintent`) lives in `~/.config/justci/hosts.json`; the linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. [`ci/pu/run.sh`](../ci/pu/run.sh) wraps the whole justci invocation: it leases an idle pool box, pins justci's linux lane to it with `--host`, and releases on exit. Just call it with the PR number and your justci args:
+**Darwin build host: `rasam`, not `sincereintent`.** The `aarch64-darwin` lane runs on **`rasam`** (Apple Silicon `T6020`, 24 cores, 128 GB, macOS 15.5) — the entry in `~/.config/justci/hosts.json` is `"aarch64-darwin": "nix-infra@rasam.tail12b27.ts.net"`. (The old `sincereintent` box is retired for kolu CI; if you see it in stale docs or an old `hosts.json`, switch it to `rasam`.)
+
+**Linux build host: a leased pool box per run.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. [`ci/pu/run.sh`](../ci/pu/run.sh) wraps the whole justci invocation: it leases an idle pool box, pins justci's linux lane to it with `--host`, and releases on exit. Just call it with the PR number and your justci args:
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
