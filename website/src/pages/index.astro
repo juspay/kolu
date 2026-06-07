@@ -99,6 +99,16 @@ const features = [
 ---
 
 <BaseLayout title="kolu">
+  <Fragment slot="head">
+    {/* The hero poster is the LCP element — preload it so it paints fast,
+        ahead of the (deferred, in-view-only) demo video bytes. */}
+    <link
+      rel="preload"
+      as="image"
+      href="/demo/hero-demo.webp"
+      fetchpriority="high"
+    />
+  </Fragment>
   <!-- ── HERO ─────────────────────────────────────────────────────────────
        Centered copy; the real product video (next section) is the visual.
        No hand-coded mockups — the live capture carries the "this is real" feel.
@@ -187,7 +197,7 @@ const features = [
           muted
           loop
           playsinline
-          preload="metadata"
+          preload="none"
           poster="/demo/hero-demo.webp"
         >
           <source src="/demo/hero-demo.webm" type="video/webm" />
@@ -243,6 +253,20 @@ const features = [
       }
     </ul>
   </section>
+
+  <!-- ── 01 · QUICKSTART ──────────────────────────────────────────────── -->
+  <!-- ── ON THIS PAGE — sticky scroll-spy rail over the guide sections ──── -->
+  <nav class="section-rail" aria-label="On this page">
+    <ol>
+      <li><a href="#quickstart"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Quickstart</span></a></li>
+      <li><a href="#first"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">First 5 minutes</span></a></li>
+      <li><a href="#concepts"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Core concepts</span></a></li>
+      <li><a href="#install"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Pin it as an app</span></a></li>
+      <li><a href="#remote"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Reach it anywhere</span></a></li>
+      <li><a href="#power"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">Power features</span></a></li>
+      <li><a href="#faq"><span class="rail-dot" aria-hidden="true"></span><span class="rail-label">FAQ</span></a></li>
+    </ol>
+  </nav>
 
   <!-- ── 01 · QUICKSTART ──────────────────────────────────────────────── -->
   <section id="quickstart" class="guide-section scroll-mt-20">
@@ -823,29 +847,6 @@ const features = [
           <li>
             A fresh agent transition automatically resurfaces a hidden terminal,
             so nothing important stays buried.
-          </li>
-        </ul>
-      </div>
-    </details>
-
-    <details class="deep">
-      <summary>
-        <span class="deep-tag">how-to</span>
-        Export &amp; record what your agent did
-      </summary>
-      <div class="deep-body">
-        <p>Two ways to share a session beyond the live workspace:</p>
-        <ul>
-          <li>
-            <strong>Transcript export</strong> — save any Claude Code, Codex, or
-            OpenCode session as a single self-contained <code>.html</code>: shiki
-            code, real diff views for every edit, dark/light toggle, no external
-            assets. Opens offline anywhere.
-          </li>
-          <li>
-            <strong>Workspace recording</strong> — one click in the chrome bar
-            captures the whole kolu tab with mic and optional webcam PiP, streamed
-            to a local <code>.webm</code>. Pause / resume with <kbd>⌘⇧.</kbd>.
           </li>
         </ul>
       </div>
@@ -1617,6 +1618,91 @@ const features = [
       gap: 0.8rem;
     }
   }
+
+  /* ── On-this-page rail — sticky scroll-spy over the guide sections ─────── */
+  .section-rail {
+    position: fixed;
+    top: 50%;
+    left: 1.5rem;
+    transform: translateY(-50%);
+    z-index: 30;
+    display: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .section-rail.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .section-rail ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .section-rail a {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.28rem 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    color: var(--color-ink-faint);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s ease;
+  }
+  .section-rail a:hover {
+    color: var(--color-ink-dim);
+  }
+  .section-rail a.is-active {
+    color: var(--color-amber);
+  }
+  .rail-dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.55;
+    transition:
+      opacity 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+  .section-rail a.is-active .rail-dot {
+    opacity: 1;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-amber) 22%, transparent);
+  }
+  .rail-label {
+    opacity: 0;
+    transform: translateX(-4px);
+    transition:
+      opacity 0.2s ease,
+      transform 0.2s ease;
+  }
+  .section-rail:hover .rail-label,
+  .section-rail a.is-active .rail-label {
+    opacity: 1;
+    transform: none;
+  }
+  /* Only when the centered 52rem guide column leaves room in the left margin. */
+  @media (min-width: 1200px) {
+    .section-rail {
+      display: block;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .section-rail,
+    .section-rail a,
+    .rail-dot,
+    .rail-label {
+      transition: none;
+    }
+  }
 </style>
 
 <script>
@@ -1651,9 +1737,18 @@ const features = [
   //    low-power-mode rejection falls back to the poster gracefully).
   //  - motion reduced → leave the poster standing and expose native `controls`
   //    so the visitor has a visible play affordance.
+  // The clip ships with preload="none", so its bytes never race the LCP
+  // poster — playback starts only once it scrolls into view (below).
   // Re-evaluated on preference change while the page stays open.
   (function () {
     var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    var io = null;
+    function play(v) {
+      v.preload = "auto";
+      v.setAttribute("autoplay", "");
+      var p = v.play();
+      if (p && typeof p.catch === "function") p.catch(function () {});
+    }
     function apply() {
       var vids = document.querySelectorAll(".demo-video");
       for (var i = 0; i < vids.length; i++) {
@@ -1664,9 +1759,24 @@ const features = [
           v.pause();
         } else {
           v.removeAttribute("controls");
-          v.setAttribute("autoplay", "");
-          var p = v.play();
-          if (p && typeof p.catch === "function") p.catch(function () {});
+          if ("IntersectionObserver" in window) {
+            if (!io) {
+              io = new IntersectionObserver(
+                function (entries) {
+                  entries.forEach(function (e) {
+                    if (e.isIntersecting) {
+                      play(e.target);
+                      io.unobserve(e.target);
+                    }
+                  });
+                },
+                { rootMargin: "200px 0px" },
+              );
+            }
+            io.observe(v);
+          } else {
+            play(v);
+          }
         }
       }
     }
@@ -1674,5 +1784,55 @@ const features = [
     if (mq.addEventListener) mq.addEventListener("change", apply);
     else if (mq.addListener) mq.addListener(apply);
   })();
+</script>
+
+<script>
+  // Scroll-spy for the on-this-page rail: show it only while a guide section
+  // is on screen, and highlight whichever section the reader is currently in.
+  const rail = document.querySelector<HTMLElement>(".section-rail");
+  const sections = Array.from(
+    document.querySelectorAll<HTMLElement>(".guide-section"),
+  );
+  if (rail && sections.length) {
+    const links = new Map<string, HTMLAnchorElement>(
+      Array.from(rail.querySelectorAll("a")).map((a) => [
+        a.getAttribute("href")?.slice(1) ?? "",
+        a,
+      ]),
+    );
+    let ticking = false;
+    function update() {
+      ticking = false;
+      const line = window.innerHeight * 0.3;
+      let activeId: string | null = null;
+      let inGuide = false;
+      for (const s of sections) {
+        const r = s.getBoundingClientRect();
+        if (r.top < window.innerHeight && r.bottom > 0) inGuide = true;
+        if (r.top <= line) activeId = s.id;
+      }
+      // Before any section crosses the line, treat the topmost on-screen
+      // section as active so a visible rail never highlights nothing.
+      if (!activeId && inGuide) {
+        for (const s of sections) {
+          if (s.getBoundingClientRect().bottom > 0) {
+            activeId = s.id;
+            break;
+          }
+        }
+      }
+      rail!.classList.toggle("is-visible", inGuide);
+      links.forEach((a, id) => a.classList.toggle("is-active", id === activeId));
+    }
+    function onScroll() {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    update();
+  }
 </script>
 
