@@ -49,9 +49,9 @@ describe("contentTypeForPath", () => {
 
   it("maps common HTML-asset siblings so relative <link>/<script> resolve", () => {
     expect(contentTypeForPath("style.css")).toBe("text/css; charset=utf-8");
-    expect(contentTypeForPath("app.js")).toBe(
-      "application/javascript; charset=utf-8",
-    );
+    // mrmime's modern default is `text/javascript` (the WHATWG-recommended JS
+    // type); serve-dir adds the charset.
+    expect(contentTypeForPath("app.js")).toBe("text/javascript; charset=utf-8");
     expect(contentTypeForPath("icon.png")).toBe("image/png");
   });
 
@@ -60,6 +60,21 @@ describe("contentTypeForPath", () => {
     expect(contentTypeForPath("clip.WEBM")).toBe("video/webm");
     expect(contentTypeForPath("trailer.mov")).toBe("video/quicktime");
     expect(contentTypeForPath("old.ogv")).toBe("video/ogg");
+  });
+
+  it("covers the OVERRIDES for generic types mrmime omits", () => {
+    expect(contentTypeForPath("clip.m4v")).toBe("video/mp4");
+    expect(contentTypeForPath("favicon.ico")).toBe("image/x-icon");
+  });
+
+  it("is COMPLETE, not a curated preview subset — types files no consumer previews", () => {
+    // The point of backing this with mrmime: a consumer adding a format to its
+    // OWN classifier needs no edit here. These extensions are nothing kolu
+    // previews, yet they get real types — proof the table isn't a kolu mirror.
+    expect(contentTypeForPath("mod.wasm")).toBe("application/wasm");
+    expect(contentTypeForPath("notes.txt")).toBe("text/plain; charset=utf-8");
+    expect(contentTypeForPath("data.csv")).toBe("text/csv; charset=utf-8");
+    expect(contentTypeForPath("a.avif")).toBe("image/avif");
   });
 
   it("falls back to octet-stream for unknown types", () => {

@@ -1,9 +1,10 @@
 /** `@kolu/serve-dir` — agnostic, fetch-native directory file server: given an
  *  ABSOLUTE root, answer a request for a file under it with a streaming
  *  byte-range `Response`. The whole package is `(root, relPath, request) ->
- *  Response` — it knows nothing about terminals, git, or kolu (zero workspace
- *  deps; only `node:fs`/`node:path`/`node:stream`), so any app serving files
- *  from a dynamic absolute root can plug in. The consumer keeps its own glue:
+ *  Response` — it knows nothing about terminals, git, or kolu (zero *workspace*
+ *  deps — `node:fs`/`node:path`/`node:stream` plus the focused `mrmime` MIME
+ *  table), so any app serving files from a dynamic absolute root can plug in.
+ *  The consumer keeps its own glue:
  *    - WHICH root (e.g. a terminal's repo root / `$PWD`) is injected by the
  *      caller, never decided here;
  *    - any response transform (e.g. kolu's artifact-sdk `<script>` injection)
@@ -39,50 +40,33 @@
 import { open } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { lookup } from "mrmime";
 
 const TEXT_PLAIN = { "Content-Type": "text/plain; charset=utf-8" };
 
-/** Content-Type per extension. A file with no entry serves as
- *  `application/octet-stream` (the browser downloads rather than renders). A
- *  consumer can assert its own previewable set is fully covered here — kolu does
- *  (the `BINARY_PREVIEWABLE_EXTENSIONS` coverage invariant lives in the
- *  kolu-server integration test, since it couples this map to kolu's classifier).
- *  The `.css`/`.js`/font entries are asset siblings a previewable HTML page
- *  references via relative `<link>`/`<script>`/`<img>`. */
-const CONTENT_TYPES: Record<string, string> = {
-  // Sandbox-previewable kinds.
-  ".html": "text/html; charset=utf-8",
-  ".htm": "text/html; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".pdf": "application/pdf",
-  // Video-previewable kinds (rendered with a <video> element). The range
-  // support below lets the player seek; the explicit type keeps the browser
-  // from sniffing/downloading.
-  ".mp4": "video/mp4",
-  ".m4v": "video/mp4",
-  ".webm": "video/webm",
-  ".mov": "video/quicktime",
-  ".ogv": "video/ogg",
-  // Assets a previewable HTML page can reference via relative <link>/<script>/<img>.
-  ".css": "text/css; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".mjs": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".otf": "font/otf",
+/** Content-Type for a path. Backed by `mrmime`'s complete IANA-derived table
+ *  (the same one Vite/sirv use), so this is "any file → its real MIME", NOT a
+ *  curated subset of any consumer's previewable set: a consumer adding a format
+ *  to *its* classifier needs no edit here — mrmime already knows it. A file with
+ *  no known type serves as `application/octet-stream` (the browser downloads
+ *  rather than renders).
+ *
+ *  serve-dir's deviations from mrmime's defaults: (1) a tiny `OVERRIDES` map for
+ *  generic extensions mrmime happens to omit (`.m4v`, `.ico`) — these are
+ *  universal formats any file server should type, NOT a consumer's preview list;
+ *  (2) append an explicit `; charset=utf-8` to text-bearing types (any
+ *  `text/...`, plus the `javascript`/`json` subtypes) so non-ASCII renders. */
+const OVERRIDES: Record<string, string> = {
+  m4v: "video/mp4",
+  ico: "image/x-icon",
 };
 
 export function contentTypeForPath(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  return CONTENT_TYPES[ext] ?? "application/octet-stream";
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  const mime = OVERRIDES[ext] ?? lookup(filePath) ?? "application/octet-stream";
+  return /^text\/|\/(javascript|json)$/.test(mime)
+    ? `${mime}; charset=utf-8`
+    : mime;
 }
 
 export type PathResolution =

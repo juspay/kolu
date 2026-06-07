@@ -1,6 +1,6 @@
 # @kolu/serve-dir
 
-A fetch-native file server for a directory: bind an absolute root, get back a `(relPath, Request) → Response` that streams byte ranges. Zero workspace deps — only `node:fs`/`node:path`/`node:stream` — so the dependency arrow points *out*: a consumer plugs in the volatile bits, the package owns the serving mechanics.
+A fetch-native file server for a directory: bind an absolute root, get back a `(relPath, Request) → Response` that streams byte ranges. Zero *workspace* deps — `node:fs`/`node:path`/`node:stream` plus the focused [`mrmime`](https://github.com/lukeed/mrmime) MIME table — so the dependency arrow points *out*: a consumer plugs in the volatile bits, the package owns the serving mechanics.
 
 It exists because no off-the-shelf static server fits the shape Kolu needs (a 20-agent prior-art survey, recorded in [`docs/atlas/src/content/atlas/electricity.mdx`](../../docs/atlas/src/content/atlas/electricity.mdx), found none did):
 
@@ -59,7 +59,7 @@ This split keeps the package agnostic: it ships no default symlink behavior, so 
 | `serveFile` | `(root, relPath, rangeHeader?, realpathGuard?) → Promise<ServeResult>` | The I/O half as a plain value (no `Response`), for testing the status/header/body without crafting a `Request`. |
 | `resolvePathUnder` | `(root, rawTail) → PathResolution` | Pure lexical guard (no I/O). `{ ok, abs, mime } \| { ok: false, status, reason }`. |
 | `parseByteRange` | `(header, size) → { start, end } \| "invalid" \| null` | Single-range `bytes=` parser. `null` = serve whole file (no/open/multi-range); `"invalid"` → 416. Hand-rolled deliberately (`range-parser` regresses the RFC-9110 suffix-overflow case). |
-| `contentTypeForPath` | `(filePath) → string` | Extension → Content-Type; `application/octet-stream` for unknowns. |
+| `contentTypeForPath` | `(filePath) → string` | Extension → Content-Type, backed by `mrmime`'s **complete** IANA table (not a curated subset) + a tiny `OVERRIDES` map for generic types mrmime omits (`.m4v`, `.ico`); text-bearing types get `; charset=utf-8`. `application/octet-stream` for unknowns. |
 | `RealpathGuard` | `type (abs: string) => Promise<boolean>` | Injected filesystem-authority guard. `true` allows, `false` → 403. |
 | `ServeResult` | `interface { status; headers; body: string \| ReadableStream }` | Error bodies are `string`; success bodies (200/206) stream. |
 | `PathResolution` | discriminated union | Result of `resolvePathUnder`. |
