@@ -45,6 +45,7 @@ let
       ./packages/transcript-core
       ./packages/transcript-html
       ./packages/artifact-sdk
+      ./packages/serve-dir
       ./packages/html-escape
       ./packages/url-shape
       ./packages/log
