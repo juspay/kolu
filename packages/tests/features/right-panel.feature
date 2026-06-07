@@ -1,11 +1,16 @@
-Feature: Right panel (inspector)
-  Collapsible right panel with metadata inspector, toggled via keyboard shortcut or header icon.
-  Defaults to collapsed.
+Feature: Right panel (Code + Inspector)
+  Collapsible right panel with a Code browser and a metadata Inspector
+  tab, toggled via keyboard shortcut or header icon. The shipped product
+  default is open-on-Code for new users (DEFAULT_PREFERENCES.rightPanel
+  .collapsed = false); the e2e fixture instead pins it collapsed per
+  scenario (hooks.ts) for deterministic toggle assertions, so these
+  scenarios drive visibility explicitly rather than relying on the
+  open-by-default state.
 
   Background:
     Given the terminal is ready
 
-  Scenario: Right panel starts collapsed by default
+  Scenario: Right panel starts collapsed under the test fixture
     Then the right panel should not be visible
     And there should be no page errors
 
@@ -37,25 +42,31 @@ Feature: Right panel (inspector)
   Scenario: Inspector shows CWD
     When I press the toggle inspector shortcut
     Then the right panel should be visible
-    And the inspector should show a CWD section
+    # The panel now opens on the Code tab by default, so select Inspector
+    # explicitly before asserting on its content.
+    When I click the right panel tab "inspector"
+    Then the inspector should show a CWD section
     And there should be no page errors
 
   Scenario: Inspector shows git branch in a git repo
     When I run "git init /tmp/kolu-inspector-git && cd /tmp/kolu-inspector-git"
     When I press the toggle inspector shortcut
     Then the right panel should be visible
-    And the inspector should show a git branch section
+    When I click the right panel tab "inspector"
+    Then the inspector should show a git branch section
     And there should be no page errors
 
   Scenario: Inspector shows theme name
     When I press the toggle inspector shortcut
     Then the right panel should be visible
-    And the inspector should show a theme section
+    When I click the right panel tab "inspector"
+    Then the inspector should show a theme section
     And there should be no page errors
 
   Scenario: Clicking theme in inspector opens palette to Theme group
     When I press the toggle inspector shortcut
     Then the right panel should be visible
+    When I click the right panel tab "inspector"
     When I click the theme name in the inspector
     Then the command palette should be visible
     And the palette breadcrumb should show "Set theme"
@@ -89,11 +100,11 @@ Feature: Right panel (inspector)
     Then the right panel should not be visible
     And there should be no page errors
 
-  Scenario: Toggle inspector via command palette
+  Scenario: Toggle right panel via command palette
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I open the command palette
-    And I type "Toggle inspector" in the palette
+    And I type "Toggle right panel" in the palette
     And I press Enter
     Then the right panel should not be visible
     And there should be no page errors
@@ -111,18 +122,19 @@ Feature: Right panel (inspector)
     And there should be no page errors
 
   Scenario: Active tab is per-terminal (each terminal remembers its own)
-    # Terminal 1 (from Background) — switch to Code, leaving terminal 2 untouched
+    # Terminal 1 (from Background) — switch to Inspector, leaving terminal 2 untouched
     When I press the toggle inspector shortcut
     Then the right panel should be visible
-    When I click the Code tab
-    Then the Code tab should be active
-    # Create terminal 2 — it should have its own default activeTab (Inspector)
+    When I click the right panel tab "inspector"
+    Then the Inspector tab should be active
+    # Create terminal 2 — it should have its own default activeTab (Code,
+    # per DEFAULT_RIGHT_PANEL_PER_TERMINAL)
     When I create a terminal
-    Then the Inspector tab should be active
-    # Switch back to terminal 1 — Code tab should still be active for it
-    When I press the switch to terminal 1 shortcut
     Then the Code tab should be active
-    # Switch forward to terminal 2 — Inspector again
-    When I press the switch to terminal 2 shortcut
+    # Switch back to terminal 1 — Inspector tab should still be active for it
+    When I press the switch to terminal 1 shortcut
     Then the Inspector tab should be active
+    # Switch forward to terminal 2 — Code again
+    When I press the switch to terminal 2 shortcut
+    Then the Code tab should be active
     And there should be no page errors
