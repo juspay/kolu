@@ -231,6 +231,34 @@ describe("serveResolvedFile", () => {
     expect(await readBody(res.body)).toBe("2345");
   });
 
+  it("streams a 206 body consistent with its headers when the path is atomically replaced mid-flight", async () => {
+    // The ranged path opens one file handle, stats *that handle*, and streams
+    // from *that handle* — so `Content-Range`/`Content-Length` and the bytes
+    // come from one open file description, not two separate observations of a
+    // path. An atomic replace (write-temp-then-rename — what editors and most
+    // file-writing tools actually do) swaps in a new inode; the open handle
+    // stays pinned to the original inode, so the already-sized headers and the
+    // streamed slice still describe one consistent file state. Dedicated
+    // fixture so the swap can't perturb other tests' `clip.mp4`.
+    const swapPath = path.join(tmpRoot, "swap.mp4");
+    fs.writeFileSync(swapPath, "0123456789");
+    const res = await serveResolvedFile(
+      resolvePreviewPath(tmpRoot, "swap.mp4"),
+      tmpRoot,
+      "bytes=2-5",
+    );
+    expect(res.status).toBe(206);
+    expect(res.headers["Content-Range"]).toBe("bytes 2-5/10");
+    expect(res.headers["Content-Length"]).toBe("4");
+    // Atomically replace the path with different, longer content before draining
+    // the body (new inode via rename, the realistic live-reload write pattern).
+    const tmp = path.join(tmpRoot, "swap.mp4.tmp");
+    fs.writeFileSync(tmp, "AAAAAAAAAAAAAAAAAAAA");
+    fs.renameSync(tmp, swapPath);
+    expect(await readBody(res.body)).toBe("2345");
+    fs.rmSync(swapPath, { force: true });
+  });
+
   it("serves the whole file (200) when no Range header is present", async () => {
     const res = await serveResolvedFile(
       resolvePreviewPath(tmpRoot, "clip.mp4"),

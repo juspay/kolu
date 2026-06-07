@@ -15,8 +15,7 @@
  *  (`allow-scripts` only, no `allow-same-origin`) are the iframe element's
  *  responsibility — the route is plain HTTP. */
 
-import { createReadStream } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { buildTerminalFileUrl } from "kolu-common/preview";
@@ -219,14 +218,6 @@ export async function serveResolvedFile(
     };
   }
   try {
-    const s = await stat(res.abs);
-    if (!s.isFile()) {
-      return {
-        status: 404,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: "not a file",
-      };
-    }
     // `Accept-Ranges: bytes` advertises that this route can range-serve, which
     // is what lets a `<video>` element seek. The `?v=<mtime>` query is our
     // cache key, so a same-URL request can safely hit the browser cache;
@@ -238,41 +229,91 @@ export async function serveResolvedFile(
       "Accept-Ranges": "bytes",
     };
 
-    const range = parseByteRange(rangeHeader, s.size);
-    if (range === "invalid") {
-      return {
-        status: 416,
-        headers: { ...baseHeaders, "Content-Range": `bytes */${s.size}` },
-        body: "range not satisfiable",
-      };
+    // A Range request streams from a single open file handle: `open` →
+    // `handle.stat()` (for the size that drives range math AND the headers) →
+    // `handle.createReadStream`. Deriving the size and the bytes from the *same*
+    // open file description — rather than a `stat(path)` followed by a separate
+    // `createReadStream(path)` — is what tightens the stat/read race on this
+    // live-reloading route: the handle pins one inode, so an *atomic* replace
+    // (write-temp-then-rename, what editors and most tools do) leaves the
+    // already-sized headers and the streamed body describing one consistent
+    // file. An in-place truncating rewrite of the same inode can still diverge,
+    // but no streaming response can avoid that without buffering the whole file
+    // (which would reintroduce the multi-GB heap blow-up the 206 branch exists
+    // to prevent). Open/stat failures throw here and map to 404/500 below,
+    // *before* any 206 is returned — so we never commit to a 206 and then
+    // surface a late stream error.
+    if (rangeHeader) {
+      const handle = await open(res.abs, "r");
+      // Set once the handle is handed off to a ReadableStream that owns its
+      // lifecycle; every other exit closes the handle in `finally`.
+      let streamed = false;
+      try {
+        const s = await handle.stat();
+        if (!s.isFile()) {
+          return {
+            status: 404,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+            body: "not a file",
+          };
+        }
+        const range = parseByteRange(rangeHeader, s.size);
+        if (range === "invalid") {
+          return {
+            status: 416,
+            headers: { ...baseHeaders, "Content-Range": `bytes */${s.size}` },
+            body: "range not satisfiable",
+          };
+        }
+        if (range) {
+          // `createReadStream({ start, end })` reads only those bytes, so a
+          // `Range: bytes=0-1` against a multi-GB video moves two bytes, not
+          // the whole file, through the heap. The stream owns `handle` and
+          // closes it on end/error (`autoClose` defaults on), so we skip the
+          // `finally` close.
+          const stream = handle.createReadStream({
+            start: range.start,
+            end: range.end,
+          });
+          streamed = true;
+          return {
+            status: 206,
+            headers: {
+              ...baseHeaders,
+              "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
+              "Content-Length": String(range.end - range.start + 1),
+            },
+            body: Readable.toWeb(stream) as ReadableStream,
+          };
+        }
+        // `range === null`: header present but not a single satisfiable range
+        // (open `bytes=-`, multi-range, malformed). Fall through to a full 200,
+        // reusing the handle we already opened so the body is the same file
+        // state we just stat'd.
+        const buf = await handle.readFile();
+        return {
+          status: 200,
+          headers: { ...baseHeaders, "Content-Length": String(buf.length) },
+          body: buf,
+        };
+      } finally {
+        if (!streamed) await handle.close();
+      }
     }
 
-    // A satisfiable range streams straight from a bounded file handle —
-    // `createReadStream({ start, end })` only ever reads those bytes, so a
-    // `Range: bytes=0-1` against a multi-GB video moves two bytes, not the
-    // whole file through the heap. `Content-Length` is the range width, derived
-    // from the same `s.size` that bounded the stream, so body and header can't
-    // diverge. (`end` is inclusive for both the HTTP range and the fs option.)
-    if (range) {
-      const stream = createReadStream(res.abs, {
-        start: range.start,
-        end: range.end,
-      });
+    // No Range header: buffer the whole file (the original behaviour for HTML
+    // and image previews). `Content-Length` comes from the buffer actually
+    // being sent, not an earlier `stat` — if an agent rewrites the file between
+    // a stat and the read the two could differ, producing a truncated body or
+    // `ERR_CONTENT_LENGTH_MISMATCH` on this live-reloading route.
+    const s = await stat(res.abs);
+    if (!s.isFile()) {
       return {
-        status: 206,
-        headers: {
-          ...baseHeaders,
-          "Content-Range": `bytes ${range.start}-${range.end}/${s.size}`,
-          "Content-Length": String(range.end - range.start + 1),
-        },
-        body: Readable.toWeb(stream) as ReadableStream,
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        body: "not a file",
       };
     }
-    // No range: the whole file is buffered (the original behaviour for HTML and
-    // image previews). `Content-Length` comes from the buffer actually being
-    // sent, not the earlier `stat` — if an agent rewrites the file between
-    // `stat()` and `readFile()` the two could differ, producing a truncated
-    // body or `ERR_CONTENT_LENGTH_MISMATCH` on this live-reloading route.
     const buf = await readFile(res.abs);
     return {
       status: 200,
