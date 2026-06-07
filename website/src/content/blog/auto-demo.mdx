@@ -85,17 +85,13 @@ They do. The clip ended on one dark terminal and one light, so the two repos rea
 
 <Prompt>are you really using the button to copy the comments and then pasting the clipboard as is without any handwritten prompt? that's what you should do.</Prompt>
 
-Type the prompt by hand and you've skipped the very thing the shot is there to demonstrate. And a privacy one you only catch by watching your own face on the front page — [Claude Code](https://www.anthropic.com/claude-code) prints your name, email, and plan in its banner, with no flag to hide it:
-
-<Prompt>email is bad. so go with codex</Prompt>
-
-[Codex](https://github.com/openai/codex) is identity-neutral, so the work that needs a clean identity runs there.
+Type the prompt by hand and you've skipped the very thing the shot is there to demonstrate.
 
 None of these are clever, and that's the point. **A reproducible demo spends your attention on the hundred small true things instead of on the machinery** — each fix is a line and a re-run, cheap enough to actually make. A hand-recorded demo dies after the second re-shoot. This one absorbed every correction without complaint.
 
 ## A demo built as a test goes flaky
 
-Build the demo as a test and you inherit a test's problems. That climax is a *real* edit on a *real* checkout — Claude actually changes the file on camera. So the second run, the file is *already edited* from the first, and Claude correctly says there's nothing to do. A flaky test, for the most ordinary reason: leftover state. The fix is the one you'd write for any test — `git checkout -- .` before each run, so the edit is always a fresh, visible change. I'd never had to think about test isolation for a marketing video, and having to is the strongest evidence the framing is right.
+Build the demo as a test and you inherit a test's problems. That climax is a *real* edit on a *real* checkout — [Claude Code](https://www.anthropic.com/claude-code) actually changes the file on camera. So the second run, the file is *already edited* from the first, and Claude correctly says there's nothing to do. A flaky test, for the most ordinary reason: leftover state. The fix is the one you'd write for any test — `git checkout -- .` before each run, so the edit is always a fresh, visible change. I'd never had to think about test isolation for a marketing video, and having to is the strongest evidence the framing is right.
 
 There's one honest seam. The clip is captured on my own machine, not the clean CI box the rest of the harness runs on, because the finale launches a real authenticated agent and a fresh box has no logged-in CLI. The recipe and recording modules run anywhere; the *capture* of this clip needs a machine that's already signed in. Reproducible-from-source, not box-pure. Better to say it than pretend the green checkmark covers it.
 
