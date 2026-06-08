@@ -175,6 +175,14 @@ export function useRightPanel() {
   const store = useTerminalStore();
   const rp = () => preferences().rightPanel;
 
+  /** Whether there's anything for the panel to show — at least one terminal
+   *  exists. An empty workspace renders the `EmptyState` in place of the
+   *  panel host (App.tsx's `showEmpty`), so the desktop chrome must treat the
+   *  panel as absent regardless of the persisted `collapsed` preference —
+   *  otherwise the ChromeBar reserves panel-width it never fills (a "ghost"
+   *  gap) and the toggle reads as open with nothing behind it. */
+  const hasTerminals = () => store.terminalIds().length > 0;
+
   /** Read the per-terminal record for the active terminal, falling back
    *  to defaults when no terminal is active or the terminal has no record
    *  yet. The returned object is read-only — write through the mutators. */
@@ -209,14 +217,34 @@ export function useRightPanel() {
     reportToServer(id);
   }
 
+  /** Write the persisted desktop `collapsed` bit. No-op on an empty
+   *  workspace — the EmptyState owns the screen and there's no panel host,
+   *  so flipping the bit would just persist a ghost state. Every
+   *  collapsed-mutating path (toggle/collapse/expand and `reveal`'s desktop
+   *  branch) routes through here so the empty-workspace rule lives in one
+   *  place rather than per-caller. */
+  const setCollapsed = (collapsed: boolean) => {
+    if (!hasTerminals()) return;
+    updatePreferences({ rightPanel: { collapsed } });
+  };
+
   return {
     // ── Workspace chrome (global) ────────────────────────────────────
     collapsed: () => rp().collapsed,
     panelSize: () => rp().size,
-    togglePanel: () =>
-      updatePreferences({ rightPanel: { collapsed: !rp().collapsed } }),
-    collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),
-    expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
+    /** At least one terminal exists, so the desktop panel host is mounted
+     *  (rather than the EmptyState). Desktop chrome gates its panel
+     *  affordances on this — the toggle is dead and the offset zero when
+     *  there's nothing to inspect. */
+    hasTerminals,
+    /** Effective desktop visibility: the panel only occupies canvas space
+     *  when it isn't collapsed AND a terminal exists. ChromeBar keys its
+     *  width offset and toggle state off this (not raw `collapsed`) so an
+     *  empty workspace shows no ghost panel. */
+    panelOpen: () => hasTerminals() && !rp().collapsed,
+    togglePanel: () => setCollapsed(!rp().collapsed),
+    collapsePanel: () => setCollapsed(true),
+    expandPanel: () => setCollapsed(false),
     setPanelSize: (size: number) => {
       if (size > MIN_PANEL_SIZE && Math.abs(size - rp().size) > SIZE_EPSILON)
         updatePreferences({ rightPanel: { size } }, { coalesce: true });
@@ -250,8 +278,7 @@ export function useRightPanel() {
      *  `collapsed`) stay separate and are resolved here in one place. */
     reveal: () => {
       if (isMobile()) setDrawerOpen(true);
-      else if (rp().collapsed)
-        updatePreferences({ rightPanel: { collapsed: false } });
+      else if (rp().collapsed) setCollapsed(false);
     },
 
     // ── Per-terminal task state ──────────────────────────────────────
