@@ -217,6 +217,17 @@ export function useRightPanel() {
     reportToServer(id);
   }
 
+  /** Write the persisted desktop `collapsed` bit. No-op on an empty
+   *  workspace — the EmptyState owns the screen and there's no panel host,
+   *  so flipping the bit would just persist a ghost state. Every
+   *  collapsed-mutating path (toggle/collapse/expand and `reveal`'s desktop
+   *  branch) routes through here so the empty-workspace rule lives in one
+   *  place rather than per-caller. */
+  const setCollapsed = (collapsed: boolean) => {
+    if (!hasTerminals()) return;
+    updatePreferences({ rightPanel: { collapsed } });
+  };
+
   return {
     // ── Workspace chrome (global) ────────────────────────────────────
     collapsed: () => rp().collapsed,
@@ -231,16 +242,9 @@ export function useRightPanel() {
      *  width offset and toggle state off this (not raw `collapsed`) so an
      *  empty workspace shows no ghost panel. */
     panelOpen: () => hasTerminals() && !rp().collapsed,
-    togglePanel: () => {
-      // Nothing to toggle on an empty workspace — the EmptyState owns the
-      // screen and there's no panel to reveal. Guarding here means the
-      // button, the keybind, and the palette command (all routed through
-      // this one function) share the rule.
-      if (!hasTerminals()) return;
-      updatePreferences({ rightPanel: { collapsed: !rp().collapsed } });
-    },
-    collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),
-    expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
+    togglePanel: () => setCollapsed(!rp().collapsed),
+    collapsePanel: () => setCollapsed(true),
+    expandPanel: () => setCollapsed(false),
     setPanelSize: (size: number) => {
       if (size > MIN_PANEL_SIZE && Math.abs(size - rp().size) > SIZE_EPSILON)
         updatePreferences({ rightPanel: { size } }, { coalesce: true });
@@ -274,8 +278,7 @@ export function useRightPanel() {
      *  `collapsed`) stay separate and are resolved here in one place. */
     reveal: () => {
       if (isMobile()) setDrawerOpen(true);
-      else if (rp().collapsed)
-        updatePreferences({ rightPanel: { collapsed: false } });
+      else if (rp().collapsed) setCollapsed(false);
     },
 
     // ── Per-terminal task state ──────────────────────────────────────
