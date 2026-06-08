@@ -113,6 +113,55 @@ Then(
 );
 
 Then(
+  "the inspector toggle should not be active",
+  async function (this: KoluWorld) {
+    // The header toggle drops its `data-active` marker when the panel isn't
+    // effectively open — which an empty workspace forces regardless of the
+    // collapsed preference.
+    await this.page.waitForFunction(
+      () => {
+        const btn = document.querySelector(
+          'header [data-testid="inspector-toggle"]',
+        );
+        return !!btn && !btn.hasAttribute("data-active");
+      },
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the inspector toggle should be disabled",
+  async function (this: KoluWorld) {
+    const toggle = this.page.locator('header [data-testid="inspector-toggle"]');
+    await toggle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    assert.ok(
+      await toggle.isDisabled(),
+      "Expected the inspector toggle to be disabled on an empty workspace",
+    );
+  },
+);
+
+Then(
+  "the chrome bar should reserve no right-panel space",
+  async function (this: KoluWorld) {
+    // The ghost: the floating chrome's inline `right` offset reserves the
+    // panel's width. With no panel mounted it must collapse to 0 so the
+    // control cluster sits flush against the viewport's right edge.
+    await this.page.waitForFunction(
+      () => {
+        const bar = document.querySelector('[data-testid="chrome-bar"]');
+        if (!bar) return false;
+        return getComputedStyle(bar).right === "0px";
+      },
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the right panel resize handle should be visible",
   async function (this: KoluWorld) {
     // Handle uses w-0 with ::before pseudo-element — check attached, not visible

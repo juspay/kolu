@@ -121,6 +121,21 @@ Feature: Right panel (Code + Inspector)
     And the Code tab should be active
     And there should be no page errors
 
+  Scenario: No ghost right panel once the last terminal closes
+    # With the panel open (collapsed=false), closing the last terminal drops
+    # to the EmptyState — which doesn't mount the panel host. The desktop
+    # chrome must follow: the toggle goes dead and the ChromeBar reserves no
+    # panel-width, instead of floating its controls 25vw shy of the edge with
+    # an empty "ghost" gap behind them.
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I close the active terminal via command palette
+    Then the empty state tip should be visible
+    And the inspector toggle should not be active
+    And the inspector toggle should be disabled
+    And the chrome bar should reserve no right-panel space
+    And there should be no page errors
+
   Scenario: Active tab is per-terminal (each terminal remembers its own)
     # Terminal 1 (from Background) — switch to Inspector, leaving terminal 2 untouched
     When I press the toggle inspector shortcut

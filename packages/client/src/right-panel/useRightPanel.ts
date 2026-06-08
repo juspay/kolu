@@ -175,6 +175,14 @@ export function useRightPanel() {
   const store = useTerminalStore();
   const rp = () => preferences().rightPanel;
 
+  /** Whether there's anything for the panel to show — at least one terminal
+   *  exists. An empty workspace renders the `EmptyState` in place of the
+   *  panel host (App.tsx's `showEmpty`), so the desktop chrome must treat the
+   *  panel as absent regardless of the persisted `collapsed` preference —
+   *  otherwise the ChromeBar reserves panel-width it never fills (a "ghost"
+   *  gap) and the toggle reads as open with nothing behind it. */
+  const hasTerminals = () => store.terminalIds().length > 0;
+
   /** Read the per-terminal record for the active terminal, falling back
    *  to defaults when no terminal is active or the terminal has no record
    *  yet. The returned object is read-only — write through the mutators. */
@@ -213,8 +221,24 @@ export function useRightPanel() {
     // ── Workspace chrome (global) ────────────────────────────────────
     collapsed: () => rp().collapsed,
     panelSize: () => rp().size,
-    togglePanel: () =>
-      updatePreferences({ rightPanel: { collapsed: !rp().collapsed } }),
+    /** At least one terminal exists, so the desktop panel host is mounted
+     *  (rather than the EmptyState). Desktop chrome gates its panel
+     *  affordances on this — the toggle is dead and the offset zero when
+     *  there's nothing to inspect. */
+    hasTerminals,
+    /** Effective desktop visibility: the panel only occupies canvas space
+     *  when it isn't collapsed AND a terminal exists. ChromeBar keys its
+     *  width offset and toggle state off this (not raw `collapsed`) so an
+     *  empty workspace shows no ghost panel. */
+    panelOpen: () => hasTerminals() && !rp().collapsed,
+    togglePanel: () => {
+      // Nothing to toggle on an empty workspace — the EmptyState owns the
+      // screen and there's no panel to reveal. Guarding here means the
+      // button, the keybind, and the palette command (all routed through
+      // this one function) share the rule.
+      if (!hasTerminals()) return;
+      updatePreferences({ rightPanel: { collapsed: !rp().collapsed } });
+    },
     collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),
     expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
     setPanelSize: (size: number) => {
