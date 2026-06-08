@@ -342,7 +342,15 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
 
     // --- UI (panel/dock visibility — global UI chrome, not per-terminal) ---
-    actionPaletteCommand("toggleRightPanel", deps, { section: "ui" }),
+    // Hide "Toggle right panel" on an empty workspace: with no terminals the
+    // panel host is unmounted (App's `showEmpty`) and `togglePanel()`
+    // early-returns, so the command would close the palette and do nothing —
+    // exactly the "offering a command that does nothing surfaces as broken"
+    // case the canvas-arrange gate above avoids. The header button is disabled
+    // for the same reason.
+    ...(deps.terminalIds().length > 0
+      ? [actionPaletteCommand("toggleRightPanel", deps, { section: "ui" })]
+      : []),
     actionPaletteCommand("toggleDock", deps, { section: "ui" }),
 
     // --- Help (reference + advanced) ---
