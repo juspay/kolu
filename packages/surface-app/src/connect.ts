@@ -69,9 +69,7 @@ type RetireableSocket = {
     type: "close",
     listener: (event: { code?: number }) => void,
   ) => void;
-  close: () => void;
-  send: unknown;
-};
+} & Parameters<typeof retireSocket>[0];
 
 /** Retire a socket the server closed as stale — for a socket NO lifecycle watches
  *  (drishti's per-host sockets, which have no provider/`createServerLifecycle`).
