@@ -44,6 +44,14 @@ const OSC_COLOUR_RESPONSE = /^\x1b\](?:4|1[0-9]);[\s\S]*?(?:\x07|\x1b\\)$/;
 //   DECRQSS     ESC P [01] $ r … ST   (valid/invalid setting reports)
 // Sixel/DECUDK/etc. are program *output*, never keyboard input, and don't carry
 // these introducers, so they stay forwarded.
+//
+// INVARIANT: any response class suppressed here MUST be answered by the headless
+// server, or a TUI that blocks on the query (e.g. Yazi waiting on XTVERSION)
+// hangs forever — we drop the browser's reply and nothing else replies. XTVERSION
+// is the load-bearing case: ptyHost.ts registers an explicit CSI `> q` handler
+// precisely because the headless xterm has no built-in answerer. Before adding a
+// new suppressed class here, confirm the headless server answers it (or document
+// why it must NOT, like the browser-only OSC 52 clipboard reply above).
 const DCS_RESPONSE = /^\x1bP(?:>\||[01]\$r)[\s\S]*?\x1b\\$/;
 
 /** True when `data` is a complete terminal-generated query response. */
