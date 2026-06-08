@@ -105,7 +105,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         </Tip>
         <Show when={pwa.server()?.version}>
           {(v) => (
-            <Tip label="Released kolu version">
+            <Tip label="kolu version">
               <span class="tabular-nums text-fg-2">v{v()}</span>
             </Tip>
           )}
