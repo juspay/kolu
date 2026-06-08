@@ -34,7 +34,7 @@ Add a question only when something material is genuinely unclear — don't pad. 
 
 **Sync the docs.** Read `.agency/do.md` for its **`## Documentation`** section — the list of files to keep in lockstep with code (README and the like). Compare each against this change and update any that the diff makes stale, so the docs commit rides the same review gauntlet as the code. Skip only when that section is absent or the change is genuinely doc-neutral.
 
-**Add a changelog entry.** For any **user-facing** change, append one line to `website/src/content/changelog/unreleased.mdx` under the right `###` heading — `Added` / `Fixed` / `Changed` / `Heads-up` (the editorial home for disruptive changes: a removed feature, a changed default, a migration). Write it as prose a *user* reads, not a commit subject, and link the PR as a markdown link once it exists (§3). Skip only when the change has no user-visible effect (pure refactor/chore/internal). The file is `merge=union`, so a plain append never conflicts.
+**Add a changelog entry.** For any **user-facing** change, append one line to `website/src/content/changelog/unreleased.mdx` under the right `###` heading — `Added` / `Fixed` / `Changed` / `Heads-up` (the editorial home for disruptive changes: a removed feature, a changed default, a migration). Create the heading if a freshly-reset section doesn't have it yet. Write it as prose a *user* reads, not a commit subject, and link the PR as a markdown link once it exists (§3). Skip only when the change has no user-visible effect (pure refactor/chore/internal). The file is `merge=union`, so a plain append (or a new heading) never conflicts.
 
 Run **check** and **fmt**, then commit (conventional message) and push the feature branch.
 

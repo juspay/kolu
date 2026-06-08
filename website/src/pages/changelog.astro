@@ -8,6 +8,10 @@ const fmtDate = (d: Date) =>
       year: "numeric",
       month: "short",
       day: "2-digit",
+      // Dates are authored as plain `YYYY-MM-DD` (parsed as UTC midnight by
+      // Zod's coerce). Format in UTC so the rendered day never shifts with the
+      // build machine's timezone.
+      timeZone: "UTC",
     })
     .toUpperCase();
 

@@ -46,7 +46,7 @@ version: Unreleased
 ## Keeping it filled — two checkpoints, no CI gate
 
 - **Write time** — `/be` authors the entry in its implement phase (<Cite file=".apm/skills/be/SKILL.md" lines="36" label="be §2 — Add a changelog entry" />); every PR rides through `/be`.
-- **Publish time** — `just release X.Y` prints the exact `Unreleased` notes and waits for `y`; a thin section is visible right before it ships.
+- **Publish time** — `/release X.Y.Z`'s go/no-go preview prints the exact `Unreleased` notes about to publish and waits for confirmation; a thin section is visible right before it ships.
 - Enough for a single-maintainer, `/be`-driven repo. Add a merge-blocking **`changelog` CI check** (diff touches `unreleased.mdx` or `no-changelog` label) only once PRs arrive from contributors who don't run `/be`.
 
 ## kolu.dev renders it — Unreleased included
@@ -58,12 +58,14 @@ version: Unreleased
 
 Run **`/release X.Y.Z`** (<Cite file=".apm/skills/release/SKILL.md" lines="1" label="the /release skill" />). It does the *what* below and asks (via `AskUserQuestion`) where a call is yours; everything is read-only until the explicit go/no-go.
 
-1. **Settle** the version (editorial — `.0` milestone, normal bump otherwise; valid semver) and date.
-2. **Preflight** — on `master`, clean, synced, CI green. Refuse otherwise.
-3. **Promote** `unreleased.mdx` → `<version>.mdx` (`{ version, date }`) + fresh empty Unreleased.
-4. **Set** `packages/server/package.json` `version` → the release version (the single source — Nix + runtime both read it; nothing else to bump).
-5. **Confirm** — show the exact notes, then go/no-go.
-6. **Cut** — commit, annotated tag `vX.Y.Z`, push, `gh release create`.
+Phases 1–3 are read-only; nothing is written before the go/no-go.
+
+1. **Settle** the version (editorial — `.0` milestone, normal bump otherwise; valid semver `X.Y.Z`) and date.
+2. **Preflight** — on `master`, clean, synced, CI green on `HEAD` (the base the release commit builds on). Refuse otherwise.
+3. **Confirm** — show the exact notes + version bump + tag, then go/no-go. `No` leaves the tree untouched.
+4. **Apply** — promote `unreleased.mdx` → `<version>.mdx` (`{ version, date }`) + fresh empty Unreleased; set `packages/server/package.json` `version` (the single source — Nix + runtime both read it; nothing else to bump); commit (`release X.Y.Z`) + push `master`. **No tag yet.**
+5. **Wait** for CI to go green on the pushed release commit — never tag a commit CI hasn't passed.
+6. **Tag & publish** — annotated tag `vX.Y.Z` on the green commit, push, `gh release create`.
 7. **Verify** — tag on master, release live, `kolu.dev/changelog` updated; pin is `nix run github:juspay/kolu/vX.Y.Z`.
 
 ## Wiring
