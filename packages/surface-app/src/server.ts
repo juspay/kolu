@@ -319,10 +319,15 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
  *  provider's `probe={() => client.rpc.surface.identity.info({})}` (the scoped
  *  sibling client consumes the `surfaceApp` key). */
 export function serverIdentity(opts: { processId?: string } = {}): {
+  /** The id this process minted (or the injected override). Exposed — not just
+   *  reachable via the probe — so a stale-tab gate (`rejectStaleProcess`) compares
+   *  against the SAME id `identity.info` reports. A consumer that minted its own
+   *  id for the gate would compare against a value the client never saw. */
+  processId: string;
   identity: { info: () => Promise<{ processId: string }> };
 } {
   const processId = opts.processId ?? randomUUID();
-  return { identity: { info: async () => ({ processId }) } };
+  return { processId, identity: { info: async () => ({ processId }) } };
 }
 
 /** The whole surface-app server side in one call — the `buildInfo` cell impl
@@ -340,10 +345,16 @@ export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
   opts: Parameters<typeof buildInfoServer<T>>[0] & { processId?: string } = {},
 ): {
   cells: BuildInfoServerFragment<T>;
+  /** The minted (or injected) per-process id — the same one the `identity.info`
+   *  probe reports. Feed it to `rejectStaleProcess` so the stale-tab gate and the
+   *  probe single-source one id (a second mint would never match). */
+  processId: string;
   procedures: { identity: { info: () => Promise<{ processId: string }> } };
 } {
+  const identity = serverIdentity({ processId: opts.processId });
   return {
     cells: buildInfoServer<T>(opts),
-    procedures: serverIdentity({ processId: opts.processId }),
+    processId: identity.processId,
+    procedures: { identity: identity.identity },
   };
 }

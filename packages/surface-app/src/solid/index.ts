@@ -127,6 +127,13 @@ export function createServerLifecycle<
    *  socket closed before one could run. kolu passes its server's stale-process
    *  handshake-rejection code (`STALE_PROCESS_CLOSE_CODE`) here. */
   restartCloseCode?: number;
+  /** Fires after each successful identity probe with the observed `processId`.
+   *  The lifecycle already classifies it internally (`knownProcessId`); this just
+   *  PUBLISHES the observation outward so a consumer can echo it back as the `pid`
+   *  handshake param on the next reconnect — without re-wrapping `probe` to carry
+   *  a side-effect. Distinct from `serverProcessId()`, which is `undefined` on a
+   *  stale-close restart; the echo needs the last *observed* id, which this is. */
+  onProcessId?: (processId: string) => void;
 }): {
   lifecycle: Accessor<ServerLifecycleEvent>;
   status: Accessor<ConnectionStatus>;
@@ -148,6 +155,9 @@ export function createServerLifecycle<
     opts
       .probe()
       .then(({ processId }) => {
+        // Publish the observation before classifying it — consumers echo it back
+        // as the next reconnect's `pid` handshake param.
+        opts.onProcessId?.(processId);
         // First *successful* identity (regardless of how many opens preceded it):
         // the initial connect. Only once an identity is on record does a later
         // probe become reconnect (same id) / restart (changed id).
@@ -216,6 +226,36 @@ export function createServerLifecycle<
       return "processId" in e ? e.processId : undefined;
     },
     dispose,
+  };
+}
+
+/** Permanently retire a transport the server rejected as stale (a tab bound to a
+ *  previous process). The app's reload affordance is now the only way forward, so
+ *  neither a reconnecting wrapper's offline buffer nor oRPC's pending peers may
+ *  grow unbounded behind it. Two side-effects, both required for the surface
+ *  family's transport (partysocket + oRPC):
+ *
+ *   - `close()` stops auto-reconnect — partysocket flips `_shouldReconnect` to
+ *     false, so it won't re-present the same dead `pid` and be re-rejected in a
+ *     loop. A fresh page resets it.
+ *   - REPLACING `send` with a throwing stub makes oRPC's `ClientPeer` REJECT each
+ *     later request. A `send` that returns normally looks dispatched, then awaits
+ *     a response that never arrives (the socket is closed and won't reconnect, so
+ *     no close event settles the peer either) — every post-stale call would hang
+ *     forever, accumulating unresolved peers; partysocket would also enqueue it
+ *     into an unbounded offline buffer (`maxEnqueuedMessages: Infinity`). The
+ *     throw rejects through the caller's existing error path instead.
+ *
+ *  Fire it off the lifecycle's `restarted` event whose `transport` is `"closed"`.
+ *  Takes a structural `{ close, send }` (not the concrete socket type) so the
+ *  transport library never leaks across the package boundary; `send` is typed
+ *  `unknown` because it is overwritten, never called. */
+export function retireSocket(ws: { close(): void; send: unknown }): void {
+  ws.close();
+  ws.send = () => {
+    throw new Error(
+      "surface-app: server restarted — reload required (stale tab)",
+    );
   };
 }
 

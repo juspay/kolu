@@ -10,19 +10,9 @@
 /** Default server port. */
 export const DEFAULT_PORT = 7681;
 
-/** WebSocket URL query param carrying the client's last-known server
- *  `processId`. The client echoes it on every (re)connect so the server can
- *  recognize a stale tab reconnecting to a RESTARTED instance at the handshake —
- *  before any dead-terminal stream subscription replays. Absent on the first
- *  connect (the client hasn't observed an identity yet). */
-export const SERVER_PROCESS_ID_PARAM = "pid";
-
-/** WebSocket close code the server uses to reject a client bound to a previous
- *  process (its `pid` query param no longer matches `serverProcessId`). In the
- *  application range (4000–4999, per RFC 6455 §7.4.2). The client treats this
- *  code as a definitive restart — it surfaces the reload overlay instead of
- *  replaying subscriptions against the new instance. */
-export const STALE_PROCESS_CLOSE_CODE = 4001;
+// The stale-tab handshake constants (`SERVER_PROCESS_ID_PARAM` /
+// `STALE_PROCESS_CLOSE_CODE`) graduated to `@kolu/surface-app`'s framework-free
+// core — both ends import them from there, so the wire contract has one home.
 
 /** Default font size for the terminal (px). */
 export const DEFAULT_FONT_SIZE = 14;

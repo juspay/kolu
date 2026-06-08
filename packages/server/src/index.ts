@@ -9,11 +9,12 @@ import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
+import { DEFAULT_PORT } from "kolu-common/config";
 import {
-  DEFAULT_PORT,
+  rejectStaleProcess,
   SERVER_PROCESS_ID_PARAM,
   STALE_PROCESS_CLOSE_CODE,
-} from "kolu-common/config";
+} from "@kolu/surface-app";
 import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
@@ -341,7 +342,7 @@ wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   // reload overlay. An absent `pid` (the first-ever connect, before the client
   // has observed an identity) always passes.
   const claimedPid = url.searchParams.get(SERVER_PROCESS_ID_PARAM);
-  if (claimedPid !== null && claimedPid !== serverProcessId) {
+  if (rejectStaleProcess(claimedPid, serverProcessId)) {
     connLog.info(
       { claimedPid, serverProcessId },
       "rejecting stale client — server restarted since it last connected",

@@ -22,7 +22,7 @@
 
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClients } from "@kolu/surface/solid";
-import { SERVER_PROCESS_ID_PARAM } from "kolu-common/config";
+import { SERVER_PROCESS_ID_PARAM } from "@kolu/surface-app";
 import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
@@ -63,46 +63,10 @@ export const ws = new PartySocket(() =>
 // terminal container. Harmless in production — just an attribute on window.
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
-/**
- * Permanently retire this socket once the server has rejected the tab as stale
- * (a previous-process binding). The reload overlay is now the only path forward
- * — reloading lands a fresh page that connects cleanly to the live process — so
- * neither partysocket's offline buffer nor oRPC's pending peers may grow
- * unbounded behind it. Two side-effects, both required (and both reverse-
- * engineered from partysocket/oRPC internals, so they live here beside the
- * `PartySocket` construction rather than in the lifecycle-signal layer):
- *
- *   - `close()` flips partysocket's `_shouldReconnect` to false, STOPPING
- *     auto-reconnect: every further attempt re-presents the same dead id and is
- *     rejected again (a benign-but-noisy loop, with a failed identity probe each
- *     round). A fresh page resets this.
- *
- *   - replacing `send` makes further sends fail LOUDLY. partysocket's `send()`
- *     queues into an unbounded offline buffer (`maxEnqueuedMessages` is
- *     `Infinity`) whenever the socket isn't OPEN, and oRPC's websocket link
- *     calls it directly; with reconnect disabled that buffer never flushes, so
- *     the overlay's `pointer-events-none` card — users can still type into the
- *     terminals underneath — plus any stream retry would grow it without bound.
- *     A no-op `send` stops the buffer, but oRPC's `ClientPeer` treats a `send()`
- *     that returns normally as "request dispatched" and then `await`s a response
- *     that can never arrive (reconnect is off, so no further `close` event fires
- *     to settle the peer either) — every post-stale RPC/stream retry would hang
- *     forever, accumulating unresolved peer requests and promises. So `send`
- *     THROWS a stable stale-tab error: oRPC's `request()` awaits the send, the
- *     throw rejects the call (its `catch` closes that request id), and callers
- *     see a real rejection through their existing error paths instead of
- *     believing a dropped message was accepted. (Requests already in flight at
- *     the stale close are settled by oRPC's own `close` listener, which fired
- *     with that event.) Normal transient-drop buffering is untouched — only the
- *     terminal stale state replaces `send`, and a fresh page restores a pristine
- *     socket.
- */
-export function retireSocket(ws: PartySocket): void {
-  ws.close();
-  ws.send = () => {
-    throw new Error("kolu: server restarted — reload required (stale tab)");
-  };
-}
+// `retireSocket` (stop reconnect + fail sends loudly when the server rejects this
+// tab as stale) graduated to `@kolu/surface-app/solid` — the partysocket+oRPC
+// retirement is shared by every surface app, not kolu-specific. `rpc.ts` imports
+// it and fires it off the lifecycle's `transport: "closed"` event.
 
 // The single combined oRPC link over the one transport. The contract is the
 // combined one (`{ surface: { kolu, surfaceApp }, server, terminal, git }`) — the

@@ -14,15 +14,16 @@
  * Transport setup (PartySocket, typed oRPC client) lives in `../wire.ts`.
  */
 
+import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
 import {
   createServerLifecycle,
+  retireSocket,
   type ServerLifecycleEvent,
   surfaceAppProbe,
 } from "@kolu/surface-app/solid";
-import { STALE_PROCESS_CLOSE_CODE } from "kolu-common/config";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { match } from "ts-pattern";
-import { rememberServerProcessId, retireSocket, surfaceApp, ws } from "../wire";
+import { rememberServerProcessId, surfaceApp, ws } from "../wire";
 
 export type WsStatus = "connecting" | "open" | "closed";
 export type { ServerLifecycleEvent };
@@ -41,14 +42,15 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // combined link can't be expanded per-key — see `SurfaceClient.rpc`), so the
   // probe call shape lives in surface-app's `surfaceAppProbe`, beside the surface
   // that defines the probe — not re-cast here.
-  probe: async () => {
-    const probed = await surfaceAppProbe(surfaceApp);
-    // Remember the live identity so `wire.ts` echoes it as the `pid` handshake
-    // param on the next reconnect — that's how the server recognizes a stale tab
-    // after a restart and rejects it with `STALE_PROCESS_CLOSE_CODE`.
-    rememberServerProcessId(probed.processId);
-    return probed;
-  },
+  probe: () => surfaceAppProbe(surfaceApp),
+  // Echo each observed identity back as the `pid` handshake param on the next
+  // reconnect — that's how the server recognizes a stale tab after a restart and
+  // rejects it with `STALE_PROCESS_CLOSE_CODE`. The lifecycle PUBLISHES the id via
+  // this hook (the probe stays pure); `wire.ts` stashes it in the mutable its URL
+  // thunk reads. Distinct from `serverProcessId()`, which is `undefined` on a
+  // stale-close — the echo must keep re-presenting the last *observed* (now dead)
+  // id so each reconnect is re-rejected.
+  onProcessId: rememberServerProcessId,
   // A persistently-broken probe would otherwise silently leave the UI stuck in
   // its prior connection state. Log it (the next open retries) — same as the
   // pre-extraction rpc.ts.

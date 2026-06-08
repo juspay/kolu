@@ -7,7 +7,7 @@
 
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { createServerLifecycle, type WsLike } from "./index";
+import { createServerLifecycle, retireSocket, type WsLike } from "./index";
 
 /** A minimal transport whose `open`/`close` we fire by hand. `close` can carry a
  *  code so the restart-close-code path is exercisable. */
@@ -188,5 +188,47 @@ describe("createServerLifecycle", () => {
       expect(t.count("close")).toBe(0);
       dispose();
     });
+  });
+
+  it("publishes each observed processId via onProcessId (so the consumer can echo it)", async () => {
+    const t = fakeWs();
+    const seen: string[] = [];
+    let id = "p1";
+    await createRoot(async (dispose) => {
+      createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: id }),
+        onProcessId: (pid) => seen.push(pid),
+      });
+      t.fire("open");
+      await Promise.resolve();
+      // A restart: the hook still fires with the NEW id — and keeps firing the
+      // last observed id even though `serverProcessId()` would diverge on a
+      // stale close (that's why the echo reads this, not the accessor).
+      id = "p2";
+      t.fire("open");
+      await Promise.resolve();
+      expect(seen).toEqual(["p1", "p2"]);
+      dispose();
+    });
+  });
+});
+
+describe("retireSocket", () => {
+  it("closes the socket and replaces send with a throwing stub", () => {
+    let closed = 0;
+    const ws = {
+      close: () => {
+        closed++;
+      },
+      send: (() => {}) as unknown,
+    };
+    retireSocket(ws);
+    expect(closed).toBe(1);
+    // The replacement send THROWS — so oRPC's ClientPeer rejects a post-stale
+    // request instead of awaiting a response that never arrives.
+    expect(() => (ws.send as (d: string) => void)("anything")).toThrow(
+      /stale tab/,
+    );
   });
 });
