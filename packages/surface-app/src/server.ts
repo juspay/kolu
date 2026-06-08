@@ -397,9 +397,14 @@ export interface GateableSocket {
  *
  *  `liveProcessId` MUST be the id the `identity.info` probe reports
  *  (`surfaceAppServer().processId` / an externally-minted id injected into it),
- *  or the gate compares against an id the client never saw. `onError` defaults to
- *  swallowing (the listener's only required job is to keep an `error` from being
- *  fatal); pass a logger to record it, and `onReject` to log the rejection. */
+ *  or the gate compares against an id the client never saw. The `error` listener
+ *  is installed for ACCEPTED sockets too (it must, to survive the reject window),
+ *  so it's also this socket's standing transport-error handler. `onError` thus
+ *  defaults to a LOUD `console.error` (matching `buildInfoServer`) rather than a
+ *  silent no-op — a swallowed transport error on an accepted socket is the exact
+ *  footgun a shared helper should not bake in; pass your own logger to override,
+ *  or an explicit no-op at the call site if you genuinely want silence. `onReject`
+ *  logs the rejection. */
 export function gateStaleSocket(
   ws: GateableSocket,
   requestUrl: URL,
@@ -409,7 +414,15 @@ export function gateStaleSocket(
     onReject?: (claimedPid: string) => void;
   } = {},
 ): boolean {
-  ws.on("error", opts.onError ?? (() => {}));
+  ws.on(
+    "error",
+    opts.onError ??
+      ((err) =>
+        console.error(
+          "gateStaleSocket: WebSocket error (pass `onError` to handle this).",
+          err,
+        )),
+  );
   const claimedPid = requestUrl.searchParams.get(SERVER_PROCESS_ID_PARAM);
   if (rejectStaleProcess(claimedPid, liveProcessId)) {
     // `claimedPid` is non-null here (rejectStaleProcess returns false for null).

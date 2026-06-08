@@ -291,11 +291,18 @@ describe("gateStaleSocket — the WS-upgrade handshake gate", () => {
     );
   });
 
-  it("installs a swallowing error listener by default (no onError)", () => {
+  it("installs a LOUD (console.error) error listener by default (no onError)", () => {
     const t = fakeGateable();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     gateStaleSocket(t.ws, upgradeUrl("live-1"), "live-1");
-    // The default listener exists and doesn't throw — an unhandled `error`
-    // would otherwise be fatal.
-    expect(() => t.fireError(new Error("ignored"))).not.toThrow();
+    // The default listener exists, doesn't throw (an unhandled `error` would
+    // otherwise be fatal), AND logs loudly rather than swallowing — an accepted
+    // socket's transport error must not vanish silently.
+    expect(() => t.fireError(new Error("boom"))).not.toThrow();
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("gateStaleSocket"),
+      expect.objectContaining({ message: "boom" }),
+    );
+    spy.mockRestore();
   });
 });
