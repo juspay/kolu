@@ -315,9 +315,10 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
         buildInfo: async () => {
           const identity = await ptyHostIdentity;
-          // `version` is the static KOLU_VERSION axis (`""` off-nix → the rail
-          // hides it); `ptyHost` is the boot-time-async probe. Both land as a
-          // patch over the library-seeded `{ commit }`.
+          // `version` is the bundled app version (`pkg.version` via
+          // `serverVersion`, always present — even in dev, unlike `commit` which
+          // is env-injected and empty off-nix); `ptyHost` is the boot-time-async
+          // probe. Both land as a patch over the library-seeded `{ commit }`.
           return {
             version: serverVersion,
             ...(identity ? { ptyHost: identity } : {}),
