@@ -19,9 +19,10 @@ import {
   type ServerLifecycleEvent,
   surfaceAppProbe,
 } from "@kolu/surface-app/solid";
+import { STALE_PROCESS_CLOSE_CODE } from "kolu-common/config";
 import { createMemo } from "solid-js";
 import { match } from "ts-pattern";
-import { surfaceApp, ws } from "../wire";
+import { rememberServerProcessId, surfaceApp, ws } from "../wire";
 
 export type WsStatus = "connecting" | "open" | "closed";
 export type { ServerLifecycleEvent };
@@ -40,11 +41,34 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // combined link can't be expanded per-key — see `SurfaceClient.rpc`), so the
   // probe call shape lives in surface-app's `surfaceAppProbe`, beside the surface
   // that defines the probe — not re-cast here.
-  probe: () => surfaceAppProbe(surfaceApp),
+  probe: async () => {
+    const probed = await surfaceAppProbe(surfaceApp);
+    // Remember the live identity so `wire.ts` echoes it as the `pid` handshake
+    // param on the next reconnect — that's how the server recognizes a stale tab
+    // after a restart and rejects it with `STALE_PROCESS_CLOSE_CODE`.
+    rememberServerProcessId(probed.processId);
+    return probed;
+  },
   // A persistently-broken probe would otherwise silently leave the UI stuck in
   // its prior connection state. Log it (the next open retries) — same as the
   // pre-extraction rpc.ts.
   onProbeError: (err) => console.error("surfaceApp.info probe failed:", err),
+  // The server closes a stale tab (one bound to a previous process) with this
+  // code at the handshake. Treat it as a definitive restart so the reload
+  // overlay takes over, instead of a "reconnecting" spinner that would loop as
+  // the client keeps re-presenting the same stale id.
+  restartCloseCode: STALE_PROCESS_CLOSE_CODE,
+});
+
+// Once the server rejects this tab as stale, STOP partysocket's auto-reconnect:
+// every further attempt re-presents the same dead id and is rejected again. The
+// reload overlay (driven by the `restarted` status above) is now the only path
+// forward — reloading lands a fresh page that connects cleanly to the live
+// process. Without this, partysocket spins a benign-but-noisy reconnect loop
+// (and a failed identity probe each round) behind the overlay. `ws.close()`
+// flips partysocket's `_shouldReconnect` to false, which a fresh page resets.
+ws.addEventListener("close", (event: CloseEvent) => {
+  if (event.code === STALE_PROCESS_CLOSE_CODE) ws.close();
 });
 
 // `status` is the surface-app `ConnectionStatus` projection of the same

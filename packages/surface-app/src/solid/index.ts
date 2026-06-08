@@ -65,8 +65,15 @@ export type { ServerProbe };
  *  `removeEventListener` is optional: when present, `createServerLifecycle`
  *  detaches its listeners on dispose (no leak across remounts). */
 export interface WsLike {
-  addEventListener(type: "open" | "close", listener: () => void): void;
-  removeEventListener?(type: "open" | "close", listener: () => void): void;
+  addEventListener(type: "open", listener: () => void): void;
+  addEventListener(
+    type: "close",
+    listener: (event?: { code?: number }) => void,
+  ): void;
+  removeEventListener?(
+    type: "open" | "close",
+    listener: (event?: { code?: number }) => void,
+  ): void;
 }
 
 /** Pure A→B table — exhaustive at the type level (Record requires every key). */
@@ -82,7 +89,8 @@ const STATUS_OF: Record<ServerLifecycleEvent["kind"], ConnectionStatus> = {
  *  form of kolu's `rpc.ts`. On each `open` the probe reads the server's
  *  `processId`: the first connect is `connected`; a later one is `reconnected`
  *  (same id) or `restarted` (changed). A `close` after the first connect is
- *  `disconnected`.
+ *  `disconnected` — unless it carries `restartCloseCode`, which is a definitive
+ *  `restarted` (the server rejected a stale tab; no probe can run).
  *
  *  Listener cleanup: if called inside a reactive owner the open/close listeners
  *  are detached via `onCleanup` (when the transport exposes `removeEventListener`);
@@ -97,6 +105,12 @@ export function createServerLifecycle<
    *  the UI stuck in its prior state with no diagnostic — pass this to log it.
    *  The next `open` still retries; this is observation, not a transition. */
   onProbeError?: (err: unknown) => void;
+  /** Close code that signals a definitive server restart rather than a transient
+   *  drop. When the transport closes with this exact code, the lifecycle goes
+   *  straight to `restarted` (not `disconnected`) — no probe needed, because the
+   *  socket closed before one could run. kolu passes its server's stale-process
+   *  handshake-rejection code (`STALE_PROCESS_CLOSE_CODE`) here. */
+  restartCloseCode?: number;
 }): {
   lifecycle: Accessor<ServerLifecycleEvent>;
   status: Accessor<ConnectionStatus>;
@@ -139,7 +153,23 @@ export function createServerLifecycle<
         opts.onProbeError?.(err);
       });
   };
-  const onClose = () => {
+  const onClose = (event?: { code?: number }) => {
+    // A dedicated restart close code (kolu's server rejecting a stale tab whose
+    // `pid` no longer matches the live process) is a definitive restart, not a
+    // transient drop. Go straight to `restarted` so the reload overlay takes
+    // over instead of a "reconnecting" spinner that would loop as the client
+    // keeps re-presenting the same stale id. It carries the LAST known id (the
+    // process we were detached from) — the new id isn't observable, since the
+    // socket closed before any probe. Still gated on an established identity: a
+    // restart close before the first connect never had a relationship to lose.
+    if (
+      opts.restartCloseCode !== undefined &&
+      event?.code === opts.restartCloseCode &&
+      knownProcessId !== null
+    ) {
+      setLifecycle({ kind: "restarted", processId: knownProcessId });
+      return;
+    }
     // Only report a drop once an identity has been established — a close before
     // the first successful probe never established a relationship to report lost.
     if (knownProcessId !== null) setLifecycle({ kind: "disconnected" });

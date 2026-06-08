@@ -1,3 +1,4 @@
+import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
@@ -8,7 +9,11 @@ import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
-import { DEFAULT_PORT } from "kolu-common/config";
+import {
+  DEFAULT_PORT,
+  SERVER_PROCESS_ID_PARAM,
+  STALE_PROCESS_CLOSE_CODE,
+} from "kolu-common/config";
 import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
@@ -21,7 +26,7 @@ import {
   installPwaManifest,
 } from "@kolu/surface-app/server";
 import { startDiagnostics } from "./diagnostics.ts";
-import { serverHostname } from "./hostname.ts";
+import { serverHostname, serverProcessId } from "./hostname.ts";
 import {
   previewRealpathGuard,
   previewTailFromRawUrl,
@@ -320,9 +325,30 @@ const wsRpcHandler = new WsRPCHandler(appRouter as any, {
 });
 
 let nextConnId = 0;
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req: IncomingMessage) => {
   const connId = ++nextConnId;
   const connLog = log.child({ ws: connId });
+
+  // processId handshake gate: a stale tab reconnecting to a RESTARTED server
+  // still carries the PREVIOUS instance's id in its `pid` query param. Reject it
+  // here — before oRPC upgrades the socket — so its dead-terminal stream
+  // subscriptions never replay and storm the logs with NOT_FOUND. The client
+  // reads STALE_PROCESS_CLOSE_CODE as a definitive restart and surfaces the
+  // reload overlay. An absent `pid` (the first-ever connect, before the client
+  // has observed an identity) always passes.
+  const claimedPid = new URL(
+    req.url ?? "",
+    `http://${req.headers.host}`,
+  ).searchParams.get(SERVER_PROCESS_ID_PARAM);
+  if (claimedPid !== null && claimedPid !== serverProcessId) {
+    connLog.info(
+      { claimedPid, serverProcessId },
+      "rejecting stale client — server restarted since it last connected",
+    );
+    ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+    return;
+  }
+
   connLog.info({ total: wss.clients.size }, "connected");
   wsRpcHandler.upgrade(ws, { context: {} });
   ws.on("close", (code, reason) => {

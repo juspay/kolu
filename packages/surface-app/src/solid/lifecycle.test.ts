@@ -9,12 +9,13 @@ import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createServerLifecycle, type WsLike } from "./index";
 
-/** A minimal transport whose `open`/`close` we fire by hand. */
+/** A minimal transport whose `open`/`close` we fire by hand. `close` can carry a
+ *  code so the restart-close-code path is exercisable. */
 function fakeWs() {
-  const listeners: Record<"open" | "close", Array<() => void>> = {
-    open: [],
-    close: [],
-  };
+  const listeners: Record<
+    "open" | "close",
+    Array<(event?: { code?: number }) => void>
+  > = { open: [], close: [] };
   const ws: WsLike = {
     addEventListener: (type, fn) => listeners[type].push(fn),
     removeEventListener: (type, fn) => {
@@ -23,8 +24,9 @@ function fakeWs() {
   };
   return {
     ws,
-    fire: (type: "open" | "close") => {
-      for (const l of listeners[type].slice()) l();
+    fire: (type: "open" | "close", code?: number) => {
+      const event = code === undefined ? undefined : { code };
+      for (const l of listeners[type].slice()) l(event);
     },
     count: (type: "open" | "close") => listeners[type].length,
   };
@@ -60,6 +62,48 @@ describe("createServerLifecycle", () => {
       expect(lifecycle().kind).toBe("restarted"); // changed id
       expect(status()).toBe("restarted");
 
+      dispose();
+    });
+  });
+
+  it("a restart close code goes straight to `restarted`, not `disconnected`", async () => {
+    const t = fakeWs();
+    await createRoot(async (dispose) => {
+      const { lifecycle, status } = createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: "p1" }),
+        restartCloseCode: 4001,
+      });
+
+      t.fire("open");
+      await Promise.resolve();
+      expect(lifecycle().kind).toBe("connected");
+
+      // An ordinary close is a transient drop.
+      t.fire("close");
+      expect(lifecycle().kind).toBe("disconnected");
+
+      // The dedicated restart code is definitive — straight to `restarted`,
+      // carrying the last-known id (the new one isn't observable).
+      t.fire("close", 4001);
+      expect(lifecycle()).toEqual({ kind: "restarted", processId: "p1" });
+      expect(status()).toBe("restarted");
+
+      dispose();
+    });
+  });
+
+  it("a restart close code before any identity is established is ignored", async () => {
+    const t = fakeWs();
+    await createRoot(async (dispose) => {
+      const { lifecycle } = createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: "p1" }),
+        restartCloseCode: 4001,
+      });
+      // No open/probe yet → no relationship to lose; stay put.
+      t.fire("close", 4001);
+      expect(lifecycle().kind).toBe("connecting");
       dispose();
     });
   });
