@@ -536,7 +536,9 @@ export const PtyHostIdentitySchema = z.object({
 
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y) — the rail's `srv` column shows it as `vX.Y` beside the
-   *  commit. Optional: empty/absent off-nix (dev), where there's no tag. */
+   *  commit. Optional only in the library-seeded default (`{ commit }`); once
+   *  the async buildInfo patch resolves it's always present — `pkg.version`,
+   *  even in dev. */
   version?: string;
   ptyHost?: z.infer<typeof PtyHostIdentitySchema>;
 }
