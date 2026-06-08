@@ -54,7 +54,7 @@ export function rememberServerProcessId(id: string): void {
 
 export const ws = new PartySocket(() =>
   lastServerProcessId
-    ? `${wsBaseUrl}?${SERVER_PROCESS_ID_PARAM}=${encodeURIComponent(lastServerProcessId)}`
+    ? `${wsBaseUrl}?${SERVER_PROCESS_ID_PARAM}=${lastServerProcessId}`
     : wsBaseUrl,
 );
 
@@ -62,11 +62,6 @@ export const ws = new PartySocket(() =>
 // drop and restore the socket directly. Same pattern as __xterm on the
 // terminal container. Harmless in production — just an attribute on window.
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
-
-// `retireSocket` (stop reconnect + fail sends loudly when the server rejects this
-// tab as stale) graduated to `@kolu/surface-app/solid` — the partysocket+oRPC
-// retirement is shared by every surface app, not kolu-specific. `rpc.ts` imports
-// it and fires it off the lifecycle's `transport: "closed"` event.
 
 // The single combined oRPC link over the one transport. The contract is the
 // combined one (`{ surface: { kolu, surfaceApp }, server, terminal, git }`) — the

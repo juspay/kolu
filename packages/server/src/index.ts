@@ -326,30 +326,21 @@ const wsRpcHandler = new WsRPCHandler(appRouter as any, {
 });
 
 let nextConnId = 0;
-// `url` is the already-parsed request URL the upgrade handler passes through
-// `emit` (a non-standard 3rd arg), so the gate reads `pid` without re-parsing
-// `req.url`; `req` itself is no longer needed here. Explicit param types because
-// the extra `emit` arg defeats `ws`'s typed `connection` overload inference.
 wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   const connId = ++nextConnId;
   const connLog = log.child({ ws: connId });
 
-  // Attach the error handler FIRST — before the stale-process gate can `return`.
-  // A rejected socket is still a live `ws` EventEmitter until its close handshake
-  // settles; if the peer resets (or the socket otherwise emits `error`) after
-  // `ws.close(...)`, an unhandled `error` event becomes an uncaught exception.
-  // Both accepted and rejected sockets need it, so it's installed up front.
+  // Error handler before the gate: a rejected socket is still a live EventEmitter
+  // until its close handshake settles; an unhandled `error` event would be fatal.
   ws.on("error", (err) => {
     connLog.error({ err }, "error");
   });
 
   // processId handshake gate: a stale tab reconnecting to a RESTARTED server
   // still carries the PREVIOUS instance's id in its `pid` query param. Reject it
-  // here — before oRPC upgrades the socket — so its dead-terminal stream
-  // subscriptions never replay and storm the logs with NOT_FOUND. The client
-  // reads STALE_PROCESS_CLOSE_CODE as a definitive restart and surfaces the
-  // reload overlay. An absent `pid` (the first-ever connect, before the client
-  // has observed an identity) always passes.
+  // here — before oRPC upgrades the socket — so dead-terminal stream subscriptions
+  // never replay and storm the logs with NOT_FOUND. An absent `pid` (the
+  // first-ever connect) always passes.
   const claimedPid = url.searchParams.get(SERVER_PROCESS_ID_PARAM);
   if (rejectStaleProcess(claimedPid, serverProcessId)) {
     connLog.info(
@@ -378,6 +369,8 @@ wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "", `http://${req.headers.host}`);
   if (url.pathname === "/rpc/ws") {
+    // Pass the pre-parsed `url` as a 3rd arg so the connection handler reads
+    // `pid` without re-parsing `req.url`.
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req, url);
     });
