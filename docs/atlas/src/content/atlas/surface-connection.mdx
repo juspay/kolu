@@ -1,0 +1,168 @@
+---
+title: surface-connection — the WebSocket connection, owned upstream
+description: Extract the partysocket + oRPC connection assembly both kolu and drishti still hand-roll — client socket+link+clients+lifecycle and the server upgrade+gate — into a turnkey @kolu/surface-app connection layer, leaving each app only its URL, surfaces, and runtime adapter.
+kind: feature
+status: proposed
+maturity: seedling
+parents: surface-app
+updated: 2026-06-08
+---
+
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import D2 from "../../components/D2.astro";
+
+The stale-tab handshake (<PrLink pr={1231} />) upstreamed the *gate* into [@kolu/surface-app](./surface-app.html) — the `pid` param, the `4001` close code, `rejectStaleProcess`, `retireSocket`, and the turnkey `<SurfaceAppProvider ws probe>` source. But it left the **connection assembly itself** — the `new PartySocket(...)` → `websocketLink` → `surfaceClients` → `createServerLifecycle` wiring on the client, and the WS-upgrade-plus-gate on the server — **hand-rolled in each consumer**. kolu writes it in `wire.ts`/`rpc.ts`/`index.ts`; drishti writes the byte-identical shape in its own `wire.ts`/`main.ts`. **This note proposes lifting that last duplicated layer into a connection factory + a server WS adapter**, so a consumer supplies only its URL, its surfaces map, and its runtime adapter — never the plumbing.
+
+<p>Status: <Pill variant="run">proposed</Pill> · follow-up to <PrLink pr={1231} /> · the ③ proof is already standing — [srid/drishti](https://github.com/srid/drishti) runs the *identical* stack (partysocket `^1.1.16` + `@orpc` + `@kolu/surface/links/websocket`), so this isn't a speculative abstraction; it's deduplicating two real consumers.</p>
+
+<Callout kind="accent">
+Each upstreaming round of this saga found the same thing: a slice both consumers hand-roll byte-for-byte. <PrLink pr={1201} /> lifted surface *composition*; <PrLink pr={1154} /> lifted the *app shell*; <PrLink pr={1231} /> lifted the *handshake gate*. What's left is the **connection** — the socket+link+clients+lifecycle assembly and its server-side upgrade+gate. It is the last hand-rolled seam, and it fails the same "both apps re-type it" test the others did.
+</Callout>
+
+## The duplication both consumers still hand-roll
+
+Two blocks, identical in shape across kolu and drishti, differing only in per-runtime mechanics.
+
+**Client** — kolu's `wire.ts` (and drishti's `makeSocket`, run once per host + once for the admin socket):
+
+```ts
+// the pid-echo mutable + URL thunk — hand-rolled in BOTH wire.ts files
+let lastServerProcessId: string | null = null;
+export function rememberServerProcessId(id: string) { lastServerProcessId = id; }
+const ws = new PartySocket(() =>
+  lastServerProcessId ? `${base}?${SERVER_PROCESS_ID_PARAM}=${lastServerProcessId}` : base);
+const link = websocketLink<typeof contract>(ws);
+const clients = surfaceClients(link, surfaces);
+// …then, in rpc.ts, the OTHER half of the same echo loop:
+createServerLifecycle({ ws, probe, restartCloseCode: STALE_PROCESS_CLOSE_CODE,
+  onProcessId: rememberServerProcessId, onStaleRestart: () => retireSocket(ws) });
+```
+
+The `pid` echo is split across two files (`wire.ts` owns the URL thunk + the mutable; `rpc.ts` owns the lifecycle that *feeds* it) **only because the consumer owns the socket separately from the lifecycle**. That fragmentation is structural, and both consumers reproduce it.
+
+**Server** — kolu's `index.ts` (Node + `ws`), mirrored by drishti's `main.ts` (`Bun.serve`):
+
+```ts
+wss.on("connection", (ws, _req, url) => {
+  ws.on("error", …);                                    // FIRST — or a post-close peer error crashes (codex F1)
+  if (rejectStaleProcess(url.searchParams.get(SERVER_PROCESS_ID_PARAM), serverProcessId)) {
+    ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process"); return;   // gate BEFORE upgrade
+  }
+  wsRpcHandler.upgrade(ws, { context: {} });
+});
+```
+
+Same five steps — error-handler-first, parse `pid`, gate, close-or-upgrade — written twice against two different WS server APIs. **The error-handler-before-gate ordering is a footgun the gauntlet caught once; today nothing stops the next consumer from re-introducing it.**
+
+## The receptacle — a connection factory + a server WS adapter
+
+The seam is a *connection*: "bind this surface app to its server over a reconnecting WebSocket." It lives in `@kolu/surface-app` because it composes that package's lifecycle + handshake on top of `@kolu/surface`'s `websocketLink`/`surfaceClients` — surface stays the pure wire; the connection is an app-shell concern. Two halves, one per side of the wire.
+
+<D2
+  caption="The connection layer owns the partysocket+oRPC assembly on both ends. Each consumer supplies only its URL, its surfaces map, and (server) a one-per-runtime adapter. The pid echo collapses inside the client factory because it now owns both the URL thunk AND the lifecycle."
+  code={`direction: down
+consumer: "consumer (kolu · drishti) — supplies URL + surfaces + runtime adapter" {
+  cfg: "base URL · surfaces map · socket options · per-host vs single"
+}
+client: "@kolu/surface-app/connect — createSurfaceConnection()" {
+  sock: "new PartySocket(pid-echo URL thunk)  ← owns the echo now"
+  asm: "websocketLink · surfaceClients · createServerLifecycle · retireSocket"
+}
+server: "@kolu/surface-app/server — serveSurfaceWebSocket(adapter, …)" {
+  gate: "error-handler-first · parse pid · rejectStaleProcess · close(4001) | upgrade"
+  ad: "nodeWsAdapter (ws)  ·  bunWsAdapter (Bun.serve)  ← one per runtime"
+}
+wire: "one reconnecting WebSocket — oRPC multiplexed" {
+  m: "surface.<key>.<prim>  ·  identity.info probe"
+}
+consumer.cfg -> client: "url + surfaces"
+consumer.cfg -> server: "picks an adapter"
+client.sock -> wire: "?pid= echo on every (re)connect"
+server.gate -> wire: "gate at handshake, before oRPC upgrade"
+client -> server: "handshake: client echoes last pid, server mints + reports"
+`}
+/>
+
+### Client — `createSurfaceConnection`
+
+One call replaces the whole `wire.ts` + `rpc.ts` assembly. It owns the PartySocket construction, the link, the per-key clients, the lifecycle, retirement — **and the `pid` echo, which now collapses into one place** because the factory owns both the URL thunk and the lifecycle that feeds it.
+
+```ts
+const conn = createSurfaceConnection({
+  url,                         // base ws URL; drishti appends ?host= before calling
+  surfaces, contract,          // the app's keyed surfaces map (unchanged)
+  probe: surfaceAppProbe,      // surface-app's identity probe
+  restartCloseCode: STALE_PROCESS_CLOSE_CODE,
+  socketOptions,               // optional partysocket opts (drishti's 60s cold-start deadline)
+});
+conn.clients;          // surfaceClients(link, surfaces) — every existing call site unchanged
+conn.lifecycle;        // the createServerLifecycle handle (status/stale/server/reload)
+conn.ws;               // the socket, for the e2e __koluWs hook
+// no rememberServerProcessId, no onStaleRestart wiring, no URL thunk — all internal.
+```
+
+kolu's `wire.ts` collapses to one call; drishti's three (`makeSocket` per host + admin) become `hosts.map(h => createSurfaceConnection({ url: withHost(base, h), … }))`. **The `lastServerProcessId` mutable and `rememberServerProcessId` export disappear from both consumers.**
+
+### Server — `serveSurfaceWebSocket` + runtime adapters
+
+A tiny runtime-adapter interface abstracts the one genuine difference between the consumers — Node's `ws` vs `Bun.serve` — behind the shared upgrade+gate logic, with the error-handler-before-gate ordering **baked in so no consumer can re-introduce the crash**.
+
+```ts
+// kolu (Node + ws)                         // drishti (Bun.serve)
+serveSurfaceWebSocket(nodeWsAdapter(wss), { serveSurfaceWebSocket(bunWsAdapter(server), {
+  router: wsRpcHandler,                       router,
+  identity: serverProcessId,                  identity: processId,
+});                                         });
+```
+
+The adapter is ~30 lines written **once per runtime** (kolu ships `nodeWsAdapter`, drishti ships `bunWsAdapter`), not once per app. `serveSurfaceWebSocket` owns the path match, the `pid` extraction, `rejectStaleProcess`, the `4001` close, the error-handler ordering, and the upgrade — the five steps both servers re-type today.
+
+## What it dissolves, what stays
+
+| Hand-rolled today (×2 consumers) | After |
+| --- | --- |
+| `lastServerProcessId` mutable + `rememberServerProcessId` + URL thunk, split across `wire.ts`/`rpc.ts` | owned inside `createSurfaceConnection`; the echo collapses to one site |
+| error-handler-before-gate ordering (codex F1 crash) | encapsulated once in `serveSurfaceWebSocket` — unrepeatable |
+| parse `pid` → `rejectStaleProcess` → `close(4001)` | one adapter call per runtime |
+| `new PartySocket` + reconnect opts + `websocketLink` + `surfaceClients` + `createServerLifecycle` | one `createSurfaceConnection` call |
+
+What stays **per-consumer** — the genuinely volatile parts, which is exactly why they *should* stay:
+
+- **The runtime adapter choice** — `nodeWsAdapter` vs `bunWsAdapter`. The one real difference between the two servers; each is written once per runtime, never per app.
+- **App config** — contract/surfaces, base URL, socket options, single-socket (kolu) vs per-host + admin (drishti).
+- **The overlay chrome** — surface-app keeps providing the *model* (`useSurfaceApp().updateReady()`/`reload()`); each app renders its own card. *(Optional, secondary: a headless `useTransportOverlay() → { kind: "reconnecting" | "update", onReload }` so the show/hide logic isn't re-derived — kolu's `TransportOverlay` and drishti's are near-identical today. Behavior shared, styling per-app.)*
+
+## The lens question — committing to partysocket
+
+This extraction makes `@kolu/surface-app` **explicitly** a partysocket + oRPC layer: the client factory calls `new PartySocket(...)` and the adapters speak the oRPC `WsRPCHandler`. Early in the <PrLink pr={1231} /> work the lenses fought to keep `WsLike` *observation-only* precisely to avoid hardcoding partysocket — so this looks like a reversal.
+
+<Callout kind="good" title="Why it's consistent, not a reversal">
+The fact-grounded lowy ⇄ hickey debate on <PrLink pr={1231} /> already conceded the point: `retireSocket`'s body is partysocket+oRPC-specific, and that is *fine because the package is scoped to that stack, proven by two consumers* (the ③ test). The commitment is therefore already **de-facto true** — surface-app ships `retireSocket`, which only works on a partysocket. A connection factory that says so out loud just removes the last hand-rolled boilerplate; it doesn't widen the commitment.
+</Callout>
+
+The safety valve is **keep the primitives as the escape hatch**. `websocketLink`, `surfaceClients`, and `createServerLifecycle` stay exactly as they are — a future non-partysocket consumer drops to that lower layer and hand-builds, exactly as kolu and drishti do *today*. The factory is the turnkey path, not the only path. *Extract the turnkey; don't delete the parts.*
+
+<Callout kind="accent" title="Placement">
+Recommended home: `@kolu/surface-app/connect` (client) + the adapter in `@kolu/surface-app/server`, since the factory composes surface-app's lifecycle + handshake. The alternative — a standalone `@kolu/surface-connect` depending on both surface and surface-app — keeps surface-app lifecycle-only, but adds a package for no second axis of change. Default to the entrypoints unless a third consumer wants the connection *without* the app shell.
+</Callout>
+
+## Phasing & status
+
+Each phase is a shippable kolu PR with a paired drishti PR (the ③ proof every step), mirroring how <PrLink pr={1201} /> and <PrLink pr={1231} /> landed.
+
+1. **Server WS adapter + gate** — `serveSurfaceWebSocket` + `nodeWsAdapter`/`bunWsAdapter`. Biggest footgun removal (the error-ordering crash becomes structurally unrepeatable), smallest surface. Both consumers swap their upgrade handler. <Pill variant="run">proposed</Pill>
+2. **Client connection factory** — `createSurfaceConnection`. Collapses both `wire.ts` files, dissolves the `pid`-echo mutable. <Pill variant="run">proposed</Pill>
+3. **Headless overlay model** *(optional)* — `useTransportOverlay()` so the show/hide logic isn't re-derived; chrome stays per-app. <Pill variant="run">deferred</Pill>
+
+Before any code, this boundary gets the **twice-run fact-grounded lowy ⇄ hickey pass** — the same way the <PrLink pr={1231} /> design did, and the same way that debate *overturned* its own first verdict once grounded in verified drishti source. The receptacle named here (factory + adapter) is the hypothesis the lenses sharpen, not the settled seam.
+
+<Callout kind="good" title="The one-line answer">
+surface-app already owns the handshake; it should own the *handshake's socket* too. Lift the connection assembly both apps re-type — client factory + server adapter — so a consumer brings only its URL, its surfaces, and its runtime, and inherits the reconnect, the gate, the echo, and the retirement for free.
+</Callout>
+
+---
+
+Origin: follow-up to <PrLink pr={1231} />. Model: [@kolu/surface-app](./surface-app.html) · [electricity](./electricity.html). ③ proof: [srid/drishti](https://github.com/srid/drishti).
