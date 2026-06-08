@@ -18,19 +18,38 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 export const shouldNotRetryORPCError: ClientRetryPluginContext["shouldRetry"] =
   ({ error }) => !(error instanceof ORPCError);
 
-/** The error a permanently-retired transport throws from `send` so the shared
- *  retry policy (`shouldNotRetryORPCError`) classifies it as non-retriable.
- *  An `ORPCError` — NOT a plain `Error`: the retry fence above only suppresses
- *  `ORPCError`, so a plain throw from a retired socket would still look like a
- *  retriable transport error and re-subscribe forever (each retry firing the
- *  stream's `onRetry`, e.g. clearing a terminal buffer behind the reload
- *  overlay). Same mechanism the dead stdio link uses
- *  (`SURFACE_STDIO_TRANSPORT_CLOSED`): give the retirement a non-retry shape the
- *  predicate already recognizes. */
+/** The two codes a permanently-dead transport rejects with. Distinct strings
+ *  (so a consumer can tell *which* transport died) but one shape: both flow
+ *  through `deadTransportError` so neither can drift from the non-retry
+ *  contract `shouldNotRetryORPCError` above enforces. */
+export const SURFACE_TRANSPORT_RETIRED = "SURFACE_TRANSPORT_RETIRED";
+export const SURFACE_STDIO_TRANSPORT_CLOSED = "SURFACE_STDIO_TRANSPORT_CLOSED";
+
+/** The error a permanently-dead transport throws so the shared retry policy
+ *  (`shouldNotRetryORPCError`) classifies it as non-retriable. An `ORPCError`
+ *  — NOT a plain `Error`: the retry fence above only suppresses `ORPCError`, so
+ *  a plain throw from a dead transport would still look like a retriable
+ *  transport error and re-subscribe forever (each retry firing the stream's
+ *  `onRetry`, e.g. clearing a terminal buffer behind the reload overlay).
+ *
+ *  One factory for both transports — the retired websocket
+ *  (`SURFACE_TRANSPORT_RETIRED`) and the closed stdio link
+ *  (`SURFACE_STDIO_TRANSPORT_CLOSED`) — so the "non-retry shape the fence
+ *  recognizes" is encoded in exactly one place. Per-site `message` strings stay
+ *  caller-supplied; only the construction routes through here. */
+export function deadTransportError(
+  code: string,
+  message: string,
+): ORPCError<string, unknown> {
+  return new ORPCError(code, { message });
+}
+
+/** A retired-websocket transport error — `deadTransportError` keyed to
+ *  `SURFACE_TRANSPORT_RETIRED`. Thrown from `retireSocket`'s `send` stub. */
 export function transportRetiredError(
   message: string,
 ): ORPCError<string, unknown> {
-  return new ORPCError("SURFACE_TRANSPORT_RETIRED", { message });
+  return deadTransportError(SURFACE_TRANSPORT_RETIRED, message);
 }
 
 /** Retry context applied to every framework-driven streaming call.
