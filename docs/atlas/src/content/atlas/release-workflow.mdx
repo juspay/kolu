@@ -63,7 +63,7 @@ Phases 1–3 are read-only; nothing is written before the go/no-go.
 1. **Settle** the version (editorial — `.0` milestone, normal bump otherwise; valid semver `X.Y.Z`) and date.
 2. **Preflight** — on `master`, clean, synced, CI green on `HEAD` (the base the release commit builds on). Refuse otherwise.
 3. **Confirm** — show the exact notes + version bump + tag, then go/no-go. `No` leaves the tree untouched.
-4. **Apply** — promote `unreleased.mdx` → `<version>.mdx` (`{ version, date }`) + fresh empty Unreleased; set `packages/server/package.json` `version` (the single source — Nix + runtime both read it; nothing else to bump); commit (`release X.Y.Z`) + push `master`. **No tag yet.**
+4. **Apply** — promote `unreleased.mdx` → `<version>.mdx` (`{ version, date }`), consolidating any duplicate `###` headings `merge=union` left behind into one section per heading + fresh empty Unreleased; set `packages/server/package.json` `version` (the single source — Nix + runtime both read it; nothing else to bump); commit (`release X.Y.Z`) + push `master`. **No tag yet.**
 5. **Wait** for CI to go green on the pushed release commit — never tag a commit CI hasn't passed.
 6. **Tag & publish** — annotated tag `vX.Y.Z` on the green commit, push, `gh release create`.
 7. **Verify** — tag on master, release live, `kolu.dev/changelog` updated; pin is `nix run github:juspay/kolu/vX.Y.Z`.
@@ -72,7 +72,7 @@ Phases 1–3 are read-only; nothing is written before the go/no-go.
 
 - **`changelog` collection** — ✓ <PrLink pr={1208} /> (schema, `/changelog` page, seeded `unreleased.mdx`, `merge=union`).
 - **Keep-it-filled** — ✓ the `/be` implement-step entry (<Cite file=".apm/skills/be/SKILL.md" lines="36" />); no CI gate.
-- **Identity rail** — ✓ version sourced once from `packages/server/package.json`, read at runtime via `serverVersion` (<Cite file="packages/server/src/hostname.ts" lines="11-18" label="serverVersion = pkg.version" />) and by Nix for the artifact version (<Cite file="default.nix" lines="15-19" />). No env var, nothing to propagate. `serverVersion` is the single runtime owner — it feeds the `buildInfo` cell → rail (`vX.Y.Z · <hash>`), `--version`, the startup log, and the pty's `TERM_PROGRAM_VERSION`.
+- **Identity rail** — ✓ version sourced once from `packages/server/package.json`, read at runtime via `serverVersion` (<Cite file="packages/server/src/hostname.ts" lines="17-23" label="serverVersion = pkg.version" />) and by Nix for the artifact version (<Cite file="default.nix" lines="15-19" />). No env var, nothing to propagate. `serverVersion` is the single runtime owner — it feeds the `buildInfo` cell → rail (`vX.Y.Z · <hash>`), `--version`, the startup log, and the pty's `TERM_PROGRAM_VERSION`.
 - **`/release` skill** — ✓ <Cite file=".apm/skills/release/SKILL.md" lines="1" />; the steps above.
 
 ---

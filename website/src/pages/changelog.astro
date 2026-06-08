@@ -17,11 +17,29 @@ const fmtDate = (d: Date) =>
 
 const all = await getCollection("changelog");
 
+// Newest-first by date, then semver-descending so same-day releases (a patch
+// cut hours after its minor) still order newest version first. `id` is the
+// final stable fallback for anything non-`X.Y.Z`.
+const semverDesc = (a: string, b: string) => {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pb[i] ?? 0) - (pa[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+};
+
 // A dateless entry is the open Unreleased section; dated entries are releases.
 const unreleased = all.find((e) => !e.data.date);
 const released = all
   .filter((e) => e.data.date)
-  .sort((a, b) => b.data.date!.valueOf() - a.data.date!.valueOf());
+  .sort(
+    (a, b) =>
+      b.data.date!.valueOf() - a.data.date!.valueOf() ||
+      semverDesc(a.data.version, b.data.version) ||
+      a.id.localeCompare(b.id),
+  );
 
 // Pre-render MDX bodies in frontmatter (can't `await render()` inside the map).
 const unreleasedHasBody = !!unreleased?.body?.trim();
