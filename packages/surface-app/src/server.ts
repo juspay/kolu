@@ -23,7 +23,10 @@ import {
   type FreshnessPaths,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
+  rejectStaleProcess,
+  SERVER_PROCESS_ID_PARAM,
   SHELL_CACHE_CONTROL,
+  STALE_PROCESS_CLOSE_CODE,
   SW_SOURCE,
 } from "./index";
 import type { BuildInfo } from "./surface";
@@ -365,4 +368,66 @@ export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
     processId: identity.processId,
     procedures: { identity: identity.identity },
   };
+}
+
+/** A server-side WebSocket the stale-tab gate acts on — the structural subset of
+ *  the `ws` package's socket both kolu (single `/rpc/ws`) and drishti (per-host
+ *  dispatch) upgrade. Kept structural so surface-app needn't depend on `ws`. */
+export interface GateableSocket {
+  on: (event: "error", listener: (err: Error) => void) => unknown;
+  close: (code: number, reason?: string) => void;
+}
+
+/** Apply the stale-tab handshake gate at the WS upgrade, in the ONE correct
+ *  order — so no consumer re-derives it (and re-introduces the crash kolu#1231's
+ *  review caught). The three steps the server must do BEFORE oRPC upgrades the
+ *  socket, encapsulated:
+ *
+ *   1. **Install the `error` listener FIRST.** A socket rejected in step 3 is
+ *      still a live `EventEmitter` until its close handshake settles; an
+ *      unhandled `error` in that window is fatal to the process. Installing it
+ *      before the early return is the ordering a hand-rolled gate gets wrong —
+ *      drishti's pre-extraction upgrade handler did, and only avoided the crash
+ *      by luck of timing.
+ *   2. **Decide via `rejectStaleProcess`**, reading the claimed `pid` off the
+ *      request URL with `SERVER_PROCESS_ID_PARAM` — the param name stays internal
+ *      here, single-sourced with the client echo in `./connect`.
+ *   3. **On a stale tab, `close(STALE_PROCESS_CLOSE_CODE, …)`** and report `true`
+ *      so the caller returns WITHOUT upgrading; `false` means proceed.
+ *
+ *  `liveProcessId` MUST be the id the `identity.info` probe reports
+ *  (`surfaceAppServer().processId` / an externally-minted id injected into it),
+ *  or the gate compares against an id the client never saw. The `error` listener
+ *  is installed for ACCEPTED sockets too (it must, to survive the reject window),
+ *  so it's also this socket's standing transport-error handler. `onError` thus
+ *  defaults to a LOUD `console.error` (matching `buildInfoServer`) rather than a
+ *  silent no-op — a swallowed transport error on an accepted socket is the exact
+ *  footgun a shared helper should not bake in; pass your own logger to override,
+ *  or an explicit no-op at the call site if you genuinely want silence. `onReject`
+ *  logs the rejection. */
+export function gateStaleSocket(
+  ws: GateableSocket,
+  requestUrl: URL,
+  liveProcessId: string,
+  opts: {
+    onError?: (err: Error) => void;
+    onReject?: (claimedPid: string) => void;
+  } = {},
+): boolean {
+  ws.on(
+    "error",
+    opts.onError ??
+      ((err) =>
+        console.error(
+          "gateStaleSocket: WebSocket error (pass `onError` to handle this).",
+          err,
+        )),
+  );
+  const claimedPid = requestUrl.searchParams.get(SERVER_PROCESS_ID_PARAM);
+  if (claimedPid !== null && rejectStaleProcess(claimedPid, liveProcessId)) {
+    opts.onReject?.(claimedPid);
+    ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+    return true;
+  }
+  return false;
 }

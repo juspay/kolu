@@ -1,0 +1,169 @@
+---
+title: surface-connection — the WebSocket connection, owned upstream
+description: Lift the partysocket + oRPC connection assembly both kolu and drishti hand-rolled — the pid-echo, the socket construction, and the server upgrade gate — into three composable @kolu/surface-app primitives, leaving each app only its URL, socket topology, and lifecycle ownership.
+kind: feature
+status: implemented
+maturity: budding
+parents: surface-app
+updated: 2026-06-08
+---
+
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import D2 from "../../components/D2.astro";
+
+The stale-tab handshake (<PrLink pr={1231} />) upstreamed the *gate* into [@kolu/surface-app](./surface-app.html) — the `pid` param, the `4001` close code, `rejectStaleProcess`, `retireSocket`, the lifecycle. But it left the **connection assembly itself** — the `pid`-echo plumbing, the `new PartySocket(...)` construction, and the server-side upgrade gate — **hand-rolled in each consumer**, byte-for-byte identical between kolu and [drishti](https://github.com/srid/drishti). This change lifts that last duplicated layer into **three composable primitives**, so a consumer brings only its URL, its socket topology, and its lifecycle ownership — never the plumbing.
+
+<p>Status: <Pill variant="done">implemented</Pill> · kolu <PrLink pr={1234} /> · paired drishti PR · follow-up to <PrLink pr={1231} />.</p>
+
+<Callout kind="accent">
+Each upstreaming round of this saga found the same thing: a slice both consumers hand-roll. <PrLink pr={1201} /> lifted surface *composition*; <PrLink pr={1154} /> lifted the *app shell*; <PrLink pr={1231} /> lifted the *handshake gate*. What was left is the **connection plumbing** — the `pid`-echo, the partysocket construction, and the server upgrade gate. It is the last hand-rolled seam, and it failed the same "both apps re-type it" test.
+</Callout>
+
+<Callout kind="danger" title="The boundary moved — smaller — once grounded in real source">
+The first cut of this plan proposed a god-factory (`createSurfaceConnection`) bundling socket + clients + lifecycle, plus a server `serveSurfaceWebSocket(adapter)` with **node and bun adapters**. Reading drishti's *actual* post-#1231 source — not assuming it — broke all three premises:
+
+- **There is no node-vs-bun axis.** drishti's server uses the *same* `ws` `WebSocketServer` + `@hono/node-server` + `@orpc/server/ws` stack as kolu (it merely *runs* under Bun). One stack, no adapter.
+- **The two consumers own the lifecycle in different places** — kolu derives it in `rpc.ts`; drishti via `<SurfaceAppProvider>`. A factory that bundles the lifecycle fits neither.
+- **drishti runs MANY sockets sharing ONE echo** — per-host sockets + one admin socket, all echoing the admin socket's observed `processId`. A per-connection factory can't own a cross-connection echo.
+
+So the real shared duplication is *narrower* than the god-factory: it's the **echo**, the **socket construction**, and the **server gate** — three small things, not one big one. Same lesson as <PrLink pr={1231} />, where verified drishti facts overturned the first lens verdict: **decompose on what's actually duplicated, not on what looks tidy.**
+</Callout>
+
+## The duplication both consumers hand-rolled
+
+**Client** — kolu's `wire.ts`, and drishti's `makeSocket` (called once per host + once for the admin socket):
+
+```ts
+// the pid-echo mutable + URL threading — hand-rolled in BOTH wire.ts files
+let lastServerProcessId: string | null = null;
+export function rememberServerProcessId(id: string) { lastServerProcessId = id; }
+const ws = new PartySocket(() =>
+  lastServerProcessId ? `${base}?${SERVER_PROCESS_ID_PARAM}=${lastServerProcessId}` : base);
+// …and, for a socket no lifecycle watches (drishti's per-host), the self-retire:
+ws.addEventListener("close", (e) => {
+  if (e.code === STALE_PROCESS_CLOSE_CODE) retireSocket(ws);
+});
+```
+
+**Server** — kolu's single `/rpc/ws` connection handler, and drishti's host-dispatching `httpServer.on("upgrade")` — *both on the same `ws` stack*, differing only in dispatch:
+
+```ts
+ws.on("error", …);                                    // FIRST — or a post-close peer error crashes
+if (rejectStaleProcess(url.searchParams.get(SERVER_PROCESS_ID_PARAM), liveProcessId)) {
+  ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process"); return;   // gate BEFORE upgrade
+}
+```
+
+The error-handler-before-gate ordering is the footgun the gauntlet caught on <PrLink pr={1231} /> — and drishti's hand-rolled upgrade handler **didn't have it**, installing its `error` listeners *after* the gate's early return. A latent crash, exactly the kind a shared owner removes for good.
+
+## The three primitives
+
+The seam splits cleanly into three independently-owned concerns. Two are framework-free client transport (`@kolu/surface-app/connect`); one is the server gate (`@kolu/surface-app/server`). None bundles the lifecycle or the clients — those stay with the consumer, because *that* is where the two genuinely differ.
+
+<D2
+  caption="Three primitives, each one concern. The echo and socket are client transport; the gate is server. The lifecycle (createServerLifecycle / SurfaceAppProvider) and the clients (surfaceClients) stay with the consumer — kolu and drishti own those differently, so they don't graduate."
+  code={`direction: down
+consumer: "consumer (kolu · drishti)" {
+  cfg: "URL(s) · socket topology · lifecycle ownership · clients assembly"
+}
+connect: "@kolu/surface-app/connect (framework-free)" {
+  echo: "createProcessIdEcho() — the shared pid echo (one per app; drishti shares it across N sockets)"
+  sock: "createSurfaceSocket() — new PartySocket(echo'd URL thunk) + optional self-retire"
+}
+server: "@kolu/surface-app/server" {
+  gate: "gateStaleSocket(ws, url, liveProcessId) — error-handler-first · rejectStaleProcess · close(4001)"
+}
+stays: "stays with the consumer (differs per app)" {
+  lc: "lifecycle — kolu: rpc.ts · drishti: SurfaceAppProvider"
+  cl: "clients — surfaceClients(link, surfaces)"
+}
+consumer.cfg -> connect: "url + topology"
+consumer.cfg -> server: "live processId"
+consumer.cfg -> stays: "owns directly"
+connect.echo -> connect.sock: "appended on every reconnect"
+connect.echo -> stays.lc: "lifecycle.onProcessId → echo.remember"
+`}
+/>
+
+### `createProcessIdEcho` + `createSurfaceSocket` <Pill variant="hi">@kolu/surface-app/connect</Pill>
+
+The echo owns the `pid` threading; the socket owns the `new PartySocket(...)` with that echo'd URL plus the optional stale-close self-retire. kolu builds one socket (private echo); drishti builds many sharing one echo.
+
+```ts
+// kolu — one socket, private echo
+const { ws, echo } = createSurfaceSocket({ url: wsBaseUrl });
+export const rememberServerProcessId = echo.remember;   // fed to rpc.ts's lifecycle
+
+// drishti — ONE shared echo across per-host + admin sockets
+const echo = createProcessIdEcho();
+const makeSocket = (host, retire) => createSurfaceSocket({
+  url: () => `…/rpc/ws?host=${host}`,   // echo appends &pid= on top
+  echo,                                  // shared — fed by the admin socket's lifecycle
+  socketOptions: { connectionTimeout: 60_000 },
+  retireOnStaleClose: retire,            // per-host sockets self-retire (no provider watches them)
+}).ws;
+```
+
+The echo's `appendTo` respects an existing query string (drishti's `?host=` → `&pid=`), so both URL shapes work. The `pid` mutable, the URL threading, and the self-retire listener are now the library's — the three lines each consumer used to own.
+
+### `gateStaleSocket` <Pill variant="new">@kolu/surface-app/server</Pill>
+
+The server gate, in the *one* correct order — error-handler-first baked in so no consumer can re-introduce the crash. It works for both topologies because it's just the gate, not the dispatch.
+
+```ts
+// kolu — single handler
+if (
+  gateStaleSocket(ws, url, serverProcessId, {
+    onError: (e) => connLog.error({ err: e }),
+    onReject: (pid) => connLog.info({ pid }),
+  })
+)
+  return;
+```
+
+```ts
+// drishti — first line of the host-dispatched upgrade
+if (
+  gateStaleSocket(ws, url, admin.processId, {
+    onReject: () => log("rejecting stale ws"),
+  })
+)
+  return;
+```
+
+`liveProcessId` is `surfaceAppServer().processId` — the same id the `identity.info` probe reports, so the gate and the probe single-source. drishti *gains* the error-ordering fix it never had.
+
+## What stays per-consumer
+
+The parts that genuinely differ — which is exactly why they *don't* graduate:
+
+- **Lifecycle ownership** — kolu derives `createServerLifecycle` in `rpc.ts`; drishti delegates to `<SurfaceAppProvider>`'s turnkey `{ ws, probe }` source. The echo's `remember` plugs into either via `onProcessId`.
+- **Socket topology** — kolu: one socket. drishti: per-host sockets (self-retiring) + one admin socket (provider-retired), all sharing the one echo.
+- **The clients assembly** — `surfaceClients(websocketLink(ws), surfaces)` is already a one-liner from `@kolu/surface`; it stays at the consumer.
+- **The overlay chrome** — surface-app provides the *model* (`useSurfaceApp().updateReady()` / `reload()`); each app renders its own card.
+
+## The lens question — committing to partysocket
+
+This makes `@kolu/surface-app` **explicitly** partysocket+oRPC: `createSurfaceSocket` is the one `new PartySocket(...)` in the package, and partysocket is now a declared dependency.
+
+<Callout kind="good" title="Consistent, not a reversal">
+The fact-grounded lowy ⇄ hickey debate on <PrLink pr={1231} /> already conceded the point: `retireSocket`'s body is partysocket+oRPC-specific, and that is *fine because the package is scoped to that stack, proven by two consumers*. The commitment was already **de-facto true** — surface-app shipped `retireSocket`, which only works on a partysocket. The new primitives just make it honest. The escape hatch stays: a future non-partysocket consumer drops to `@kolu/surface`'s `websocketLink` + surface-app's `createServerLifecycle` and hand-builds, exactly as both apps did before. *Extract the turnkey; keep the parts.*
+</Callout>
+
+## Status
+
+One phase, shipped as a kolu PR + a paired drishti PR — the ③ proof every step, mirroring <PrLink pr={1201} /> and <PrLink pr={1231} />.
+
+- **kolu** <PrLink pr={1234} /> — adds `@kolu/surface-app/connect` (`createProcessIdEcho`, `createSurfaceSocket`, `retireOnStaleClose`) + `gateStaleSocket` in `/server`; rewires `wire.ts` and the server gate; unit-tests the echo, the self-retire, and the gate. <Pill variant="done">implemented</Pill>
+- **drishti** — adopts all three: one shared echo across its per-host + admin sockets, the per-host self-retire via `retireOnStaleClose`, and `gateStaleSocket` in its upgrade handler (gaining the error-ordering fix). <Pill variant="done">implemented</Pill>
+
+<Callout kind="good" title="The one-line answer">
+surface-app already owns the handshake; now it owns the *handshake's plumbing* too. Lift the three lines both apps re-typed — the `pid` echo, the socket, the gate — so a consumer brings only its URL, its topology, and its lifecycle, and inherits the reconnect, the echo, and the crash-proof gate for free.
+</Callout>
+
+---
+
+Origin: follow-up to <PrLink pr={1231} />. Model: [@kolu/surface-app](./surface-app.html) · [electricity](./electricity.html). ③ proof: [srid/drishti](https://github.com/srid/drishti).

@@ -22,7 +22,7 @@
 
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClients } from "@kolu/surface/solid";
-import { SERVER_PROCESS_ID_PARAM } from "@kolu/surface-app";
+import { createSurfaceSocket } from "@kolu/surface-app/connect";
 import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
@@ -33,30 +33,28 @@ import {
   type SavedSession,
   surfaces,
 } from "kolu-common/surface";
-import { WebSocket as PartySocket } from "partysocket";
+import type { WebSocket as PartySocket } from "partysocket";
 import { toast } from "solid-sonner";
 
 const { protocol, host } = window.location;
 const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 
-// The server mints a fresh `processId` per boot. We echo the last-known one as a
-// `pid` query param on every (re)connect so a stale tab reconnecting to a
-// RESTARTED server is recognized at the handshake — the server closes the socket
-// with `STALE_PROCESS_CLOSE_CODE` rather than letting dead-terminal subscriptions
-// replay and storm its logs. `rememberServerProcessId` is fed by the identity
-// probe in `rpc.ts` as each open resolves; it's null until the first probe, so
-// the very first connect omits the param. The URL is a thunk so partysocket
-// re-evaluates it (picking up the latest id) on every reconnect.
-let lastServerProcessId: string | null = null;
-export function rememberServerProcessId(id: string): void {
-  lastServerProcessId = id;
-}
+// The server mints a fresh `processId` per boot. `createSurfaceSocket` owns the
+// `pid` echo: it threads the last-observed id back as a query param on every
+// (re)connect so a stale tab reconnecting to a RESTARTED server is recognized at
+// the handshake — the server closes the socket with `STALE_PROCESS_CLOSE_CODE`
+// rather than letting dead-terminal subscriptions replay and storm its logs. The
+// library owns the URL thunk + the `new PartySocket(...)` (see
+// `@kolu/surface-app/connect`); `rpc.ts` feeds each observed id into the echo via
+// `rememberServerProcessId`. No `restartCloseCode` self-retire here — kolu's
+// lifecycle (`rpc.ts`) owns this socket and retires it through `onStaleRestart`.
+const { ws, echo } = createSurfaceSocket({ url: wsBaseUrl });
 
-export const ws = new PartySocket(() =>
-  lastServerProcessId
-    ? `${wsBaseUrl}?${SERVER_PROCESS_ID_PARAM}=${lastServerProcessId}`
-    : wsBaseUrl,
-);
+/** Stash the latest observed server `processId` for the next reconnect's `pid`
+ *  echo — fed by `rpc.ts`'s lifecycle `onProcessId`. It's null until the first
+ *  probe, so the very first connect omits the param. */
+export const rememberServerProcessId = echo.remember;
+export { ws };
 
 // Expose for e2e tests: the reconnect regression test (#410) needs to
 // drop and restore the socket directly. Same pattern as __xterm on the

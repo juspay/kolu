@@ -14,9 +14,15 @@ import { implementSurfaces, inMemoryChannelByName } from "@kolu/surface/server";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { NOTIFICATION_SW_SOURCE, SW_SOURCE } from "./index";
+import {
+  NOTIFICATION_SW_SOURCE,
+  STALE_PROCESS_CLOSE_CODE,
+  SW_SOURCE,
+} from "./index";
 import {
   buildInfoServer,
+  gateStaleSocket,
+  type GateableSocket,
   installFreshStatic,
   installSurfaceApp,
   surfaceAppServer,
@@ -223,5 +229,80 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     );
     expect(ctx.a?.cells.buildInfo?.get()).toEqual({ commit: "aaa1111" });
     expect(ctx.b?.cells.buildInfo?.get()).toEqual({ commit: "bbb2222" });
+  });
+});
+
+/** A server socket reduced to what the gate touches: the `error` listener we
+ *  capture, and the `close(code, reason)` we record. */
+function fakeGateable() {
+  let errorListener: ((err: Error) => void) | undefined;
+  const closes: { code: number; reason?: string }[] = [];
+  const ws: GateableSocket = {
+    on: (_event, listener) => {
+      errorListener = listener;
+      return ws;
+    },
+    close: (code, reason) => {
+      closes.push({ code, reason });
+    },
+  };
+  return { ws, closes, fireError: (err: Error) => errorListener?.(err) };
+}
+
+const upgradeUrl = (pid?: string) =>
+  new URL(`ws://host/rpc/ws${pid === undefined ? "" : `?pid=${pid}`}`);
+
+describe("gateStaleSocket — the WS-upgrade handshake gate", () => {
+  it("lets a matching processId through (returns false, no close)", () => {
+    const t = fakeGateable();
+    expect(gateStaleSocket(t.ws, upgradeUrl("live-1"), "live-1")).toBe(false);
+    expect(t.closes).toEqual([]);
+  });
+
+  it("lets the first-ever connect (absent pid) through", () => {
+    const t = fakeGateable();
+    expect(gateStaleSocket(t.ws, upgradeUrl(), "live-1")).toBe(false);
+    expect(t.closes).toEqual([]);
+  });
+
+  it("rejects a stale tab: closes with STALE_PROCESS_CLOSE_CODE and returns true", () => {
+    const t = fakeGateable();
+    const onReject = vi.fn();
+    expect(
+      gateStaleSocket(t.ws, upgradeUrl("dead-0"), "live-1", { onReject }),
+    ).toBe(true);
+    expect(t.closes).toEqual([
+      { code: STALE_PROCESS_CLOSE_CODE, reason: "stale server process" },
+    ]);
+    // onReject sees the non-null claimed id it rejected.
+    expect(onReject).toHaveBeenCalledWith("dead-0");
+  });
+
+  it("installs the error listener BEFORE deciding — even on the reject path", () => {
+    const t = fakeGateable();
+    const onError = vi.fn();
+    // A stale socket that errors after we close it must not crash the process:
+    // the listener is wired before the close/return.
+    gateStaleSocket(t.ws, upgradeUrl("dead-0"), "live-1", { onError });
+    t.fireError(new Error("post-close peer error"));
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "post-close peer error" }),
+    );
+  });
+
+  it("installs a LOUD (console.error) error listener by default (no onError)", () => {
+    const t = fakeGateable();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    gateStaleSocket(t.ws, upgradeUrl("live-1"), "live-1");
+    // The default listener exists, doesn't throw (an unhandled `error` would
+    // otherwise be fatal), AND logs loudly rather than swallowing — an accepted
+    // socket's transport error must not vanish silently.
+    expect(() => t.fireError(new Error("boom"))).not.toThrow();
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("gateStaleSocket"),
+      expect.objectContaining({ message: "boom" }),
+    );
+    spy.mockRestore();
   });
 });
