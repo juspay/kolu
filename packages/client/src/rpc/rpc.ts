@@ -68,16 +68,27 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
 // (and a failed identity probe each round) behind the overlay. `ws.close()`
 // flips partysocket's `_shouldReconnect` to false, which a fresh page resets.
 //
-// We must ALSO drop further sends, not just stop reconnecting. partysocket's
-// `send()` queues into an unbounded offline buffer (`maxEnqueuedMessages` is
-// `Infinity`) whenever the socket isn't OPEN, and oRPC's websocket link calls
-// it directly. With reconnect disabled that buffer never flushes, so the
-// overlay's `pointer-events-none` card — users can still type into the terminals
-// underneath — plus any stream retry would grow the queue without bound and
-// silently. Replace `send` with a drop so post-stale writes vanish immediately
-// instead of accumulating. The buffering for a NORMAL transient drop is
-// untouched (it still flushes on the next open); only the stale terminal state
-// neuters it, and a fresh page restores a pristine socket.
+// We must ALSO fail further sends, not just stop reconnecting — and they have to
+// fail LOUDLY, not silently. partysocket's `send()` queues into an unbounded
+// offline buffer (`maxEnqueuedMessages` is `Infinity`) whenever the socket isn't
+// OPEN, and oRPC's websocket link calls it directly. With reconnect disabled
+// that buffer never flushes, so the overlay's `pointer-events-none` card — users
+// can still type into the terminals underneath — plus any stream retry would
+// grow the queue without bound.
+//
+// A no-op `send` stops the partysocket buffer, but oRPC's `ClientPeer` treats a
+// `send()` that returns normally as "request dispatched" and then `await`s a
+// response that can never arrive (reconnect is off, so no further `close` event
+// fires to settle the peer either). Every post-stale RPC/stream retry would then
+// hang forever, accumulating unresolved peer requests and promises — the same
+// unbounded-growth failure mode one layer up. So instead `send` THROWS a stable
+// stale-tab error: oRPC's `request()` awaits the send, the throw rejects the
+// call (its `catch` closes that request id), and callers see a real rejection
+// through their existing error paths instead of believing a dropped message was
+// accepted. (Requests already in flight at the stale close are settled by
+// oRPC's own `close` listener, which fired with this very event.) Normal
+// transient-drop buffering is untouched — only the terminal stale state replaces
+// `send`, and a fresh page restores a pristine socket.
 //
 // `staleClosed` records the terminal-stale fact for the header dot below: a
 // stale-restart leaves the socket genuinely CLOSED (unlike a reconnect-restart,
@@ -87,7 +98,9 @@ const [staleClosed, setStaleClosed] = createSignal(false);
 ws.addEventListener("close", (event: CloseEvent) => {
   if (event.code !== STALE_PROCESS_CLOSE_CODE) return;
   ws.close();
-  ws.send = () => {};
+  ws.send = () => {
+    throw new Error("kolu: server restarted — reload required (stale tab)");
+  };
   setStaleClosed(true);
 });
 
