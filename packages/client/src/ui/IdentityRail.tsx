@@ -103,6 +103,13 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
             class={`inline-block h-[7px] w-[7px] rounded-full ${srvDot[props.status]}`}
           />
         </Tip>
+        <Show when={pwa.server()?.version}>
+          {(v) => (
+            <Tip label="Released kolu version">
+              <span class="tabular-nums text-fg-2">v{v()}</span>
+            </Tip>
+          )}
+        </Show>
         <Commit sha={pwa.server()?.commit} />
       </span>
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />

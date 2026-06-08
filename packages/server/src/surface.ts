@@ -58,7 +58,7 @@ import {
   gitStatusOutputEqual,
 } from "kolu-git";
 import { isBinaryPreviewable } from "kolu-common/preview";
-import { serverCommit, serverProcessId } from "./hostname.ts";
+import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
@@ -315,7 +315,13 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
         buildInfo: async () => {
           const identity = await ptyHostIdentity;
-          return identity ? { ptyHost: identity } : {};
+          // `version` is the static KOLU_VERSION axis (`""` off-nix → the rail
+          // hides it); `ptyHost` is the boot-time-async probe. Both land as a
+          // patch over the library-seeded `{ commit }`.
+          return {
+            version: serverVersion,
+            ...(identity ? { ptyHost: identity } : {}),
+          };
         },
         commit: serverCommit,
         // surface-app's identity probe (restart axis) —

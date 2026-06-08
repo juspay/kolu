@@ -1,6 +1,6 @@
 ---
 title: kolu Release Runbook
-description: Cut a release with `just release X.Y` — tag master, promote the Unreleased changelog entry, GitHub release. The changelog is a website content collection the agent appends to per PR; kolu.dev renders it Unreleased-and-all.
+description: Cut a release with `/release X.Y` — tag master, promote the Unreleased changelog entry, GitHub release. The changelog is a website content collection the agent appends to per PR; kolu.dev renders it Unreleased-and-all.
 kind: reference
 status: proposed
 maturity: seedling
@@ -10,7 +10,6 @@ updated: 2026-06-06
 
 import Cite from "../../components/Cite.astro";
 import PrLink from "../../components/PrLink.astro";
-import Terminal from "../../components/Terminal.astro";
 
 **Model — tag-on-master, rolling:**
 
@@ -57,37 +56,23 @@ version: Unreleased
 
 ## Cutting a release
 
-One command. It shows the plan + the `Unreleased` notes, then **prompts before any commit/push** (`n` leaves the tree untouched — no `--dry-run` needed).
+Run **`/release X.Y`** (<Cite file=".apm/skills/release/SKILL.md" lines="1" label="the /release skill" />). It does the *what* below and asks (via `AskUserQuestion`) where a call is yours; everything is read-only until the explicit go/no-go.
 
-<Terminal
-  title="release"
-  lines={[
-    "$ just release 1.0",
-    "✓ preflight: master · clean · synced with origin · CI green",
-    "  will stamp ## Unreleased → 1-0.mdx { version: 1.0, date: 2026-06-06 }",
-    "  will bump version → 1.0, commit, tag v1.0, push, gh release",
-    "  ── notes to publish ──────────────────────────────",
-    "  Added:    Compose surfaces as siblings — one canvas, no seams.",
-    "  Fixed:    Dock pings stop pulsing once you switch to the row.",
-    "  Heads-up: KOLU_STATE_DIR moved; sessions auto-migrate.",
-    "  ──────────────────────────────────────────────────",
-    "Proceed? [y/N] y",
-    "→ committed release 1.0 + tag v1.0 · pushed · gh release created",
-    "✓ live: kolu.dev/changelog#v1-0 · github.com/juspay/kolu/releases/tag/v1.0",
-  ]}
-/>
-
-- `X.Y` is an editorial call; everything up to the prompt is read-only.
-- Preflight refuses to tag anything CI hasn't passed.
-- Pin any release: `nix run github:juspay/kolu/v1.0`.
+1. **Settle** the version `X.Y` (editorial — `.0` milestone, `.N` normal) and date.
+2. **Preflight** — on `master`, clean, synced, CI green. Refuse otherwise.
+3. **Promote** `unreleased.mdx` → `<X-Y>.mdx` (`{ version, date }`) + fresh empty Unreleased.
+4. **Stamp** `default.nix` `version` → `X.Y`.
+5. **Confirm** — show the exact notes, then go/no-go.
+6. **Cut** — commit, annotated tag `vX.Y`, push, `gh release create`.
+7. **Verify** — tag on master, release live, `kolu.dev/changelog` updated; pin is `nix run github:juspay/kolu/vX.Y`.
 
 ## Wiring
 
-- **`changelog` collection** — ✓ landed in <PrLink pr={1208} /> (schema, `/changelog` page, seeded `unreleased.mdx`, `merge=union`).
+- **`changelog` collection** — ✓ <PrLink pr={1208} /> (schema, `/changelog` page, seeded `unreleased.mdx`, `merge=union`).
 - **Keep-it-filled** — ✓ the `/be` implement-step entry (<Cite file=".apm/skills/be/SKILL.md" lines="36" />); no CI gate.
-- **`just release X.Y`** — ⏳ the recipe above (stamp · bump · tag · push · gh release).
-- **Identity rail** — ⏳ collapse the two `version = "0.1.0"` literals (<Cite file="default.nix" lines="56" />, <Cite file="default.nix" lines="101" />) into one `let version`, stamp `KOLU_VERSION` beside `KOLU_COMMIT_HASH` (<Cite file="default.nix" lines="203" />) → `buildInfo` cell → render `1.0 · a1b2c3d` (<Cite file="packages/client/src/ui/IdentityRail.tsx" lines="96-119" label="IdentityRail srv column" />).
+- **Identity rail** — ✓ one `let version` in `default.nix` (<Cite file="default.nix" lines="16" />), baked as `KOLU_VERSION` on the wrapper (<Cite file="default.nix" lines="208" />) → server reads it with **no fallback** (<Cite file="packages/server/src/hostname.ts" lines="16-30" label="fail hard if Nix didn't propagate" />) → `buildInfo` cell → rail renders `vX.Y · <hash>` (<Cite file="packages/client/src/ui/IdentityRail.tsx" lines="106-114" />). Empty off-nix → rail hides it.
+- **`/release` skill** — ✓ <Cite file=".apm/skills/release/SKILL.md" lines="1" />; the steps above.
 
 ---
 
-*Status: `proposed`. Surface landed in <PrLink pr={1208} />; still to build: the `just release` recipe + the `KOLU_VERSION` rail stamp. First run: `just release 1.0`.*
+*Status: `proposed`. Surface + rail stamp + `/release` skill landed in <PrLink pr={1208} />. First run: `/release 1.0`.*

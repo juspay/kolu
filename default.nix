@@ -12,6 +12,11 @@
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
 
+  # Single source for the app version (X.Y — kolu is an app, not a library).
+  # `/release` bumps this one line; it's baked into the wrapper as KOLU_VERSION
+  # (→ surface-app buildInfo cell → the identity rail's `srv` column).
+  version = "0.1";
+
   # INVARIANT: this fileset must include every workspace package that has a
   # `typecheck` script — the typecheck derivation (nix/pnpm-typecheck.nix) reuses
   # this `src`, so a package omitted here is silently skipped by the type
@@ -54,8 +59,7 @@ let
 
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu";
-    version = "0.1.0";
-    inherit src;
+    inherit version src;
     # Platform-independent. fetchPnpmDeps runs `pnpm install --force`, which
     # sets includeIncompatiblePackages=true and bypasses pnpm's os/cpu/libc
     # gating (pkg-manager/headless/src/index.ts:260 in pnpm 10.32.1), so
@@ -99,8 +103,7 @@ let
 
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
-    version = "0.1.0";
-    inherit src;
+    inherit version src;
 
     nativeBuildInputs = [
       pkgs.nodejs
@@ -202,6 +205,7 @@ let
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --set KOLU_COMMIT_HASH "${commitHash}" \
+      --set KOLU_VERSION "${version}" \
       --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
