@@ -319,10 +319,13 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
  *  provider's `probe={() => client.rpc.surface.identity.info({})}` (the scoped
  *  sibling client consumes the `surfaceApp` key). */
 export function serverIdentity(opts: { processId?: string } = {}): {
-  /** The id this process minted (or the injected override). Exposed — not just
-   *  reachable via the probe — so a stale-tab gate (`rejectStaleProcess`) compares
-   *  against the SAME id `identity.info` reports. A consumer that minted its own
-   *  id for the gate would compare against a value the client never saw. */
+  /** The id this process minted (or the injected override). This is the
+   *  read-back seam for a consumer that lets `serverIdentity` MINT the id
+   *  internally (no external source): it captures `const { processId } =
+   *  serverIdentity()` and feeds that to `rejectStaleProcess`, so the stale-tab
+   *  gate and the `identity.info` probe single-source one id. A consumer that
+   *  mints its own id externally (like kolu) single-sources by INJECTING it via
+   *  `opts.processId` and need not read this field back. */
   processId: string;
   identity: { info: () => Promise<{ processId: string }> };
 } {
@@ -346,8 +349,13 @@ export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
 ): {
   cells: BuildInfoServerFragment<T>;
   /** The minted (or injected) per-process id — the same one the `identity.info`
-   *  probe reports. Feed it to `rejectStaleProcess` so the stale-tab gate and the
-   *  probe single-source one id (a second mint would never match). */
+   *  probe reports. This is the read-back seam for a consumer that lets
+   *  `surfaceAppServer` MINT the id internally (no external source): it captures
+   *  `const { processId } = surfaceAppServer(...)` and feeds that to
+   *  `rejectStaleProcess`, so the stale-tab gate and the probe single-source one
+   *  id (a second mint would never match). A consumer that mints its own id
+   *  externally (like kolu) single-sources by INJECTING it via `opts.processId`
+   *  and need not read this field back. */
   processId: string;
   procedures: { identity: { info: () => Promise<{ processId: string }> } };
 } {
