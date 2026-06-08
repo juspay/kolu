@@ -65,7 +65,7 @@ import {
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { unwrapGit } from "../unwrapGit.ts";
-import pkg from "../../package.json" with { type: "json" };
+import { serverVersion } from "../hostname.ts";
 import { koluShellDir } from "../koluRoot.ts";
 import {
   createMetadata,
@@ -129,7 +129,7 @@ const localGit: TerminalBackendGit = {
 const ptyHostClient: PtyHostClient = createInProcessPtyHostClient({
   log,
   shellDir: koluShellDir,
-  version: pkg.version,
+  version: serverVersion,
 });
 
 /** The in-process pty-host's self-declared identity (its own commit + closure

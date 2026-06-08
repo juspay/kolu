@@ -1,6 +1,6 @@
 ---
 title: kolu Release Runbook
-description: Cut a release with `/release X.Y` — tag master, promote the Unreleased changelog entry, GitHub release. The changelog is a website content collection the agent appends to per PR; kolu.dev renders it Unreleased-and-all.
+description: Cut a release with `/release X.Y.Z` — tag master, promote the Unreleased changelog entry, GitHub release. The changelog is a website content collection the agent appends to per PR; kolu.dev renders it Unreleased-and-all.
 kind: reference
 status: proposed
 maturity: seedling
@@ -15,7 +15,7 @@ import PrLink from "../../components/PrLink.astro";
 
 - Ships **only** as a Nix flake; users track `master` (`nix run github:juspay/kolu`).
 - A release is a **tag on master** — a named point, a pin, a dated changelog entry. Nothing is published that master doesn't already serve.
-- Version is **X.Y**, picked by hand (it's an app, no API contract): `.0` = milestone, `.N` = normal release. No `.Z` — rolling, no maintenance branch to patch.
+- Version is picked by hand (it's an app, no API contract): `.0` = milestone, a normal bump otherwise. **Single source of truth: `packages/server/package.json` `version`** (valid semver) — Nix and the server runtime both read it, so there's nothing else to bump.
 
 ## The changelog is website content
 
@@ -28,7 +28,7 @@ import PrLink from "../../components/PrLink.astro";
 ```
 website/src/content/changelog/
   unreleased.mdx     ← agent appends here, every user-facing PR
-  1-0.mdx            ← stamped { version: "1.0", date: 2026-06-06 } at release
+  1-0-0.mdx          ← stamped { version: "1.0.0", date: 2026-06-08 } at release
 ```
 
 ```mdx
@@ -56,23 +56,23 @@ version: Unreleased
 
 ## Cutting a release
 
-Run **`/release X.Y`** (<Cite file=".apm/skills/release/SKILL.md" lines="1" label="the /release skill" />). It does the *what* below and asks (via `AskUserQuestion`) where a call is yours; everything is read-only until the explicit go/no-go.
+Run **`/release X.Y.Z`** (<Cite file=".apm/skills/release/SKILL.md" lines="1" label="the /release skill" />). It does the *what* below and asks (via `AskUserQuestion`) where a call is yours; everything is read-only until the explicit go/no-go.
 
-1. **Settle** the version `X.Y` (editorial — `.0` milestone, `.N` normal) and date.
+1. **Settle** the version (editorial — `.0` milestone, normal bump otherwise; valid semver) and date.
 2. **Preflight** — on `master`, clean, synced, CI green. Refuse otherwise.
-3. **Promote** `unreleased.mdx` → `<X-Y>.mdx` (`{ version, date }`) + fresh empty Unreleased.
-4. **Stamp** `default.nix` `version` → `X.Y`.
+3. **Promote** `unreleased.mdx` → `<version>.mdx` (`{ version, date }`) + fresh empty Unreleased.
+4. **Set** `packages/server/package.json` `version` → the release version (the single source — Nix + runtime both read it; nothing else to bump).
 5. **Confirm** — show the exact notes, then go/no-go.
-6. **Cut** — commit, annotated tag `vX.Y`, push, `gh release create`.
-7. **Verify** — tag on master, release live, `kolu.dev/changelog` updated; pin is `nix run github:juspay/kolu/vX.Y`.
+6. **Cut** — commit, annotated tag `vX.Y.Z`, push, `gh release create`.
+7. **Verify** — tag on master, release live, `kolu.dev/changelog` updated; pin is `nix run github:juspay/kolu/vX.Y.Z`.
 
 ## Wiring
 
 - **`changelog` collection** — ✓ <PrLink pr={1208} /> (schema, `/changelog` page, seeded `unreleased.mdx`, `merge=union`).
 - **Keep-it-filled** — ✓ the `/be` implement-step entry (<Cite file=".apm/skills/be/SKILL.md" lines="36" />); no CI gate.
-- **Identity rail** — ✓ one `let version` in `default.nix` (<Cite file="default.nix" lines="16" />), baked as `KOLU_VERSION` on the wrapper (<Cite file="default.nix" lines="208" />) → server reads it with **no fallback** (<Cite file="packages/server/src/hostname.ts" lines="16-30" label="fail hard if Nix didn't propagate" />) → `buildInfo` cell → rail renders `vX.Y · <hash>` (<Cite file="packages/client/src/ui/IdentityRail.tsx" lines="106-114" />). Empty off-nix → rail hides it.
+- **Identity rail** — ✓ version sourced once from `packages/server/package.json`, read at runtime via `serverVersion` (<Cite file="packages/server/src/hostname.ts" lines="11-18" label="serverVersion = pkg.version" />) and by Nix for the artifact version (<Cite file="default.nix" lines="15-19" />). No env var, nothing to propagate. `serverVersion` is the single runtime owner — it feeds the `buildInfo` cell → rail (`vX.Y.Z · <hash>`), `--version`, the startup log, and the pty's `TERM_PROGRAM_VERSION`.
 - **`/release` skill** — ✓ <Cite file=".apm/skills/release/SKILL.md" lines="1" />; the steps above.
 
 ---
 
-*Status: `proposed`. Surface + rail stamp + `/release` skill landed in <PrLink pr={1208} />. First run: `/release 1.0`.*
+*Status: `proposed`. Surface + rail stamp + `/release` skill landed in <PrLink pr={1208} />. First run: `/release 1.0.0`.*

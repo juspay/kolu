@@ -12,10 +12,11 @@
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
 
-  # Single source for the app version (X.Y — kolu is an app, not a library).
-  # `/release` bumps this one line; it's baked into the wrapper as KOLU_VERSION
-  # (→ surface-app buildInfo cell → the identity rail's `srv` column).
-  version = "0.1";
+  # App version — the SINGLE source of truth is packages/server/package.json
+  # (`/release` bumps it before tagging; the server reads the same file at
+  # runtime via pkg.version). Read it here so the nix artifact's version tracks
+  # it with no duplicated literal to drift.
+  version = (pkgs.lib.importJSON ./packages/server/package.json).version;
 
   # INVARIANT: this fileset must include every workspace package that has a
   # `typecheck` script — the typecheck derivation (nix/pnpm-typecheck.nix) reuses
@@ -205,7 +206,6 @@ let
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --set KOLU_COMMIT_HASH "${commitHash}" \
-      --set KOLU_VERSION "${version}" \
       --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then

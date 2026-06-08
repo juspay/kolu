@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
+import pkg from "../package.json" with { type: "json" };
 
 export const serverHostname = hostname();
 
@@ -13,19 +14,10 @@ export const serverProcessId = randomUUID();
  *  play). Surfaced on `server.info` for the ChromeBar's `srv` column. */
 export const serverCommit = process.env.KOLU_COMMIT_HASH ?? "";
 
-/** App version (X.Y) this server was built from. Every launch path *sets*
- *  `KOLU_VERSION`: the nix wrapper bakes a real `X.Y`, the devShell sets it
- *  empty ("no released version" — the rail then hides it). So an **unset**
- *  value can only mean a nix-built artifact dropped the var — a packaging
- *  regression. There is NO silent fallback for that: we refuse to boot rather
- *  than ship a blank-but-plausible version (cf. the #761 smoke-test class).
- *  Surfaced beside `commit` on the rail's `srv` column as `vX.Y · <hash>`. */
-const koluVersion = process.env.KOLU_VERSION;
-if (koluVersion === undefined) {
-  throw new Error(
-    "KOLU_VERSION is unset — the nix wrapper and the devShell each bake it " +
-      "(real X.Y vs. empty). An unset value is a packaging regression; " +
-      "refusing to boot.",
-  );
-}
-export const serverVersion = koluVersion;
+/** The app version — single source of truth is `packages/server/package.json`.
+ *  `/release` bumps it before tagging; Nix reads the *same* file for the
+ *  derivation version (no nix literal to drift). It's a committed, bundled
+ *  file, so it's always present — no env var, nothing to "propagate" or fail
+ *  hard on. This one accessor feeds the rail's `srv` column (`vX.Y.Z · <hash>`),
+ *  `--version`, the startup log, and the pty's `TERM_PROGRAM_VERSION`. */
+export const serverVersion = pkg.version;

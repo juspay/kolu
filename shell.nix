@@ -14,10 +14,6 @@ pkgs.mkShell {
 
   env = koluEnv // {
     KOLU_COMMIT_HASH = "dev";
-    # Empty = "no released version" off-nix; the rail hides it. Set (not unset)
-    # so the server's hard check passes — only the nix wrapper bakes a real X.Y,
-    # and a *missing* KOLU_VERSION there is a packaging bug it refuses to boot on.
-    KOLU_VERSION = "";
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
   };
 

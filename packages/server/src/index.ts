@@ -15,13 +15,12 @@ import {
 } from "kolu-common/preview";
 import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
-import pkg from "../package.json" with { type: "json" };
 import {
   installFreshStatic,
   installPwaManifest,
 } from "@kolu/surface-app/server";
 import { startDiagnostics } from "./diagnostics.ts";
-import { serverHostname } from "./hostname.ts";
+import { serverHostname, serverVersion } from "./hostname.ts";
 import {
   previewRealpathGuard,
   previewTailFromRawUrl,
@@ -38,7 +37,7 @@ import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({
   name: "kolu",
-  version: pkg.version,
+  version: serverVersion,
   flags: {
     host: {
       type: String,
@@ -300,7 +299,7 @@ const server = serve(
     const protocol = tlsOptions ? "https" : "http";
     log.info(
       {
-        version: pkg.version,
+        version: serverVersion,
         pid: process.pid,
         node: process.version,
         rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
