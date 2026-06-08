@@ -21,7 +21,6 @@ import {
   onCleanup,
   useContext,
 } from "solid-js";
-import { transportRetiredError } from "@kolu/surface/client";
 import {
   type BuildInfoDef,
   buildInfo as defaultBuildInfo,
@@ -35,6 +34,7 @@ export {
   registerServiceWorker,
   reloadForUpdate,
   retireServiceWorker,
+  retireSocket,
 } from "../lifecycle";
 
 import { reloadForUpdate } from "../lifecycle";
@@ -227,44 +227,6 @@ export function createServerLifecycle<
       return "processId" in e ? e.processId : undefined;
     },
     dispose,
-  };
-}
-
-/** Permanently retire a transport the server rejected as stale (a tab bound to a
- *  previous process). The app's reload affordance is now the only way forward, so
- *  neither a reconnecting wrapper's offline buffer nor oRPC's pending peers may
- *  grow unbounded behind it. Two side-effects, both required for the surface
- *  family's transport (partysocket + oRPC):
- *
- *   - `close()` stops auto-reconnect — partysocket flips `_shouldReconnect` to
- *     false, so it won't re-present the same dead `pid` and be re-rejected in a
- *     loop. A fresh page resets it.
- *   - REPLACING `send` with a throwing stub makes oRPC's `ClientPeer` REJECT each
- *     later request. A `send` that returns normally looks dispatched, then awaits
- *     a response that never arrives (the socket is closed and won't reconnect, so
- *     no close event settles the peer either) — every post-stale call would hang
- *     forever, accumulating unresolved peers; partysocket would also enqueue it
- *     into an unbounded offline buffer (`maxEnqueuedMessages: Infinity`). The
- *     throw rejects through the caller's existing error path instead.
- *
- *  The throw is an `ORPCError` (via `transportRetiredError`), NOT a plain `Error`:
- *  the surface family's shared retry fence (`shouldNotRetryORPCError`) only treats
- *  an `ORPCError` as non-retriable. A plain throw would still look like a retriable
- *  transport error, so a streaming consumer on `STREAM_RETRY` (infinite retries)
- *  would re-subscribe forever — and for the terminal attach stream, each retry
- *  fires `onRetry` → `terminal.reset()`, repeatedly clearing the readable buffer
- *  behind the reload overlay. The non-retry shape settles the retired tab instead.
- *
- *  Fire it off the lifecycle's `restarted` event whose `transport` is `"closed"`.
- *  Takes a structural `{ close, send }` (not the concrete socket type) so the
- *  transport library never leaks across the package boundary; `send` is typed
- *  `unknown` because it is overwritten, never called. */
-export function retireSocket(ws: { close(): void; send: unknown }): void {
-  ws.close();
-  ws.send = () => {
-    throw transportRetiredError(
-      "surface-app: server restarted — reload required (stale tab)",
-    );
   };
 }
 
