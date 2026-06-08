@@ -190,10 +190,7 @@ export const SERVER_PROCESS_ID_PARAM = "pid";
 
 /** WebSocket close code the server uses to reject a client bound to a previous
  *  process (its `pid` no longer matches the live `processId`). In the application
- *  range (4000–4999, per RFC 6455 §7.4.2). The client treats this code as a
- *  definitive restart — `createServerLifecycle({ restartCloseCode })` maps it to
- *  a `restarted` event so the app surfaces its reload affordance instead of
- *  replaying subscriptions against the new instance. */
+ *  range (4000–4999, per RFC 6455 §7.4.2). */
 export const STALE_PROCESS_CLOSE_CODE = 4001;
 
 /** The pure stale-tab decision: does a reconnecting client's claimed processId
