@@ -101,7 +101,7 @@ extension-carrying package would impose.
 | `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer`, `serverIdentity`, `surfaceAppServer` (Hono; `serverIdentity`/`surfaceAppServer` expose the minted `processId` for the gate) | server |
 | `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo`, `surfaceAppSurface`, `surfaceAppSurfaceWith`, `ServerProbeSchema` — the standalone surface | common |
 | `@kolu/surface-app/solid` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider` (turnkey `{ ws, probe }` source handles the whole stale-tab handshake), `useSurfaceApp`, `createServerLifecycle` (with `onProcessId` / `onStaleRestart` / `restartCloseCode`), `retireSocket` | client |
-| `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate` — framework-free, for root setup before any component | client |
+| `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate`, `retireSocket` — framework-free, for root setup before any component (`retireSocket` is the stale-tab transport teardown the `/solid` lifecycle's `onStaleRestart` calls; it lives here because it's pure transport manipulation, no SolidJS) | client |
 | `@kolu/surface-app/vite` | `surfaceApp()` plugin, `resolveCommit()` | build (Vite) |
 | `@kolu/surface-app/bun` | `buildSurfaceClient()`, `ASSET_DIR` — the content-hashed Bun client build | build (Bun) |
 | `@kolu/surface-app/client` | the `__SURFACE_APP_COMMIT__` type, via `/// <reference>` | client types |

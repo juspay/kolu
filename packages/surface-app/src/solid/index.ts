@@ -128,12 +128,15 @@ export function createServerLifecycle<
    *  socket closed before one could run. kolu passes its server's stale-process
    *  handshake-rejection code (`STALE_PROCESS_CLOSE_CODE`) here. */
   restartCloseCode?: number;
-  /** Fires after each successful identity probe with the observed `processId`.
-   *  The lifecycle already classifies it internally (`knownProcessId`); this just
-   *  PUBLISHES the observation outward so a consumer can echo it back as the `pid`
-   *  handshake param on the next reconnect — without re-wrapping `probe` to carry
-   *  a side-effect. Distinct from `serverProcessId()`, which is `undefined` on a
-   *  stale-close restart; the echo needs the last *observed* id, which this is. */
+  /** Fires after each successful identity probe with the observed `processId`,
+   *  AFTER the lifecycle has already classified and committed the transition
+   *  (`knownProcessId` / `setLifecycle`). It only PUBLISHES the observation
+   *  outward so a consumer can echo it back as the `pid` handshake param on the
+   *  next reconnect — without re-wrapping `probe` to carry a side-effect. It runs
+   *  in a guarded block: a throwing consumer is reported via `onProbeError`, never
+   *  unwinding the lifecycle transition. Distinct from `serverProcessId()`, which
+   *  is `undefined` on a stale-close restart; the echo needs the last *observed*
+   *  id, which this is. */
   onProcessId?: (processId: string) => void;
   /** Fired synchronously when a stale-close restart is decoded (the
    *  `restartCloseCode` path → `restarted` / `transport: "closed"`). The consumer
@@ -163,26 +166,39 @@ export function createServerLifecycle<
     opts
       .probe()
       .then(({ processId }) => {
-        // Publish the observation before classifying it — consumers echo it back
-        // as the next reconnect's `pid` handshake param.
-        opts.onProcessId?.(processId);
+        // Classify and transition FIRST, independent of the observer. The
+        // `onProcessId` publish is fired afterwards in a guarded block: an
+        // observer hook must not be able to poison the core lifecycle — a
+        // throwing callback would otherwise turn a successful probe into a probe
+        // failure, skip the transition, and leave the UI stuck in `connecting` /
+        // `disconnected`.
+        //
         // First *successful* identity (regardless of how many opens preceded it):
         // the initial connect. Only once an identity is on record does a later
         // probe become reconnect (same id) / restart (changed id).
         if (knownProcessId === null) {
           knownProcessId = processId;
           setLifecycle({ kind: "connected", processId });
-          return;
+        } else {
+          const restarted = processId !== knownProcessId;
+          knownProcessId = processId;
+          setLifecycle(
+            restarted
+              ? // Probe-driven restart: this open landed against a fresh
+                // process, so the socket is OPEN.
+                { kind: "restarted", processId, transport: "open" }
+              : { kind: "reconnected", processId },
+          );
         }
-        const restarted = processId !== knownProcessId;
-        knownProcessId = processId;
-        setLifecycle(
-          restarted
-            ? // Probe-driven restart: this open landed against a fresh process,
-              // so the socket is OPEN.
-              { kind: "restarted", processId, transport: "open" }
-            : { kind: "reconnected", processId },
-        );
+        // Publish the observation — consumers echo it back as the next
+        // reconnect's `pid` handshake param. Guarded so a throwing consumer is
+        // reported (not silently swallowed) without unwinding the transition
+        // already committed above.
+        try {
+          opts.onProcessId?.(processId);
+        } catch (err) {
+          opts.onProbeError?.(err);
+        }
       })
       .catch((err) => {
         // The next `open` retries; don't transition on a failed probe. But

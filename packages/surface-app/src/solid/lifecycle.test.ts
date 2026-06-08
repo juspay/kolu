@@ -241,6 +241,31 @@ describe("createServerLifecycle", () => {
       dispose();
     });
   });
+
+  it("a throwing onProcessId does not poison the lifecycle transition", async () => {
+    const t = fakeWs();
+    const errors: unknown[] = [];
+    await createRoot(async (dispose) => {
+      const { lifecycle } = createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: "p1" }),
+        // An observer that throws must not convert a successful probe into a
+        // probe failure: the transition is already committed before it runs, and
+        // the throw is reported via onProbeError instead of unwinding it.
+        onProcessId: () => {
+          throw new Error("observer blew up");
+        },
+        onProbeError: (err) => errors.push(err),
+      });
+      t.fire("open");
+      await Promise.resolve();
+      // Lifecycle still reached `connected`; the throw surfaced separately.
+      expect(lifecycle()).toEqual({ kind: "connected", processId: "p1" });
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as Error).message).toBe("observer blew up");
+      dispose();
+    });
+  });
 });
 
 describe("retireSocket", () => {

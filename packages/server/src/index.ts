@@ -334,6 +334,15 @@ wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   const connId = ++nextConnId;
   const connLog = log.child({ ws: connId });
 
+  // Attach the error handler FIRST — before the stale-process gate can `return`.
+  // A rejected socket is still a live `ws` EventEmitter until its close handshake
+  // settles; if the peer resets (or the socket otherwise emits `error`) after
+  // `ws.close(...)`, an unhandled `error` event becomes an uncaught exception.
+  // Both accepted and rejected sockets need it, so it's installed up front.
+  ws.on("error", (err) => {
+    connLog.error({ err }, "error");
+  });
+
   // processId handshake gate: a stale tab reconnecting to a RESTARTED server
   // still carries the PREVIOUS instance's id in its `pid` query param. Reject it
   // here — before oRPC upgrades the socket — so its dead-terminal stream
@@ -363,9 +372,6 @@ wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
       },
       "disconnected",
     );
-  });
-  ws.on("error", (err) => {
-    connLog.error({ err }, "error");
   });
 });
 
