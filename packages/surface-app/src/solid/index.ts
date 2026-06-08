@@ -321,11 +321,20 @@ const SurfaceAppContext = createContext<SurfaceAppModel>();
  *      same lifecycle — one source, no disagreement, no double probe.
  *    - `{ ws, probe }` — the provider derives the lifecycle itself (the turnkey
  *      shape for an app with no other lifecycle consumer); a failed identity
- *      probe is reported through the provider's `onError` prop.
+ *      probe is reported through the provider's `onError` prop. Pass the optional
+ *      `restartCloseCode` to get the synchronous stale-restart fast path
+ *      (`createServerLifecycle`'s option of the same name) without dropping to
+ *      the manual `{ status }` shape — a transport close with that code goes
+ *      straight to `restarted`.
  *    - neither — `status()` is permanently `"live"` (build-skew only). */
 export type ConnectionSource<P extends ServerProbe = ServerProbe> =
   | { status: Accessor<ConnectionStatus>; ws?: undefined; probe?: undefined }
-  | { ws: WsLike; probe: () => Promise<P>; status?: undefined }
+  | {
+      ws: WsLike;
+      probe: () => Promise<P>;
+      restartCloseCode?: number;
+      status?: undefined;
+    }
   | { ws?: undefined; probe?: undefined; status?: undefined };
 
 export type SurfaceAppProviderProps<
@@ -406,6 +415,12 @@ export function SurfaceAppProvider<
       ? createServerLifecycle({
           ws: props.ws,
           probe: props.probe,
+          // Forward the turnkey caller's stale-restart fast path (a transport
+          // close with this exact code is a definitive `restarted`), so the
+          // `{ ws, probe }` shape reaches the same behavior as a manual
+          // `createServerLifecycle` — no need to drop to the `{ status }` mode
+          // just to set it.
+          restartCloseCode: props.restartCloseCode,
           // Route probe failures through the same `onError` the buildInfo
           // stream uses — a turnkey caller has no separate `createServerLifecycle`
           // to attach `onProbeError` to, so a broken probe would otherwise be

@@ -20,7 +20,7 @@ import {
   surfaceAppProbe,
 } from "@kolu/surface-app/solid";
 import { STALE_PROCESS_CLOSE_CODE } from "kolu-common/config";
-import { createMemo } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { match } from "ts-pattern";
 import { rememberServerProcessId, surfaceApp, ws } from "../wire";
 
@@ -67,8 +67,28 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
 // process. Without this, partysocket spins a benign-but-noisy reconnect loop
 // (and a failed identity probe each round) behind the overlay. `ws.close()`
 // flips partysocket's `_shouldReconnect` to false, which a fresh page resets.
+//
+// We must ALSO drop further sends, not just stop reconnecting. partysocket's
+// `send()` queues into an unbounded offline buffer (`maxEnqueuedMessages` is
+// `Infinity`) whenever the socket isn't OPEN, and oRPC's websocket link calls
+// it directly. With reconnect disabled that buffer never flushes, so the
+// overlay's `pointer-events-none` card — users can still type into the terminals
+// underneath — plus any stream retry would grow the queue without bound and
+// silently. Replace `send` with a drop so post-stale writes vanish immediately
+// instead of accumulating. The buffering for a NORMAL transient drop is
+// untouched (it still flushes on the next open); only the stale terminal state
+// neuters it, and a fresh page restores a pristine socket.
+//
+// `staleClosed` records the terminal-stale fact for the header dot below: a
+// stale-restart leaves the socket genuinely CLOSED (unlike a reconnect-restart,
+// where the socket is open against a fresh process), so the `srv` dot must read
+// red, not the green that `restarted` otherwise maps to.
+const [staleClosed, setStaleClosed] = createSignal(false);
 ws.addEventListener("close", (event: CloseEvent) => {
-  if (event.code === STALE_PROCESS_CLOSE_CODE) ws.close();
+  if (event.code !== STALE_PROCESS_CLOSE_CODE) return;
+  ws.close();
+  ws.send = () => {};
+  setStaleClosed(true);
 });
 
 // `status` is the surface-app `ConnectionStatus` projection of the same
@@ -77,12 +97,16 @@ ws.addEventListener("close", (event: CloseEvent) => {
 // no double `surfaceApp.info` probe per reconnect, no observer disagreement).
 export { lifecycle, serverProcessId, status };
 
-/** Transport status for the header dot. */
+/** Transport status for the header dot. A `restarted` lifecycle has two shapes:
+ *  a reconnect-restart (socket open against a fresh process — `open`) and a
+ *  stale-restart (the server closed this tab at the handshake — socket CLOSED,
+ *  so `closed`). `staleClosed()` distinguishes them. */
 const wsStatus = createMemo<WsStatus>(() =>
   match(lifecycle().kind)
     .with("connecting", () => "connecting" as const)
     .with("disconnected", () => "closed" as const)
-    .with("connected", "reconnected", "restarted", () => "open" as const)
+    .with("restarted", (): WsStatus => (staleClosed() ? "closed" : "open"))
+    .with("connected", "reconnected", () => "open" as const)
     .exhaustive(),
 );
 

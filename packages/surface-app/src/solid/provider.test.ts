@@ -22,7 +22,28 @@ import {
   type SurfaceAppModel,
   SurfaceAppProvider,
   useSurfaceApp,
+  type WsLike,
 } from "./index";
+
+/** A minimal transport whose `open`/`close` we fire by hand, with an optional
+ *  close code — the turnkey `{ ws, probe }` path's analogue of `lifecycle.test`'s
+ *  `fakeWs`. */
+function fakeWs() {
+  const listeners: Record<
+    "open" | "close",
+    Array<(event?: { code?: number }) => void>
+  > = { open: [], close: [] };
+  const ws: WsLike = {
+    addEventListener: (type, fn) => listeners[type].push(fn),
+  };
+  return {
+    ws,
+    fire: (type: "open" | "close", code?: number) => {
+      const event = code === undefined ? undefined : { code };
+      for (const l of listeners[type].slice()) l(event);
+    },
+  };
+}
 
 /** A `controlPlane` whose `buildInfo` cell yields a fixed server commit. */
 function fakeControlPlane(serverCommit: string): ControlPlane {
@@ -73,6 +94,36 @@ describe("SurfaceAppProvider — updateReady", () => {
 
       setStatus("restarted");
       expect(model.updateReady()).toBe(true);
+
+      dispose();
+    });
+  });
+
+  it("forwards `restartCloseCode` through the turnkey `{ ws, probe }` source", async () => {
+    const t = fakeWs();
+    await createRoot(async (dispose) => {
+      let captured!: SurfaceAppModel;
+      createComponent(SurfaceAppProvider, {
+        controlPlane: fakeControlPlane("0784979"),
+        clientCommit: "0784979",
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: "p1" }),
+        restartCloseCode: 4001,
+        get children() {
+          captured = useSurfaceApp();
+          return null;
+        },
+      });
+
+      t.fire("open");
+      await Promise.resolve();
+      expect(captured.status()).toBe("live");
+
+      // The dedicated restart code reaches `createServerLifecycle` and surfaces
+      // as `restarted` — the turnkey path now matches the manual one.
+      t.fire("close", 4001);
+      expect(captured.status()).toBe("restarted");
+      expect(captured.updateReady()).toBe(true);
 
       dispose();
     });
