@@ -1,0 +1,36 @@
+# @kolu/solid-browser docsite — standalone example.
+#
+# A tiny doc browser that gets working back/forward by plugging its own
+# location type into `@kolu/solid-browser`'s `createBrowser` — the same
+# history controller kolu's Code tab uses. `just dev` boots the Vite client;
+# open the printed URL and click around / use the ◀ ▶ buttons.
+#
+# Uses the root devShell for tooling. Reuses the same IN_NIX_SHELL detection
+# the root justfile does so recipes run inside `nix develop` skip the re-entry.
+
+repo_root := justfile_directory() / "../../../.."
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + repo_root + ' --accept-flake-config -c' }
+
+# List available recipes
+default:
+    @just --list
+
+# Install pnpm deps (delegates to the workspace at the repo root)
+install:
+    cd {{ repo_root }} && {{ nix_shell }} pnpm install
+
+# Boot the Vite client (:5176). Open the printed http://localhost URL.
+dev *args: install
+    cd {{ justfile_directory() }} && {{ nix_shell }} pnpm run dev {{ args }}
+
+# Build the static client bundle (vite build → dist/)
+build:
+    cd {{ justfile_directory() }} && {{ nix_shell }} pnpm run build:client
+
+# Typecheck this example only
+typecheck:
+    cd {{ justfile_directory() }} && {{ nix_shell }} pnpm typecheck
+
+# Run the reuse-proof unit test
+test:
+    cd {{ justfile_directory() }} && {{ nix_shell }} pnpm test:unit

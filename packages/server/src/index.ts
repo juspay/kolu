@@ -1,8 +1,7 @@
 import { createServer as createHttpsServer } from "node:https";
-import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
+import { createDirServer } from "@kolu/serve-dir";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -10,22 +9,23 @@ import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { DEFAULT_PORT } from "kolu-common/config";
+import {
+  TERMINAL_FILE_ROUTE_BASE,
+  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
+} from "kolu-common/preview";
 import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
 import {
-  ASSET_MISS_CACHE_CONTROL,
-  getCacheControlHeader,
-  isImmutableAssetPath,
-  SHELL_CACHE_CONTROL,
-} from "./cacheControl.ts";
+  installFreshStatic,
+  installPwaManifest,
+} from "@kolu/surface-app/server";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import {
-  resolvePreviewPath,
-  serveResolvedFile,
-  TERMINAL_FILE_ROUTE_BASE,
-  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
+  previewRealpathGuard,
+  previewTailFromRawUrl,
+  rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
@@ -175,9 +175,10 @@ app.get("/api/health", (c) => c.text("kolu"));
 // Self-contained — registers the SDK bundle route and a middleware that
 // splices the SDK <script> into text/html responses on the iframe-preview
 // route. The byte-streaming `iframePreviewRoute` below stays untouched.
+const PREVIEW_ROUTE_PATTERN = `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
 mountArtifactSdk(app, {
   sdkScriptPath: "/api/artifact-sdk.js",
-  htmlRoutePrefix: `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`,
+  htmlRoutePrefix: PREVIEW_ROUTE_PATTERN,
 });
 
 // --- Iframe preview file route ---
@@ -185,88 +186,99 @@ mountArtifactSdk(app, {
 // URL contract (base + builder + parser) all lives in `iframePreviewRoute.ts`.
 // Registered before the static-serve catch-all so production builds don't
 // shadow this route with `serveStatic`'s `/*` matcher.
-app.get(
-  `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`,
-  async (c) => {
-    const terminalId = c.req.param("terminalId");
-    const prefix = `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/`;
-    // Slice the tail off `c.req.path` (Hono applies `decodeURI` here, so
-    // `%2f` stays encoded) rather than read `c.req.param("*")` (which
-    // applies `decodeURIComponent` — that would decode `%2f` → `/` and
-    // destroy segment boundaries before `resolvePreviewPath`'s split
-    // could see them, letting `foo%2f..%2fpasswd` through the guard).
-    const rawTail = c.req.path.startsWith(prefix)
-      ? c.req.path.slice(prefix.length)
-      : "";
+app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
+  const terminalId = c.req.param("terminalId");
+  // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
+  // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
+  // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
+  // last is built by @hono/node-server as `new URL(...).href`, which has ALREADY
+  // run WHATWG path normalization — collapsing `foo/../secret` and `foo/%2e%2e/`
+  // to `secret` BEFORE the handler sees it, defeating serve-dir's `..` guard. The
+  // Node `IncomingMessage.url` (`c.env.incoming.url`) is the raw, un-normalized
+  // request target (origin-form `/path?query`); that's what serve-dir must see.
+  // `previewTailFromRawUrl` documents the rest (correctness for `%`-bearing
+  // names + `%2f` traversal defense) and is unit-tested in
+  // `iframePreviewRoute.test.ts`. `rawTargetFromContext` owns the raw-target
+  // selection (`incoming.url`) as one shipped adapter the integration test
+  // drives too, so the two halves of this guard can't drift. It reads `c.env`
+  // as `Partial<HttpBindings>` so the @hono/node-server binding doesn't leak
+  // into the other mounts' `Hono<BlankEnv>` expectations. When `incoming` is
+  // absent it returns `undefined` — a fail-CLOSED 500 here, NOT a silent
+  // fallback to the WHATWG-normalized `c.req.raw.url` that would defeat the `..`
+  // guard. Kolu's only production adapter (@hono/node-server) always supplies
+  // `incoming`, so this arm signals a genuinely broken host, not a degraded one.
+  const rawTarget = rawTargetFromContext(c);
+  if (rawTarget === undefined)
+    return c.text("raw request target unavailable", 500);
+  const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
 
-    const term = getTerminal(terminalId);
-    const repoRoot = term?.meta.git?.repoRoot;
-    if (!repoRoot) return c.text("terminal has no repo", 404);
+  // The one kolu binding: which directory this terminal serves. Kept as the
+  // git repo root for now (behavior-preserving — the browse tree, git-status
+  // decoration, and diff are all repo-relative); switching the injected root
+  // to the terminal's `$PWD` (`meta.cwd`) is a one-line change here, deferred
+  // because it's a browse-model/decoration product decision, not this refactor.
+  const root = getTerminal(terminalId)?.meta.git?.repoRoot;
+  if (!root) return c.text("terminal has no repo", 404);
 
-    const res = await serveResolvedFile(
-      resolvePreviewPath(repoRoot, rawTail),
-      repoRoot,
-    );
-    // `Buffer` (subclass of `Uint8Array<ArrayBufferLike>`) is a runtime-valid
-    // `BodyInit` but the DOM-typed lib.dom.d.ts narrows `BodyInit` to
-    // `Uint8Array<ArrayBuffer>` — the unions don't align in TS even though
-    // node-server forwards the buffer unchanged. Cast at the boundary.
-    return new Response(res.body as BodyInit, {
-      status: res.status,
-      headers: res.headers,
-    });
-  },
-);
-
-// --- Dynamic PWA manifest (includes hostname) ---
-app.get("/manifest.webmanifest", (c) => {
-  const identity = pwaIdentityForHostname(serverHostname);
-  return c.json(
-    {
-      name: identity.name,
-      short_name: identity.name,
-      start_url: "/",
-      display: "standalone",
-      background_color: PWA_BACKGROUND_COLOR,
-      theme_color: identity.themeColor,
-      icons: [
-        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-      ],
-    },
-    { headers: { "Content-Type": "application/manifest+json" } },
+  // The agnostic receptacle owns range/content-type/the lexical guard and
+  // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
+  // above) rewrites it downstream for text/html. Range header is read from the
+  // request inside. We inject kolu's realpath guard (`previewRealpathGuard`)
+  // so a repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
+  // rejected with 403 before any byte is read — the stage the lexical guard
+  // inside `@kolu/serve-dir` can't cover.
+  return createDirServer(root, previewRealpathGuard(root)).fetch(
+    rawTail,
+    c.req.raw,
   );
 });
 
+// --- Dynamic PWA manifest (includes hostname) ---
+// surface-app owns assembly + the install-friendly defaults (start_url,
+// display); kolu supplies the per-host branding. Served unconditionally — in
+// dev the Vite proxy forwards `/manifest.webmanifest` here, so it must exist
+// without a built client.
+const pwaIdentity = pwaIdentityForHostname(serverHostname);
+installPwaManifest(app, {
+  name: pwaIdentity.name,
+  short_name: "kolu",
+  // `...extra` passthrough in installPwaManifest carries these through to the
+  // served manifest — they upgrade Chromium's native install card (and the
+  // pwa-install preview) from a bare icon to a richer app entry.
+  description:
+    "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
+  themeColor: pwaIdentity.themeColor,
+  backgroundColor: PWA_BACKGROUND_COLOR,
+  icons: [
+    { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    // Maskable variant (logo inside the safe zone on the brand background) so
+    // installed icons fill the OS mask instead of being letterboxed.
+    {
+      src: "/icon-512-maskable.png",
+      sizes: "512x512",
+      type: "image/png",
+      purpose: "maskable",
+    },
+  ],
+  // No `screenshots`: they only prettify the install card (install works without
+  // them), and committed product shots go stale as the UI moves. Not worth the
+  // maintenance — the icon + description carry the install entry.
+});
+
 // --- Static files (production) ---
+// surface-app's freshness contract on the wire: no-store shell, immutable
+// hashed `/assets/*`, 404 on an asset miss (never the HTML shell), the `/sw.js`
+// worker, and the SPA fallback. Replaces kolu's hand-rolled cache-control +
+// static-serve block. `serviceWorker: "notify"` serves the fetch-less
+// notification worker (kolu fires agent-finished alerts via
+// `ServiceWorkerRegistration.showNotification()`, the only notification path
+// that works in an installed PWA) instead of the self-destructing one — it never
+// caches, so the freshness contract still holds. Pairs with
+// `registerServiceWorker()` in the client's `index.tsx`.
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
-  const root = resolve(clientDist);
-  app.use("/*", async (c, next) => {
-    const directive = getCacheControlHeader(c.req.path);
-    if (directive) c.header("Cache-Control", directive);
-    return next();
-  });
-  app.use("/*", serveStatic({ root }));
-  // SPA fallback. A `/assets/*` request reaching here MISSED a real file — a
-  // stale/bogus content hash — so 404 it rather than serve the HTML shell:
-  // index.html under a `.js` URL is the wrong MIME and would be cached
-  // `immutable` for a year (see isImmutableAssetPath), poisoning the next load.
-  // Any other unmatched path is a client-side route → serve the shell under
-  // `SHELL_CACHE_CONTROL` (the same directive cacheControl.ts pins on `/`) so a
-  // normal reload can never replay a stale shell.
-  app.get(
-    "/*",
-    (c, next) => {
-      if (isImmutableAssetPath(c.req.path)) {
-        c.header("Cache-Control", ASSET_MISS_CACHE_CONTROL);
-        return c.notFound();
-      }
-      c.header("Cache-Control", SHELL_CACHE_CONTROL);
-      return next();
-    },
-    serveStatic({ root, path: "index.html" }),
-  );
+  installFreshStatic(app, { root: clientDist, serviceWorker: "notify" });
 }
 
 // --- TLS setup ---

@@ -32,6 +32,8 @@ Add a question only when something material is genuinely unclear — don't pad. 
 - **Feature / new behavior:** write the covering test (e2e/integration/unit as fits) before or alongside the change.
 - **Refactor/chore:** no test-first requirement; rely on existing coverage.
 
+**Sync the docs.** Read `.agency/do.md` for its **`## Documentation`** section — the list of files to keep in lockstep with code (README and the like). Compare each against this change and update any that the diff makes stale, so the docs commit rides the same review gauntlet as the code. Skip only when that section is absent or the change is genuinely doc-neutral.
+
 Run **check** and **fmt**, then commit (conventional message) and push the feature branch.
 
 ## 3. Open the PR

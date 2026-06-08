@@ -25,6 +25,7 @@ import type { ZodType } from "zod";
 import {
   type CellSpec,
   type CollectionSpec,
+  composeSurfaceContracts,
   DEFAULT_CELL_VERBS_WITH_PATCH,
   DEFAULT_CELL_VERBS_WITHOUT_PATCH,
   DEFAULT_COLLECTION_VERBS,
@@ -34,6 +35,13 @@ import {
   type Surface,
   type SurfaceSpec,
 } from "./define";
+
+// `composeSurfaceContracts` is a browser-safe, contract-only helper — it
+// lives in `./define` so a browser-reached common module can value-import it
+// without dragging `@orpc/server` into the client bundle. Re-exported here so
+// server-only consumers that already import from `@kolu/surface/server` keep
+// working.
+export { composeSurfaceContracts };
 import type { Cell, Collection, Event, Stream } from "./index";
 
 // ── Persistence + pub/sub interfaces ───────────────────────────────────
@@ -773,6 +781,11 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
       /** Fire-and-forget side effect on every successful write. See
        *  `CellHandlerDeps.onWrite`. */
       onWrite?: (next: T) => void;
+      /** Optional async-source republish. The runtime fires it ONCE after
+       *  the cell is wired, handing it the cell ctx setter, so a
+       *  late-arriving value flows through the same equals/onWrite/store.set/
+       *  bus.publish path. Owned by the runtime — apps never call it. */
+      connect?: (cell: { set: (next: T) => void }) => void | Promise<void>;
     }
   : S extends { schema: ZodType<infer T> }
     ? {
@@ -780,6 +793,12 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
         equals?: (a: T, b: T) => boolean;
         onMutate?: (next: T, current: T) => void;
         onWrite?: (next: T) => void;
+        /** Optional async-source republish. The runtime fires it ONCE after
+         *  the cell is wired, handing it the cell ctx setter, so a
+         *  late-arriving value flows through the same equals/onWrite/
+         *  store.set/bus.publish path. Owned by the runtime — apps never
+         *  call it. */
+        connect?: (cell: { set: (next: T) => void }) => void | Promise<void>;
       }
     : never;
 
@@ -1013,16 +1032,21 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
  *        terminal: t.terminal.handler(...),
  *      });
  */
-export function implementSurface<const S extends SurfaceSpec>(
+/** Walk a single surface's spec and wire every cell/collection/stream/event/
+ *  procedure onto `root` — the oRPC builder node *at the surface root* (i.e.
+ *  `implement(contract).surface` for a lone surface, or
+ *  `implement(combined).surface[key]` for a keyed sibling). Returns the
+ *  per-key handler namespaces (to feed `root.router(...)` /
+ *  `t.router({ [key]: namespaces })`) plus the typed mutation `ctx`.
+ *
+ *  Shared by `implementSurface` (singular) and `implementSurfaces` (plural)
+ *  so the two paths can never drift on how a primitive is wired. */
+function walkSurface<const S extends SurfaceSpec>(
+  // biome-ignore lint/suspicious/noExplicitAny: the oRPC builder node is too dynamic for our runtime walk; spec types carry call-site safety.
+  root: any,
   surface: Surface<S>,
   deps: ImplementSurfaceDeps<S>,
-) {
-  // oRPC's typed implement(contract) chain is too dynamic for our walk
-  // (we walk the spec at runtime to wire each entry); cast the whole
-  // builder + result to `any` and rely on the surface's spec types for
-  // call-site safety.
-  // biome-ignore lint/suspicious/noExplicitAny: see comment above
-  const t = implement(surface.contract as any) as any;
+): { namespaces: Record<string, Record<string, unknown>>; ctx: SurfaceCtx<S> } {
   const spec = surface.spec;
 
   const cellsCtx: Record<string, unknown> = {};
@@ -1033,7 +1057,7 @@ export function implementSurface<const S extends SurfaceSpec>(
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
     const cellSpec = rawSpec as CellSpec<unknown, unknown>;
     const bus = deps.channel<unknown>(`${key}:changed`);
-    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the keyed deps
     const cellDeps = (deps.cells as any)?.[key] as
       | {
           store: CellStore<unknown>;
@@ -1041,6 +1065,7 @@ export function implementSurface<const S extends SurfaceSpec>(
           equals?: (a: unknown, b: unknown) => boolean;
           onMutate?: (p: unknown, c: unknown) => void;
           onWrite?: (next: unknown) => void;
+          connect?: (c: { set: (v: unknown) => void }) => void | Promise<void>;
         }
       | undefined;
     if (!cellDeps) {
@@ -1060,7 +1085,7 @@ export function implementSurface<const S extends SurfaceSpec>(
     const equalsFn = cellSpec.equals ?? cellDeps.equals;
     const onWriteFn = cellDeps.onWrite;
     const handlers = cellHandlers(
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.cells as any)[key] as Cell<string, unknown>,
       {
         store: cellDeps.store,
@@ -1108,6 +1133,15 @@ export function implementSurface<const S extends SurfaceSpec>(
         : {}),
     };
 
+    // Optional async-source republish: fire once after the cell ctx is
+    // wired, handing it the ctx setter so a late-arriving value flows
+    // through the same equals/onWrite/store.set/bus.publish path.
+    const cd = cellDeps as {
+      connect?: (c: { set: (v: unknown) => void }) => void | Promise<void>;
+    };
+    if (cd.connect)
+      void cd.connect(cellsCtx[key] as { set: (v: unknown) => void });
+
     const verbs =
       cellSpec.verbs ??
       (cellSpec.patchSchema
@@ -1115,11 +1149,10 @@ export function implementSurface<const S extends SurfaceSpec>(
         : DEFAULT_CELL_VERBS_WITHOUT_PATCH);
     const ns: Record<string, unknown> = {};
     for (const v of verbs) {
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      // biome-ignore lint/suspicious/noExplicitAny: handler map indexed by verb string
       const h = (handlers as any)[v];
       if (h === undefined) continue;
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      ns[v] = (t as any).surface[key][v].handler(h);
+      ns[v] = root[key][v].handler(h);
     }
     namespaces[key] = { ...(namespaces[key] ?? {}), ...ns };
   }
@@ -1127,7 +1160,7 @@ export function implementSurface<const S extends SurfaceSpec>(
   // ── Collections ──────────────────────────────────────────────────────
   for (const [key, rawSpec] of Object.entries(spec.collections ?? {})) {
     const collSpec = rawSpec as CollectionSpec<unknown, unknown>;
-    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the keyed deps
     const collDeps = (deps.collections as any)?.[key] as
       | {
           readAll: () => Map<unknown, unknown>;
@@ -1164,7 +1197,7 @@ export function implementSurface<const S extends SurfaceSpec>(
     };
 
     const handlers = collectionHandlers(
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.collections as any)[key] as Collection<
         string,
         unknown,
@@ -1183,18 +1216,17 @@ export function implementSurface<const S extends SurfaceSpec>(
     const verbs = collSpec.verbs ?? DEFAULT_COLLECTION_VERBS;
     const ns: Record<string, unknown> = {};
     for (const v of verbs) {
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      // biome-ignore lint/suspicious/noExplicitAny: handler map indexed by verb string
       const h = (handlers as any)[v];
       if (h === undefined) continue;
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      ns[v] = (t as any).surface[key][v].handler(h);
+      ns[v] = root[key][v].handler(h);
     }
     namespaces[key] = { ...(namespaces[key] ?? {}), ...ns };
   }
 
   // ── Streams ──────────────────────────────────────────────────────────
   for (const [key] of Object.entries(spec.streams ?? {})) {
-    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the keyed deps
     const streamDeps = (deps.streams as any)?.[key] as
       | {
           source?: (
@@ -1251,7 +1283,7 @@ export function implementSurface<const S extends SurfaceSpec>(
       );
     }
     const handlers = streamHandlers(
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.streams as any)[key] as Stream<
         string,
         unknown,
@@ -1261,8 +1293,7 @@ export function implementSurface<const S extends SurfaceSpec>(
     );
     namespaces[key] = {
       ...(namespaces[key] ?? {}),
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      get: (t as any).surface[key].get.handler(handlers.get),
+      get: root[key].get.handler(handlers.get),
     };
   }
 
@@ -1272,7 +1303,7 @@ export function implementSurface<const S extends SurfaceSpec>(
   // from the same channel. Channel name = `<key>:<keyOfInput(input)>`.
   const eventsCtx: Record<string, unknown> = {};
   for (const [key] of Object.entries(spec.events ?? {})) {
-    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the keyed deps
     const eventDeps = (deps.events as any)?.[key] as
       | {
           source?: (
@@ -1300,7 +1331,7 @@ export function implementSurface<const S extends SurfaceSpec>(
         : bus.subscribe(signal);
     };
     const handlers = eventHandlers(
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.events as any)[key] as Event<
         string,
         unknown,
@@ -1310,8 +1341,7 @@ export function implementSurface<const S extends SurfaceSpec>(
     );
     namespaces[key] = {
       ...(namespaces[key] ?? {}),
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      get: (t as any).surface[key].get.handler(handlers.get),
+      get: root[key].get.handler(handlers.get),
     };
   }
 
@@ -1323,7 +1353,7 @@ export function implementSurface<const S extends SurfaceSpec>(
   };
   for (const [ns, procs] of Object.entries(spec.procedures ?? {})) {
     namespaces[ns] = namespaces[ns] ?? {};
-    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the keyed deps
     const procDeps = (deps.procedures as any)?.[ns] as
       | Record<string, (opts: unknown) => unknown>
       | undefined;
@@ -1334,36 +1364,151 @@ export function implementSurface<const S extends SurfaceSpec>(
           `implementSurface: missing handler for procedure "${ns}.${verb}"`,
         );
       }
-      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      namespaces[ns][verb] = (t as any).surface[ns][verb].handler(
-        // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      namespaces[ns][verb] = root[ns][verb].handler(
+        // biome-ignore lint/suspicious/noExplicitAny: oRPC handler opts are dynamic; ctx is typed via SurfaceCtx<S>
         (opts: any) => handler({ ...opts, ctx }),
       );
     }
   }
 
-  // Returns `{ router, ctx }`:
-  //
-  //   - `router` — a fragment under the top-level `surface` key, ready to
-  //     spread into the consumer's host `t.router({...})` alongside
-  //     hand-listed raw namespaces:
-  //
-  //       const { router: surfaceRouter, ctx: surfaceCtx } =
-  //         implementSurface(surface, deps);
-  //       const appRouter = t.router({
-  //         ...surfaceRouter,
-  //         terminal: { create: t.terminal.create.handler(...) },
-  //       });
-  //
-  //   - `ctx` — the typed cells/collections/events helper map. Domain
-  //     code that mutates a cell or collection (or fires an event) imports
-  //     `surfaceCtx` and calls `surfaceCtx.cells.X.set(value)` etc. — the
-  //     surface owns the apply+publish chain so direct `store.set + bus.publish`
-  //     parallel paths (and their drift risk) don't exist.
+  return { namespaces, ctx: ctx as SurfaceCtx<S> };
+}
+
+/** Build the full server router from a surface + dep wiring. Replaces the
+ *  hand-listed `t.X.<verb>.handler(handlers.<verb>)` plumbing for every
+ *  cell, collection, stream, event, and imperative procedure declared in
+ *  the surface.
+ *
+ *  Returns `{ router, ctx }`:
+ *
+ *    - `router` — a fragment under the top-level `surface` key, ready to
+ *      spread into the consumer's host `t.router({...})` alongside
+ *      hand-listed raw namespaces:
+ *
+ *        const { router: surfaceRouter, ctx: surfaceCtx } =
+ *          implementSurface(surface, deps);
+ *        const appRouter = t.router({
+ *          ...surfaceRouter,
+ *          terminal: { create: t.terminal.create.handler(...) },
+ *        });
+ *
+ *    - `ctx` — the typed cells/collections/events helper map. Domain code
+ *      that mutates a cell or collection (or fires an event) imports
+ *      `surfaceCtx` and calls `surfaceCtx.cells.X.set(value)` etc. — the
+ *      surface owns the apply+publish chain so direct
+ *      `store.set + bus.publish` parallel paths (and their drift risk)
+ *      don't exist. */
+export function implementSurface<const S extends SurfaceSpec>(
+  surface: Surface<S>,
+  deps: ImplementSurfaceDeps<S>,
+) {
+  // oRPC's typed implement(contract) chain is too dynamic for our walk
+  // (we walk the spec at runtime to wire each entry); cast the whole
+  // builder + result to `any` and rely on the surface's spec types for
+  // call-site safety.
+  // biome-ignore lint/suspicious/noExplicitAny: see comment above
+  const t = implement(surface.contract as any) as any;
+  const { namespaces, ctx } = walkSurface(t.surface, surface, deps);
   return {
-    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
     router: { surface: t.router(namespaces) } as any,
-    ctx: ctx as SurfaceCtx<S>,
+    ctx,
+  };
+}
+
+// ── implementSurfaces — sibling surfaces over one transport ─────────────
+
+/** A keyed map of independent surfaces — the single source of *which*
+ *  surfaces exist under *which* keys. Browser-safe (no server impls), so the
+ *  same value feeds `composeSurfaceContracts` (contract), `surfaceClients`
+ *  (client), and `implementSurfaces` (server). Each surface is served as a
+ *  SIBLING namespaced by its key — they are NOT merged into one surface. */
+// biome-ignore lint/suspicious/noExplicitAny: the map is heterogeneous; each value pins its own SurfaceSpec.
+export type SurfaceMap = Record<string, Surface<any>>;
+
+/** The per-key server-implementation deps for a `SurfaceMap` — the same
+ *  per-primitive wiring `implementSurface` takes (cell stores, collection
+ *  readers, stream/event sources, procedure handlers) MINUS `channel` (the
+ *  base supplies it, key-namespaced). Typed against each surface's own spec,
+ *  so a key's deps are checked precisely (no `any`-spec'd entry map). */
+export type SurfaceDepsFor<S extends SurfaceMap> = {
+  [K in keyof S]: S[K] extends Surface<infer Spec>
+    ? Omit<ImplementSurfaceDeps<Spec>, "channel">
+    : never;
+};
+
+/** The per-key typed mutation ctx returned by `implementSurfaces`. */
+export type SurfacesCtx<S extends SurfaceMap> = {
+  [K in keyof S]: S[K] extends Surface<infer Spec> ? SurfaceCtx<Spec> : never;
+};
+
+/** Serve a keyed MAP of independent surfaces multiplexed over one transport,
+ *  each namespaced by its key. Unlike `implementSurface`, the surfaces are NOT
+ *  merged — surface-app stays a complete surface served as a sibling of the
+ *  app surface under its own key.
+ *
+ *  Three args, mirroring the contract/client side: `surfaces` (the same
+ *  browser-safe `SurfaceMap` you pass to `composeSurfaceContracts` /
+ *  `surfaceClients` — the single source of keys+surfaces), `base` (the one
+ *  transport's `channel` + fallback `onStreamReadError`), and `deps` (the
+ *  server-only per-surface impls, keyed the same as `surfaces`). The surfaces
+ *  aren't re-listed here; only their deps are.
+ *
+ *  Routing: a combined contract of shape `{ surface: { <key>: innerContract } }`
+ *  is built from `surfaces` (via `composeSurfaceContracts`, the same receptacle
+ *  the contract side uses), then each surface's handlers are bound under
+ *  `t.surface[key]`. Procedures route at `/surface/<key>/<prim>/<verb>` — no
+ *  double-prefix, because the inner contract is re-keyed rather than raw-nested.
+ *
+ *  Channels are key-namespaced: each surface's `channel(name)` call is rewritten
+ *  to `base.channel(key + "/" + name)`, so two surfaces that each own e.g. a
+ *  `buildInfo:changed` channel can't collide on the wire. `base.onStreamReadError`
+ *  is the fallback for any surface whose deps don't supply their own. */
+export function implementSurfaces<const S extends SurfaceMap>(
+  surfaces: S,
+  base: {
+    channel: <T>(name: string) => Channel<T>;
+    onStreamReadError?: (err: unknown, info: { stream: string }) => void;
+  },
+  deps: SurfaceDepsFor<S>,
+): {
+  // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
+  router: any;
+  ctx: SurfacesCtx<S>;
+} {
+  // The combined contract envelope has ONE definition — the receptacle the
+  // contract side already uses. We re-key rather than raw-nest the built
+  // routers (a built router keeps its baked `surface.*` path, which would
+  // double-prefix to /surface/<key>/surface/…).
+  const combinedContract = composeSurfaceContracts(surfaces);
+  // biome-ignore lint/suspicious/noExplicitAny: oRPC implement chain is too dynamic for our runtime walk.
+  const t = implement(combinedContract as any) as any;
+
+  const byKey: Record<string, Record<string, Record<string, unknown>>> = {};
+  const ctxByKey: Record<string, unknown> = {};
+  for (const [key, surface] of Object.entries(surfaces)) {
+    const keyedChannel = <T>(name: string): Channel<T> =>
+      base.channel<T>(`${key}/${name}`);
+    const surfaceDeps = (
+      deps as Record<string, Omit<ImplementSurfaceDeps<SurfaceSpec>, "channel">>
+    )[key];
+    if (!surfaceDeps) {
+      throw new Error(`implementSurfaces: missing deps for surface "${key}"`);
+    }
+    const { namespaces, ctx } = walkSurface(t.surface[key], surface, {
+      ...surfaceDeps,
+      channel: keyedChannel,
+      onStreamReadError:
+        surfaceDeps.onStreamReadError ?? base.onStreamReadError,
+    });
+    byKey[key] = namespaces;
+    ctxByKey[key] = ctx;
+  }
+
+  return {
+    // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
+    router: { surface: t.router(byKey) } as any,
+    ctx: ctxByKey as SurfacesCtx<S>,
   };
 }
 

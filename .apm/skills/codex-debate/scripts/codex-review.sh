@@ -6,12 +6,15 @@
 # codex-verdict.schema.json, and writes the JSON verdict to <out-json>.
 #
 # Usage:
-#   codex-review.sh <base-branch> <rebuttal-file|-> <out-json>
+#   codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort]
 #
 #   <base-branch>    branch to diff against (e.g. master)
 #   <rebuttal-file>  path to a file holding CLAUDE's previous response (JSON),
 #                    or "-" on the first round (no rebuttal yet)
 #   <out-json>       path the JSON verdict is written to (also echoed to stdout)
+#   <reasoning-effort> codex model_reasoning_effort for this run; the debate
+#                    workflow passes its REASONING_EFFORT constant here so the
+#                    value has one home. Defaults to "xhigh" for standalone runs.
 #
 # Notes:
 #   * codex runs under `--sandbox read-only`, which enforces read-only at the
@@ -34,9 +37,12 @@
 #     was never captured, a later round cleanly falls back to a cold start.
 set -uo pipefail
 
-base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json>}"
+base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort]}"
 rebuttal_file="${2:?missing rebuttal-file (use - for none)}"
 out="${3:?missing out-json path}"
+# The debate workflow owns this value (its REASONING_EFFORT constant) and passes
+# it down; "xhigh" is only the default for a standalone invocation of this script.
+effort="${4:-xhigh}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 schema="$here/codex-verdict.schema.json"
@@ -194,7 +200,7 @@ run_codex() {
   if [ -n "$resume_id" ]; then
     codex exec resume \
       -c sandbox_mode="read-only" \
-      -c model_reasoning_effort="xhigh" \
+      -c model_reasoning_effort="$effort" \
       --json \
       --output-schema "$schema" \
       -o "$out" \
@@ -202,7 +208,7 @@ run_codex() {
   else
     codex exec \
       --sandbox read-only \
-      -c model_reasoning_effort="xhigh" \
+      -c model_reasoning_effort="$effort" \
       --json \
       --output-schema "$schema" \
       -o "$out" \
@@ -210,9 +216,10 @@ run_codex() {
   fi
 }
 
-# model_reasoning_effort=xhigh is scoped to the debate here (via -c) rather than
-# relying on the user's global ~/.codex/config.toml — review is the one place we
-# always want codex thinking at full depth, regardless of their default.
+# model_reasoning_effort is scoped to the debate here (via -c, from the $effort
+# the workflow passes down — default "xhigh") rather than relying on the user's
+# global ~/.codex/config.toml — review is the one place we always want codex
+# thinking at full depth, regardless of their default.
 #
 # RETRY/BACKOFF. codex's CLI fails transiently often enough to matter (API
 # hiccups, a spurious internal error) and writes no verdict — which would

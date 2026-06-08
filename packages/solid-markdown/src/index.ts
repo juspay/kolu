@@ -1,2 +1,2 @@
 export { Markdown, type MarkdownVariant } from "./Markdown";
-export { hasOwnScheme } from "./url-policy";
+export { resolveWikilink, type WikilinkResolution } from "./wikilink";

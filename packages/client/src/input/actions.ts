@@ -239,7 +239,10 @@ const _ACTIONS = {
     keybind: { key: "C", code: "KeyC", ctrl: true, shift: true },
   },
   toggleRightPanel: {
-    label: "Toggle inspector panel",
+    // The action toggles panel *visibility* only; it lands on whichever tab
+    // is active (Code by default), so the label is tab-agnostic rather than
+    // "inspector".
+    label: "Toggle right panel",
     keybind: { key: "b", code: "KeyB", mod: true, alt: true },
     handler: (ctx) => ctx.toggleRightPanel(),
   },
@@ -261,6 +264,12 @@ const _ACTIONS = {
 
 export type ActionId = keyof typeof _ACTIONS;
 export const ACTIONS: Record<ActionId, AppAction> = _ACTIONS;
+
+/** The chord to advertise for "new terminal" in welcome surfaces. Prefer the
+ *  alt chord (Cmd+Enter): the primary Cmd+T is intercepted by browsers outside
+ *  PWA-installed mode, so the alt is the universally-functional advert. */
+export const advertisedNewTerminalKey: Keybind =
+  ACTIONS.createTerminal.altKeybind ?? ACTIONS.createTerminal.keybind;
 
 /**
  * Check if a KeyboardEvent matches any registered action's keybind.

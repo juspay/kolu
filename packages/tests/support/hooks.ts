@@ -20,6 +20,8 @@ import getPort from "get-port";
 import { NIX_ENV_WHITELIST } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
+import * as engine from "../screencast/engine.ts";
+import { getRecording } from "../screencast/recordings/index.ts";
 import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -59,8 +61,6 @@ const mkSubDir = (name: string) => {
  *  session. Each worker getting its own dir eliminates the contention. */
 const claudeSessionsDir = mkSubDir("claude-sessions");
 const claudeProjectsDir = mkSubDir("claude-projects");
-process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
-process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
 
 /** Per-worker temp roots for the Codex and OpenCode mock harnesses —
  *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
@@ -69,7 +69,38 @@ process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
 const codexDir = mkSubDir("codex");
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
-process.env.KOLU_CODEX_DIR = codexDir;
+
+/** The agent-dir overrides that point kolu at the mock harnesses' temp dirs.
+ *  KOLU_X11CAP recordings launch the REAL claude/codex (whose sessions land in
+ *  the real ~/.claude/projects + ~/.codex), so every one of these must be ABSENT
+ *  — both deleted from `process.env` (so an inherited developer export can't
+ *  shadow the real dir) AND mapped to `undefined` in the server child env (so the
+ *  `...process.env` spread can't re-introduce one). The invariant — "this exact
+ *  set of vars is the temp-dir mapping normally, all-undefined under X11CAP" —
+ *  lives here once; the loop below mutates `process.env` from it and BeforeAll
+ *  spreads it into the child env. Add a new agent dir → add it here only. */
+const AGENT_DIR_VARS = [
+  "KOLU_CLAUDE_SESSIONS_DIR",
+  "KOLU_CLAUDE_PROJECTS_DIR",
+  "KOLU_CODEX_DIR",
+] as const;
+const agentDirEnv: Record<(typeof AGENT_DIR_VARS)[number], string | undefined> =
+  process.env.KOLU_X11CAP
+    ? {
+        KOLU_CLAUDE_SESSIONS_DIR: undefined,
+        KOLU_CLAUDE_PROJECTS_DIR: undefined,
+        KOLU_CODEX_DIR: undefined,
+      }
+    : {
+        KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
+        KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+        KOLU_CODEX_DIR: codexDir,
+      };
+for (const name of AGENT_DIR_VARS) {
+  const value = agentDirEnv[name];
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 
 /** Fake agent binaries the codex/opencode mock scenarios invoke by
@@ -135,6 +166,52 @@ const serverLogDir = path.resolve(import.meta.dirname, "..", "reports");
  *  canvas, so the clip reads tiny. 1280×720 fills the frame and matches
  *  recordVideo.size exactly, so the capture is 1:1 with no downscaling. */
 const EVIDENCE_VIEWPORT = { width: 1280, height: 720 };
+
+/** Marketing-grade screencast capture (set `KOLU_X11CAP=1`, via `just record`):
+ *  runs Chrome HEADFUL at 2× inside an Xvfb virtual display and records the
+ *  framebuffer with `ffmpeg -f x11grab` — smooth (fixed clock, off the
+ *  compositor) AND crisp (true 2×). The gnarly bits live in the agnostic engine
+ *  (`../screencast/engine.ts`); this just orchestrates them around the Cucumber
+ *  lifecycle. Per-scenario the recording module (looked up by scenario name)
+ *  decides app-mode vs browser chrome. Run single-worker (CUCUMBER_PARALLEL=1).
+ *  See `welcome-live-screencast.mdx`. */
+const X11CAP = !!process.env.KOLU_X11CAP;
+const X11_SCALE = 2;
+const X11_VIEWPORT = { width: 1280, height: 720 }; // logical default; physical = ×scale
+// The Xvfb screen is sized ONCE (BeforeAll), before the scenario is known, so it
+// must fit the LARGEST per-recording viewport. Each recording's window + x11grab
+// are then sized to its own viewport within this screen (the window is pinned at
+// 0,0 by captureWindowArgs, so the grab from 0,0 captures exactly that window).
+const X11_MAX_VIEWPORT = { width: 1728, height: 972 };
+/** Driver-pacing for recorded clips (ms between Playwright actions). Both
+ *  X11CAP launch paths — the app-mode persistent context and the global headful
+ *  browser — reference this so app-mode and browser-chrome clips share one
+ *  capture cadence. */
+const X11_SLOWMO = 250;
+const X11_SCREEN = engine.physicalSize({
+  viewport: X11_MAX_VIEWPORT,
+  scale: X11_SCALE,
+});
+/** Scenario name → file stem. The grab path (Before) and transcode path (After)
+ * MUST agree on this, so it lives in exactly one place. */
+const slug = (s: string) => s.replace(/\s+/g, "-").toLowerCase();
+const demoOutDir = path.resolve(
+  import.meta.dirname,
+  "..",
+  "..",
+  "..",
+  "website",
+  "public",
+  "demo",
+);
+let xvfbProc: ReturnType<typeof spawn> | undefined;
+let ffmpegProc: ReturnType<typeof spawn> | undefined;
+let x11Display: string | undefined;
+let x11RawPath: string | undefined;
+/** The current scenario's file stem (slug of its name), set once in Before so
+ * every After site (failure screenshot, evidence webm, x11 grab/transcode)
+ * reads the same value instead of re-deriving it. */
+let x11Stem: string | undefined;
 
 let baseUrl: string;
 let browser: Browser;
@@ -298,7 +375,32 @@ const ciArgs = [
 
 async function newScenarioPage(
   isMobile: boolean,
+  chrome: "app" | "browser",
+  vp: { width: number; height: number } = X11_VIEWPORT,
 ): Promise<{ context: BrowserContext; page: Page }> {
+  // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
+  // needs its own persistent context — Playwright drives the page Chrome opens
+  // at launch. Browser-chrome recordings fall through to the headful newContext
+  // path below (the global `browser` is launched headful under X11CAP).
+  if (X11CAP && chrome === "app" && !isMobile) {
+    const userDataDir = fs.mkdtempSync(path.join(testBaseDir, "chrome-app-"));
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      headless: false,
+      args: engine.appModeArgs({
+        url: baseUrl,
+        scale: X11_SCALE,
+        viewport: vp,
+      }),
+      viewport: null,
+      baseURL: baseUrl,
+      ignoreHTTPSErrors: true,
+      permissions: ["clipboard-write", "clipboard-read"],
+      slowMo: X11_SLOWMO,
+    });
+    const page = context.pages()[0] ?? (await context.waitForEvent("page"));
+    return { context, page };
+  }
+
   let previousContext: BrowserContext | undefined;
   return retryTransient("create Playwright page", async () => {
     if (previousContext) {
@@ -310,11 +412,15 @@ async function newScenarioPage(
       // default hid viewport-size-dependent bugs (e.g. the canvas
       // centering math behaves differently when the tile is small relative
       // to the viewport vs nearly filling it).
+      // KOLU_X11CAP browser-chrome: viewport null → the page fills the headful
+      // window (sized by the launch args, i.e. 2560×1440 physical).
       viewport: isMobile
         ? { width: 390, height: 844 }
-        : EVIDENCE
-          ? EVIDENCE_VIEWPORT
-          : { width: 1920, height: 1080 },
+        : X11CAP
+          ? null
+          : EVIDENCE
+            ? EVIDENCE_VIEWPORT
+            : { width: 1920, height: 1080 },
       ...(isMobile && { hasTouch: true, isMobile: true }),
       baseURL: baseUrl,
       ignoreHTTPSErrors: true,
@@ -337,23 +443,59 @@ async function newScenarioPage(
   });
 }
 
-async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
+/** Wait until the server WE spawned owns the port and answers health.
+ *
+ *  A bare `/api/health` probe is not enough on a shared CI host: a stale
+ *  orphan kolu from a previous run (or another consumer of the box) can be
+ *  squatting the ephemeral port `get-port` just handed us. Our child then
+ *  fails to bind, but the probe hits the *orphan* — which answers
+ *  `/api/health` (200) yet 404s every test-only RPC. The suite would then run
+ *  against a foreign server, one wedged worker drains the cucumber queue, and
+ *  hundreds of scenarios fail with an opaque 404 (the same single-bad-worker
+ *  catastrophe class as the ECONNREFUSED queue-drain in #?, different cause).
+ *
+ *  So gate on OUR child first announcing `kolu listening` on the expected
+ *  port (`ownsPort`) — proof it actually bound it — and only then confirm
+ *  HTTP health. Returns false (caller retries a fresh port) if the child
+ *  exits early (EADDRINUSE) or never claims the port within the budget. */
+async function waitForOwnedServer(
+  url: string,
+  ownsPort: () => boolean,
+  hasExited: () => boolean,
+  timeoutMs: number,
+): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    try {
-      const resp = await httpGet(url);
-      if (resp.ok) return;
-    } catch {
-      // server not up yet
+    if (hasExited()) return false;
+    if (ownsPort()) {
+      try {
+        const resp = await httpGet(`${url}/api/health`);
+        if (resp.ok) return true;
+      } catch {
+        // bound but HTTP not answering yet — keep polling
+      }
     }
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error(
-    `Server did not become healthy at ${url} within ${timeoutMs}ms`,
-  );
+  return false;
 }
 
 BeforeAll(async () => {
+  // KOLU_X11CAP: bring up the Xvfb virtual display BEFORE launching the (headful)
+  // browser, and point DISPLAY at it so Chrome and ffmpeg share the framebuffer.
+  if (X11CAP) {
+    x11Display = `:${99 + Number(workerId ?? 0)}`;
+    xvfbProc = engine.startXvfb(
+      x11Display,
+      X11_SCREEN.width,
+      X11_SCREEN.height,
+    );
+    process.env.DISPLAY = x11Display;
+    // Give Xvfb a moment to create the display before Chrome connects.
+    await new Promise((r) => setTimeout(r, 600));
+    console.log(`[worker:${workerId}] KOLU_X11CAP: Xvfb up on ${x11Display}`);
+  }
+
   const koluServer = process.env.KOLU_SERVER;
   if (!koluServer) throw new Error("KOLU_SERVER must be a URL or binary path");
 
@@ -361,10 +503,6 @@ BeforeAll(async () => {
     // Reuse an already-running server
     baseUrl = koluServer;
   } else {
-    // Spawn the binary on a random port
-    const port = await getPort();
-    baseUrl = `http://localhost:${port}`;
-    console.log(`[worker:${workerId}] Starting server on port ${port}...`);
     // Extend NIX_ENV_WHITELIST with GIT_AUTHOR_*/GIT_COMMITTER_* so PTY
     // shells in fixtures like `code-tab.feature` (which run `git init &&
     // git commit` inside the terminal under test) inherit the same
@@ -374,76 +512,143 @@ BeforeAll(async () => {
       NIX_ENV_WHITELIST,
       "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
     ].join(",");
-    serverProcess = spawn(
-      koluServer,
-      [
-        "--allow-nix-shell-with-env-whitelist",
-        envWhitelist,
-        "--port",
-        String(port),
-      ],
-      {
-        stdio: "pipe",
-        env: {
-          ...process.env,
-          // Route server state to an ephemeral $TMPDIR path so test runs
-          // never touch ~/.config and the dir can be wiped in AfterAll.
-          // `mkdtempSync`'s random suffix guarantees no collisions across
-          // parallel workers or worktrees.
-          KOLU_STATE_DIR: koluStateDir,
-          KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
-          KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
-          KOLU_CODEX_DIR: codexDir,
-          KOLU_OPENCODE_DB: opencodeDbPath,
-        },
-      },
-    );
-    // Tee the spawned server's stdout+stderr to a per-worker file. A server
-    // that dies mid-run otherwise leaves NO trace in the suite log (its only
-    // visible symptom is downstream `ECONNREFUSED` resets on its port); the
-    // file preserves the crash stack / clean-exit / silence-then-gone that
-    // distinguishes a crash from a wedge. Append-mode so a re-spawn doesn't
-    // clobber the prior life. Cheap, always on (replaces the KOLU_TEST_VERBOSE
-    // stdout gate — stdout is still drained so the pipe can't block pino).
+    // Append-mode per-worker server log: a server that dies mid-run otherwise
+    // leaves NO trace in the suite log; the file preserves the crash stack /
+    // clean-exit / silence-then-gone that distinguishes a crash from a wedge.
     fs.mkdirSync(serverLogDir, { recursive: true });
     const serverLog = fs.createWriteStream(
       path.join(serverLogDir, `server-w${workerId}.log`),
       { flags: "a" },
     );
-    serverProcess.stderr?.on("data", (data: Buffer) => {
-      serverLog.write(data);
-      process.stderr.write(`[server:${workerId}] ${data}`);
-    });
-    serverProcess.stdout?.on("data", (data: Buffer) => {
-      serverLog.write(data);
-      if (process.env.KOLU_TEST_VERBOSE) {
-        process.stderr.write(`[server:${workerId}:out] ${data}`);
+
+    // Spawn on a random port, retrying on a fresh port if our child can't take
+    // ownership of it (a stale orphan may be squatting — see waitForOwnedServer).
+    const MAX_SPAWN_ATTEMPTS = 5;
+    let started = false;
+    for (
+      let attempt = 1;
+      attempt <= MAX_SPAWN_ATTEMPTS && !started;
+      attempt++
+    ) {
+      const port = await getPort();
+      const url = `http://localhost:${port}`;
+      console.log(
+        `[worker:${workerId}] Starting server on port ${port} (attempt ${attempt}/${MAX_SPAWN_ATTEMPTS})...`,
+      );
+      const child = spawn(
+        koluServer,
+        [
+          "--allow-nix-shell-with-env-whitelist",
+          envWhitelist,
+          "--port",
+          String(port),
+        ],
+        {
+          stdio: "pipe",
+          env: {
+            ...process.env,
+            // Route server state to an ephemeral $TMPDIR path so test runs
+            // never touch ~/.config and the dir can be wiped in AfterAll.
+            KOLU_STATE_DIR: koluStateDir,
+            // The agent-dir overrides, derived once above: temp dirs normally,
+            // all-undefined under X11CAP so the `...process.env` spread can't
+            // re-introduce an inherited value and the server watches the real
+            // ~/.claude/projects + ~/.codex (the dock then tracks the live agent).
+            ...agentDirEnv,
+            KOLU_OPENCODE_DB: opencodeDbPath,
+          },
+        },
+      );
+
+      // Detect when OUR child announces it bound the port. The address in the
+      // `kolu listening {...,"address":"http://127.0.0.1:<port>"}` log proves
+      // ownership; buffer across chunks so a split line still matches.
+      let outBuf = "";
+      let ownsPort = false;
+      let exited = false;
+      const scan = (data: Buffer) => {
+        serverLog.write(data);
+        if (!ownsPort) {
+          outBuf += data.toString();
+          if (outBuf.includes("kolu listening") && outBuf.includes(`:${port}`))
+            ownsPort = true;
+          // Cap the scan buffer — once it's clearly past the boot banner and
+          // still no match, keep only the tail so memory can't grow unbounded.
+          if (outBuf.length > 16_384) outBuf = outBuf.slice(-4_096);
+        }
+      };
+      child.stderr?.on("data", (data: Buffer) => {
+        scan(data);
+        process.stderr.write(`[server:${workerId}] ${data}`);
+      });
+      child.stdout?.on("data", (data: Buffer) => {
+        scan(data);
+        if (process.env.KOLU_TEST_VERBOSE) {
+          process.stderr.write(`[server:${workerId}:out] ${data}`);
+        }
+      });
+      // Record the death itself: code/signal disambiguates crash (code≠0 or a
+      // signal) from a clean exit from a never-fired handler (wedge). A bind
+      // failure (port squatted) shows up here and flips `exited`.
+      child.on("exit", (code, signal) => {
+        exited = true;
+        const line = `[server:${workerId}] process exited code=${code} signal=${signal}\n`;
+        serverLog.write(line);
+        process.stderr.write(line);
+      });
+
+      const owned = await waitForOwnedServer(
+        url,
+        () => ownsPort,
+        () => exited,
+        15_000,
+      );
+      if (owned) {
+        serverProcess = child;
+        baseUrl = url;
+        started = true;
+        console.log(`[worker:${workerId}] Server is healthy on ${port}.`);
+      } else {
+        console.log(
+          `[worker:${workerId}] Server did not take ownership of port ${port} ` +
+            `(ownsPort=${ownsPort} exited=${exited}) — likely a squatter; retrying on a fresh port.`,
+        );
+        child.kill("SIGKILL");
       }
-    });
-    // Record the death itself: code/signal disambiguates crash (code≠0 or a
-    // signal) from a clean exit from a never-fired handler (wedge).
-    serverProcess.on("exit", (code, signal) => {
-      const line = `[server:${workerId}] process exited code=${code} signal=${signal}\n`;
-      serverLog.write(line);
-      process.stderr.write(line);
-    });
-    await waitForHealth(`${baseUrl}/api/health`, 10_000);
-    console.log(`[worker:${workerId}] Server is healthy.`);
+    }
+    if (!started) {
+      throw new Error(
+        `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempts`,
+      );
+    }
   }
 
-  // Launch browser — always use CI args for consistency and performance
+  // Launch browser — always use CI args for consistency and performance.
+  // KOLU_X11CAP: go HEADFUL at 2× inside Xvfb so x11grab captures real physical
+  // pixels. This global browser backs *browser-chrome* recordings (newContext);
+  // app-mode recordings launch their own persistent context in newScenarioPage.
+  // Same capture-window base as app mode, minus `--app` (chrome stays visible).
+  const x11Args = engine.captureWindowArgs({
+    scale: X11_SCALE,
+    viewport: X11_VIEWPORT,
+  });
   browser = await chromium.launch({
-    headless: process.env.HEADLESS !== "false",
-    args: ciArgs,
-    // KOLU_EVIDENCE: pace driver actions so the recorded video is legible
-    // (the lead-up; the app's own async — e.g. an iframe reload — still runs
-    // at real speed, so the payoff is shown via the scenario's own waits).
-    ...(EVIDENCE ? { slowMo: 250 } : {}),
+    headless: X11CAP ? false : process.env.HEADLESS !== "false",
+    args: X11CAP ? x11Args : ciArgs,
+    // Pace driver actions so the recorded video is legible (the lead-up; the
+    // app's own async — e.g. an iframe reload — still runs at real speed, so
+    // the payoff is shown via the scenario's own waits).
+    ...(EVIDENCE || X11CAP ? { slowMo: X11_SLOWMO } : {}),
   });
 });
 
 AfterAll(async () => {
   if (browser) await browser.close();
+  // KOLU_X11CAP: tear down the virtual display once the browser is gone.
+  if (xvfbProc) {
+    xvfbProc.kill("SIGTERM");
+    xvfbProc = undefined;
+  }
   keepAliveAgent.destroy();
   killServer();
   // Remove the per-worker base dir created with `mkdtempSync` above. Without
@@ -461,35 +666,52 @@ AfterAll(async () => {
 });
 
 Before(async function (this: KoluWorld, scenario) {
+  // Derive the scenario's file stem once, up front — the failure screenshot,
+  // the evidence webm, the x11 grab, and the transcoded assets all key off the
+  // same value, so it's computed here and read at every site below.
+  x11Stem = slug(scenario.pickle.name);
   // Kill leftover terminals and reset state so each scenario starts clean.
   // After #577 each domain (preferences / activity / savedSession) owns its
   // own reset endpoint — fired in parallel so the per-scenario setup cost
   // stays the same.
   await Promise.all([
     postJSON(`${baseUrl}/rpc/terminal/killAll`, {}),
-    postJSON(`${baseUrl}/rpc/surface/preferences/test__set`, {
+    postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
       json: {
         // Reset all preferences to defaults (shuffleTheme off for deterministic tests)
         seenTips: [],
-        startupTips: true,
+        // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
+        // tip banners popping in mid-shot. Normal e2e runs keep them on.
+        startupTips: !X11CAP,
         shuffleTheme: false,
         scrollLock: true,
         activityAlerts: true,
         colorScheme: "dark",
         terminalRenderer: "auto",
+        // `rightPanel` preferences hold only workspace-level chrome
+        // (collapsed/size/codeTabTreeSize) — `activeTab`/`codeMode` are
+        // per-terminal state (DEFAULT_RIGHT_PANEL_PER_TERMINAL), not
+        // preferences, so they don't belong here. We deliberately pin
+        // `collapsed: true` for the suite so the many toggle-and-assert
+        // scenarios get a deterministic collapsed starting point; the
+        // shipped runtime default is open (DEFAULT_PREFERENCES.rightPanel
+        // .collapsed = false). The per-terminal Code/browse defaults are
+        // NOT overridden here, so they flow from DEFAULT_RIGHT_PANEL_PER_-
+        // TERMINAL and are asserted by right-panel.feature / code-tab.feature.
         rightPanel: {
-          collapsed: true,
+          // Recordings (X11CAP) want the right panel visible by default (it's
+          // the new app default, and the Code tab is part of what we show);
+          // normal tests keep it collapsed (right-panel.feature asserts that).
+          collapsed: !X11CAP,
           size: 0.25,
-          activeTab: "inspector",
-          codeMode: "local",
           codeTabTreeSize: 0.35,
         },
       },
     }),
-    postJSON(`${baseUrl}/rpc/surface/activityFeed/test__set`, {
+    postJSON(`${baseUrl}/rpc/surface/kolu/activityFeed/test__set`, {
       json: { recentRepos: [], recentAgents: [] },
     }),
-    postJSON(`${baseUrl}/rpc/surface/session/test__set`, { json: null }),
+    postJSON(`${baseUrl}/rpc/surface/kolu/session/test__set`, { json: null }),
   ]);
 
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
@@ -497,20 +719,37 @@ Before(async function (this: KoluWorld, scenario) {
   // desktop context unchanged.
   const isMobile = scenario.pickle.tags.some((t) => t.name === "@mobile");
 
+  // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
+  // browser chrome and its capture viewport — read it so the launch + grab match.
+  const rec = X11CAP ? getRecording(scenario.pickle.name) : undefined;
+  const chrome = rec?.chrome ?? "browser";
+  const vp = rec?.viewport ?? X11_VIEWPORT;
+
   this.browser = browser;
-  const created = await newScenarioPage(isMobile);
+  const created = await newScenarioPage(isMobile, chrome, vp);
   this.context = created.context;
   this.page = created.page;
   // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
   // prefers-reduced-motion tells well-behaved libraries to skip animations;
   // the style override catches anything that ignores the media query. SKIPPED
   // under KOLU_EVIDENCE — when we're recording a video, motion is the point.
-  if (!EVIDENCE) {
+  if (!EVIDENCE && !X11CAP) {
     await this.page.emulateMedia({ reducedMotion: "reduce" });
     await this.page.addInitScript(`
       document.addEventListener("DOMContentLoaded", function() {
         var style = document.createElement("style");
         style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
+        document.head.appendChild(style);
+      });
+    `);
+  }
+  // KOLU_X11CAP: recordings want a quiet canvas — suppress the ambient tip
+  // banner unconditionally (it's desktop-always-on, not the startupTips pref).
+  if (X11CAP) {
+    await this.page.addInitScript(`
+      document.addEventListener("DOMContentLoaded", function() {
+        var style = document.createElement("style");
+        style.textContent = '[data-testid="tip-banner"] { display: none !important; }';
         document.head.appendChild(style);
       });
     `);
@@ -537,9 +776,33 @@ Before(async function (this: KoluWorld, scenario) {
   `);
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
+
+  // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
+  // own 30 fps clock independent of Chrome's paint speed, so the recording is
+  // smooth regardless of how heavy the scenario is. Leading blank frames (before
+  // the first navigation) are trimmed in the transcode step.
+  if (X11CAP && x11Display) {
+    x11RawPath = path.join(evidenceVideoDir, `${x11Stem}.x11.mp4`);
+    // Grab exactly this recording's window (pinned at 0,0), sized to its own
+    // viewport — which may be smaller than the (max-sized) Xvfb screen.
+    const grab = engine.physicalSize({ viewport: vp, scale: X11_SCALE });
+    ffmpegProc = engine.startX11Grab({
+      display: x11Display,
+      width: grab.width,
+      height: grab.height,
+      out: x11RawPath,
+      logFile: path.join(evidenceVideoDir, `${x11Stem}.x11.log`),
+    });
+    ffmpegProc.on("error", (e) =>
+      console.error(`[worker:${workerId}] KOLU_X11CAP: ffmpeg spawn error:`, e),
+    );
+  }
 });
 
-After(async function (this: KoluWorld, scenario) {
+// Generous timeout: under KOLU_X11CAP this hook transcodes the raw grab (mp4 +
+// VP9 webm + poster). A long clip at 3200×1800 takes well over Cucumber's 70s
+// default, so give it room.
+After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
   // Screenshot on failure
   if (scenario.result?.status === Status.FAILED && this.page) {
     const dir = path.resolve(
@@ -549,7 +812,7 @@ After(async function (this: KoluWorld, scenario) {
       "screenshots",
     );
     fs.mkdirSync(dir, { recursive: true });
-    const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
+    const name = x11Stem ?? slug(scenario.pickle.name);
     await this.page
       .screenshot({
         path: path.join(dir, `${name}.png`),
@@ -567,9 +830,16 @@ After(async function (this: KoluWorld, scenario) {
   // scenario-named under reports/videos/ once closed. saveAs waits for the
   // file to be fully written, so the order (handle → close → save) is safe.
   const video = EVIDENCE ? this.page?.video() : undefined;
+  // KOLU_X11CAP: stop the grab cleanly (SIGINT flushes the moov atom) BEFORE
+  // closing the context — or the window vanishes and the final frames go black.
+  if (X11CAP && ffmpegProc) {
+    await engine.stopX11Grab(ffmpegProc);
+    ffmpegProc = undefined;
+    console.log(`[worker:${workerId}] KOLU_X11CAP: saved ${x11RawPath}`);
+  }
   if (this.context) await this.context.close();
   if (video) {
-    const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
+    const name = x11Stem ?? slug(scenario.pickle.name);
     fs.mkdirSync(evidenceVideoDir, { recursive: true });
     await video
       .saveAs(path.join(evidenceVideoDir, `${name}.webm`))
@@ -579,5 +849,61 @@ After(async function (this: KoluWorld, scenario) {
           err,
         );
       });
+  }
+  // KOLU_X11CAP: now the raw clip is finalized, transcode it into the crisp web
+  // assets the welcome page embeds (mp4 + webm + poster), trimming the leading
+  // blank from before the first navigation. FAIL-CLOSED: only publish when the
+  // scenario PASSED, and let a bad grab or transcode throw so `just record`
+  // exits non-zero rather than silently committing stale/blank assets.
+  if (X11CAP && x11RawPath) {
+    const raw = x11RawPath;
+    x11RawPath = undefined;
+    // Reuse the exact stem Before stashed — never re-derive, or the transcode
+    // could target a file the grab never created.
+    const name = x11Stem ?? slug(scenario.pickle.name);
+    x11Stem = undefined;
+    // A failed scenario means the flow didn't reach its climax — the clip is
+    // junk. Don't overwrite the committed demo assets with it; keep the raw
+    // around for debugging and surface the failure (After can't re-fail the
+    // scenario, but a thrown error here still aborts the run non-zero).
+    if (scenario.result?.status !== Status.PASSED) {
+      throw new Error(
+        `KOLU_X11CAP: scenario "${scenario.pickle.name}" did not pass ` +
+          `(${scenario.result?.status}); refusing to publish demo assets from ` +
+          `${raw}`,
+      );
+    }
+    // Guard against a truncated/empty grab (ffmpeg spawn failure, Xvfb gone):
+    // transcoding a 0-byte clip would emit broken assets that still "succeed".
+    let rawSize = 0;
+    try {
+      rawSize = fs.statSync(raw).size;
+    } catch {
+      // file missing — rawSize stays 0, falls through to the size check below
+    }
+    if (rawSize < 1024) {
+      throw new Error(
+        `KOLU_X11CAP: raw clip ${raw} is missing or too small (${rawSize}B) — ` +
+          `ffmpeg likely failed to capture; not publishing demo assets`,
+      );
+    }
+    const out = await engine.transcodeToWeb({
+      raw,
+      outDir: demoOutDir,
+      name,
+      // Skip the app-mode load-in + Background reload + the killAll that
+      // clears the auto-restored terminal, so the clip opens on the clean
+      // empty-canvas welcome (then the terminal is created on camera).
+      // Trim the load-in (app-mode reload + the killAll that clears the
+      // auto-restored terminal) so the clip opens on the clean empty canvas. A
+      // recording can override when its opening timing differs.
+      trimStart: getRecording(scenario.pickle.name).trimStart ?? 5.3,
+      // Poster is sampled from the trimmed timeline. Default (6s) lands on the
+      // clean empty-canvas demo state (past the welcome card + the nudge), not
+      // the restore-session card. A recording can override `posterAt` when its
+      // payoff is later (e.g. hero-demo samples its end-of-clip alert).
+      posterAt: getRecording(scenario.pickle.name).posterAt ?? 6,
+    });
+    console.log(`[worker:${workerId}] KOLU_X11CAP: web assets → ${out.mp4}`);
   }
 });

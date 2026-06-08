@@ -1,10 +1,10 @@
+import { surfaceApp } from "@kolu/surface-app/vite";
 import tailwindcss from "@tailwindcss/vite";
 import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 import { DEFAULT_PORT } from "kolu-common/config";
-import { defineConfig } from "vite";
+import { defineConfig, type PluginOption } from "vite";
 import solid from "vite-plugin-solid";
 
-const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
 const xtermVersion = xtermPackage.version;
 
 // Ports for the dev instance. Default to the canonical 7681/5173 so a bare
@@ -23,12 +23,25 @@ if (!fontsDir) {
 }
 
 export default defineConfig({
-  // No VitePWA / service worker: kolu doesn't use one (it can't work offline and
-  // a precaching worker only served stale builds across deploys — see
-  // docs/cache-bug.md). Freshness is the server's `no-store` shell + immutable
-  // hashed assets; `public/sw.js` is a self-destructing worker that retires any
-  // SW an earlier build registered.
-  plugins: [solid(), tailwindcss()],
+  // No VitePWA / no *caching* service worker: kolu can't work offline and a
+  // precaching worker only served stale builds across deploys (see
+  // docs/cache-bug.md). Freshness is surface-app's contract: the server's
+  // `no-store` shell + immutable hashed assets. In production kolu DOES register
+  // one worker — a *fetch-less* notification worker (surface-app's
+  // `NOTIFICATION_SW_SOURCE`, served at `/sw.js` via
+  // `installFreshStatic({ serviceWorker: "notify" })`) so an installed PWA can
+  // raise OS notifications; with no `fetch` handler it never caches, so freshness
+  // still holds. That `/sw.js` is served by the prod server, not Vite, so it is
+  // intentionally absent under `just dev` — `registerServiceWorker()` simply
+  // no-ops there (registration fails → falls back to retiring any legacy worker).
+  //
+  // `surfaceApp()` stamps `__SURFACE_APP_COMMIT__` from kolu's `KOLU_COMMIT_HASH`
+  // env (→ git → "dev"), the single commit source shared with the server cell.
+  plugins: [
+    solid(),
+    tailwindcss(),
+    surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" }) as PluginOption,
+  ],
   resolve: {
     alias: {
       "kolu-fonts": `${fontsDir}/fonts.css`,
@@ -48,7 +61,6 @@ export default defineConfig({
     },
   },
   define: {
-    __KOLU_COMMIT__: JSON.stringify(commitHash),
     __XTERM_VERSION__: JSON.stringify(xtermVersion),
   },
   build: {

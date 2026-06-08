@@ -186,7 +186,7 @@ describe("matchesAnyShortcut", () => {
     ).toBe(false);
   });
 
-  it("matches Ctrl+Alt+B (toggle inspector)", () => {
+  it("matches Ctrl+Alt+B (toggle right panel)", () => {
     expect(
       matchesAnyShortcut(
         makeEvent({ key: "b", code: "KeyB", ctrlKey: true, altKey: true }),

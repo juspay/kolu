@@ -2,8 +2,9 @@
  *  (R-4 A2). Replaces the standalone WebSocket dot with a two-column
  *  `srv · pty` rail: `srv` is the server you're connected to (its commit + the
  *  WebSocket liveness dot), `pty` is the pty-host serving your terminals (its
- *  commit + the closure-hash build, sourced from the contract's
- *  `system.version.identity` relayed via `server.info`).
+ *  commit + the closure-hash build, sourced from surface-app's `buildInfo`
+ *  cell's `ptyHost` axis — pushed by the server once the in-process pty-host
+ *  reports its identity at boot).
  *
  *  In A2 the pty-host is in-process, so the two columns coincide — an
  *  `≡ in-process` tag links them, and the match is the acceptance signal that
@@ -19,14 +20,17 @@
  *  a separate, divergeable process.
  *
  *  The `client` column is the commit this browser's JS was built from
- *  (`__KOLU_COMMIT__`, baked in at build time). Surfacing it next to `srv`
+ *  (`useSurfaceApp().clientCommit`, baked in at build time as
+ *  `__SURFACE_APP_COMMIT__`). Surfacing it next to `srv`
  *  makes a stale client — an old bundle served from browser cache against a
  *  freshly deployed server — visible at a glance: when both refs are clean and
  *  disagree the column flags `≠ srv` (a mismatch; the two hashes prove
  *  difference, not which is newer). */
 
+import { useSurfaceApp } from "@kolu/surface-app/solid";
+import type { KoluBuildInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { serverInfo, type WsStatus } from "../rpc/rpc";
+import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
@@ -66,12 +70,16 @@ const srvDot: Record<WsStatus, string> = {
 // --------------------------------------------------------------------------
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
+  // The server's build identity (commit + the in-process pty-host column) rides
+  // surface-app's `buildInfo` cell, surfaced by the headless model — the same
+  // value `stale` is derived from. `clientCommit` is this bundle's baked commit.
+  const pwa = useSurfaceApp<KoluBuildInfo>();
   // srv and pty coincide when connected and the relayed pty commit equals the
   // server's own — the A2 acceptance signal that the plumbing agrees. A plain
   // function (single consumer, per solidjs.md); still reactive inside <Show>.
   // Restore alongside the pty column below.
   // const coincident = () => {
-  //   const i = serverInfo();
+  //   const i = pwa.server();
   //   return (
   //     props.status === "open" &&
   //     !!i?.ptyHost &&
@@ -80,8 +88,9 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // };
 
   // A genuinely outdated client — old bundle against a freshly deployed server.
-  // Shared with the mobile chrome via `StaleBadge` (derivation in `commitRef`,
-  // unit-tested) so desktop and mobile flag the same thing the same way.
+  // Shared with the mobile chrome via `StaleBadge`; the derivation is now
+  // surface-app's headless model (`useSurfaceApp().stale()`), so desktop and
+  // mobile flag the same thing the same way.
   const stale = clientStale;
 
   return (
@@ -94,13 +103,13 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
             class={`inline-block h-[7px] w-[7px] rounded-full ${srvDot[props.status]}`}
           />
         </Tip>
-        <Commit sha={serverInfo()?.commit} />
+        <Commit sha={pwa.server()?.commit} />
       </span>
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
         <span class="text-[9px] uppercase tracking-wide text-fg-3">client</span>
         <Tip label="This browser's JS build (baked in at build time)">
-          <Commit sha={__KOLU_COMMIT__} />
+          <Commit sha={pwa.clientCommit} />
         </Tip>
         <Show when={stale()}>
           <Tip label="This client build doesn't match the server — reload to pick up the server's version.">
@@ -120,8 +129,8 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
             class={`inline-block h-[7px] w-[7px] rounded-full ${ptyDot[props.status]}`}
           />
         </Tip>
-        <Commit sha={serverInfo()?.ptyHost?.navigableCommit} />
-        <Show when={serverInfo()?.ptyHost?.staleKey}>
+        <Commit sha={pwa.server()?.ptyHost?.navigableCommit} />
+        <Show when={pwa.server()?.ptyHost?.staleKey}>
           {(key) => (
             <Tip
               label={`build ${key()} — @kolu/pty-host closure hash (staleness key)`}

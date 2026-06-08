@@ -1,0 +1,555 @@
+<!DOCTYPE html><html lang="en" data-theme="light"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Welcome, revamped — pin it, reach it, run agents, watch it · the kolu Atlas</title><meta name="description" content="One story across three surfaces — a bird's-eye in-app welcome, the kolu.dev home page that now carries the whole guide, and a hero demo clip filmed by the e2e harness so it can't drift from the real app. The spine — one `tailscale serve` gives kolu both the HTTPS secure context for one-click PWA install and remote reach. Plan of record + build journal."><meta name="generator" content="Astro v6.4.3"><meta name="color-scheme" content="light"><style>:root{--paper: #f6f7f9;--surface: #ffffff;--ink: #1a1c20;--ink-dim: #3f444b;--ink-muted: #6b7178;--ink-faint: #9aa0a6;--rule: #e3e6ea;--rule-soft: #eceef1;--amber: #b4690e;--amber-soft: #f0e2c8;--teal: #0b6478;--green: #1b7a3a;--gold: #8a5200;--alert: #b42318;--code-bg: #eef1f4;--sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0}.atlas-title{font-family:var(--serif);font-size:clamp(2.6rem,6vw,3.6rem);line-height:1.05;letter-spacing:-.01em;font-weight:600;margin:.6rem 0 0}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;font-family:var(--mono);font-size:.66rem;color:var(--ink-muted);margin:.7rem 0 0}.legend-item{display:inline-flex;align-items:center;gap:.4em}.legend-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.cat{margin:2.4rem 0 0}.cat-bug{--cat-color: var(--alert)}.cat-feature{--cat-color: var(--teal)}.cat-analysis{--cat-color: var(--gold)}.cat-reference{--cat-color: var(--ink-muted)}.cat-head{display:flex;align-items:baseline;gap:.55rem;padding-bottom:.45rem;border-bottom:1px solid var(--rule)}.cat-bar{align-self:center;flex:none;width:9px;height:9px;border-radius:3px;background:var(--cat-color)}.cat-title{font-family:var(--serif);font-size:1.35rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin:0}.cat-count{font-family:var(--mono);font-size:.7rem;color:var(--ink-faint)}.cat-blurb{margin-left:auto;font-size:.8rem;color:var(--ink-muted)}.cat .moc{margin-top:.55rem}.moc{list-style:none;margin:1.5rem 0 0;padding:0}.moc-sub{list-style:none;margin:.05rem 0 .2rem .55rem;padding-left:.8rem;border-left:1px solid var(--rule)}.row{display:flex;align-items:center;gap:.5rem;padding:.22rem .45rem;border-radius:6px;line-height:1.3}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{flex:none;width:7px;height:7px;border-radius:50%}.row-t{color:var(--ink);font-weight:600;font-size:.95rem;white-space:nowrap;flex:none}.row-d{color:var(--ink-muted);font-size:.84rem;flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row-rel{margin:.02rem 0 .18rem 1.55rem;font-family:var(--mono);font-size:.64rem;color:var(--ink-faint)}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);font-size:.56rem;letter-spacing:.08em;text-transform:uppercase;flex:none}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;color:var(--ink-muted)}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);font-size:clamp(2.1rem,5vw,3rem);line-height:1.08;letter-spacing:-.01em;font-weight:600;margin:1.6rem 0 0}.meta-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-top:1.1rem}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{display:flex;justify-content:space-between;margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule)}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);font-size:1.6rem;color:var(--ink);font-weight:600;letter-spacing:-.01em;margin:2.6rem 0 .8rem}.prose h3{font-family:var(--serif);font-size:1.25rem;color:var(--ink);font-weight:600;margin:2rem 0 .6rem}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.prose code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;margin:0 0 1.3rem}.prose pre code{background:none;border:0;padding:0;font-size:.82rem}.prose blockquote{margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem;border-left:3px solid var(--amber-soft);color:var(--ink-dim)}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 1.4rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;padding:.55rem .7rem;border:1px solid var(--rule);vertical-align:top}.prose th{background:var(--rule-soft);font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-weight:600}.pill[data-astro-cid-2qeywk4b]{display:inline-block;font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;padding:.1em .5em;border-radius:999px;vertical-align:middle}.ms[data-astro-cid-3srklxgd]{display:flex;gap:.55rem;align-items:baseline;margin:.55rem 0}.ms-mark[data-astro-cid-3srklxgd]{flex:none;width:1.1em;text-align:center;font-family:var(--mono);font-weight:700}.ms-done[data-astro-cid-3srklxgd] .ms-mark[data-astro-cid-3srklxgd]{color:var(--green)}.ms-now[data-astro-cid-3srklxgd] .ms-mark[data-astro-cid-3srklxgd]{color:var(--amber)}.ms-next[data-astro-cid-3srklxgd] .ms-mark[data-astro-cid-3srklxgd]{color:var(--ink-faint)}.ms-text[data-astro-cid-3srklxgd]{color:var(--ink-dim)}.ms-next[data-astro-cid-3srklxgd] .ms-text[data-astro-cid-3srklxgd]{color:var(--ink-muted)}.ms-label[data-astro-cid-3srklxgd]{color:var(--ink);margin-right:.4em}.toc[data-astro-cid-6t6zfk7k]{margin:1.8rem 0;padding:.9rem 1.1rem;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}.toc-title[data-astro-cid-6t6zfk7k]{margin:0 0 .5rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted)}.roadmap[data-astro-cid-c3bnqtnr]{list-style:none;margin:1.4rem 0;padding:0}.d2[data-astro-cid-ildmikun]{margin:1.75rem 0;text-align:center}.d2[data-astro-cid-ildmikun] svg{max-width:100%;height:auto}.d2[data-astro-cid-ildmikun] figcaption[data-astro-cid-ildmikun]{margin-top:.5rem;font-size:.8rem;color:var(--faint, #7a8089);font-family:var(--sans, ui-sans-serif, system-ui)}.toc-list[data-astro-cid-lht5lwky]{list-style:none;margin:0;padding:0}.toc-item[data-astro-cid-lht5lwky]{margin:.2rem 0}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{color:var(--ink-dim);text-decoration:none;font-size:.92rem}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]:hover{color:var(--amber)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky]{margin:.15rem 0 .35rem .2rem;padding-left:.8rem;border-left:1px solid var(--rule)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{font-size:.85rem;color:var(--ink-muted)}.cite[data-astro-cid-lwmcem6b]{font-family:var(--mono);font-size:.85em;color:var(--ink);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.04em .35em;text-decoration:none;white-space:nowrap}.cite[data-astro-cid-lwmcem6b]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-mrmim4ef]{margin:1.4rem 0;padding:.85rem 1.1rem;border:1px solid var(--rule);border-left-width:3px;border-radius:8px;background:var(--surface)}.callout-title[data-astro-cid-mrmim4ef]{margin:0 0 .4rem;font-weight:650;font-size:.82rem;letter-spacing:.02em;color:var(--ink)}.callout-body[data-astro-cid-mrmim4ef]>:first-child{margin-top:0}.callout-body[data-astro-cid-mrmim4ef]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-mrmim4ef]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-mrmim4ef]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-mrmim4ef]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-mrmim4ef]{border-left-color:#b8860b;background:#fbf6e8}.callout-danger[data-astro-cid-mrmim4ef]{border-left-color:var(--alert);background:#fcf0ef}</style></head> <body>  <article class="wrap"> <header> <a class="backlink" href="./index.html">← the Atlas</a> <h1 class="note-h1">Welcome, revamped — pin it, reach it, run agents, watch it</h1> <div class="meta-row"> <span>feature</span> <span class="meta-sep">·</span> <span>budding</span> <span class="meta-sep">·</span><span>implemented</span>  <span class="meta-sep">·</span><time datetime="2026-06-07T00:00:00.000Z">JUN 07, 2026</time> </div> <p class="note-sub">One story across three surfaces — a bird&#39;s-eye in-app welcome, the kolu.dev home page that now carries the whole guide, and a hero demo clip filmed by the e2e harness so it can&#39;t drift from the real app. The spine — one `tailscale serve` gives kolu both the HTTPS secure context for one-click PWA install and remote reach. Plan of record + build journal.</p> <nav class="toc" aria-label="Table of contents" data-astro-cid-6t6zfk7k><p class="toc-title" data-astro-cid-6t6zfk7k>Contents</p><ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-spine-one-command-unlocks-two-features" data-astro-cid-lht5lwky>The spine: one command unlocks two features</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#verified-facts-the-plan-rests-on-these" data-astro-cid-lht5lwky>Verified facts (the plan rests on these)</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-in-app-welcome" data-astro-cid-lht5lwky>The in-app welcome</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-pwa-card-is-context-aware" data-astro-cid-lht5lwky>The PWA card is context-aware</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-koludev-home-page" data-astro-cid-lht5lwky>The kolu.dev home page</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-demo-that-films-itself" data-astro-cid-lht5lwky>The demo that films itself</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#architecture--through-the-electricity-lens" data-astro-cid-lht5lwky>Architecture — through the electricity lens</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#decisions" data-astro-cid-lht5lwky>Decisions</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#pitfalls" data-astro-cid-lht5lwky>Pitfalls</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#log--build-journal" data-astro-cid-lht5lwky>Log — build journal</a>  </li> </ul></nav> </header> <div class="prose"> <p>This note is the plan of record and build journal for kolu’s whole <strong>first-run
+story</strong>, which spans three surfaces that turned out to be one:</p>
+<ol>
+<li>a <strong>bird’s-eye in-app welcome</strong> — a revamp of the empty state, re-openable on
+demand (<a href="https://github.com/juspay/kolu/pull/1199" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1199 </a>);</li>
+<li>the <strong>kolu.dev home page</strong>, which started as a separate <code>/welcome</code> guide and
+was later <strong>folded in whole</strong> so a visitor understands kolu in one scroll
+(<a href="https://github.com/juspay/kolu/pull/1213" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1213 </a>);</li>
+<li>a <strong>hero demo clip</strong> at the top of that page — short, looping, and <strong>filmed by
+the e2e harness</strong> so it regenerates from source and can’t drift from the real
+app (<a href="https://github.com/juspay/kolu/pull/1213" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1213 </a>).</li>
+</ol>
+<p>The first two thread around one verified insight (the spine). The third is its
+own subsystem with its own hard-won pipeline — both are below.</p>
+<div style="margin:1.6rem 0;max-width:36rem;border:1px solid #2a2e37;border-radius:12px;overflow:hidden;background:#15171c;box-shadow:0 6px 22px rgba(0,0,0,.32)"><div style="display:flex;align-items:center;gap:.45rem;padding:.5rem .8rem;background:#1b1e24;border-bottom:1px solid #2a2e37"><span style="width:10px;height:10px;border-radius:50%;background:#ff5f56;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#ffbd2e;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#27c93f;display:inline-block"></span><span style="margin-left:.4rem;font:600 .72rem/1 ui-monospace,monospace;color:#8b929d">kolu · welcome</span></div><div style="padding:1.1rem 1.15rem"><div style="font:600 .95rem/1.4 ui-sans-serif,system-ui;color:#c7ccd6;margin-bottom:.2rem">Terminals on an infinite canvas. Any agent.</div><div style="font:.8rem/1.5 ui-sans-serif,system-ui;color:#8b929d;margin-bottom:1rem">Three things worth doing first.</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem"><div style="border:1px solid #2a2e37;border-radius:10px;background:#171a20;padding:.7rem .65rem"><div style="font-size:1.05rem;margin-bottom:.35rem">📌</div><div style="font:600 .78rem/1.2 ui-sans-serif,system-ui;color:#c7ccd6;margin-bottom:.25rem">Pin it</div><div style="font:.68rem/1.45 ui-sans-serif,system-ui;color:#8b929d">Install kolu as an app — its own window, dock icon, and live agent badge.</div><div style="margin-top:.5rem;display:inline-block;font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:#d6a35c;border:1px solid #d6a35c55;border-radius:5px;padding:.18rem .4rem">PWA</div></div><div style="border:1px solid #2a2e37;border-radius:10px;background:#171a20;padding:.7rem .65rem"><div style="font-size:1.05rem;margin-bottom:.35rem">🌐</div><div style="font:600 .78rem/1.2 ui-sans-serif,system-ui;color:#c7ccd6;margin-bottom:.25rem">Reach it anywhere</div><div style="font:.68rem/1.45 ui-sans-serif,system-ui;color:#8b929d">One Tailscale command and kolu follows you to your phone, over real HTTPS.</div><div style="margin-top:.5rem;display:inline-block;font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:#6ea8e0;border:1px solid #6ea8e055;border-radius:5px;padding:.18rem .4rem">Tailscale</div></div><div style="border:1px solid #2a2e37;border-radius:10px;background:#171a20;padding:.7rem .65rem"><div style="font-size:1.05rem;margin-bottom:.35rem">🤖</div><div style="font:600 .78rem/1.2 ui-sans-serif,system-ui;color:#c7ccd6;margin-bottom:.25rem">Run agents</div><div style="font:.68rem/1.45 ui-sans-serif,system-ui;color:#8b929d">Open a repo, drop a tile, launch Claude / Codex / OpenCode. Agent-agnostic.</div><div style="margin-top:.5rem;display:inline-block;font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:#6cc070;border:1px solid #6cc07055;border-radius:5px;padding:.18rem .4rem">Canvas</div></div></div><div style="margin-top:1rem;padding-top:.85rem;border-top:1px solid #2a2e37;display:flex;align-items:center;justify-content:space-between"><div style="font:.72rem/1.4 ui-sans-serif,system-ui;color:#5b626d">New terminal <span style="color:#8b929d;font-family:ui-monospace,monospace">⌘⏎</span>  ·  Palette <span style="color:#8b929d;font-family:ui-monospace,monospace">⌘K</span></div><a style="font:600 .72rem/1 ui-sans-serif,system-ui;color:#6ea8e0;text-decoration:none">Full guide → kolu.dev</a></div><div style="margin-top:.7rem;font:.66rem/1.4 ui-monospace,monospace;color:#5b626d">Closed it? <span style="color:#8b929d">⌘K → &quot;Tutorial&quot;</span> brings it back anytime.</div></div></div>
+<h2 id="the-spine-one-command-unlocks-two-features">The spine: one command unlocks two features</h2>
+<p>kolu’s two onboarding goals — <strong>pin it as an app</strong> and <strong>reach it from
+anywhere</strong> — look separate. They are the same action.</p>
+<p>A self-hosted kolu is almost always served over <strong>plain HTTP</strong> on a LAN
+(<code>192.168.x.x</code>) or Tailscale (<code>100.x</code>) address. You can still <em>pin</em> it from
+there — Chrome’s <em>Create shortcut → Open as window</em> and iOS Safari’s <em>Add to
+Home Screen</em> both work over <code>http://</code> — but the <strong>frictionless one-click install</strong>
+(the <code>beforeinstallprompt</code> prompt / omnibox install icon) and the <strong>OS app
+badge</strong> need a <strong>secure context</strong> (HTTPS, or the loopback/<code>localhost</code> set). The
+very same <code>tailscale serve</code> that makes kolu reachable from your phone gives it a
+real <code>https://…ts.net</code> origin — so it unlocks the <strong>one-click</strong> install <em>and</em>
+remote access in <strong>one command</strong>. Tell it as one story.</p>
+
+
+<div style="margin:1.6rem 0;max-width:40rem"><div style="display:flex;align-items:stretch;gap:.2rem"><div style="flex:1;min-width:0;border:1px solid #d6a35c66;border-radius:9px;background:#171a20;padding:.6rem .55rem;text-align:center"><div style="font:600 .7rem/1.2 ui-sans-serif,system-ui;color:#d6a35c;margin-bottom:.2rem">Plain HTTP</div><div style="font:.62rem/1.35 ui-monospace,monospace;color:#8b929d;word-break:break-all">http://100.x:PORT — manual pin only, off-LAN unreachable</div></div><div style="flex:none;align-self:center;color:#5b626d;font:700 1rem/1 ui-monospace,monospace;padding:0 .15rem">→</div><div style="flex:1;min-width:0;border:1px solid #d6a35c66;border-radius:9px;background:#171a20;padding:.6rem .55rem;text-align:center"><div style="font:600 .7rem/1.2 ui-sans-serif,system-ui;color:#d6a35c;margin-bottom:.2rem">tailscale serve</div><div style="font:.62rem/1.35 ui-monospace,monospace;color:#8b929d;word-break:break-all">tailscale serve --bg PORT</div></div><div style="flex:none;align-self:center;color:#5b626d;font:700 1rem/1 ui-monospace,monospace;padding:0 .15rem">→</div><div style="flex:1;min-width:0;border:1px solid #6cc07066;border-radius:9px;background:#171a20;padding:.6rem .55rem;text-align:center"><div style="font:600 .7rem/1.2 ui-sans-serif,system-ui;color:#6cc070;margin-bottom:.2rem">✓ Real HTTPS</div><div style="font:.62rem/1.35 ui-monospace,monospace;color:#8b929d;word-break:break-all">https://box.tailnet.ts.net</div></div></div><div style="display:flex;gap:.5rem;margin-top:.6rem;font:600 .68rem/1.3 ui-sans-serif,system-ui"><div style="flex:1;text-align:center;color:#6cc070;border:1px dashed #6cc07066;border-radius:8px;padding:.45rem">↳ secure context → <strong>1-click install + app badge</strong></div><div style="flex:1;text-align:center;color:#6ea8e0;border:1px dashed #6ea8e066;border-radius:8px;padding:.45rem">↳ on your tailnet → <strong>Reachable anywhere</strong></div></div></div>
+<h3 id="verified-facts-the-plan-rests-on-these">Verified facts (the plan rests on these)</h3>
+<p>Four load-bearing claims, each adversarially fact-checked against current
+(2025–26) primary sources.</p>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Plain HTTP: manual install works, one-click doesn&#39;t</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Only the <strong>automatic</strong> path needs a <strong>secure context</strong>
+(<a href="https://www.w3.org/TR/secure-contexts/">W3C Secure Contexts §3.1</a>: HTTPS, or
+the loopback/<code>localhost</code> set). Over <code>http://</code> on a <code>192.168.x.x</code> LAN IP or a
+Tailscale <code>100.x</code> IP, Chromium’s <code>beforeinstallprompt</code> / omnibox install icon
+won’t fire, and the <strong>OS app badge</strong> (Badging API) and <strong>service workers</strong> are
+unavailable. <em>That part is real.</em></p><p>But you can still <strong>pin kolu manually</strong> over plain HTTP — the common self-hosted
+case, and what most users actually do
+(<a href="https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable">MDN</a>,
+<a href="https://web.dev/learn/pwa/installation">web.dev</a>):</p><ul>
+<li><strong>Chrome / Edge desktop</strong>: ⋮ → <em>Save and share → Create shortcut…</em> → tick <strong>Open as window</strong> (a windowed app; no manifest install needed). <em>Confirmed working on macOS Chrome over http.</em></li>
+<li><strong>iOS Safari</strong>: Share → <strong>Add to Home Screen</strong> — no HTTPS requirement; launches standalone via the manifest’s <code>display</code>. <em>Confirmed working on iPhone Safari over http.</em></li>
+</ul><p>So <code>window.isSecureContext</code> gates <strong>which affordance to offer</strong>, not <strong>whether
+install is possible</strong>: on an insecure origin, show <strong>manual instructions</strong> (and
+recommend HTTPS for the one-click prompt + app badge) — never a dead one-click
+button, and never <em>“you can’t install.”</em></p></div> </aside>
+<ul>
+<li><strong>Tailscale Serve = a genuine secure context.</strong> <code>tailscale serve</code> reverse-proxies a local port and terminates TLS at <code>https://machine.tailnet.ts.net</code> with a real <strong>Let’s Encrypt</strong> cert (DNS-01 against <code>*.ts.net</code>; private key never leaves your box) — browsers accept it with no warnings, so install + service workers unlock. <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>confirmed</span> Caveats: enable <strong>MagicDNS + HTTPS Certificates</strong> once in the admin console; the <strong>full FQDN</strong> is mandatory (the bare hostname and the <code>100.x</code> IP are still plain HTTP); Serve is <strong>tailnet-only</strong>; the FQDN lands in public Certificate-Transparency logs, so don’t bake secrets into machine names. (<a href="https://tailscale.com/kb/1312/serve">Serve KB</a>, <a href="https://tailscale.com/kb/1153/enabling-https">HTTPS KB</a>)</li>
+<li><strong><code>beforeinstallprompt</code> is Chromium-only.</strong> Chrome/Edge/Brave/etc. fire it; <strong>Firefox and Safari (desktop <em>and</em> iOS) never do</strong> — and Chrome/Edge <em>on iOS</em> run on WebKit, so they don’t fire it either. A custom JS Install button must start <strong>hidden</strong> and reveal only on the event. <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>confirmed</span></li>
+<li><strong>iOS has no install API.</strong> The only path is the manual <strong>Share → Add to Home Screen</strong>, which works regardless of any event (since iOS 16.4 from Chrome/Edge/Firefox too, not just Safari). On iOS you render <em>instructions, not a button</em>. Requires HTTPS + <code>display: standalone</code> + an <code>apple-touch-icon</code>; avoid the deprecated <code>apple-mobile-web-app-capable</code> meta. <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>confirmed</span></li>
+</ul>
+<aside class="callout callout-note" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Manifest enrichment — shipped at the surface-app call site</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>The manifest is served <code>standalone</code> with 192/512 icons, assembled by
+<code>@kolu/surface-app</code>’s <code>installPwaManifest</code> (<a href="https://github.com/juspay/kolu/pull/1154" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1154 </a>), whose
+<code>...extra</code> passthrough accepts the missing fields — so enriching it is just
+passing <strong><code>description</code></strong> and a <strong>maskable</strong> 512px icon (logo inside the safe
+zone on the brand background) at the call site
+(<a href="https://github.com/juspay/kolu/blob/master/packages/server/src/index.ts#L223" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/server/src/index.ts:223</a>). <em>No</em> <code>screenshots</code>:
+they only prettify the install card (install works without them) and committed
+product shots go stale as the UI moves — not worth the maintenance. Validate via
+<strong>DevTools → Application → Manifest</strong> — Lighthouse’s PWA audit is deprecated.</p></div> </aside>
+<h2 id="the-in-app-welcome">The in-app welcome</h2>
+<p><strong>Revamp the empty state in place</strong> rather than add a modal — shipped as
+<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/WelcomeMoments.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/WelcomeMoments.tsx</a> rendered above
+<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/EmptyState.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/EmptyState.tsx</a>‘s restore card and shortcut
+list. The patterns worth stealing: VS Code <strong>Walkthroughs</strong> (a short,
+re-openable checklist — <em>not</em> a forced tour; it explicitly warns against
+excessive steps), Warp (one welcome surface, success measured as <em>habit</em> not
+completion), Zed (empty-state-as-welcome, re-openable from the palette), and
+Raycast’s <code>EmptyView</code> (the empty state carries the onboarding <em>with actions</em>).</p>
+<p><strong>The moments (cap ~3–5, hard).</strong> The three cards above — <strong>Pin it</strong>,
+<strong>Reach it anywhere</strong>, <strong>Run agents</strong> — sit above the existing restore card and
+shortcut list. Each is one verb + one line + one chip; depth lives behind the
+“Full guide → kolu.dev” link, not inline. Lean on kolu’s auto-detection (recent
+repos, recent agents in <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/wire.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/wire.ts</a>) so the
+welcome shows <em>the user’s own data</em>, reinforcing zero-setup.</p>
+<p><strong>Re-openable via the palette.</strong> The empty state only auto-shows at zero
+terminals, so the welcome would vanish forever once you’re working. A stable
+palette command — labelled <strong>“Tutorial”</strong> (alias “Welcome”) — re-summons it
+anytime, mirroring VS Code’s <code>openWalkthrough</code>. Wired as an action in
+<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/input/actions.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/input/actions.ts</a> and surfaced through
+<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/commands.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/commands.tsx</a>.</p>
+<p><strong>No dismiss state — by design.</strong> Zero terminals <em>always</em> shows the welcome.
+The way you “dismiss” it is to <strong>open a terminal</strong>; open zero again and it comes
+right back. There is no <code>welcomeSeen</code> flag, nothing to persist, nothing to go
+stale — the empty canvas <em>is</em> the trigger. The only addition is the <strong>“Tutorial”</strong>
+palette command, with a feature-discoverability <strong>tip</strong> pointing at it (per
+<a href="https://github.com/juspay/kolu/blob/master/.claude/rules/conventions.md" rel="noopener" class="cite" data-astro-cid-lwmcem6b>.claude/rules/conventions.md</a>) so the re-open is discoverable.</p>
+<h3 id="the-pwa-card-is-context-aware">The PWA card is context-aware</h3>
+<p>This is where the spine pays off. The card reads the runtime and renders one of
+three states — it <strong>never</strong> shows a button that can’t work:</p>
+
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem;margin:1.4rem 0;max-width:40rem"><div style="border:1px solid #d6a35c55;border-radius:11px;background:#15171c;overflow:hidden"><div style="font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:#d6a35c;background:#d6a35c1a;padding:.35rem .6rem;border-bottom:1px solid #d6a35c33">http:// (insecure)</div><div style="padding:.7rem .65rem"><div style="font:600 .78rem/1.25 ui-sans-serif,system-ui;color:#c7ccd6;margin-bottom:.3rem">Pin it manually</div><div style="font:.66rem/1.45 ui-sans-serif,system-ui;color:#8b929d;min-height:3.2em">You&#39;re on http://box:7777. Use the browser menu (Create shortcut → Open as window) or Add to Home Screen. HTTPS via Tailscale adds one-click + a badge.</div><div style="margin-top:.55rem;text-align:center;font:600 .7rem/1 ui-sans-serif,system-ui;color:#d6a35c;border:1px solid #d6a35c66;border-radius:7px;padding:.4rem">How → Reach it anywhere</div></div></div><div style="border:1px solid #6cc07055;border-radius:11px;background:#15171c;overflow:hidden"><div style="font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:#6cc070;background:#6cc0701a;padding:.35rem .6rem;border-bottom:1px solid #6cc07033">https + Chromium</div><div style="padding:.7rem .65rem"><div style="font:600 .78rem/1.25 ui-sans-serif,system-ui;color:#c7ccd6;margin-bottom:.3rem">Pin kolu to your dock</div><div style="font:.66rem/1.45 ui-sans-serif,system-ui;color:#8b929d;min-height:3.2em">Its own window, app icon, and a live badge for finished agents.</div><div style="margin-top:.55rem;text-align:center;font:600 .7rem/1 ui-sans-serif,system-ui;color:#15171c;background:#6cc070;border-radius:7px;padding:.4rem">Install</div></div></div><div style="border:1px solid #6ea8e055;border-radius:11px;background:#15171c;overflow:hidden"><div style="font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:#6ea8e0;background:#6ea8e01a;padding:.35rem .6rem;border-bottom:1px solid #6ea8e033">iOS Safari</div><div style="padding:.7rem .65rem"><div style="font:600 .78rem/1.25 ui-sans-serif,system-ui;color:#c7ccd6;margin-bottom:.3rem">Add to Home Screen</div><div style="font:.66rem/1.45 ui-sans-serif,system-ui;color:#8b929d;min-height:3.2em">Tap Share ⬆ , then “Add to Home Screen”. (Instructions — iOS has no install button.)</div><div style="margin-top:.55rem;text-align:center;font:600 .7rem/1 ui-sans-serif,system-ui;color:#6ea8e0;border:1px solid #6ea8e066;border-radius:7px;padding:.4rem">Show me</div></div></div></div>
+<p><strong>Gate order</strong> (apply top-down — the first match wins):</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>1. already installed            → render nothing</span></span>
+<span class="line"><span>     matchMedia(&#39;(display-mode: standalone)&#39;).matches</span></span>
+<span class="line"><span>     || navigator.standalone === true</span></span>
+<span class="line"><span>2. secure + beforeinstallprompt → real one-click Install button (Chromium)</span></span>
+<span class="line"><span>3. secure, no event             → per-platform manual instructions (table below)</span></span>
+<span class="line"><span>4. !window.isSecureContext      → manual-install instructions (browser menu /</span></span>
+<span class="line"><span>     Add to Home Screen) + recommend HTTPS via Tailscale for one-click + badge</span></span></code></pre>
+<p><strong>Per-platform instruction set</strong> (render the literal glyph as inline SVG next to
+numbered steps — visual beats prose):</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Platform / browser</th><th>What kolu shows</th></tr></thead><tbody><tr><td>Chromium desktop / Android, event captured</td><td>Real <strong>Install</strong> button → <code>prompt()</code> in the click handler</td></tr><tr><td>Android Chrome (no event)</td><td>Menu ⋮ → <strong>Install app</strong></td></tr><tr><td>Android Firefox</td><td>Menu → <strong>Install</strong> (no event, but install works)</td></tr><tr><td>iOS — Safari / Chrome / Edge / Firefox (16.4+)</td><td>Illustrated <strong>Share ⬆ → Add to Home Screen</strong> (instructions, not a button)</td></tr><tr><td>Safari desktop (macOS Sonoma / Safari 17+)</td><td><strong>File → Add to Dock</strong> (works on any page; no event)</td></tr><tr><td>Firefox desktop</td><td>Native install not shipped yet (experimental <em>Taskbar Tabs</em>) — suggest Chrome/Edge</td></tr><tr><td>Any non-secure origin (<code>http://</code>)</td><td>Manual-pin steps — Chrome <em>Create shortcut → Open as window</em>, iOS <em>Add to Home Screen</em> — plus <em>“HTTPS via Tailscale adds one-click + a badge.”</em> Never a dead one-click button</td></tr></tbody></table>
+<aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Library decision: use @khmyznikov/pwa-install, wrap thinly in Solid</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>A ~28 kB, MIT, framework-agnostic web component (~41k weekly downloads, kept
+current for iOS 18+) already solves the parts we’d otherwise re-implement: the
+iOS/macOS Share-sheet instruction screens, localization, standalone detection,
+one-shot <code>prompt()</code>, and the <code>appinstalled</code> listener — matching kolu’s
+“prefer well-maintained libraries over custom code” rule
+(<a href="https://github.com/juspay/kolu/blob/master/.claude/rules/conventions.md" rel="noopener" class="cite" data-astro-cid-lwmcem6b>.claude/rules/conventions.md</a>). Wrap the custom element in a
+SolidJS component, feed it <code>manifest-url</code> / <code>icon</code> / <code>install-description</code>, hand
+it the captured event via <code>externalPromptEvent</code>, and read
+<code>isInstallAvailable</code> / <code>isUnderStandaloneMode</code>. Ship the wrapper as
+<code>@kolu/solid-pwa-install</code>, a focused adapter alongside <code>solid-pierre</code> /
+<code>solid-markdown</code> / <code>solid-fileview</code>, so the install card is reusable by other
+surface apps (drishti included), not buried in kolu’s client.
+(<a href="https://github.com/khmyznikov/pwa-install">repo</a>)</p></div> </aside>
+<h2 id="the-koludev-home-page">The kolu.dev home page</h2>
+<p>The full guide began as a separate <code>website/src/pages/welcome.astro</code> — a
+Raycast-style skill ladder, each section copy-pasteable and ending at a
+verifiable success state. It worked, but a second page split the story: the
+home hero pointed at it, the visitor had to click through. So once the hero
+<strong>demo</strong> (next section) could carry the explaining, the guide was <strong>folded into
+the home page whole</strong> and <code>/welcome</code> deleted (<a href="https://github.com/juspay/kolu/pull/1213" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1213 </a>). The goal,
+stated plainly: <em>the kolu.dev home page contains everything — you don’t need to
+navigate elsewhere to understand kolu.</em></p>
+<p>The home page (<a href="https://github.com/juspay/kolu/blob/master/website/src/pages/index.astro" rel="noopener" class="cite" data-astro-cid-lwmcem6b>website/src/pages/index.astro</a>) now runs:
+<strong>hero → the demo clip → features → the seven guide sections → latest post</strong>,
+in one scroll. The sections keep their skill-ladder shape and stable anchors:</p>
+<ol>
+<li><strong>Quickstart</strong> <code>#quickstart</code> — Nix install → running kolu; ends at <em>“you should see kolu open with an empty canvas.”</em></li>
+<li><strong>First 5 minutes</strong> <code>#first</code> — open a repo → launch an agent in a tile (mirrors in-app moment #3).</li>
+<li><strong>Core concepts</strong> <code>#concepts</code> — canvas, tiles, dock, worktrees, command/sub-palette, auto-detection.</li>
+<li><strong>Pin it as an app</strong> <code>#install</code> — the per-OS steps above, HTTP/secure-context caveat up front, Tailscale as the fix.</li>
+<li><strong>Reach it anywhere</strong> <code>#remote</code> — the minimal Tailscale sequence (below), the Serve-vs-Funnel safety note.</li>
+<li><strong>Power features</strong> <code>#power</code> — multi-agent at scale, keybindings, sessions.</li>
+<li><strong>FAQ / Troubleshooting</strong> <code>#faq</code> — leads with <em>“I see no Install button”</em> → you’re on HTTP, use the <code>ts.net</code> URL.</li>
+</ol>
+<p>Every in-app card and empty-state hint <strong>deep-links to the matching anchor</strong> on
+the home page — <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/WelcomeMoments.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/WelcomeMoments.tsx</a> points
+<code>GUIDE_URL</code> at <code>https://kolu.dev</code> and links <code>#remote</code> etc. directly. This page
+stays the single source of truth, kept in sync with in-app copy and the README
+(per <a href="https://github.com/juspay/kolu/blob/master/.claude/rules/workflow.md" rel="noopener" class="cite" data-astro-cid-lwmcem6b>.claude/rules/workflow.md</a>).</p>
+<aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>The Tailscale walkthrough (the one to get exactly right)</p> <div class="callout-body" data-astro-cid-mrmim4ef><ol>
+<li>Install Tailscale on the dev box <strong>and</strong> the phone/laptop; sign both into the <strong>same account</strong>.<br/></li>
+<li>Admin console → DNS: enable <strong>MagicDNS</strong>, then <strong>HTTPS Certificates</strong> (one-time; acknowledge the public-ledger notice).<br/></li>
+<li>On the dev box: <code>tailscale serve —bg &lt;PORT&gt;</code> (<code>—bg</code> survives reboots).<br/></li>
+<li>Open the printed <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code> on the phone — install the PWA from there.</li>
+</ol><p>Default to <strong>Serve</strong> (tailnet-only), never <strong>Funnel</strong> (public, no auth — a
+footgun; a single flag flips a port public). Keep the dev server on
+<code>127.0.0.1</code> and let Serve be the only exposed surface. Decision aid: Serve =
+“just my devices”; Cloudflare Tunnel + Access = “public + identity-gated”;
+ngrok = “throwaway public URL”. Rule out Caddy local-CA / self-signed — its
+root isn’t trusted on a remote phone, so no secure context.</p></div> </aside>
+<h2 id="the-demo-that-films-itself">The demo that films itself</h2>
+<p>The guide tells you what kolu does in prose. The thing prose can’t carry is
+<strong>kolu actually doing it</strong> — so the top of the home page is a short, looping
+clip of a real kolu, <strong>driven by the e2e harness and recorded off the screen</strong>.
+A clip recorded by hand goes stale silently and can’t be refreshed when the UI
+moves; this one is a <strong>build artifact</strong>, regenerated by <code>just record hero-demo</code>,
+so it can’t drift from the app.</p>
+<p>One clip ships today — <code>hero-demo</code>, the home hero — but the subsystem is built
+for N. It’s one real workflow that exercises the whole surface at once: <strong>click
+”+”</strong> to open claude on a cloned repo, <strong>”+”</strong> again for codex on a second repo
+in a <strong>light theme</strong> (Catppuccin Latte vs T1’s Vaughn) that buries the first
+tile — so the dock <strong>groups two repos</strong> with live agent status — then <strong>click
+claude’s dock row</strong> to raise its tile, <strong>open a file</strong>, <strong>select + comment</strong> on
+it, <strong>copy the comment with the real button</strong>, and hand it to claude, which
+<strong>edits the file</strong> with the change landing <strong>live</strong> in the open source view. The
+comment-on-any-file → agent → result loop, end to end.</p>
+<aside class="callout callout-note" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>The as-built pipeline lives in the code + the Log</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>The capture below is the <strong>shipped</strong> design — an OS-level <code>x11grab</code> of a headful
+Chrome app-mode window. It is <em>not</em> the first design (reuse Playwright
+<code>recordVideo</code>, fork at transcode); that one hit a hard fps-vs-resolution wall and
+was thrown out. The full arc — dead-ends and all — is the <strong>Log</strong> at the bottom;
+the sources of truth are <a href="https://github.com/juspay/kolu/blob/master/packages/tests/screencast/README.md" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/tests/screencast/README.md</a> and
+<a href="https://github.com/juspay/kolu/blob/master/packages/tests/screencast/engine.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/tests/screencast/engine.ts</a> /
+<a href="https://github.com/juspay/kolu/blob/master/packages/tests/screencast/recordings" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/tests/screencast/recordings</a>.</p></div> </aside>
+<p><strong>Crisp by construction.</strong> The load-bearing constraint was “no low-quality
+nonsense,” and a screen clip has two quality ceilings. Capture <strong>above display
+size</strong>: a headful Chrome at <code>--force-device-scale-factor=2</code> under <code>Xvfb</code>, grabbed
+with <code>ffmpeg -f x11grab</code> — ffmpeg samples the framebuffer on its <strong>own fixed
+clock in physical pixels</strong>, so it’s <em>structurally</em> smooth <strong>and</strong> crisp at once
+(the thing no in-Chrome capture API could do). Then transcode audio-free, never
+GIF: an H.264 mp4 (<code>crf 18</code> ≈ visually lossless for screen content) plus a VP9
+webm (<code>crf 32</code>, served first because it’s smaller) plus an exact-frame WebP
+poster.</p>
+<p><strong>A poster-first looping <code>&lt;video&gt;</code>.</strong> The asset lives at
+<code>website/public/demo/hero-demo.{mp4,webm,webp}</code> (committed — Astro serves
+<code>public/</code> directly, single-MB each) and embeds with the pattern every serious
+dev-tool site converges on:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="html"><code><span class="line"><span style="color:#24292E">&lt;</span><span style="color:#22863A">video</span><span style="color:#6F42C1"> autoplay</span><span style="color:#6F42C1"> muted</span><span style="color:#6F42C1"> loop</span><span style="color:#6F42C1"> playsinline</span><span style="color:#6F42C1"> preload</span><span style="color:#24292E">=</span><span style="color:#032F62">&quot;metadata&quot;</span><span style="color:#6F42C1"> poster</span><span style="color:#24292E">=</span><span style="color:#032F62">&quot;/demo/hero-demo.webp&quot;</span><span style="color:#24292E">&gt;</span></span>
+<span class="line"><span style="color:#24292E">  &lt;</span><span style="color:#22863A">source</span><span style="color:#6F42C1"> src</span><span style="color:#24292E">=</span><span style="color:#032F62">&quot;/demo/hero-demo.webm&quot;</span><span style="color:#6F42C1"> type</span><span style="color:#24292E">=</span><span style="color:#032F62">&quot;video/webm&quot;</span><span style="color:#24292E"> /&gt;  </span><span style="color:#6A737D">&lt;!-- VP9 first: smaller --&gt;</span></span>
+<span class="line"><span style="color:#24292E">  &lt;</span><span style="color:#22863A">source</span><span style="color:#6F42C1"> src</span><span style="color:#24292E">=</span><span style="color:#032F62">&quot;/demo/hero-demo.mp4&quot;</span><span style="color:#6F42C1">  type</span><span style="color:#24292E">=</span><span style="color:#032F62">&quot;video/mp4&quot;</span><span style="color:#24292E">  /&gt;  </span><span style="color:#6A737D">&lt;!-- H.264 fallback --&gt;</span></span>
+<span class="line"><span style="color:#24292E">&lt;/</span><span style="color:#22863A">video</span><span style="color:#24292E">&gt;</span></span></code></pre>
+<p><code>muted</code> (autoplay exemption), <code>playsinline</code> (or iOS forces fullscreen), <strong>webm
+<code>&lt;source&gt;</code> first</strong> (the browser takes the first decodable one), poster = frame 1
+(instant first paint, seamless swap). Gate autoplay on
+<code>prefers-reduced-motion: reduce</code> — render the poster only, with a play control.</p>
+<p><strong>Reproducible, not hand-recorded.</strong> The capture rides a seeded recording module:
+deterministic clone names, pinned viewport / DPR / fonts, and — because the
+finale <em>edits a real checkout</em> — <code>ensureClone</code> reverts tracked files
+(<code>git checkout -- .</code>) each run so the edit is always a fresh, visible change.</p>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Captured locally, not on a clean box — the honest seam</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Per do.md the clip is meant to film on a <strong>pu box</strong>; it films <strong>locally</strong> today
+because the demo’s climax launches a <strong>real, authenticated agent</strong>, and a clean
+box has no logged-in CLI. So it’s <strong>reproducible-from-source</strong> (the recipe +
+recording modules run anywhere) but not box-pure — a deliberate, documented
+quality-over-purity tradeoff. (Claude Code’s banner prints your name/email/plan,
+bad for a public loop and unflaggable — so the identity-neutral half of the work
+runs <strong>codex</strong>, and claude’s banner is cropped out of frame.)</p></div> </aside>
+<h2 id="architecture--through-the-electricity-lens">Architecture — through the electricity lens</h2>
+<p>Read against <a href="https://github.com/juspay/kolu/blob/master/docs/atlas/src/content/atlas/electricity.mdx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>electricity.mdx</a>,
+infrastructure that ① is domain-agnostic, ② hides a hard volatility, and ③
+graduates to a second consumer earns its own <code>@kolu/*</code> package; everything else
+stays kolu domain. This work splits cleanly into electricity and domain on both
+the welcome side and the screencast side.</p>
+<figure class="d2" data-astro-cid-ildmikun> <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" data-d2-version="v0.7.1" preserveAspectRatio="xMinYMin meet" viewBox="0 0 2601 594"><svg class="d2-1519513606 d2-svg" width="2601" height="594" viewBox="-17 -37 2601 594"><rect x="-17.000000" y="-37.000000" width="2601.000000" height="594.000000" rx="0.000000" fill="#FFFFFF" class=" fill-N7" stroke-width="0" /><style type="text/css"><![CDATA[
+.d2-1519513606 .text {
+	font-family: "d2-1519513606-font-regular";
+}
+@font-face {
+	font-family: d2-1519513606-font-regular;
+	src: url("data:application/font-woff;base64,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");
+}
+.d2-1519513606 .text-bold {
+	font-family: "d2-1519513606-font-bold";
+}
+@font-face {
+	font-family: d2-1519513606-font-bold;
+	src: url("data:application/font-woff;base64,d09GRgABAAAAABTgAAoAAAAAHzAAAguFAAAAAAAAAAAAAAAAAAAAAAAAAABPUy8yAAAA9AAAAGAAAABgXxHXrmNtYXAAAAFUAAAA9gAAAWpH+OrIZ2x5ZgAAAkwAAA1+AAASgKEw+NBoZWFkAAAPzAAAADYAAAA2G38e1GhoZWEAABAEAAAAJAAAACQKfwX8aG10eAAAECgAAADUAAAA9HiHCgdsb2NhAAAQ/AAAAHwAAAB8j6aUbm1heHAAABF4AAAAIAAAACAAVQD3bmFtZQAAEZgAAAMoAAAIKgjwVkFwb3N0AAAUwAAAAB0AAAAg/9EAMgADAioCvAAFAAACigJYAAAASwKKAlgAAAFeADIBKQAAAgsHAwMEAwICBGAAAvcAAAADAAAAAAAAAABBREJPACAAIP//Au7/BgAAA9gBESAAAZ8AAAAAAfAClAAAACAAA3icnM5JapMBGIDh5zfRaIxxSuIY/TUOiZmMiVGzcEBEXAiCgq6ELktv0NIrtcs2FDrcpL1BF4V0UfqVBgrttu/+gReJjAQF2eQ/hlJZFamahqaWto6unoGRjz757Itvvvvhlz/+mTVvwWJaimDq6mdc/5T7OnU//fbXjLkTFzvK8orHN3EoF/sxib04iN2YxFZsxkasx1qMYyWWYynGsbpdnV6fp8R7b/R90PZay1DDK00dI13vXJCRddElOZddkXdVwTVF191w0y23lZRV3HHXPfc98FDVI4+lnniq5pnnXnipbuCtHkcAAAD//wEAAP//yiI8wwAAeJyEWGtwG9d1PvdigSVB8AEuFkuAeC+wiwcJElgslm/wTYoCSIISKcmiKInjmJQo0YxFV5Qlx51GshKHqhxTsWm7ttXWmjau3JFHzowcRe000zpVo0nS2qk6nUR2pxmlk05txmEziUsCnbsLPqR2Jj+WF9zZveec73znO+cu6GEYAE/iS6CDYiiHSmABJLPXHJBEkacVSVF4TqeIyEwP48rclTfFEBUKUWHPsvupgwdRZgJfWj+2PzM5+euDzc2519/7du4COvFtAJz/HAB34UUoBjMAQ0uiIIi8waBjJIYXefp+xdfKS6tLKZPt8zvv3Pmj4PeCaKClJTYrJY7nzuHF9flXXwUAQBDNr+J6vAzVAHqfIMiJZFKKWzlaEHifwcBarFI8qXAGdGDkuV2jF0ZSj3oHbQpfsyMy1h9MVQ2OmNLfOH7s5azkm+Cc8YnOR+f8tvFDgCEDgNN4EYxaxFLcamUtBgMvSvFkUk4IAs9nbjz6Qnb44qFaR8OuaHRXgwMvdl+cm3uh72RwfHBwX0D1LwOAPsWLUKLixnpZieVZL5tBy7n/uXcPlePFM18+/eKZzVi68TK4/79YCqHIvCyZDQZ0fN/XR/c8v6fvMU/G1hBOHxrfbxFMxz7xfbEQUMI7YXXNTT46ZzTOLeQ+9EY1X+BjvAg6NSJzZokAqd3Hb+NFYlcyS4zVyknJpMJIZp64oPA0zYsi78Ism/njI8ZKI2U0G6cuP0sX6yj5QPZAgqKKaLyYu+doc7naHMi3Pv+pZ2jY/epvf/uqe3jI82kBBxVPRrPBSYIgy5KZ14m81cqymZfeaqeoskWy6EvxYu47zyd+v+n++jzq+cPkmaafAwBW8fkSXobyh7KtZkaMk7RoQKGxved27jy3V/vbNTjY1TU4aBp5+ejMN4aGXjx69OWRZ+YnJ2dnJyfnoZDrerwIJrA8kGueNUtxsimf+bj/yd7e+Z5s/0J7SzdeFMeH0pN1P0Uj01JY4yGfX8VGvAxh1TNRsZJsyQlBFKP4/ySS4zQLyNL+THw3PxaM1kqRUW+L0Hyku2EuvNPTLgq1jeHdzb1Ns6b66Bdcgs/pdlb6y+p665J7EzXhA7Zqt8PlMvuqdvckxxsAgQ0AM3gRaBIBL3tZ3nznOvr8Oq44c2Z9RfOxDEDnwYvgBZB02/K89UvH67Q6pHXnT71UaygzUEbG2Pt0r5ExUnQpXXth/r32olI9ZSgtasWLuR9KU4nElIRiuR/GpmV5Ko5i6/MoKGT8/oyQ+xdAhPe4Bi8S/yRGJ3EFU4qkY/hCzdN0ybfeerOxhCulSlhj4rVvvvtmh4kro0qsJa1oCLWetibc7oT1dO47uRvn7JLLJdnPqXwI51fRh2gNbMADcD5CB0WFmBZVwFkzT/ZXSNmoWvBX3cNnlzAfcrf75bqZpoOPLRgpd1+RLcAMtrhNe1KDe8u9YhV72OmffSL3M8nBP8Exe4wRZxWn2uvIr2IrvgWWQoWKPM2bJZZ+iIS8j2atVtTj7XJSphNLlLPb17K3ruXgXiE5VhOyBE1ej4xvXU3bnW1fTI+eSi30pp+t/X5lmZojf34V3UJrYH9YA7YkgDMYkK3n8Y7+3+uO9jl6eI+cStVXRZmmwJip9cmRXfOtLu6gM93RnmHLD3mqQfVdzK+iNXwLGPBsYKVuLJIi3ERpg6CfjT/efDARarAZlhaMlL0XV4mVTMTCJ+tMXzuVfbLNUZX+5npXzM4vWGzfryzr6tvRA1j1/d/QGlQ9pGAEGtpLKoL4rpPUMkXuvic6u4419x2oo3DurrE3JidjwsQr18UaX9LUNj+SnU+lZrqZQHFS8u6zu1BTSK7TeFwFgObxbbISrisP1ReRWPMjnZ3+4S53oqK61G6qdu3bh54+rq+WxxImwzG93iu4TuS+DKADX74W02gN6qAZBlRkBDlBgCBkkjdC4CSWL4iCT1TzQOhlMRh021SH0X7zPkF95LOmiYY+ptpTZQ81Tcg13m8N0cWJvYrTXekLDY8f7j4z4BRFp1MUQ/F2MSDZvKbq1g/sDTUtQao06K6OV1CV3ZGWoaBppsRnaRzwG8utTGVzl5SNotvhkBgKBkPh3JLfxlXodFU2h1PDpoMkW+UoUbICN1kzb1a9pM0dS7RjZzy7Y8npcQSr8K2r+2yRmQO5O8ibDNq43DuQz4MCAD/FH2ABmgGAhhZ4bnNvF74FJq1/SIpEM7xIsx0Xqdcu/+XNN+ZS+FZu9u/u5H7yN31Pkefzq6gS34JyjXFmybxJ4L9PNy+Zi/W0odIUMO3fifn1u1wlQsf1tGZH50Rrqk6ZJaIXJLsPREJvrh2khntjcgfjHYgN71xyegL15E8dWml310aCvthGePW5dwrLBk5orYBTwcZ2nBaMlCezCRRaSblqH8BJ47vKnd/dj6ypx7u7H0+lZru7Z1O10WhttLa2UKut87tGnmw9mWnvSJOS1XSmH1vRGjDgAuC2vFPpJ4gcy2zJDPHTuUN8ZLrlYNLTYtcPCcmxSNgSvIH/PGbnv3pidCFVbRv6OvJvigzRgn60pu7vAdDLirrtRhFJimTWbdcCdMRg6/RpgtBGFO1nm2Jw46V0lVsVBKcntr4X+bfUoMAXdBGtQeUDedSqVEO4Oi2wDmNVqa3C0WpBK3viMb3+GYoKxXMfAwI2v4reQGsgqvzZ6qmC1lM3NyMd1YVZi+GD2JTQ6Uu5vS5n1O5qDh4Zbdzj7rQn7I2Ngqc1NG0S3OO2ao4xWxmjyd8Y6hkTq/ZarGKVrayEb4x2HdBqyJxfRbN4Hjg1q7LMy4oiqYPblgDD+FB32vzUyZO802QzcoxiOjp2+7jh7NkT3wsHDNSMwaTt1ZJfRb9BK4RnD9SAuSC7/5zdseTyOATr0kKJzj1gmjmAErmP5JDdifpzFT2BGkCk3lAerUCp2re3tdDrf3apnXTmYsbYceFP0MovAhlRzAR+kavY0Em8glYK/X7rvW07bPXgS2deqDcYDRRdWqw801BcTlN0MV33lZNXa+lSmqJL6Bq0cj/QLwgD/H117Q/cz1W8z/cGg738+xvzBVpFK1qvF7eZobktO2XLF1+vMVqNVFFlkW/5+ZdfrzdxJqrYUiwi/MkwG2HZCDuc/+UIW8OyEesI2deUb0PraIVU2RYPFOUBKMrwgtVbbqcriwJBI/3Xl/pKKo1Ukbm45cJVrmHouwZqDun9Tjv69x/7egN8H//jXEnbaGF2EwDQu2gFigEkmSHDk05ihR+9h+Z+dHcIRU8M5v7xBHmuFwD9Kz6t6h9pm3IyqRCR7X3uZKLfd+zkSfT4fqPDsr52UtvXml9FH+HzEHqYv7y8IQ4bk4rFQIqZVPivMsf5bmdvsK7BMdAz1h4UfIproGayafKUIil9HTOmePCAwy/6HSHrdJ3gDbjsjwiR/btivVaqItPWvCui9XsGAP0Gn4ZiwjxGIt2MwM/IXpkhPvPs5Wf1iDLZy+K5//qPd3fsQEVT7qzLnqzOzS5/AX0pd2FumcTQml+FT+FtMsdpU4Pm7YuCJAmCJJlkMSjLQVHWzi9tCOBtUu+cmEyKPh+/7ZW0q6EJYQrzyaQQT4x/d9DSEYgEhehAx8gCAOk7qi30SyxCDQDqBgNZAUMov4qu4LfATjKlCG26B7CzspYyHUdvs/SKwSqGnQGXI2LJ8pNNydG4qyZspzqEeJz4/PNQh1wbsbo9dstAKO5PNwca6+sU/6+2QgEEEbiNvChGzkqKLLGRX9+entbu/wD/N6rR7nvZCP6HH0xMAIL+fAYF8UekRjlteODUkZO7k+rpSY0r8bhyfere2bP3poTDd2eO3p0EBPX5DKoovCOqp0rCEdZiWBxviMcbxlM9PdeFybtHZ+4eFtR3AYE7P43C+G+hdnOKI6/J2pmUICCxmmxvUUodV9j/7GzT6wOxWECvb+tMMW4r5RcEP2V1M8utWb8sue11aAxH7Z54ks+2DjpDwUy0USqmiqXGaDoUcg5unLenUWPBvqzReWtSUscfudCqSPCsupB/+SjjYalAIBCgWA+T2u7M8qAzFEpvGssEQ87B1iyfjHvsUTyG6uxuSfZnWzX7pflDKInfJ/hzjKQrvX3o9mXdY2uvEJ7E8rt1Y/g16IRBotykSbThAkMw6Zx8odOpd0mnow2bx3lfGSauFvSddECl8AkBXd35lZnWvqf/dPzYG3tCXVkx0l6E2W538w6XMhCxCaW4bH+U7XIpPmVhsv2pw43Zc4PiiNsTPdxa4Waqyt2uCHc1OnHh0JG/eKpz/+UjPVM9vqDfGcj2RPf0hrnq8E/GarJK/+l0YvKruyf/oJ2rGLZxqMFiO++Mdrq6tHr2AaDP8HNQrZ7SFV7WLolWL5ZXL17haUZS+DHrwGjZ0H52t2Wa3W0Z2l+6+yA3ap3ifFNl0zcnZieuXLlyZWJ24ubNm8g2q+Hqgwn0CU6SOle/Mchaw/una9eOXbs2cWP6xo3pG9pz0+gTXE+0UpEVRRZFWc/6rp0/fw3dmT7VVEfVNZ1657HNWRQ+RCsb3xs6ltBKrgJQ/m3cCLvwB8SWeVvZBqLRQCAaxY1hng+TC/4XAAD//wEAAP//g0TZ3gAAAAEAAAACC4WmnDwXXw889QABA+gAAAAA2F2ghAAAAADdZi82/jf+xAhtA/EAAQADAAIAAAAAAAAAAQAAA9j+7wAACJj+N/43CG0AAQAAAAAAAAAAAAAAAAAAAD14nDTKMUorUQBG4fP/Fx5PEuOIMcRGJQ6KzuSiVQQzxW2ChRcEFca1CFra2bsHbWzdgIVg4W7SRAxYHE7z+Y1LPsDNYu4Z0Xdkl2TfEzUme072M9kvRF+TXbPnmq0wpucJHa9x5Iakb0o3HPgfpW4YesDIZyT1mbgkaZsUbkmeklwtbfr1eiLpnU09sO5Tpu7QDf8Z2vS8Qlef7Ltg5oKBCzZU06gmLv/FoS6owi6VWs7VcqyWHbVEXbEaHjlxwegv9UmweP0BAAD//wEAAP//zeof8gAAACwALABQAHwAoAC2AOYA8gEkAUYBcgGUAdQB5gIgAk4ChgK4AuQDFgNKA3AD2AP6BAYEHgQ6BGwEjgS6BOoFHgU+BXoFoAXCBd4GFgZCBnIGhgaeBtwHAAcWBzYHQgd8B4gHlAeuB8gICAhICFYIxAj0CQgJHgkqCUAAAQAAAD0AkAAMAGMABwABAAAAAAAAAAAAAAAAAAQAA3icnJTPbhtVFMZ/TmzTCsECRVW6ie6CRZHo2FRJ1TYrh9SKRRQHjwtCQkgTz/iPMp4ZeSYO4QlY8xa8RVc8BM+BWKP5fOzYBdEmipJ8d+75851zvnOBHf5mm0r1IfBHPTFcYa9+bniLB/UTw9u061uGqzyp/Wm4RlibG67zea1n+CPeVn8z/ID96k+GH7JbbRv+mGfVHcOfbDv+Mvwp+7xd4Aq84FfDFXbJDG+xw4+Gt3mExaxUeUTTcI3P2DNcZw/oM6EgZkLCCMeQCSOumBGR4xMxY8KQiBBHhxYxhb4mBEKO0X9+DfApmBEo4pgCR4xPTEDO2CL+Iq+Uc2Uc6jSzuxYFYwIu5HFJQIIjZURKQsSl4hQUZLyiQYOcgfhmFOR45EyI8UiZMaJBlzan9BkzIcfRVqSSmU/KkIJrAuV3ZlF2ZkBEQm6srkgIxdOJXyTvDqc4umSyXY98uhHhSxzfybvklsr2Kzz9ujVmm3mXbALm6mesrsS6udYEx7ot87b4VrjgFe5e/dlk8v4ehfpfKPIFV5p/qEklYpLg3C4tfCnId49xHOncwVdHvqdDnxO6vKGvc4sePVqc0afDa/l26eH4mi5nHMujI7y4a0sxZ/yA4xs6siljR9afxcQifiYzdefiOFMdUzL1vGTuqdZIFd59wuUOpRvqyOUz0B6Vlk7zS7RnASNTRSaGU/VyqY3c+heaIqaqpZzt7X25DXPbveUW35Bqh0u1LjiVk1swet9UvXc0c60fj4CQlAtZDEiZ0qDgRrzPCbgixnGs7p1oSwpaK58yz41UEjEVgw6J4szI9Dcw3fjGfbChe2dvSSj/kunlqqr7ZHHq1e2M3qh7yzvfuhytTaBhU03X1DQQ18S0H2mn1vn78s31uqU85YiUmPBfL8AzPJrsc8AhY2UY6GZur0NTL0STlxyq+ksiWQ2l58giHODxnAMOeMnzd/q4ZOKMi1txWc/d4pgjuhx+UBUL+y5HvF59+/+sv4tpU7U4nq5OL+49xSd3UOsX2rPb97KniZWTmFu02604I2BacnG76zW5x3j/AAAA//8BAAD///S3T1F4nGJgZgCD/+cYjBiwAAAAAAD//wEAAP//LwECAwAAAA==");
+}
+.d2-1519513606 .text-italic {
+	font-family: "d2-1519513606-font-italic";
+}
+@font-face {
+	font-family: d2-1519513606-font-italic;
+	src: url("data:application/font-woff;base64,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");
+}]]></style><style type="text/css"><![CDATA[.shape {
+  shape-rendering: geometricPrecision;
+  stroke-linejoin: round;
+}
+.connection {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.blend {
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+		.d2-1519513606 .fill-N1{fill:#0A0F25;}
+		.d2-1519513606 .fill-N2{fill:#676C7E;}
+		.d2-1519513606 .fill-N3{fill:#9499AB;}
+		.d2-1519513606 .fill-N4{fill:#CFD2DD;}
+		.d2-1519513606 .fill-N5{fill:#DEE1EB;}
+		.d2-1519513606 .fill-N6{fill:#EEF1F8;}
+		.d2-1519513606 .fill-N7{fill:#FFFFFF;}
+		.d2-1519513606 .fill-B1{fill:#0D32B2;}
+		.d2-1519513606 .fill-B2{fill:#0D32B2;}
+		.d2-1519513606 .fill-B3{fill:#E3E9FD;}
+		.d2-1519513606 .fill-B4{fill:#E3E9FD;}
+		.d2-1519513606 .fill-B5{fill:#EDF0FD;}
+		.d2-1519513606 .fill-B6{fill:#F7F8FE;}
+		.d2-1519513606 .fill-AA2{fill:#4A6FF3;}
+		.d2-1519513606 .fill-AA4{fill:#EDF0FD;}
+		.d2-1519513606 .fill-AA5{fill:#F7F8FE;}
+		.d2-1519513606 .fill-AB4{fill:#EDF0FD;}
+		.d2-1519513606 .fill-AB5{fill:#F7F8FE;}
+		.d2-1519513606 .stroke-N1{stroke:#0A0F25;}
+		.d2-1519513606 .stroke-N2{stroke:#676C7E;}
+		.d2-1519513606 .stroke-N3{stroke:#9499AB;}
+		.d2-1519513606 .stroke-N4{stroke:#CFD2DD;}
+		.d2-1519513606 .stroke-N5{stroke:#DEE1EB;}
+		.d2-1519513606 .stroke-N6{stroke:#EEF1F8;}
+		.d2-1519513606 .stroke-N7{stroke:#FFFFFF;}
+		.d2-1519513606 .stroke-B1{stroke:#0D32B2;}
+		.d2-1519513606 .stroke-B2{stroke:#0D32B2;}
+		.d2-1519513606 .stroke-B3{stroke:#E3E9FD;}
+		.d2-1519513606 .stroke-B4{stroke:#E3E9FD;}
+		.d2-1519513606 .stroke-B5{stroke:#EDF0FD;}
+		.d2-1519513606 .stroke-B6{stroke:#F7F8FE;}
+		.d2-1519513606 .stroke-AA2{stroke:#4A6FF3;}
+		.d2-1519513606 .stroke-AA4{stroke:#EDF0FD;}
+		.d2-1519513606 .stroke-AA5{stroke:#F7F8FE;}
+		.d2-1519513606 .stroke-AB4{stroke:#EDF0FD;}
+		.d2-1519513606 .stroke-AB5{stroke:#F7F8FE;}
+		.d2-1519513606 .background-color-N1{background-color:#0A0F25;}
+		.d2-1519513606 .background-color-N2{background-color:#676C7E;}
+		.d2-1519513606 .background-color-N3{background-color:#9499AB;}
+		.d2-1519513606 .background-color-N4{background-color:#CFD2DD;}
+		.d2-1519513606 .background-color-N5{background-color:#DEE1EB;}
+		.d2-1519513606 .background-color-N6{background-color:#EEF1F8;}
+		.d2-1519513606 .background-color-N7{background-color:#FFFFFF;}
+		.d2-1519513606 .background-color-B1{background-color:#0D32B2;}
+		.d2-1519513606 .background-color-B2{background-color:#0D32B2;}
+		.d2-1519513606 .background-color-B3{background-color:#E3E9FD;}
+		.d2-1519513606 .background-color-B4{background-color:#E3E9FD;}
+		.d2-1519513606 .background-color-B5{background-color:#EDF0FD;}
+		.d2-1519513606 .background-color-B6{background-color:#F7F8FE;}
+		.d2-1519513606 .background-color-AA2{background-color:#4A6FF3;}
+		.d2-1519513606 .background-color-AA4{background-color:#EDF0FD;}
+		.d2-1519513606 .background-color-AA5{background-color:#F7F8FE;}
+		.d2-1519513606 .background-color-AB4{background-color:#EDF0FD;}
+		.d2-1519513606 .background-color-AB5{background-color:#F7F8FE;}
+		.d2-1519513606 .color-N1{color:#0A0F25;}
+		.d2-1519513606 .color-N2{color:#676C7E;}
+		.d2-1519513606 .color-N3{color:#9499AB;}
+		.d2-1519513606 .color-N4{color:#CFD2DD;}
+		.d2-1519513606 .color-N5{color:#DEE1EB;}
+		.d2-1519513606 .color-N6{color:#EEF1F8;}
+		.d2-1519513606 .color-N7{color:#FFFFFF;}
+		.d2-1519513606 .color-B1{color:#0D32B2;}
+		.d2-1519513606 .color-B2{color:#0D32B2;}
+		.d2-1519513606 .color-B3{color:#E3E9FD;}
+		.d2-1519513606 .color-B4{color:#E3E9FD;}
+		.d2-1519513606 .color-B5{color:#EDF0FD;}
+		.d2-1519513606 .color-B6{color:#F7F8FE;}
+		.d2-1519513606 .color-AA2{color:#4A6FF3;}
+		.d2-1519513606 .color-AA4{color:#EDF0FD;}
+		.d2-1519513606 .color-AA5{color:#F7F8FE;}
+		.d2-1519513606 .color-AB4{color:#EDF0FD;}
+		.d2-1519513606 .color-AB5{color:#F7F8FE;}.appendix text.text{fill:#0A0F25}.md{--color-fg-default:#0A0F25;--color-fg-muted:#676C7E;--color-fg-subtle:#9499AB;--color-canvas-default:#FFFFFF;--color-canvas-subtle:#EEF1F8;--color-border-default:#0D32B2;--color-border-muted:#0D32B2;--color-neutral-muted:#EEF1F8;--color-accent-fg:#0D32B2;--color-accent-emphasis:#0D32B2;--color-attention-subtle:#676C7E;--color-danger-fg:red;}.sketch-overlay-B1{fill:url(#streaks-darker-d2-1519513606);mix-blend-mode:lighten}.sketch-overlay-B2{fill:url(#streaks-darker-d2-1519513606);mix-blend-mode:lighten}.sketch-overlay-B3{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-B4{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-B5{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-B6{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-AA2{fill:url(#streaks-dark-d2-1519513606);mix-blend-mode:overlay}.sketch-overlay-AA4{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-AA5{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-AB4{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-AB5{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-N1{fill:url(#streaks-darker-d2-1519513606);mix-blend-mode:lighten}.sketch-overlay-N2{fill:url(#streaks-dark-d2-1519513606);mix-blend-mode:overlay}.sketch-overlay-N3{fill:url(#streaks-normal-d2-1519513606);mix-blend-mode:color-burn}.sketch-overlay-N4{fill:url(#streaks-normal-d2-1519513606);mix-blend-mode:color-burn}.sketch-overlay-N5{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-N6{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.sketch-overlay-N7{fill:url(#streaks-bright-d2-1519513606);mix-blend-mode:darken}.light-code{display: block}.dark-code{display: none}]]></style><g class="c3VyZmFjZQ=="><g class="shape" ><rect x="0.000000" y="50.000000" width="506.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="253.000000" y="88.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">@kolu/surface-app — manifest + installability signals (graduated)</text></g><g class="cHdh"><g class="shape" ><rect x="135.000000" y="474.000000" width="569.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="419.500000" y="512.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">@kolu/solid-pwa-install — install card + cross-browser volatility (publish?)</text></g><g class="c2NyZWVuY2FzdA=="><g class="shape" ><rect x="1788.000000" y="237.000000" width="779.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="2177.500000" y="275.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">web-screencast engine — AGNOSTIC capture: Xvfb + app-mode Chrome + x11grab -&gt; transcode (publish?)</text></g><g class="a29sdQ=="><g class="shape" ><rect x="556.000000" y="20.000000" width="1182.000000" height="313.000000" stroke="#0D32B2" fill="#E3E9FD" class=" stroke-B1 fill-B4" style="stroke-width:2;" /></g><text x="1147.000000" y="7.000000" fill="#0A0F25" class="text fill-N1" style="text-anchor:middle;font-size:28px">kolu app — DOMAIN</text></g><g class="aG9tZQ=="><g class="shape" ><rect x="1617.000000" y="474.000000" width="670.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="1952.000000" y="512.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">website home — index.astro (#quickstart .. #faq) + /demo/hero-demo.{mp4,webm,webp}</text></g><g class="a29sdS53ZWxjb21l"><g class="shape" ><rect x="586.000000" y="237.000000" width="566.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="869.000000" y="275.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">WelcomeMoments / EmptyState — 3 moments + install card + Tutorial cmd</text></g><g class="a29sdS5yZWM="><g class="shape" ><rect x="1134.000000" y="50.000000" width="574.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="1421.000000" y="88.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">recordings/hero-demo.recording.ts — name, theme, viewport, drive(world)</text></g><g class="a29sdS5zdGVwbGli"><g class="shape" ><rect x="1212.000000" y="237.000000" width="266.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="1345.000000" y="275.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">step library / testids / shortcuts</text></g><g class="KHB3YSAtJmd0OyBzdXJmYWNlKVswXQ=="><marker id="mk-d2-1519513606-3488378134" markerWidth="10.000000" markerHeight="12.000000" refX="7.000000" refY="6.000000" viewBox="0.000000 0.000000 10.000000 12.000000" orient="auto" markerUnits="userSpaceOnUse"> <polygon points="0.000000,0.000000 10.000000,6.000000 0.000000,12.000000" fill="#0D32B2" class="connection fill-B1" stroke-width="2" /> </marker><path d="M 359.258574 473.516417 C 274.600006 425.700012 253.000000 401.399994 253.000000 383.250000 C 253.000000 365.100006 253.000000 336.399994 253.000000 311.500000 C 253.000000 286.600006 253.000000 164.300003 253.000000 119.500000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1519513606-3488378134)" mask="url(#d2-1519513606)" /><text x="253.500000" y="330.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">reads canInstallPwa / isInstalled</text></g><g class="KGtvbHUud2VsY29tZSAtJmd0OyBwd2EpWzBd"><path d="M 810.776132 304.014040 C 744.500000 343.000000 688.099976 425.700012 534.321013 473.316844" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1519513606-3488378134)" mask="url(#d2-1519513606)" /><text x="692.000000" y="425.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">renders the card</text></g><g class="KHN1cmZhY2UgLSZndDsga29sdS53ZWxjb21lKVswXQ=="><path d="M 471.977029 115.802253 C 789.200012 164.300003 869.000000 188.699997 869.000000 233.500000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1519513606-3488378134)" mask="url(#d2-1519513606)" /><text x="695.000000" y="155.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">installability signals</text></g><g class="KGtvbHUucmVjIC0mZ3Q7IHNjcmVlbmNhc3QpWzBd"><path d="M 1459.748407 116.824680 C 1513.449951 164.300003 1610.650024 188.699997 1940.292123 236.921030" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1519513606-3488378134)" mask="url(#d2-1519513606)" /><text x="1691.500000" y="206.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">capture({chrome,size}, drive)</text></g><g class="a29sdS4ocmVjIC0mZ3Q7IHN0ZXBsaWIpWzBd"><path d="M 1392.747496 117.059242 C 1354.800049 164.300003 1345.000000 188.699997 1345.000000 233.500000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1519513606-3488378134)" mask="url(#d2-1519513606)" /><text x="1352.500000" y="176.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">drive() uses</text></g><g class="KHNjcmVlbmNhc3QgLSZndDsgaG9tZSlbMF0="><path d="M 2177.000000 305.000000 C 2177.000000 343.000000 2148.199951 425.700012 2036.683162 472.939771" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1519513606-3488378134)" mask="url(#d2-1519513606)" /><text x="2149.000000" y="430.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">demo assets</text></g><g class="KGtvbHUud2VsY29tZSAtJmd0OyBob21lKVswXQ=="><path d="M 1026.456570 303.414527 C 1213.300049 343.000000 1349.300049 425.700012 1700.537224 473.955565" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1519513606-3488378134)" mask="url(#d2-1519513606)" /><text x="1352.000000" y="432.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">deep-links #anchors</text></g><mask id="d2-1519513606" maskUnits="userSpaceOnUse" x="-17" y="-37" width="2601" height="594">
+<rect x="-17" y="-37" width="2601" height="594" fill="white"></rect>
+<rect x="145.000000" y="314.000000" width="217" height="21" fill="black"></rect>
+<rect x="636.000000" y="409.000000" width="112" height="21" fill="black"></rect>
+<rect x="627.000000" y="139.000000" width="136" height="21" fill="black"></rect>
+<rect x="1596.000000" y="190.000000" width="191" height="21" fill="black"></rect>
+<rect x="1313.000000" y="160.000000" width="79" height="21" fill="black"></rect>
+<rect x="2106.000000" y="414.000000" width="86" height="21" fill="black"></rect>
+<rect x="1284.000000" y="416.000000" width="136" height="21" fill="black"></rect>
+</mask></svg></svg>
+ <figcaption data-astro-cid-ildmikun>The welcome surface across the domain line. Electricity (own packages, arrows pointing out): @kolu/surface-app owns the manifest + installability signals; @kolu/solid-pwa-install owns the install-card volatility, reading installability from surface-app; the agnostic web-screencast engine knows nothing of kolu. kolu DOMAIN (the in-app welcome + each recording) depends on all three. Outputs land on the home page.</figcaption> </figure>
+<p><strong>① <code>@kolu/surface-app</code></strong> <a href="https://github.com/juspay/kolu/pull/1154" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1154 </a> — the app-shell electricity. Owns
+the <strong>manifest</strong> (<code>installPwaManifest</code>, whose <code>...extra</code> passthrough absorbs the
+enrichment above) and the <strong>headless “relationship-to-server” model</strong>
+(<code>useSurfaceApp()</code>). <em>Installability</em> — <code>window.isSecureContext</code> + standalone
+display-mode — is a sibling environment fact, so the <code>canInstallPwa</code> /
+<code>isInstalled</code> signals belong in that same headless model. Graduates today
+(drishti is the second consumer).</p>
+<p><strong>② <code>@kolu/solid-pwa-install</code></strong> — a focused SolidJS adapter wrapping
+<code>@khmyznikov/pwa-install</code>. Behind one socket (“install this web app”) it owns the
+cross-browser install volatility — <code>beforeinstallprompt</code> capture, the
+per-platform instruction screens, <code>appinstalled</code> — reading installability from
+①. <strong><code>@kolu/surface-app</code> may itself depend on it</strong> and compose the card, so a
+consumer wires install exactly once. Passes all three tests; graduates to any
+surface app.</p>
+<p><strong>③ The web-screencast engine</strong> — agnostic capture, a graduation candidate not
+yet electricity. “Drive a headful browser at 2× under Xvfb, <code>x11grab</code> the
+framebuffer, transcode to web assets” names no terminal/canvas/git; it hides a
+hard volatility (Xvfb lifecycle, app-mode launch, the fps-vs-resolution wall,
+<code>x11grab</code>/ffmpeg flags, SIGINT finalize, the <code>ffmpeg-full</code> nix gotcha). It lives
+in its <strong>own folder with the dependency arrow pointing out</strong>
+(<a href="https://github.com/juspay/kolu/blob/master/packages/tests/screencast/engine.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/tests/screencast/engine.ts</a>, nix deps in
+<code>screencast/shell.nix</code>), flagged <span class="pill" style="color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6" data-astro-cid-2qeywk4b>publish?</span> — mint
+<code>@kolu/web-screencast</code> only when a second consumer is real. The <strong>recordings</strong>
+(<a href="https://github.com/juspay/kolu/blob/master/packages/tests/screencast/recordings" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/tests/screencast/recordings</a>) are kolu domain: one file
+per clip declaring <code>{ name, chrome, theme, display, viewport, drive(world) }</code>,
+applying kolu display knobs <em>inside</em> <code>drive</code> via kolu shortcuts. The engine
+exposes <code>capture({ chrome, size }, drive)</code> where <code>drive(world)</code> is a kolu-domain
+closure — so the engine stays agnostic while each recording carries its own
+declarative display properties.</p>
+<p><strong>④ kolu app</strong> — domain. The welcome itself is kolu’s story:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Area</th><th>File</th><th>Change</th></tr></thead><tbody><tr><td>In-app welcome</td><td><a href="https://github.com/juspay/kolu/blob/master/packages/client/src/WelcomeMoments.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/WelcomeMoments.tsx</a></td><td>The 3 moments + the <code>@kolu/solid-pwa-install</code> card; <code>GUIDE_URL</code> → <code>kolu.dev</code> deep-links</td></tr><tr><td>Re-open command</td><td><a href="https://github.com/juspay/kolu/blob/master/packages/client/src/input/actions.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/input/actions.ts</a>, <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/commands.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/commands.tsx</a></td><td>“Tutorial” action + palette entry — re-summons the welcome as an overlay</td></tr><tr><td>Discoverability tip</td><td><a href="https://github.com/juspay/kolu/blob/master/packages/client/src/settings/tips.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/settings/tips.ts</a>, <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/settings/useTips.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/settings/useTips.ts</a></td><td>Tip pointing at “Tutorial”; drop the PWA tip on an insecure origin. <strong>No</strong> <code>welcomeSeen</code></td></tr><tr><td>Manifest call-site</td><td><a href="https://github.com/juspay/kolu/blob/master/packages/server/src/index.ts#L223" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/server/src/index.ts:223</a></td><td>Pass <code>description</code> + maskable icon into <code>installPwaManifest</code></td></tr><tr><td>Home page</td><td><a href="https://github.com/juspay/kolu/blob/master/website/src/pages/index.astro" rel="noopener" class="cite" data-astro-cid-lwmcem6b>website/src/pages/index.astro</a></td><td>The folded-in skill-ladder guide + the hero demo embed</td></tr><tr><td>Recording</td><td><a href="https://github.com/juspay/kolu/blob/master/packages/tests/screencast/recordings" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/tests/screencast/recordings</a></td><td><code>hero-demo.recording.ts</code> + shared <code>helpers.ts</code></td></tr></tbody></table>
+<p>No new server contract; no service worker (kolu has none by design).</p>
+<h3 id="decisions">Decisions</h3>
+<ul>
+<li><strong>No persistence.</strong> Zero terminals always shows the welcome; <em>opening a terminal</em> is the dismissal. No <code>welcomeSeen</code>, nothing to go stale.</li>
+<li><strong>One page, no redirect.</strong> The <code>/welcome</code> guide folded into the home page whole — a visitor understands kolu in one scroll; in-app cards deep-link to its anchors.</li>
+<li><strong>Install ownership.</strong> <code>@kolu/solid-pwa-install</code> owns the card UI + cross-browser volatility; <code>@kolu/surface-app</code> owns the manifest + installability signals and may depend on it — install is wired once.</li>
+<li><strong>Reuse the e2e harness for capture</strong> — the same step library that proves kolu works films it; no second recorder.</li>
+<li><strong>Move the capture boundary outside Chrome</strong> — <code>Xvfb</code> + <code>x11grab</code> of a headful 2× app-mode window; structurally smooth <em>and</em> crisp, which no in-Chrome API delivered.</li>
+<li><strong>Fork at transcode, never GIF</strong> — H.264 mp4 + VP9 webm + WebP poster, committed under <code>website/public/demo/</code>.</li>
+<li><strong>Tailscale: instruct, never auto-run.</strong> The welcome documents <code>tailscale serve</code>; it never runs it for you. Serve, never Funnel. No QR — a copy button on the <code>ts.net</code> URL is enough.</li>
+<li><strong>No mobile welcome.</strong> Onboarding is desktop-only (<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/capabilities.ts#L34" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/capabilities.ts:34</a>).</li>
+</ul>
+<h3 id="pitfalls">Pitfalls</h3>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>The traps, condensed</p> <div class="callout-body" data-astro-cid-mrmim4ef><ul>
+<li><strong>Dead Install buttons on HTTP.</strong> The #1 kolu-specific trap — gate on <code>isSecureContext</code> first, always; default-visible custom Install buttons break on Safari/Firefox/iOS (no event); the iOS card is <em>instructions</em>, not a button.</li>
+<li><strong>Funnel by default, or the bare hostname / <code>100.x</code> IP.</strong> Funnel is public+unauthenticated; the bare host and IP are plain HTTP. Always the full <code>ts.net</code> FQDN, Serve not Funnel.</li>
+<li><strong>Long forced tours / replaying onboarding for returning users.</strong> One win, then links; zero terminals re-shows the welcome, but never hand-hold.</li>
+<li><strong><code>ffmpeg</code>, not <code>ffmpeg-full</code>.</strong> Plain nixpkgs ffmpeg is built <code>--disable-xlib</code> — no x11grab device. Fonts must be supplied to the capture Chrome under bare Xvfb (keep them free-licensed — <code>symbola</code> is unfree and fails the build).</li>
+<li><strong>Transcoding a soft source and calling it crisp.</strong> 1 Mbit/s VP8 (<code>recordVideo</code>) is a ceiling ffmpeg can’t recover; capture lossless at 2× instead.</li>
+<li><strong>Poll the dock’s <code>data-bucket</code>, not the raw <code>data-agent-state</code></strong> — the high-level “working”/“awaiting” state; polling the wrong one made clips run 70–150s.</li>
+</ul></div> </aside>
+<h2 id="log--build-journal">Log — build journal</h2>
+<p>A running record of <em>this work’s</em> research, dead-ends, and decisions — raw
+material for a future blog post. The in-app welcome + the kolu.dev guide shipped
+in <a href="https://github.com/juspay/kolu/pull/1199" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1199 </a>; the guide later folded into the home page alongside the
+hero demo in <a href="https://github.com/juspay/kolu/pull/1213" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1213 </a>. The screencast arc, newest at the bottom:</p>
+<p><strong>1 · Plan + prior-art sweep.</strong> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>workflow #1</span> A fan-out
+research workflow (terminal recorders vs browser capture · embed patterns · CI
+determinism), adversarially verified, concluded: PTY recorders (vhs, asciinema)
+<strong>can’t</strong> capture kolu’s xterm-on-canvas pixels — it’s a raster GUI, not a
+replayable ANSI stream — so <strong>pixel capture via the existing Cucumber +
+Playwright evidence harness</strong> is the path. Embed pattern: poster-first
+<code>autoplay/muted/loop/playsinline</code>, mp4 + webm, reduced-motion.</p>
+<p><strong>2 · The crispness constraint.</strong> “Video needs to be crisp — no low-quality
+nonsense.” This became the spine. The evidence path records Playwright
+<code>recordVideo</code> = <strong>VP8 @ ~1 Mbit/s, 720p</strong> — fine for PR proof, too soft for a
+marketing page.</p>
+<p><strong>3 · Spike A (VP8).</strong> Reused the harness (<code>KOLU_EVIDENCE</code>) on a real
+<code>worktree-agent</code> scenario → 1280×720 VP8 → ffmpeg H.264. Smooth, but the text
+shimmered. Verdict: “could be crispier.”</p>
+<p><strong>4 · The fps-vs-resolution wall.</strong> Chasing 2×, every in-Chrome capture API hit a
+structural limit: CDP <code>Page.startScreencast</code> <strong>ignores <code>deviceScaleFactor</code></strong> →
+caps at CSS pixels; <code>Page.captureScreenshot</code> <em>can</em> do 2× but each 2560×1440 grab
+is <strong>compositor-bound at ~260 ms</strong> → ~3 fps <strong>slideshow</strong>; <code>page.screenshot()</code>
+<strong>serialises behind the driver</strong> → ~10 frames over a 4 s scenario; a capture loop
+that started before load made frame 0 a blank white flash that strobed on every
+loop. <strong>The lesson:</strong> real-time frame capture is <em>either</em> smooth-but-low-res <em>or</em>
+high-res-but-too-slow. You can’t win it from inside Chrome.</p>
+<p><strong>5 · Reset + second research pass.</strong> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>workflow #2</span> A
+second fan-out (virtual-time <code>beginFrame</code> · OS-level capture · purpose-built
+recorders · native Playwright options), adversarially verified. <strong>Verdict: move
+the capture boundary outside Chrome</strong> — <code>Xvfb</code> + <code>ffmpeg -f x11grab</code> of a headful
+2× browser samples the framebuffer on its own fixed clock in physical pixels, so
+it’s <em>structurally</em> smooth <strong>and</strong> crisp at once. Also surfaced: <strong>no top dev
+tool ships an auto-captured hero clip — they’re “designed, not recorded”</strong> (Screen
+Studio etc.). We deliberately take the reproducible-over-cinematic path.</p>
+<p><strong>6 · x11grab, working.</strong> Implemented <code>KOLU_X11CAP</code>: Xvfb, headful Chrome at
+<code>--force-device-scale-factor=2</code>, <code>ffmpeg -f x11grab</code> at 30 fps, <strong>SIGINT</strong> to
+flush the moov atom. Gotcha that cost a cycle: nixpkgs <code>ffmpeg</code> is built
+<code>--disable-xlib</code> (<strong>no x11grab device</strong> — “Unrecognized option ‘draw_mouse’”) →
+switched the e2e devShell to <code>ffmpeg-full</code>. Result: smooth + crisp. “B looks
+good.”</p>
+<p><strong>7 · The browser-chrome realisation.</strong> x11grab records the <em>whole window</em> — the
+clip showed Chrome’s tab strip + <code>localhost:38425</code> address bar. Reads as “a
+browser tab,” not “the app.” Fix: <strong>Chrome app-mode (<code>--app=&lt;url&gt;</code>)</strong> = the
+chromeless window an installed PWA uses.</p>
+<p><strong>8 · Scope crystallised into a subsystem.</strong> A lowy/hickey-clean <strong><code>Recording</code></strong>
+abstraction — data + script per clip, separate from the capture pipeline. The
+engine stays agnostic; recordings carry the kolu-specific display knobs.</p>
+<p><strong>9 · Subsystem shipped.</strong> <a href="https://github.com/juspay/kolu/pull/1213" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1213 </a> The agnostic engine
+(<a href="https://github.com/juspay/kolu/blob/master/packages/tests/screencast/engine.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/tests/screencast/engine.ts</a>, nix deps in
+<code>screencast/shell.nix</code>), the <code>Recording</code> modules, a <code>When I record &quot;&lt;name&gt;&quot;</code>
+dispatcher, and a <code>just record</code> recipe. Captured <strong>locally</strong>, not on pu: the
+demo’s climax launches a <strong>real, authenticated agent</strong>, so it only renders on a
+machine already running it — a deliberate, documented tradeoff (quality &gt;
+box-purity; reproducibility lives in the recipe + modules, which <em>do</em> run on pu).</p>
+<p><strong>10 · Refined to one hero clip.</strong> Dropped a planned <strong>pwa-install</strong> recording —
+an in-clip browser→app transition isn’t reachable (bare Xvfb has no window
+manager, so the Fullscreen API can’t drop Chrome’s chrome). Two harness fixes
+made the dock track the live agent: under <code>KOLU_X11CAP</code>, omit the
+<code>KOLU_CLAUDE_*_DIR</code> / <code>KOLU_CODEX_DIR</code> overrides so kolu watches the <strong>real</strong>
+agent dirs; and a 240s timeout on the <code>I record</code> step (a real agent query exceeds
+the default budget). The dock’s high-level state is <code>data-bucket</code>
+(“working”/“awaiting”), <strong>not</strong> the raw <code>data-agent-state</code> — polling the wrong
+one made clips run 70–150s.</p>
+<p><strong>11 · Polish → the comprehensive hero.</strong> Privacy: Claude Code’s banner prints
+name/email/plan, so the identity-neutral half runs <strong>codex</strong>
+(<code>--ask-for-approval never --sandbox read-only</code>; the <code>--dangerously-bypass…</code>
+interactive mode shows a danger-confirm the prompt dismisses → codex exits) and
+claude’s banner is cropped. The app-mode session auto-restores a terminal, so
+the recording <code>killAll</code>s it for an empty opening canvas, then creates one
+<strong>Vaughn</strong>-themed terminal on camera, <code>trimStart</code> skipping the load-in. The clip
+grew into the full <strong>comment → agent → live-edit</strong> loop across two repos and two
+themes — every on-camera click telegraphed with a coral SVG arrow (the earlier
+glowing ring read as kolu’s own UI), sub-second pauses, and a held beat after the
+dock flips to <code>awaiting</code> so the status change is unmissable. ~45s, 3200×1800
+(1600×900 ×2), ~3.9 MB mp4 / ~2.9 MB webm. Reusable patterns factored into
+<code>helpers.ts</code>.</p>
+<hr/>
+<p><em>Status: <code>implemented</code> — the welcome revamp in <a href="https://github.com/juspay/kolu/pull/1199" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1199 </a>; the hero
+demo + the folded-in home page in <a href="https://github.com/juspay/kolu/pull/1213" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1213 </a>; built on
+<code>@kolu/surface-app</code> <a href="https://github.com/juspay/kolu/pull/1154" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1154 </a>.</em></p> </div> <footer class="note-foot"> <a class="backlink" href="./index.html">← the Atlas</a> <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a> </footer> </article> </body></html>

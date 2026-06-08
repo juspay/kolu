@@ -6,6 +6,7 @@
  *  bar via `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Dialog from "@corvu/dialog";
+import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
@@ -25,7 +26,7 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
-import { toggleRailCards } from "./canvas/dock/Dock";
+import Dock, { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import { buildWorkspaceEntries } from "./canvas/dockModel";
 import TerminalCanvas from "./canvas/TerminalCanvas";
@@ -35,6 +36,7 @@ import { showsWorkspaceSwitcher, supportsSpatialCanvas } from "./capabilities";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
+import WelcomeDialog from "./WelcomeDialog";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
 import { exportSession, importSession } from "./sessionTransfer";
@@ -141,6 +143,18 @@ const App: Component = () => {
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
+
+  // Welcome overlay state. No "seen" persistence — zero terminals always shows
+  // the welcome inline (EmptyState); this just re-summons it on demand via the
+  // palette "Tutorial" command. One shared install controller drives both the
+  // inline moments and the overlay.
+  const [welcomeOpen, setWelcomeOpen] = createSignal(false);
+  // The browser captures `beforeinstallprompt` against the served manifest —
+  // there's no element to point at a manifest URL, so `createPwaInstall` takes
+  // no app-identity overrides. Installed-state is single-owner: surface-app's
+  // `isInstalled` is the sole detector, so consumers read `app.isInstalled()`
+  // directly (see WelcomeMoments).
+  const pwaInstall = createPwaInstall();
 
   // Diagnostic info dialog state (command palette → Debug → Diagnostic info)
   const [diagnosticInfoOpen, setDiagnosticInfoOpen] = createSignal(false);
@@ -261,6 +275,14 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  /** One definition of "Dock → palette": how the receptacle reaches the
+   *  command palette. Spread into every Dock mount (the empty-branch Dock
+   *  and the one TerminalCanvas owns) so the wiring lives in one place. */
+  const dockPalette = {
+    onCreate: () => openPaletteGroup("New terminal"),
+    onOpenWorkspaceSearch: () => openPaletteGroup("Search workspaces"),
+  };
+
   /** Close a terminal. Top-level terminals show a confirmation dialog;
    *  splits (sub-terminals) are killed directly — they are ephemeral
    *  sub-panes, like browser tabs, and should never pop the worktree
@@ -295,6 +317,7 @@ const App: Component = () => {
     handleSetTheme,
     handleEditActiveIntent: intentEditor.openActive,
     setAboutOpen,
+    setWelcomeOpen,
     setDiagnosticInfoOpen,
     handleCreateWorktree: (repoPath, name, initialCommand) =>
       void worktree.handleCreateWorktree(repoPath, name, initialCommand),
@@ -466,7 +489,7 @@ const App: Component = () => {
             <p>
               Commit:{" "}
               <Commit
-                sha={__KOLU_COMMIT__}
+                sha={__SURFACE_APP_COMMIT__}
                 class="text-accent hover:underline"
               />
             </p>
@@ -479,6 +502,11 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
+      <WelcomeDialog
+        open={welcomeOpen()}
+        onOpenChange={withRefocus(setWelcomeOpen)}
+        install={pwaInstall}
+      />
       <CloseConfirm
         target={closeConfirmTarget()}
         onCancel={() => {
@@ -534,7 +562,19 @@ const App: Component = () => {
                 class="relative flex-1 min-h-0 canvas-grid-bg"
               >
                 <CanvasWatermark text={appTitle()} />
+                {/* The Dock stays mounted at zero terminals (desktop only)
+                 *  so its `+` new-terminal button is the always-reachable
+                 *  mouse path to the first terminal — the welcome card
+                 *  advertises ⌘⏎ but carries no clickable affordance
+                 *  (#1202). The empty Dock is just its header; the
+                 *  `relative` parent anchors its tiled-posture float
+                 *  (`top-12 left-4`), the only posture reachable at zero
+                 *  tiles. Mobile keeps its own pull-down nav. */}
+                <Show when={!isMobile()}>
+                  <Dock {...dockPalette} />
+                </Show>
                 <EmptyState
+                  install={pwaInstall}
                   savedSession={session.savedSession() ?? undefined}
                   isRestoring={session.isRestoring()}
                   onRestore={(opts) => void session.handleRestoreSession(opts)}
@@ -619,10 +659,7 @@ const App: Component = () => {
                       onAutoArrange={arrange.handleCanvasAutoArrange}
                       onSelect={store.setActiveSilently}
                       onClose={(id) => closeTerminal(id)}
-                      onOpenWorkspaceSearch={() =>
-                        openPaletteGroup("Search workspaces")
-                      }
-                      onCreate={() => openPaletteGroup("New terminal")}
+                      {...dockPalette}
                       renderTileTitle={(id) => (
                         <TerminalMeta
                           info={store.getDisplayInfo(id)}

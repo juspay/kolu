@@ -59,7 +59,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-inspector",
-    text: `${formatKeybind(ACTIONS.toggleRightPanel.keybind)} toggles the inspector panel with full terminal context`,
+    text: `${formatKeybind(ACTIONS.toggleRightPanel.keybind)} toggles the right panel — the Code browser plus an Inspector tab with full terminal context`,
   },
   {
     id: "amb-canvas-zoom",
@@ -86,6 +86,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "Install kolu as a native app from your browser menu — unlocks ⌘T, ⌃Tab and friends",
   },
   {
+    id: "amb-welcome",
+    text: `${formatKeybind(ACTIONS.commandPalette.keybind)} → "Tutorial" reopens the welcome anytime — pin kolu as an app, reach it remotely, run agents`,
+  },
+  {
     id: "amb-file-ref-link",
     text: "Click a `packages/foo/bar.ts:42` path in any terminal to open it in the right panel at that line",
   },
@@ -104,5 +108,9 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-markdown-preview",
     text: "Open a `.md` file in the Code tab's browse mode to read it rendered — flip the Source ⇄ Rendered toggle in the file header to see the raw Markdown",
+  },
+  {
+    id: "amb-code-tab-back-forward",
+    text: "The Code tab is a browser — follow a link or jump between files, then use the ◀ ▶ buttons, Alt+←/→, or your mouse's back/forward buttons to retrace everywhere you've been",
   },
 ];

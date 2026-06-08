@@ -14,17 +14,20 @@
  *      `@kolu/solid-fileview` — a plain `<img>`, a sandboxed iframe, or a
  *      rendered Markdown document.
  *
- *  Two disjoint sets partition the binary-previewable space:
+ *  Three disjoint sets partition the binary-previewable space:
  *    - SANDBOX — rendered in an `allow-scripts`, opaque-origin iframe.
  *      `.html`/`.htm`/`.svg` can carry scripts; `.pdf` rides the same
  *      sandbox. The set is the security boundary and changes rarely.
  *    - RASTER — rendered with a plain `<img>` (image bytes can't execute).
- *      This is the volatile axis (new formats: avif, jxl, …).
+ *      This is a volatile axis (new formats: avif, jxl, …).
+ *    - VIDEO — rendered with a `<video controls>` element (the file route
+ *      serves it with a real `video/*` Content-Type and HTTP range support
+ *      so the player can seek). Also volatile (new codecs/containers).
  *
  *  `BINARY_PREVIEWABLE_EXTENSIONS` is their union, so a new previewable
  *  format cannot be added without being placed in exactly one category —
- *  the "every non-document binary is an image" assumption is structural,
- *  not a convention a future edit can quietly break.
+ *  the "every non-document binary is an image or a video" assumption is
+ *  structural, not a convention a future edit can quietly break.
  *
  *  Markdown is a *separate* axis: it stays `kind:"text"` on the wire (there's
  *  no server URL — the client renders it from `content`), so `isMarkdown`
@@ -47,9 +50,22 @@ export const RASTER_IMAGE_EXTENSIONS = [
   ".ico",
 ] as const;
 
+/** Video containers the `<video>` element can play across the browsers Kolu
+ *  targets. `.mov` is QuickTime but ships H.264/AAC in practice, which Chrome
+ *  and Safari play; non-web codecs (`.mkv`, `.avi`) are deliberately absent —
+ *  they'd serve as a binary URL the player can't decode. */
+export const VIDEO_EXTENSIONS = [
+  ".mp4",
+  ".m4v",
+  ".webm",
+  ".mov",
+  ".ogv",
+] as const;
+
 export const BINARY_PREVIEWABLE_EXTENSIONS = [
   ...SANDBOX_PREVIEWABLE_EXTENSIONS,
   ...RASTER_IMAGE_EXTENSIONS,
+  ...VIDEO_EXTENSIONS,
 ] as const;
 
 /** Text files the Code browser can render as a document. Stays
@@ -74,6 +90,21 @@ export function isRasterImage(filePath: string): boolean {
   return hasExtension(filePath, RASTER_IMAGE_EXTENSIONS);
 }
 
+/** Client: of the binary-previewable files, render this one with a
+ *  `<video controls>` element rather than an `<img>` or the iframe? */
+export function isVideo(filePath: string): boolean {
+  return hasExtension(filePath, VIDEO_EXTENSIONS);
+}
+
+/** Client: of the binary-previewable files, render this one in the sandboxed
+ *  iframe (`.html`/`.htm`/`.svg`/`.pdf`) rather than an `<img>` or `<video>`?
+ *  Names the sandbox branch of the three-way partition at the dispatch site so
+ *  an unclassified binary surfaces as a visible no-match instead of silently
+ *  landing in an iframe that can't render it. */
+export function isSandboxPreviewable(filePath: string): boolean {
+  return hasExtension(filePath, SANDBOX_PREVIEWABLE_EXTENSIONS);
+}
+
 /** Client: does this text file have a rendered Markdown form, so the Code
  *  browser offers a Source ⇄ Rendered toggle (defaulting to rendered)? */
 export function isMarkdown(filePath: string): boolean {
@@ -84,10 +115,11 @@ export function isMarkdown(filePath: string): boolean {
  *  URL (`/api/terminals/{id}/file/{encoded/path}`). Same kolu-common rationale
  *  as the classifiers above: both sides of the wire must agree. The SERVER
  *  builds the URL (`buildIframePreviewUrl` in `iframePreviewRoute.ts`) and the
- *  CLIENT inverts it (`repoPathFromPreviewPathname` in
- *  `right-panel/iframePreviewNav.ts`, to follow in-iframe link navigation) — a
- *  single source keeps the encode/decode from drifting, so links into
- *  subdirectories or paths with spaces resolve to the right file.
+ *  CLIENT inverts it (`@kolu/solid-browser`'s `pathFromPreviewPathname`, with
+ *  this codec bound in `right-panel/BrowseIframeRenderer.tsx`, to follow
+ *  in-iframe link navigation) — a single source keeps the encode/decode from
+ *  drifting, so links into subdirectories or paths with spaces resolve to the
+ *  right file.
  *
  *  Slashes stay literal (segment boundaries); each segment is percent-encoded
  *  so a name with spaces or reserved characters survives the URL round-trip. */
@@ -100,6 +132,17 @@ export function encodePreviewPath(repoRelPath: string): string {
 export function decodePreviewPath(encoded: string): string {
   return encoded.split("/").map(decodeURIComponent).join("/");
 }
+
+/** Kolu's preview-URL codec — the `{ encode, decode }` pairing the inversion
+ *  in `@kolu/solid-browser` (`pathFromPreviewPathname`) injects. The concept
+ *  "these two functions form kolu's codec" lives here, where both halves are
+ *  defined, rather than being rebuilt at each consumer. Typed structurally
+ *  (not against `@kolu/solid-browser`'s `PreviewPathCodec`, which would invert
+ *  the dependency) — the shape is the wire contract both sides agree on. */
+export const previewPathCodec: {
+  encode: (path: string) => string;
+  decode: (encoded: string) => string;
+} = { encode: encodePreviewPath, decode: decodePreviewPath };
 
 /** Base of the per-terminal file route + its `file` segment. Shared so the
  *  server route registration, the server URL builder, and the client (which

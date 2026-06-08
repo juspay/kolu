@@ -44,6 +44,13 @@ export interface OpenInCodeTabRequest {
   /** Which Code-tab sub-mode the request expects to land in.
    *  Producers that don't track an authoring mode pass `"browse"`. */
   targetMode: CodeTabView;
+  /** Whether `CodeTab`'s resolver may fall back to a unique-basename
+   *  match when `ref.path` isn't found exactly. Defaults to true —
+   *  terminal output prints bare basenames (#898). Markdown relative
+   *  links (#1161) pass `false`: a `[guide](docs/guide.md)` href carries
+   *  GitHub-style exact semantics and must open exactly that path or
+   *  fail, never silently open a same-basename file elsewhere. */
+  allowBasenameFallback?: boolean;
 }
 
 // Module-level singleton. Right-panel state is a singleton in Kolu —

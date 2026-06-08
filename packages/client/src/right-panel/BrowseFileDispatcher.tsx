@@ -11,7 +11,7 @@
  *  comments — `"text"` (selectable source DOM, line-addressable), `"prose"`
  *  (rendered text like the Markdown preview — anchored to its host subtree,
  *  no source line), `"iframe"` (the sandboxed preview owns its own postMessage
- *  bridge), or `"none"` (nothing to anchor to: a raster image). The renderers
+ *  bridge), or `"none"` (nothing to anchor to: a raster image or a video). The renderers
  *  stay pure presenters; a new one can't silently ship without a comment
  *  decision because it has to pick a capture mode at this seam:
  *
@@ -20,8 +20,8 @@
  *      additionally gets a rendered appliance, so FileView shows a Source ⇄
  *      Rendered toggle (defaulting to rendered); other text stays source-only.
  *    - `kind: "binary"` → a `FileData` with `url`; FileView picks a rendered
- *      appliance by extension (image `<img>` or sandboxed iframe). Rendered-
- *      only — no source on the wire to toggle to.
+ *      appliance by extension (raster `<img>`, `<video>` player, or sandboxed
+ *      iframe). Rendered-only — no source on the wire to toggle to.
  *
  *  The Source ⇄ Rendered toggle lights up wherever a file carries *both*
  *  forms — Markdown today (plan phase 3); a `renderable` wire kind for
@@ -36,12 +36,19 @@ import {
 } from "@kolu/solid-fileview";
 import { ImageRenderer } from "@kolu/solid-fileview/renderers/image";
 import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
+import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
-import { isMarkdown, isRasterImage } from "kolu-common/preview";
+import {
+  isMarkdown,
+  isRasterImage,
+  isSandboxPreviewable,
+  isVideo,
+} from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
+  createSignal,
   type JSX,
   Match,
   Show,
@@ -49,12 +56,16 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
+import { resolveLinkHref } from "@kolu/solid-browser";
+import { resolveWikilink } from "@kolu/solid-markdown";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
+import { OptionMenu } from "../ui/OptionMenu";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
+import { openInCodeTab } from "./openInCodeTab";
 
 // The "File truncated" banner is rendered as a sibling ABOVE the comment
 // surface in both sourceRenderer and textRenderers: the banner is chrome, not
@@ -76,11 +87,26 @@ export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
   repoPath: string;
   filePath: string;
+  /** The repo's vault a `[[wikilink]]` resolves against — its full file list
+   *  (`fsListAll`, repo-relative, pathless) paired with that list's readiness,
+   *  threaded from `CodeTab` rather than re-subscribed here so resolution shares
+   *  the one live list. The two arrive as one value so they can't drift apart:
+   *  `paths` is the snapshot, `pending` says whether it's still settling
+   *  (`fsListAll.pending()`). The list briefly resets to `[]` whenever that
+   *  stream resubscribes (e.g. a right-panel tab toggle), so a `[[wikilink]]`
+   *  clicked in that window must read `pending` from the same object it would
+   *  resolve `paths` against — gating on the stale flag of a different snapshot
+   *  is exactly the mismatch this single value rules out. Mirrors the
+   *  `openInCodeTab` pipeline, which gates resolution on `pending()` likewise. */
+  repoVault: { paths: readonly string[]; pending: boolean };
   theme: "light" | "dark";
   initialSelectedLines?: SelectedLineRange | null;
   /** Forwarded to the iframe renderer so an in-iframe link click moves the
    *  tree selection to the linked file (HTML-preview navigation). */
   onNavigate?: (path: string) => void;
+  /** Forwarded to the iframe renderer so the mouse back/forward (X1/X2)
+   *  buttons work over an HTML preview (the sandbox traps them in the frame). */
+  onHistory?: (direction: "back" | "forward") => void;
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
@@ -95,6 +121,61 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     },
   );
 
+  // ── Wikilink navigation ────────────────────────────────────────────
+  // A `[[Note]]` click resolves pathless against the whole repo (`repoVault`),
+  // GitHub/Obsidian-style. A unique hit opens through the same front door every
+  // other "open this file" producer uses; a miss toasts; an ambiguous basename
+  // (two `Note.md` in different folders) surfaces a disambiguation menu anchored
+  // to the clicked link rather than failing closed — the user picks the file
+  // they meant.
+  // The shared "open" tail: every preview-link path — wikilink or doc-relative —
+  // ends at the same front door. Only the *resolution* differs per callback
+  // (pathless vault vs. doc-relative); the *open* lives here, once. No fuzzy
+  // basename fallback — the resolvers already produced an exact repo entry, and
+  // a fallback would silently open a same-basename file in another folder.
+  const openPreviewPath = (path: string) =>
+    openInCodeTab({
+      ref: { path, startLine: null, endLine: null },
+      repoRoot: props.repoPath,
+      targetMode: "browse",
+      allowBasenameFallback: false,
+    });
+
+  const [wikiMenu, setWikiMenu] = createSignal<{
+    anchor: HTMLElement;
+    candidates: string[];
+  } | null>(null);
+
+  const onNavigateWikilink = (target: string, anchor: HTMLElement) => {
+    // The vault list resubscribes (and momentarily empties) on right-panel tab
+    // toggles while a persisted preview stays clickable, so resolving against a
+    // pending snapshot would falsely report "no file" or stale candidates. Ask
+    // the user to retry rather than resolve a one-shot click against `[]`; the
+    // list settles in a tick. (The `openInCodeTab` effect can simply re-run
+    // when `pending()` flips — a click can't, hence the explicit guard.)
+    if (props.repoVault.pending) {
+      toast.error("Repo file list still loading — try the link again");
+      return;
+    }
+    const res = resolveWikilink({ target, repoPaths: props.repoVault.paths });
+    if (res.kind === "none") {
+      toast.error(`No file matching [[${target}]]`);
+      return;
+    }
+    if (res.kind === "unique") {
+      openPreviewPath(res.path);
+      return;
+    }
+    setWikiMenu({ anchor, candidates: res.candidates });
+  };
+
+  const wikiMenuOptions = createMemo(() =>
+    (wikiMenu()?.candidates ?? []).map((path) => ({
+      value: path,
+      label: path,
+    })),
+  );
+
   // The comment address space a view exposes — the single axis this seam
   // decides on (see the header):
   //   - "text"   selectable source DOM (Pierre's shadow-rooted CodeView),
@@ -104,7 +185,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   //              line, so no lineRange → CommentTextSurface, lineAnchored false
   //   - "iframe" the sandboxed preview owns its own postMessage bridge (it
   //              must bind to the element the renderer creates)
-  //   - "none"   nothing to anchor to (a raster image)
+  //   - "none"   nothing to anchor to (a raster image or a video)
   // `"iframe"` and `"none"` are left untouched; the two text-bearing modes get
   // the `CommentTextSurface` wrapper.
   type Capture = "text" | "prose" | "iframe" | "none";
@@ -191,11 +272,17 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     ),
   };
 
-  // Kolu's rendered appliances, tried in order. Raster images take the plain
-  // `<img>` (on a checkerboard so transparency reads) — nothing to anchor a
-  // comment to; everything else in the binary set — `.html`/`.svg`/`.pdf` —
-  // falls through to the sandboxed iframe (which owns its own comment bridge),
-  // exactly reproducing the old `!isRasterImage` split.
+  // Kolu's rendered appliances, tried in order — one branch per set of the
+  // three-way binary partition in `kolu-common/preview`, each named by its own
+  // predicate so the routing decision isn't a positional catch-all. Raster
+  // images take the plain `<img>` (on a checkerboard so transparency reads);
+  // videos take a `<video controls>` element; both have nothing to anchor a
+  // comment to. The sandbox set — `.html`/`.htm`/`.svg`/`.pdf` — takes the
+  // sandboxed iframe (which owns its own comment bridge). A binary that matches
+  // none of the three (a future `.wasm`/font that slipped into
+  // `BINARY_PREVIEWABLE_EXTENSIONS` without a category) falls to the explicit
+  // "unsupported" renderer below rather than silently landing in an iframe that
+  // can't render it — the partition has no silent fourth category at runtime.
   const renderedRenderers: RenderedRenderer[] = [
     {
       match: isRasterImage,
@@ -211,7 +298,16 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         ),
     },
     {
-      match: () => true,
+      match: isVideo,
+      render: (file) =>
+        withComments(
+          "none",
+          file,
+          <VideoRenderer path={file.path} url={file.url ?? ""} />,
+        ),
+    },
+    {
+      match: isSandboxPreviewable,
       render: (file) =>
         withComments(
           "iframe",
@@ -221,7 +317,22 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             path={file.path}
             url={file.url ?? ""}
             onNavigate={props.onNavigate}
+            onHistory={props.onHistory}
           />,
+        ),
+    },
+    // Final, explicit no-match: a binary that's neither raster, video, nor
+    // sandbox. Surfaces the gap visibly instead of FileView rendering blank
+    // (no source on the wire, no matched rendered appliance → empty outlet).
+    {
+      match: () => true,
+      render: (file) =>
+        withComments(
+          "none",
+          file,
+          <div class="px-2 py-1 text-fg-3/50">
+            No preview available for this file type
+          </div>,
         ),
     },
   ];
@@ -259,6 +370,24 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
               resolveImageSrc={(src) =>
                 resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
               }
+              onNavigateRelative={(href) => {
+                // A repo-relative link resolves against the previewed doc's own
+                // directory (GitHub-style), then opens through the same front
+                // door terminal `path:line` links use — so a miss surfaces a
+                // toast and any file type opens, not a bogus new tab (#1161).
+                const path = resolveLinkHref(props.filePath, href);
+                // The anchor is tagged `data-md-rel` (so the click was already
+                // preventDefault'd) yet didn't resolve to a repo path — a
+                // traversal that escapes the repo root, or a fragment/query-only
+                // href. Surface it rather than no-op silently, so a dead link
+                // isn't indistinguishable from a working one.
+                if (path === null) {
+                  toast.error(`Can't open link: ${href}`);
+                  return;
+                }
+                openPreviewPath(path);
+              }}
+              onNavigateWikilink={onNavigateWikilink}
             />,
           )}
         </div>
@@ -297,26 +426,49 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   });
 
   return (
-    <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
-      <Match when={fileContent.error()}>
-        {(err) => (
-          <div class="px-2 py-1 text-danger">Error: {err().message}</div>
-        )}
-      </Match>
-      <Match when={textFile()}>
-        {(file) => (
-          <FileView
-            file={file()}
-            source={sourceRenderer}
-            rendered={textRenderers}
-            mode={jumpMode()}
-          />
-        )}
-      </Match>
-      <Match when={binaryFile()}>
-        {(file) => <FileView file={file()} rendered={renderedRenderers} />}
-      </Match>
-    </Switch>
+    <>
+      <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
+        <Match when={fileContent.error()}>
+          {(err) => (
+            <div class="px-2 py-1 text-danger">Error: {err().message}</div>
+          )}
+        </Match>
+        <Match when={textFile()}>
+          {(file) => (
+            <FileView
+              file={file()}
+              source={sourceRenderer}
+              rendered={textRenderers}
+              mode={jumpMode()}
+            />
+          )}
+        </Match>
+        <Match when={binaryFile()}>
+          {(file) => <FileView file={file()} rendered={renderedRenderers} />}
+        </Match>
+      </Switch>
+      {/* Ambiguous-wikilink disambiguation: an anchored list of the repo files
+       *  whose basename matched. Picking one opens it; the menu reuses the same
+       *  anchored-option-list scaffold the Dock/minimap pickers use — but with
+       *  the unbounded-content opts those fixed pickers don't need: an ambiguous
+       *  `[[index]]` can match dozens of long repo paths, so cap the height
+       *  (scroll the overflow), truncate long path labels (full path in the
+       *  hover title), and let the panel flip above the link when it sits near
+       *  the viewport bottom. */}
+      <OptionMenu
+        triggerRef={() => wikiMenu()?.anchor}
+        open={() => wikiMenu() !== null}
+        onDismiss={() => setWikiMenu(null)}
+        anchor="bottom-start"
+        options={wikiMenuOptions()}
+        value=""
+        onSelect={openPreviewPath}
+        testIdPrefix="wikilink-disambiguation"
+        maxHeight={280}
+        truncate
+        flip
+      />
+    </>
   );
 };
 

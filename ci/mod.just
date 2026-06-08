@@ -54,7 +54,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix home-manager e2e smoke fmt biome unit surface-example-build pnpm-hash-fresh atlas-sync
+default: nix home-manager e2e smoke fmt biome unit surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -112,11 +112,19 @@ smoke:
 # concurrently with the big build (koluBin drv deduped via store locking)
 # instead of strictly after it. This is the single largest critical-path win.
 e2e: install
-    # CUCUMBER_RETRY=1 is the residual safety net for darwin-runner-load
-    # flakes that survive the structural fixes in #955. Local
-    # `just test-quick` runs leave it unset (0 = off) so real failures
-    # surface on the first attempt.
-    CUCUMBER_RETRY=1 {{ nix_shell }} just test
+    # CUCUMBER_RETRY is the residual safety net for darwin-runner-load flakes
+    # that survive the structural fixes in #955. Darwin runs at 2, linux at 1:
+    # the darwin residual is an fs-event-drop class (e.g. the live-reload
+    # edit→preview refresh whose single FSEvents notification the kernel
+    # occasionally drops under the post-koluBin-build storm) that can lose two
+    # attempts; the third absorbs that tail. Linux's filesystem watch is
+    # reliable, so it stays at 1. Local `just test-quick` leaves it unset
+    # (0 = off) so real failures surface on the first attempt.
+    # `--no-deps`: ci::install already installed the workspace; without it the
+    # `test: install` dep re-runs `pnpm install` concurrently with the unit lane
+    # and the two races corrupt the shared node_modules/.bin (vitest exit 126).
+    # See the funnel rule at the top of this file and the `test` recipe comment.
+    CUCUMBER_RETRY=$([ "$(uname)" = Darwin ] && echo 2 || echo 1) {{ nix_shell }} just --no-deps test
 
 # Run vitest unit tests (server + client).
 unit: install
@@ -128,6 +136,14 @@ unit: install
 # imports in the production bundle. Cheap (~1s).
 surface-example-build: install
     {{ nix_shell }} pnpm --filter @kolu/surface-example build:client
+
+# Build the @kolu/surface-app library's example app (vite client). Same purpose
+# as surface-example-build but for surface-app: catches example-only regressions
+# the workspace-wide typecheck misses — broken composition (installSurfaceApp,
+# composeSurfaces, implementSurfaceApp), Tailwind/JSX errors, missing bundle
+# imports. Cheap (~1s).
+surface-app-example-build: install
+    {{ nix_shell }} pnpm --filter @kolu/surface-app-example build:client
 
 fmt: install
     {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
@@ -147,3 +163,20 @@ biome: install
 # node_modules, so its install never races the root pnpm install above.
 atlas-sync:
     {{ nix_shell }} just atlas::check-sync
+
+
+# ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
+# These run on the machine driving CI (not on a pool box), so they're
+# unreachable from `default` and the runner never schedules them. They manage
+# the fixed pool of warm boxes (kolu-ci-1 .. kolu-ci-N) that ci/pu/run.sh
+# leases per run, replacing the old fork-a-golden-per-run model. See
+# .agency/do.md and docs/pu-box-ci-ralph-report.md.
+
+# Bring the pool up to strength: (re)create any missing/unhealthy slot, leave
+# healthy (warm) slots untouched. Size with KOLU_CI_POOL (default 8).
+pool-ensure:
+    bash ci/pu/pool.sh
+
+# Report pool health without changing anything.
+pool-status:
+    bash ci/pu/pool.sh status

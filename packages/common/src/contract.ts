@@ -12,6 +12,7 @@
  * TerminalIdSchema, etc.) live in `./surface` and are imported here.
  */
 
+import { composeSurfaceContracts } from "@kolu/surface/define";
 import { eventIterator, oc } from "@orpc/contract";
 import {
   WorktreeCreateInputSchema,
@@ -23,7 +24,7 @@ import {
   CanvasLayoutSchema,
   InitialTerminalMetadataSchema,
   RightPanelPerTerminalStateSchema,
-  surface,
+  surfaces,
   TerminalAttachInputSchema,
   TerminalIdSchema,
   TerminalInfoSchema,
@@ -121,28 +122,27 @@ export const ServerIdentitySchema = z.object({
 });
 export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
 
+// The `processId` (restart axis) and `commit` + `ptyHost` (build-identity /
+// skew axis) that used to ride this probe now live on the surface, owned by
+// @kolu/surface-app: `processId` is the `surface.surfaceApp.identity.info` probe
+// (surface-app served as a sibling surface), and `commit` + `ptyHost` are the server-pushed `buildInfo`
+// cell (`koluBuildInfo`). This raw probe keeps only the per-host BRANDING the
+// shell needs synchronously at boot (document title, watermark, PWA theme).
 export const ServerInfoSchema = z.object({
   identity: ServerIdentitySchema,
-  /** Unique ID for this server process — changes on restart. */
-  processId: z.string().uuid(),
-  /** Git commit this kolu-server was built from (`KOLU_COMMIT_HASH`), the
-   *  GitHub-navigable ref for the ChromeBar's `srv` column. `""` off-nix. */
-  commit: z.string(),
-  /** The in-process pty-host's identity (its own commit + closure staleKey),
-   *  fetched once at boot via `system.version`. The shape mirrors
-   *  `@kolu/pty-host`'s `PtyHostIdentity`, duplicated inline to avoid a
-   *  `pty-host → kolu-common` import cycle. Optional: a future surviving
-   *  daemon may predate it (phase B). */
-  ptyHost: z
-    .object({ staleKey: z.string(), navigableCommit: z.string() })
-    .optional(),
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
 // ── The contract ──────────────────────────────────────────────────────
 
 export const contract = oc.router({
-  ...surface.contract,
+  // Two sibling surfaces multiplexed over one transport (kolu#1197): kolu's
+  // OWN primitives under `kolu`, surface-app's complete surface (buildInfo cell
+  // + identity probe) under `surfaceApp`. `composeSurfaceContracts` keys each
+  // inner contract, producing `{ surface: { kolu: …, surfaceApp: … } }` — wire
+  // paths are `surface.kolu.<prim>.<verb>` / `surface.surfaceApp.<prim>.<verb>`.
+  // `surfaces` is the single source shared with the server + client.
+  ...composeSurfaceContracts(surfaces),
   server: {
     info: oc.output(ServerInfoSchema),
   },

@@ -255,6 +255,67 @@ ${message}
   return agent(prompt, { label: `commit:${fix.id}`, phase: 'Apply', model: mechModel })
 }
 
+// Render the PR comment deterministically from the debate outcome, returned as a
+// string so the ORCHESTRATOR posts it verbatim (`gh pr comment -F`) — no agent
+// re-improvises a table. Unlike codex-debate there are NO per-round files to
+// assemble: the lenses don't read a ledger (feeding them prior reasoning would
+// invite entrenchment against conceding), so the comment is the only artifact.
+//
+// The header chrome (the `## ` title, the badge, the `base.slice(0, 12)`) is
+// deliberately kept STRUCTURALLY PARALLEL to codex-debate's ledgerHeader chrome.
+// The no-module workflow runtime has no imports, so a truly shared renderer isn't
+// available; the two are instead siblings that move together. A house-style change
+// (badge emoji, base-slice length, a new metadata row) is a mechanical mirror edit
+// — make it here and in codex-debate's ledgerHeader. If the runtime ever admits a
+// shared helper file, lift this common chrome there.
+function renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, withPolice, base, clean }) {
+  const badge = clean
+    ? '✅ **Clean** — every lens found nothing worth raising'
+    : unresolved.length === 0
+      ? '✅ **Consensus**'
+      : `⚠️ **${unresolved.length} unresolved**`
+  const counts = Object.entries(reviewByLens)
+    .map(([lens, fs]) => `${lens}=${fs.length}`)
+    .join(', ')
+  // A clean diff never debated, so the "after N round(s)" clause is omitted; the
+  // base, the lens roster, and the (all-zero) per-lens counts still ride along so
+  // the comment carries the same audit metadata as a debated run.
+  const meta = `lowy + hickey${withPolice ? ' + code-police' : ''} · base \`${(base || '').slice(0, 12)}\``
+  const lines = [
+    '## [⚖️ Lowy ⇄ Hickey lens debate](https://kolu.dev/blog/hickey-lowy/)',
+    '',
+    clean ? `${badge} · ${meta}` : `${badge} after ${rounds} round(s) · ${meta}`,
+    '',
+    `Independent findings: ${counts}`,
+  ]
+  const drops = settledOut.filter((s) => s.agreed && s.disposition === 'drop')
+  if (applied.length) {
+    lines.push('', `### Applied (${applied.length})`)
+    applied.forEach((a) => lines.push(`- \`${a.id}\` ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
+  }
+  if (drops.length) {
+    lines.push('', `### Agreed — no change (${drops.length})`)
+    drops.forEach((d) => lines.push(`- \`${d.id}\` ${d.title} (${d.location})`))
+  }
+  if (unresolved.length) {
+    lines.push('', `### Unresolved — needs human (${unresolved.length})`)
+    // Surface BOTH lenses' full final positions (disposition + reasoning + any
+    // plan), not just the bare verdict — a human adjudicating needs the actual
+    // disagreement, which lives in each side's reasoning/plan text.
+    unresolved.forEach((u) => {
+      lines.push('', `- \`${u.id}\` ${u.title} (${u.location})`)
+      for (const lens of ['lowy', 'hickey']) {
+        const p = u[lens]
+        const verdict = p?.disposition ?? '?'
+        const reasoning = p?.reasoning ? ` — ${p.reasoning}` : ''
+        lines.push(`  - **${lens}**: ${verdict}${reasoning}`)
+        if (p?.plan?.trim()) lines.push(`    - plan: ${p.plan}`)
+      }
+    })
+  }
+  return lines.join('\n')
+}
+
 // ---------------------------------------------------------------------------
 // Phase 1 — independent parallel review
 // ---------------------------------------------------------------------------
@@ -276,7 +337,11 @@ REVIEWERS.forEach((r, idx) => {
 log(`Independent findings: ${REVIEWERS.map((r) => `${r.lens}=${reviewByLens[r.lens].length}`).join(', ')}`)
 
 if (combined.length === 0) {
-  return { status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', settled: [], unresolved: [], applied: [], reviews: reviewByLens, history: [] }
+  // Route the clean outcome through the SAME renderer as a debated run so the
+  // comment carries the same audit metadata (base, lens roster, per-lens counts,
+  // whether code-police ran) instead of a bare one-liner.
+  const comment = renderComment({ rounds: 0, settledOut: [], unresolved: [], applied: [], reviewByLens, withPolice, base, clean: true })
+  return { status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', settled: [], unresolved: [], applied: [], reviews: reviewByLens, history: [], comment }
 }
 
 // ---------------------------------------------------------------------------
@@ -384,4 +449,15 @@ for (const fix of fixes) {
   log(`Applied ${fix.id}: ${files.length} file(s)${sha ? `, committed ${sha.slice(0, 9)}` : ' (uncommitted)'}`)
 }
 
-return { status, rounds, base, withPolice, settled: settledOut, unresolved, applied, reviews: reviewByLens, history }
+return {
+  status,
+  rounds,
+  base,
+  withPolice,
+  settled: settledOut,
+  unresolved,
+  applied,
+  reviews: reviewByLens,
+  history,
+  comment: renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, withPolice, base }),
+}

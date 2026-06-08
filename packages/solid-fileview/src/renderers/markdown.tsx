@@ -7,7 +7,7 @@
  *  toggle chrome in `FileView`). */
 
 import { Markdown } from "@kolu/solid-markdown";
-import { type Component } from "solid-js";
+import type { Component } from "solid-js";
 
 export type MarkdownRendererProps = {
   /** The file's UTF-8 Markdown source. */
@@ -18,6 +18,15 @@ export type MarkdownRendererProps = {
    *  `@kolu/solid-markdown`'s `resolveImageSrc`). The host wires this to its
    *  file-serving route so README images render instead of falling back. */
   resolveImageSrc?: (src: string) => string | undefined;
+  /** Open a repo-relative link `href` in the host (see `@kolu/solid-markdown`'s
+   *  `onNavigateRelative`). The host wires this to its file-open front door so a
+   *  `[doc](docs/guide.md)` link opens the file instead of a new browser tab. */
+  onNavigateRelative?: (href: string) => void;
+  /** Open an Obsidian-style `[[wikilink]]` in the host (see
+   *  `@kolu/solid-markdown`'s `onNavigateWikilink`). The host resolves the
+   *  target pathless across the repo and anchors a disambiguation menu to the
+   *  clicked `anchor` when the basename is ambiguous. */
+  onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
 };
 
 export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
@@ -30,6 +39,8 @@ export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
         markdown={props.markdown}
         variant="document"
         resolveImageSrc={props.resolveImageSrc}
+        onNavigateRelative={props.onNavigateRelative}
+        onNavigateWikilink={props.onNavigateWikilink}
       />
     </div>
   </div>

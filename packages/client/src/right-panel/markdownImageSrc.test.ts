@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 
+// The GitHub-relative resolution rules are unit-tested in @kolu/solid-browser
+// (`resolveRelativePath`/`resolveLinkHref`). These cases pin the kolu binding:
+// the resolved path wraps into a per-terminal file-route URL, and a rejected
+// ref yields undefined.
 const resolve = (mdPath: string, src: string) =>
   resolveMarkdownImageSrc("term-1", mdPath, src);
 

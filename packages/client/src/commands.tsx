@@ -16,7 +16,7 @@ import type {
 } from "./CommandPalette";
 import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
 import type { DockSourceEntry } from "./canvas/dockModel";
-import { supportsSpatialCanvas } from "./capabilities";
+import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import {
   ACTIONS,
   type ActionContext,
@@ -116,6 +116,8 @@ export interface CommandDeps extends ActionContext {
   handleEditActiveIntent: () => void;
   // Dialogs
   setAboutOpen: (open: boolean) => void;
+  /** Re-summon the welcome overlay (the "Tutorial" command). */
+  setWelcomeOpen: (open: boolean) => void;
   setDiagnosticInfoOpen: (open: boolean) => void;
   // Canvas — desktop only. The canvas isn't mounted on mobile, so these
   // commands are hidden there via `supportsSpatialCanvas`.
@@ -348,6 +350,21 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       name: "Keyboard shortcuts",
       section: "help",
     }),
+    // Tutorial re-summons the welcome — gated to surfaces that have one. Mobile
+    // has no welcome by design (`showsWelcome()` false), so the command is
+    // omitted there rather than opening a desktop-oriented dialog in the
+    // compact layout.
+    ...(showsWelcome()
+      ? [
+          {
+            kind: "action" as const,
+            name: "Tutorial",
+            description: "Show the welcome screen",
+            section: "help" as const,
+            onSelect: () => deps.setWelcomeOpen(true),
+          },
+        ]
+      : []),
     {
       kind: "action",
       name: "About kolu",

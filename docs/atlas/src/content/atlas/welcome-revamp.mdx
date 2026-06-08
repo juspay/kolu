@@ -1,0 +1,575 @@
+---
+title: "Welcome, revamped — pin it, reach it, run agents, watch it"
+description: One story across three surfaces — a bird's-eye in-app welcome, the kolu.dev home page that now carries the whole guide, and a hero demo clip filmed by the e2e harness so it can't drift from the real app. The spine — one `tailscale serve` gives kolu both the HTTPS secure context for one-click PWA install and remote reach. Plan of record + build journal.
+kind: feature
+status: implemented
+maturity: budding
+parents: [second-brain, video-evidence]
+updated: 2026-06-07
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
+import D2 from "../../components/D2.astro";
+import Roadmap from "../../components/Roadmap.astro";
+import Milestone from "../../components/Milestone.astro";
+
+export const C = {
+  bg: "#15171c", chrome: "#1b1e24", panel: "#171a20", line: "#2a2e37",
+  fg: "#c7ccd6", dim: "#8b929d", faint: "#5b626d",
+  amber: "#d6a35c", green: "#6cc070", blue: "#6ea8e0", red: "#d66c6c", purple: "#a594e8",
+};
+
+export const Win = (props) => (
+  <div style={`margin:1.6rem 0;max-width:${props.w || "34rem"};border:1px solid ${C.line};border-radius:12px;overflow:hidden;background:${C.bg};box-shadow:0 6px 22px rgba(0,0,0,.32)`}>
+    <div style={`display:flex;align-items:center;gap:.45rem;padding:.5rem .8rem;background:${C.chrome};border-bottom:1px solid ${C.line}`}>
+      <span style="width:10px;height:10px;border-radius:50%;background:#ff5f56;display:inline-block"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:#ffbd2e;display:inline-block"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+      <span style={`margin-left:.4rem;font:600 .72rem/1 ui-monospace,monospace;color:${C.dim}`}>{props.title}</span>
+    </div>
+    <div style="padding:1.1rem 1.15rem">{props.children}</div>
+  </div>
+);
+
+export const moments = [
+  { icon: "📌", k: "Pin it", t: "Install kolu as an app — its own window, dock icon, and live agent badge.", chip: "PWA", c: C.amber },
+  { icon: "🌐", k: "Reach it anywhere", t: "One Tailscale command and kolu follows you to your phone, over real HTTPS.", chip: "Tailscale", c: C.blue },
+  { icon: "🤖", k: "Run agents", t: "Open a repo, drop a tile, launch Claude / Codex / OpenCode. Agent-agnostic.", chip: "Canvas", c: C.green },
+];
+
+export const WelcomeMockup = () => (
+  <Win title="kolu · welcome" w="36rem">
+    <div style={`font:600 .95rem/1.4 ui-sans-serif,system-ui;color:${C.fg};margin-bottom:.2rem`}>Terminals on an infinite canvas. Any agent.</div>
+    <div style={`font:.8rem/1.5 ui-sans-serif,system-ui;color:${C.dim};margin-bottom:1rem`}>Three things worth doing first.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem">
+      {moments.map((m) => (
+        <div style={`border:1px solid ${C.line};border-radius:10px;background:${C.panel};padding:.7rem .65rem`}>
+          <div style="font-size:1.05rem;margin-bottom:.35rem">{m.icon}</div>
+          <div style={`font:600 .78rem/1.2 ui-sans-serif,system-ui;color:${C.fg};margin-bottom:.25rem`}>{m.k}</div>
+          <div style={`font:.68rem/1.45 ui-sans-serif,system-ui;color:${C.dim}`}>{m.t}</div>
+          <div style={`margin-top:.5rem;display:inline-block;font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:${m.c};border:1px solid ${m.c}55;border-radius:5px;padding:.18rem .4rem`}>{m.chip}</div>
+        </div>
+      ))}
+    </div>
+    <div style={`margin-top:1rem;padding-top:.85rem;border-top:1px solid ${C.line};display:flex;align-items:center;justify-content:space-between`}>
+      <div style={`font:.72rem/1.4 ui-sans-serif,system-ui;color:${C.faint}`}>New terminal <span style={`color:${C.dim};font-family:ui-monospace,monospace`}>⌘⏎</span> &nbsp;·&nbsp; Palette <span style={`color:${C.dim};font-family:ui-monospace,monospace`}>⌘K</span></div>
+      <a style={`font:600 .72rem/1 ui-sans-serif,system-ui;color:${C.blue};text-decoration:none`}>Full guide → kolu.dev</a>
+    </div>
+    <div style={`margin-top:.7rem;font:.66rem/1.4 ui-monospace,monospace;color:${C.faint}`}>Closed it? <span style={`color:${C.dim}`}>⌘K → "Tutorial"</span> brings it back anytime.</div>
+  </Win>
+);
+
+This note is the plan of record and build journal for kolu's whole **first-run
+story**, which spans three surfaces that turned out to be one:
+
+1. a **bird's-eye in-app welcome** — a revamp of the empty state, re-openable on
+   demand (<PrLink pr={1199} />);
+2. the **kolu.dev home page**, which started as a separate `/welcome` guide and
+   was later **folded in whole** so a visitor understands kolu in one scroll
+   (<PrLink pr={1213} />);
+3. a **hero demo clip** at the top of that page — short, looping, and **filmed by
+   the e2e harness** so it regenerates from source and can't drift from the real
+   app (<PrLink pr={1213} />).
+
+The first two thread around one verified insight (the spine). The third is its
+own subsystem with its own hard-won pipeline — both are below.
+
+<WelcomeMockup />
+
+## The spine: one command unlocks two features
+
+kolu's two onboarding goals — **pin it as an app** and **reach it from
+anywhere** — look separate. They are the same action.
+
+A self-hosted kolu is almost always served over **plain HTTP** on a LAN
+(`192.168.x.x`) or Tailscale (`100.x`) address. You can still *pin* it from
+there — Chrome's *Create shortcut → Open as window* and iOS Safari's *Add to
+Home Screen* both work over `http://` — but the **frictionless one-click install**
+(the `beforeinstallprompt` prompt / omnibox install icon) and the **OS app
+badge** need a **secure context** (HTTPS, or the loopback/`localhost` set). The
+very same `tailscale serve` that makes kolu reachable from your phone gives it a
+real `https://…ts.net` origin — so it unlocks the **one-click** install *and*
+remote access in **one command**. Tell it as one story.
+
+export const Node = (props) => (
+  <div style={`flex:1;min-width:0;border:1px solid ${props.c}66;border-radius:9px;background:${C.panel};padding:.6rem .55rem;text-align:center`}>
+    <div style={`font:600 .7rem/1.2 ui-sans-serif,system-ui;color:${props.c};margin-bottom:.2rem`}>{props.h}</div>
+    <div style={`font:.62rem/1.35 ui-monospace,monospace;color:${C.dim};word-break:break-all`}>{props.s}</div>
+  </div>
+);
+export const Arrow = () => (<div style={`flex:none;align-self:center;color:${C.faint};font:700 1rem/1 ui-monospace,monospace;padding:0 .15rem`}>→</div>);
+
+export const TailscaleBridge = () => (
+  <div style="margin:1.6rem 0;max-width:40rem">
+    <div style="display:flex;align-items:stretch;gap:.2rem">
+      <Node c={C.amber} h="Plain HTTP" s="http://100.x:PORT — manual pin only, off-LAN unreachable" />
+      <Arrow />
+      <Node c={C.amber} h="tailscale serve" s="tailscale serve --bg PORT" />
+      <Arrow />
+      <Node c={C.green} h="✓ Real HTTPS" s="https://box.tailnet.ts.net" />
+    </div>
+    <div style={`display:flex;gap:.5rem;margin-top:.6rem;font:600 .68rem/1.3 ui-sans-serif,system-ui`}>
+      <div style={`flex:1;text-align:center;color:${C.green};border:1px dashed ${C.green}66;border-radius:8px;padding:.45rem`}>↳ secure context → <strong>1-click install + app badge</strong></div>
+      <div style={`flex:1;text-align:center;color:${C.blue};border:1px dashed ${C.blue}66;border-radius:8px;padding:.45rem`}>↳ on your tailnet → <strong>Reachable anywhere</strong></div>
+    </div>
+  </div>
+);
+
+<TailscaleBridge />
+
+### Verified facts (the plan rests on these)
+
+Four load-bearing claims, each adversarially fact-checked against current
+(2025–26) primary sources.
+
+<Callout kind="warn" title="Plain HTTP: manual install works, one-click doesn't">
+Only the **automatic** path needs a **secure context**
+([W3C Secure Contexts §3.1](https://www.w3.org/TR/secure-contexts/): HTTPS, or
+the loopback/`localhost` set). Over `http://` on a `192.168.x.x` LAN IP or a
+Tailscale `100.x` IP, Chromium's `beforeinstallprompt` / omnibox install icon
+won't fire, and the **OS app badge** (Badging API) and **service workers** are
+unavailable. *That part is real.*
+
+But you can still **pin kolu manually** over plain HTTP — the common self-hosted
+case, and what most users actually do
+([MDN](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable),
+[web.dev](https://web.dev/learn/pwa/installation)):
+
+- **Chrome / Edge desktop**: ⋮ → *Save and share → Create shortcut…* → tick **Open as window** (a windowed app; no manifest install needed). *Confirmed working on macOS Chrome over http.*
+- **iOS Safari**: Share → **Add to Home Screen** — no HTTPS requirement; launches standalone via the manifest's `display`. *Confirmed working on iPhone Safari over http.*
+
+So `window.isSecureContext` gates **which affordance to offer**, not **whether
+install is possible**: on an insecure origin, show **manual instructions** (and
+recommend HTTPS for the one-click prompt + app badge) — never a dead one-click
+button, and never *"you can't install."*
+</Callout>
+
+- **Tailscale Serve = a genuine secure context.** `tailscale serve` reverse-proxies a local port and terminates TLS at `https://machine.tailnet.ts.net` with a real **Let's Encrypt** cert (DNS-01 against `*.ts.net`; private key never leaves your box) — browsers accept it with no warnings, so install + service workers unlock. <Pill variant="ok">confirmed</Pill> Caveats: enable **MagicDNS + HTTPS Certificates** once in the admin console; the **full FQDN** is mandatory (the bare hostname and the `100.x` IP are still plain HTTP); Serve is **tailnet-only**; the FQDN lands in public Certificate-Transparency logs, so don't bake secrets into machine names. ([Serve KB](https://tailscale.com/kb/1312/serve), [HTTPS KB](https://tailscale.com/kb/1153/enabling-https))
+- **`beforeinstallprompt` is Chromium-only.** Chrome/Edge/Brave/etc. fire it; **Firefox and Safari (desktop *and* iOS) never do** — and Chrome/Edge *on iOS* run on WebKit, so they don't fire it either. A custom JS Install button must start **hidden** and reveal only on the event. <Pill variant="ok">confirmed</Pill>
+- **iOS has no install API.** The only path is the manual **Share → Add to Home Screen**, which works regardless of any event (since iOS 16.4 from Chrome/Edge/Firefox too, not just Safari). On iOS you render *instructions, not a button*. Requires HTTPS + `display: standalone` + an `apple-touch-icon`; avoid the deprecated `apple-mobile-web-app-capable` meta. <Pill variant="ok">confirmed</Pill>
+
+<Callout kind="note" title="Manifest enrichment — shipped at the surface-app call site">
+The manifest is served `standalone` with 192/512 icons, assembled by
+`@kolu/surface-app`'s `installPwaManifest` (<PrLink pr={1154} />), whose
+`...extra` passthrough accepts the missing fields — so enriching it is just
+passing **`description`** and a **maskable** 512px icon (logo inside the safe
+zone on the brand background) at the call site
+(<Cite file="packages/server/src/index.ts" lines="223" />). *No* `screenshots`:
+they only prettify the install card (install works without them) and committed
+product shots go stale as the UI moves — not worth the maintenance. Validate via
+**DevTools → Application → Manifest** — Lighthouse's PWA audit is deprecated.
+</Callout>
+
+## The in-app welcome
+
+**Revamp the empty state in place** rather than add a modal — shipped as
+<Cite file="packages/client/src/WelcomeMoments.tsx" /> rendered above
+<Cite file="packages/client/src/EmptyState.tsx" />'s restore card and shortcut
+list. The patterns worth stealing: VS Code **Walkthroughs** (a short,
+re-openable checklist — *not* a forced tour; it explicitly warns against
+excessive steps), Warp (one welcome surface, success measured as *habit* not
+completion), Zed (empty-state-as-welcome, re-openable from the palette), and
+Raycast's `EmptyView` (the empty state carries the onboarding *with actions*).
+
+**The moments (cap ~3–5, hard).** The three cards above — **Pin it**,
+**Reach it anywhere**, **Run agents** — sit above the existing restore card and
+shortcut list. Each is one verb + one line + one chip; depth lives behind the
+"Full guide → kolu.dev" link, not inline. Lean on kolu's auto-detection (recent
+repos, recent agents in <Cite file="packages/client/src/wire.ts" />) so the
+welcome shows *the user's own data*, reinforcing zero-setup.
+
+**Re-openable via the palette.** The empty state only auto-shows at zero
+terminals, so the welcome would vanish forever once you're working. A stable
+palette command — labelled **"Tutorial"** (alias "Welcome") — re-summons it
+anytime, mirroring VS Code's `openWalkthrough`. Wired as an action in
+<Cite file="packages/client/src/input/actions.ts" /> and surfaced through
+<Cite file="packages/client/src/commands.tsx" />.
+
+**No dismiss state — by design.** Zero terminals *always* shows the welcome.
+The way you "dismiss" it is to **open a terminal**; open zero again and it comes
+right back. There is no `welcomeSeen` flag, nothing to persist, nothing to go
+stale — the empty canvas *is* the trigger. The only addition is the **"Tutorial"**
+palette command, with a feature-discoverability **tip** pointing at it (per
+<Cite file=".claude/rules/conventions.md" />) so the re-open is discoverable.
+
+### The PWA card is context-aware
+
+This is where the spine pays off. The card reads the runtime and renders one of
+three states — it **never** shows a button that can't work:
+
+export const states = [
+  { c: C.amber, tag: "http:// (insecure)", title: "Pin it manually", body: "You're on http://box:7777. Use the browser menu (Create shortcut → Open as window) or Add to Home Screen. HTTPS via Tailscale adds one-click + a badge.", cta: "How → Reach it anywhere", solid: false },
+  { c: C.green, tag: "https + Chromium", title: "Pin kolu to your dock", body: "Its own window, app icon, and a live badge for finished agents.", cta: "Install", solid: true },
+  { c: C.blue, tag: "iOS Safari", title: "Add to Home Screen", body: "Tap Share ⬆ , then “Add to Home Screen”. (Instructions — iOS has no install button.)", cta: "Show me", solid: false },
+];
+
+export const InstallStates = () => (
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem;margin:1.4rem 0;max-width:40rem">
+    {states.map((s) => (
+      <div style={`border:1px solid ${s.c}55;border-radius:11px;background:${C.bg};overflow:hidden`}>
+        <div style={`font:600 .56rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:${s.c};background:${s.c}1a;padding:.35rem .6rem;border-bottom:1px solid ${s.c}33`}>{s.tag}</div>
+        <div style="padding:.7rem .65rem">
+          <div style={`font:600 .78rem/1.25 ui-sans-serif,system-ui;color:${C.fg};margin-bottom:.3rem`}>{s.title}</div>
+          <div style={`font:.66rem/1.45 ui-sans-serif,system-ui;color:${C.dim};min-height:3.2em`}>{s.body}</div>
+          <div style={s.solid
+            ? `margin-top:.55rem;text-align:center;font:600 .7rem/1 ui-sans-serif,system-ui;color:${C.bg};background:${s.c};border-radius:7px;padding:.4rem`
+            : `margin-top:.55rem;text-align:center;font:600 .7rem/1 ui-sans-serif,system-ui;color:${s.c};border:1px solid ${s.c}66;border-radius:7px;padding:.4rem`}>{s.cta}</div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+<InstallStates />
+
+**Gate order** (apply top-down — the first match wins):
+
+```
+1. already installed            → render nothing
+     matchMedia('(display-mode: standalone)').matches
+     || navigator.standalone === true
+2. secure + beforeinstallprompt → real one-click Install button (Chromium)
+3. secure, no event             → per-platform manual instructions (table below)
+4. !window.isSecureContext      → manual-install instructions (browser menu /
+     Add to Home Screen) + recommend HTTPS via Tailscale for one-click + badge
+```
+
+**Per-platform instruction set** (render the literal glyph as inline SVG next to
+numbered steps — visual beats prose):
+
+| Platform / browser | What kolu shows |
+| --- | --- |
+| Chromium desktop / Android, event captured | Real **Install** button → `prompt()` in the click handler |
+| Android Chrome (no event) | Menu ⋮ → **Install app** |
+| Android Firefox | Menu → **Install** (no event, but install works) |
+| iOS — Safari / Chrome / Edge / Firefox (16.4+) | Illustrated **Share ⬆ → Add to Home Screen** (instructions, not a button) |
+| Safari desktop (macOS Sonoma / Safari 17+) | **File → Add to Dock** (works on any page; no event) |
+| Firefox desktop | Native install not shipped yet (experimental *Taskbar Tabs*) — suggest Chrome/Edge |
+| Any non-secure origin (`http://`) | Manual-pin steps — Chrome *Create shortcut → Open as window*, iOS *Add to Home Screen* — plus *"HTTPS via Tailscale adds one-click + a badge."* Never a dead one-click button |
+
+<Callout kind="accent" title="Library decision: use @khmyznikov/pwa-install, wrap thinly in Solid">
+A ~28 kB, MIT, framework-agnostic web component (~41k weekly downloads, kept
+current for iOS 18+) already solves the parts we'd otherwise re-implement: the
+iOS/macOS Share-sheet instruction screens, localization, standalone detection,
+one-shot `prompt()`, and the `appinstalled` listener — matching kolu's
+"prefer well-maintained libraries over custom code" rule
+(<Cite file=".claude/rules/conventions.md" />). Wrap the custom element in a
+SolidJS component, feed it `manifest-url` / `icon` / `install-description`, hand
+it the captured event via `externalPromptEvent`, and read
+`isInstallAvailable` / `isUnderStandaloneMode`. Ship the wrapper as
+`@kolu/solid-pwa-install`, a focused adapter alongside `solid-pierre` /
+`solid-markdown` / `solid-fileview`, so the install card is reusable by other
+surface apps (drishti included), not buried in kolu's client.
+([repo](https://github.com/khmyznikov/pwa-install))
+</Callout>
+
+## The kolu.dev home page
+
+The full guide began as a separate `website/src/pages/welcome.astro` — a
+Raycast-style skill ladder, each section copy-pasteable and ending at a
+verifiable success state. It worked, but a second page split the story: the
+home hero pointed at it, the visitor had to click through. So once the hero
+**demo** (next section) could carry the explaining, the guide was **folded into
+the home page whole** and `/welcome` deleted (<PrLink pr={1213} />). The goal,
+stated plainly: *the kolu.dev home page contains everything — you don't need to
+navigate elsewhere to understand kolu.*
+
+The home page (<Cite file="website/src/pages/index.astro" />) now runs:
+**hero → the demo clip → features → the seven guide sections → latest post**,
+in one scroll. The sections keep their skill-ladder shape and stable anchors:
+
+1. **Quickstart** `#quickstart` — Nix install → running kolu; ends at *"you should see kolu open with an empty canvas."*
+2. **First 5 minutes** `#first` — open a repo → launch an agent in a tile (mirrors in-app moment #3).
+3. **Core concepts** `#concepts` — canvas, tiles, dock, worktrees, command/sub-palette, auto-detection.
+4. **Pin it as an app** `#install` — the per-OS steps above, HTTP/secure-context caveat up front, Tailscale as the fix.
+5. **Reach it anywhere** `#remote` — the minimal Tailscale sequence (below), the Serve-vs-Funnel safety note.
+6. **Power features** `#power` — multi-agent at scale, keybindings, sessions.
+7. **FAQ / Troubleshooting** `#faq` — leads with *"I see no Install button"* → you're on HTTP, use the `ts.net` URL.
+
+Every in-app card and empty-state hint **deep-links to the matching anchor** on
+the home page — <Cite file="packages/client/src/WelcomeMoments.tsx" /> points
+`GUIDE_URL` at `https://kolu.dev` and links `#remote` etc. directly. This page
+stays the single source of truth, kept in sync with in-app copy and the README
+(per <Cite file=".claude/rules/workflow.md" />).
+
+<Callout kind="good" title="The Tailscale walkthrough (the one to get exactly right)">
+1. Install Tailscale on the dev box **and** the phone/laptop; sign both into the **same account**.<br/>
+2. Admin console → DNS: enable **MagicDNS**, then **HTTPS Certificates** (one-time; acknowledge the public-ledger notice).<br/>
+3. On the dev box: <code>tailscale serve --bg &lt;PORT&gt;</code> (<code>--bg</code> survives reboots).<br/>
+4. Open the printed <code>https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net</code> on the phone — install the PWA from there.
+
+Default to **Serve** (tailnet-only), never **Funnel** (public, no auth — a
+footgun; a single flag flips a port public). Keep the dev server on
+`127.0.0.1` and let Serve be the only exposed surface. Decision aid: Serve =
+"just my devices"; Cloudflare Tunnel + Access = "public + identity-gated";
+ngrok = "throwaway public URL". Rule out Caddy local-CA / self-signed — its
+root isn't trusted on a remote phone, so no secure context.
+</Callout>
+
+## The demo that films itself
+
+The guide tells you what kolu does in prose. The thing prose can't carry is
+**kolu actually doing it** — so the top of the home page is a short, looping
+clip of a real kolu, **driven by the e2e harness and recorded off the screen**.
+A clip recorded by hand goes stale silently and can't be refreshed when the UI
+moves; this one is a **build artifact**, regenerated by `just record hero-demo`,
+so it can't drift from the app.
+
+One clip ships today — `hero-demo`, the home hero — but the subsystem is built
+for N. It's one real workflow that exercises the whole surface at once: **click
+"+"** to open claude on a cloned repo, **"+"** again for codex on a second repo
+in a **light theme** (Catppuccin Latte vs T1's Vaughn) that buries the first
+tile — so the dock **groups two repos** with live agent status — then **click
+claude's dock row** to raise its tile, **open a file**, **select + comment** on
+it, **copy the comment with the real button**, and hand it to claude, which
+**edits the file** with the change landing **live** in the open source view. The
+comment-on-any-file → agent → result loop, end to end.
+
+<Callout kind="note" title="The as-built pipeline lives in the code + the Log">
+The capture below is the **shipped** design — an OS-level `x11grab` of a headful
+Chrome app-mode window. It is *not* the first design (reuse Playwright
+`recordVideo`, fork at transcode); that one hit a hard fps-vs-resolution wall and
+was thrown out. The full arc — dead-ends and all — is the **Log** at the bottom;
+the sources of truth are <Cite file="packages/tests/screencast/README.md" /> and
+<Cite file="packages/tests/screencast/engine.ts" /> /
+<Cite file="packages/tests/screencast/recordings" />.
+</Callout>
+
+**Crisp by construction.** The load-bearing constraint was "no low-quality
+nonsense," and a screen clip has two quality ceilings. Capture **above display
+size**: a headful Chrome at `--force-device-scale-factor=2` under `Xvfb`, grabbed
+with `ffmpeg -f x11grab` — ffmpeg samples the framebuffer on its **own fixed
+clock in physical pixels**, so it's *structurally* smooth **and** crisp at once
+(the thing no in-Chrome capture API could do). Then transcode audio-free, never
+GIF: an H.264 mp4 (`crf 18` ≈ visually lossless for screen content) plus a VP9
+webm (`crf 32`, served first because it's smaller) plus an exact-frame WebP
+poster.
+
+**A poster-first looping `<video>`.** The asset lives at
+`website/public/demo/hero-demo.{mp4,webm,webp}` (committed — Astro serves
+`public/` directly, single-MB each) and embeds with the pattern every serious
+dev-tool site converges on:
+
+```html
+<video autoplay muted loop playsinline preload="metadata" poster="/demo/hero-demo.webp">
+  <source src="/demo/hero-demo.webm" type="video/webm" />  <!-- VP9 first: smaller -->
+  <source src="/demo/hero-demo.mp4"  type="video/mp4"  />  <!-- H.264 fallback -->
+</video>
+```
+
+`muted` (autoplay exemption), `playsinline` (or iOS forces fullscreen), **webm
+`<source>` first** (the browser takes the first decodable one), poster = frame 1
+(instant first paint, seamless swap). Gate autoplay on
+`prefers-reduced-motion: reduce` — render the poster only, with a play control.
+
+**Reproducible, not hand-recorded.** The capture rides a seeded recording module:
+deterministic clone names, pinned viewport / DPR / fonts, and — because the
+finale *edits a real checkout* — `ensureClone` reverts tracked files
+(`git checkout -- .`) each run so the edit is always a fresh, visible change.
+
+<Callout kind="warn" title="Captured locally, not on a clean box — the honest seam">
+Per do.md the clip is meant to film on a **pu box**; it films **locally** today
+because the demo's climax launches a **real, authenticated agent**, and a clean
+box has no logged-in CLI. So it's **reproducible-from-source** (the recipe +
+recording modules run anywhere) but not box-pure — a deliberate, documented
+quality-over-purity tradeoff. (Claude Code's banner prints your name/email/plan,
+bad for a public loop and unflaggable — so the identity-neutral half of the work
+runs **codex**, and claude's banner is cropped out of frame.)
+</Callout>
+
+## Architecture — through the electricity lens
+
+Read against <Cite file="docs/atlas/src/content/atlas/electricity.mdx" label="electricity.mdx" />,
+infrastructure that ① is domain-agnostic, ② hides a hard volatility, and ③
+graduates to a second consumer earns its own `@kolu/*` package; everything else
+stays kolu domain. This work splits cleanly into electricity and domain on both
+the welcome side and the screencast side.
+
+<D2
+  caption="The welcome surface across the domain line. Electricity (own packages, arrows pointing out): @kolu/surface-app owns the manifest + installability signals; @kolu/solid-pwa-install owns the install-card volatility, reading installability from surface-app; the agnostic web-screencast engine knows nothing of kolu. kolu DOMAIN (the in-app welcome + each recording) depends on all three. Outputs land on the home page."
+  code={`direction: down
+surface: "@kolu/surface-app — manifest + installability signals (graduated)"
+pwa: "@kolu/solid-pwa-install — install card + cross-browser volatility (publish?)"
+screencast: "web-screencast engine — AGNOSTIC capture: Xvfb + app-mode Chrome + x11grab -> transcode (publish?)"
+kolu: "kolu app — DOMAIN" {
+  welcome: "WelcomeMoments / EmptyState — 3 moments + install card + Tutorial cmd"
+  rec: "recordings/hero-demo.recording.ts — name, theme, viewport, drive(world)"
+  steplib: "step library / testids / shortcuts"
+}
+home: "website home — index.astro (#quickstart .. #faq) + /demo/hero-demo.{mp4,webm,webp}"
+pwa -> surface: "reads canInstallPwa / isInstalled"
+kolu.welcome -> pwa: "renders the card"
+surface -> kolu.welcome: "installability signals"
+kolu.rec -> screencast: "capture({chrome,size}, drive)"
+kolu.rec -> kolu.steplib: "drive() uses"
+screencast -> home: "demo assets"
+kolu.welcome -> home: "deep-links #anchors"`}
+/>
+
+**① `@kolu/surface-app`** <PrLink pr={1154} /> — the app-shell electricity. Owns
+the **manifest** (`installPwaManifest`, whose `...extra` passthrough absorbs the
+enrichment above) and the **headless "relationship-to-server" model**
+(`useSurfaceApp()`). *Installability* — `window.isSecureContext` + standalone
+display-mode — is a sibling environment fact, so the `canInstallPwa` /
+`isInstalled` signals belong in that same headless model. Graduates today
+(drishti is the second consumer).
+
+**② `@kolu/solid-pwa-install`** — a focused SolidJS adapter wrapping
+`@khmyznikov/pwa-install`. Behind one socket ("install this web app") it owns the
+cross-browser install volatility — `beforeinstallprompt` capture, the
+per-platform instruction screens, `appinstalled` — reading installability from
+①. **`@kolu/surface-app` may itself depend on it** and compose the card, so a
+consumer wires install exactly once. Passes all three tests; graduates to any
+surface app.
+
+**③ The web-screencast engine** — agnostic capture, a graduation candidate not
+yet electricity. "Drive a headful browser at 2× under Xvfb, `x11grab` the
+framebuffer, transcode to web assets" names no terminal/canvas/git; it hides a
+hard volatility (Xvfb lifecycle, app-mode launch, the fps-vs-resolution wall,
+`x11grab`/ffmpeg flags, SIGINT finalize, the `ffmpeg-full` nix gotcha). It lives
+in its **own folder with the dependency arrow pointing out**
+(<Cite file="packages/tests/screencast/engine.ts" />, nix deps in
+`screencast/shell.nix`), flagged <Pill variant="run">publish?</Pill> — mint
+`@kolu/web-screencast` only when a second consumer is real. The **recordings**
+(<Cite file="packages/tests/screencast/recordings" />) are kolu domain: one file
+per clip declaring `{ name, chrome, theme, display, viewport, drive(world) }`,
+applying kolu display knobs *inside* `drive` via kolu shortcuts. The engine
+exposes `capture({ chrome, size }, drive)` where `drive(world)` is a kolu-domain
+closure — so the engine stays agnostic while each recording carries its own
+declarative display properties.
+
+**④ kolu app** — domain. The welcome itself is kolu's story:
+
+| Area | File | Change |
+| --- | --- | --- |
+| In-app welcome | <Cite file="packages/client/src/WelcomeMoments.tsx" /> | The 3 moments + the `@kolu/solid-pwa-install` card; `GUIDE_URL` → `kolu.dev` deep-links |
+| Re-open command | <Cite file="packages/client/src/input/actions.ts" />, <Cite file="packages/client/src/commands.tsx" /> | "Tutorial" action + palette entry — re-summons the welcome as an overlay |
+| Discoverability tip | <Cite file="packages/client/src/settings/tips.ts" />, <Cite file="packages/client/src/settings/useTips.ts" /> | Tip pointing at "Tutorial"; drop the PWA tip on an insecure origin. **No** `welcomeSeen` |
+| Manifest call-site | <Cite file="packages/server/src/index.ts" lines="223" /> | Pass `description` + maskable icon into `installPwaManifest` |
+| Home page | <Cite file="website/src/pages/index.astro" /> | The folded-in skill-ladder guide + the hero demo embed |
+| Recording | <Cite file="packages/tests/screencast/recordings" /> | `hero-demo.recording.ts` + shared `helpers.ts` |
+
+No new server contract; no service worker (kolu has none by design).
+
+### Decisions
+
+- **No persistence.** Zero terminals always shows the welcome; *opening a terminal* is the dismissal. No `welcomeSeen`, nothing to go stale.
+- **One page, no redirect.** The `/welcome` guide folded into the home page whole — a visitor understands kolu in one scroll; in-app cards deep-link to its anchors.
+- **Install ownership.** `@kolu/solid-pwa-install` owns the card UI + cross-browser volatility; `@kolu/surface-app` owns the manifest + installability signals and may depend on it — install is wired once.
+- **Reuse the e2e harness for capture** — the same step library that proves kolu works films it; no second recorder.
+- **Move the capture boundary outside Chrome** — `Xvfb` + `x11grab` of a headful 2× app-mode window; structurally smooth *and* crisp, which no in-Chrome API delivered.
+- **Fork at transcode, never GIF** — H.264 mp4 + VP9 webm + WebP poster, committed under `website/public/demo/`.
+- **Tailscale: instruct, never auto-run.** The welcome documents `tailscale serve`; it never runs it for you. Serve, never Funnel. No QR — a copy button on the `ts.net` URL is enough.
+- **No mobile welcome.** Onboarding is desktop-only (<Cite file="packages/client/src/capabilities.ts" lines="34" />).
+
+### Pitfalls
+
+<Callout kind="warn" title="The traps, condensed">
+
+- **Dead Install buttons on HTTP.** The #1 kolu-specific trap — gate on `isSecureContext` first, always; default-visible custom Install buttons break on Safari/Firefox/iOS (no event); the iOS card is *instructions*, not a button.
+- **Funnel by default, or the bare hostname / `100.x` IP.** Funnel is public+unauthenticated; the bare host and IP are plain HTTP. Always the full `ts.net` FQDN, Serve not Funnel.
+- **Long forced tours / replaying onboarding for returning users.** One win, then links; zero terminals re-shows the welcome, but never hand-hold.
+- **`ffmpeg`, not `ffmpeg-full`.** Plain nixpkgs ffmpeg is built `--disable-xlib` — no x11grab device. Fonts must be supplied to the capture Chrome under bare Xvfb (keep them free-licensed — `symbola` is unfree and fails the build).
+- **Transcoding a soft source and calling it crisp.** 1 Mbit/s VP8 (`recordVideo`) is a ceiling ffmpeg can't recover; capture lossless at 2× instead.
+- **Poll the dock's `data-bucket`, not the raw `data-agent-state`** — the high-level "working"/"awaiting" state; polling the wrong one made clips run 70–150s.
+
+</Callout>
+
+## Log — build journal
+
+A running record of *this work's* research, dead-ends, and decisions — raw
+material for a future blog post. The in-app welcome + the kolu.dev guide shipped
+in <PrLink pr={1199} />; the guide later folded into the home page alongside the
+hero demo in <PrLink pr={1213} />. The screencast arc, newest at the bottom:
+
+**1 · Plan + prior-art sweep.** <Pill variant="ok">workflow #1</Pill> A fan-out
+research workflow (terminal recorders vs browser capture · embed patterns · CI
+determinism), adversarially verified, concluded: PTY recorders (vhs, asciinema)
+**can't** capture kolu's xterm-on-canvas pixels — it's a raster GUI, not a
+replayable ANSI stream — so **pixel capture via the existing Cucumber +
+Playwright evidence harness** is the path. Embed pattern: poster-first
+`autoplay/muted/loop/playsinline`, mp4 + webm, reduced-motion.
+
+**2 · The crispness constraint.** "Video needs to be crisp — no low-quality
+nonsense." This became the spine. The evidence path records Playwright
+`recordVideo` = **VP8 @ ~1 Mbit/s, 720p** — fine for PR proof, too soft for a
+marketing page.
+
+**3 · Spike A (VP8).** Reused the harness (`KOLU_EVIDENCE`) on a real
+`worktree-agent` scenario → 1280×720 VP8 → ffmpeg H.264. Smooth, but the text
+shimmered. Verdict: "could be crispier."
+
+**4 · The fps-vs-resolution wall.** Chasing 2×, every in-Chrome capture API hit a
+structural limit: CDP `Page.startScreencast` **ignores `deviceScaleFactor`** →
+caps at CSS pixels; `Page.captureScreenshot` *can* do 2× but each 2560×1440 grab
+is **compositor-bound at ~260 ms** → ~3 fps **slideshow**; `page.screenshot()`
+**serialises behind the driver** → ~10 frames over a 4 s scenario; a capture loop
+that started before load made frame 0 a blank white flash that strobed on every
+loop. **The lesson:** real-time frame capture is *either* smooth-but-low-res *or*
+high-res-but-too-slow. You can't win it from inside Chrome.
+
+**5 · Reset + second research pass.** <Pill variant="ok">workflow #2</Pill> A
+second fan-out (virtual-time `beginFrame` · OS-level capture · purpose-built
+recorders · native Playwright options), adversarially verified. **Verdict: move
+the capture boundary outside Chrome** — `Xvfb` + `ffmpeg -f x11grab` of a headful
+2× browser samples the framebuffer on its own fixed clock in physical pixels, so
+it's *structurally* smooth **and** crisp at once. Also surfaced: **no top dev
+tool ships an auto-captured hero clip — they're "designed, not recorded"** (Screen
+Studio etc.). We deliberately take the reproducible-over-cinematic path.
+
+**6 · x11grab, working.** Implemented `KOLU_X11CAP`: Xvfb, headful Chrome at
+`--force-device-scale-factor=2`, `ffmpeg -f x11grab` at 30 fps, **SIGINT** to
+flush the moov atom. Gotcha that cost a cycle: nixpkgs `ffmpeg` is built
+`--disable-xlib` (**no x11grab device** — "Unrecognized option 'draw_mouse'") →
+switched the e2e devShell to `ffmpeg-full`. Result: smooth + crisp. "B looks
+good."
+
+**7 · The browser-chrome realisation.** x11grab records the *whole window* — the
+clip showed Chrome's tab strip + `localhost:38425` address bar. Reads as "a
+browser tab," not "the app." Fix: **Chrome app-mode (`--app=<url>`)** = the
+chromeless window an installed PWA uses.
+
+**8 · Scope crystallised into a subsystem.** A lowy/hickey-clean **`Recording`**
+abstraction — data + script per clip, separate from the capture pipeline. The
+engine stays agnostic; recordings carry the kolu-specific display knobs.
+
+**9 · Subsystem shipped.** <PrLink pr={1213} /> The agnostic engine
+(<Cite file="packages/tests/screencast/engine.ts" />, nix deps in
+`screencast/shell.nix`), the `Recording` modules, a `When I record "<name>"`
+dispatcher, and a `just record` recipe. Captured **locally**, not on pu: the
+demo's climax launches a **real, authenticated agent**, so it only renders on a
+machine already running it — a deliberate, documented tradeoff (quality >
+box-purity; reproducibility lives in the recipe + modules, which *do* run on pu).
+
+**10 · Refined to one hero clip.** Dropped a planned **pwa-install** recording —
+an in-clip browser→app transition isn't reachable (bare Xvfb has no window
+manager, so the Fullscreen API can't drop Chrome's chrome). Two harness fixes
+made the dock track the live agent: under `KOLU_X11CAP`, omit the
+`KOLU_CLAUDE_*_DIR` / `KOLU_CODEX_DIR` overrides so kolu watches the **real**
+agent dirs; and a 240s timeout on the `I record` step (a real agent query exceeds
+the default budget). The dock's high-level state is `data-bucket`
+("working"/"awaiting"), **not** the raw `data-agent-state` — polling the wrong
+one made clips run 70–150s.
+
+**11 · Polish → the comprehensive hero.** Privacy: Claude Code's banner prints
+name/email/plan, so the identity-neutral half runs **codex**
+(`--ask-for-approval never --sandbox read-only`; the `--dangerously-bypass…`
+interactive mode shows a danger-confirm the prompt dismisses → codex exits) and
+claude's banner is cropped. The app-mode session auto-restores a terminal, so
+the recording `killAll`s it for an empty opening canvas, then creates one
+**Vaughn**-themed terminal on camera, `trimStart` skipping the load-in. The clip
+grew into the full **comment → agent → live-edit** loop across two repos and two
+themes — every on-camera click telegraphed with a coral SVG arrow (the earlier
+glowing ring read as kolu's own UI), sub-second pauses, and a held beat after the
+dock flips to `awaiting` so the status change is unmissable. ~45s, 3200×1800
+(1600×900 ×2), ~3.9 MB mp4 / ~2.9 MB webm. Reusable patterns factored into
+`helpers.ts`.
+
+---
+
+*Status: `implemented` — the welcome revamp in <PrLink pr={1199} />; the hero
+demo + the folded-in home page in <PrLink pr={1213} />; built on
+`@kolu/surface-app` <PrLink pr={1154} />.*

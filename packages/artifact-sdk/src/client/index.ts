@@ -31,6 +31,7 @@ export type {
 export {
   type BindOptions,
   bindArtifactSdk,
+  observeIframeHistory,
   observeIframeNavigation,
   pushHighlightsTo,
 } from "./bridge";

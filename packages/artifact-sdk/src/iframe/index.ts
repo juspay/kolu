@@ -5,19 +5,31 @@
  *  alone; the parent validates by `event.source === iframeRef.contentWindow`
  *  identity since `event.origin` is `"null"` under the opaque sandbox.
  *
- *  Three responsibilities:
- *    1. Capture text selections inside the iframe document, build a Locator
- *       via the shared `extractQuote`, and surface a floating "+ Comment"
- *       pill at the selection's end.
- *    2. On pill click, post `SelectMsg` to the parent.
- *    3. Apply CSS Custom Highlights for the comment set the parent pushes
- *       via `RenderHighlightsMsg`. */
+ *  This is the single in-iframe agent in the opaque-origin sandbox. It
+ *  forwards to the parent the in-frame intents the sandbox traps — events
+ *  that never reach the parent because they fire inside the frame:
+ *    - Text selection → on pill click, post `SelectMsg` (built from a
+ *      Locator via the shared `extractQuote`, surfaced as a floating
+ *      "+ Comment" pill at the selection's end).
+ *    - Same-frame link navigation → `ReadyMsg.pathname` on every boot, so
+ *      the parent learns where a link click went.
+ *    - Mouse back/forward (X1/X2) → `HistoryMsg`, so the parent drives its
+ *      own history.
+ *  It also applies CSS Custom Highlights for the comment set the parent
+ *  pushes via `RenderHighlightsMsg`. */
 
+import { attachBackForwardMouse } from "@kolu/solid-browser/backForward";
 import { match } from "ts-pattern";
 import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
 import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
-import type { Locator, ParentToIframe, ReadyMsg, SelectMsg } from "../types";
+import type {
+  HistoryMsg,
+  Locator,
+  ParentToIframe,
+  ReadyMsg,
+  SelectMsg,
+} from "../types";
 
 const HIGHLIGHT_NAME = "kolu-artifact-sdk-comment";
 const PILL_ID = "kolu-artifact-sdk-pill";
@@ -26,7 +38,7 @@ let currentPath: string | null = null;
 let lastSelectionRange: Range | null = null;
 let pillEl: HTMLDivElement | null = null;
 
-function postToParent(msg: SelectMsg | ReadyMsg): void {
+function postToParent(msg: SelectMsg | ReadyMsg | HistoryMsg): void {
   window.parent.postMessage(msg, "*");
 }
 
@@ -150,6 +162,19 @@ function boot(): void {
   ensureHighlightStyle();
   document.addEventListener("selectionchange", onSelectionChange);
   window.addEventListener("message", onMessage);
+  // The mouse's dedicated back/forward (X1/X2) buttons. The opaque-origin
+  // sandbox traps them in this frame, so the parent can't see them; forward the
+  // intent so the Code-tab browser's history responds the same over a preview as
+  // over the file tree. The shared binder owns the swallow-on-down /
+  // act-on-up / preventDefault-on-both protocol so the frame's own native
+  // back/forward is suppressed and only the host navigates. (SVG/PDF previews
+  // carry no SDK, so this covers HTML previews.)
+  attachBackForwardMouse(window, {
+    onBack: () =>
+      postToParent({ type: "kolu-artifact-sdk:history", direction: "back" }),
+    onForward: () =>
+      postToParent({ type: "kolu-artifact-sdk:history", direction: "forward" }),
+  });
   // `location.pathname` lets the parent follow same-frame link navigation:
   // it can't read this frame's URL across the opaque-origin sandbox, so the
   // frame reports its own on every boot (initial load + each post-link load).

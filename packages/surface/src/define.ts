@@ -649,3 +649,39 @@ export function defineSurface<const S extends SurfaceSpec>(
     descriptors: descriptors as unknown as SurfaceDescriptors<S>,
   };
 }
+
+/** Compose a keyed map of surfaces into a single contract fragment of shape
+ *  `{ surface: { <key>: innerContract } }` — the wire-level counterpart to
+ *  `implementSurfaces`. A consumer spreads the result into their host
+ *  contract (alongside raw oRPC procedures) AND types their `websocketLink`
+ *  off `typeof composeSurfaceContracts(...)`.
+ *
+ *  Lives in `@kolu/surface/define` (not `/server`) because it only walks each
+ *  surface's already-built `.contract` — it has no server-only dependency.
+ *  Keeping it here lets a browser-reached common module value-import it
+ *  without dragging `@orpc/server` into the client bundle. */
+export function composeSurfaceContracts<
+  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
+  const E extends Record<string, Surface<any>>,
+>(
+  entries: E,
+): {
+  surface: {
+    [K in keyof E]: E[K] extends Surface<infer S>
+      ? SurfaceContractFor<S>["surface"]
+      : never;
+  };
+} {
+  const surface: Record<string, unknown> = {};
+  for (const [key, s] of Object.entries(entries)) {
+    // biome-ignore lint/suspicious/noExplicitAny: contract walk-by-string
+    surface[key] = (s.contract as any).surface;
+  }
+  return { surface } as {
+    surface: {
+      [K in keyof E]: E[K] extends Surface<infer S>
+        ? SurfaceContractFor<S>["surface"]
+        : never;
+    };
+  };
+}

@@ -26,6 +26,11 @@
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import {
+  type BuildInfo,
+  defineBuildInfo,
+  surfaceAppSurfaceWith,
+} from "@kolu/surface-app/surface";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
@@ -412,6 +417,22 @@ export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
+
+/** User-facing name of a Code-tab view — the single source for the words the
+ *  mode picker renders as a chip label and the file-tree right-click menu
+ *  composes its "jump to view" entries from. Defining it once keeps the two
+ *  surfaces in sync structurally rather than by convention. */
+const VIEW_LABELS: Record<CodeTabView, string> = {
+  browse: "All files",
+  local: "Local",
+  branch: "Branch",
+};
+
+/** Display name for a Code-tab view (e.g. "All files" / "Local" / "Branch"). */
+export function viewLabel(view: CodeTabView): string {
+  return VIEW_LABELS[view];
+}
+
 export type RightPanelTabKind = z.infer<typeof RightPanelTabKindSchema>;
 export type RightPanelPerTerminalState = z.infer<
   typeof RightPanelPerTerminalStateSchema
@@ -437,7 +458,7 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   colorScheme: "dark",
   terminalRenderer: "auto",
   rightPanel: {
-    collapsed: true,
+    collapsed: false,
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
@@ -449,8 +470,8 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
 export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
   typeof RightPanelPerTerminalStateSchema
 > = {
-  activeTab: "inspector",
-  codeMode: "local",
+  activeTab: "code",
+  codeMode: "browse",
 };
 
 /** Project the flat `RightPanelPerTerminalState` shape onto its DU view.
@@ -493,9 +514,61 @@ export function applyPreferencesPatch(
   };
 }
 
-// ── The surface ───────────────────────────────────────────────────────
+// ── Build identity (surface-app's skew axis, extended) ─────────────────
+//
+// surface-app's `buildInfo` cell carries "what build is the server?" as
+// reactive server state (server-pushed, read with `{ authority: "server" }`).
+// The library default is `{ commit }`; kolu EXTENDS it with the in-process
+// pty-host's identity (its own closure `staleKey` + git-navigable commit), the
+// `srv · pty` rail's second column. `defineBuildInfo` is generic over the
+// schema, so the extra axis is type-checked end to end.
+//
+// `ptyHost` is optional: a future surviving daemon (remote-terminals phase B)
+// may predate it. `isStale` stays the library default — the clean-ref-guarded
+// COMMIT comparison — because kolu's staleness signal (`≠ srv`) is purely the
+// client-vs-server commit divergence; the pty-host column is displayed, not a
+// staleness input (the pty-host is in-process in A2, so it can't diverge from
+// the server it lives in).
+export const PtyHostIdentitySchema = z.object({
+  staleKey: z.string(),
+  navigableCommit: z.string(),
+});
 
-export const surface = defineSurface({
+export interface KoluBuildInfo extends BuildInfo {
+  ptyHost?: z.infer<typeof PtyHostIdentitySchema>;
+}
+
+export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
+  schema: z.object({
+    commit: z.string(),
+    ptyHost: PtyHostIdentitySchema.optional(),
+  }),
+  default: { commit: "" },
+});
+
+// ── The surfaces ──────────────────────────────────────────────────────
+//
+// kolu now serves TWO sibling surfaces over one transport (kolu#1197):
+//
+//   - `koluSurface` — every primitive kolu OWNS (preferences, activityFeed,
+//     session, terminalList; terminalMetadata; the git/fs streams; the
+//     terminalExit event). Served under the `kolu` key.
+//   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
+//     build-identity `buildInfo` cell extended with kolu's pty-host axis,
+//     plus the `identity.info` restart probe). Served under the `surfaceApp`
+//     key. Its wire path is `surface.surfaceApp.{buildInfo,identity}`.
+//
+// They are NOT merged — `composeSurfaceContracts` / `implementSurfaces` /
+// `surfaceClients` multiplex them, each namespaced by its key. surface-app is
+// already a complete surface; we serve it as a sibling rather than splicing its
+// halves into kolu's own surface.
+
+/** surface-app served as a sibling, extended with kolu's build identity. */
+export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
+
+/** Every primitive kolu OWNS — its own cells, collection, streams, and event.
+ *  surface-app's buildInfo/identity ride the sibling surface above, not here. */
+export const koluSurface = defineSurface({
   cells: {
     /** User preferences — local-authority on the client; server-canonical
      *  on disk. Storage is flat (no discriminated-union subtrees), so the
@@ -584,13 +657,22 @@ export const surface = defineSurface({
   },
 });
 
+/** The two siblings, keyed — the single browser-safe source of which surfaces
+ *  exist under which keys. `composeSurfaceContracts(surfaces)` (contract),
+ *  `surfaceClients(link, surfaces)` (client), and `implementSurfaces(surfaces, …)`
+ *  (server) all read this one map, so the keys can't drift across the three. */
+export const surfaces = {
+  kolu: koluSurface,
+  surfaceApp: surfaceAppSurface_kolu,
+} as const;
+
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────
 // `Surface` lifts `z.infer<schema>` over the spec so consumers reach for
 // `Surface["cells"]["preferences"]["Value"]` etc. The flat aliases below
 // are the conventional re-exports for the surface entries that Kolu code
 // references by name across packages.
 
-export type Surface = SurfaceTypes<typeof surface.spec>;
+export type Surface = SurfaceTypes<typeof koluSurface.spec>;
 
 export type Preferences = Surface["cells"]["preferences"]["Value"];
 export type PreferencesPatch = Surface["cells"]["preferences"]["Patch"];
