@@ -11,11 +11,6 @@ import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { DEFAULT_PORT } from "kolu-common/config";
 import {
-  rejectStaleProcess,
-  SERVER_PROCESS_ID_PARAM,
-  STALE_PROCESS_CLOSE_CODE,
-} from "@kolu/surface-app";
-import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
@@ -23,6 +18,7 @@ import { configureNixShellEnv } from "kolu-pty";
 import { type WebSocket, WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
 import {
+  gateStaleSocket,
   installFreshStatic,
   installPwaManifest,
 } from "@kolu/surface-app/server";
@@ -330,24 +326,23 @@ wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   const connId = ++nextConnId;
   const connLog = log.child({ ws: connId });
 
-  // Error handler before the gate: a rejected socket is still a live EventEmitter
-  // until its close handshake settles; an unhandled `error` event would be fatal.
-  ws.on("error", (err) => {
-    connLog.error({ err }, "error");
-  });
-
-  // processId handshake gate: a stale tab reconnecting to a RESTARTED server
-  // still carries the PREVIOUS instance's id in its `pid` query param. Reject it
-  // here — before oRPC upgrades the socket — so dead-terminal stream subscriptions
-  // never replay and storm the logs with NOT_FOUND. An absent `pid` (the
-  // first-ever connect) always passes.
-  const claimedPid = url.searchParams.get(SERVER_PROCESS_ID_PARAM);
-  if (rejectStaleProcess(claimedPid, serverProcessId)) {
-    connLog.info(
-      { claimedPid, serverProcessId },
-      "rejecting stale client — server restarted since it last connected",
-    );
-    ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+  // Stale-tab handshake gate (`@kolu/surface-app/server`): installs the `error`
+  // handler in the correct order, reads the `pid` echo off the URL, and closes a
+  // stale tab — one bound to a PREVIOUS instance — BEFORE oRPC upgrades the
+  // socket, so dead-terminal stream subscriptions never replay and storm the logs
+  // with NOT_FOUND. An absent `pid` (the first-ever connect) always passes. The
+  // ordering + close are the library's so kolu never re-derives them;
+  // `serverProcessId` is the same id the `identity.info` probe reports.
+  if (
+    gateStaleSocket(ws, url, serverProcessId, {
+      onError: (err) => connLog.error({ err }, "error"),
+      onReject: (claimedPid) =>
+        connLog.info(
+          { claimedPid, serverProcessId },
+          "rejecting stale client — server restarted since it last connected",
+        ),
+    })
+  ) {
     return;
   }
 

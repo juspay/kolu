@@ -12,6 +12,7 @@
     "./server": "./src/server.ts",
     "./surface": "./src/surface.ts",
     "./solid": "./src/solid/index.ts",
+    "./connect": "./src/connect.ts",
     "./lifecycle": "./src/lifecycle.ts",
     "./vite": "./src/vite.ts",
     "./bun": "./src/bun.ts",
@@ -23,6 +24,7 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
+    "partysocket": "^1.1.16",
     "solid-js": "^1.9.0",
     "zod": "^4.3.6"
   },
