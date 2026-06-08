@@ -57,7 +57,16 @@ export type ServerLifecycleEvent =
   // `restartCloseCode`, so the socket is genuinely closed). The discriminator
   // carries the close-code interpretation OUT of the receptacle so kolu never
   // re-decodes `restartCloseCode` against the bare socket.
-  | { kind: "restarted"; processId: string; transport: "open" | "closed" };
+  //
+  // `processId` rides ONLY the open shape — that's the id of the live process
+  // this open landed against. The closed shape has NO live id to report: the
+  // socket closed at the handshake before any probe, so the only id on hand is
+  // the dead process we were detached from. Omitting it (rather than carrying
+  // the stale id under the same field) keeps `serverProcessId()` from projecting
+  // a contradictory "current" id — it returns `undefined` and the rail renders
+  // its `—` placeholder.
+  | { kind: "restarted"; processId: string; transport: "open" }
+  | { kind: "restarted"; transport: "closed" };
 
 /** What an identity probe reports: the server process id — a value that changes
  *  when the server restarts (so a reconnect to a *different* process is a restart,
@@ -168,9 +177,11 @@ export function createServerLifecycle<
     // `pid` no longer matches the live process) is a definitive restart, not a
     // transient drop. Go straight to `restarted` so the reload overlay takes
     // over instead of a "reconnecting" spinner that would loop as the client
-    // keeps re-presenting the same stale id. It carries the LAST known id (the
-    // process we were detached from) — the new id isn't observable, since the
-    // socket closed before any probe. Still gated on an established identity: a
+    // keeps re-presenting the same stale id. The new id isn't observable (the
+    // socket closed before any probe) and the LAST known id is the dead process
+    // we were detached from — NOT the live server — so the closed shape carries
+    // no `processId` at all, and `serverProcessId()` returns `undefined` rather
+    // than a stale "current" id. Still gated on an established identity: a
     // restart close before the first connect never had a relationship to lose.
     if (
       opts.restartCloseCode !== undefined &&
@@ -179,12 +190,11 @@ export function createServerLifecycle<
     ) {
       // Stale-restart: the socket closed before any probe could run, so it is
       // genuinely CLOSED. The discriminator hands that fact to consumers so they
-      // don't re-inspect `event.code` themselves.
-      setLifecycle({
-        kind: "restarted",
-        processId: knownProcessId,
-        transport: "closed",
-      });
+      // don't re-inspect `event.code` themselves. No `processId`: the only id on
+      // hand is the dead process we were detached from, and surfacing it under
+      // the live-id field would have `serverProcessId()` report a contradictory
+      // "current" id.
+      setLifecycle({ kind: "restarted", transport: "closed" });
       return;
     }
     // Only report a drop once an identity has been established — a close before

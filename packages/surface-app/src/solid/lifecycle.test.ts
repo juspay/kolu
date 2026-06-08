@@ -74,7 +74,7 @@ describe("createServerLifecycle", () => {
   it("a restart close code goes straight to `restarted`, not `disconnected`", async () => {
     const t = fakeWs();
     await createRoot(async (dispose) => {
-      const { lifecycle, status } = createServerLifecycle({
+      const { lifecycle, status, serverProcessId } = createServerLifecycle({
         ws: t.ws,
         probe: () => Promise.resolve({ processId: "p1" }),
         restartCloseCode: 4001,
@@ -88,14 +88,17 @@ describe("createServerLifecycle", () => {
       t.fire("close");
       expect(lifecycle().kind).toBe("disconnected");
 
-      // The dedicated restart code is definitive — straight to `restarted`,
-      // carrying the last-known id (the new one isn't observable).
+      // The dedicated restart code is definitive — straight to `restarted`. The
+      // new id isn't observable (socket closed before any probe) and the
+      // last-known id is the dead process we were detached from, so the closed
+      // shape carries NO `processId` and `serverProcessId()` reports `undefined`
+      // rather than a stale "current" id.
       t.fire("close", 4001);
       expect(lifecycle()).toEqual({
         kind: "restarted",
-        processId: "p1",
         transport: "closed",
       });
+      expect(serverProcessId()).toBeUndefined();
       expect(status()).toBe("restarted");
 
       dispose();
