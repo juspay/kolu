@@ -20,7 +20,7 @@ import {
   surfaceAppProbe,
 } from "@kolu/surface-app/solid";
 import { STALE_PROCESS_CLOSE_CODE } from "kolu-common/config";
-import { createEffect, createMemo } from "solid-js";
+import { createEffect, createMemo, createRoot } from "solid-js";
 import { match } from "ts-pattern";
 import { rememberServerProcessId, retireSocket, surfaceApp, ws } from "../wire";
 
@@ -72,10 +72,19 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
 // `transport: "closed"` (the stale-restart shape — socket genuinely closed,
 // unlike the `transport: "open"` reconnect-restart). We read that one signal and
 // fire the retirement side-effect once.
-createEffect(() => {
-  const event = lifecycle();
-  if (event.kind !== "restarted" || event.transport !== "closed") return;
-  retireSocket(ws);
+//
+// Owned by an explicit `createRoot` (the module-singleton pattern — see
+// `createSharedRoot.ts`): a bare top-level `createEffect` is unowned, which Solid
+// warns about AND leaves the effect's scheduling to chance. This side-effect is
+// correctness-critical (it's what bounds the buffers), so it gets a real owner.
+// The root is the page itself — never disposed, which is correct for a
+// page-lifetime singleton.
+createRoot(() => {
+  createEffect(() => {
+    const event = lifecycle();
+    if (event.kind !== "restarted" || event.transport !== "closed") return;
+    retireSocket(ws);
+  });
 });
 
 // `status` is the surface-app `ConnectionStatus` projection of the same
