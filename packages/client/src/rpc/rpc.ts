@@ -20,7 +20,7 @@ import {
   surfaceAppProbe,
 } from "@kolu/surface-app/solid";
 import { STALE_PROCESS_CLOSE_CODE } from "kolu-common/config";
-import { createMemo, createSignal } from "solid-js";
+import { createEffect, createMemo } from "solid-js";
 import { match } from "ts-pattern";
 import { rememberServerProcessId, surfaceApp, ws } from "../wire";
 
@@ -90,18 +90,19 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
 // transient-drop buffering is untouched — only the terminal stale state replaces
 // `send`, and a fresh page restores a pristine socket.
 //
-// `staleClosed` records the terminal-stale fact for the header dot below: a
-// stale-restart leaves the socket genuinely CLOSED (unlike a reconnect-restart,
-// where the socket is open against a fresh process), so the `srv` dot must read
-// red, not the green that `restarted` otherwise maps to.
-const [staleClosed, setStaleClosed] = createSignal(false);
-ws.addEventListener("close", (event: CloseEvent) => {
-  if (event.code !== STALE_PROCESS_CLOSE_CODE) return;
+// Retire the socket off the LIFECYCLE's own stale-restart interpretation, not a
+// second decode of `event.code`: the library already turned the
+// `STALE_PROCESS_CLOSE_CODE` close into a `restarted` event tagged
+// `transport: "closed"` (the stale-restart shape — socket genuinely closed,
+// unlike the `transport: "open"` reconnect-restart). We read that one signal and
+// fire the retirement side-effect once.
+createEffect(() => {
+  const event = lifecycle();
+  if (event.kind !== "restarted" || event.transport !== "closed") return;
   ws.close();
   ws.send = () => {
     throw new Error("kolu: server restarted — reload required (stale tab)");
   };
-  setStaleClosed(true);
 });
 
 // `status` is the surface-app `ConnectionStatus` projection of the same
@@ -110,16 +111,18 @@ ws.addEventListener("close", (event: CloseEvent) => {
 // no double `surfaceApp.info` probe per reconnect, no observer disagreement).
 export { lifecycle, serverProcessId, status };
 
-/** Transport status for the header dot. A `restarted` lifecycle has two shapes:
- *  a reconnect-restart (socket open against a fresh process — `open`) and a
- *  stale-restart (the server closed this tab at the handshake — socket CLOSED,
- *  so `closed`). `staleClosed()` distinguishes them. */
+/** Transport status for the header dot — read from the lifecycle ALONE. A
+ *  `restarted` event carries its own `transport`: a reconnect-restart (socket
+ *  open against a fresh process — `"open"`) reads green; a stale-restart (the
+ *  server closed this tab at the handshake — `"closed"`) reads red. The split is
+ *  the library's, so kolu never re-inspects the socket to recover it. */
 const wsStatus = createMemo<WsStatus>(() =>
-  match(lifecycle().kind)
-    .with("connecting", () => "connecting" as const)
-    .with("disconnected", () => "closed" as const)
-    .with("restarted", (): WsStatus => (staleClosed() ? "closed" : "open"))
-    .with("connected", "reconnected", () => "open" as const)
+  match(lifecycle())
+    .with({ kind: "connecting" }, () => "connecting" as const)
+    .with({ kind: "disconnected" }, () => "closed" as const)
+    .with({ kind: "restarted", transport: "closed" }, () => "closed" as const)
+    .with({ kind: "restarted" }, () => "open" as const)
+    .with({ kind: "connected" }, { kind: "reconnected" }, () => "open" as const)
     .exhaustive(),
 );
 

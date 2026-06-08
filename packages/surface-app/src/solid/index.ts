@@ -50,7 +50,14 @@ export type ServerLifecycleEvent =
   | { kind: "connected"; processId: string }
   | { kind: "disconnected" }
   | { kind: "reconnected"; processId: string }
-  | { kind: "restarted"; processId: string };
+  // A restart arrives two physically-distinct ways, and consumers must tell them
+  // apart without re-reading the socket: `transport: "open"` is a probe-driven
+  // restart (the socket is open against a fresh process); `transport: "closed"`
+  // is a stale-restart (the server rejected this tab at the handshake via
+  // `restartCloseCode`, so the socket is genuinely closed). The discriminator
+  // carries the close-code interpretation OUT of the receptacle so kolu never
+  // re-decodes `restartCloseCode` against the bare socket.
+  | { kind: "restarted"; processId: string; transport: "open" | "closed" };
 
 /** What an identity probe reports: the server process id — a value that changes
  *  when the server restarts (so a reconnect to a *different* process is a restart,
@@ -142,10 +149,13 @@ export function createServerLifecycle<
         }
         const restarted = processId !== knownProcessId;
         knownProcessId = processId;
-        setLifecycle({
-          kind: restarted ? "restarted" : "reconnected",
-          processId,
-        });
+        setLifecycle(
+          restarted
+            ? // Probe-driven restart: this open landed against a fresh process,
+              // so the socket is OPEN.
+              { kind: "restarted", processId, transport: "open" }
+            : { kind: "reconnected", processId },
+        );
       })
       .catch((err) => {
         // The next `open` retries; don't transition on a failed probe. But
@@ -167,7 +177,14 @@ export function createServerLifecycle<
       event?.code === opts.restartCloseCode &&
       knownProcessId !== null
     ) {
-      setLifecycle({ kind: "restarted", processId: knownProcessId });
+      // Stale-restart: the socket closed before any probe could run, so it is
+      // genuinely CLOSED. The discriminator hands that fact to consumers so they
+      // don't re-inspect `event.code` themselves.
+      setLifecycle({
+        kind: "restarted",
+        processId: knownProcessId,
+        transport: "closed",
+      });
       return;
     }
     // Only report a drop once an identity has been established — a close before

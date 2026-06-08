@@ -59,7 +59,12 @@ describe("createServerLifecycle", () => {
       id = "p2";
       t.fire("open");
       await Promise.resolve();
-      expect(lifecycle().kind).toBe("restarted"); // changed id
+      // Probe-driven restart: socket is open against the fresh process.
+      expect(lifecycle()).toEqual({
+        kind: "restarted",
+        processId: "p2",
+        transport: "open",
+      });
       expect(status()).toBe("restarted");
 
       dispose();
@@ -86,7 +91,11 @@ describe("createServerLifecycle", () => {
       // The dedicated restart code is definitive — straight to `restarted`,
       // carrying the last-known id (the new one isn't observable).
       t.fire("close", 4001);
-      expect(lifecycle()).toEqual({ kind: "restarted", processId: "p1" });
+      expect(lifecycle()).toEqual({
+        kind: "restarted",
+        processId: "p1",
+        transport: "closed",
+      });
       expect(status()).toBe("restarted");
 
       dispose();
