@@ -95,19 +95,33 @@ test: install
     # unlimited; this is free insurance on every platform.
     ulimit -n 65536 2>/dev/null || true
     # Worker count scales with the host unless CUCUMBER_PARALLEL is set
-    # explicitly: ~1 worker per 3 cores, clamped to [4,8]. The 24-core darwin
-    # CI host (rasam) gets 8 — ~45% faster than the old fixed 4 — while laptops
-    # and smaller CI stay at 4. Past 8 the slowest-scenario tail dominates and
-    # extra workers only add contention (PAR=12 measured *slower* than PAR=8 on
-    # a 24-core host). See docs/ci-e2e-macos-ralph-report.md.
+    # explicitly: ~1 worker per 3 cores, clamped to [4,cap]. The cap is 6 on
+    # darwin, 8 elsewhere. PAR=8 on the 24-core darwin host (rasam) maximizes
+    # throughput but its higher concurrent load pressures the slow-hydration
+    # tail — under load a handful of interaction waits (per-terminal Code-tab
+    # history enablement, content settle) intermittently miss their POLL budget
+    # and a scenario loses all its retries, which is fatal to a *consecutive*-
+    # green requirement. PAR=6 trades ~part of the speed win for markedly fewer
+    # load-correlated races (the report's PAR=6 hardened runs were 0/3
+    # catastrophic). Linux's watch/render stack is reliable, so it keeps 8.
+    # Past the cap the slowest-scenario tail dominates anyway (PAR=12 measured
+    # *slower* than PAR=8 on a 24-core host). See docs/ci-e2e-macos-ralph-report.md.
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+    cap=8; [ "$(uname)" = Darwin ] && cap=6
     par=$(( cores / 3 ))
     if (( par < 4 )); then par=4; fi
-    if (( par > 8 )); then par=8; fi
+    if (( par > cap )); then par=cap; fi
     par="${CUCUMBER_PARALLEL:-$par}"
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
-    {{ nix_shell_e2e }} pnpm install
+    # No `pnpm install` here: the `install` dep (and, in CI, the ci::install
+    # node) already installed the whole workspace, packages/tests included. A
+    # second `pnpm install` re-links the shared workspace `node_modules/.bin`,
+    # and running concurrently with the `unit` lane's `vitest` it transiently
+    # makes `.bin/vitest` non-executable → "Permission denied" (exit 126) — the
+    # very "two recipes shelling out to pnpm install race and corrupt each
+    # other's node_modules" hazard ci/mod.just documents. CI invokes this recipe
+    # with `just --no-deps test` so even the `install` dep can't race the unit lane.
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL="$par" {{ nix_shell_e2e }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
@@ -136,6 +150,32 @@ test-quick *args: install
         {{ nix_shell_e2e }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
+
+# Capture marketing screencasts (KOLU_X11CAP): headful Chrome at 2x under Xvfb,
+# grabbed by `ffmpeg -f x11grab`, transcoded into website/public/demo/. Per do.md
+# this is meant to run on a pu box. Layers the screencast nix deps (ffmpeg-full +
+# Xvfb, from packages/tests/screencast/shell.nix) onto the e2e shell — the
+# top-level flake devShells are untouched.
+#   just record                       # all recordings
+#   just record new-terminal-demo     # one recording, by name
+record name="": install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ nix_shell_e2e }} pnpm --filter kolu-client build
+    wrapper="$(mktemp)"
+    trap 'rm -f "$wrapper"' EXIT
+    cat > "$wrapper" <<SCRIPT
+    #!/bin/sh
+    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
+    SCRIPT
+    chmod +x "$wrapper"
+    name_filter=""
+    [ -n "{{ name }}" ] && name_filter="--name {{ name }}"
+    cd packages/tests
+    {{ nix_shell_e2e }} pnpm install
+    KOLU_SERVER="$wrapper" KOLU_X11CAP=1 CUCUMBER_PARALLEL=1 \
+        {{ nix_shell_e2e }} nix-shell screencast/shell.nix --run \
+        "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui features/recordings.feature $name_filter"
 
 # Boot the packaged Kolu and verify /api/health — production-like runtime smoke
 smoke:

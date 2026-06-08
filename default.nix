@@ -45,6 +45,7 @@ let
       ./packages/transcript-core
       ./packages/transcript-html
       ./packages/artifact-sdk
+      ./packages/serve-dir
       ./packages/html-escape
       ./packages/url-shape
       ./packages/log
@@ -62,7 +63,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-kAkiERNc4Z/q1zPJ0/TvfZZ0c+gNGGiJ4Bg/+7tzv7g=";
+    hash = "sha256-S728HMTPfKY1Xp1UAX7ZLLYgFEUoW0TqIURu0P3inIY=";
     fetcherVersion = 3;
   };
 

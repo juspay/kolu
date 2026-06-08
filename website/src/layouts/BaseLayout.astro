@@ -93,6 +93,9 @@ const ogImageUrl = new URL(
         document.documentElement.dataset.theme = theme;
       })();
     </script>
+
+    {/* Per-page <head> extras (e.g. LCP image preloads). */}
+    <slot name="head" />
   </head>
   <body class="min-h-screen flex flex-col selection:bg-amber selection:text-void">
     <Header />

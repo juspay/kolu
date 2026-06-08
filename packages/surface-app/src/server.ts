@@ -3,7 +3,8 @@
  *
  * `installFreshStatic` is the freshness contract on the wire: no-store shell,
  * immutable hashed assets, 404 on an asset miss (never the HTML shell), the
- * self-destructing `/sw.js`, and the SPA fallback. `installPwaManifest` serves
+ * `/sw.js` worker (self-destructing by default; the fetch-less notification
+ * worker when `serviceWorker: "notify"`), and the SPA fallback. `installPwaManifest` serves
  * the desktop-app manifest. `installSurfaceApp` wires both in the common order.
  * `buildInfoServer` is the buildInfo cell's server impl; `surfaceAppServer`
  * bundles it with the `identity.info` probe impl as the deps a consumer drops
@@ -21,11 +22,24 @@ import {
   cacheControlFor,
   type FreshnessPaths,
   isImmutableAssetPath,
+  NOTIFICATION_SW_SOURCE,
   SHELL_CACHE_CONTROL,
   SW_SOURCE,
 } from "./index";
 import type { BuildInfo } from "./surface";
 import { resolveCommit } from "./vite";
+
+/** Which worker the `/sw.js` route serves — and which page-side lifecycle call
+ *  it pairs with. `"retire"` (default) serves the self-destructing `SW_SOURCE`
+ *  for the no-worker class of app (pair with `retireServiceWorker()`). `"notify"`
+ *  serves the fetch-less `NOTIFICATION_SW_SOURCE` so the app can show OS
+ *  notifications (pair with `registerServiceWorker()`). */
+export type ServiceWorkerMode = "retire" | "notify";
+
+const SW_SOURCE_FOR: Record<ServiceWorkerMode, string> = {
+  retire: SW_SOURCE,
+  notify: NOTIFICATION_SW_SOURCE,
+};
 
 /** A web app manifest. `name` is required; everything else has a sensible
  *  default, and any extra fields (id, description, orientation, screenshots,
@@ -41,19 +55,21 @@ export interface ManifestOptions {
 }
 
 /** Stamp the freshness `Cache-Control` policy onto a Hono app and serve the SPA
- *  from `root`. Serves the self-destructing `/sw.js` itself (no-cache); a
- *  `/assets/*` miss 404s; any other unmatched path serves the `no-store` shell
- *  so a normal reload can never replay a stale one. */
+ *  from `root`. Serves the `/sw.js` worker itself (no-cache); a `/assets/*` miss
+ *  404s; any other unmatched path serves the `no-store` shell so a normal reload
+ *  can never replay a stale one. `serviceWorker` picks which worker `/sw.js`
+ *  serves (default `"retire"`, the self-destructing one). */
 export function installFreshStatic(
   app: Hono,
-  opts: { root: string } & FreshnessPaths,
+  opts: { root: string; serviceWorker?: ServiceWorkerMode } & FreshnessPaths,
 ): void {
   const root = resolve(opts.root);
-  // The retirement worker, served no-cache — registered first so the static
+  const swSource = SW_SOURCE_FOR[opts.serviceWorker ?? "retire"];
+  // The `/sw.js` worker, served no-cache — registered first so the static
   // catch-all never shadows it, and so the app never hand-rolls this route.
   app.get("/sw.js", (c) => {
     c.header("Cache-Control", cacheControlFor("/sw.js")!);
-    return c.body(SW_SOURCE, 200, {
+    return c.body(swSource, 200, {
       "content-type": "text/javascript; charset=utf-8",
     });
   });
@@ -111,13 +127,18 @@ export function installPwaManifest(
  *  apps that want to compose them by hand. */
 export function installSurfaceApp(
   app: Hono,
-  opts: { clientDist: string; manifest?: ManifestOptions } & FreshnessPaths,
+  opts: {
+    clientDist: string;
+    manifest?: ManifestOptions;
+    serviceWorker?: ServiceWorkerMode;
+  } & FreshnessPaths,
 ): void {
   if (opts.manifest) installPwaManifest(app, opts.manifest);
   installFreshStatic(app, {
     root: opts.clientDist,
     assetPrefix: opts.assetPrefix,
     shellPaths: opts.shellPaths,
+    serviceWorker: opts.serviceWorker,
   });
 }
 

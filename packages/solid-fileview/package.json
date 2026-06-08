@@ -11,7 +11,8 @@
     ".": "./src/index.ts",
     "./renderers/image": "./src/renderers/image.tsx",
     "./renderers/iframe": "./src/renderers/iframe.tsx",
-    "./renderers/markdown": "./src/renderers/markdown.tsx"
+    "./renderers/markdown": "./src/renderers/markdown.tsx",
+    "./renderers/video": "./src/renderers/video.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

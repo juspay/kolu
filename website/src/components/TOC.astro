@@ -1,0 +1,115 @@
+---
+/**
+ * Table of contents for a blog post, built from the `headings` array Astro
+ * produces in `render(post)`. Renders H2s as top-level entries with their H3s
+ * nested beneath — so it pairs with a two-level post outline. Themed via the
+ * global CSS custom properties (tracks light/dark automatically).
+ *
+ *   const { headings } = await render(post);
+ *   <TOC headings={headings} />
+ */
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+interface Props {
+  headings: Heading[];
+  minDepth?: number;
+  maxDepth?: number;
+}
+
+const { headings, minDepth = 2, maxDepth = 3 } = Astro.props;
+const items = headings.filter((h) => h.depth >= minDepth && h.depth <= maxDepth);
+
+type Node = Heading & { children: Heading[] };
+const tree: Node[] = [];
+for (const h of items) {
+  if (h.depth === minDepth || tree.length === 0) {
+    tree.push({ ...h, children: [] });
+  } else {
+    tree[tree.length - 1].children.push(h);
+  }
+}
+---
+
+<nav class="post-toc" aria-label="Table of contents">
+  <p class="post-toc-label">Contents</p>
+  <ol class="post-toc-list">
+    {
+      tree.map((n) => (
+        <li>
+          <a href={`#${n.slug}`}>{n.text}</a>
+          {n.children.length > 0 && (
+            <ol>
+              {n.children.map((c) => (
+                <li>
+                  <a href={`#${c.slug}`}>{c.text}</a>
+                </li>
+              ))}
+            </ol>
+          )}
+        </li>
+      ))
+    }
+  </ol>
+</nav>
+
+<style>
+  .post-toc {
+    margin: 2.5em 0 3em;
+    padding: 1.1rem 1.35rem 1.25rem;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.6rem;
+    background: var(--color-void-raised);
+  }
+  .post-toc-label {
+    margin: 0 0 0.6rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+  }
+  .post-toc-list,
+  .post-toc-list ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .post-toc-list > li {
+    counter-increment: toc;
+    margin: 0.15rem 0;
+  }
+  .post-toc-list > li > a {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+  }
+  .post-toc-list > li > a::before {
+    content: counter(toc, decimal-leading-zero) "  ";
+    color: var(--color-ink-faint);
+  }
+  .post-toc-list {
+    counter-reset: toc;
+  }
+  .post-toc-list ol {
+    margin: 0.1rem 0 0.5rem 1.85rem;
+  }
+  .post-toc-list ol li {
+    position: relative;
+    margin: 0.1rem 0;
+  }
+  .post-toc-list ol a {
+    font-size: 0.85rem;
+    color: var(--color-ink-dim);
+  }
+  .post-toc a {
+    color: var(--color-ink-dim);
+    text-decoration: none;
+    transition: color 0.15s ease;
+    line-height: 1.5;
+  }
+  .post-toc a:hover {
+    color: var(--color-amber);
+  }
+</style>

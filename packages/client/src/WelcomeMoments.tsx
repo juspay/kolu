@@ -15,8 +15,10 @@ import { advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 
-/** The full external guide. The in-app cards stay bird's-eye; depth lives here. */
-const GUIDE_URL = "https://kolu.dev/welcome";
+/** The full external guide. The in-app cards stay bird's-eye; depth lives here.
+ *  The guide now lives on the home page (its sections were merged in), so this
+ *  is `kolu.dev` and the `#remote` etc. anchors below resolve there. */
+const GUIDE_URL = "https://kolu.dev";
 
 const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
   const app = useSurfaceApp();
@@ -155,7 +157,7 @@ const WelcomeMoments: Component<{ install: PwaInstall }> = (props) => {
           rel="noopener noreferrer"
           class="text-accent hover:underline"
         >
-          Full guide → kolu.dev/welcome
+          Full guide → kolu.dev
         </a>
       </div>
     </div>

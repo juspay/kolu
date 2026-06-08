@@ -458,7 +458,7 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   colorScheme: "dark",
   terminalRenderer: "auto",
   rightPanel: {
-    collapsed: true,
+    collapsed: false,
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
@@ -470,8 +470,8 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
 export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
   typeof RightPanelPerTerminalStateSchema
 > = {
-  activeTab: "inspector",
-  codeMode: "local",
+  activeTab: "code",
+  codeMode: "browse",
 };
 
 /** Project the flat `RightPanelPerTerminalState` shape onto its DU view.

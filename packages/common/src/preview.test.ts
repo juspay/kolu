@@ -6,19 +6,24 @@ import {
   isBinaryPreviewable,
   isMarkdown,
   isRasterImage,
+  isSandboxPreviewable,
+  isVideo,
   MARKDOWN_EXTENSIONS,
   RASTER_IMAGE_EXTENSIONS,
   SANDBOX_PREVIEWABLE_EXTENSIONS,
+  VIDEO_EXTENSIONS,
 } from "./preview.ts";
 
 describe("isBinaryPreviewable", () => {
-  it("classifies sandbox documents and raster images (regression: images were UTF-8 garbage)", () => {
+  it("classifies sandbox documents, raster images, and videos (regression: images were UTF-8 garbage)", () => {
     expect(isBinaryPreviewable("out.html")).toBe(true);
     expect(isBinaryPreviewable("logo.svg")).toBe(true);
     expect(isBinaryPreviewable("doc.pdf")).toBe(true);
     expect(isBinaryPreviewable("icon-512.png")).toBe(true);
     expect(isBinaryPreviewable("photo.JPG")).toBe(true);
     expect(isBinaryPreviewable("favicon.ico")).toBe(true);
+    expect(isBinaryPreviewable("demo.mp4")).toBe(true);
+    expect(isBinaryPreviewable("clip.WEBM")).toBe(true);
   });
 
   it("leaves source files on the text path", () => {
@@ -40,6 +45,44 @@ describe("isRasterImage", () => {
     expect(isRasterImage("out.html")).toBe(false);
     expect(isRasterImage("doc.pdf")).toBe(false);
   });
+
+  it("excludes videos — they get the <video> element, not <img>", () => {
+    expect(isRasterImage("demo.mp4")).toBe(false);
+    expect(isRasterImage("clip.webm")).toBe(false);
+  });
+});
+
+describe("isVideo", () => {
+  it("matches video extensions case-insensitively", () => {
+    expect(isVideo("demo.mp4")).toBe(true);
+    expect(isVideo("a/b/clip.WEBM")).toBe(true);
+    expect(isVideo("trailer.mov")).toBe(true);
+    expect(isVideo("short.m4v")).toBe(true);
+    expect(isVideo("old.ogv")).toBe(true);
+  });
+
+  it("excludes images, sandbox documents, and non-web containers", () => {
+    expect(isVideo("hero.webp")).toBe(false);
+    expect(isVideo("logo.svg")).toBe(false);
+    expect(isVideo("movie.mkv")).toBe(false);
+    expect(isVideo("movie.avi")).toBe(false);
+  });
+});
+
+describe("isSandboxPreviewable", () => {
+  it("matches sandbox extensions case-insensitively", () => {
+    expect(isSandboxPreviewable("out.html")).toBe(true);
+    expect(isSandboxPreviewable("page.HTM")).toBe(true);
+    expect(isSandboxPreviewable("logo.svg")).toBe(true);
+    expect(isSandboxPreviewable("doc.PDF")).toBe(true);
+  });
+
+  it("excludes raster images and videos — those get <img>/<video>, not the iframe", () => {
+    expect(isSandboxPreviewable("icon-512.png")).toBe(false);
+    expect(isSandboxPreviewable("photo.jpeg")).toBe(false);
+    expect(isSandboxPreviewable("demo.mp4")).toBe(false);
+    expect(isSandboxPreviewable("clip.webm")).toBe(false);
+  });
 });
 
 describe("isMarkdown", () => {
@@ -57,25 +100,39 @@ describe("isMarkdown", () => {
 });
 
 describe("the binary-previewable partition is structural", () => {
-  it("is exactly sandbox ∪ raster", () => {
+  it("is exactly sandbox ∪ raster ∪ video", () => {
     expect([...BINARY_PREVIEWABLE_EXTENSIONS].sort()).toEqual(
-      [...SANDBOX_PREVIEWABLE_EXTENSIONS, ...RASTER_IMAGE_EXTENSIONS].sort(),
+      [
+        ...SANDBOX_PREVIEWABLE_EXTENSIONS,
+        ...RASTER_IMAGE_EXTENSIONS,
+        ...VIDEO_EXTENSIONS,
+      ].sort(),
     );
   });
 
-  it("has disjoint sandbox and raster sets (no extension is both)", () => {
+  it("has disjoint sandbox, raster, and video sets (no extension is in two)", () => {
     const sandbox = new Set<string>(SANDBOX_PREVIEWABLE_EXTENSIONS);
-    const overlap = RASTER_IMAGE_EXTENSIONS.filter((e) => sandbox.has(e));
-    expect(overlap).toEqual([]);
+    const raster = new Set<string>(RASTER_IMAGE_EXTENSIONS);
+    const video = new Set<string>(VIDEO_EXTENSIONS);
+    expect(RASTER_IMAGE_EXTENSIONS.filter((e) => sandbox.has(e))).toEqual([]);
+    expect(VIDEO_EXTENSIONS.filter((e) => sandbox.has(e))).toEqual([]);
+    expect(VIDEO_EXTENSIONS.filter((e) => raster.has(e))).toEqual([]);
+    expect(RASTER_IMAGE_EXTENSIONS.filter((e) => video.has(e))).toEqual([]);
   });
 
-  it("every binary-previewable extension is either raster or sandbox — no silent third category", () => {
-    // Guards the client's `isRasterImage`-else-iframe branch: a future
-    // non-image, non-document binary (`.wasm`, a font) cannot slip in
-    // without landing in one of the two sets.
-    const sandbox: readonly string[] = SANDBOX_PREVIEWABLE_EXTENSIONS;
+  it("every binary-previewable extension matches exactly one of isRasterImage/isVideo/isSandboxPreviewable — no silent fourth category", () => {
+    // Guards the client's `isRasterImage` → `isVideo` → `isSandboxPreviewable`
+    // dispatch: a future non-image, non-video, non-document binary (`.wasm`, a
+    // font) cannot slip in without landing in exactly one of the three sets —
+    // the runtime counterpart to the explicit "unsupported" no-match renderer.
     for (const ext of BINARY_PREVIEWABLE_EXTENSIONS) {
-      expect(isRasterImage(`file${ext}`) || sandbox.includes(ext)).toBe(true);
+      const path = `file${ext}`;
+      const matched = [
+        isRasterImage(path),
+        isVideo(path),
+        isSandboxPreviewable(path),
+      ].filter(Boolean);
+      expect(matched).toHaveLength(1);
     }
   });
 

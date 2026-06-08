@@ -17,6 +17,7 @@
  *  once per dbPath so a regression doesn't silently re-flake the suite. */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 /** Locked/busy errors are the expected failure mode under parallel
@@ -43,6 +44,28 @@ export function nudgeFiles(paths: ReadonlyArray<string | undefined>): void {
     } catch {
       // File may have been cleaned up between iterations — fine.
     }
+  }
+}
+
+/** Re-fire a directory's `fs.watch` by creating then removing a throwaway
+ *  sentinel entry inside it. `nudgeFiles` re-touches mtimes, which only
+ *  recovers a dropped *write/create* event — it can do nothing for a
+ *  dropped *deletion* (the file is gone, so there's nothing left to
+ *  touch). A create+unlink of a sentinel inside `dir` produces fresh
+ *  entry events, so a consumer that re-scans on any directory event (e.g.
+ *  the Claude SESSIONS_DIR watcher, which re-reads `<pid>.json` and finds
+ *  it absent) re-derives and notices the real entry has vanished. The
+ *  sentinel name is deliberately not a `*.json` so no session enumerator
+ *  ever parses it. Undefined / non-existent dir / racing cleanup is
+ *  swallowed — the caller's poll loop retries on the next tick. */
+export function nudgeDir(dir: string | undefined): void {
+  if (!dir) return;
+  const probe = path.join(dir, `.kolu-nudge-${process.pid}`);
+  try {
+    fs.writeFileSync(probe, "");
+    fs.rmSync(probe, { force: true });
+  } catch {
+    // Dir may not exist yet or be mid-cleanup — fine; poll loop retries.
   }
 }
 

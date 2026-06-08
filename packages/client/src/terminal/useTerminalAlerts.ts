@@ -2,6 +2,7 @@
  *  Watches metadata subscriptions for agent state changes (any AI coding agent). */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { SW_MESSAGE_TYPE } from "@kolu/surface-app";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences } from "../wire";
@@ -65,6 +66,20 @@ export function useTerminalAlerts(deps: {
     if (!document.hidden) deps.clearBadgeAttention();
   });
 
+  // Route a click on an OS notification back to the terminal that finished. The
+  // notification worker (`NOTIFICATION_SW_SOURCE`) handles `notificationclick`
+  // in the worker — it can't reach into the page — so it focuses the window and
+  // posts the alert's `data` here, where we have `activate`. (An installed-PWA
+  // notification has no page-level `Notification.onclick`.)
+  if ("serviceWorker" in navigator) {
+    makeEventListener(navigator.serviceWorker, "message", (event) => {
+      const msg = event.data;
+      if (msg?.type !== SW_MESSAGE_TYPE) return;
+      const id = msg.data?.terminalId as TerminalId | undefined;
+      if (id !== undefined) deps.activate(id);
+    });
+  }
+
   // Reactively watch agent state for all terminals.
   // SolidJS's on() tracks previous values natively — no manual Map needed.
   createEffect(
@@ -101,15 +116,16 @@ export function useTerminalAlerts(deps: {
     } else if (document.hidden) {
       deps.markBadgeAttention(id);
     }
-    if (isBackground || document.hidden)
-      fireActivityAlert(
-        deps.getSubject(id),
-        // The only consumer of `onSwitch` is `Notification.onclick`,
-        // which only fires when `document.hidden` is true — passing a
-        // callback while the tab is visible captures a closure that
-        // never runs. Tie the payload to the channel's precondition.
-        document.hidden ? () => deps.activate(id) : undefined,
-      );
+    // Alert unless the user is *actively watching this very terminal* — i.e.
+    // it's the active terminal AND kolu has focus. `document.hasFocus()` is the
+    // right signal, not `document.hidden`: hidden is only true when kolu is fully
+    // off-screen, which on macOS is almost never the case (switching to another
+    // app while Chrome stays visible keeps it false via occlusion) — so the old
+    // `isBackground || document.hidden` gate meant a banner essentially never
+    // fired. `hasFocus()` is false whenever the doc is hidden too, so it
+    // subsumes the old check and also covers "switched apps, kolu still visible".
+    if (isBackground || !document.hasFocus())
+      void fireActivityAlert(deps.getSubject(id), { terminalId: id });
   }
 
   function simulateAlert(options?: { target?: "active" | "inactive" }) {

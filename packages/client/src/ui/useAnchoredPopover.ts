@@ -46,6 +46,12 @@ export type UseAnchoredPopoverOpts = {
    *  For `bottom-*` anchors the panel opens below the trigger; for `top-*`
    *  anchors the panel opens above — the offset is the gap in both cases. */
   offset?: number;
+  /** Flip a `bottom-*` anchor to open upward when the panel wouldn't fit
+   *  below the trigger but fits better above (and vice-versa). Off by default
+   *  so the fixed-side pickers (dock/minimap) keep their predictable side;
+   *  on for menus whose height is data-driven and whose trigger can sit near
+   *  the viewport's bottom edge (the wikilink disambiguation list). */
+  flip?: boolean;
 };
 
 export type UseAnchoredPopover = {
@@ -90,7 +96,21 @@ export function useAnchoredPopover(
     const minW = opts.panelMinWidth ?? 0;
     const maxLeft = window.innerWidth - minW - VIEWPORT_PAD;
     const left = Math.max(VIEWPORT_PAD, Math.min(r.left, maxLeft));
-    if (opts.anchor === "top-start") {
+    // Opt-in vertical flip: a `bottom-start` panel whose content is taller
+    // than the room below the trigger flips to open upward when there's more
+    // room above. `panelEl` is measured (its height already capped by any
+    // `max-height`), so this reads the actual rendered extent rather than
+    // guessing. Falls back to opening downward when neither side fits — the
+    // panel's own `max-height` + scroll then keeps it on-screen.
+    const panelH = panelEl?.offsetHeight ?? 0;
+    const roomBelow = window.innerHeight - r.bottom - offset - VIEWPORT_PAD;
+    const roomAbove = r.top - offset - VIEWPORT_PAD;
+    const flipUp =
+      opts.flip === true &&
+      opts.anchor !== "top-start" &&
+      panelH > roomBelow &&
+      roomAbove > roomBelow;
+    if (opts.anchor === "top-start" || flipUp) {
       setPos({ bottom: window.innerHeight - r.top + offset, left });
       return;
     }
