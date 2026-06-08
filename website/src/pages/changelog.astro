@@ -21,13 +21,9 @@ const all = await getCollection("changelog");
 // cut hours after its minor) still order newest version first. `id` is the
 // final stable fallback for anything non-`X.Y.Z`.
 const semverDesc = (a: string, b: string) => {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const d = (pb[i] ?? 0) - (pa[i] ?? 0);
-    if (d) return d;
-  }
-  return 0;
+  const [aMaj, aMin, aPat] = a.split(".").map(Number);
+  const [bMaj, bMin, bPat] = b.split(".").map(Number);
+  return (bMaj! - aMaj!) || (bMin! - aMin!) || (bPat! - aPat!);
 };
 
 // A dateless entry is the open Unreleased section; dated entries are releases.
@@ -84,7 +80,7 @@ const rendered = await Promise.all(
       <div>
         {
           unreleasedHasBody && UnreleasedBody ? (
-            <div class="release-body"><UnreleasedBody /></div>
+            <div class="prose prose-changelog"><UnreleasedBody /></div>
           ) : (
             <p class="mono text-ink-muted text-sm leading-relaxed">
               // nothing unreleased — you're on the latest tagged build.<br />
@@ -99,36 +95,39 @@ const rendered = await Promise.all(
     </article>
 
     {
-      rendered.map(({ version, date, Body }) => (
-        <article class="border-t border-rule py-10 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
-          <div class="md:text-right">
-            <a
-              href={`#v${version.replace(/\./g, "-")}`}
-              class="version-link group/anchor inline-flex items-baseline gap-1.5 md:flex-row-reverse"
-            >
-              <span
-                aria-hidden="true"
-                class="mono text-amber opacity-0 group-hover/anchor:opacity-100 transition-opacity"
-              >#</span>
-              <h2
-                id={`v${version.replace(/\./g, "-")}`}
-                class="display-sm text-[2rem] text-ink group-hover/anchor:text-amber transition-colors scroll-mt-20"
+      rendered.map(({ version, date, Body }) => {
+        const anchor = `v${version.replace(/\./g, "-")}`;
+        return (
+          <article class="border-t border-rule py-10 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
+            <div class="md:text-right">
+              <a
+                href={`#${anchor}`}
+                class="version-link group/anchor inline-flex items-baseline gap-1.5 md:flex-row-reverse"
               >
-                v{version}
-              </h2>
-            </a>
-            <time
-              class="mono text-[0.72rem] text-ink-muted tracking-widest block mt-1"
-              datetime={date.toISOString()}
-            >
-              {fmtDate(date)}
-            </time>
-          </div>
-          <div class="release-body">
-            <Body />
-          </div>
-        </article>
-      ))
+                <span
+                  aria-hidden="true"
+                  class="mono text-amber opacity-0 group-hover/anchor:opacity-100 transition-opacity"
+                >#</span>
+                <h2
+                  id={anchor}
+                  class="display-sm text-[2rem] text-ink group-hover/anchor:text-amber transition-colors scroll-mt-20"
+                >
+                  v{version}
+                </h2>
+              </a>
+              <time
+                class="mono text-[0.72rem] text-ink-muted tracking-widest block mt-1"
+                datetime={date.toISOString()}
+              >
+                {fmtDate(date)}
+              </time>
+            </div>
+            <div class="prose prose-changelog">
+              <Body />
+            </div>
+          </article>
+        );
+      })
     }
   </section>
 </BaseLayout>
@@ -137,66 +136,5 @@ const rendered = await Promise.all(
   /* Version headings are their own permalink — no underline, anchors handle it. */
   .version-link {
     text-decoration: none;
-  }
-
-  /* Scoped prose for release bodies — lighter than the serif blog prose. */
-  .release-body {
-    color: var(--color-ink-dim);
-    line-height: 1.65;
-  }
-  .release-body :global(> p:first-child) {
-    color: var(--color-ink);
-    font-size: 1.05rem;
-  }
-  .release-body :global(h3) {
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.72rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--color-amber);
-    margin: 1.8rem 0 0.9rem;
-  }
-  .release-body :global(ul) {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-  .release-body :global(li) {
-    position: relative;
-    padding-left: 1.1rem;
-  }
-  .release-body :global(li)::before {
-    content: "→";
-    position: absolute;
-    left: 0;
-    color: var(--color-ink-faint);
-  }
-  .release-body :global(strong) {
-    color: var(--color-ink);
-    font-weight: 600;
-  }
-  .release-body :global(a) {
-    color: var(--color-amber);
-    text-decoration: none;
-    border-bottom: 1px solid color-mix(in srgb, var(--color-amber) 35%, transparent);
-  }
-  .release-body :global(a:hover) {
-    border-bottom-color: var(--color-amber);
-  }
-  .release-body :global(code),
-  .release-body :global(kbd) {
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.85em;
-    background: var(--color-void-raised);
-    border: 1px solid var(--color-rule);
-    border-radius: 4px;
-    padding: 0.1em 0.4em;
-    color: var(--color-ink);
-  }
-  .release-body :global(p) {
-    margin: 0.9rem 0;
   }
 </style>

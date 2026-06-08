@@ -54,7 +54,7 @@ const nav = [
               href={item.href}
               class:list={[
                 'transition-colors',
-                'hideOnMobile' in item && item.hideOnMobile && 'hidden sm:inline-block',
+                'hideOnMobile' in item && 'hidden sm:inline-block',
                 isActive(item.path) ? 'text-amber' : 'text-ink-dim hover:text-ink',
               ]}
             >
