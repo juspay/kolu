@@ -1,3 +1,4 @@
+import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
@@ -10,17 +11,22 @@ import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { DEFAULT_PORT } from "kolu-common/config";
 import {
+  rejectStaleProcess,
+  SERVER_PROCESS_ID_PARAM,
+  STALE_PROCESS_CLOSE_CODE,
+} from "@kolu/surface-app";
+import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
 import { configureNixShellEnv } from "kolu-pty";
-import { WebSocketServer } from "ws";
+import { type WebSocket, WebSocketServer } from "ws";
 import {
   installFreshStatic,
   installPwaManifest,
 } from "@kolu/surface-app/server";
 import { startDiagnostics } from "./diagnostics.ts";
-import { serverHostname, serverVersion } from "./hostname.ts";
+import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import {
   previewRealpathGuard,
   previewTailFromRawUrl,
@@ -319,9 +325,31 @@ const wsRpcHandler = new WsRPCHandler(appRouter as any, {
 });
 
 let nextConnId = 0;
-wss.on("connection", (ws) => {
+wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   const connId = ++nextConnId;
   const connLog = log.child({ ws: connId });
+
+  // Error handler before the gate: a rejected socket is still a live EventEmitter
+  // until its close handshake settles; an unhandled `error` event would be fatal.
+  ws.on("error", (err) => {
+    connLog.error({ err }, "error");
+  });
+
+  // processId handshake gate: a stale tab reconnecting to a RESTARTED server
+  // still carries the PREVIOUS instance's id in its `pid` query param. Reject it
+  // here — before oRPC upgrades the socket — so dead-terminal stream subscriptions
+  // never replay and storm the logs with NOT_FOUND. An absent `pid` (the
+  // first-ever connect) always passes.
+  const claimedPid = url.searchParams.get(SERVER_PROCESS_ID_PARAM);
+  if (rejectStaleProcess(claimedPid, serverProcessId)) {
+    connLog.info(
+      { claimedPid, serverProcessId },
+      "rejecting stale client — server restarted since it last connected",
+    );
+    ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+    return;
+  }
+
   connLog.info({ total: wss.clients.size }, "connected");
   wsRpcHandler.upgrade(ws, { context: {} });
   ws.on("close", (code, reason) => {
@@ -335,16 +363,15 @@ wss.on("connection", (ws) => {
       "disconnected",
     );
   });
-  ws.on("error", (err) => {
-    connLog.error({ err }, "error");
-  });
 });
 
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "", `http://${req.headers.host}`);
   if (url.pathname === "/rpc/ws") {
+    // Pass the pre-parsed `url` as a 3rd arg so the connection handler reads
+    // `pid` without re-parsing `req.url`.
     wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, req);
+      wss.emit("connection", ws, req, url);
     });
   } else {
     socket.destroy();

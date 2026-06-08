@@ -15,10 +15,23 @@ import {
   isCleanRef,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
+  rejectStaleProcess,
   SHELL_CACHE_CONTROL,
   SW_MESSAGE_TYPE,
   SW_SOURCE,
 } from "./index";
+
+describe("rejectStaleProcess", () => {
+  it("passes the first-ever connect (no claimed pid)", () => {
+    expect(rejectStaleProcess(null, "live-1")).toBe(false);
+  });
+  it("passes a matching pid (transient drop, same process)", () => {
+    expect(rejectStaleProcess("live-1", "live-1")).toBe(false);
+  });
+  it("rejects a mismatched pid (tab bound to a previous process)", () => {
+    expect(rejectStaleProcess("dead-0", "live-1")).toBe(true);
+  });
+});
 
 describe("cacheControlFor", () => {
   it("pins content-hashed assets immutable", () => {

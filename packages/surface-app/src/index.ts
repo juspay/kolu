@@ -170,3 +170,42 @@ async function focusApp(data) {
   }
 }
 `;
+
+// ── Stale-tab handshake (the restart axis's wire contract) ────────────────────
+// A surface app mints a fresh `processId` per boot (see `serverIdentity` in
+// `/server`). A tab open across a restart reconnects to the NEW process and
+// replays its live subscriptions against state the fresh process never had. The
+// handshake closes that window at the connection boundary: the client echoes its
+// last-known id as a query param on every (re)connect; the server rejects a
+// mismatch before the transport upgrades. These three framework-free pieces are
+// the shared contract both ends (and both runtimes — Node and Bun) build on; the
+// per-runtime extraction and the close itself stay in the consumer.
+
+/** WebSocket URL query param carrying the client's last-known server
+ *  `processId`. The client echoes it on every (re)connect so the server can
+ *  recognize a stale tab reconnecting to a RESTARTED instance at the handshake —
+ *  before any live subscription replays. Absent on the first connect (the client
+ *  hasn't observed an identity yet). */
+export const SERVER_PROCESS_ID_PARAM = "pid";
+
+/** WebSocket close code the server uses to reject a client bound to a previous
+ *  process (its `pid` no longer matches the live `processId`). In the application
+ *  range (4000–4999, per RFC 6455 §7.4.2). */
+export const STALE_PROCESS_CLOSE_CODE = 4001;
+
+/** The pure stale-tab decision: does a reconnecting client's claimed processId
+ *  belong to a previous instance? `true` → reject it (the caller closes with
+ *  `STALE_PROCESS_CLOSE_CODE`); `false` → let the handshake proceed. An absent
+ *  `claimedPid` (the first-ever connect, before the client observed an identity)
+ *  always passes. A total function of two strings — no transport, no request
+ *  object — so it's identically callable from a Node `IncomingMessage` host and a
+ *  Bun Fetch-`Request` host; each extracts `claimedPid` with
+ *  `SERVER_PROCESS_ID_PARAM` off its own request and applies the close itself.
+ *  `liveId` MUST be the same id the `identity.info` probe reports (see
+ *  `serverIdentity`), or the gate compares against an id the client never saw. */
+export function rejectStaleProcess(
+  claimedPid: string | null,
+  liveId: string,
+): boolean {
+  return claimedPid !== null && claimedPid !== liveId;
+}

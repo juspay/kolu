@@ -167,6 +167,19 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     expect(await server.procedures.identity.info()).toEqual({
       processId: "pid-1",
     });
+    // …and the SAME id is exposed directly, so a stale-tab gate compares against
+    // the value the probe reports rather than minting a second one.
+    expect(server.processId).toBe("pid-1");
+  });
+
+  it("exposes the minted processId (matching what the probe reports) when none is injected", async () => {
+    const server = surfaceAppServer({ commit: "abc1234" });
+    expect(typeof server.processId).toBe("string");
+    expect(server.processId.length).toBeGreaterThan(0);
+    // Single-sourced: the exposed id IS the one identity.info reports.
+    expect(await server.procedures.identity.info()).toEqual({
+      processId: server.processId,
+    });
   });
 
   it("serves surface-app as a SIBLING surface under its key, fires buildInfo connect", async () => {
