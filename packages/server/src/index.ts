@@ -19,7 +19,7 @@ import {
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
 import { configureNixShellEnv } from "kolu-pty";
-import { WebSocketServer } from "ws";
+import { type WebSocket, WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
 import {
   installFreshStatic,
@@ -325,7 +325,11 @@ const wsRpcHandler = new WsRPCHandler(appRouter as any, {
 });
 
 let nextConnId = 0;
-wss.on("connection", (ws, req: IncomingMessage, url: URL) => {
+// `url` is the already-parsed request URL the upgrade handler passes through
+// `emit` (a non-standard 3rd arg), so the gate reads `pid` without re-parsing
+// `req.url`; `req` itself is no longer needed here. Explicit param types because
+// the extra `emit` arg defeats `ws`'s typed `connection` overload inference.
+wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   const connId = ++nextConnId;
   const connLog = log.child({ ws: connId });
 
