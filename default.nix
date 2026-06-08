@@ -255,7 +255,7 @@ let
   # comment), so this checks exactly what `pnpm typecheck` does. flake.nix
   # strips this from `packages` and routes it to `checks`.
   typecheck = import ./nix/pnpm-typecheck.nix {
-    inherit pkgs src pnpmDeps;
+    inherit pkgs src pnpmDeps version;
     pname = "kolu-typecheck";
   };
 in
