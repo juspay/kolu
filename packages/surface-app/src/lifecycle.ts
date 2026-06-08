@@ -10,7 +10,10 @@
  * `index.tsx` at boot).
  */
 
-import { transportRetiredError } from "@kolu/surface/client";
+import {
+  deadTransportError,
+  SURFACE_TRANSPORT_RETIRED,
+} from "@kolu/surface/client";
 
 /** Permanently retire a transport the server rejected as stale (a tab bound to a
  *  previous process). The app's reload affordance is now the only way forward, so
@@ -29,7 +32,7 @@ import { transportRetiredError } from "@kolu/surface/client";
  *     into an unbounded offline buffer (`maxEnqueuedMessages: Infinity`). The
  *     throw rejects through the caller's existing error path instead.
  *
- *  The throw is an `ORPCError` (via `transportRetiredError`), NOT a plain `Error`:
+ *  The throw is an `ORPCError` (via `deadTransportError`), NOT a plain `Error`:
  *  the surface family's shared retry fence (`shouldNotRetryORPCError`) only treats
  *  an `ORPCError` as non-retriable. A plain throw would still look like a retriable
  *  transport error, so a streaming consumer on `STREAM_RETRY` (infinite retries)
@@ -46,7 +49,8 @@ import { transportRetiredError } from "@kolu/surface/client";
 export function retireSocket(ws: { close(): void; send: unknown }): void {
   ws.close();
   ws.send = () => {
-    throw transportRetiredError(
+    throw deadTransportError(
+      SURFACE_TRANSPORT_RETIRED,
       "surface-app: server restarted — reload required (stale tab)",
     );
   };

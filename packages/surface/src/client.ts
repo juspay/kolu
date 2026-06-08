@@ -44,14 +44,6 @@ export function deadTransportError(
   return new ORPCError(code, { message });
 }
 
-/** A retired-websocket transport error — `deadTransportError` keyed to
- *  `SURFACE_TRANSPORT_RETIRED`. Thrown from `retireSocket`'s `send` stub. */
-export function transportRetiredError(
-  message: string,
-): ORPCError<string, unknown> {
-  return deadTransportError(SURFACE_TRANSPORT_RETIRED, message);
-}
-
 /** Retry context applied to every framework-driven streaming call.
  *  Transport errors retry forever (next iterator yields a fresh
  *  snapshot — see Cell/Collection/Stream invariants); application
