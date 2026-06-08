@@ -325,7 +325,7 @@ const wsRpcHandler = new WsRPCHandler(appRouter as any, {
 });
 
 let nextConnId = 0;
-wss.on("connection", (ws, req: IncomingMessage) => {
+wss.on("connection", (ws, req: IncomingMessage, url: URL) => {
   const connId = ++nextConnId;
   const connLog = log.child({ ws: connId });
 
@@ -336,10 +336,7 @@ wss.on("connection", (ws, req: IncomingMessage) => {
   // reads STALE_PROCESS_CLOSE_CODE as a definitive restart and surfaces the
   // reload overlay. An absent `pid` (the first-ever connect, before the client
   // has observed an identity) always passes.
-  const claimedPid = new URL(
-    req.url ?? "",
-    `http://${req.headers.host}`,
-  ).searchParams.get(SERVER_PROCESS_ID_PARAM);
+  const claimedPid = url.searchParams.get(SERVER_PROCESS_ID_PARAM);
   if (claimedPid !== null && claimedPid !== serverProcessId) {
     connLog.info(
       { claimedPid, serverProcessId },
@@ -371,7 +368,7 @@ server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "", `http://${req.headers.host}`);
   if (url.pathname === "/rpc/ws") {
     wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, req);
+      wss.emit("connection", ws, req, url);
     });
   } else {
     socket.destroy();
