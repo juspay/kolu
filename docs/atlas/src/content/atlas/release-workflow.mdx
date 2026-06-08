@@ -1,6 +1,6 @@
 ---
 title: kolu Release Runbook
-description: Cut a release with `just release X.Y` — tag master, promote the Unreleased changelog entry, GitHub release. The changelog lives as a website content collection; the agent appends to it per PR, kolu.dev renders it Unreleased-and-all.
+description: Cut a release with `just release X.Y` — tag master, promote the Unreleased changelog entry, GitHub release. The changelog is a website content collection the agent appends to per PR; kolu.dev renders it Unreleased-and-all.
 kind: reference
 status: proposed
 maturity: seedling
@@ -8,18 +8,23 @@ parents: [second-brain]
 updated: 2026-06-06
 ---
 
-import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
 import PrLink from "../../components/PrLink.astro";
 import Terminal from "../../components/Terminal.astro";
 
-kolu ships **only** as a Nix flake — users track `master` (`nix run github:juspay/kolu`). A release is a **tag on master**: a named point, a pin, a dated changelog entry. Nothing is published that master doesn't already serve.
+**Model — tag-on-master, rolling:**
 
-kolu is an **application, not a library** — no API to break, no downstream resolver reading the version. So the version is **X.Y**, picked by hand: a `.0` is a milestone you're calling ready, a `.N` bump is a normal release. No `.Z` (rolling, no maintenance branches — nothing to patch; you just ship the next minor). No SemVer contract, no computed bump.
+- Ships **only** as a Nix flake; users track `master` (`nix run github:juspay/kolu`).
+- A release is a **tag on master** — a named point, a pin, a dated changelog entry. Nothing is published that master doesn't already serve.
+- Version is **X.Y**, picked by hand (it's an app, no API contract): `.0` = milestone, `.N` = normal release. No `.Z` — rolling, no maintenance branch to patch.
 
 ## The changelog is website content
 
-It lives in the site, not a root `CHANGELOG.md` — a **content collection** beside the blog (<Cite file="website/src/content.config.ts" lines="4-14" label="blog collection — same shape" />). Each release is one entry; `unreleased.mdx` is the open one.
+- A **content collection** beside the blog (<Cite file="website/src/content.config.ts" lines="4-14" label="blog collection — same shape" />), not a root `CHANGELOG.md`.
+- One entry per release; `unreleased.mdx` is the open one.
+- **Authored per PR by `/be`** — its implement step appends one line under the right `###` heading (prose a user reads + a markdown PR link). No commit-prefix, no bump field.
+- **`### Heads-up`** = disruptive changes (removed feature, changed default, migration), written for the user.
+- **Conflict-free** — `unreleased.mdx merge=union` in `.gitattributes` auto-resolves concurrent appends.
 
 ```
 website/src/content/changelog/
@@ -39,28 +44,20 @@ version: Unreleased
 - `KOLU_STATE_DIR` moved under `$XDG_CONFIG_HOME/kolu`; existing sessions auto-migrate.
 ```
 
-- **Authored per PR by `/be`.** Its *implement* step appends one line to `unreleased.mdx` under the right `###` heading — full PR context, real prose, a markdown link to the PR. No conventional-commit prefixes, no bump field: kolu's an app, nothing computes a version from them.
-- **`### Heads-up`** is the editorial home for disruptive changes — removed feature, changed default, migration — written *for the user*.
-- **Conflict-free.** `website/src/content/changelog/unreleased.mdx merge=union` in `.gitattributes` auto-resolves concurrent appends — git keeps both lines, no marker, no rebase.
-
 ## Keeping it filled — two checkpoints, no CI gate
 
-A forgotten entry gets caught without a merge-blocking check, because there are already two human/agent checkpoints around it:
-
-- **Write time — `/be` authors it.** The changelog line is a step in `/be`'s implement phase (<Cite file=".apm/skills/be/SKILL.md" lines="36" label="be §2 — Add a changelog entry" />). Every PR you cut goes through `/be`, so the entry rides along with the diff and the intent that produced it.
-- **Publish time — the release prompt shows it.** `just release X.Y` prints the exact `Unreleased` notes it's about to publish and waits for `y`. A thin or empty section is visible *at the only moment it matters* — you're staring at the release notes before they ship.
-
-That's enough for a single-maintainer, `/be`-driven repo. A merge-blocking **`changelog` CI check** (PR diff touches `unreleased.mdx` or carries a `no-changelog` label) only earns its keep once PRs arrive from contributors who *don't* run `/be` — then you can't trust the write-time step and want a hard gate. Add it then, not now.
+- **Write time** — `/be` authors the entry in its implement phase (<Cite file=".apm/skills/be/SKILL.md" lines="36" label="be §2 — Add a changelog entry" />); every PR rides through `/be`.
+- **Publish time** — `just release X.Y` prints the exact `Unreleased` notes and waits for `y`; a thin section is visible right before it ships.
+- Enough for a single-maintainer, `/be`-driven repo. Add a merge-blocking **`changelog` CI check** (diff touches `unreleased.mdx` or `no-changelog` label) only once PRs arrive from contributors who don't run `/be`.
 
 ## kolu.dev renders it — Unreleased included
 
-A `/changelog` page maps the collection newest-first, **`Unreleased` at the top**, so users see what shipped *and* what's coming — and it's your live preview: the notes are on the site the moment a PR merges, no dry-run needed.
-
-Because the changelog **is** `website/**`, the existing Pages deploy already fires on every changelog edit (<Cite file=".github/workflows/pages.yml" lines="9-15" label="pages.yml — on.push.paths website/**" />) — no `paths:` change, no raw-import of a root file, nothing extra to wire.
+- A `/changelog` page maps the collection newest-first, **`Unreleased` on top** — shipped *and* upcoming, and a live preview the moment a PR merges.
+- The changelog **is** `website/**`, so the existing Pages deploy already fires on every edit (<Cite file=".github/workflows/pages.yml" lines="9-15" label="pages.yml — on.push.paths website/**" />) — nothing extra to wire.
 
 ## Cutting a release
 
-One command. It shows the plan — the version, the `Unreleased` notes it's about to publish — and **prompts before anything is committed or pushed**. No `--dry-run`: the preview *is* the prompt, and answering `n` leaves the tree untouched.
+One command. It shows the plan + the `Unreleased` notes, then **prompts before any commit/push** (`n` leaves the tree untouched — no `--dry-run` needed).
 
 <Terminal
   title="release"
@@ -80,18 +77,17 @@ One command. It shows the plan — the version, the `Unreleased` notes it's abou
   ]}
 />
 
-- You pass `X.Y` — an editorial call, not a computed one.
-- Everything up to the prompt is read-only; the commit/tag/push happen only on `y`.
-- Preflight refuses to tag anything CI hasn't already passed.
-- Any release is pinnable: `nix run github:juspay/kolu/v1.0`.
+- `X.Y` is an editorial call; everything up to the prompt is read-only.
+- Preflight refuses to tag anything CI hasn't passed.
+- Pin any release: `nix run github:juspay/kolu/v1.0`.
 
-## Wiring (one-time, ships with this note's PR)
+## Wiring
 
-- **`changelog` collection** — ✓ landed in <PrLink pr={1208} />: `content.config.ts` schema, the `/changelog` page, seeded `unreleased.mdx`, `.gitattributes` `merge=union`.
-- **Keep-it-filled** — the `/be` implement-step entry (<Cite file=".apm/skills/be/SKILL.md" lines="36" />); no CI gate, the release prompt is the backstop. See [Keeping it filled](#keeping-it-filled--two-checkpoints-no-ci-gate).
-- **`just release X.Y`** — the recipe above (stamp · bump · tag · push · gh release).
-- **Identity rail** — collapse the two `version = "0.1.0"` literals (<Cite file="default.nix" lines="56" />, <Cite file="default.nix" lines="101" />) into one `let version = "0.1"`, stamp `KOLU_VERSION` beside `KOLU_COMMIT_HASH` (<Cite file="default.nix" lines="203" />) → surface-app `buildInfo` cell → render `1.0 · a1b2c3d` in the rail (<Cite file="packages/client/src/ui/IdentityRail.tsx" lines="96-119" label="IdentityRail srv column" />). Between releases it reads the last tag + commit: the series you're on, plus the exact build.
+- **`changelog` collection** — ✓ landed in <PrLink pr={1208} /> (schema, `/changelog` page, seeded `unreleased.mdx`, `merge=union`).
+- **Keep-it-filled** — ✓ the `/be` implement-step entry (<Cite file=".apm/skills/be/SKILL.md" lines="36" />); no CI gate.
+- **`just release X.Y`** — ⏳ the recipe above (stamp · bump · tag · push · gh release).
+- **Identity rail** — ⏳ collapse the two `version = "0.1.0"` literals (<Cite file="default.nix" lines="56" />, <Cite file="default.nix" lines="101" />) into one `let version`, stamp `KOLU_VERSION` beside `KOLU_COMMIT_HASH` (<Cite file="default.nix" lines="203" />) → `buildInfo` cell → render `1.0 · a1b2c3d` (<Cite file="packages/client/src/ui/IdentityRail.tsx" lines="96-119" label="IdentityRail srv column" />).
 
 ---
 
-*Status: `proposed`. The **changelog surface** — the `changelog` collection, the `/changelog` page, the seeded 1.0 entry, and `merge=union` — landed in <PrLink pr={1208} />. Still to build: the `just release X.Y` recipe, the per-PR CI gate, and the `KOLU_VERSION` identity-rail stamp. First run: `just release 1.0`.*
+*Status: `proposed`. Surface landed in <PrLink pr={1208} />; still to build: the `just release` recipe + the `KOLU_VERSION` rail stamp. First run: `just release 1.0`.*
