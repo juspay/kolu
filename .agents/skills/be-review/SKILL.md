@@ -77,13 +77,24 @@ depend on codex. The built-in `codex exec` retries inside `codex-review.sh` are 
 *lower* layer (one flaky invocation); this is the *outer* layer (the whole debate
 came back without a verdict) — both apply.
 
+## Push the fixes
+
+The reviewers commit straight to the branch — so if they committed anything,
+those fixes must reach the remote, or the open PR shows none of the review work.
+
+After the gauntlet, **if any reviewer committed** (`git log --oneline
+<base>..HEAD` is non-empty vs. the start) **and a PR exists for this branch**
+(`gh pr view --json number -q .number`), **push**: `git push`. No PR → nothing to
+push to, so skip (the local commits are still there for the human). **Never
+merge** — pushing updates the open PR; the human reviews the commits and merges
+when satisfied.
+
 ## Report
 
 Confirm the three PR comments landed, then summarize in chat: each reviewer's
 outcome (codex consensus / reviewer-error — note how many attempts codex took if
-it was retried, lens consensus, police findings actioned) and
-`git log --oneline <base>..HEAD` + `git diff --stat <base>` so the combined
-result is visible. **Never push or merge** — the human reviews the commits and
-merges when satisfied.
+it was retried, lens consensus, police findings actioned), whether the fixes were
+pushed, and `git log --oneline <base>..HEAD` + `git diff --stat <base>` so the
+combined result is visible.
 
 ARGUMENTS:
