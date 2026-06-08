@@ -424,9 +424,8 @@ export function gateStaleSocket(
         )),
   );
   const claimedPid = requestUrl.searchParams.get(SERVER_PROCESS_ID_PARAM);
-  if (rejectStaleProcess(claimedPid, liveProcessId)) {
-    // `claimedPid` is non-null here (rejectStaleProcess returns false for null).
-    opts.onReject?.(claimedPid as string);
+  if (claimedPid !== null && rejectStaleProcess(claimedPid, liveProcessId)) {
+    opts.onReject?.(claimedPid);
     ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
     return true;
   }
