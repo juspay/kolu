@@ -134,12 +134,16 @@ Then(
 Then(
   "the inspector toggle should be disabled",
   async function (this: KoluWorld) {
-    const toggle = this.page.locator('header [data-testid="inspector-toggle"]');
-    await toggle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
-    assert.ok(
-      await toggle.isDisabled(),
-      "Expected the inspector toggle to be disabled on an empty workspace",
+    // Use the `:disabled` selector with waitFor so the assertion polls until
+    // SolidJS reactivity has flushed the `disabled` attribute onto the button —
+    // the same idiom as "the Code tab back/forward button should be disabled".
+    // A bare isDisabled() snapshot after waitFor(attached) is a race: the
+    // element can exist in the DOM before the reactive flush propagates
+    // `disabled={true}`.
+    const toggle = this.page.locator(
+      'header [data-testid="inspector-toggle"]:disabled',
     );
+    await toggle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
 
