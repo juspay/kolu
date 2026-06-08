@@ -106,6 +106,34 @@ describe("createServerLifecycle", () => {
     });
   });
 
+  it("fires onStaleRestart on a stale-close restart, but NOT on a probe-driven one", async () => {
+    const t = fakeWs();
+    let staleRestarts = 0;
+    let id = "p1";
+    await createRoot(async (dispose) => {
+      createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: id }),
+        restartCloseCode: 4001,
+        onStaleRestart: () => staleRestarts++,
+      });
+      t.fire("open");
+      await Promise.resolve();
+
+      // A probe-driven restart (socket open against a fresh process) does NOT
+      // fire it — that socket is alive, nothing to retire.
+      id = "p2";
+      t.fire("open");
+      await Promise.resolve();
+      expect(staleRestarts).toBe(0);
+
+      // A stale-close restart fires it synchronously, at the close decode.
+      t.fire("close", 4001);
+      expect(staleRestarts).toBe(1);
+      dispose();
+    });
+  });
+
   it("a restart close code before any identity is established is ignored", async () => {
     const t = fakeWs();
     await createRoot(async (dispose) => {

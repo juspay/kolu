@@ -37,7 +37,7 @@ export {
   retireSocket,
 } from "../lifecycle";
 
-import { reloadForUpdate } from "../lifecycle";
+import { reloadForUpdate, retireSocket } from "../lifecycle";
 
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";
@@ -135,6 +135,13 @@ export function createServerLifecycle<
    *  a side-effect. Distinct from `serverProcessId()`, which is `undefined` on a
    *  stale-close restart; the echo needs the last *observed* id, which this is. */
   onProcessId?: (processId: string) => void;
+  /** Fired synchronously when a stale-close restart is decoded (the
+   *  `restartCloseCode` path → `restarted` / `transport: "closed"`). The consumer
+   *  supplies the teardown for the socket it owns — typically `retireSocket(ws)`
+   *  — so the *action* lives at the call site while the *decision* (this is a
+   *  stale restart) stays the library's, decoded in exactly one place. Not fired
+   *  for a probe-driven restart (`transport: "open"`), whose socket is alive. */
+  onStaleRestart?: () => void;
 }): {
   lifecycle: Accessor<ServerLifecycleEvent>;
   status: Accessor<ConnectionStatus>;
@@ -206,6 +213,11 @@ export function createServerLifecycle<
       // the live-id field would have `serverProcessId()` report a contradictory
       // "current" id.
       setLifecycle({ kind: "restarted", transport: "closed" });
+      // Fire the consumer's teardown synchronously, here at the single site that
+      // decodes the stale-close — so the consumer provides the *action* (retire
+      // THIS socket) without re-reading `event.code` itself or racing a reactive
+      // effect. The library owns *when* (this decode), the consumer owns *what*.
+      opts.onStaleRestart?.();
       return;
     }
     // Only report a drop once an identity has been established — a close before
@@ -359,18 +371,32 @@ const SurfaceAppContext = createContext<SurfaceAppModel>();
  *      same lifecycle — one source, no disagreement, no double probe.
  *    - `{ ws, probe }` — the provider derives the lifecycle itself (the turnkey
  *      shape for an app with no other lifecycle consumer); a failed identity
- *      probe is reported through the provider's `onError` prop. Pass the optional
- *      `restartCloseCode` to get the synchronous stale-restart fast path
- *      (`createServerLifecycle`'s option of the same name) without dropping to
- *      the manual `{ status }` shape — a transport close with that code goes
- *      straight to `restarted`.
+ *      probe is reported through the provider's `onError` prop. Because this
+ *      source OWNS the socket, it handles the whole stale-tab handshake: pass
+ *      `restartCloseCode` for the synchronous stale-restart fast path (a close
+ *      with that code goes straight to `restarted`), `onProcessId` to echo the
+ *      `pid` param from your URL thunk, and the provider retires the socket for
+ *      you on a stale-restart. Its `ws` is therefore `WsLike & { close, send }`
+ *      (the verbs `retireSocket` needs), not bare `WsLike`. A consumer with its
+ *      own lifecycle uses `{ status }` instead and wires those itself.
  *    - neither — `status()` is permanently `"live"` (build-skew only). */
 export type ConnectionSource<P extends ServerProbe = ServerProbe> =
   | { status: Accessor<ConnectionStatus>; ws?: undefined; probe?: undefined }
   | {
-      ws: WsLike;
+      // The turnkey source OWNS the socket's whole lifecycle — observe (open/
+      // close → status) AND retire it on a stale-restart — so its `ws` is
+      // `WsLike` PLUS the two verbs `retireSocket` needs. The observation-only
+      // `WsLike` stays minimal for the `{ status }` path; only here, where the
+      // provider tears the socket down, is the richer shape required (every real
+      // socket satisfies it).
+      ws: WsLike & { close(): void; send: unknown };
       probe: () => Promise<P>;
       restartCloseCode?: number;
+      /** Fired with each observed `processId` (forwards `createServerLifecycle`'s
+       *  `onProcessId`). A turnkey caller stashes it in the mutable its socket's
+       *  URL thunk echoes as the `pid` handshake param — without re-wrapping its
+       *  own `probe` to carry the side-effect. */
+      onProcessId?: (processId: string) => void;
       status?: undefined;
     }
   | { ws?: undefined; probe?: undefined; status?: undefined };
@@ -447,28 +473,41 @@ export function SurfaceAppProvider<
   // `createServerLifecycle` would double the `identity.info` probe per reconnect
   // and let two observers disagree). Otherwise derive it here from `ws`+`probe`
   // (the turnkey shape), or stay permanently `"live"` when neither is given.
-  const status: Accessor<ConnectionStatus> = props.status
-    ? props.status
-    : props.ws && props.probe
-      ? createServerLifecycle({
-          ws: props.ws,
-          probe: props.probe,
-          // Forward the turnkey caller's stale-restart fast path (a transport
-          // close with this exact code is a definitive `restarted`), so the
-          // `{ ws, probe }` shape reaches the same behavior as a manual
-          // `createServerLifecycle` — no need to drop to the `{ status }` mode
-          // just to set it.
-          restartCloseCode: props.restartCloseCode,
-          // Route probe failures through the same `onError` the buildInfo
-          // stream uses — a turnkey caller has no separate `createServerLifecycle`
-          // to attach `onProbeError` to, so a broken probe would otherwise be
-          // swallowed and leave `status()` stuck with no diagnostic.
-          onProbeError: (err) =>
-            props.onError?.(
-              err instanceof Error ? err : new Error(String(err)),
-            ),
-        }).status
-      : () => "live";
+  let status: Accessor<ConnectionStatus>;
+  if (props.status) {
+    status = props.status;
+  } else if (props.ws && props.probe) {
+    const ws = props.ws;
+    const lifecycle = createServerLifecycle({
+      ws,
+      probe: props.probe,
+      // Forward the turnkey caller's stale-restart fast path (a transport
+      // close with this exact code is a definitive `restarted`), so the
+      // `{ ws, probe }` shape reaches the same behavior as a manual
+      // `createServerLifecycle` — no need to drop to the `{ status }` mode
+      // just to set it.
+      restartCloseCode: props.restartCloseCode,
+      // Forward the observed-id publisher so a turnkey caller can echo the `pid`
+      // handshake param from its own URL thunk without re-wrapping `probe`.
+      onProcessId: props.onProcessId,
+      // The turnkey source OWNS this socket, so it owns the teardown: on a
+      // stale-restart (the server rejected this tab) retire the socket so neither
+      // a reconnecting wrapper's offline buffer nor oRPC's pending peers grow
+      // behind the reload prompt. The `{ status }` source never reaches here —
+      // there the app owns the socket and passes its own `onStaleRestart` to the
+      // `createServerLifecycle` it derived (e.g. kolu's `rpc.ts`).
+      onStaleRestart: () => retireSocket(ws),
+      // Route probe failures through the same `onError` the buildInfo
+      // stream uses — a turnkey caller has no separate `createServerLifecycle`
+      // to attach `onProbeError` to, so a broken probe would otherwise be
+      // swallowed and leave `status()` stuck with no diagnostic.
+      onProbeError: (err) =>
+        props.onError?.(err instanceof Error ? err : new Error(String(err))),
+    });
+    status = lifecycle.status;
+  } else {
+    status = () => "live";
+  }
   // Staleness is a property of the build-identity fragment; the fragment's
   // `isStale` wants a concrete value, so fall back to the schema default.
   const isStale = (srv: T | undefined): boolean =>

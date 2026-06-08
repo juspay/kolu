@@ -21,7 +21,7 @@ import {
   type ServerLifecycleEvent,
   surfaceAppProbe,
 } from "@kolu/surface-app/solid";
-import { createEffect, createMemo, createRoot } from "solid-js";
+import { createMemo } from "solid-js";
 import { match } from "ts-pattern";
 import { rememberServerProcessId, surfaceApp, ws } from "../wire";
 
@@ -60,34 +60,15 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // overlay takes over, instead of a "reconnecting" spinner that would loop as
   // the client keeps re-presenting the same stale id.
   restartCloseCode: STALE_PROCESS_CLOSE_CODE,
-});
-
-// Once the server rejects this tab as stale, permanently retire the socket
-// (`retireSocket` from `@kolu/surface-app/solid` — stop reconnect + fail sends
-// loudly, so neither partysocket's offline buffer nor oRPC's pending peers grow
-// unbounded behind the reload overlay; the partysocket/oRPC-internals knowledge
-// lives in surface-app, beside the transport contract it manipulates). `wire.ts`
-// only owns the `ws` instance being retired (and its process-id URL state).
-//
-// Fire it off the LIFECYCLE's own stale-restart interpretation, not a second
-// decode of `event.code`: the library already turned the
-// `STALE_PROCESS_CLOSE_CODE` close into a `restarted` event tagged
-// `transport: "closed"` (the stale-restart shape — socket genuinely closed,
-// unlike the `transport: "open"` reconnect-restart). We read that one signal and
-// fire the retirement side-effect once.
-//
-// Owned by an explicit `createRoot` (the module-singleton pattern — see
-// `createSharedRoot.ts`): a bare top-level `createEffect` is unowned, which Solid
-// warns about AND leaves the effect's scheduling to chance. This side-effect is
-// correctness-critical (it's what bounds the buffers), so it gets a real owner.
-// The root is the page itself — never disposed, which is correct for a
-// page-lifetime singleton.
-createRoot(() => {
-  createEffect(() => {
-    const event = lifecycle();
-    if (event.kind !== "restarted" || event.transport !== "closed") return;
-    retireSocket(ws);
-  });
+  // Once the server rejects this tab as stale, permanently retire the socket
+  // (`retireSocket` from `@kolu/surface-app/solid` — stop reconnect + fail sends
+  // loudly, so neither partysocket's offline buffer nor oRPC's pending peers grow
+  // unbounded behind the reload overlay; the partysocket/oRPC-internals knowledge
+  // lives in surface-app, beside the transport contract it manipulates). `wire.ts`
+  // only owns the `ws` instance being retired (and its process-id URL state).
+  // The library fires this at the single site that decodes the stale-close, so we
+  // provide the action without a second `event.code` decode or a reactive effect.
+  onStaleRestart: () => retireSocket(ws),
 });
 
 // `status` is the surface-app `ConnectionStatus` projection of the same
