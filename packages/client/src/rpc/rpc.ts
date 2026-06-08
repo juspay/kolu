@@ -63,10 +63,11 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
 });
 
 // Once the server rejects this tab as stale, permanently retire the socket
-// (`retireSocket` in `wire.ts` — stop reconnect + fail sends loudly, so neither
-// partysocket's offline buffer nor oRPC's pending peers grow unbounded behind
-// the reload overlay; the partysocket/oRPC-internals knowledge lives there,
-// beside the transport it manipulates).
+// (`retireSocket` from `@kolu/surface-app/solid` — stop reconnect + fail sends
+// loudly, so neither partysocket's offline buffer nor oRPC's pending peers grow
+// unbounded behind the reload overlay; the partysocket/oRPC-internals knowledge
+// lives in surface-app, beside the transport contract it manipulates). `wire.ts`
+// only owns the `ws` instance being retired (and its process-id URL state).
 //
 // Fire it off the LIFECYCLE's own stale-restart interpretation, not a second
 // decode of `event.code`: the library already turned the

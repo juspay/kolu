@@ -18,6 +18,21 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 export const shouldNotRetryORPCError: ClientRetryPluginContext["shouldRetry"] =
   ({ error }) => !(error instanceof ORPCError);
 
+/** The error a permanently-retired transport throws from `send` so the shared
+ *  retry policy (`shouldNotRetryORPCError`) classifies it as non-retriable.
+ *  An `ORPCError` — NOT a plain `Error`: the retry fence above only suppresses
+ *  `ORPCError`, so a plain throw from a retired socket would still look like a
+ *  retriable transport error and re-subscribe forever (each retry firing the
+ *  stream's `onRetry`, e.g. clearing a terminal buffer behind the reload
+ *  overlay). Same mechanism the dead stdio link uses
+ *  (`SURFACE_STDIO_TRANSPORT_CLOSED`): give the retirement a non-retry shape the
+ *  predicate already recognizes. */
+export function transportRetiredError(
+  message: string,
+): ORPCError<string, unknown> {
+  return new ORPCError("SURFACE_TRANSPORT_RETIRED", { message });
+}
+
 /** Retry context applied to every framework-driven streaming call.
  *  Transport errors retry forever (next iterator yields a fresh
  *  snapshot — see Cell/Collection/Stream invariants); application

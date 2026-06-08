@@ -21,6 +21,7 @@ import {
   onCleanup,
   useContext,
 } from "solid-js";
+import { transportRetiredError } from "@kolu/surface/client";
 import {
   type BuildInfoDef,
   buildInfo as defaultBuildInfo,
@@ -246,6 +247,14 @@ export function createServerLifecycle<
  *     into an unbounded offline buffer (`maxEnqueuedMessages: Infinity`). The
  *     throw rejects through the caller's existing error path instead.
  *
+ *  The throw is an `ORPCError` (via `transportRetiredError`), NOT a plain `Error`:
+ *  the surface family's shared retry fence (`shouldNotRetryORPCError`) only treats
+ *  an `ORPCError` as non-retriable. A plain throw would still look like a retriable
+ *  transport error, so a streaming consumer on `STREAM_RETRY` (infinite retries)
+ *  would re-subscribe forever — and for the terminal attach stream, each retry
+ *  fires `onRetry` → `terminal.reset()`, repeatedly clearing the readable buffer
+ *  behind the reload overlay. The non-retry shape settles the retired tab instead.
+ *
  *  Fire it off the lifecycle's `restarted` event whose `transport` is `"closed"`.
  *  Takes a structural `{ close, send }` (not the concrete socket type) so the
  *  transport library never leaks across the package boundary; `send` is typed
@@ -253,7 +262,7 @@ export function createServerLifecycle<
 export function retireSocket(ws: { close(): void; send: unknown }): void {
   ws.close();
   ws.send = () => {
-    throw new Error(
+    throw transportRetiredError(
       "surface-app: server restarted — reload required (stale tab)",
     );
   };

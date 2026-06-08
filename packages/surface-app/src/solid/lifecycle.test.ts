@@ -5,6 +5,7 @@
  * uses signals + a fake transport, no DOM.
  */
 
+import { shouldNotRetryORPCError } from "@kolu/surface/client";
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createServerLifecycle, retireSocket, type WsLike } from "./index";
@@ -230,5 +231,22 @@ describe("retireSocket", () => {
     expect(() => (ws.send as (d: string) => void)("anything")).toThrow(
       /stale tab/,
     );
+  });
+
+  it("throws a NON-retriable error so STREAM_RETRY consumers settle instead of looping", () => {
+    const ws = { close: () => {}, send: (() => {}) as unknown };
+    retireSocket(ws);
+    let thrown: unknown;
+    try {
+      (ws.send as (d: string) => void)("anything");
+    } catch (err) {
+      thrown = err;
+    }
+    // The surface family's shared retry fence must classify this as non-retriable
+    // (`shouldRetry` → false). A plain `Error` would pass the fence (`true`) and
+    // re-subscribe forever, each retry firing the terminal stream's `onRetry` →
+    // `terminal.reset()` behind the reload overlay.
+    const fence = shouldNotRetryORPCError as (a: { error: unknown }) => boolean;
+    expect(fence({ error: thrown })).toBe(false);
   });
 });
