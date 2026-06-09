@@ -1,4 +1,4 @@
-# Kolu CI pipeline — consumed by odu (packages/odu, `nix run .#odu`).
+# Kolu CI pipeline — consumed by odu (github.com/juspay/odu — npins-pinned and re-exported as `nix run .#odu`).
 #
 # The runner discovers the recipe tagged [metadata("ci")] (exactly one across
 # this justfile and its submodules), expands its reachable dependency subgraph,

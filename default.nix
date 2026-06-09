@@ -34,7 +34,6 @@ let
       ./packages/surface
       ./packages/surface-nix-host
       ./packages/surface-app
-      ./packages/odu
       ./packages/solid-pierre
       ./packages/solid-markdown
       ./packages/solid-pwa-install
@@ -262,11 +261,20 @@ let
   };
 
   # odu — the CI runner that grew out of the mini-ci example (Atlas:
-  # mini-ci-vs-justci). A real package, not an example; it reuses the
-  # example's workspace base derivation rather than forking it.
-  oduPackages = import ./packages/odu/default.nix {
-    inherit pkgs src pnpmDeps;
+  # mini-ci-vs-justci) and graduated to github.com/juspay/odu. kolu consumes
+  # it back via npins (`npins update odu` to bump) and RE-EXPORTS its two
+  # packages, so `nix run .#odu` and the coordinator's
+  # `nix eval .#packages.<platform>.odu-runner.drvPath` keep working from
+  # this repo. odu is built with its own pinned nixpkgs + kolu pin (it
+  # consumes @kolu/surface upstream, the drishti pattern) — the import here
+  # threads only the system.
+  oduSources = import ./npins;
+  oduUpstream = import oduSources.odu {
+    pkgs = import (oduSources.odu + "/nix/nixpkgs.nix") {
+      system = pkgs.stdenv.hostPlatform.system;
+    };
   };
+  oduPackages = { inherit (oduUpstream) odu odu-runner; };
 
   # @kolu/solid-browser docsite — a standalone second consumer of createBrowser
   # (the history electricity), built so CI proves the reuse claim doesn't rot.

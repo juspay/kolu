@@ -480,40 +480,6 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
-  packages/odu:
-    dependencies:
-      '@kolu/surface':
-        specifier: workspace:*
-        version: link:../surface
-      '@kolu/surface-nix-host':
-        specifier: workspace:*
-        version: link:../surface-nix-host
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
-
   packages/pty-host:
     dependencies:
       '@kolu/surface':

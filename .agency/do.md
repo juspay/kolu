@@ -16,7 +16,7 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 ## CI command
 
-Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, live introspection). The runner is **odu** (`packages/odu`, invoked as `nix run .#odu`), which replaced justci — same status contexts, same per-SHA logs, same flag table. Two Kolu-specific operational notes layered on top of it:
+Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, live introspection). The runner is **odu** ([github.com/juspay/odu](https://github.com/juspay/odu), npins-pinned and re-exported as `nix run .#odu`), which replaced justci — same status contexts, same per-SHA logs, same flag table. Two Kolu-specific operational notes layered on top of it:
 
 > **Banned flags: never pass `--no-post`, `--no-strict`, or `--no-snapshot`.** CI on this repo is **always strict and always posts** GitHub commit statuses. A run that doesn't post statuses doesn't update the PR's checks — so it isn't CI, it's a private dry-run that leaves the PR looking unverified. Every CI invocation here (PR runs *and* the master pool-warming runs below) runs strict and posts. If you catch yourself reaching for an opt-out flag to "avoid disturbing the checks," that's exactly the run the PR needs.
 

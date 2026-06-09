@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Lease an idle pool box, run the CI runner's linux lane against it, release
-# on exit. The runner is odu (packages/odu, `nix run .#odu`), which replaced
+# on exit. The runner is odu (github.com/juspay/odu — npins-pinned and
+# re-exported as `nix run .#odu`), which replaced
 # justci; override with KOLU_CI_RUNNER=<flakeref> if you must pin another.
 #
 # Replaces the per-run fork+destroy model (the old ci/pu-ci-host.sh) with a
