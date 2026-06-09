@@ -186,8 +186,9 @@ any track that wasn't selected; it has no result to report.
   `comment` verbatim per `/codex-debate` step 3 (consensus only; on persistent
   reviewer-error there is no agreement to report).
 - **lens** (if the lens track ran): post the lens workflow's returned `comment`
-  (it records the agreed fixes as "handed off", and an `unresolved` run already
-  renders an "Unresolved — needs human" section), **appending** an
+  (it records the agreed fixes under `### Agreed fixes — handed off to the
+  caller` — the literal heading renderComment emits — and an `unresolved` run
+  already renders an "Unresolved — needs human" section), **appending** an
   `### Applied by /be-review` section — the apply pass's per-request outcome for
   the lens-originated requests (applied + commit SHA / already fixed by codex /
   no longer applies), plus your adjudication of any unresolved findings. On a
