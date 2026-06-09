@@ -642,16 +642,10 @@ const App: Component = () => {
                       : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
                   }
                   onSizesChange={(sizes) => {
-                    // `realSizes` drops Corvu's degenerate emissions (e.g.
-                    // the LENGTH-1 renormalized array `unregisterPanel`
-                    // emits when this Resizable unmounts as the last
-                    // terminal closes and the EmptyState takes over) so the
-                    // garbage value never reaches the preference. The other
-                    // load-bearing gate is `MIN_PANEL_SIZE = 0.05` inside
-                    // `useRightPanel.setPanelSize`, which drops the
-                    // collapsed `sizes[1] = 0` case so `preferences.size`
-                    // never persists as zero (which would re-expand into
-                    // an ungrabbable zero-width panel).
+                    // `MIN_PANEL_SIZE = 0.05` inside `setPanelSize` drops
+                    // the collapsed `sizes[1] = 0` case so `preferences.size`
+                    // never persists as zero (which would re-expand into an
+                    // ungrabbable zero-width panel).
                     const s = realSizes(sizes);
                     if (s) rightPanel.setPanelSize(s[1]);
                   }}

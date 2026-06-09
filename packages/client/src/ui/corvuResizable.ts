@@ -10,7 +10,5 @@
  *  clamps (min-size bands, collapse-from-zero epsilon) stay with the setters
  *  that own those concerns. */
 export function realSizes(sizes: number[]): [number, number] | undefined {
-  return sizes.length === 2 && sizes[0] !== undefined && sizes[1] !== undefined
-    ? [sizes[0], sizes[1]]
-    : undefined;
+  return sizes.length === 2 ? (sizes as [number, number]) : undefined;
 }

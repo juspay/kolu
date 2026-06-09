@@ -53,8 +53,7 @@ const TerminalContent: Component<{
 
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle.
-    // `realSizes` drops Corvu's degenerate emissions; the inline `> 0.02`
-    // gate then ignores the tiny `[1, 0]` values Corvu fires during
+    // `> 0.02` ignores the tiny `[1, 0]` values Corvu fires during
     // programmatic transitions (e.g. expand from collapsed), which would
     // immediately re-collapse the panel.
     const s = realSizes(sizes);

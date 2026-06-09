@@ -737,13 +737,6 @@ const CodeTab: Component<{
             1 - rightPanel.codeTabTreeSize(),
           ]}
           onSizesChange={(sizes) => {
-            // `realSizes` drops Corvu's degenerate emissions (e.g. the
-            // LENGTH-1 renormalized array `unregisterPanel` emits when
-            // this Resizable unmounts — the outer `<Show when={repoPath()}>`
-            // flipping to its fallback as the active terminal moves to a
-            // non-git cwd — whose surviving value can land inside the
-            // legal 0.1–0.9 band and clobber the persisted split). Only a
-            // report covering both panels describes a real layout.
             const s = realSizes(sizes);
             if (s) rightPanel.setCodeTabTreeSize(s[0]);
           }}

@@ -29,6 +29,7 @@ import {
 const TREE = '[data-testid="pierre-file-tree"]';
 const DIFF_VIEW = '[data-testid="pierre-diff-view"]';
 const FILE_VIEW = '[data-testid="pierre-file-view"]';
+const DIFF_CONTENT = '[data-testid="diff-content"]';
 
 function fileRow(path: string): string {
   return `${TREE} [data-item-path="${path}"][data-item-type="file"]:not([data-file-tree-sticky-row])`;
@@ -758,9 +759,7 @@ When(
 When(
   "I note the Code tab preview pane height",
   async function (this: KoluWorld) {
-    const box = await this.page
-      .locator('[data-testid="diff-content"]')
-      .boundingBox();
+    const box = await this.page.locator(DIFF_CONTENT).boundingBox();
     if (!box) throw new Error("diff-content pane has no bounding box");
     this.savedCodeTabPreviewHeight = box.height;
   },
@@ -778,8 +777,7 @@ Then(
     }
     await pollFor({
       observe: async () =>
-        (await this.page.locator('[data-testid="diff-content"]').boundingBox())
-          ?.height,
+        (await this.page.locator(DIFF_CONTENT).boundingBox())?.height,
       isDone: (h) => h !== undefined && Math.abs(h - (noted + pixels)) <= 10,
       onTimeout: (last, elapsed) =>
         new Error(
@@ -803,8 +801,7 @@ Then(
     // split a moment to converge before judging it.
     await pollFor({
       observe: async () =>
-        (await this.page.locator('[data-testid="diff-content"]').boundingBox())
-          ?.height,
+        (await this.page.locator(DIFF_CONTENT).boundingBox())?.height,
       isDone: (h) => h !== undefined && Math.abs(h - noted) <= 2,
       onTimeout: (last, elapsed) =>
         new Error(
