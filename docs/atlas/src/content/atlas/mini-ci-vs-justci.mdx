@@ -1,10 +1,10 @@
 ---
-title: Graduating mini-ci — a live CI service vs. justci's batch translator
-description: mini-ci proves that ssh can carry a live, typed, reactive surface instead of a batch artifact — turning the CI runner from a translator you scrape into a service you attach to. That inversion wins the watch-a-run half of CI outright and graduates, drishti-style, into its own repo. It still owes the trigger-and-gate half that is justci's reason to exist. An honest plan for both.
+title: A CI runner you attach to — graduating mini-ci beyond justci
+description: Every local CI tool runs your pipeline as a batch process and leaves you log files. mini-ci inverts that — the runner is a small live server that owns the pipeline as state, and your terminal, your browser, and your coding agent all attach to it over plain ssh. What that buys, what it costs, and the honest distance from replacing justci.
 kind: feature
 status: proposed
 maturity: seedling
-updated: 2026-06-06
+updated: 2026-06-09
 parents: [surface-app, electricity]
 ---
 
@@ -17,66 +17,17 @@ import Terminal from "../../components/Terminal.astro";
 import Roadmap from "../../components/Roadmap.astro";
 import Milestone from "../../components/Milestone.astro";
 
-*A proposal to grow [`packages/surface/example/mini-ci`](https://github.com/juspay/kolu/blob/master/packages/surface/example/mini-ci/README.md) — today a falsifiability test for "an interactive TUI over oRPC stdio" — into a feature-rich, standalone CI tool that takes over from [juspay/justci](https://github.com/juspay/justci), delivered the way [remote-process-monitor](https://github.com/juspay/kolu/blob/master/packages/surface/example/remote-process-monitor/README.md) graduated into [srid/drishti](https://github.com/srid/drishti). Every load-bearing claim below was checked against both codebases.* <Pill variant="new">22-agent workflow · adversarial verification</Pill>
+*A proposal to grow [`mini-ci`](https://github.com/juspay/kolu/blob/master/packages/surface/example/mini-ci/README.md) — a small CI runner that already works inside the kolu repo — into a standalone tool that takes over from [juspay/justci](https://github.com/juspay/justci), the way [remote-process-monitor](https://github.com/juspay/kolu/blob/master/packages/surface/example/remote-process-monitor/README.md) graduated into [srid/drishti](https://github.com/srid/drishti). Every load-bearing claim was checked against both codebases.* <Pill variant="new">22-agent workflow · adversarial verification</Pill>
 
-<p>Status: <Pill variant="run">proposed</Pill> · maturity <Pill variant="todo">seedling</Pill> · substrate shipped in mini-ci (<PrLink pr={1076} label="known TUI raw-mode bug" />)</p>
+<p>Status: <Pill variant="run">proposed</Pill> · maturity <Pill variant="todo">seedling</Pill> · the runner, protocol, and TUI are shipped and tested today (<PrLink pr={1076} label="known TUI raw-mode bug" />)</p>
 
-<Callout kind="warn" title="Headline">
-justci and mini-ci are not the same program at two maturities — they are **two categories of program, separated by what crosses the ssh wire.** justci ships an opaque **batch artifact** (a git bundle in, scraped `.log` files out) and reconstructs "liveness" out-of-band through a *separate* socket client. mini-ci ships a **live typed reactive surface** in-band over oRPC stdio, so the runner stops being a translator that emits a run and becomes a *service that owns the DAG as state* — one you attach, detach, and reconnect to. That single inversion **replaces the *watch-a-run* half of CI outright** and is generative: a browser dashboard, **an MCP server for agent CLIs**, multi-platform fan-**in**, typed rerun, and self-healing reconnect fall out as *composition* of packages kolu already ships. But it **still owes the *trigger-and-gate* half** that is justci's actual reason to exist — forge-event ingestion, per-commit run identity, commit-status output, and a trust model for a now-remotely-mutable service. "Replaces justci **and** does more" is true on the observation axis and a concrete, costed backlog on the gating axis. This note owns both.
+<Callout kind="accent" title="The idea in one paragraph">
+Every local CI tool you have used — `make`, a `just` recipe over ssh, [act](https://github.com/nektos/act), justci — shares one shape: **the run is a process.** It starts, prints, and exits; your window into it is whatever that process wrote to your terminal or to log files. mini-ci inverts the shape: **the runner is a small live server that owns your pipeline as state**, and everything else — a terminal dashboard, a browser app, your coding agent — is a *client that attaches to it* over plain ssh. Attach late and you get the complete current state instantly, including the full log of a node that finished an hour ago. Disconnect and nothing is lost. Rerun one failed node — not the whole pipeline — with a typed call. That single inversion is the innovation; everything else in this note is what it buys, what it costs, and the honest distance from replacing justci.
 </Callout>
 
-## The reframe — a batch translator vs. a live service
+## What it is — attach, don't scrape
 
-<D2
-  caption="The proposed architecture as a single vertical spine. SOLID = shipped in mini-ci today; the DASHED edge marks the trigger-and-gate half this model does not yet address. Clients attach to a typed surface over ssh stdio; the runner is long-lived, owns the DAG, and runs one-per-platform (fanned in)."
-  code={`
-direction: down
-
-clients: "clients — attach / detach / reconnect" {
-  tui: "TUI · shipped"
-  pwa: "PWA dashboard · proposed"
-  mcp: "MCP server · proposed — agent CLIs"
-}
-
-wire: "@kolu/surface — typed wire" {
-  prims: "Cell · Stream · Procedure"
-  link: "stdioLink · retry ∞"
-}
-
-host: "@kolu/surface-nix-host" {
-  sess: "HostSession"
-  ship: "nix copy .drv → ssh --stdio"
-}
-
-runner: "runner — long-lived, owns the DAG" {
-  serve: "nodes · nodeLog · rerun"
-}
-
-front: "trigger + gate — UNSCOPED" {
-  t: "forge event → pinned SHA"
-  g: "commit-status · per-SHA history"
-}
-
-clients -> wire: "typed, live — TUI · Web · MCP"
-wire -> host: "over ssh stdio"
-host -> runner: "one per platform — fan-in"
-runner -> front: "missing today" {
-  style.stroke-dash: 4
-}
-`}
-/>
-
-justci's own `dump-yaml` is the confession of category: it proves the pipeline *assembly* — a project's `just` DAG (`[metadata("ci")]` root) into a single `process-compose` document — is a **pure function**, fed a SHA placeholder so it runs offline outside a git checkout. The run *is* the process; there is no serve-only mode. ssh is then a **dumb, one-way, per-node pipe**: a `git bundle` (plus a `nix-store` export of the runner derivation) goes *out* to set the node up; each recipe node re-`ssh`'s to `just --no-deps`; and only an **exit code** comes back. Per-recipe stdout is redirected to `.ci/<sha>/<plat>/<recipe>.log` **files**, and the progress feed carries the on-disk *path*, never the bytes — a later consumer reads them off disk.
-
-"Liveness," then, is something justci reconstructs *out of band*. `status` / `monitor` / `logs` are thin passthroughs to a **separate, baked `process-compose` client** dialed at `.ci/pc.sock`; justci's own guard `die`s before it even reaches the socket when no run is in progress. The introspection is a side-channel that only exists *while a batch lives*.
-
-<Callout kind="accent">
-mini-ci moves the **one** load-bearing axis: ssh carries a typed, schema-validated, snapshot-then-delta surface (oRPC stdio). The runner's `nodes` Cell and per-node `nodeLog` Stream are **in-band, over the same surface a client attaches to** — observable whether or not a run is mid-flight, with no second binary and no `pc.sock`. Everything "more" in this note is downstream of that one change.
-</Callout>
-
-## What mini-ci already is
-
-This is what `just run srid1` paints **today** — a live dashboard in your terminal, driven entirely by the runner's `nodes` Cell and the attached node's `nodeLog` Stream over ssh stdio:
+You give mini-ci a pipeline (a DAG of shell commands, JSON today) and a host — your laptop, a build box on your tailnet, anything reachable by ssh that has Nix. The runner materializes on that host and starts owning the pipeline. Here is what `just run srid1` paints today, live in your terminal:
 
 <Terminal title="mini-ci — just run srid1" lines={[
   "$ just run srid1",
@@ -99,64 +50,27 @@ This is what `just run srid1` paints **today** — a live dashboard in your term
   "  [1-3] attach    n/p cycle    r rerun    q quit",
 ]} />
 
-The honest floor: mini-ci is a *proven substrate*, not a product. A long-lived **runner** owns a task DAG — each node a child process with a per-node log buffer — and serves it as a [`@kolu/surface`](https://kolu.dev/blog/surface-framework/) over stdio. The entire tool is **three primitives** (`src/common/surface.ts`):
+What makes this different from watching any CI process print:
 
-| Primitive | Path | What it carries |
-| --- | --- | --- |
-| **Cell** | `surface.nodes.get({})` | The whole pipeline's node-state — snapshot then deltas. ↔ a list view. |
-| **Stream** | `surface.nodeLog.get({ id })` | One node's output: a buffered `snapshot` frame, then `append` deltas (a discriminated union, so a *late* subscriber replays a finished node from the top). ↔ attach. |
-| **Procedure** | `surface.node.rerun({ id })` | The *only* mutation: reset the node + its transitive dependents to pending and reschedule. ↔ input. |
+- **Late attach replays everything.** The protocol is *snapshot-then-delta*: a client's first frame is the complete current state — every node's status, and the full buffered log of any node, even one that finished before you connected — then live updates follow. There are no log files to go find, and no "the run already exited."
+- **Disconnect is free.** Close the laptop, lose wifi, kill the terminal — the runner keeps going. Reconnect re-attaches and the snapshot catches you up. (Honest scope: this is *client*-side resilience; if the runner process itself dies, its state dies with it — see the ledger below.)
+- **Rerun is surgical and live.** `r` resets one failed node plus its transitive dependents and reschedules them on the running DAG — no new pipeline invocation, no re-running what already passed.
+- **The remote story is just ssh + Nix.** No runner daemon to register, no webhook infrastructure, no agent to install. The runner ships as a Nix closure (`nix copy` of a prebuilt derivation), gets realised on the host, and runs over `ssh host mini-ci-runner --stdio`. Your ssh key *is* the connection and the trust model. `localhost` skips the copy — same code path, no transport.
+- **The wire is typed.** What crosses ssh is schema-validated state (Zod end to end), not text for you — or your agent — to parse.
 
-It reaches the host **the drishti way** via [`@kolu/surface-nix-host`](../surface-app.html)'s `HostSession`: `nix copy` the prebuilt runner `.drv` to the host, `nix-store --realise` it, then `ssh host mini-ci-runner --stdio`; `localhost` skips the copy. `HostSession` owns the ref-count, reconnect, and a `copying → connecting → connected` state cell — *the same session for local and remote, only the transport differs.*
+### How that differs from justci
 
-`mini-ci.test.ts` drives the **real** runner surface through the **real** stdio codec (`createLoopbackPair → serveOverStdio → stdioLink`, byte-identical to the ssh path; the runner spawns real child processes — nothing is mocked), so a green run is genuine evidence. It banks:
+justci is the strongest local-CI comparison because it is the tool this proposal would replace, and it is genuinely good at what it is: a **batch translator**. It compiles your `just` recipe DAG into a [process-compose](https://github.com/F1bonacc1/process-compose) document (its own `dump-yaml` proves the translation is a pure function), runs it strictly — clean tree refused, HEAD pinned, GitHub commit-statuses posted per `recipe@platform` — and exits with a verdict. ssh, in that model, is a **dumb one-way pipe**: a `git bundle` goes out to set a remote node up, each recipe re-ssh's to `just --no-deps`, and only an **exit code** comes back. Per-recipe output lands in `.ci/<sha>/<plat>/<recipe>.log` *files*; the progress feed carries the on-disk *path*, never the bytes.
 
-- **Cell snapshot-then-delta** — a late subscriber's first frame is the current state.
-- **Race-free topo order** — across every captured frame, a node runs only once its dependency is `ok`.
-- **Per-node log replay** — a late subscriber to a *finished* node gets its buffered output as the first `snapshot`.
-- **Rerun re-runs the closure** — `node.rerun` resets the node + dependents and they settle `ok` again.
-- **No false greens** — a failed dependency `skip`s its dependents.
+So "watching a justci run" means a side channel: its `status` / `monitor` / `logs` subcommands shell out to a *separate* baked process-compose client dialed at `.ci/pc.sock` — and justci's own guard exits before reaching the socket when no run is in progress. The introspection only exists *while a batch lives*. That is not a justci bug; it is the batch shape. `act` replaying GitHub-Actions YAML in containers, or your own `just`/`make` over ssh, have the same property: observation is welded to the one process invocation that's printing.
 
-<Callout kind="warn" title="Deliberately not justci — today">
-TUI-only (no browser client tree, no `surface-app`); a **singular** `implementSurface` over **one** `HostSession`; a **read-only** `/nix/store` closure, so the default pipeline is **typecheck-only by construction** (`tsc --noEmit` over a real dependency closure); a hand-written `ci.json`; and **client-side** detach/reattach only — runner-side state dies with the runner or its ssh pipe. These are the gaps the rest of this note prices, not hidden costs.
+<Callout kind="accent">
+mini-ci moves exactly one load-bearing axis: **ssh carries a typed, live, snapshot-then-delta surface instead of opaque bytes.** The pipeline state and every node's log are *in-band, on the same connection a client attaches to* — observable whether or not anything is currently running, with no second binary and no socket file. Everything "more" in this note falls out of that one change.
 </Callout>
 
-## The half it doesn't replace — trigger, identity, trust
+## Three faces over one surface
 
-A CI tool is defined at least as much by its *front* half as its execution engine: **what event starts a run, against which immutable commit, and how a verdict reaches a developer who isn't watching.** justci's reason to exist *is* that loop — push → forge event → run pinned to a worktree SHA → commit-status the forge can gate a PR on. mini-ci's verified strengths are all about a developer who is **attached and watching.** The reframe must not overreach into the half it doesn't touch.
-
-- **Trigger.** mini-ci has no webhook / poll / push ingestion and no PR-event story. A live service you *attach* to is orthogonal to the event that *kicks* a run. Liveness answers *how do I watch a run*, not *how does a run begin*.
-- **Run identity & history.** justci is per-SHA by design (`.ci/<sha>/…`, an immutable HEAD pin per commit — an *append-only* ledger of runs over commits). mini-ci owns **one** live, mutable DAG; `node.rerun` overwrites the prior result *in place*. There is no model for *which commit this run is* or *where prior runs went* — a missing **data model**, deeper than durability.
-- **Trust.** `node.rerun` is remote code execution by construction, over a long-lived, attachable surface. justci's batch model has a bounded attack surface (ssh in, run a sealed batch, ssh out). mini-ci has zero authn/authz and no read-observer-vs-mutator split — fine for a TUI over your own ssh, load-bearing the instant a multi-client dashboard is claimed.
-- **Async delivery & concurrent mutation.** justci's deliverable is a status *badge the forge sees with nothing attached*. mini-ci's story is all **pull** — attach and witness. And two clients both calling `node.rerun`, or rerunning a *running* node, has no defined serialization or run ownership. Multi-client is an affordance with a **coordination cost**, not pure upside.
-
-<Callout kind="warn" title="So is it a replacement?">
-It **replaces the watch-a-run half outright** and **does genuinely more** there. On the trigger-and-gate half it is a *plan*, not a replacement — and for canonical "run once on a commit, post a verdict, walk away," justci's strict batch (dirty-tree refusal, immutable worktree SHA, fire-and-forget status) may simply be the *right* shape. The live service **enables a different, additional class** of workflow (interactive, agent-driven, reattachable); it is not strictly superior. The novelty is real **against justci specifically** — a small Haskell batch tool — not against the hosted mainstream (GitHub Actions, Buildkite, Dagger) that already streams logs and reattaches. The durable edge is the *substrate*: a typed, reconnecting, composable surface over **your own ssh**, no hosted runner.
-</Callout>
-
-## The reckoning — parity to reach, and what only a live service has
-
-### Reaching parity — the honest debt
-
-Capability mini-ci must *grow* to stand in for justci. <Pill variant="warn">harder</Pill> = net-new design + code on a proven substrate; <Pill variant="todo">open</Pill> = unbuilt on either side. "The framework *can* do it" is **not** "mini-ci *does* it."
-
-| justci capability | surface-native path | Status |
-| --- | --- | --- |
-| Trigger: push → forge event → run on a pinned SHA | No analog. Needs ingestion + commit-pinning at trigger time. The largest unscoped pillar. | <Pill variant="warn">harder</Pill> |
-| Per-SHA run identity, history, append-only ledger | A run-identity data model; today one mutable DAG, `rerun` overwrites in place. | <Pill variant="warn">harder</Pill> |
-| GitHub commit-statuses `<recipe>@<platform>` + `protect` | A terminal-transition side effect reading the `nodes` Cell + a branch-protection writer. The surface makes state *observable*, not forge integration *free*. | <Pill variant="warn">harder</Pill> |
-| Async verdict delivery (a badge seen with nothing attached) | Net-new notify / webhook-out / badge axis; a live dashboard is additive, not a substitute. | <Pill variant="warn">harder</Pill> |
-| Bounded trust model | authn/authz + a read-observer vs. mutator split on a remotely-mutable surface. | <Pill variant="warn">harder</Pill> |
-| **Real builds** (write-heavy: `vite build`, `nix build`) | A writable scratch workspace (`--workspace` / `MINI_CI_WORKSPACE`) or nix-build-as-task; the read-only `/nix/store` closure is typecheck-only by construction. **The load-bearing execution gap.** Surface contract unchanged — builds are just more nodes. | <Pill variant="warn">harder</Pill> |
-| `just`-DAG ingestion + `dump-yaml` / `graph` | A `just → PipelineSpec` translator; mini-ci reads a hand-written `ci.json` today. | <Pill variant="warn">harder</Pill> |
-| Strict-by-default hygiene (dirty-tree refuse, HEAD pin, per-sha logs) | Net-new for a gating tool; mini-ci runs whatever cwd it's handed. | <Pill variant="warn">harder</Pill> |
-| Durability across observer/process churn | Worse today: runner-side state dies with the pipe. Server-restart survival is the daemon plan's job. | <Pill variant="warn">harder</Pill> |
-| Caching / artifact passing between nodes | nix-build-as-task inherits Nix's cache; otherwise net-new. (justci has roadmap gaps here too.) | <Pill variant="todo">open</Pill> |
-| Per-recipe `[linux]`/`[macos]` filter | A per-node platform predicate in `PipelineSpec`. justci's one admitted README roadmap item (kolu's `ci/mod.just` notes it: a `[linux]`-only step is still scheduled on macOS and fails today). | <Pill variant="todo">open</Pill> |
-
-### Past parity — what falls out of the inverted shape
-
-Affordances justci *structurally cannot* match today — each tied to a specific justci limit, each a *build step* on the proven substrate, not a wish. Here is the payoff made visible — **the same surface wears three faces** (TUI · web · MCP), each a thin client adapter over the *one* `implementSurface` router, only the link differs. First, **in the browser**: the proposed `sakshi` PWA, fanning *N* platform runners **in** to one live view — colour is real-time node status, the panel streams the selected node's log:
+The runner exposes its entire capability as **three typed primitives** — and because that protocol is the *whole* interface, every kind of client is a thin adapter over the same thing. The terminal dashboard above is one face. The second is a browser PWA (proposed, working name `sakshi`), which also answers the multi-platform question: instead of justci fanning *out* one ssh + one log file + one status context per (recipe × platform) pair, runners on N platforms each serve the *same* surface and one dashboard fans them **in**:
 
 export const S = {
   ok: { background: "#e3f4e9", color: "#1b7a3a", border: "1px solid #bce3c8" },
@@ -222,7 +136,7 @@ export const Dashboard = () => {
 
 <Dashboard />
 
-And the same three primitives, **to an agent.** Because the runner already serves the surface over a byte pipe (`serveOverStdio`), an **MCP server is just another serve target** — a thin oRPC→MCP adapter (no `@orpc/mcp` package exists; it's ~one file over the official MCP SDK) that maps `node.rerun` to an MCP *tool*, the `nodes` Cell and `nodeLog` Stream to subscribable *resources* — with `get_nodes` / `tail_log` tool mirrors, since agent CLIs surface tools more reliably than resource subscriptions — and adds a `wait_for_settle` verdict tool. Declare it in any agent CLI over stdio, the same transport the TUI already rides:
+The third face is for **agents**. Because the runner already serves its surface over a byte pipe, an **MCP server is just another serve target** — a thin adapter (~one file over the official MCP SDK) that exposes the same three primitives as MCP tools, so Claude Code, Codex, opencode, or Gemini CLI can drive your CI with structured calls instead of scraping terminal output. Declare it over stdio, the same transport everything else rides:
 
 ```jsonc
 // .mcp.json (proposed) — Claude Code; Codex, opencode & Gemini CLI take the same shape
@@ -255,49 +169,118 @@ And the same three primitives, **to an agent.** Because the runner already serve
   `assistant: Green ✓ — monitor passed in 4.1s. The wire.ts fix cleared it.`,
 ]} />
 
-| mini-ci surface | MCP primitive | |
-| --- | --- | --- |
-| `nodes` Cell (snapshot-then-delta) | `ci://pipeline` **resource** (subscribe → `updated`) + a `get_nodes()` tool mirror | A Cell *is* read-current-then-get-notified — a subscribable resource's exact twin. |
-| `nodeLog` Stream (`{id}`) | `node://{id}/log` **resource template** + a `tail_log({id})` cursor tool | The `{id}`-parameterised Stream maps 1:1 to a URI template; the `MAX_LOG_CHARS` clamp is a natural bounded tail. |
-| `node.rerun` Procedure | `rerun_node({id})` **tool** | oRPC procedures → MCP tools 1:1 (Zod → JSON Schema). Where authz must live — this is RCE. |
-| *(derived for agents)* | `wait_for_settle()` → verdict, `cancel()` **tools** | Collapse the frame-by-frame watch into one `await` — justci's end-of-run exit code, on the *live* DAG, on demand. |
+This is the one place justci has *told us itself* that the batch shape is the obstacle: <Issue n={22} repo="juspay/justci" label="MCP server for ci, done properly" /> is justci's own design note for an agent-controlled MCP mode. It **built one and reverted it** (<PrLink pr={18} repo="juspay/justci" label="reverted in the same PR" />) because, in a batch translator, *launching the MCP server auto-ran every recipe* — process-compose has no serve-only / `--no-start` mode, and its MCP surface is "request/response only, no streaming." A runner that owns the DAG as *idle state* has that separation by construction, and the log stream's snapshot-then-delta is precisely the live event source #22 couldn't get. *(The MCP and PWA faces are designed, not built — and `rerun_node` is remote code execution, so the agent face must land behind the authz boundary in Phase 1 below.)*
 
-This is the **agent-driven CI** the live shape makes natural — and the one thing justci reaches for but its model forecloses: <Issue n={22} repo="juspay/justci" label="MCP server for ci, done properly" /> is justci's *own* design note for an agent-controlled MCP mode; it **built it and reverted it** (<PrLink pr={18} repo="juspay/justci" label="reverted in the same PR" />) because, in a batch translator, *launching the server auto-ran every recipe* — `process-compose` has no serve-only / `--no-start` mode, and its MCP surface is "request/response only, no streaming." A runner that owns the DAG as *idle state* has that separation by construction, and `nodeLog`'s snapshot-then-delta *is* the streaming event source #22 can't get. *(Proposed, not built — the MCP face is a designed third serve target on the same router; and `rerun_node` is RCE, so it must land behind the Phase 1 authz boundary.)*
+## The architecture — three primitives over ssh
+
+<D2
+  caption="The proposed architecture as a single vertical spine. SOLID = shipped in mini-ci today; the DASHED edge marks the trigger-and-gate half this model does not yet address. Clients attach to a typed surface over ssh stdio; the runner is long-lived, owns the DAG, and runs one-per-platform (fanned in)."
+  code={`
+direction: down
+
+clients: "clients — attach / detach / reconnect" {
+  tui: "TUI · shipped"
+  pwa: "PWA dashboard · proposed"
+  mcp: "MCP server · proposed — agent CLIs"
+}
+
+wire: "@kolu/surface — typed wire" {
+  prims: "Cell · Stream · Procedure"
+  link: "stdioLink · retry ∞"
+}
+
+host: "@kolu/surface-nix-host" {
+  sess: "HostSession"
+  ship: "nix copy .drv → ssh --stdio"
+}
+
+runner: "runner — long-lived, owns the DAG" {
+  serve: "nodes · nodeLog · rerun"
+}
+
+front: "trigger + gate — UNSCOPED" {
+  t: "forge event → pinned SHA"
+  g: "commit-status · per-SHA history"
+}
+
+clients -> wire: "typed, live — TUI · Web · MCP"
+wire -> host: "over ssh stdio"
+host -> runner: "one per platform — fan-in"
+runner -> front: "missing today" {
+  style.stroke-dash: 4
+}
+`}
+/>
+
+What's architecturally interesting is how little there is. The entire protocol is three primitives, declared once with [`@kolu/surface`](https://kolu.dev/blog/surface-framework/) (kolu's typed-reactive-state framework — declare a surface, and the contract, server wiring, and client hooks are all derived from the one declaration):
+
+| Primitive | Call | What it carries |
+| --- | --- | --- |
+| **Cell** | `surface.nodes.get({})` | The whole pipeline's state — one snapshot, then deltas as nodes change. |
+| **Stream** | `surface.nodeLog.get({ id })` | One node's output — a buffered snapshot frame first (so late subscribers replay from the top), then appends. A bounded tail (`MAX_LOG_CHARS`) caps memory on both ends. |
+| **Procedure** | `surface.node.rerun({ id })` | The *only* mutation: reset a node + its transitive dependents and reschedule. |
+
+Three properties of the design do most of the work:
+
+- **ssh is the only transport.** The surface multiplexes over stdio — `ssh host mini-ci-runner --stdio` — so there are no ports to open, no TLS to provision, no auth system besides your ssh key. The same discipline MCP servers use (nothing non-protocol on stdout) is already enforced by the serve layer.
+- **Deployment is a Nix closure copy.** The client probes the host's architecture, `nix copy`s the matching prebuilt runner derivation, realises it into the host's store, and runs it. The host needs ssh + Nix and *nothing else* — and the runner version is pinned by construction. (The trade-off is real: the closure is read-only, which is why today's default pipeline is typecheck-only — see the ledger.)
+- **Snapshot-then-delta makes reconnect free.** Every (re)subscription's first frame is a fresh snapshot, and the client retries transport errors indefinitely — so a dropped ssh connection self-heals with no replay log and no session state to lose. The connection lifecycle (`copying → connecting → connected`) is itself a cell the UI renders.
+
+None of this is speculative: the protocol runs through the *real* stdio codec in `mini-ci.test.ts` (loopback pair → serve → link, byte-identical to the ssh path, real child processes). The tests bank: snapshot-then-delta with correct late-subscriber catch-up; race-free topological execution across every captured frame; full log replay for late subscribers to finished nodes; rerun re-running exactly the dependent closure; and a failed dependency skipping its dependents (no false greens). Plus the live end-to-end: `just run localhost --json` typechecks a real three-package dependency closure over a real session.
+
+## The honest ledger — where it beats justci, where it doesn't yet
+
+A CI tool has two halves. The **watch-and-drive half** — see state, read logs, rerun, reconnect — is where the live-service shape wins outright. The **trigger-and-gate half** — a push event starts a run against a pinned commit, and a verdict reaches the forge (and you) with nothing attached — is justci's actual reason to exist, and mini-ci has none of it yet. Both tables below are the same proposal seen from the two sides.
+
+### What only a live service can do
 
 | Live-service affordance | The justci limit it answers | Status |
 | --- | --- | --- |
-| In-band introspection (`nodes` Cell + `nodeLog` Stream) over the attach surface | A *separate* baked `pc` client on `.ci/pc.sock` that `die`s when no run is live | <Pill variant="run">beyond</Pill> |
-| Per-node log replay as a live stream for late subscribers | Stdout scraped to `.ci/<sha>/<plat>/<recipe>.log` files, the feed carrying only the path | <Pill variant="run">beyond</Pill> |
-| Typed `rerun` of a node + its transitive dependents on the **live** DAG (no new process) | `justci run RECIPE@PLATFORM` spins up a brand-new `process-compose` batch | <Pill variant="run">beyond</Pill> |
-| Self-healing reconnect: every `get()` re-yields a fresh snapshot; `STREAM_RETRY.retry = Infinity`; `HostSession` respawns the child | No reattach to an in-flight run (introspection only via the side socket) | <Pill variant="run">beyond</Pill> |
-| Idle attach + selective start (clients attach *before* `start()`) | <Issue n={22} repo="juspay/justci" label="no serve-only mode" /> — `process-compose` has no idle subcommand. Fixable-pending-upstream, not impossible — but not the default shape. | <Pill variant="run">beyond</Pill> |
-| **Three faces over one surface**: the shipped **TUI**, a proposed **PWA** dashboard, and a proposed **MCP server** — each a thin client adapter over the *same* `implementSurface` router, only the link differs | No live dashboard and no agent-drivable API; the only feed is the baked `pc` client | <Pill variant="run">beyond</Pill> |
-| **Agent-driven CI**: `nodes`→`get_nodes`, `nodeLog`→`tail_log`, `rerun`→`rerun_node`, + a `wait_for_settle` verdict — an MCP server is just another serve target, carrying the snapshot-then-delta event source MCP's own request/response surface lacks | <Issue n={22} repo="juspay/justci" label="MCP server for ci" /> — justci *wants* this, **tried + reverted it** (<PrLink pr={18} repo="juspay/justci" />); launch auto-ran every recipe, and `process-compose` has no serve-only mode | <Pill variant="run">beyond</Pill> |
-| Fan-**IN**: N platform runners serving the *same* surface, multiplexed as key-namespaced siblings via `implementSurfaces` | Fan-**OUT**: one ssh + one `.log` + one status context per (recipe × platform) pair, plus a <Issue n={47} repo="juspay/justci" label="sharding" /> aggregator hack | <Pill variant="todo">open</Pill> |
-| Typed `cancel` / `cron` / **mid-run reload** procedures | Sealed at preflight, pinned to a worktree SHA — foreclosed under the translator | <Pill variant="todo">open</Pill> |
-| Concurrent-client mutation semantics (serialization, run ownership) | A non-question under one-run-one-driver — and a **new problem** the live shape *creates*, which it must own | <Pill variant="todo">open</Pill> |
+| In-band introspection (`nodes` Cell + `nodeLog` Stream) on the attach connection | A *separate* baked `pc` client on `.ci/pc.sock` that exits when no run is live | <Pill variant="run">beyond</Pill> |
+| Per-node log replay as a live stream for late subscribers | Stdout scraped to `.ci/<sha>/<plat>/<recipe>.log` files; the feed carries only the path | <Pill variant="run">beyond</Pill> |
+| Typed `rerun` of a node + dependents on the **live** DAG (no new process) | `justci run RECIPE@PLATFORM` spins up a brand-new batch | <Pill variant="run">beyond</Pill> |
+| Self-healing reconnect — fresh snapshot on every resubscribe, infinite retry, session respawn | No reattach to an in-flight run (side-socket introspection only) | <Pill variant="run">beyond</Pill> |
+| Idle attach + selective start — clients connect *before* anything runs | <Issue n={22} repo="juspay/justci" label="MCP server for ci" /> — no serve-only mode in process-compose; justci tried and reverted (<PrLink pr={18} repo="juspay/justci" />) | <Pill variant="run">beyond</Pill> |
+| **Three faces over one surface** — TUI · PWA · MCP, each a thin adapter, only the link differs | No live dashboard and no agent-drivable API | <Pill variant="run">beyond</Pill> |
+| Fan-**in**: N platform runners into one typed dashboard | Fan-**out**: one ssh + log + status context per (recipe × platform), plus a <Issue n={47} repo="juspay/justci" label="sharding" /> aggregator hack | <Pill variant="todo">open</Pill> |
+| Typed `cancel` / `cron` / mid-run reload | Sealed at preflight, pinned to a worktree SHA — foreclosed under the translator | <Pill variant="todo">open</Pill> |
+| Concurrent-client mutation semantics (who may rerun, when) | A non-question under one-run-one-driver — a **new problem** the live shape creates and must own | <Pill variant="todo">open</Pill> |
 
-(Topo-ordered DAG execution with cascade-skip is already at **parity** — proven race-free in `mini-ci.test.ts`.)
+### What it owes before it can replace justci
 
-## Graduating to a standalone repo
+<Pill variant="warn">harder</Pill> = net-new design + code on a proven substrate; <Pill variant="todo">open</Pill> = unbuilt on either side. "The framework *can*" is not "mini-ci *does*."
 
-The delivery vehicle is de-risked by precedent. remote-process-monitor — a full agent/client/common/server browser tree inside kolu — graduated into [srid/drishti](https://github.com/srid/drishti) by adopting `@kolu/surface` + `surface-nix-host` first, then `surface-app` later (<PrLink pr={47} repo="srid/drishti" label="freshness by composition" />). The `@kolu/*` packages are `npins`-pinned by the Nix callers and hydrated by `cp -rL` (not symlinks, for TypeScript's transitive imports); drishti's `KOLU_AGENT_DRV` is the exact analog of mini-ci's `MINI_CI_RUNNER_DRV`. mini-ci's own README already names the path: *"mini-ci could graduate to its own repo the way remote-process-monitor became drishti."*
+| justci capability | What mini-ci needs | Status |
+| --- | --- | --- |
+| **Trigger**: push → forge event → run on a pinned SHA | No analog. A live service answers *how do I watch a run*, not *how does a run begin*. The largest unscoped pillar. | <Pill variant="warn">harder</Pill> |
+| Per-SHA run identity + append-only history (`.ci/<sha>/…`) | A run-identity data model. Today there is **one** mutable DAG and `rerun` overwrites the prior result in place — the opposite of CI's per-commit ledger. | <Pill variant="warn">harder</Pill> |
+| GitHub commit-statuses + branch-protection (`protect`) | A terminal-transition side effect reading the `nodes` Cell, plus a protection writer. Observable state ≠ free forge integration. | <Pill variant="warn">harder</Pill> |
+| Async verdict delivery — a badge the forge sees with *nothing attached* | A notify/webhook-out axis. A live dashboard is additive, not a substitute: CI that requires you attached to learn it failed is a regression. | <Pill variant="warn">harder</Pill> |
+| Bounded trust model (ssh in, sealed batch, ssh out) | authn/authz + a read-observer vs. mutator split. `rerun` is remote code execution over a long-lived attachable surface — fine for a TUI over your own ssh, unacceptable for multi-client faces without a boundary. | <Pill variant="warn">harder</Pill> |
+| **Real builds** (`vite build`, `nix build`) | A writable scratch workspace (or nix-build-as-task). The shipped-closure model is read-only, so today's pipeline is typecheck-only by construction. **The load-bearing execution gap** — though the surface contract doesn't change: builds are just more nodes. | <Pill variant="warn">harder</Pill> |
+| `just`-DAG ingestion + `dump-yaml` / `graph` | A `just → PipelineSpec` translator; today the pipeline is hand-written JSON. | <Pill variant="warn">harder</Pill> |
+| Strict-by-default hygiene (dirty-tree refusal, HEAD pin, per-SHA logs) | Net-new for a gating tool; mini-ci runs whatever working directory it's handed. | <Pill variant="warn">harder</Pill> |
+| Durability across runner death | Genuinely **worse** today: justci's on-disk logs survive anything; mini-ci's runner state dies with its process. Reconnect heals the *client*, not the server. | <Pill variant="warn">harder</Pill> |
+| Caching / artifacts between nodes | nix-build-as-task inherits Nix's cache; otherwise net-new. (justci has gaps here too.) | <Pill variant="todo">open</Pill> |
+| Per-recipe `[linux]`/`[macos]` filter | A per-node platform predicate — justci's own admitted roadmap item, inherited as a requirement. | <Pill variant="todo">open</Pill> |
 
-**License is determined, not chosen.** `surface` and `surface-nix-host` are MIT, but `surface-app` (needed for the PWA dashboard) is **AGPL-3.0-or-later** — already mini-ci's `package.json` license, so adoption forces nothing new.
+<Callout kind="warn" title="So is it a replacement?">
+On the watch-and-drive half — **yes, outright, and it does more there than justci can**. On the trigger-and-gate half it is a *costed plan*, not a replacement — and for "run once on a commit, post a verdict, walk away," justci's strict batch may simply be the right shape. The live service enables a different, additional class of workflow: interactive, reattachable, agent-driven. The novelty claim is against *local* CI tools like justci, not against hosted CI (GitHub Actions, Buildkite, Dagger stream logs too) — the durable edge is the substrate: a typed, reconnecting, composable surface over **your own ssh**, with no hosted runner and nothing to install on the remote but Nix.
+</Callout>
 
-**It clears the [electricity](../electricity.html) bar.** The ①②③ test — domain-agnostic / hides hard volatility / graduates with a different consumer — is already met by the wire/ssh stack: `electricity.mdx` lists `@kolu/surface`, `surface-nix-host`, and `surface-app` as electricities with **drishti** as the proof-of-③ second consumer. What graduates here is the **product** (mini-ci → its own repo), *riding receptacles that already graduated.* The two-way street: reusable shell concerns (strict hygiene, the trigger model, run identity) extracted from the new repo harden kolu's libraries back.
+## Shipping it — graduation, name, roadmap
 
-**Naming** <Pill variant="todo">open</Pill> — srid's *product* line follows a single Sanskrit perception-word (drishti = दृष्टि, "sight"), not his descriptive-English library names (`omnix`, `nixci`). The thesis is *witnessing a live build*, so:
+The delivery path is proven, not hypothetical. remote-process-monitor — another example app in the kolu repo — graduated into the standalone [srid/drishti](https://github.com/srid/drishti) by consuming the same packages this runner is built on (`@kolu/surface`, `surface-nix-host`, and later `surface-app` via <PrLink pr={47} repo="srid/drishti" label="freshness by composition" />), pinned via `npins` and hydrated by `cp -rL`. mini-ci's own README already names the path: *"mini-ci could graduate to its own repo the way remote-process-monitor became drishti."* The license is determined by composition — `surface-app` (needed for the PWA) is AGPL-3.0-or-later, which is already mini-ci's license — and the [electricity](../electricity.html) bar (domain-agnostic / hides hard volatility / has a second consumer) is already cleared by the underlying packages, with drishti as the proof. What graduates is the *product*, riding infrastructure that already graduated; reusable concerns grown in the new repo (strict hygiene, the trigger model, run identity) flow back to harden the libraries.
 
-- **sakshi** (साक्षी, "witness / the one who observes") — strongest fit; "sakshi watched the build" reads naturally; parallel in shape to drishti.
-- **prahari** (प्रहरी, "sentinel / one who keeps watch") — matches the long-lived-runner / ephemeral-clients model precisely.
-- **netra** (नेत्र, "eye") — shortest, a direct sibling to drishti's "sight."
+**Naming** <Pill variant="todo">open</Pill> — the product line follows a single Sanskrit perception-word (drishti = दृष्टि, "sight"). This tool's thesis is *witnessing a live build*:
 
-Lead with **sakshi**; the choice is srid's. (A witness-name slightly undersells the eventual *gatekeeper* scope once the trigger half lands — acceptable, since live witnessing is the differentiator.)
+- **sakshi** (साक्षी, "witness") — strongest fit; "sakshi watched the build" reads naturally.
+- **prahari** (प्रहरी, "sentinel") — matches the long-lived-runner / ephemeral-clients model.
+- **netra** (नेत्र, "eye") — shortest; a direct sibling to drishti.
 
 <Roadmap>
-  <Milestone status="done" label="Phase 0 · the falsifiability test">Shipped: a long-lived runner owns the DAG and serves `nodes` Cell + `nodeLog` Stream + `node.rerun` over the real stdio transport. `mini-ci.test.ts` banks snapshot-then-delta, race-free topo order, late-subscriber log replay, rerun-the-closure, and no-false-greens; live e2e `just run localhost --json` typechecks a real closure over ssh stdio. TUI-only, singular `implementSurface`, read-only closure ⇒ typecheck-only.</Milestone>
-  <Milestone status="next" label="Phase 1 · parity">Pay the debits across **both** halves. Execution: writable-workspace builds, a `just → PipelineSpec` translator + `dump-yaml`/`graph`, strict-by-default hygiene. Front half: a trigger model pinned to an immutable SHA, per-SHA run identity/history, GitHub commit-statuses + a `protect` equivalent, and a minimal authz boundary on `node.rerun`.</Milestone>
-  <Milestone status="next" label="Phase 2 · beyond">The live-service affordances: light the `surface-app` PWA dashboard **and the MCP server face — three faces over one surface (TUI · web · MCP)**, the MCP face a thin oRPC→MCP adapter behind the Phase 1 authz boundary (since `rerun_node` is RCE); wire the plural layer for multi-platform fan-**in** with defined concurrent-mutation/run-ownership semantics; idle-attach + selective start; typed `cancel`/`cron`/`reload`; per-recipe platform filter; async result delivery. Price the idle-runner lifecycle against kolu's own warm pu-box pool (flock-leased per run).</Milestone>
-  <Milestone status="next" label="Phase 3 · graduation">Graduate exactly as remote-process-monitor became drishti: `npins`-pin `@kolu/*` + hydrate by `cp -rL`, thread `MINI_CI_RUNNER_DRV`, adopt `surface-app`, ship a drishti-style flake / justfile / home-manager service. Extract reusable concerns back into the kolu libraries. Pick the name.</Milestone>
+  <Milestone status="done" label="Phase 0 · the proven substrate">Shipped: a long-lived runner owns the DAG and serves `nodes` + `nodeLog` + `rerun` over the real stdio transport; tests bank snapshot-then-delta, race-free topo order, late-subscriber log replay, rerun-the-closure, and no-false-greens; live e2e over a real ssh session. TUI-only, single host, read-only closure ⇒ typecheck-only.</Milestone>
+  <Milestone status="next" label="Phase 1 · parity">Pay the debits on both halves. Execution: writable-workspace builds, a `just → PipelineSpec` translator + `dump-yaml`/`graph`, strict-by-default hygiene. Front half: a trigger model pinned to an immutable SHA, per-SHA run identity/history, commit-statuses + a `protect` equivalent, and a minimal authz boundary on `rerun`.</Milestone>
+  <Milestone status="next" label="Phase 2 · beyond">Light the PWA dashboard **and the MCP server face — three faces over one surface**, the MCP face a thin oRPC→MCP adapter behind the Phase 1 authz boundary; multi-platform fan-**in** with defined concurrent-mutation semantics; idle-attach + selective start; typed `cancel`/`cron`/`reload`; per-node platform filter; async verdict delivery. Price the idle-runner lifecycle against kolu's warm pu-box pool (flock-leased per run).</Milestone>
+  <Milestone status="next" label="Phase 3 · graduation">A standalone repo, the drishti way: `npins`-pin the `@kolu/*` packages, thread the runner derivation, adopt `surface-app`, ship a flake / justfile / home-manager service. Extract reusable concerns back into the libraries. Pick the name.</Milestone>
 </Roadmap>
