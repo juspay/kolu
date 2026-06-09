@@ -57,7 +57,11 @@ shell, and the source arrives by `git fetch` of the pushed SHA.
 
 ## Install / run
 
-odu currently lives in the [kolu](https://github.com/juspay/kolu) monorepo:
+odu's standalone home is [juspay/odu](https://github.com/juspay/odu)
+(graduation begun in [juspay/odu#1](https://github.com/juspay/odu/pull/1),
+which consumes this tree's `@kolu/*` libraries via an npins pin — the
+[drishti](https://github.com/srid/drishti) pattern). This in-kolu copy is
+the development home and what kolu's own CI runs:
 
 ```sh
 nix run github:juspay/kolu#odu -- run --no-strict     # from anywhere
