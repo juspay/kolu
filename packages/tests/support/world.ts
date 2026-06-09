@@ -120,6 +120,10 @@ export class KoluWorld extends World {
    *  moves an existing one. */
   recordedTilePositions?: Record<string, { left: number; top: number }>;
   _scrollFifo?: string;
+  /** The popup page captured when an external link inside the sandboxed
+   *  HTML preview is clicked — the in-iframe SDK forwards the URL to the
+   *  parent, which opens it in a new browser tab (a fresh context page). */
+  externalPopup?: Page;
   createdTerminalIds: string[] = [];
   shuffleHistory: string[] = [];
 

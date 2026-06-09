@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { observeIframeHistory, observeIframeNavigation } from "./bridge";
+import {
+  observeIframeHistory,
+  observeIframeNavigation,
+  observeIframeOpenExternal,
+} from "./bridge";
 
 /** `observeIframeNavigation` reads only `window.addEventListener("message")`,
  *  `event.source`, and `event.data`. The artifact-sdk package runs its unit
@@ -140,5 +144,79 @@ describe("observeIframeHistory", () => {
       direction: "sideways",
     });
     expect(onHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe("observeIframeOpenExternal", () => {
+  let restore: (() => void) | null = null;
+  afterEach(() => {
+    restore?.();
+    restore = null;
+  });
+
+  it("fires onOpenExternal for an http(s) url from the iframe", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onOpenExternal = vi.fn();
+    observeIframeOpenExternal(fake.iframe, onOpenExternal);
+    fake.post(fake.iframe.contentWindow, {
+      type: "kolu-artifact-sdk:open-external",
+      url: "https://example.com/docs",
+    });
+    fake.post(fake.iframe.contentWindow, {
+      type: "kolu-artifact-sdk:open-external",
+      url: "http://example.org/",
+    });
+    expect(onOpenExternal.mock.calls).toEqual([
+      ["https://example.com/docs"],
+      ["http://example.org/"],
+    ]);
+  });
+
+  it("ignores messages from a different source", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onOpenExternal = vi.fn();
+    observeIframeOpenExternal(fake.iframe, onOpenExternal);
+    fake.post(
+      {},
+      { type: "kolu-artifact-sdk:open-external", url: "https://evil.test/" },
+    );
+    expect(onOpenExternal).not.toHaveBeenCalled();
+  });
+
+  // The parent never hands `window.open` a scheme that would execute in its own
+  // trusted origin — `postMessage` is reachable by any in-frame script.
+  it("drops a non-http(s) scheme (javascript:, data:, mailto:)", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onOpenExternal = vi.fn();
+    observeIframeOpenExternal(fake.iframe, onOpenExternal);
+    for (const url of [
+      "javascript:window.__xss=1",
+      "data:text/html,<script>1</script>",
+      "mailto:a@b.test",
+    ]) {
+      fake.post(fake.iframe.contentWindow, {
+        type: "kolu-artifact-sdk:open-external",
+        url,
+      });
+    }
+    expect(onOpenExternal).not.toHaveBeenCalled();
+  });
+
+  it("drops a message with a missing or non-string url", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onOpenExternal = vi.fn();
+    observeIframeOpenExternal(fake.iframe, onOpenExternal);
+    fake.post(fake.iframe.contentWindow, {
+      type: "kolu-artifact-sdk:open-external",
+    });
+    fake.post(fake.iframe.contentWindow, {
+      type: "kolu-artifact-sdk:open-external",
+      url: 42,
+    });
+    expect(onOpenExternal).not.toHaveBeenCalled();
   });
 });

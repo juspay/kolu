@@ -983,6 +983,29 @@ const CodeTab: Component<{
                           onHistory={(direction) =>
                             direction === "back" ? goBack() : goForward()
                           }
+                          // An external link in the sandboxed preview can't open
+                          // a tab itself (no `allow-popups`); the in-iframe SDK
+                          // forwards the http(s) URL and we open it in a real
+                          // browser tab with `noopener,noreferrer` (severs the
+                          // opener — the new tab can't script back into kolu).
+                          //
+                          // Trust boundary: `open-external` is an unauthenticated
+                          // postMessage. The previewed HTML runs arbitrary scripts
+                          // under the opaque origin, so any of them — not just the
+                          // SDK's click trap — can post this message. We therefore
+                          // treat it as exactly that: a request from untrusted
+                          // in-frame content to open an http(s) foreground tab.
+                          // That's an accepted capability, not an escalation: a
+                          // sandboxed script can already `location =` itself to any
+                          // URL and `fetch` outbound, so a `noopener,noreferrer`
+                          // tab to an http(s) URL grants nothing it couldn't reach,
+                          // only a more visible surface. The scheme is re-validated
+                          // in `observeIframeOpenExternal` so `javascript:`/`data:`
+                          // (which would run in kolu's own origin) can never reach
+                          // `window.open`.
+                          onOpenExternal={(url) =>
+                            window.open(url, "_blank", "noopener,noreferrer")
+                          }
                         />
                       );
                     })()}
