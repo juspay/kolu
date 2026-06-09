@@ -68,9 +68,11 @@ const rendered = await Promise.all(
     </p>
   </section>
 
-  <section class="mx-auto max-w-3xl px-6 pb-24">
+  {/* Wider than the intro: the entry rows are a 3-column table (title |
+      tags | PR) and need the room to keep titles on one line. */}
+  <section class="mx-auto max-w-4xl px-6 pb-24">
     {/* Unreleased — always shown; empty when you're on the latest tag. */}
-    <article class="border-t border-rule py-10 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
+    <article class="border-t border-rule py-7 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
       <div class="md:text-right">
         <a
           href="#unreleased"
@@ -114,7 +116,7 @@ const rendered = await Promise.all(
       rendered.map(({ version, date, Body }) => {
         const anchor = `v${version.replace(/\./g, "-")}`;
         return (
-          <article class="border-t border-rule py-10 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
+          <article class="border-t border-rule py-7 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
             <div class="md:text-right">
               <a
                 href={`#${anchor}`}
@@ -146,6 +148,20 @@ const rendered = await Promise.all(
       })
     }
   </section>
+
+  {/* Tag-filter indicator: hidden until a tag chip is clicked, then floats
+      bottom-center naming the active tag; click (or Esc) shows everything
+      again. Wired up by the filter script below. */}
+  <button
+    id="cl-filter-clear"
+    class="cl-filter-clear mono"
+    type="button"
+    title="Show all entries (Esc)"
+    hidden
+  >
+    filtering: <span class="cl-filter-tag" id="cl-filter-tag"></span>
+    <span aria-hidden="true">✕</span>
+  </button>
 </BaseLayout>
 
 <style>
@@ -153,4 +169,109 @@ const rendered = await Promise.all(
   .version-link {
     text-decoration: none;
   }
+
+  /* Floating "filtering: <tag> ✕" pill — the always-visible way out of a tag
+     filter, whatever scroll position the chip was clicked at. */
+  .cl-filter-clear {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5em;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-dim);
+    background: var(--color-void-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: 9999px;
+    padding: 0.5em 1.1em;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .cl-filter-clear:hover {
+    color: var(--color-ink);
+    border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
+  }
+  .cl-filter-tag {
+    color: var(--color-amber);
+  }
 </style>
+
+<script>
+  // Tag filtering: click a tag chip anywhere to show only entries carrying
+  // that tag, across every release. Click it again (or press Escape) to
+  // clear. Sections and releases left with no visible entries hide too —
+  // including untagged prose bullets (e.g. v1.0.0's), which match no tag.
+  // `style.display` rather than `hidden`: utility classes (`.grid`, flex on
+  // `.prose-changelog ul`) would override the UA's `[hidden]` rule.
+  const chips = [
+    ...document.querySelectorAll<HTMLButtonElement>(".cl-change-tag"),
+  ];
+  let active: string | null = null;
+
+  const clearBtn = document.getElementById("cl-filter-clear")!;
+  const clearTag = document.getElementById("cl-filter-tag")!;
+
+  const apply = () => {
+    clearBtn.hidden = !active;
+    clearTag.textContent = active;
+    for (const chip of chips)
+      chip.dataset.active = String(chip.dataset.tag === active);
+    for (const li of document.querySelectorAll<HTMLElement>(
+      ".prose-changelog li",
+    )) {
+      const tags =
+        li.querySelector<HTMLElement>(".cl-change")?.dataset.tags?.split("|") ??
+        [];
+      li.style.display = !active || tags.includes(active) ? "" : "none";
+    }
+    // Collapse emptied structure bottom-up: ul → its section h3 → the release.
+    for (const ul of document.querySelectorAll<HTMLElement>(
+      ".prose-changelog ul",
+    )) {
+      const empty = ![...ul.children].some(
+        (li) => (li as HTMLElement).style.display !== "none",
+      );
+      ul.style.display = empty ? "none" : "";
+      const h3 = ul.previousElementSibling;
+      if (h3 instanceof HTMLElement && h3.tagName === "H3")
+        h3.style.display = empty ? "none" : "";
+    }
+    for (const article of document.querySelectorAll<HTMLElement>(
+      "section > article",
+    )) {
+      const lis = article.querySelectorAll<HTMLElement>(".prose-changelog li");
+      const empty =
+        !!active &&
+        lis.length > 0 &&
+        ![...lis].some((li) => li.style.display !== "none");
+      article.style.display = empty ? "none" : "";
+    }
+  };
+
+  for (const chip of chips)
+    chip.addEventListener("click", (e) => {
+      e.stopPropagation(); // don't toggle the row open/closed on touch
+      active = active === chip.dataset.tag ? null : (chip.dataset.tag ?? null);
+      apply();
+    });
+
+  clearBtn.addEventListener("click", () => {
+    active = null;
+    apply();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && active) {
+      active = null;
+      apply();
+    }
+  });
+</script>
