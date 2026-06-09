@@ -10,16 +10,14 @@ import {
   clampLog,
   type NodeState,
   type PipelineState,
+  STATUS_META,
 } from "../common/surface";
 
-export const STATUS_GLYPH: Record<NodeState["status"], string> = {
-  pending: "◦",
-  running: "▶",
-  ok: "✔",
-  failed: "✗",
-  skipped: "⊘",
-  errored: "⚠",
-};
+/** The TUI glyph per status — read off the single status projection. */
+export const STATUS_GLYPH: Record<NodeState["status"], string> =
+  Object.fromEntries(
+    Object.entries(STATUS_META).map(([status, meta]) => [status, meta.glyph]),
+  ) as Record<NodeState["status"], string>;
 
 export interface PipelineSummary {
   total: number;

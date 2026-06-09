@@ -39,9 +39,10 @@ import {
   clampLog,
   type NodeLogMessage,
   type NodeState,
-  type NodeStatus,
   oduSurface,
   type PipelineState,
+  type ProgressStatus,
+  STATUS_META,
 } from "../common/surface";
 import { laneTasks, loadJustPipeline, parseSelector } from "../just/ingest";
 import { loadHosts, resolveLanes } from "./hosts";
@@ -73,19 +74,10 @@ interface ProgressEvent {
   node: string;
   recipe: string;
   platform: string;
-  status: "running" | "success" | "failed" | "skipped" | "errored";
+  status: ProgressStatus;
   exit_code?: number;
   log: string;
 }
-
-const PROGRESS_STATUS: Record<NodeStatus, ProgressEvent["status"] | null> = {
-  pending: null,
-  running: "running",
-  ok: "success",
-  failed: "failed",
-  skipped: "skipped",
-  errored: "errored",
-};
 
 function git(repo: string, args: string[]): string {
   const result = spawnSync("git", args, { cwd: repo, encoding: "utf-8" });
@@ -337,7 +329,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
 
   // ── observers: progress stream + commit statuses, diffed per transition ──
   const emitProgress = (id: string, node: NodeState): void => {
-    const status = PROGRESS_STATUS[node.status];
+    const status = STATUS_META[node.status].progress;
     if (status === null) return;
     const { namepath, platform } = splitFanId(id);
     const event: ProgressEvent = {
@@ -529,6 +521,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   // ── verdict ──
   const finalState = store.get();
   const counts = { ok: 0, failed: 0, errored: 0, skipped: 0 };
+  let red = 0;
   const lines: string[] = ["── ci run summary ──"];
   for (const id of finalState.order) {
     const node = finalState.nodes[id];
@@ -537,8 +530,8 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     else if (node.status === "failed") counts.failed += 1;
     else if (node.status === "errored") counts.errored += 1;
     else if (node.status === "skipped") counts.skipped += 1;
-    const glyph =
-      node.status === "ok" ? "✔" : node.status === "skipped" ? "⊘" : "✗";
+    if (STATUS_META[node.status].isRed) red += 1;
+    const glyph = STATUS_META[node.status].glyph;
     const dur =
       node.durationMs !== null ? ` ${formatGoDuration(node.durationMs)}` : "";
     const logRef =
@@ -547,7 +540,6 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
         : "";
     lines.push(`  ${glyph} ${id.padEnd(44)} ${node.status}${dur}${logRef}`);
   }
-  const red = counts.failed + counts.errored;
   lines.push(
     `${counts.ok} ok · ${counts.failed} failed · ${counts.errored} errored · ${counts.skipped} skipped — ${
       red > 0 ? "FAILED" : "OK"

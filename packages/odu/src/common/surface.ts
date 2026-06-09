@@ -37,6 +37,42 @@ export const NodeStatusSchema = z.enum([
 ]);
 export type NodeStatus = z.infer<typeof NodeStatusSchema>;
 
+/** GitHub commit-status state (the `state` field of the statuses API). */
+export type GithubState = "pending" | "success" | "failure" | "error";
+
+/** `--progress json` status — the external wording for a node transition. */
+export type ProgressStatus =
+  | "running"
+  | "success"
+  | "failed"
+  | "skipped"
+  | "errored";
+
+/** The single projection of a `NodeStatus` onto its external-facing
+ *  representations: TUI glyph, GitHub state, `--progress json` status, and
+ *  whether the status counts as "red" in the verdict. `github`/`progress` of
+ *  `null` mean "post/emit nothing" for that status. Adding a `NodeStatus` is a
+ *  single edit here that the compiler enforces across every consumer
+ *  (render's glyph table, run's progress + verdict, statuses' state). The
+ *  byte-parity wording (justci's `Running:`/`Succeeded`/… descriptions) stays
+ *  with the poster — it encodes a different volatility. */
+export const STATUS_META: Record<
+  NodeStatus,
+  {
+    glyph: string;
+    github: GithubState | null;
+    progress: ProgressStatus | null;
+    isRed: boolean;
+  }
+> = {
+  pending: { glyph: "◦", github: null, progress: null, isRed: false },
+  running: { glyph: "▶", github: "pending", progress: "running", isRed: false },
+  ok: { glyph: "✔", github: "success", progress: "success", isRed: false },
+  failed: { glyph: "✗", github: "failure", progress: "failed", isRed: true },
+  skipped: { glyph: "⊘", github: null, progress: "skipped", isRed: false },
+  errored: { glyph: "⚠", github: "error", progress: "errored", isRed: true },
+};
+
 export const NodeStateSchema = z.object({
   id: TaskIdSchema,
   name: z.string(),

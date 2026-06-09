@@ -22,9 +22,13 @@
 import { spawn } from "node:child_process";
 import { formatGoDuration } from "../common/duration";
 import { splitFanId } from "../common/nodeId";
-import type { NodeStatus } from "../common/surface";
+import {
+  type GithubState,
+  type NodeStatus,
+  STATUS_META,
+} from "../common/surface";
 
-export type GithubState = "pending" | "success" | "failure" | "error";
+export type { GithubState };
 
 /** `ci::e2e@x86_64-linux` → `.ci/<sha7>/x86_64-linux/ci::e2e.log` */
 export function logPathFor(sha7: string, nodeId: string): string {
@@ -47,37 +51,21 @@ export function statusFor(
   durationMs: number | null,
   sha7: string,
 ): StatusPayload | null {
+  // The state + the post/no-post decision come from the shared projection;
+  // only the justci wording (with duration) is assembled locally.
+  const state = STATUS_META[status].github;
+  if (state === null) return null;
   const log = logPathFor(sha7, nodeId);
   const dur = formatGoDuration(durationMs ?? 0);
-  switch (status) {
-    case "running":
-      return {
-        state: "pending",
-        context: nodeId,
-        description: `Running: ${log}`,
-      };
-    case "ok":
-      return {
-        state: "success",
-        context: nodeId,
-        description: `Succeeded (${dur}): ${log}`,
-      };
-    case "failed":
-      return {
-        state: "failure",
-        context: nodeId,
-        description: `Failed (${dur}): ${log}`,
-      };
-    case "errored":
-      return {
-        state: "error",
-        context: nodeId,
-        description: `Errored (${dur}): ${log}`,
-      };
-    case "pending":
-    case "skipped":
-      return null;
-  }
+  const description =
+    status === "running"
+      ? `Running: ${log}`
+      : status === "ok"
+        ? `Succeeded (${dur}): ${log}`
+        : status === "failed"
+          ? `Failed (${dur}): ${log}`
+          : `Errored (${dur}): ${log}`;
+  return { state, context: nodeId, description };
 }
 
 export interface StatusPosterOptions {
