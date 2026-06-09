@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
 import {
+  ACTIVE_TERMINAL,
   readBufferText,
   readPerTerminal,
   waitForBufferContains,
@@ -311,13 +312,11 @@ async function readAllFontSizes(
  *  tile — the active one in canvas, the visible one in mobile). The inner
  *  terminal container carries data-focused alongside data-terminal-id. */
 async function readFocusedTerminalId(world: KoluWorld): Promise<string | null> {
-  return world.page.evaluate(() => {
-    const focused = document.querySelectorAll(
-      "[data-terminal-id][data-font-size][data-focused]",
-    );
+  return world.page.evaluate((sel) => {
+    const focused = document.querySelectorAll(sel);
     if (focused.length !== 1) return null;
     return focused[0]?.getAttribute("data-terminal-id") ?? null;
-  });
+  }, ACTIVE_TERMINAL);
 }
 
 Given(
