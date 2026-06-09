@@ -262,6 +262,10 @@ async function main(): Promise<void> {
 
   try {
     await assertCompatible(conn);
+    // All three known commands are named explicitly; cleye exits on any
+    // unrecognised command before we get here, so the else branch is
+    // unreachable today — but naming it explicitly prevents a Phase 3
+    // addition (spawn) from silently falling through to cmdAttach.
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
     else if (argv.command === "snapshot") await cmdSnapshot(conn, argv._.id);
     else await cmdAttach(conn, argv._.id, argv.flags.escape);
