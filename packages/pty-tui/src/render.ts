@@ -3,6 +3,7 @@
  * formatting is unit-testable without a socket or a tty. `main.ts` is the thin
  * glue that fetches over the contract and prints these.
  */
+import { basename } from "node:path";
 import type { PtyHostListEntry } from "@kolu/pty-host";
 
 /** Compact relative age of `ms` (an epoch from `lastActivity`) against `now`,
@@ -19,9 +20,9 @@ export function relativeTime(ms: number, now: number): string {
 
 /** Last path segment of a process path — `/run/…/bin/bash` → `bash`. Empty in,
  *  empty out (the caller falls through to the next field). */
-export function commandName(process: string | undefined): string {
-  if (process === undefined || process === "") return "";
-  return process.split("/").pop() ?? process;
+export function commandName(processPath: string | undefined): string {
+  if (processPath === undefined || processPath === "") return "";
+  return basename(processPath);
 }
 
 /** Strip terminal-hostile bytes from a human-table cell. OSC titles and OSC 7

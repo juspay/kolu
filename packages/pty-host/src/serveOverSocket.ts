@@ -72,12 +72,15 @@ type SocketProbe =
    *  don't know what's there, so we refuse to delete and degrade to a no-op. */
   | { kind: "unknown"; code?: string };
 
+/** ECONNREFUSED (dead socket inode) and ENOENT (nothing there) are the only
+ *  two errors that mean "safe to bind here" — everything else is unknown. */
+const FREE_TO_BIND = new Set(["ECONNREFUSED", "ENOENT"]);
+
 /** Probe `path` for a live peer. ECONNREFUSED (a socket inode nobody is
  *  `accept()`ing) and ENOENT (nothing there at all) are the two "free to bind"
  *  signals; every other error is reported as `unknown` so the caller never
  *  deletes a path it could not actually prove dead. */
 function probeSocket(path: string): Promise<SocketProbe> {
-  const free = new Set(["ECONNREFUSED", "ENOENT"]);
   return new Promise((resolve) => {
     const probe = createConnection(path);
     const settle = (result: SocketProbe): void => {
@@ -88,7 +91,7 @@ function probeSocket(path: string): Promise<SocketProbe> {
     probe.once("error", (err) => {
       const code = (err as NodeJS.ErrnoException).code;
       settle(
-        code !== undefined && free.has(code)
+        code !== undefined && FREE_TO_BIND.has(code)
           ? { kind: "stale" }
           : { kind: "unknown", code },
       );

@@ -71,11 +71,21 @@ function parse(argv: string[]): Args {
 }
 
 /** Backpressure-aware stdout write — a large scrollback to a pipe must drain
- *  before we exit, or the tail is truncated. */
+ *  before we exit, or the tail is truncated. EPIPE (e.g. `kolu-tui list | head
+ *  -1`) is treated as "done" rather than an error so the process exits cleanly. */
 function writeOut(text: string): Promise<void> {
   return new Promise((resolve) => {
-    if (process.stdout.write(text)) resolve();
-    else process.stdout.once("drain", resolve);
+    // Register error handler BEFORE write() so a sync EPIPE doesn't go unhandled.
+    process.stdout.once("error", resolve);
+    if (process.stdout.write(text)) {
+      process.stdout.removeListener("error", resolve);
+      resolve();
+    } else {
+      process.stdout.once("drain", () => {
+        process.stdout.removeListener("error", resolve);
+        resolve();
+      });
+    }
   });
 }
 
@@ -116,9 +126,9 @@ async function cmdSnapshot(conn: Connection, id: string): Promise<void> {
 async function assertCompatible(conn: Connection): Promise<void> {
   const { contractVersion } = await conn.client.surface.system
     .version({})
-    .catch(() => {
+    .catch((err: Error) => {
       throw new Error(
-        "could not read the server's pty-host version — is it a kolu-server new enough to expose `system.version`? Try restarting it.",
+        `could not read the server's pty-host version (${err.message}) — is it a kolu-server new enough to expose \`system.version\`? Try restarting it.`,
       );
     });
   if (
