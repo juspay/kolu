@@ -8,18 +8,28 @@
  * `onData`), or the user's real terminal when `kolu-tui attach` passes the PTY
  * bytes through raw — and those duplicate answers, arriving late over the
  * wire, get echoed back into the PTY and printed as visible garbage (the
- * yazi/TUI escape-soup bug). Both clients run their input through this one
- * predicate, so the suppressed set can never drift between them.
+ * yazi/TUI escape-soup bug). Both clients suppress the SAME response classes —
+ * the three grammars below — so the suppressed set can never drift between
+ * them; they differ only in how they slice the input.
  *
- * The input event fires once per discrete source event (xterm's `onData`; a
- * raw tty read returning one terminal-generated reply per kernel write): a
- * single keystroke, a single paste, or a single response packet. A real
- * keystroke and a
- * query response are therefore never coalesced into one chunk, so suppressing a
- * whole chunk that *is* a response cannot eat real input. To stay safe against
- * any future coalescing we still anchor every predicate to the full payload
- * (`^…$`) rather than matching a substring — a chunk that merely *contains* a
- * response-shaped sequence is left untouched and forwarded to the PTY.
+ * Two entry points, for two stream shapes:
+ *
+ *   - `isTerminalQueryResponse` — a whole-payload predicate, for callers that
+ *     already get one discrete source event per call. xterm's `onData` is
+ *     exactly that: it fires once per terminal-generated event (a keystroke, a
+ *     paste, a single reply packet), so a real keystroke and a reply are never
+ *     coalesced and dropping a chunk that *is* a reply cannot eat real input.
+ *     The grammars are still anchored to the full payload (`^…$`), so a chunk
+ *     that merely *contains* a response shape is forwarded untouched.
+ *
+ *   - `createTerminalResponseStripper` — a streaming, boundary-aware filter,
+ *     for the raw-tty path (`kolu-tui attach`). A raw tty read gives NO
+ *     one-event-per-read guarantee: the kernel/libuv and the line discipline
+ *     can split one reply across reads, coalesce several, or glue a reply to a
+ *     keystroke. The whole-payload predicate would forward duplicates (or eat
+ *     input) on those chunks, so the stripper isolates each VT sequence at its
+ *     boundary, tests JUST that sequence, and drops only the matches — see its
+ *     own doc comment below.
  *
  * INVARIANT (client-suppressed ⇒ server-answered): every sequence class this
  * module suppresses MUST be answered by the headless server, or a TUI that
@@ -78,4 +88,145 @@ export function isTerminalQueryResponse(data: string): boolean {
     OSC_COLOUR_RESPONSE.test(data) ||
     DCS_RESPONSE.test(data)
   );
+}
+
+/**
+ * The STREAMING form of the predicate, for the raw-tty path.
+ *
+ * `isTerminalQueryResponse` is a whole-payload predicate: it is correct only
+ * when the caller already has one discrete source event per call (xterm's
+ * `onData`). A raw tty read gives no such guarantee — Node/libuv and the line
+ * discipline can split one reply across two reads, coalesce several replies
+ * into one read, or sit a reply right up against a real keystroke. Feeding such
+ * a chunk to the whole-payload predicate either forwards a duplicate reply (the
+ * yazi escape-soup bug this whole module exists to kill) or, worse, drops real
+ * input that happened to be glued to a reply.
+ *
+ * The stripper instead works at the escape-sequence boundary. It walks the byte
+ * stream, isolating each complete VT control sequence (CSI / OSC / DCS — the
+ * only shapes a query reply can take), tests JUST that sequence against the same
+ * three response grammars above, drops it when it matches, and forwards
+ * everything else (plain bytes, keystrokes, arrow-key CSIs, program-output
+ * escapes) untouched and IN ORDER. Once a sequence's INTRODUCER is known (we've
+ * seen `ESC [`, `ESC ]`, or `ESC P`) a partial tail is held and completed
+ * against the next chunk, so a reply split across reads is reassembled before
+ * it is judged.
+ *
+ * The one byte it will NOT hold across a chunk boundary is a *bare trailing
+ * ESC* — an ESC whose introducer hasn't arrived yet. A lone ESC is far more
+ * often the Escape key (or the start of an Alt-chord) than the first byte of a
+ * reply that happened to split at exactly its second byte, and the inner
+ * program does its own ESC-vs-Alt timeout on the byte's ARRIVAL at the PTY.
+ * Buffering it until the next keystroke would merge `Esc` then `i` into `Alt-i`
+ * and wreck interactive editors over the wire. So a trailing bare ESC is
+ * forwarded at end-of-push; the cost is the (vanishingly rare) reply that
+ * splits precisely between its ESC and its introducer, whose bytes then leak —
+ * the pre-existing whole-chunk behaviour, no worse than before.
+ *
+ * Forwarding-on-no-match is the safe default throughout: only the three
+ * response classes are ever suppressed, so the worst case for an unrecognised
+ * escape is that it reaches the PTY (exactly what it would have done without
+ * this filter).
+ */
+const ESC = 0x1b;
+const BEL = 0x07;
+const LBRACKET = 0x5b; // [
+const RBRACKET = 0x5d; // ]
+const P_UPPER = 0x50; // P (DCS)
+const BACKSLASH = 0x5c; // \  (the ST in ESC \)
+
+/** What kind of escape sequence the pending buffer is accumulating. */
+type Pending =
+  | { kind: "none" }
+  /** Saw a bare ESC; the next byte decides CSI / OSC / DCS / short. Never held
+   *  across a chunk boundary — a trailing bare ESC is forwarded at end-of-push
+   *  (interactive-Escape latency beats catching a reply split at byte two). */
+  | { kind: "esc" }
+  /** ESC [ … — ends at the first final byte (0x40–0x7e). */
+  | { kind: "csi" }
+  /** ESC ] … or ESC P … — ends at BEL or ST (ESC \). `escSeen` tracks a
+   *  half-typed ST so the terminating backslash is recognised across the pair. */
+  | { kind: "string"; escSeen: boolean };
+
+export interface TerminalResponseStripper {
+  /**
+   * Push raw input bytes; get back the bytes to forward to the PTY with every
+   * complete query reply removed. Returns an empty buffer when the chunk
+   * contained only (the start of) a reply. State carries across calls.
+   */
+  push(chunk: Buffer): Buffer;
+}
+
+export function createTerminalResponseStripper(): TerminalResponseStripper {
+  // Bytes confirmed-forwardable, accumulated for this push() call.
+  let out: number[] = [];
+  // The escape sequence currently being isolated (may span chunks).
+  let seq: number[] = [];
+  let pending: Pending = { kind: "none" };
+
+  // The isolated sequence is complete — decide its fate, then reset.
+  const finishSequence = (): void => {
+    const bytes = Buffer.from(seq);
+    seq = [];
+    pending = { kind: "none" };
+    // latin1 is byte-exact for the all-ASCII response grammars.
+    if (!isTerminalQueryResponse(bytes.toString("latin1"))) {
+      for (const b of bytes) out.push(b);
+    }
+  };
+
+  return {
+    push(chunk: Buffer): Buffer {
+      out = [];
+      for (const b of chunk) {
+        if (pending.kind === "none") {
+          if (b === ESC) {
+            pending = { kind: "esc" };
+            seq.push(b);
+          } else {
+            out.push(b);
+          }
+          continue;
+        }
+        // We are inside a candidate escape sequence.
+        seq.push(b);
+        if (pending.kind === "esc") {
+          if (b === LBRACKET) pending = { kind: "csi" };
+          else if (b === RBRACKET || b === P_UPPER)
+            pending = { kind: "string", escSeen: false };
+          else {
+            // ESC + anything else (Alt-key, ESC ESC, lone ESC \) is never a
+            // suppressible reply — forward the pair as-is.
+            finishSequence();
+          }
+          continue;
+        }
+        if (pending.kind === "csi") {
+          // CSI ends at its final byte (0x40–0x7e). Params/intermediates
+          // (0x20–0x3f) keep it open.
+          if (b >= 0x40 && b <= 0x7e) finishSequence();
+          continue;
+        }
+        // String sequence (OSC / DCS): BEL or ST (ESC \) terminates.
+        if (b === BEL) {
+          finishSequence();
+        } else if (pending.escSeen) {
+          if (b === BACKSLASH) finishSequence();
+          else pending = { kind: "string", escSeen: false };
+        } else if (b === ESC) {
+          pending = { kind: "string", escSeen: true };
+        }
+      }
+      // End of chunk. A bare trailing ESC (introducer still unknown) is NOT
+      // held — forward it now so the inner program's Escape-vs-Alt timeout sees
+      // it on time (see the doc comment). A partial sequence whose introducer
+      // IS known stays buffered for the next chunk.
+      if (pending.kind === "esc") {
+        for (const b of seq) out.push(b);
+        seq = [];
+        pending = { kind: "none" };
+      }
+      return Buffer.from(out);
+    },
+  };
 }

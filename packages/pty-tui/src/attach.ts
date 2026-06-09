@@ -12,7 +12,7 @@
  * actual tty — see `attach.test.ts`.
  */
 import { StringDecoder } from "node:string_decoder";
-import { isTerminalQueryResponse } from "kolu-common/terminalResponseFilter";
+import { createTerminalResponseStripper } from "kolu-common/terminalResponseFilter";
 import type { PtyTuiClient } from "./connect.ts";
 import { createEscapeScanner } from "./escape.ts";
 
@@ -122,6 +122,9 @@ export async function runAttach(
   const { tty } = opts;
   const escapeChar = opts.escape ?? "~";
   const scanner = createEscapeScanner(escapeChar);
+  // Streaming reply-strip — see `onStdin`. Stateful across chunks, so it lives
+  // for the whole attach, not per-chunk.
+  const stripper = createTerminalResponseStripper();
   // Forwarded bytes → UTF-8 at the write boundary only: the scanner runs on
   // bytes, and a multibyte char split across stdin chunks must reassemble
   // before it crosses the wire as a string.
@@ -151,17 +154,40 @@ export async function runAttach(
     currentAbort?.abort();
   };
 
+  // ssh-style escape ordering: bytes the user sent BEFORE `~.` (or before stdin
+  // EOF) must reach the PTY before the local client leaves — `echo work\r~.`
+  // has to land `echo work` on the remote. Those writes are only *enqueued* on
+  // the ordered `wire` chain when detach fires, so every `detached` return
+  // awaits the chain to empty first. Each enqueued call may itself enqueue
+  // (none do today, but the loop is cheap insurance), so we await until the
+  // tail stops moving. A write that failed surfaced its error through
+  // `transportError`; we propagate that instead of reporting a clean detach.
+  const drainWire = async (): Promise<AttachOutcome> => {
+    let seen: Promise<void> | undefined;
+    while (seen !== wire) {
+      seen = wire;
+      await seen;
+    }
+    if (transportError !== undefined) {
+      return { kind: "error", message: describeError(transportError) };
+    }
+    return { kind: "detached" };
+  };
+
   const onStdin = (chunk: Buffer | string): void => {
-    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8");
-    // Reply filter — the passthrough makes the user's REAL terminal answer
-    // the device queries riding in the snapshot/deltas (DA1, DSR, XTVERSION…),
-    // but the headless mirror already answered them server-side. Forwarding
-    // the duplicate corrupts the inner program's stdin (the yazi escape-soup
-    // bug), so the terminal-generated replies are dropped here — same
-    // predicate, and same client-suppressed ⇒ server-answered invariant, as
-    // the browser path (`Terminal.tsx` onData). latin1 decode is byte-exact
-    // for these all-ASCII sequences.
-    if (isTerminalQueryResponse(bytes.toString("latin1"))) return;
+    const raw = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8");
+    // Reply strip — the passthrough makes the user's REAL terminal answer the
+    // device queries riding in the snapshot/deltas (DA1, DSR, XTVERSION…), but
+    // the headless mirror already answered them server-side. Forwarding the
+    // duplicate corrupts the inner program's stdin (the yazi escape-soup bug).
+    // Unlike the browser path (`Terminal.tsx` onData), a raw tty read does NOT
+    // give us one discrete reply per event — replies split across reads,
+    // coalesce, or sit against a keystroke — so we run the STREAMING stripper
+    // (boundary-aware, state across chunks) rather than the whole-chunk
+    // predicate. Same response grammars, same client-suppressed ⇒
+    // server-answered invariant.
+    const bytes = stripper.push(raw);
+    if (bytes.length === 0) return;
     for (const ev of scanner.feed(bytes)) {
       if (ev.kind === "forward") {
         const data = decoder.write(ev.data);
@@ -195,7 +221,7 @@ export async function runAttach(
       // A detach can land between streams (the previous one already ended, or
       // none has started) — honour it before dialing a fresh attach whose
       // AbortController the earlier detach() couldn't reach.
-      if (detachRequested) return { kind: "detached" };
+      if (detachRequested) return drainWire();
       // Inventory pre-flight: an honest not-found before any screen takeover,
       // the pid for the attach notice, and — on re-attach — the live/exited
       // discrimination (the deltas stream ends identically for PTY exit,
@@ -266,7 +292,7 @@ export async function runAttach(
           }
         }
       } catch (err) {
-        if (detachRequested) return { kind: "detached" };
+        if (detachRequested) return drainWire();
         if (isNotFound(err)) {
           // The PTY vanished between the inventory and the attach (or during
           // a re-attach) — same exited path as the pre-flight.
@@ -278,7 +304,7 @@ export async function runAttach(
           message: describeError(transportError ?? err),
         };
       }
-      if (detachRequested) return { kind: "detached" };
+      if (detachRequested) return drainWire();
       // Clean stream end: PTY exit or slow-consumer drop — loop back; the
       // inventory pre-flight discriminates. The pause keeps a pathological
       // immediate-drop server from spinning us hot.

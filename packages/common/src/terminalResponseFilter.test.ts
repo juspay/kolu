@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isTerminalQueryResponse } from "./terminalResponseFilter";
+import {
+  createTerminalResponseStripper,
+  isTerminalQueryResponse,
+} from "./terminalResponseFilter";
 
 const ESC = "\x1b";
 const ST = `${ESC}\\`;
@@ -57,5 +60,93 @@ describe("isTerminalQueryResponse — real input passes through", () => {
     ["OSC 0 title set", `${ESC}]0;my title${BEL}`],
   ])("forwards %s", (_label, payload) => {
     expect(isTerminalQueryResponse(payload)).toBe(false);
+  });
+});
+
+describe("createTerminalResponseStripper — streaming raw-tty strip", () => {
+  // Feed `inputs` one chunk at a time; return everything forwarded, joined.
+  const run = (inputs: string[]): string => {
+    const stripper = createTerminalResponseStripper();
+    let forwarded = "";
+    for (const chunk of inputs) {
+      forwarded += stripper
+        .push(Buffer.from(chunk, "latin1"))
+        .toString("latin1");
+    }
+    return forwarded;
+  };
+
+  it("forwards a single chunk that is exactly one reply as nothing", () => {
+    expect(run([`${ESC}[?1;2c`])).toBe("");
+  });
+
+  it("forwards plain keystrokes untouched", () => {
+    expect(run(["echo hi\r"])).toBe("echo hi\r");
+  });
+
+  it("drops a reply SPLIT across two chunks (the boundary the predicate misses)", () => {
+    // DA1 `ESC [ ? 1 ; 2 c` arrives as `ESC [ ? 1` then `; 2 c`.
+    expect(run([`${ESC}[?1`, `;2c`])).toBe("");
+  });
+
+  it("drops a reply split mid-OSC-terminator (ESC then \\ in the next chunk)", () => {
+    // OSC 11 colour reply where the ST (`ESC \\`) straddles the chunk break.
+    expect(run([`${ESC}]11;rgb:0000/0000/0000${ESC}`, `\\`])).toBe("");
+  });
+
+  it("drops TWO replies coalesced into one chunk", () => {
+    expect(run([`${ESC}[?1;2c${ESC}[0n`])).toBe("");
+  });
+
+  it("drops a reply but keeps a real keystroke glued right after it", () => {
+    // The exact case the whole-chunk predicate forwards wholesale: reply+input.
+    expect(run([`${ESC}[0nx`])).toBe("x");
+  });
+
+  it("keeps a keystroke BEFORE a reply and drops only the reply", () => {
+    expect(run([`x${ESC}[0n`])).toBe("x");
+  });
+
+  it("keeps input surrounding a reply: keystroke, reply, keystroke", () => {
+    expect(run([`a${ESC}[?1;2cb`])).toBe("ab");
+  });
+
+  it("forwards a real arrow-key CSI (cursor movement, not a reply)", () => {
+    expect(run([`${ESC}[A`])).toBe(`${ESC}[A`);
+  });
+
+  it("forwards an Alt-key (ESC f) untouched", () => {
+    expect(run([`${ESC}f`])).toBe(`${ESC}f`);
+  });
+
+  it("forwards OSC 52 clipboard reply (browser-only, must reach the PTY)", () => {
+    const osc52 = `${ESC}]52;c;Zm9v${ST}`;
+    expect(run([osc52])).toBe(osc52);
+  });
+
+  it("forwards a real keystroke typed in the same burst as the detach-arming Enter", () => {
+    // `echo work\r` then a reply riding the same read — the input survives.
+    expect(run([`echo work\r${ESC}[0n`])).toBe("echo work\r");
+  });
+
+  // Per-chunk forwarding, to prove a byte leaves on the RIGHT push() — latency
+  // fidelity, not just eventual delivery.
+  const perChunk = (inputs: string[]): string[] => {
+    const stripper = createTerminalResponseStripper();
+    return inputs.map((chunk) =>
+      stripper.push(Buffer.from(chunk, "latin1")).toString("latin1"),
+    );
+  };
+
+  it("forwards a lone trailing ESC on its OWN chunk (Escape key, not held)", () => {
+    // A held ESC would merge with the next keystroke and wreck remote vim's
+    // Escape-vs-Alt timeout; it must leave on the same push it arrived.
+    expect(perChunk([ESC])).toEqual([ESC]);
+  });
+
+  it("does not merge Esc-then-i across chunks into a dropped/Alt sequence", () => {
+    // Esc arrives, then `i` next read: both forward, in order, on their own
+    // pushes — the inner editor sees a real Escape then a real `i`.
+    expect(perChunk([ESC, "i"])).toEqual([ESC, "i"]);
   });
 });

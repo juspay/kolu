@@ -19,7 +19,11 @@ import {
 } from "@kolu/pty-host";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AttachOutcome, type AttachTty, runAttach } from "./attach.ts";
-import { type Connection, connectPtyHost } from "./connect.ts";
+import {
+  type Connection,
+  connectPtyHost,
+  type PtyTuiClient,
+} from "./connect.ts";
 
 const silentLog = {
   debug: () => {},
@@ -55,10 +59,42 @@ function fakeTty(): FakeTty {
   };
 }
 
-async function until(cond: () => boolean, what: string): Promise<void> {
+/** A view of `client` whose `surface.terminal.write` runs `hook` (e.g. a delay)
+ *  before delegating — used to widen the window between "write enqueued" and
+ *  "write landed" so the detach-ordering guarantee is testable. Everything else
+ *  passes straight through. */
+function clientWithSlowWrite(
+  client: PtyTuiClient,
+  hook: () => Promise<void>,
+): PtyTuiClient {
+  const terminal = new Proxy(client.surface.terminal, {
+    get(target, prop, receiver) {
+      if (prop === "write") {
+        return async (input: { id: string; data: string }) => {
+          await hook();
+          return target.write(input);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  const surface = new Proxy(client.surface, {
+    get: (t, p, r) => (p === "terminal" ? terminal : Reflect.get(t, p, r)),
+  });
+  return new Proxy(client, {
+    get: (t, p, r) => (p === "surface" ? surface : Reflect.get(t, p, r)),
+  });
+}
+
+async function until(
+  cond: () => boolean,
+  what: string,
+  poll?: () => Promise<void>,
+): Promise<void> {
   const deadline = Date.now() + 15_000;
   while (!cond()) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await poll?.();
     await new Promise((r) => setTimeout(r, 50));
   }
 }
@@ -145,6 +181,49 @@ describe("runAttach — over a real unix socket", () => {
     const outcome = (await done) as Extract<AttachOutcome, { kind: "exited" }>;
     expect(outcome.kind).toBe("exited");
     expect(outcome.exitCode).toBe(7);
+  });
+
+  it("delivers bytes sent in the SAME burst as ~. before resolving detached", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
+    const { id } = await conn.client.surface.terminal.spawn({ cwd: dir });
+    const { tty, out, type } = fakeTty();
+
+    // ssh-style escape ordering, pinned tightly: a slow write must still flush
+    // BEFORE runAttach resolves detached. We wrap the client so `terminal.write`
+    // is artificially slow and flips `writeLanded` only once the RPC truly
+    // completes. If detach returned without draining the wire queue, `done`
+    // would resolve while the write is still in flight and `writeLanded` would
+    // be false — so this assertion fails loudly on the F2 regression.
+    let writeLanded = false;
+    const slowClient = clientWithSlowWrite(conn.client, async () => {
+      await new Promise((r) => setTimeout(r, 200));
+      writeLanded = true;
+    });
+
+    const done = runAttach(slowClient, id, { tty });
+    await until(() => out().includes("snapshot restored"), "attach notice");
+
+    // The command and the line-start detach land in ONE stdin burst:
+    // `echo …\r` is forwarded, then `~.` detaches.
+    type("echo PRE-DETACH-$((3 * 5))\r~.");
+    expect(await done).toEqual({ kind: "detached" });
+    // The forwarded write completed before runAttach handed back `detached`.
+    expect(writeLanded).toBe(true);
+
+    // And the PTY survived the detach and ran the pre-detach line.
+    const { entries } = await conn.client.surface.terminal.list({});
+    expect(entries.some((e) => e.id === id)).toBe(true);
+    let screen = "";
+    await until(
+      () => screen.includes("PRE-DETACH-15"),
+      "pre-detach line",
+      async () => {
+        screen = (await conn.client.surface.terminal.getScreenText({ id }))
+          .text;
+      },
+    );
   });
 
   it("~? prints the local help without forwarding anything", {
