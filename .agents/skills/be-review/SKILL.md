@@ -35,18 +35,30 @@ always the long pole, so lens and police come nearly free.
 
 The lens and police reviewers run `git diff` and Read files while codex's author
 rounds are **editing and committing the same worktree** — they'd see torn,
-half-edited state. So before launching, pin a read-only copy:
+half-edited state. So before launching, pin a read-only copy at a **per-run
+path** (keyed on `START`, so a stale snapshot from an interrupted prior run can
+never collide with this one):
 
 ```bash
 START=$(git rev-parse HEAD)
-git worktree add --detach "$repoPath/.be-review/snapshot" "$START"
+SNAP="$repoPath/.be-review/snapshots/$START"
+git worktree prune                      # drop registrations whose dir is gone
+git worktree remove --force "$SNAP" 2>/dev/null || true   # clear a same-SHA leftover
+git worktree add --detach "$SNAP" "$START"
 ```
 
-`.be-review/` is gitignored. Lens + police get the snapshot path as their
-`repoPath`; codex gets the live worktree. The snapshot equals the committed
-branch state at launch (preflight requires committed work), so nothing is lost —
-only mid-flight churn is excluded. Remove it after the gauntlet
-(`git worktree remove --force "$repoPath/.be-review/snapshot"`).
+`.be-review/` is gitignored. Lens + police get `$SNAP` as their `repoPath`;
+codex gets the live worktree. The snapshot equals the committed branch state at
+launch (preflight requires committed work), so nothing is lost — only mid-flight
+churn is excluded.
+
+**Cleanup is mandatory and must run even on failure.** Treat the snapshot
+removal as a `finally`: whether the gauntlet completes, a track errors, or you
+exit early, remove `$SNAP`
+(`git worktree remove --force "$SNAP"`) before returning. The per-run path plus
+the `prune` + same-SHA `remove` above mean even a leftover from a hard crash
+(SIGKILL, lost session) can't wedge the next run — it's pruned or overwritten
+rather than failing `git worktree add`.
 
 The price of parallelism is **staleness**: lens/police review the pre-codex
 tree, so some of their findings will already be addressed by codex's debate
@@ -64,8 +76,9 @@ implementing it.
   `MB=$(git merge-base <base> HEAD)` and `START=$(git rev-parse HEAD)`. Pass `MB`
   as the `base` to both workflows (their own merge-base resolution is idempotent
   on a SHA) so every track reviews the identical diff scope.
-- **Snapshot worktree** (unless `--tracks` is codex-only): create
-  `.be-review/snapshot` at `START` as above.
+- **Snapshot worktree** (only when a read-only track — lens or police — is in
+  the selected `--tracks`; skip it for a codex-only run): create the per-run
+  `.be-review/snapshots/$START` as above, after pruning/clearing any stale one.
 - **codex login** (unless `--tracks` excludes it): `codex login status`. If not
   logged in, tell the user to run `codex login` (suggest the `!` prefix) and
   continue with lens + police.
@@ -108,10 +121,38 @@ consensus comment) — the other tracks don't depend on it.
 
 ## Apply pass — after all tracks complete
 
-First remove the snapshot worktree. Then collect the change requests:
+First remove the snapshot worktree (do this in a `finally`-style step so it also
+runs when a track errored or you exit early — see "Why the snapshot").
 
-- the lens result's `fixes` (agreed `fix` findings, each with a converged plan);
-- the police agent's findings.
+**Check the lens status before collecting its fixes.** `/lens-debate` returns a
+`status` of `clean`, `consensus`, `unresolved`, or `merge-base-error`:
+
+- `clean` / `consensus` — the lenses agreed per-finding; `fixes` is the agreed
+  change-request payload. Collect it as the normal handoff.
+- `unresolved` — the debate hit its round backstop with findings still
+  contested (each one's two final lens positions are in the result's
+  `unresolved`). `/be` §4 requires you to **adjudicate every unresolved lens
+  finding yourself before moving on**, so do NOT treat the gauntlet as passed:
+  surface the unresolved findings explicitly (in the report and the lens PR
+  comment), adjudicate each — decide drop, or fold its fix into the apply pass —
+  and re-run the lens track if you can't. You may still collect the *agreed*
+  `fixes` (an `unresolved` run can carry some settled fixes alongside the
+  contested ones), but the lens PR comment and report must say **unresolved**,
+  never "lens consensus".
+- `merge-base-error` — the scope couldn't be trusted; the lens track produced no
+  reviewable result. Report it and skip its handoff (nothing to apply).
+
+Then collect the change requests **from the tracks that actually ran** (per
+`--tracks`):
+
+- the lens result's `fixes` — **only if the lens track ran** and its status is
+  `consensus`/`unresolved`/`clean` (a `clean` or `merge-base-error` run has no
+  fixes);
+- the police agent's findings — **only if the police track ran**.
+
+A codex-only run (`--tracks codex`) collects neither — codex applies its own
+fixes inline during its debate, so there is nothing for the apply pass to do;
+skip it entirely.
 
 If there are none, skip ahead. Otherwise spawn **one implementer agent** (the
 requests may interact, so a single serial implementer — not a fan-out) with all
@@ -138,24 +179,38 @@ when satisfied.
 
 ## PR comments
 
-- **codex**: post the codex workflow's returned `comment` verbatim per
-  `/codex-debate` step 3 (consensus only; on persistent reviewer-error there is
-  no agreement to report).
-- **lens**: post the lens workflow's returned `comment` (it records the agreed
-  fixes as "handed off"), **appending** an `### Applied by /be-review` section —
-  the apply pass's per-request outcome for the lens-originated requests
-  (applied + commit SHA / already fixed by codex / no longer applies).
-- **police**: post a `## [👮 Code-police](https://agency.srid.ca/)` comment
-  summarizing what the passes found and how each finding was dispositioned by
-  the apply pass (code-police doesn't self-comment).
+Post **one comment per track that ran** (per `--tracks`) — skip the comment for
+any track that wasn't selected; it has no result to report.
+
+- **codex** (if the codex track ran): post the codex workflow's returned
+  `comment` verbatim per `/codex-debate` step 3 (consensus only; on persistent
+  reviewer-error there is no agreement to report).
+- **lens** (if the lens track ran): post the lens workflow's returned `comment`
+  (it records the agreed fixes as "handed off", and an `unresolved` run already
+  renders an "Unresolved — needs human" section), **appending** an
+  `### Applied by /be-review` section — the apply pass's per-request outcome for
+  the lens-originated requests (applied + commit SHA / already fixed by codex /
+  no longer applies), plus your adjudication of any unresolved findings. On a
+  `merge-base-error` there is no `comment` to post; report that in chat instead.
+- **police** (if the police track ran): post a
+  `## [👮 Code-police](https://agency.srid.ca/)` comment summarizing what the
+  passes found and how each finding was dispositioned by the apply pass
+  (code-police doesn't self-comment).
 
 ## Report
 
-Confirm the three PR comments landed, then summarize in chat: each track's
-outcome (codex consensus / reviewer-error — note how many attempts codex took if
-it was retried; lens consensus + how many fixes were handed off; police findings),
-the apply pass's disposition table (applied / already-fixed / dropped), whether
-the fixes were pushed, and `git log --oneline <base>..HEAD` + `git diff --stat
-<base>` so the combined result is visible.
+Confirm the PR comments for the **tracks that ran** landed, then summarize in
+chat — reporting **only the selected tracks**, and naming any track `--tracks`
+**skipped** so the absence is explicit, not silent:
+
+- each ran track's outcome: codex consensus / reviewer-error (note how many
+  attempts codex took if it was retried); lens status — **consensus** + how many
+  fixes were handed off, or **unresolved** + how many findings still need human
+  adjudication and how you adjudicated each (never report "lens consensus" for an
+  `unresolved` run), or `merge-base-error`; police findings;
+- the apply pass's disposition table (applied / already-fixed / dropped);
+- whether the fixes were pushed;
+- `git log --oneline <base>..HEAD` + `git diff --stat <base>` so the combined
+  result is visible.
 
 ARGUMENTS:
