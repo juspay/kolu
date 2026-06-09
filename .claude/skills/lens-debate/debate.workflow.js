@@ -11,7 +11,7 @@ export const meta = {
   phases: [
     { title: 'Review', detail: 'lowy and hickey (and optionally code-police) review the diff independently, in parallel', model: 'opus' },
     { title: 'Debate', detail: 'lowy and hickey cross-examine every finding until they agree per-finding', model: 'opus' },
-    { title: 'Apply', detail: 'implement each agreed fix as its own commit', model: 'opus' },
+    { title: 'Apply', detail: 'implement each agreed fix as its own commit (skipped under apply:false)', model: 'opus' },
   ],
 }
 
