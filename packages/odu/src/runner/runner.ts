@@ -168,8 +168,9 @@ export function createLaneRunner(): LaneRunner {
     let changed = true;
     while (changed) {
       changed = false;
-      for (const id of getState().order) {
-        const node = getState().nodes[id];
+      const { order, nodes } = getState();
+      for (const id of order) {
+        const node = nodes[id];
         if (node === undefined || node.status !== "pending") continue;
         if (blocked(node)) {
           setNode(id, { status: "skipped" });
@@ -284,14 +285,15 @@ export function createLaneRunner(): LaneRunner {
 
   // ── rerun: reset target + transitive dependents, then reschedule ──
   const rerun = (id: string): boolean => {
-    if (disposed || getState().nodes[id] === undefined) return false;
+    const initial = getState();
+    if (disposed || initial.nodes[id] === undefined) return false;
     const toReset = new Set<string>([id]);
     let grew = true;
     while (grew) {
       grew = false;
-      for (const candidate of getState().order) {
+      for (const candidate of initial.order) {
         if (toReset.has(candidate)) continue;
-        const needs = getState().nodes[candidate]?.needs ?? [];
+        const needs = initial.nodes[candidate]?.needs ?? [];
         if (needs.some((dep) => toReset.has(dep))) {
           toReset.add(candidate);
           grew = true;

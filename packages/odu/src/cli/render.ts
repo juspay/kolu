@@ -13,14 +13,7 @@ import {
   STATUS_META,
 } from "../common/surface";
 
-/** The TUI glyph per status — read off the single status projection. */
-export const STATUS_GLYPH: Record<NodeState["status"], string> =
-  Object.fromEntries(
-    Object.entries(STATUS_META).map(([status, meta]) => [status, meta.glyph]),
-  ) as Record<NodeState["status"], string>;
-
 export interface PipelineSummary {
-  total: number;
   running: number;
   ok: number;
   failed: number;
@@ -49,7 +42,6 @@ export function summarize(state: PipelineState): PipelineSummary {
   }
   const done = counts.pending === 0 && counts.running === 0;
   return {
-    total: state.order.length,
     ...counts,
     done,
     failedOverall: done && counts.failed + counts.errored > 0,
@@ -78,7 +70,7 @@ export function renderTable(state: PipelineState, attachedId?: string): string {
     const node = state.nodes[id];
     if (node === undefined) continue;
     const marker = id === attachedId ? "›" : " ";
-    const glyph = STATUS_GLYPH[node.status];
+    const glyph = STATUS_META[node.status].glyph;
     const dur =
       node.durationMs !== null ? ` (${formatGoDuration(node.durationMs)})` : "";
     lines.push(`${marker} ${glyph} ${id.padEnd(width)} ${node.status}${dur}`);

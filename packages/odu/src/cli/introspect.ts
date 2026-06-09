@@ -5,13 +5,16 @@
  * log stream with snapshot-then-append replay, the dashboard with `r`erun.
  */
 
-import type { NodeLogFrame, PipelineState } from "../common/surface";
+import {
+  STATUS_META,
+  type NodeLogFrame,
+  type PipelineState,
+} from "../common/surface";
 import { dialSocket, type OduClient } from "../coordinator/socket";
 import {
   applyLogFrame,
   defaultAttachId,
   renderDashboard,
-  STATUS_GLYPH,
   summarize,
 } from "./render";
 
@@ -58,7 +61,7 @@ export async function statusCommand(json: boolean): Promise<number> {
       const node = state.nodes[id];
       if (node === undefined) continue;
       process.stdout.write(
-        `${STATUS_GLYPH[node.status]} ${node.status.padEnd(8)} ${id}\n`,
+        `${STATUS_META[node.status].glyph} ${node.status.padEnd(8)} ${id}\n`,
       );
     }
   }
