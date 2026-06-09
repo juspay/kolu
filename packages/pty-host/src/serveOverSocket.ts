@@ -34,20 +34,35 @@ export interface PtyHostSocketListener {
  *  (write/kill/spawn/getScreenText), so the privacy refusals are security
  *  refusals; the rest are single-server-model collisions where
  *  `--pty-host-socket` is the way out. */
-function refusalWarning(outcome: UnixSocketServeOutcome): string {
+function describeRefusal(
+  outcome: Exclude<UnixSocketServeOutcome, { kind: "listening" }>,
+): { msg: string; ctx: Record<string, unknown> } {
   switch (outcome.kind) {
     case "dir-not-private":
-      return "pty-host socket dir is not a private owner-only directory; refusing to serve the pty-host there (it grants full PTY control). Use --pty-host-socket to point at a directory you own with 0700 perms.";
+      return {
+        msg: "pty-host socket dir is not a private owner-only directory; refusing to serve the pty-host there (it grants full PTY control). Use --pty-host-socket to point at a directory you own with 0700 perms.",
+        ctx: { dir: outcome.dir },
+      };
     case "already-served":
-      return "pty-host socket already served by another kolu instance; not taking it over (kolu-tui reaches that one). Use --pty-host-socket to run a second instance.";
+      return {
+        msg: "pty-host socket already served by another kolu instance; not taking it over (kolu-tui reaches that one). Use --pty-host-socket to run a second instance.",
+        ctx: {},
+      };
     case "probe-failed":
-      return "pty-host socket path could not be probed (an unexpected connect error, not 'stale'); refusing to remove it. Use --pty-host-socket to point at a free path.";
+      return {
+        msg: "pty-host socket path could not be probed (an unexpected connect error, not 'stale'); refusing to remove it. Use --pty-host-socket to point at a free path.",
+        ctx: { code: outcome.code },
+      };
     case "not-a-socket":
-      return "pty-host socket path exists and is not a socket (a regular file, dir, or symlink); refusing to remove it. Use --pty-host-socket to point at a free path.";
+      return {
+        msg: "pty-host socket path exists and is not a socket (a regular file, dir, or symlink); refusing to remove it. Use --pty-host-socket to point at a free path.",
+        ctx: {},
+      };
     case "bind-failed":
-      return "pty-host socket unavailable this run (could not bind); kolu-server otherwise unaffected";
-    case "listening":
-      throw new Error("unreachable: listening is not a refusal");
+      return {
+        msg: "pty-host socket unavailable this run (could not bind); kolu-server otherwise unaffected",
+        ctx: { err: outcome.err },
+      };
   }
 }
 
@@ -69,11 +84,8 @@ export async function servePtyHostOverUnixSocket(opts: {
   const { outcome } = listener;
 
   if (outcome.kind !== "listening") {
-    const ctx: Record<string, unknown> = { socketPath };
-    if (outcome.kind === "dir-not-private") ctx.dir = outcome.dir;
-    if (outcome.kind === "probe-failed") ctx.code = outcome.code;
-    if (outcome.kind === "bind-failed") ctx.err = outcome.err;
-    log?.warn(ctx, refusalWarning(outcome));
+    const { msg, ctx } = describeRefusal(outcome);
+    log?.warn({ socketPath, ...ctx }, msg);
     return listener;
   }
 
