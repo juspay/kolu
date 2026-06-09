@@ -13,11 +13,7 @@
  * forever on ssh's exit 255).
  */
 
-import {
-  destroyAllSessions,
-  getHostSession,
-  type HostSessionState,
-} from "@kolu/surface-nix-host";
+import { getHostSession, type HostSessionState } from "@kolu/surface-nix-host";
 import type { TaskSpec } from "../common/spec";
 import type {
   laneSurface,
@@ -199,5 +195,3 @@ export function startLane(opts: LaneOptions): Lane {
     },
   };
 }
-
-export { destroyAllSessions };

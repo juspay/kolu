@@ -28,7 +28,7 @@ import {
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
-import { isLocalHost } from "@kolu/surface-nix-host";
+import { destroyAllSessions, isLocalHost } from "@kolu/surface-nix-host";
 import { implement } from "@orpc/server";
 import { formatGoDuration } from "../common/duration";
 import { createLogTail } from "../common/logTail";
@@ -44,7 +44,7 @@ import {
 } from "../common/surface";
 import { laneTasks, loadJustPipeline, parseSelector } from "../just/ingest";
 import { loadHosts, resolveLanes } from "./hosts";
-import { destroyAllSessions, type Lane, startLane } from "./lane";
+import { type Lane, startLane } from "./lane";
 import { SOCKET_PATH, serveSocket } from "./socket";
 import {
   fetchUrlFor,
