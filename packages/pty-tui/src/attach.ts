@@ -215,8 +215,16 @@ export async function runAttach(
   tty.input.on("data", onStdin);
   tty.input.on("end", onStdinEnd);
 
+  let attachedOnce = false;
+  // A PTY that's gone is `not-found` if we never attached, else `exited` with
+  // the tombstone code. The deltas stream ends identically for the inventory
+  // miss and the isNotFound attach error, so both sites resolve it here.
+  const resolveGone = async (): Promise<AttachOutcome> =>
+    attachedOnce
+      ? { kind: "exited", exitCode: await readExitCode(client, id) }
+      : { kind: "not-found" };
+
   try {
-    let attachedOnce = false;
     for (;;) {
       // A detach can land between streams (the previous one already ended, or
       // none has started) — honour it before dialing a fresh attach whose
@@ -231,10 +239,7 @@ export async function runAttach(
       try {
         const { entries } = await client.surface.terminal.list({});
         const entry = entries.find((e) => e.id === id);
-        if (!entry) {
-          if (!attachedOnce) return { kind: "not-found" };
-          return { kind: "exited", exitCode: await readExitCode(client, id) };
-        }
+        if (!entry) return resolveGone();
         pid = entry.pid;
       } catch (err) {
         return { kind: "error", message: describeError(err) };
@@ -293,12 +298,9 @@ export async function runAttach(
         }
       } catch (err) {
         if (detachRequested) return drainWire();
-        if (isNotFound(err)) {
-          // The PTY vanished between the inventory and the attach (or during
-          // a re-attach) — same exited path as the pre-flight.
-          if (!attachedOnce) return { kind: "not-found" };
-          return { kind: "exited", exitCode: await readExitCode(client, id) };
-        }
+        // The PTY vanished between the inventory and the attach (or during a
+        // re-attach) — same gone discrimination as the pre-flight.
+        if (isNotFound(err)) return resolveGone();
         return {
           kind: "error",
           message: describeError(transportError ?? err),
