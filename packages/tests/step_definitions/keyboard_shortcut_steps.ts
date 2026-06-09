@@ -61,6 +61,11 @@ When(
   },
 );
 
+When("I press the maximize toggle shortcut", async function (this: KoluWorld) {
+  await this.page.keyboard.press(`${MOD_KEY}+Shift+M`);
+  await this.waitForFrame();
+});
+
 Then(
   "the clipboard image should not be blank",
   async function (this: KoluWorld) {

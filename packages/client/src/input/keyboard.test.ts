@@ -186,6 +186,14 @@ describe("matchesAnyShortcut", () => {
     ).toBe(false);
   });
 
+  it("matches Ctrl+Shift+M (toggle canvas maximize)", () => {
+    expect(
+      matchesAnyShortcut(
+        makeEvent({ key: "M", code: "KeyM", ctrlKey: true, shiftKey: true }),
+      ),
+    ).toBe(true);
+  });
+
   it("matches Ctrl+Alt+B (toggle right panel)", () => {
     expect(
       matchesAnyShortcut(

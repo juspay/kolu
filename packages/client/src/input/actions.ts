@@ -47,6 +47,10 @@ export interface ActionContext {
   handleScreenshotTerminal: () => void;
   toggleRightPanel: () => void;
   toggleDock: () => void;
+  /** Flip the canvas between tiled and maximized posture. Wired to
+   *  `useViewPosture().toggle`, whose own write guard makes it a no-op
+   *  with zero terminals — so the keybind needs no extra guard. */
+  toggleCanvasPosture: () => void;
   toggleRecordingPause: () => void;
 }
 
@@ -254,6 +258,15 @@ const _ACTIONS = {
     // frees Ctrl+B to reach the PTY. See `prohibitedKeybinds.ts`.
     keybind: { key: "B", code: "KeyB", mod: true, shift: true },
     handler: (ctx) => ctx.toggleDock(),
+  },
+  toggleCanvasPosture: {
+    label: "Toggle maximize",
+    // Mod+Shift+M — M for maximize. The shifted form matches the
+    // Mod+Shift+<letter> convention shared by toggleDock, shuffleTheme,
+    // and screenshotTerminal, and stays clear of the in-PTY chords in
+    // `prohibitedKeybinds.ts` (Ctrl+B, Ctrl+J).
+    keybind: { key: "M", code: "KeyM", mod: true, shift: true },
+    handler: (ctx) => ctx.toggleCanvasPosture(),
   },
   toggleRecordingPause: {
     label: "Pause / resume recording",

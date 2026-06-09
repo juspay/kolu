@@ -32,6 +32,7 @@ import { buildWorkspaceEntries } from "./canvas/dockModel";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
+import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher, supportsSpatialCanvas } from "./capabilities";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
@@ -221,6 +222,11 @@ const App: Component = () => {
     crud,
   });
 
+  // Canvas posture seam — shared by the keyboard shortcut (below) and the
+  // command palette. `toggle` is the single writer; its own guard no-ops
+  // at zero terminals.
+  const posture = useViewPosture();
+
   // Shared between the keyboard dispatcher and the command palette so a single
   // wiring keeps both surfaces in sync. Palette-only deps (theme management,
   // dialog setters, debug, etc.) are added below in the createCommands call.
@@ -252,6 +258,7 @@ const App: Component = () => {
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
     toggleDock: toggleRailCards,
+    toggleCanvasPosture: posture.toggle,
     toggleRecordingPause: () => useRecorder().togglePause(),
   };
 
