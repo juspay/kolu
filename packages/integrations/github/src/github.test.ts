@@ -166,32 +166,22 @@ describe("classifyGhError", () => {
     });
   });
 
-  it("classifies gh's 'no pull requests found' as absent", () => {
-    expect(
-      classifyGhError({
-        code: 1,
-        stderr: 'no pull requests found for branch "my-branch"',
-      }),
-    ).toEqual({ kind: "absent" });
-  });
-
-  it("classifies gh's 'no git remotes found' as absent", () => {
-    expect(
-      classifyGhError({
-        code: 1,
-        stderr: "no git remotes found\n",
-      }),
-    ).toEqual({ kind: "absent" });
-  });
-
-  it("classifies a non-GitHub remote (gh's 'none of the git remotes') as absent", () => {
-    expect(
-      classifyGhError({
-        code: 1,
-        stderr:
-          "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`",
-      }),
-    ).toEqual({ kind: "absent" });
+  it.each([
+    {
+      label: "gh's 'no pull requests found'",
+      stderr: 'no pull requests found for branch "my-branch"',
+    },
+    {
+      label: "gh's 'no git remotes found'",
+      stderr: "no git remotes found\n",
+    },
+    {
+      label: "a non-GitHub remote (gh's 'none of the git remotes' refusal)",
+      stderr:
+        "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`",
+    },
+  ])("classifies $label as absent", ({ stderr }) => {
+    expect(classifyGhError({ code: 1, stderr })).toEqual({ kind: "absent" });
   });
 
   it("keeps gh's GH_HOST-mismatch refusal as unavailable, not absent", () => {
