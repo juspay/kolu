@@ -30,6 +30,7 @@ import {
 } from "@kolu/surface/server";
 import { destroyAllSessions, isLocalHost } from "@kolu/surface-nix-host";
 import { implement } from "@orpc/server";
+import { bold, dim, green, magenta, red } from "../cli/ansi";
 import { formatGoDuration } from "../common/duration";
 import { createLogTail } from "../common/logTail";
 import { fanId, onPlatform, splitFanId } from "../common/nodeId";
@@ -39,9 +40,9 @@ import {
   oduSurface,
   pendingNode,
   type PipelineState,
-  type ProgressStatus,
   STATUS_META,
 } from "../common/surface";
+import { createDisplay, type ProgressEvent } from "./display";
 import { laneTasks, loadJustPipeline, parseSelector } from "../just/ingest";
 import { loadHosts, resolveLanes } from "./hosts";
 import { type Lane, startLane } from "./lane";
@@ -66,15 +67,6 @@ export interface RunArgs {
   noSnapshot: boolean;
   noPost: boolean;
   progressJson: boolean;
-}
-
-interface ProgressEvent {
-  node: string;
-  recipe: string;
-  platform: string;
-  status: ProgressStatus;
-  exit_code?: number;
-  log: string;
 }
 
 function git(repo: string, args: string[]): string {
@@ -152,8 +144,17 @@ interface RunContext {
 
 async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   const { repoRoot, specSource, sha, sha7 } = ctx;
+  // Where stdout points picks the face: NDJSON for the /do contract, an
+  // in-place live matrix on a TTY, transition lines + heartbeats for a pipe.
+  const display = createDisplay(
+    args.progressJson
+      ? "json"
+      : process.stdout.isTTY === true
+        ? "live"
+        : "plain",
+  );
   const info = (msg: string): void => {
-    process.stderr.write(`${msg}\n`);
+    display.info(msg);
   };
 
   // ── DAG + lanes ──
@@ -265,6 +266,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   const fileFor = (id: string): string => join(repoRoot, logPathFor(sha7, id));
   const appendLocal = (id: string, text: string): void => {
     tail.append(id, text);
+    display.logLine(id, text);
     const file = fileFor(id);
     mkdirSync(dirname(file), { recursive: true });
     appendFileSync(file, text);
@@ -313,11 +315,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
       ...(node.exitCode !== null ? { exit_code: node.exitCode } : {}),
       log: logPathFor(sha7, id),
     };
-    if (args.progressJson) {
-      process.stdout.write(`${JSON.stringify(event)}\n`);
-    } else {
-      process.stdout.write(`${status.padEnd(8)} ${id}\n`);
-    }
+    display.transition(event, node);
   };
 
   let settled: () => void = () => {};
@@ -349,6 +347,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
       ...cur,
       nodes: { ...cur.nodes, [id]: next },
     });
+    display.update(store.get());
     if (next.status !== prev.status) {
       emitProgress(id, next);
       const payload = statusFor(id, next.status, next.durationMs, sha7);
@@ -380,12 +379,16 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   mkdirSync(join(repoRoot, ".ci"), { recursive: true });
   const closeSocket = await serveSocket(router, join(repoRoot, SOCKET_PATH));
 
-  info(
-    `odu: pipeline ${spec.name} @ ${sha7} — lanes: ${[...tasksByPlatform.keys()]
-      .sort()
-      .map((p) => `${p}=${lanesByPlatform[p]}`)
-      .join(", ")} (hosts: ${hostsConfig.source})`,
-  );
+  display.start({
+    pipeline: spec.name,
+    sha7,
+    lanes: [...tasksByPlatform.keys()].sort().map((platform) => ({
+      platform,
+      host: lanesByPlatform[platform] as string,
+    })),
+    hostsSource: hostsConfig.source,
+  });
+  display.update(store.get());
 
   for (const platform of [...tasksByPlatform.keys()].sort()) {
     const host = lanesByPlatform[platform] as string;
@@ -493,6 +496,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     void poster.settle().then(() => {
       for (const lane of lanes.values()) lane.close();
       closeSocket();
+      display.stop(store.get());
       process.exit(130);
     });
   };
@@ -507,9 +511,10 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
 
   // ── verdict ──
   const finalState = store.get();
+  display.stop(finalState);
   const counts = { ok: 0, failed: 0, errored: 0, skipped: 0 };
-  let red = 0;
-  const lines: string[] = ["── ci run summary ──"];
+  let redCount = 0;
+  const lines: string[] = [dim("── ci run summary ──")];
   for (const id of finalState.order) {
     const node = finalState.nodes[id];
     if (node === undefined) continue;
@@ -517,19 +522,29 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     else if (node.status === "failed") counts.failed += 1;
     else if (node.status === "errored") counts.errored += 1;
     else if (node.status === "skipped") counts.skipped += 1;
-    if (STATUS_META[node.status].isRed) red += 1;
-    const glyph = STATUS_META[node.status].glyph;
+    if (STATUS_META[node.status].isRed) redCount += 1;
+    const color =
+      node.status === "ok"
+        ? green
+        : node.status === "errored"
+          ? magenta
+          : node.status === "failed"
+            ? red
+            : dim;
+    const glyph = color(STATUS_META[node.status].glyph);
     const dur =
-      node.durationMs !== null ? ` ${formatGoDuration(node.durationMs)}` : "";
+      node.durationMs !== null
+        ? ` ${dim(formatGoDuration(node.durationMs))}`
+        : "";
     const logRef =
       node.status === "failed" || node.status === "errored"
-        ? `  ${logPathFor(sha7, id)}`
+        ? dim(`  ${logPathFor(sha7, id)}`)
         : "";
     lines.push(`  ${glyph} ${id.padEnd(44)} ${node.status}${dur}${logRef}`);
   }
   lines.push(
     `${counts.ok} ok · ${counts.failed} failed · ${counts.errored} errored · ${counts.skipped} skipped — ${
-      red > 0 ? "FAILED" : "OK"
+      redCount > 0 ? bold(red("FAILED")) : bold(green("OK"))
     }`,
   );
   process.stderr.write(`${lines.join("\n")}\n`);
@@ -564,5 +579,5 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     // best-effort: a missing sidecar only degrades the metrics comment
   }
 
-  return red > 0 ? 1 : 0;
+  return redCount > 0 ? 1 : 0;
 }

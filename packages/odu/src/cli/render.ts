@@ -12,6 +12,25 @@ import {
   type PipelineState,
   STATUS_META,
 } from "../common/surface";
+import { dim, green, magenta, red, yellow } from "./ansi";
+
+/** Per-status colour, shared by every face (monitor table, run matrix,
+ *  verdict) — a no-op when stdout isn't a TTY, so pure-string tests and
+ *  captured logs see the bare glyphs. */
+export const STATUS_COLOR: Record<NodeState["status"], (s: string) => string> =
+  {
+    pending: dim,
+    running: yellow,
+    ok: green,
+    failed: red,
+    skipped: dim,
+    errored: magenta,
+  };
+
+/** The status glyph, coloured for terminals. */
+export function statusGlyph(status: NodeState["status"]): string {
+  return STATUS_COLOR[status](STATUS_META[status].glyph);
+}
 
 export interface PipelineSummary {
   running: number;
@@ -70,7 +89,7 @@ export function renderTable(state: PipelineState, attachedId?: string): string {
     const node = state.nodes[id];
     if (node === undefined) continue;
     const marker = id === attachedId ? "›" : " ";
-    const glyph = STATUS_META[node.status].glyph;
+    const glyph = statusGlyph(node.status);
     const dur =
       node.durationMs !== null ? ` (${formatGoDuration(node.durationMs)})` : "";
     lines.push(`${marker} ${glyph} ${id.padEnd(width)} ${node.status}${dur}`);
