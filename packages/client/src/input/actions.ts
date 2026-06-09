@@ -261,7 +261,7 @@ const _ACTIONS = {
     handler: (ctx) => ctx.toggleDock(),
   },
   toggleCanvasPosture: {
-    label: "Toggle maximize",
+    label: "Maximize / restore terminal",
     // Mod+Shift+M — M for maximize. The shifted form matches the
     // Mod+Shift+<letter> convention shared by toggleDock, shuffleTheme,
     // and screenshotTerminal, and stays clear of the in-PTY chords in
