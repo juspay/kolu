@@ -34,6 +34,7 @@ let
       ./packages/surface
       ./packages/surface-nix-host
       ./packages/surface-app
+      ./packages/odu
       ./packages/solid-pierre
       ./packages/solid-markdown
       ./packages/solid-pwa-install
@@ -243,6 +244,13 @@ let
     inherit pkgs src pnpmDeps;
   };
 
+  # odu — the CI runner that grew out of the mini-ci example (Atlas:
+  # mini-ci-vs-justci). A real package, not an example; it reuses the
+  # example's workspace base derivation rather than forking it.
+  oduPackages = import ./packages/odu/default.nix {
+    inherit pkgs src pnpmDeps;
+  };
+
   # @kolu/solid-browser docsite — a standalone second consumer of createBrowser
   # (the history electricity), built so CI proves the reuse claim doesn't rot.
   docsiteExample = import ./packages/solid-browser/example/docsite/default.nix {
@@ -261,4 +269,4 @@ let
 in
 {
   inherit default koluBin koluEnv pnpmDeps typecheck;
-} // remoteProcessMonitor // miniCi // docsiteExample
+} // remoteProcessMonitor // miniCi // docsiteExample // oduPackages
