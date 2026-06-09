@@ -53,32 +53,55 @@ function isPrivateOwnedDir(dir: string): boolean {
   return st.uid === getuid() && (st.mode & 0o077) === 0;
 }
 
-/** Does a live peer already serve a socket at `path`? Resolves true if a
- *  connection is accepted, false on ECONNREFUSED / ENOENT (a stale file left
- *  by a crash, or nothing there). */
-function isSocketLive(path: string): Promise<boolean> {
+/** What a `connect()` probe of the socket path tells us about who, if anyone,
+ *  is on the other end — a three-way verdict, NOT a boolean, because the caller
+ *  must treat "nobody's there, clear the stale inode" and "I couldn't tell"
+ *  differently. Collapsing both to `false` is the F1 footgun: it would unlink a
+ *  socket we merely failed to probe (e.g. EACCES) as if it were a dead peer's
+ *  leftover. */
+type SocketProbe =
+  /** A peer accepted the connection — the path is in active use; never touch it. */
+  | { kind: "live" }
+  /** The path is free to bind: either nothing is there (ENOENT — the common
+   *  fresh-start case) or a real socket inode exists with no listener
+   *  (ECONNREFUSED — the stale file a crashed peer left behind). The caller may
+   *  `rmSync` to clear it, but ONLY after confirming the inode is a socket (or
+   *  already gone) — never the user's regular file at a stale-looking path. */
+  | { kind: "stale" }
+  /** Any other connect error (EACCES, EPERM, ENOTSOCK on a regular file, …). We
+   *  don't know what's there, so we refuse to delete and degrade to a no-op. */
+  | { kind: "unknown"; code?: string };
+
+/** Probe `path` for a live peer. ECONNREFUSED (a socket inode nobody is
+ *  `accept()`ing) and ENOENT (nothing there at all) are the two "free to bind"
+ *  signals; every other error is reported as `unknown` so the caller never
+ *  deletes a path it could not actually prove dead. */
+function probeSocket(path: string): Promise<SocketProbe> {
+  const free = new Set(["ECONNREFUSED", "ENOENT"]);
   return new Promise((resolve) => {
     const probe = createConnection(path);
-    const settle = (live: boolean): void => {
+    const settle = (result: SocketProbe): void => {
       probe.destroy();
-      resolve(live);
+      resolve(result);
     };
-    probe.once("connect", () => settle(true));
-    probe.once("error", () => settle(false));
+    probe.once("connect", () => settle({ kind: "live" }));
+    probe.once("error", (err) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      settle(
+        code !== undefined && free.has(code)
+          ? { kind: "stale" }
+          : { kind: "unknown", code },
+      );
+    });
   });
 }
 
-/** Is `path` safe to `rmSync` so `listen()` can bind it? Only a *socket* file
- *  (or nothing) is — a dead peer leaves a stale socket inode behind, and that's
- *  the one thing we may clear. Anything else (a regular file, a directory, a
- *  symlink) is NOT ours to delete: `--pty-host-socket` is an arbitrary
- *  user-supplied path, so pointing it at an existing regular file must warn and
- *  refuse, never silently unlink the user's data. `lstat` (not `stat`) so a
- *  symlink at the path is itself classified as a non-socket and left intact
- *  rather than followed to its target. ENOENT (nothing there) is the common,
- *  expected case → safe to "remove" (a no-op `rmSync`). Any other probe error
- *  (EACCES, …) is treated as not-removable: fail soft rather than guess. */
-function isRemovableStaleSocket(path: string): boolean {
+/** Is the inode at `path` an actual socket file? `lstat` (not `stat`) so a
+ *  symlink is classified as itself and left intact rather than followed to its
+ *  target. ENOENT (nothing there) counts as "removable" too — a no-op `rmSync`.
+ *  Pairs with a `stale` probe verdict: we only unlink when BOTH agree the path
+ *  is a dead socket inode, never on a probe error against an unknown inode. */
+function isSocketInodeOrAbsent(path: string): boolean {
   try {
     return lstatSync(path).isSocket();
   } catch (err) {
@@ -122,18 +145,31 @@ export async function servePtyHostOverUnixSocket(opts: {
       return noop;
     }
 
-    if (await isSocketLive(socketPath)) {
+    const probe = await probeSocket(socketPath);
+    if (probe.kind === "live") {
       log?.warn(
         { socketPath },
         "pty-host socket already served by another kolu instance; not taking it over (kolu-tui reaches that one). Use --pty-host-socket to run a second instance.",
       );
       return noop;
     }
-    // A dead peer leaves a stale SOCKET inode; clear only that so listen()
-    // won't EADDRINUSE. Refuse if the path is a regular file/dir/symlink — an
-    // arbitrary `--pty-host-socket` could point at the user's own data, and
-    // unlinking it would be data loss, not stale-socket cleanup.
-    if (!isRemovableStaleSocket(socketPath)) {
+    // Anything other than a clean "stale" verdict is left alone. An `unknown`
+    // probe error (EACCES on a socket we can't reach, EPERM, …) means we could
+    // NOT prove the path dead — deleting a socket inode we merely failed to
+    // probe would be just as wrong as unlinking the user's regular file.
+    if (probe.kind === "unknown") {
+      log?.warn(
+        { socketPath, code: probe.code },
+        "pty-host socket path could not be probed (an unexpected connect error, not 'stale'); refusing to remove it. Use --pty-host-socket to point at a free path.",
+      );
+      return noop;
+    }
+    // probe.kind === "stale": ECONNREFUSED (a crashed peer's leftover inode) or
+    // ENOENT (nothing there — the fresh-start case). Clear the path so listen()
+    // won't EADDRINUSE, but ONLY if the inode is actually a socket (or already
+    // gone): an arbitrary `--pty-host-socket` pointed at the user's own regular
+    // file/dir/symlink must warn and refuse, never silently unlink their data.
+    if (!isSocketInodeOrAbsent(socketPath)) {
       log?.warn(
         { socketPath },
         "pty-host socket path exists and is not a socket (a regular file, dir, or symlink); refusing to remove it. Use --pty-host-socket to point at a free path.",

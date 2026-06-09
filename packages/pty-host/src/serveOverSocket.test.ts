@@ -5,8 +5,19 @@
  * (covered by @kolu/pty-tui's render test). A green run proves serveOverStdio +
  * stdioLink hold over a socket, not just the in-process loopback.
  */
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { createConnection, type Socket } from "node:net";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import {
+  createConnection,
+  createServer,
+  type Server,
+  type Socket,
+} from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stdioLink } from "@kolu/surface/links/stdio";
@@ -124,6 +135,44 @@ describe("servePtyHostOverUnixSocket — real unix-socket round-trip", () => {
     expect(readFileSync(filePath, "utf8")).toBe("precious user data");
     expect(() => l.close()).not.toThrow();
     expect(existsSync(filePath)).toBe(true);
+  });
+
+  it("refuses to delete a real socket inode it could not probe (EACCES, not stale)", async () => {
+    // The F1 holdout: a connect() probe that fails for a NON-stale reason must
+    // NOT be read as "stale socket → safe to delete". Here the inode IS a real
+    // socket (lstat confirms it — so the inode-type guard alone would happily
+    // unlink it), yet `connect()` fails with EACCES because we strip the socket
+    // file's own perms (connecting a unix socket needs write perm on it). The
+    // probe must report `unknown`, not `stale`, so the socket survives the bind
+    // attempt. Stripping only the SOCKET (not its dir) keeps lstat working, so
+    // this isolates the connect-error classification — the exact gap codex held
+    // F1 open on.
+    if (process.getuid?.() === 0) return; // root bypasses unix perm checks
+    const dir = mkdtempSync(join(tmpdir(), "kolu-pty-eacces-"));
+    const liveSocketPath = join(dir, "live.sock");
+    const peer: Server = await new Promise((resolve) => {
+      const s = createServer();
+      s.listen(liveSocketPath, () => resolve(s));
+    });
+    try {
+      expect(existsSync(liveSocketPath)).toBe(true);
+      chmodSync(liveSocketPath, 0o000); // connect() → EACCES; lstat still works
+      const { servedRouter } = createInProcessPtyHost({
+        log: silentLog,
+        shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
+        version: "test",
+      });
+      const l = await servePtyHostOverUnixSocket({
+        socketPath: liveSocketPath,
+        router: servedRouter,
+        log: silentLog,
+      });
+      expect(existsSync(liveSocketPath)).toBe(true);
+      expect(() => l.close()).not.toThrow();
+      expect(existsSync(liveSocketPath)).toBe(true);
+    } finally {
+      peer.close();
+    }
   });
 
   it("degrades to a no-op (never throws) when the path is already served", async () => {
