@@ -723,9 +723,20 @@ Then(
   async function (this: KoluWorld, expected: string) {
     const popup = this.externalPopup;
     if (!popup) throw new Error("no external popup was captured");
+    // Compare normalized hrefs exactly, not a substring: `includes` would pass
+    // for a wrong destination that merely contains the expected string (e.g.
+    // `…/docs-bad`, or `…?next=https://example.com/docs`). `new URL().href`
+    // normalizes both sides so a trailing-slash difference isn't a false miss.
+    const want = new URL(expected).href;
     await pollFor({
       observe: () => Promise.resolve(popup.url()),
-      isDone: (url) => url.includes(expected),
+      isDone: (url) => {
+        try {
+          return new URL(url).href === want;
+        } catch {
+          return false;
+        }
+      },
       onTimeout: (last) =>
         new Error(`popup opened to "${last}", expected "${expected}"`),
       timeoutMs: POLL_TIMEOUT,

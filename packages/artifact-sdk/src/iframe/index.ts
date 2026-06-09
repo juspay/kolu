@@ -47,10 +47,12 @@ function postToParent(
 
 /** The absolute URL to open in a real browser tab when `anchor` is clicked, or
  *  null to let the click proceed in-frame. A link is "external" when it loads
- *  over http(s) at a different host than the previewed document: same-host links
- *  stay in-frame (the parent maps them back to a repo path via the `ready`
+ *  over http(s) at a different origin than the previewed document: same-origin
+ *  links stay in-frame (the parent maps them back to a repo path via the `ready`
  *  pathname report) and non-web schemes (`mailto:`, fragment-only `#foo`,
- *  `javascript:`) are left to the browser's own handling. `anchor.href` is
+ *  `javascript:`) are left to the browser's own handling. Origin (not host) is
+ *  the boundary so a same-host link over a different scheme — e.g. `http:` vs
+ *  the document's `https:` — is correctly treated as external. `anchor.href` is
  *  already resolved absolute against the document's base URL. */
 function externalHref(anchor: HTMLAnchorElement): string | null {
   let url: URL;
@@ -60,19 +62,27 @@ function externalHref(anchor: HTMLAnchorElement): string | null {
     return null;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-  if (url.host === window.location.host) return null;
+  if (url.origin === window.location.origin) return null;
   return url.href;
 }
 
-/** Trap a primary-button click on an external anchor and forward it to the
- *  parent. The opaque-origin sandbox carries no `allow-popups`/`allow-top-
- *  navigation`, so the browser would otherwise swallow the click or replace the
- *  preview in-pane; the parent opens the URL in a real tab instead. Bubble phase
- *  + a `defaultPrevented` guard so a page that handles its own links wins. We
- *  don't branch on modifier/middle clicks — the destination (a new tab) is the
- *  same whether or not the user asked for one. */
+/** Trap a primary- or middle-button click on an external anchor and forward it
+ *  to the parent. The opaque-origin sandbox carries no `allow-popups`/`allow-
+ *  top-navigation`, so the browser would otherwise swallow the click or replace
+ *  the preview in-pane; the parent opens the URL in a real tab instead. Bubble
+ *  phase + a `defaultPrevented` guard so a page that handles its own links wins.
+ *  We don't branch on the button: primary and middle (auxclick, the "open in a
+ *  new tab" gesture) resolve to the same destination — a new tab — and modifier
+ *  combos likewise, since the sandbox would swallow them all otherwise. The
+ *  `click` event already covers a left-button press; `auxclick` is wired
+ *  separately in `boot` for the middle button, which never fires `click`. */
 function onAnchorClick(event: MouseEvent): void {
-  if (event.defaultPrevented || event.button !== 0) return;
+  // `click` only fires for the primary button; `auxclick` carries button 1
+  // (middle) and 2 (right). Trap left and middle — both mean "follow the link";
+  // leave the right button to the context menu.
+  if (event.defaultPrevented || (event.button !== 0 && event.button !== 1)) {
+    return;
+  }
   const anchor = (event.target as Element | null)?.closest("a");
   if (!anchor) return;
   const url = externalHref(anchor);
@@ -204,6 +214,10 @@ function boot(): void {
   // (`allow-scripts` only — no `allow-popups`/`allow-top-navigation`), so trap
   // their clicks and ask the parent to open them in a real browser tab.
   document.addEventListener("click", onAnchorClick);
+  // Middle-click (the "open in a new tab" gesture) fires `auxclick`, not
+  // `click`, so the external-link trap needs both to cover it. Same handler:
+  // it already guards on `event.button`.
+  document.addEventListener("auxclick", onAnchorClick);
   window.addEventListener("message", onMessage);
   // The mouse's dedicated back/forward (X1/X2) buttons. The opaque-origin
   // sandbox traps them in this frame, so the parent can't see them; forward the
