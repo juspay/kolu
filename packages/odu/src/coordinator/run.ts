@@ -24,20 +24,17 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  type Channel,
   implementSurface,
-  inMemoryChannel,
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
 import { isLocalHost } from "@kolu/surface-nix-host";
 import { implement } from "@orpc/server";
 import { formatGoDuration } from "../common/duration";
+import { createLogTail } from "../common/logTail";
 import { fanId, onPlatform, splitFanId } from "../common/nodeId";
 import type { TaskSpec } from "../common/spec";
 import {
-  clampLog,
-  type NodeLogMessage,
   type NodeState,
   oduSurface,
   type PipelineState,
@@ -267,34 +264,20 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     nodes,
   });
 
-  // ── per-node local logs: tail buffer for late socket subscribers + the
-  //    durable per-SHA file (.ci/<sha7>/<plat>/<node>.log, justci's layout) ──
-  interface LocalLog {
-    buffer: string;
-    bus: Channel<NodeLogMessage>;
-  }
-  const logs = new Map<string, LocalLog>();
-  const logFor = (id: string): LocalLog => {
-    let log = logs.get(id);
-    if (log === undefined) {
-      log = { buffer: "", bus: inMemoryChannel<NodeLogMessage>() };
-      logs.set(id, log);
-    }
-    return log;
-  };
+  // ── per-node local logs: the in-memory tail (late socket subscribers) plus
+  //    the durable per-SHA file (.ci/<sha7>/<plat>/<node>.log, justci's layout).
+  //    The tail is the shared primitive; durability is this coordinator's
+  //    addition, layered on top of each tail mutation. ──
+  const tail = createLogTail();
   const fileFor = (id: string): string => join(repoRoot, logPathFor(sha7, id));
   const appendLocal = (id: string, text: string): void => {
-    const log = logFor(id);
-    log.buffer = clampLog(log.buffer + text);
-    log.bus.publish({ kind: "append", text });
+    tail.append(id, text);
     const file = fileFor(id);
     mkdirSync(dirname(file), { recursive: true });
     appendFileSync(file, text);
   };
   const resetLocal = (id: string, text: string): void => {
-    const log = logFor(id);
-    log.buffer = clampLog(text);
-    log.bus.publish({ kind: "snapshot", text: log.buffer });
+    tail.reset(id, text);
     const file = fileFor(id);
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, text);
@@ -306,13 +289,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     channel: inMemoryChannelByName(),
     cells: { nodes: { store } },
     streams: {
-      nodeLog: {
-        source: async function* ({ id }, signal) {
-          const log = logFor(id);
-          yield { kind: "snapshot", text: log.buffer } satisfies NodeLogMessage;
-          for await (const msg of log.bus.subscribe(signal)) yield msg;
-        },
-      },
+      nodeLog: { source: tail.streamSource },
     },
     procedures: {
       node: {
@@ -467,7 +444,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
           // Never reset _ci-setup: the coordinator's provision lines precede
           // the lane stream and must survive the lane's snapshot frame.
           if (frame.text !== "") appendLocal(id, frame.text);
-        } else if (frame.text !== "" || logFor(id).buffer !== "") {
+        } else if (frame.text !== "" || tail.logFor(id).buffer !== "") {
           resetLocal(id, frame.text);
         }
       },

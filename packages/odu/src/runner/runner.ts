@@ -20,21 +20,18 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
-  type Channel,
   implementSurface,
-  inMemoryChannel,
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
 import { implement } from "@orpc/server";
+import { createLogTail } from "../common/logTail";
 import { validatePipeline } from "../common/spec";
 import {
-  clampLog,
   type ConfigureInput,
   type ConfigureOutput,
   EMPTY_STATE,
   laneSurface,
-  type NodeLogMessage,
   type NodeState,
   type NodeStatus,
   type PipelineState,
@@ -55,20 +52,7 @@ export interface LaneRunner {
 
 export function createLaneRunner(): LaneRunner {
   const stateStore = inMemoryStore<PipelineState>(EMPTY_STATE);
-
-  interface NodeLog {
-    buffer: string;
-    bus: Channel<NodeLogMessage>;
-  }
-  const logs = new Map<string, NodeLog>();
-  const logFor = (id: string): NodeLog => {
-    let log = logs.get(id);
-    if (log === undefined) {
-      log = { buffer: "", bus: inMemoryChannel<NodeLogMessage>() };
-      logs.set(id, log);
-    }
-    return log;
-  };
+  const tail = createLogTail();
 
   const fragment = implementSurface(laneSurface, {
     channel: inMemoryChannelByName(),
@@ -76,13 +60,7 @@ export function createLaneRunner(): LaneRunner {
       nodes: { store: stateStore },
     },
     streams: {
-      nodeLog: {
-        source: async function* ({ id }, signal) {
-          const log = logFor(id);
-          yield { kind: "snapshot", text: log.buffer } satisfies NodeLogMessage;
-          for await (const msg of log.bus.subscribe(signal)) yield msg;
-        },
-      },
+      nodeLog: { source: tail.streamSource },
     },
     procedures: {
       node: {
@@ -115,17 +93,6 @@ export function createLaneRunner(): LaneRunner {
       ...cur,
       nodes: { ...cur.nodes, [id]: { ...prev, ...patch } },
     });
-  };
-
-  const appendLog = (id: string, text: string): void => {
-    const log = logFor(id);
-    log.buffer = clampLog(log.buffer + text);
-    log.bus.publish({ kind: "append", text });
-  };
-  const resetLog = (id: string): void => {
-    const log = logFor(id);
-    log.buffer = "";
-    log.bus.publish({ kind: "snapshot", text: "" });
   };
 
   // ── configure: seed the DAG, ack, let the scheduler take it ──
@@ -240,7 +207,7 @@ export function createLaneRunner(): LaneRunner {
 
     if (cfg.workspace !== null) {
       const exists = existsSync(cfg.workspace);
-      appendLog(
+      tail.append(
         SETUP_NODE_ID,
         exists
           ? `[odu] using provided workspace ${cfg.workspace}\n`
@@ -255,7 +222,7 @@ export function createLaneRunner(): LaneRunner {
       // configure() validated origin+sha when workspace is null
       { origin: cfg.origin as string, sha: cfg.sha as string },
       (line) => {
-        if (live()) appendLog(SETUP_NODE_ID, `${line}\n`);
+        if (live()) tail.append(SETUP_NODE_ID, `${line}\n`);
       },
     ).then((result) => {
       if (!live()) {
@@ -285,7 +252,7 @@ export function createLaneRunner(): LaneRunner {
     child.stderr?.setEncoding("utf-8");
     const onOutput = (chunk: string): void => {
       if (children.get(node.id) !== child) return;
-      appendLog(node.id, chunk);
+      tail.append(node.id, chunk);
     };
     child.stdout?.on("data", onOutput);
     child.stderr?.on("data", onOutput);
@@ -301,7 +268,7 @@ export function createLaneRunner(): LaneRunner {
     };
     child.on("error", (err) => {
       if (children.get(node.id) === child) {
-        appendLog(node.id, `\n[odu] spawn failed: ${err.message}\n`);
+        tail.append(node.id, `\n[odu] spawn failed: ${err.message}\n`);
       }
       finish("failed", null);
     });
@@ -342,7 +309,7 @@ export function createLaneRunner(): LaneRunner {
         killGroup(child, "SIGTERM");
       }
       if (rid === SETUP_NODE_ID) setupGeneration += 1;
-      resetLog(rid);
+      tail.reset(rid, "");
       setNode(rid, {
         status: "pending",
         exitCode: null,
