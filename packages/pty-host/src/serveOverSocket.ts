@@ -13,7 +13,7 @@
  * ssh/subprocess path. The router is shared across connections (and with the
  * in-process `directLink` client); there is no per-connection state coupling.
  */
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, statSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { dirname } from "node:path";
 import { serveOverStdio } from "@kolu/surface/peer-server";
@@ -26,6 +26,31 @@ export interface PtyHostSocketListener {
   /** Stop accepting connections and remove the socket file. Idempotent and
    *  safe to call synchronously from a `process.on("exit")` handler. */
   close(): void;
+}
+
+/** Is `dir` a private, owner-only directory the current user owns? The socket
+ *  serves the FULL `ptyHostSurface` (write/kill/spawn/getScreenText), so
+ *  directory privacy is the security boundary — anyone who can `connect()` the
+ *  socket drives every PTY. On systemd Linux the parent is `$XDG_RUNTIME_DIR`
+ *  (`/run/user/$UID`, tmpfs 0700) and is safe. The danger is the off-systemd
+ *  `/tmp/kolu-$UID` fallback on a shared host: the path is STABLE (it must be,
+ *  so the CLI finds it without the server's UUID — unlike koluRoot's
+ *  `kolu-<uuid>`), so another local user could pre-create `/tmp/kolu-$UID`
+ *  with loose perms before we do, and our `mkdirSync` does NOT repair an
+ *  existing dir's owner/mode. So after creating it we VERIFY: current-uid owned
+ *  and no group/other access. A failure returns false → refuse to bind (the
+ *  caller degrades to a no-op listener with a warning), never serve a powerful
+ *  surface from a directory someone else can reach into.
+ *
+ *  Returns true on platforms without uid semantics (Windows: `process.getuid`
+ *  is undefined) — the ACL model there is out of scope for this check. */
+function isPrivateOwnedDir(dir: string): boolean {
+  const getuid = process.getuid?.bind(process);
+  if (getuid === undefined) return true;
+  const st = statSync(dir);
+  // Owner must be us, and neither group nor other may have any access bit
+  // (mode & 0o077 === 0) — the same 0o700 privacy koluRoot relies on.
+  return st.uid === getuid() && (st.mode & 0o077) === 0;
 }
 
 /** Does a live peer already serve a socket at `path`? Resolves true if a
@@ -65,7 +90,19 @@ export async function servePtyHostOverUnixSocket(opts: {
 
   try {
     // Owner-only parent dir, mirroring koluRoot's 0o700 privacy.
-    mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
+    const dir = dirname(socketPath);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+
+    // mkdirSync's mode is a no-op on a PRE-EXISTING dir, so verify privacy
+    // rather than assume it — a stable `/tmp/kolu` path another user could have
+    // pre-created with loose perms must not host this full-control surface.
+    if (!isPrivateOwnedDir(dir)) {
+      log?.warn(
+        { socketPath, dir },
+        "pty-host socket dir is not a private owner-only directory; refusing to serve the pty-host there (it grants full PTY control). Use --pty-host-socket to point at a directory you own with 0700 perms.",
+      );
+      return noop;
+    }
 
     if (await isSocketLive(socketPath)) {
       log?.warn(
@@ -83,10 +120,17 @@ export async function servePtyHostOverUnixSocket(opts: {
       socket.on("error", (err) =>
         log?.debug({ err }, "pty-host socket client error"),
       );
-      void serveOverStdio({
+      // serveOverStdio returns `readFramedLines`' promise, which REJECTS when
+      // the read stream errors (a peer reset / aborted mid-frame). It MUST be
+      // caught: kolu-server treats unhandled rejections as fatal
+      // (`process.exit(1)`), so a flaky local CLI client would otherwise take
+      // the whole server down — exactly what this listener promises it won't.
+      serveOverStdio({
         router,
         transport: { read: socket, write: socket },
-      });
+      }).catch((err) =>
+        log?.debug({ err }, "pty-host socket peer ended with an error"),
+      );
     });
 
     await new Promise<void>((resolve, reject) => {

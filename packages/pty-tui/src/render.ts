@@ -24,6 +24,18 @@ export function commandName(process: string | undefined): string {
   return process.split("/").pop() ?? process;
 }
 
+/** Strip terminal-hostile bytes from a human-table cell. OSC titles and OSC 7
+ *  cwds are attacker-influenceable (a shell can set its title to anything,
+ *  including newlines or raw ESC sequences), so painting them verbatim into the
+ *  `list` table could break the column layout or inject terminal control
+ *  effects. Collapse all C0 controls + DEL to a single space and trim — JSON
+ *  output stays raw (`JSON.stringify` escapes controls), this is only the
+ *  human-rendered path. */
+export function sanitizeCell(value: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching C0 (\x00-\x1f) + DEL (\x7f) to neutralize them.
+  return value.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
+}
+
 /** Collapse a leading `$HOME` to `~` for a shorter, familiar cwd. */
 export function tildeify(cwd: string, home?: string): string {
   if (home === undefined || home === "") return cwd;
@@ -44,8 +56,10 @@ export function formatList(
     idle: relativeTime(e.lastActivity, opts.now),
     // The OSC 0/2 title if set (e.g. "claude: implement …"), else the foreground
     // command's basename, else an em-dash. "" is falsy so it falls through.
-    cmd: e.title || commandName(e.foregroundProcess) || "—",
-    cwd: tildeify(e.cwd, opts.home),
+    // Sanitized: title/cwd are attacker-influenceable (a shell sets them), so
+    // strip control bytes before they can corrupt the table or inject escapes.
+    cmd: sanitizeCell(e.title || commandName(e.foregroundProcess) || "—"),
+    cwd: sanitizeCell(tildeify(e.cwd, opts.home)),
   }));
   const header = { id: "ID", pid: "PID", idle: "IDLE", cmd: "CMD", cwd: "CWD" };
   const width = (key: keyof typeof header): number =>

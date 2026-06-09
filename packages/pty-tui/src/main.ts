@@ -13,7 +13,11 @@
  */
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { getPtyHostSocketPath } from "@kolu/pty-host";
+import {
+  getPtyHostSocketPath,
+  isPtyHostContractCompatible,
+  PTY_HOST_CONTRACT_VERSION,
+} from "@kolu/pty-host";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { formatList, formatListJson } from "./render.ts";
 
@@ -64,12 +68,6 @@ function parse(argv: string[]): Args {
   };
 }
 
-/** First frame of a stream, then stop iterating. */
-async function firstFrame<T>(stream: Promise<AsyncIterable<T>>): Promise<T> {
-  for await (const value of await stream) return value;
-  throw new Error("stream closed before first frame");
-}
-
 /** Backpressure-aware stdout write — a large scrollback to a pipe must drain
  *  before we exit, or the tail is truncated. */
 function writeOut(text: string): Promise<void> {
@@ -94,20 +92,40 @@ async function cmdList(conn: Connection, args: Args): Promise<void> {
 }
 
 async function cmdSnapshot(conn: Connection, id: string): Promise<void> {
-  const frame = await firstFrame(
-    conn.client.surface.terminalAttach.get({ id }),
-  );
-  if (frame.kind !== "snapshot") {
-    throw new Error(`expected a snapshot first frame, got "${frame.kind}"`);
-  }
-  await writeOut(frame.data.endsWith("\n") ? frame.data : `${frame.data}\n`);
-  // Trailer to stderr so stdout stays clean, scriptable scrollback. Derived
-  // from the snapshot we already hold — no second round-trip to decorate it
-  // (the screen state and its line count are one artifact, not two reads).
-  const lines = frame.data
-    ? frame.data.replace(/\n+$/, "").split("\n").length
-    : 0;
+  // Plain rendered scrollback — NOT the `terminalAttach` first frame. That
+  // first frame is the *serialized xterm screen state* (VT escape sequences)
+  // used for late attach; piping it to a terminal would replay those control
+  // sequences, and `grep`-ing it (the headless-CI use the docs promise) would
+  // match against escape bytes, not text. `getScreenText` is the rendered
+  // buffer the `snapshot | grep MARK-` flow needs.
+  const { text } = await conn.client.surface.terminal.getScreenText({ id });
+  await writeOut(text.endsWith("\n") ? text : `${text}\n`);
+  // Trailer to stderr so stdout stays clean, scriptable scrollback — derived
+  // from the text we already hold, no second round-trip to decorate it.
+  const lines = text ? text.replace(/\n+$/, "").split("\n").length : 0;
   process.stderr.write(`— ${id} · ${lines} line${lines === 1 ? "" : "s"}\n`);
+}
+
+/** Confirm the running server speaks a wire-compatible pty-host contract before
+ *  we invoke any command — a newer kolu-tui against an older/different server
+ *  would otherwise fail deep inside oRPC with an opaque schema/procedure error
+ *  instead of an honest "restart your server" line. A major mismatch (or a
+ *  newer-minor server) is a clean, actionable failure here. */
+async function assertCompatible(conn: Connection): Promise<void> {
+  const { contractVersion } = await conn.client.surface.system
+    .version({})
+    .catch(() => {
+      throw new Error(
+        "could not read the server's pty-host version — is it a kolu-server new enough to expose `system.version`? Try restarting it.",
+      );
+    });
+  if (
+    !isPtyHostContractCompatible(contractVersion, PTY_HOST_CONTRACT_VERSION)
+  ) {
+    fail(
+      `pty-host contract mismatch: server speaks ${contractVersion}, kolu-tui needs ${PTY_HOST_CONTRACT_VERSION}. Restart kolu-server (and kolu-tui) to the same build.`,
+    );
+  }
 }
 
 async function run(conn: Connection, args: Args): Promise<void> {
@@ -143,6 +161,7 @@ async function main(): Promise<void> {
   });
 
   try {
+    await assertCompatible(conn);
     await run(conn, args);
   } finally {
     conn.dispose();
