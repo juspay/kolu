@@ -311,4 +311,33 @@ describe("createHeartbeat", () => {
     expect(ws.reconnect).not.toHaveBeenCalled();
     dispose();
   });
+
+  it("settles a SYNCHRONOUS probe throw even when the onProbeError reporter throws — no spurious reconnect after the timeout window", async () => {
+    const ws = fakeHeartbeatSocket();
+    const probe = vi.fn(() => {
+      throw new Error("probe miswired");
+    });
+    const onProbeError = vi.fn(() => {
+      throw new Error("reporter blew up");
+    });
+    const onStale = vi.fn();
+    const { dispose } = createHeartbeat({
+      ws,
+      probe: probe as unknown as () => Promise<unknown>,
+      intervalMs: 1000,
+      timeoutMs: 500,
+      onProbeError,
+      onStale,
+    });
+    await vi.advanceTimersByTimeAsync(1000); // tick → probe throws → reporter throws
+    expect(onProbeError).toHaveBeenCalledTimes(1);
+    // A throwing reporter must NOT leave the probe armed: once the timeout window
+    // passes, the sync fault must not be misclassified as a stale transport.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(ws.reconnect).not.toHaveBeenCalled();
+    expect(onStale).not.toHaveBeenCalled();
+    // It settled, so the next tick probes again (not wedged inFlight).
+    expect(probe).toHaveBeenCalledTimes(2);
+    dispose();
+  });
 });

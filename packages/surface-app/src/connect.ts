@@ -270,7 +270,15 @@ export function createHeartbeat(opts: HeartbeatOptions): {
     try {
       probing = opts.probe();
     } catch (error) {
-      (opts.onProbeError ?? warnProbeThrew)(error);
+      // Report in a guarded block, then ALWAYS `settled(false)` — a throwing
+      // reporter must not leave `inFlight`/`probeTimer` armed, or this local
+      // probe fault would later be misclassified as a stale transport and force
+      // a spurious `ws.reconnect()` (and an uncaught error in the timer).
+      try {
+        (opts.onProbeError ?? warnProbeThrew)(error);
+      } catch {
+        // A throwing status callback must never defeat the settle below.
+      }
       settled(false);
       return;
     }
