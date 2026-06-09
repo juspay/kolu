@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-09T21:51:16.170232+00:00'
+generated_at: '2026-06-09T23:53:12.852291+00:00'
 apm_version: 0.18.0
 dependencies:
 - repo_url: anthropics/skills
@@ -20,6 +20,14 @@ dependencies:
   - .agents/skills/nix-chrome-devtools-mcp
   - .claude/skills/nix-chrome-devtools-mcp
   content_hash: sha256:51308bd8cc8b6ae24781a77b67a7c8140bdea5d793e35427e7b8fcbeb0662074
+- repo_url: juspay/odu
+  host: github.com
+  resolved_commit: a9cdbc1e53579326483f2e38968255a50ce83b0b
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/ci
+  - .claude/skills/ci
+  content_hash: sha256:f55a52a3e808ba12002c774585984f4e77387c8ba9d02901d94af58f421394d6
 - repo_url: juspay/project-unknown
   host: github.com
   resolved_commit: 27c4973ae3837eaa54b0439faa5346a3320ac379
@@ -111,7 +119,6 @@ local_deployed_files:
 - .agents/skills/be
 - .agents/skills/be-review
 - .agents/skills/blog-post
-- .agents/skills/ci
 - .agents/skills/codex-debate
 - .agents/skills/dev-server
 - .agents/skills/evidence
@@ -139,7 +146,6 @@ local_deployed_files:
 - .claude/skills/be
 - .claude/skills/be-review
 - .claude/skills/blog-post
-- .claude/skills/ci
 - .claude/skills/codex-debate
 - .claude/skills/dev-server
 - .claude/skills/evidence
@@ -155,7 +161,7 @@ local_deployed_file_hashes:
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
   .claude/rules/atlas.md: sha256:952a49f91d233d35fa8fc1f731cbff874161df7491b5696edc1e91da588c6d90
   .claude/rules/conventions.md: sha256:c9f6ab7de674fb0da8b3d29f0e188db0cb67f96df774e270848b18323a12760b
-  .claude/rules/docs.md: sha256:00e7efd122bfa9dd97cddde6f0caa01ae022a0ddc49d9df42cfd214a03eec868
+  .claude/rules/docs.md: sha256:5debef288dd69101895b445a6b989e03bc7fcf785edc70179ed8cdff80233315
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:a5cfe688d4399be719565de823ccacec874b9d2faa01d29897a7b40de1f49367
