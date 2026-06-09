@@ -357,6 +357,25 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     }
   };
 
+  // The _ci-setup node's lifecycle is coordinator-owned, not lane-mirrored:
+  // its `running` start is stamped when the coordinator begins provisioning
+  // (laneStart, below), and its duration is coordinator-measured because our
+  // _ci-setup brackets provision+fetch+worktree, which precedes the lane
+  // stream. From the lane we take only the terminal verdict (ok/failed).
+  const finishSetup = (
+    platform: string,
+    status: NodeState["status"],
+    exitCode: number | null,
+  ): void => {
+    const startedAt = laneStart.get(platform) ?? Date.now();
+    updateNode(fanId(SETUP, platform), {
+      status,
+      exitCode,
+      startedAt,
+      durationMs: Date.now() - startedAt,
+    });
+  };
+
   // ── socket + lanes ──
   mkdirSync(join(repoRoot, ".ci"), { recursive: true });
   const closeSocket = await serveSocket(router, join(repoRoot, SOCKET_PATH));
@@ -405,28 +424,23 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
         for (const laneId of laneState.order) {
           const laneNode = laneState.nodes[laneId];
           if (laneNode === undefined) continue;
-          const id = fanId(laneId, platform);
           if (laneId === SETUP) {
-            // justci's _ci-setup brackets ship+prep; ours brackets
-            // provision+fetch+worktree — duration is coordinator-measured.
-            const startedAt = laneStart.get(platform) ?? Date.now();
+            // The coordinator owns _ci-setup's timing (finishSetup); from the
+            // lane we mirror only its terminal verdict, leaving the
+            // coordinator-stamped `running` start untouched until then.
             const terminal =
               laneNode.status !== "pending" && laneNode.status !== "running";
-            updateNode(id, {
-              status:
-                laneNode.status === "pending" ? "running" : laneNode.status,
-              exitCode: laneNode.exitCode,
-              startedAt,
-              durationMs: terminal ? Date.now() - startedAt : null,
-            });
-          } else {
-            updateNode(id, {
-              status: laneNode.status,
-              exitCode: laneNode.exitCode,
-              startedAt: laneNode.startedAt,
-              durationMs: laneNode.durationMs,
-            });
+            if (terminal) {
+              finishSetup(platform, laneNode.status, laneNode.exitCode);
+            }
+            continue;
           }
+          updateNode(fanId(laneId, platform), {
+            status: laneNode.status,
+            exitCode: laneNode.exitCode,
+            startedAt: laneNode.startedAt,
+            durationMs: laneNode.durationMs,
+          });
         }
       },
       onLogFrame: (laneId, frame) => {
