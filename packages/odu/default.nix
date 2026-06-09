@@ -22,16 +22,19 @@ let
     } ''
     mkdir -p $out/bin
     # PATH carries what CI nodes need before the devshell takes over:
-    # `just` + `nix` run the recipes ({{ nix_shell }} re-enters the
-    # devshell), `git` prepares the per-SHA workspace, `flock` serializes
-    # fetches on shared hosts.
+    # `just` runs the recipes ({{ nix_shell }} re-enters the devshell),
+    # `git` prepares the per-SHA workspace, `flock` serializes fetches on
+    # shared hosts. `nix` is deliberately NOT pinned: the lane host's own
+    # nix realised this closure, and a pinned client older than the host
+    # daemon corrupts CA-derivation handling ("derivation has incorrect
+    # deferred output") — the host that provides the daemon provides the
+    # client.
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/odu-runner \
       --add-flags "${entry}/runner/main.ts" \
       --prefix PATH : ${pkgs.lib.makeBinPath [
         pkgs.nodejs
         pkgs.git
         pkgs.just
-        pkgs.nix
         pkgs.util-linux
         pkgs.bash
         pkgs.coreutils
@@ -45,8 +48,9 @@ let
     } ''
     mkdir -p $out/bin
     # `gh` posts commit statuses (coordinator-only — lane hosts never see
-    # credentials); `ssh`/`nix` are HostSession's transport; `just` feeds
-    # the DAG ingest; `git` the strict gate.
+    # credentials); `ssh` is HostSession's transport; `just` feeds the DAG
+    # ingest; `git` the strict gate. `nix` comes from the invoking host (you
+    # reached this binary through nix), never pinned — see odu-runner's note.
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/odu \
       --add-flags "${entry}/cli/main.ts" \
       --set ODU_GH_BIN "${pkgs.gh}/bin/gh" \
@@ -56,7 +60,6 @@ let
         pkgs.gh
         pkgs.just
         pkgs.openssh
-        pkgs.nix
         pkgs.bash
         pkgs.coreutils
       ]}
