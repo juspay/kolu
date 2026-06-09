@@ -5,6 +5,7 @@
  */
 import { basename } from "node:path";
 import type { PtyHostListEntry } from "@kolu/pty-host";
+import columnify from "columnify";
 
 /** Compact relative age of `ms` (an epoch from `lastActivity`) against `now`,
  *  e.g. `3s` / `5m` / `2h` / `4d`. Never negative (clock skew floors at 0s). */
@@ -44,8 +45,9 @@ export function tildeify(cwd: string, home?: string): string {
   return cwd.startsWith(`${home}/`) ? `~${cwd.slice(home.length)}` : cwd;
 }
 
-/** Render the `list` table — one row per live terminal, columns sized to
- *  content. Empty inventory gets an honest one-liner, not a bare header. */
+/** Render the `list` table — one row per live terminal, columns auto-sized by
+ *  `columnify` (the borderless, space-aligned `docker ps` style). Empty
+ *  inventory gets an honest one-liner, not a bare header. */
 export function formatList(
   entries: PtyHostListEntry[],
   opts: { now: number; home?: string },
@@ -62,21 +64,18 @@ export function formatList(
     cmd: sanitizeCell(e.title || commandName(e.foregroundProcess) || "—"),
     cwd: sanitizeCell(tildeify(e.cwd, opts.home)),
   }));
-  const header = { id: "ID", pid: "PID", idle: "IDLE", cmd: "CMD", cwd: "CWD" };
-  const width = (key: keyof typeof header): number =>
-    Math.max(header[key].length, ...rows.map((r) => r[key].length));
-  const w = {
-    id: width("id"),
-    pid: width("pid"),
-    idle: width("idle"),
-    cmd: width("cmd"),
-    cwd: width("cwd"),
-  };
-  const line = (r: typeof header): string =>
-    `${r.id.padEnd(w.id)}  ${r.pid.padStart(w.pid)}  ${r.idle.padStart(
-      w.idle,
-    )}  ${r.cmd.padEnd(w.cmd)}  ${r.cwd}`;
-  return [line(header), ...rows.map(line)].join("\n");
+  return (
+    columnify(rows, {
+      columns: ["id", "pid", "idle", "cmd", "cwd"],
+      columnSplitter: "  ",
+      config: { pid: { align: "right" }, idle: { align: "right" } },
+    })
+      // columnify right-pads every column including the last; drop the trailing
+      // run so piped/asserted output has no dangling whitespace.
+      .split("\n")
+      .map((row) => row.trimEnd())
+      .join("\n")
+  );
 }
 
 /** Render `list --json` — the entries array verbatim (a top-level array, so

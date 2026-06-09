@@ -11,9 +11,12 @@
   },
   "dependencies": {
     "@kolu/pty-host": "workspace:*",
-    "@kolu/surface": "workspace:*"
+    "@kolu/surface": "workspace:*",
+    "cleye": "^2.3.0",
+    "columnify": "^1.6.0"
   },
   "devDependencies": {
+    "@types/columnify": "^1.5.4",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0",

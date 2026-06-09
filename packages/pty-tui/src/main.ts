@@ -12,63 +12,53 @@
  * phases. The CLI comes and goes; kolu-server keeps owning the PTYs.
  */
 import { homedir } from "node:os";
-import { parseArgs } from "node:util";
 import {
   getPtyHostSocketPath,
   isPtyHostContractCompatible,
   PTY_HOST_CONTRACT_VERSION,
 } from "@kolu/pty-host";
+import { cli, command } from "cleye";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { formatList, formatListJson } from "./render.ts";
 
-const HELP = `kolu-tui — a terminal-side client for kolu-server's pty-host (beta)
+// Shared on both subcommands (cleye doesn't inherit a parent flag into a
+// subcommand's parsed type, so it's declared on each that needs it).
+const socketFlag = {
+  ptyHostSocket: {
+    type: String,
+    description:
+      "pty-host socket path (default: $XDG_RUNTIME_DIR/kolu/pty-host.sock on systemd Linux, else /tmp/kolu-$UID/pty-host.sock)",
+  },
+} as const;
 
-Usage:
-  kolu-tui list [--json]       list your live terminals
-  kolu-tui snapshot <id>       print a terminal's current scrollback, then exit
-  kolu-tui help                show this help
-
-Options:
-  --pty-host-socket <path>
-                    pty-host socket (default: $XDG_RUNTIME_DIR/kolu/pty-host.sock
-                    on systemd Linux, else /tmp/kolu-$UID/pty-host.sock)
-  --json            machine-readable output (list)
-  -h, --help        show this help
-
-kolu-tui connects to a running kolu-server over a local unix socket. Start the
-server first (e.g. \`nix run github:juspay/kolu\`); the socket appears once it
-boots.`;
-
-interface Args {
-  command: string | undefined;
-  id: string | undefined;
-  ptyHostSocket: string | undefined;
-  json: boolean;
-  help: boolean;
-}
-
-function parse(argv: string[]): Args {
-  // `pnpm start -- …` forwards a literal `--`; node:util treats `--` as
-  // end-of-options, so strip a leading one. First positional is the command,
-  // second (for snapshot) is the terminal id.
-  const cleaned = argv[0] === "--" ? argv.slice(1) : argv;
-  const { values, positionals } = parseArgs({
-    args: cleaned,
-    allowPositionals: true,
-    options: {
-      "pty-host-socket": { type: "string" },
-      json: { type: "boolean", default: false },
-      help: { type: "boolean", short: "h", default: false },
-    },
-  });
-  return {
-    command: positionals[0],
-    id: positionals[1],
-    ptyHostSocket: values["pty-host-socket"],
-    json: values.json ?? false,
-    help: values.help ?? false,
-  };
-}
+const argv = cli({
+  name: "kolu-tui",
+  version: PTY_HOST_CONTRACT_VERSION,
+  help: {
+    description:
+      "A terminal-side client for kolu-server's pty-host (beta). Connects to a running kolu-server over a local unix socket — start the server first (e.g. `nix run github:juspay/kolu`); the socket appears once it boots. Read-only this phase: attach / spawn / kill land later.",
+  },
+  commands: [
+    command({
+      name: "list",
+      help: { description: "List your live terminals." },
+      flags: {
+        ...socketFlag,
+        json: {
+          type: Boolean,
+          description: "machine-readable JSON output (a top-level array)",
+          default: false,
+        },
+      },
+    }),
+    command({
+      name: "snapshot",
+      parameters: ["<id>"],
+      help: { description: "Print a terminal's current rendered scrollback." },
+      flags: { ...socketFlag },
+    }),
+  ],
+});
 
 /** Backpressure-aware stdout write — a large scrollback to a pipe must drain
  *  before we exit, or the tail is truncated. EPIPE (e.g. `kolu-tui list | head
@@ -94,10 +84,10 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-async function cmdList(conn: Connection, args: Args): Promise<void> {
+async function cmdList(conn: Connection, json: boolean): Promise<void> {
   const { entries } = await conn.client.surface.terminal.list({});
   await writeOut(
-    args.json
+    json
       ? `${formatListJson(entries)}\n`
       : `${formatList(entries, { now: Date.now(), home: homedir() })}\n`,
   );
@@ -140,31 +130,15 @@ async function assertCompatible(conn: Connection): Promise<void> {
   }
 }
 
-async function run(conn: Connection, args: Args): Promise<void> {
-  switch (args.command) {
-    case "list":
-      return cmdList(conn, args);
-    case "snapshot": {
-      if (args.id === undefined) fail("snapshot <id>: missing terminal id");
-      return cmdSnapshot(conn, args.id);
-    }
-    default:
-      fail(`unknown command "${args.command}" (try: list, snapshot, --help)`);
-  }
-}
-
 async function main(): Promise<void> {
-  const args = parse(process.argv.slice(2));
-  if (args.help || args.command === "help") {
-    await writeOut(`${HELP}\n`);
-    return;
-  }
-  if (args.command === undefined) {
-    process.stderr.write(`${HELP}\n`);
+  // cleye already handled --help / --version / unknown commands (it prints and
+  // exits). No subcommand at all → show help and signal misuse.
+  if (argv.command === undefined) {
+    argv.showHelp();
     process.exit(1);
   }
 
-  const socketPath = getPtyHostSocketPath(args.ptyHostSocket);
+  const socketPath = getPtyHostSocketPath(argv.flags.ptyHostSocket);
   const conn = await connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
     return fail(
@@ -174,7 +148,8 @@ async function main(): Promise<void> {
 
   try {
     await assertCompatible(conn);
-    await run(conn, args);
+    if (argv.command === "list") await cmdList(conn, argv.flags.json);
+    else await cmdSnapshot(conn, argv._.id);
   } finally {
     conn.dispose();
   }
