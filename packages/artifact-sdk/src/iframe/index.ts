@@ -23,6 +23,7 @@ import { match } from "ts-pattern";
 import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
 import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
+import { isHttpUrl } from "../core/url";
 import type {
   HistoryMsg,
   Locator,
@@ -55,13 +56,10 @@ function postToParent(
  *  the document's `https:` — is correctly treated as external. `anchor.href` is
  *  already resolved absolute against the document's base URL. */
 function externalHref(anchor: HTMLAnchorElement): string | null {
-  let url: URL;
-  try {
-    url = new URL(anchor.href);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  if (!isHttpUrl(anchor.href)) return null;
+  // `isHttpUrl` already proved `anchor.href` parses, so this `new URL` can't
+  // throw — it's only here to read the origin for the same-origin check.
+  const url = new URL(anchor.href);
   if (url.origin === window.location.origin) return null;
   return url.href;
 }

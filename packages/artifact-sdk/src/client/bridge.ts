@@ -20,6 +20,7 @@
  */
 
 import { match, P } from "ts-pattern";
+import { isHttpUrl } from "../core/url";
 import type {
   IframeToParent,
   Locator,
@@ -175,21 +176,6 @@ export function observeIframeHistory(
         .otherwise(() => null),
     onHistory,
   );
-}
-
-/** True only for an absolute `http:`/`https:` URL. The parent re-checks the
- *  scheme of any URL the in-iframe SDK asks it to open: `postMessage` is a
- *  network-grade boundary reachable by any in-frame script, and `window.open`
- *  runs in the parent's trusted origin — a `javascript:` or `data:` URL must
- *  never reach it. The in-iframe SDK already filters to external http(s), so
- *  this is defense in depth, not the only gate. */
-function isHttpUrl(raw: string): boolean {
-  try {
-    const u = new URL(raw);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 /** Observe a request from the previewed document to open an external URL. The
