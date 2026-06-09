@@ -224,7 +224,7 @@ const App: Component = () => {
 
   // Canvas posture seam — shared by the keyboard shortcut (below) and the
   // command palette. `toggle` is the single writer; its own guard no-ops
-  // at zero terminals.
+  // off the spatial canvas (mobile / narrow) or at zero terminals.
   const posture = useViewPosture();
 
   // Shared between the keyboard dispatcher and the command palette so a single

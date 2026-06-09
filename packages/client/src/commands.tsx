@@ -156,9 +156,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     deps.activate,
   );
 
-  // Canvas posture seam — same reader pattern as ChromeBar/Dock. The memo
-  // reads `mode()`/`canMaximize()` so the command's label and visibility
-  // track posture reactively; `toggle()` is the shared single writer.
+  // Canvas posture — same reactive reader pattern as ChromeBar/Dock. The
+  // memo reads `mode()`/`canMaximize()` so the command's label and
+  // visibility track posture reactively. The *write* path stays on
+  // `deps.toggleCanvasPosture` (the shared `ActionContext` seam the keyboard
+  // shortcut also uses), so the two surfaces never drift if App later wraps
+  // the toggle with a guard or telemetry.
   const posture = useViewPosture();
 
   return createMemo((): PaletteCommand[] => [
@@ -342,7 +345,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                       : "Maximize terminal",
                   section: "canvas" as const,
                   keybind: ACTIONS.toggleCanvasPosture.keybind,
-                  onSelect: () => posture.toggle(),
+                  onSelect: () => deps.toggleCanvasPosture(),
                 },
               ]
             : []),

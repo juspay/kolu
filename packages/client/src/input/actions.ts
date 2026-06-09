@@ -49,7 +49,8 @@ export interface ActionContext {
   toggleDock: () => void;
   /** Flip the canvas between tiled and maximized posture. Wired to
    *  `useViewPosture().toggle`, whose own write guard makes it a no-op
-   *  with zero terminals — so the keybind needs no extra guard. */
+   *  off the spatial canvas (mobile / narrow) or with zero terminals — so
+   *  the keybind needs no extra guard. */
   toggleCanvasPosture: () => void;
   toggleRecordingPause: () => void;
 }

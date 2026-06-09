@@ -15,6 +15,7 @@
  *  deliberately stays out of this hook — different change frequency,
  *  different reactivity source, different blast radius. Tracked: kolu#628. */
 
+import { supportsSpatialCanvas } from "../capabilities";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 
 /** Canvas-display mode. `"tiled"` is the freeform canvas where the dock
@@ -49,12 +50,17 @@ export function useViewPosture() {
      *  with `mode()`'s own guard. */
     canMaximize,
     /** Toggle between tiled canvas and maximized. Single writer, and the
-     *  write guard: a no-op with zero terminals (same `canMaximize`
-     *  predicate as `mode()`'s read guard and the `canMaximize` affordance
-     *  guard), so the persisted flag can never be flipped on at zero tiles —
-     *  the safety lives in the receptacle, not in each caller. */
+     *  write guard: a no-op without a spatial canvas (mobile / narrow
+     *  viewport, where the canvas isn't mounted) or with zero terminals
+     *  (same `canMaximize` predicate as `mode()`'s read guard and the
+     *  affordance guard). Gating both surfaces here — not just the keyboard
+     *  caller — keeps a mobile hardware-keyboard press from silently
+     *  flipping the persisted `kolu-canvas-maximized` flag with no visible
+     *  effect: the safety lives in the receptacle, not in each caller. */
     toggle: (): void => {
-      if (canMaximize()) store.toggleCanvasMaximized();
+      if (supportsSpatialCanvas() && canMaximize()) {
+        store.toggleCanvasMaximized();
+      }
     },
   } as const;
 }
