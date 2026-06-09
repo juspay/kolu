@@ -166,22 +166,38 @@ describe("classifyGhError", () => {
     });
   });
 
-  it("classifies gh's 'no pull requests found' as absent", () => {
-    expect(
-      classifyGhError({
-        code: 1,
-        stderr: 'no pull requests found for branch "my-branch"',
-      }),
-    ).toEqual({ kind: "absent" });
+  it.each([
+    {
+      label: "gh's 'no pull requests found'",
+      stderr: 'no pull requests found for branch "my-branch"',
+    },
+    {
+      label: "gh's 'no git remotes found'",
+      stderr: "no git remotes found\n",
+    },
+    {
+      label: "a non-GitHub remote (gh's 'none of the git remotes' refusal)",
+      stderr:
+        "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`",
+    },
+  ])("classifies $label as absent", ({ stderr }) => {
+    expect(classifyGhError({ code: 1, stderr })).toEqual({ kind: "absent" });
   });
 
-  it("classifies gh's 'no git remotes found' as absent", () => {
+  it("keeps gh's GH_HOST-mismatch refusal as unavailable, not absent", () => {
+    // Same "none of the git remotes" prefix, but a real config failure: a
+    // GH_HOST is set that matches none of the remotes. The user should see
+    // this, not have it silently swallowed as "no PR on this branch".
     expect(
       classifyGhError({
         code: 1,
-        stderr: "no git remotes found\n",
+        stderr:
+          "none of the git remotes configured for this repository correspond to the GH_HOST environment variable. Try adding a matching remote or unsetting the variable",
       }),
-    ).toEqual({ kind: "absent" });
+    ).toEqual({
+      kind: "unavailable",
+      source: { provider: "gh", code: "unknown" },
+    });
   });
 
   it.each([
