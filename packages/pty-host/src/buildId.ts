@@ -18,6 +18,8 @@
  * (`staleKey !== currentBuildId()`) that phase B adds.
  */
 
+import type { PtyHostIdentity } from "./ptyHostSurface.ts";
+
 /** The staleKey — the nix-baked hash of the `@kolu/pty-host` source closure. */
 export function currentBuildId(): string {
   return process.env.KOLU_PTY_HOST_BUILD_ID ?? "";
@@ -26,4 +28,11 @@ export function currentBuildId(): string {
 /** The navigable git commit this kolu was built from. */
 export function currentCommitHash(): string {
   return process.env.KOLU_COMMIT_HASH ?? "";
+}
+
+/** The pty-host's full identity — `{ staleKey, navigableCommit }` — assembled
+ *  at the source that owns the reads, so the field mapping lives in one place.
+ *  Phase B's separate daemon reuses this instead of re-deriving the shape. */
+export function currentPtyHostIdentity(): PtyHostIdentity {
+  return { staleKey: currentBuildId(), navigableCommit: currentCommitHash() };
 }

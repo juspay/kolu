@@ -440,3 +440,45 @@ were deleted and replaced by the library it motivated:
   in-process pty-host reports its identity at boot. The restart axis (`processId`)
   is surface-app's `serverIdentity` probe at `surface.surfaceApp.info`; kolu's raw
   `server.info` now carries only per-host branding (title / watermark / theme).
+
+## Stance update — kolu now ships ONE service worker (fetch-less), and it's immune (PR #1216)
+
+> Read this before concluding "a registered SW = the bug is back." It isn't. The
+> ban was always on a *caching* worker; kolu now registers a deliberately
+> **fetch-less** one for OS notifications, which cannot reproduce this bug.
+
+The earlier sections say "kolu ships NO service worker." That stance evolved: an
+installed PWA can only raise an OS notification through
+`ServiceWorkerRegistration.showNotification()` — the page-level `new Notification()`
+constructor is an *illegal constructor* in `standalone` display mode on Chromium, so
+it silently threw and the banner never showed. So kolu now serves and registers a
+notification worker (`NOTIFICATION_SW_SOURCE`, via
+`installFreshStatic({ serviceWorker: "notify" })` + `registerServiceWorker()`).
+
+It is **structurally immune to this bug**, because the bug's mechanism is
+fetch-interception + precache, and both are absent:
+
+- **No `fetch` handler** — it never intercepts a navigation or an asset request, so
+  it *cannot* serve a stale shell. This is the load-bearing property (asserted by the
+  `NOTIFICATION_SW_SOURCE … isFetchLess` unit test). `no-store` not reaching a SW
+  only matters when the SW intercepts; this one never does.
+- **No precache** — it only `caches.delete`s; it never `caches.open`/`put`s, so there
+  is no stale precache to replay.
+- **Active teardown, in production** (this doc's central learning) — on `activate` it
+  purges *every* cache and `clients.claim()`s; when legacy caches are found it
+  `client.navigate()`s open tabs onto the fresh `no-store` shell. Registering at the
+  `/` scope replaces a legacy caching worker (it doesn't orphan it), and `index.tsx`
+  falls back to `retireServiceWorker()` if registration fails — so no path leaves a
+  lingering caching worker. This is *stronger* healing than the prior retire-only stance.
+- **Correct predicate** — SW logic gates on `"serviceWorker" in navigator` /
+  `window.isSecureContext`, **never** `location.protocol === "https:"` (the one wrong
+  predicate that caused the #1149 regression).
+- **HTTP freshness unchanged** — shell `no-store`, hashed assets `immutable`, and
+  `/sw.js` stays `no-cache` so an updated worker is always re-fetched and can't get
+  cache-pinned.
+
+Triage unchanged: *normal reload stale, hard reload fresh* still means a cached shell
+**or** a caching SW — confirm in the browser (Network "Size" column reads
+`(ServiceWorker)`; `navigator.serviceWorker.getRegistration()`). If you see kolu's
+notification worker, check it has no `fetch` handler before suspecting it — a
+fetch-less worker is not a suspect.

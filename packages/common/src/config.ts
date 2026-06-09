@@ -10,6 +10,10 @@
 /** Default server port. */
 export const DEFAULT_PORT = 7681;
 
+// The stale-tab handshake constants (`SERVER_PROCESS_ID_PARAM` /
+// `STALE_PROCESS_CLOSE_CODE`) graduated to `@kolu/surface-app`'s framework-free
+// core — both ends import them from there, so the wire contract has one home.
+
 /** Default font size for the terminal (px). */
 export const DEFAULT_FONT_SIZE = 14;
 

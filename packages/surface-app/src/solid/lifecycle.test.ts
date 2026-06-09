@@ -5,16 +5,18 @@
  * uses signals + a fake transport, no DOM.
  */
 
+import { shouldNotRetryORPCError } from "@kolu/surface/client";
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { createServerLifecycle, type WsLike } from "./index";
+import { createServerLifecycle, retireSocket, type WsLike } from "./index";
 
-/** A minimal transport whose `open`/`close` we fire by hand. */
+/** A minimal transport whose `open`/`close` we fire by hand. `close` can carry a
+ *  code so the restart-close-code path is exercisable. */
 function fakeWs() {
-  const listeners: Record<"open" | "close", Array<() => void>> = {
-    open: [],
-    close: [],
-  };
+  const listeners: Record<
+    "open" | "close",
+    Array<(event?: { code?: number }) => void>
+  > = { open: [], close: [] };
   const ws: WsLike = {
     addEventListener: (type, fn) => listeners[type].push(fn),
     removeEventListener: (type, fn) => {
@@ -23,8 +25,9 @@ function fakeWs() {
   };
   return {
     ws,
-    fire: (type: "open" | "close") => {
-      for (const l of listeners[type].slice()) l();
+    fire: (type: "open" | "close", code?: number) => {
+      const event = code === undefined ? undefined : { code };
+      for (const l of listeners[type].slice()) l(event);
     },
     count: (type: "open" | "close") => listeners[type].length,
   };
@@ -57,9 +60,91 @@ describe("createServerLifecycle", () => {
       id = "p2";
       t.fire("open");
       await Promise.resolve();
-      expect(lifecycle().kind).toBe("restarted"); // changed id
+      // Probe-driven restart: socket is open against the fresh process.
+      expect(lifecycle()).toEqual({
+        kind: "restarted",
+        processId: "p2",
+        transport: "open",
+      });
       expect(status()).toBe("restarted");
 
+      dispose();
+    });
+  });
+
+  it("a restart close code goes straight to `restarted`, not `disconnected`", async () => {
+    const t = fakeWs();
+    await createRoot(async (dispose) => {
+      const { lifecycle, status, serverProcessId } = createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: "p1" }),
+        restartCloseCode: 4001,
+      });
+
+      t.fire("open");
+      await Promise.resolve();
+      expect(lifecycle().kind).toBe("connected");
+
+      // An ordinary close is a transient drop.
+      t.fire("close");
+      expect(lifecycle().kind).toBe("disconnected");
+
+      // The dedicated restart code is definitive — straight to `restarted`. The
+      // new id isn't observable (socket closed before any probe) and the
+      // last-known id is the dead process we were detached from, so the closed
+      // shape carries NO `processId` and `serverProcessId()` reports `undefined`
+      // rather than a stale "current" id.
+      t.fire("close", 4001);
+      expect(lifecycle()).toEqual({
+        kind: "restarted",
+        transport: "closed",
+      });
+      expect(serverProcessId()).toBeUndefined();
+      expect(status()).toBe("restarted");
+
+      dispose();
+    });
+  });
+
+  it("fires onStaleRestart on a stale-close restart, but NOT on a probe-driven one", async () => {
+    const t = fakeWs();
+    let staleRestarts = 0;
+    let id = "p1";
+    await createRoot(async (dispose) => {
+      createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: id }),
+        restartCloseCode: 4001,
+        onStaleRestart: () => staleRestarts++,
+      });
+      t.fire("open");
+      await Promise.resolve();
+
+      // A probe-driven restart (socket open against a fresh process) does NOT
+      // fire it — that socket is alive, nothing to retire.
+      id = "p2";
+      t.fire("open");
+      await Promise.resolve();
+      expect(staleRestarts).toBe(0);
+
+      // A stale-close restart fires it synchronously, at the close decode.
+      t.fire("close", 4001);
+      expect(staleRestarts).toBe(1);
+      dispose();
+    });
+  });
+
+  it("a restart close code before any identity is established is ignored", async () => {
+    const t = fakeWs();
+    await createRoot(async (dispose) => {
+      const { lifecycle } = createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: "p1" }),
+        restartCloseCode: 4001,
+      });
+      // No open/probe yet → no relationship to lose; stay put.
+      t.fire("close", 4001);
+      expect(lifecycle().kind).toBe("connecting");
       dispose();
     });
   });
@@ -132,5 +217,89 @@ describe("createServerLifecycle", () => {
       expect(t.count("close")).toBe(0);
       dispose();
     });
+  });
+
+  it("publishes each observed processId via onProcessId (so the consumer can echo it)", async () => {
+    const t = fakeWs();
+    const seen: string[] = [];
+    let id = "p1";
+    await createRoot(async (dispose) => {
+      createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: id }),
+        onProcessId: (pid) => seen.push(pid),
+      });
+      t.fire("open");
+      await Promise.resolve();
+      // A restart: the hook still fires with the NEW id — and keeps firing the
+      // last observed id even though `serverProcessId()` would diverge on a
+      // stale close (that's why the echo reads this, not the accessor).
+      id = "p2";
+      t.fire("open");
+      await Promise.resolve();
+      expect(seen).toEqual(["p1", "p2"]);
+      dispose();
+    });
+  });
+
+  it("a throwing onProcessId does not poison the lifecycle transition", async () => {
+    const t = fakeWs();
+    const errors: unknown[] = [];
+    await createRoot(async (dispose) => {
+      const { lifecycle } = createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: "p1" }),
+        // An observer that throws must not convert a successful probe into a
+        // probe failure: the transition is already committed before it runs, and
+        // the throw is reported via onProbeError instead of unwinding it.
+        onProcessId: () => {
+          throw new Error("observer blew up");
+        },
+        onProbeError: (err) => errors.push(err),
+      });
+      t.fire("open");
+      await Promise.resolve();
+      // Lifecycle still reached `connected`; the throw surfaced separately.
+      expect(lifecycle()).toEqual({ kind: "connected", processId: "p1" });
+      expect(errors).toHaveLength(1);
+      expect((errors[0] as Error).message).toBe("observer blew up");
+      dispose();
+    });
+  });
+});
+
+describe("retireSocket", () => {
+  it("closes the socket and replaces send with a throwing stub", () => {
+    let closed = 0;
+    const ws = {
+      close: () => {
+        closed++;
+      },
+      send: (() => {}) as unknown,
+    };
+    retireSocket(ws);
+    expect(closed).toBe(1);
+    // The replacement send THROWS — so oRPC's ClientPeer rejects a post-stale
+    // request instead of awaiting a response that never arrives.
+    expect(() => (ws.send as (d: string) => void)("anything")).toThrow(
+      /stale tab/,
+    );
+  });
+
+  it("throws a NON-retriable error so STREAM_RETRY consumers settle instead of looping", () => {
+    const ws = { close: () => {}, send: (() => {}) as unknown };
+    retireSocket(ws);
+    let thrown: unknown;
+    try {
+      (ws.send as (d: string) => void)("anything");
+    } catch (err) {
+      thrown = err;
+    }
+    // The surface family's shared retry fence must classify this as non-retriable
+    // (`shouldRetry` → false). A plain `Error` would pass the fence (`true`) and
+    // re-subscribe forever, each retry firing the terminal stream's `onRetry` →
+    // `terminal.reset()` behind the reload overlay.
+    const fence = shouldNotRetryORPCError as (a: { error: unknown }) => boolean;
+    expect(fence({ error: thrown })).toBe(false);
   });
 });

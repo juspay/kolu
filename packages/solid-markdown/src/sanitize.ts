@@ -184,6 +184,13 @@ const DOCUMENT_ATTR = [
   // The fence language the renderer stamps on `<code>` so the code-block pass
   // can syntax-highlight it (`class` is forbidden, so this carries it).
   "data-lang",
+  // The wikilink marker the renderer stamps on a `[[Note]]` anchor. Unlike
+  // `data-md-rel` (derived post-sanitize by the link policy below), this one
+  // must come from the parser — only the parser can tell a `[[…]]` reference
+  // from a `[]()` link — so it has to survive DOMPurify, hence the allowlist
+  // entry. The link policy keys on it to route the click to the pathless
+  // wikilink resolver instead of the directory-relative one.
+  "data-md-wikilink",
 ];
 const INTENT_ATTR = ["href", "title"];
 
@@ -239,6 +246,20 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
     return;
   }
   const href = anchor.getAttribute("href");
+  // Wikilink marker (`[[Note]]`, stamped by the renderer): trust it ONLY on a
+  // parser-minted anchor. The renderer always emits `href="#"` and carries the
+  // resolver payload on `data-md-wikilink` itself, so a genuine wikilink reads
+  // exactly `href="#"`. A README's *raw* HTML can mint `<a data-md-wikilink …>`
+  // too (the marker is in the document allowlist) — but with any *other* href
+  // that's a spoof trying to opt a raw anchor into the host's pathless resolver,
+  // so strip the marker and let the href fall through to the normal policy below
+  // (external → `target=_blank`, relative → `data-md-rel`, unsafe → unwrapped).
+  // Net: the marker is only ever honoured on the renderer's own `href="#"`
+  // output, so raw HTML can't opt into wikilink behaviour.
+  if (anchor.hasAttribute("data-md-wikilink")) {
+    if (href === "#") return;
+    anchor.removeAttribute("data-md-wikilink");
+  }
   const safe = href ? safeHref(href) : undefined;
   if (safe === undefined) {
     unwrap();

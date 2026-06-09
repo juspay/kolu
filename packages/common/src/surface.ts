@@ -458,7 +458,7 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   colorScheme: "dark",
   terminalRenderer: "auto",
   rightPanel: {
-    collapsed: true,
+    collapsed: false,
     size: 0.25,
     codeTabTreeSize: 0.35,
   },
@@ -470,8 +470,8 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
 export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
   typeof RightPanelPerTerminalStateSchema
 > = {
-  activeTab: "inspector",
-  codeMode: "local",
+  activeTab: "code",
+  codeMode: "browse",
 };
 
 /** Project the flat `RightPanelPerTerminalState` shape onto its DU view.
@@ -535,12 +535,18 @@ export const PtyHostIdentitySchema = z.object({
 });
 
 export interface KoluBuildInfo extends BuildInfo {
+  /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
+   *  commit. Optional only in the library-seeded default (`{ commit }`); once
+   *  the async buildInfo patch resolves it's always present — `pkg.version`,
+   *  even in dev. */
+  version?: string;
   ptyHost?: z.infer<typeof PtyHostIdentitySchema>;
 }
 
 export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
   schema: z.object({
     commit: z.string(),
+    version: z.string().optional(),
     ptyHost: PtyHostIdentitySchema.optional(),
   }),
   default: { commit: "" },

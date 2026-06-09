@@ -1,6 +1,6 @@
 {
   "name": "kolu-server",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -15,6 +15,7 @@
     "@hono/node-ws": "^1.1.0",
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/pty-host": "workspace:*",
+    "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
     "@orpc/client": "^1.13.13",

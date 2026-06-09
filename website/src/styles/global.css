@@ -668,3 +668,87 @@ body {
 .prose-editorial section[data-footnotes] ol {
   padding-left: 1.25em;
 }
+
+/* --- Prose (changelog release bodies) ------------------------------------
+
+  Applied via `class="prose prose-changelog"` on each release body wrapper.
+  Lighter than the serif blog prose: mono font stack for headings, arrow
+  bullets, and no Fraunces serif — changelog entries read as structured notes,
+  not long-form articles.
+
+  tailwind-typography provides the reset layer; this class overrides tokens
+  and structure to match the changelog aesthetic.
+-------------------------------------------------------------------------- */
+
+.prose-changelog {
+  color: var(--color-ink-dim);
+  line-height: 1.65;
+}
+
+.prose-changelog > p:first-child {
+  color: var(--color-ink);
+  font-size: 1.05rem;
+}
+
+.prose-changelog h3 {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-amber);
+  margin: 1.8rem 0 0.9rem;
+  /* Reset prose-invert heading overrides */
+  font-weight: 600;
+}
+
+.prose-changelog ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.prose-changelog li {
+  position: relative;
+  padding-left: 1.1rem;
+}
+
+.prose-changelog li::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  color: var(--color-ink-faint);
+}
+
+.prose-changelog strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.prose-changelog a {
+  color: var(--color-amber);
+  text-decoration: none;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-amber) 35%, transparent);
+}
+
+.prose-changelog a:hover {
+  border-bottom-color: var(--color-amber);
+}
+
+.prose-changelog code,
+.prose-changelog kbd {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85em;
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule);
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  color: var(--color-ink);
+}
+
+.prose-changelog p {
+  margin: 0.9rem 0;
+}
