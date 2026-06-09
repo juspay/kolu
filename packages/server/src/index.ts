@@ -323,8 +323,9 @@ const wsRpcHandler = new WsRPCHandler(appRouter as any, {
 // Liveness heartbeat: ping accepted sockets and terminate any that stop ponging,
 // reaping the server-side zombie (and its stream subscriptions) a half-open
 // client would otherwise leak. The client half (`createHeartbeat`) un-freezes
-// the tab; this half frees the server. Stale tabs are closed before upgrade and
-// never register, so #1231's gate is untouched.
+// the tab; this half frees the server. Stale tabs are closed before the oRPC
+// upgrade and never register (the ws upgrade has already accepted them), so
+// #1231's gate is untouched.
 const heartbeat = startWsHeartbeat(wss);
 
 let nextConnId = 0;

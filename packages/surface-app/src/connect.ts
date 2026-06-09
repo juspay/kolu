@@ -207,36 +207,63 @@ const warnStale = () =>
  *  is skipped while the previous probe is still outstanding.
  *
  *  Framework-free (timers + the structural socket; no SolidJS), like its siblings
- *  here. Returns `dispose()` to stop the interval — wire it to the consumer's
- *  teardown (kolu's `onCleanup`). */
+ *  here. Returns `dispose()` to stop the interval AND any in-flight probe
+ *  timeout, so a probe outstanding at teardown can't fire a late `reconnect` —
+ *  wire it to the consumer's teardown (kolu's `onCleanup`). */
 export function createHeartbeat(opts: HeartbeatOptions): {
   dispose: () => void;
 } {
   const intervalMs = opts.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS;
   let inFlight = false;
+  let disposed = false;
+  // The CURRENT probe's timeout, at function scope so `dispose()` can clear it —
+  // otherwise a probe in flight at teardown would still fire `reconnect()` later.
+  let probeTimer: ReturnType<typeof setTimeout> | undefined;
+  // Resolve the current probe exactly once (the answer or the timeout wins, the
+  // other becomes a no-op). On a timeout we `reconnect()` FIRST and report
+  // SECOND in a guarded block, so a throwing `onStale` can never defeat the
+  // recovery this helper exists to provide. No-op once disposed.
+  const settled = (stale: boolean) => {
+    if (!inFlight || disposed) return;
+    inFlight = false;
+    if (probeTimer !== undefined) {
+      clearTimeout(probeTimer);
+      probeTimer = undefined;
+    }
+    if (stale) {
+      opts.ws.reconnect();
+      try {
+        (opts.onStale ?? warnStale)();
+      } catch {
+        // A throwing status callback must never unwind the reconnect above.
+      }
+    }
+  };
   const tick = () => {
-    if (inFlight) return;
+    if (inFlight || disposed) return;
     if (opts.ws.readyState !== opts.ws.OPEN) return;
     inFlight = true;
-    // `settled` runs at most once per probe (either the answer or the timeout
-    // wins); the other path is a no-op once `inFlight` is cleared.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const settled = (stale: boolean) => {
-      if (!inFlight) return;
-      inFlight = false;
-      if (timer !== undefined) clearTimeout(timer);
-      if (stale) {
-        (opts.onStale ?? warnStale)();
-        opts.ws.reconnect();
-      }
-    };
-    timer = setTimeout(() => settled(true), timeoutMs);
-    opts.probe().then(
-      () => settled(false),
-      () => settled(false),
-    );
+    probeTimer = setTimeout(() => settled(true), timeoutMs);
+    // `Promise.resolve().then(opts.probe)` so a SYNCHRONOUS throw from `probe`
+    // is normalized to a rejection — alive (a completed attempt), the same as the
+    // documented async-rejection case — instead of an uncaught timer exception.
+    Promise.resolve()
+      .then(opts.probe)
+      .then(
+        () => settled(false),
+        () => settled(false),
+      );
   };
   const handle = setInterval(tick, intervalMs);
-  return { dispose: () => clearInterval(handle) };
+  return {
+    dispose: () => {
+      disposed = true;
+      clearInterval(handle);
+      if (probeTimer !== undefined) {
+        clearTimeout(probeTimer);
+        probeTimer = undefined;
+      }
+    },
+  };
 }

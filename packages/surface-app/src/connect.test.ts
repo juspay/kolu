@@ -232,4 +232,55 @@ describe("createHeartbeat", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(probe).toHaveBeenCalledTimes(1);
   });
+
+  it("does not reconnect when disposed while a probe is still in flight", async () => {
+    const ws = fakeHeartbeatSocket();
+    const onStale = vi.fn();
+    const { dispose } = createHeartbeat({
+      ws,
+      probe: () => new Promise<never>(() => {}), // never answers
+      intervalMs: 1000,
+      timeoutMs: 500,
+      onStale,
+    });
+    await vi.advanceTimersByTimeAsync(1000); // tick → probe in flight, timeout armed
+    dispose(); // tear down BEFORE the 500ms probe timeout elapses
+    await vi.advanceTimersByTimeAsync(2000); // the timeout window passes
+    expect(onStale).not.toHaveBeenCalled();
+    expect(ws.reconnect).not.toHaveBeenCalled();
+  });
+
+  it("still reconnects on a timeout even if the onStale reporter throws", async () => {
+    const ws = fakeHeartbeatSocket();
+    const onStale = vi.fn(() => {
+      throw new Error("logger blew up");
+    });
+    const { dispose } = createHeartbeat({
+      ws,
+      probe: () => new Promise<never>(() => {}),
+      intervalMs: 1000,
+      timeoutMs: 500,
+      onStale,
+    });
+    await vi.advanceTimersByTimeAsync(1500); // tick + probe timeout
+    expect(ws.reconnect).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  it("treats a SYNCHRONOUS probe throw as alive, like a rejection", async () => {
+    const ws = fakeHeartbeatSocket();
+    const probe = vi.fn(() => {
+      throw new Error("sync boom");
+    });
+    const { dispose } = createHeartbeat({
+      ws,
+      probe,
+      intervalMs: 1000,
+      timeoutMs: 500,
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(ws.reconnect).not.toHaveBeenCalled();
+    dispose();
+  });
 });
