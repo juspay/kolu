@@ -1,26 +1,12 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { readPerTerminal } from "../support/buffer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-/** Read cols from every terminal's live xterm via the __xterm ref we
- *  attach in Terminal.tsx's onMount. Keyed by the element's
- *  data-terminal-id so callers can match hidden vs. visible later.
- *  Filters to inner terminal containers (those with data-font-size) —
- *  the outer CanvasTile wrapper also carries data-terminal-id but
- *  never holds __xterm. */
+/** Read cols from every terminal's live xterm, keyed by data-terminal-id so
+ *  callers can match hidden vs. visible later. */
 async function readAllCols(world: KoluWorld): Promise<Record<string, number>> {
-  return world.page.evaluate(() => {
-    const out: Record<string, number> = {};
-    const nodes = document.querySelectorAll(
-      "[data-terminal-id][data-font-size]",
-    );
-    for (const n of nodes) {
-      const id = n.getAttribute("data-terminal-id");
-      const term = (n as unknown as { __xterm?: { cols: number } }).__xterm;
-      if (id && term && typeof term.cols === "number") out[id] = term.cols;
-    }
-    return out;
-  });
+  return readPerTerminal(world.page, "cols");
 }
 
 /** Which terminal id is currently visible (the data-visible flag sits

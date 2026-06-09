@@ -1,6 +1,10 @@
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
-import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
+import {
+  readBufferText,
+  readPerTerminal,
+  waitForBufferContains,
+} from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 import type { KoluWorld } from "../support/world.ts";
 
@@ -296,23 +300,11 @@ Then(
   },
 );
 
-/** Read every terminal's font size keyed by data-terminal-id. The inner
- *  terminal container carries both attributes; the outer CanvasTile wrapper
- *  has data-terminal-id but no data-font-size, so it's filtered out. */
+/** Read every terminal's font size keyed by data-terminal-id. */
 async function readAllFontSizes(
   world: KoluWorld,
 ): Promise<Record<string, number>> {
-  return world.page.evaluate(() => {
-    const out: Record<string, number> = {};
-    for (const n of document.querySelectorAll(
-      "[data-terminal-id][data-font-size]",
-    )) {
-      const id = n.getAttribute("data-terminal-id");
-      const fs = n.getAttribute("data-font-size");
-      if (id && fs) out[id] = Number.parseFloat(fs);
-    }
-    return out;
-  });
+  return readPerTerminal(world.page, "fontSize");
 }
 
 /** Id of the single focused terminal (data-focused is set on exactly one
