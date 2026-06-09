@@ -18,7 +18,7 @@
  * and logs app-flavored advice (which flag to pass, what the path means);
  * this module owns only the transport verdicts.
  */
-import { lstatSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { lstatSync, mkdirSync, rmSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { dirname, join } from "node:path";
 import type { Router } from "@orpc/server";
@@ -76,16 +76,24 @@ export function getRuntimeSocketPath(opts: {
  *  privacy is the security boundary for whatever the socket serves — anyone
  *  who can `connect()` gets the full router. The danger is a STABLE shared
  *  path (`/tmp/<app>-$UID`) on a multi-user host: another local user could
- *  pre-create it with loose perms before we do, and `mkdirSync` does NOT
- *  repair an existing dir's owner/mode. So after creating it we VERIFY:
- *  current-uid owned and no group/other access bit. Returns true on
- *  platforms without uid semantics (Windows: `process.getuid` is undefined)
- *  — the ACL model there is out of scope for this check. */
+ *  pre-create it before we do, and `mkdirSync` does NOT repair an existing
+ *  dir's owner/mode. So after creating it we VERIFY: current-uid owned and no
+ *  group/other access bit.
+ *
+ *  `lstatSync` (NOT `statSync`) so a SYMLINK is judged as itself and rejected,
+ *  never followed. A `statSync` here would follow the link to its target: an
+ *  attacker could pre-create `/tmp/<app>-$UID` as a symlink to any owner-
+ *  private directory, sail past the perm check, yet still own the `/tmp` path
+ *  component — letting them later swap the link to redirect future clients to
+ *  a socket of their choosing. We require a real directory the current uid
+ *  owns with no group/other bits; a symlink (or any non-dir inode) fails
+ *  `isDirectory()`. Returns true on platforms without uid semantics (Windows:
+ *  `process.getuid` is undefined) — the ACL model there is out of scope. */
 function isPrivateOwnedDir(dir: string): boolean {
   const getuid = process.getuid?.bind(process);
   if (getuid === undefined) return true;
-  const st = statSync(dir);
-  return st.uid === getuid() && (st.mode & 0o077) === 0;
+  const st = lstatSync(dir);
+  return st.isDirectory() && st.uid === getuid() && (st.mode & 0o077) === 0;
 }
 
 /** What a `connect()` probe of the socket path tells us about who, if anyone,
@@ -143,6 +151,21 @@ function isSocketInodeOrAbsent(path: string): boolean {
     return lstatSync(path).isSocket();
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === "ENOENT";
+  }
+}
+
+/** Does an inode exist at `path` that is provably NOT a socket (a regular
+ *  file, dir, or symlink)? Used to refine an `unknown` probe verdict: some
+ *  platforms reject `connect()` on a regular file with `ENOTSOCK` (an
+ *  unrecognized "free to bind" code), which would otherwise be reported as an
+ *  opaque `probe-failed` rather than the machine-readable `not-a-socket`. An
+ *  `lstat` settles it directly. Returns false when nothing is there (ENOENT)
+ *  or the inode cannot be classified — those stay genuine probe failures. */
+function isNonSocketInode(path: string): boolean {
+  try {
+    return !lstatSync(path).isSocket();
+  } catch {
+    return false;
   }
 }
 
@@ -220,6 +243,14 @@ export async function serveOverUnixSocket(opts: {
       return refused({ kind: "already-served" });
     }
     if (probe.kind === "unknown") {
+      // A non-`ECONNREFUSED`/`ENOENT` probe error normally means "I couldn't
+      // tell what's here" (EACCES, EPERM). But a regular file at the path can
+      // surface as `ENOTSOCK` on some platforms — that IS knowable, so lstat
+      // settles it into the precise `not-a-socket` verdict instead of an
+      // opaque `probe-failed`. A truly unclassifiable inode stays a failure.
+      if (isNonSocketInode(socketPath)) {
+        return refused({ kind: "not-a-socket" });
+      }
       return refused({ kind: "probe-failed", code: probe.code });
     }
     // probe.kind === "stale": ECONNREFUSED (a crashed peer's leftover inode)
@@ -260,7 +291,9 @@ export async function serveOverUnixSocket(opts: {
         resolve();
       });
     });
-    server.on("error", (err) => log?.error({ err }, "unix-socket server error"));
+    server.on("error", (err) =>
+      log?.error({ err }, "unix-socket server error"),
+    );
 
     let closed = false;
     return {

@@ -14,8 +14,10 @@
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createServer, type Server } from "node:net";
@@ -163,7 +165,10 @@ describe("serveOverUnixSocket + unixSocketLink — real socket round-trip", () =
   });
 
   it("rejects the connect with the raw socket error when nothing serves the path", async () => {
-    const dead = join(mkdtempSync(join(tmpdir(), "surface-usock-dead-")), "no.sock");
+    const dead = join(
+      mkdtempSync(join(tmpdir(), "surface-usock-dead-")),
+      "no.sock",
+    );
     await expect(
       unixSocketLink<typeof surface.contract>({ socketPath: dead }),
     ).rejects.toMatchObject({ code: "ENOENT" });
@@ -197,7 +202,11 @@ describe("serveOverUnixSocket + unixSocketLink — real socket round-trip", () =
       socketPath: filePath,
       router: buildRouter(),
     });
-    expect(l.outcome.kind).not.toBe("listening");
+    // The exact machine-readable verdict, not merely "not listening": a
+    // regular file at the path is `not-a-socket` whether the probe returned
+    // ENOTSOCK (refined via lstat) or a stale-looking code (caught by the
+    // inode guard). Either route must land on the same outcome.
+    expect(l.outcome).toEqual({ kind: "not-a-socket" });
     expect(existsSync(filePath)).toBe(true);
     expect(readFileSync(filePath, "utf8")).toBe("precious user data");
     expect(() => l.close()).not.toThrow();
@@ -244,9 +253,35 @@ describe("serveOverUnixSocket + unixSocketLink — real socket round-trip", () =
     expect(existsSync(join(dir, "a.sock"))).toBe(false);
   });
 
+  it("refuses when the socket dir is a SYMLINK, even to an owner-private target", async () => {
+    // A `statSync` privacy check follows symlinks: an attacker who owns the
+    // `/tmp` path component could point the rendezvous dir at any owner-
+    // private directory, sail past the perm check, then later re-point the
+    // link to redirect clients. The check must `lstat` and reject a symlink
+    // outright — its perms/target are irrelevant, the link itself is the hole.
+    if (process.getuid?.() === undefined) return; // no uid semantics (Windows)
+    const base = mkdtempSync(join(tmpdir(), "surface-usock-symlink-"));
+    const realDir = join(base, "real"); // a genuinely owner-private 0700 dir
+    mkdirSync(realDir, { mode: 0o700 });
+    const linkDir = join(base, "link");
+    symlinkSync(realDir, linkDir);
+    const l = await serveOverUnixSocket({
+      socketPath: join(linkDir, "a.sock"),
+      router: buildRouter(),
+    });
+    expect(l.outcome).toMatchObject({ kind: "dir-not-private" });
+    expect(existsSync(join(linkDir, "a.sock"))).toBe(false);
+  });
+
   it("close() removes the socket file and is idempotent", async () => {
-    const p = join(mkdtempSync(join(tmpdir(), "surface-usock-close-")), "a.sock");
-    const l = await serveOverUnixSocket({ socketPath: p, router: buildRouter() });
+    const p = join(
+      mkdtempSync(join(tmpdir(), "surface-usock-close-")),
+      "a.sock",
+    );
+    const l = await serveOverUnixSocket({
+      socketPath: p,
+      router: buildRouter(),
+    });
     expect(l.outcome).toEqual({ kind: "listening" });
     expect(existsSync(p)).toBe(true);
     l.close();

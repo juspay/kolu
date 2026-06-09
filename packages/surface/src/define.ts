@@ -669,7 +669,9 @@ export function isContractVersionCompatible(
   expected: string,
 ): boolean {
   const parse = (v: string): [number, number] | null => {
-    const m = /^(\d+)\.(\d+)/.exec(v);
+    // Anchored so only `major.minor` with an OPTIONAL patch/prerelease suffix
+    // parses — `2.1garbage` must be rejected, not silently truncated to 2.1.
+    const m = /^(\d+)\.(\d+)(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?$/.exec(v);
     return m ? [Number(m[1]), Number(m[2])] : null;
   };
   const a = parse(reportedVersion);

@@ -33,6 +33,16 @@ describe("isPtyHostContractCompatible", () => {
     expect(isPtyHostContractCompatible("2.0", "nope")).toBe(false);
   });
 
+  it("rejects a malformed suffix rather than truncating to major.minor", () => {
+    // The accepted grammar is major.minor with an OPTIONAL patch/prerelease
+    // suffix; trailing garbage must NOT parse as 2.1 (an unanchored regex
+    // would).
+    expect(isPtyHostContractCompatible("2.1garbage", "2.0")).toBe(false);
+    expect(isPtyHostContractCompatible("2.0", "2.0garbage")).toBe(false);
+    expect(isPtyHostContractCompatible("2.0.1.2", "2.0")).toBe(false);
+    expect(isPtyHostContractCompatible("2.0 ", "2.0")).toBe(false);
+  });
+
   it("the shipped contract version is self-compatible", () => {
     expect(
       isPtyHostContractCompatible(
