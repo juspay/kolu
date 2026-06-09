@@ -1,20 +1,29 @@
 ---
 /**
- * One changelog entry, formatted for scanning. The title is the emphasized,
- * bright headline you read down a column of twenty; the description recedes
- * (dimmer, smaller) as supporting detail. The shipping PR rides the title line
- * as a `<PR>` chip when `pr` is given.
+ * One changelog entry as a row in an aligned, table-like list: title in the
+ * first column, area tags (what it touches — terminal, code tab, keyboard…)
+ * in a fixed second column so chips line up down the page, and the PR chip
+ * right-aligned in the third. The description is collapsed by default and
+ * unfolds on hover / keyboard focus (desktop) or tap (touch), so a release
+ * reads as a dense list of headlines you expand only where curious. Touch
+ * devices with JS off keep descriptions always visible.
+ *
+ * Tag chips are buttons: clicking one filters the whole page to entries
+ * carrying that tag (wired up in `changelog.astro`'s filter script via
+ * `data-tag` / `data-tags`).
  *
  *   ### Fixed
  *
- *   - <Change title="Terminals no longer silently freeze" pr={1235}>A WebSocket
- *     that died without notice … resumes without a reload.</Change>
+ *   - <Change title="Terminals no longer silently freeze" pr={1235}
+ *       tags={["terminal"]}>A WebSocket that died without notice … resumes
+ *     without a reload.</Change>
  *
  * Used as the content of a Markdown list item (`- <Change …>…</Change>`), so the
- * `<ul>/<li>` and the `→` bullet come from `.prose-changelog`; this component
- * owns the per-item title/description emphasis split + the PR chip. Auto-injected
- * into changelog MDX (see `changelog.astro`'s `components` prop), so entries need
- * no import. `repo` / `state` pass straight through to `<PR>` (default: a merged
+ * `<ul>/<li>` and the `→` bullet come from `.prose-changelog` (the bullet swings
+ * to `↓` while a row is expanded); this component owns the row layout, the tag
+ * chips, and the collapse. Auto-injected into changelog MDX (see
+ * `changelog.astro`'s `components` prop), so entries need no import.
+ * `repo` / `state` pass straight through to `<PR>` (default: a merged
  * juspay/kolu pull).
  */
 import PR from "./PR.astro";
@@ -24,46 +33,153 @@ interface Props {
   pr?: number;
   repo?: string;
   state?: "merged" | "open" | "closed";
+  tags?: string[];
 }
 
-const { title, pr, repo, state } = Astro.props;
+const { title, pr, repo, state, tags = [] } = Astro.props;
 ---
 
-<div class="cl-change">
+<div class="cl-change" tabindex="0" data-tags={tags.join("|")}>
   <p class="cl-change-head">
     <span class="cl-change-title">{title}</span>
-    {pr !== undefined && <PR id={pr} repo={repo} state={state} />}
+    <span class="cl-change-tags">
+      {
+        tags.map((tag) => (
+          <button class="cl-change-tag" type="button" data-tag={tag}>
+            {tag}
+          </button>
+        ))
+      }
+    </span>
+    <span class="cl-change-pr">
+      {pr !== undefined && <PR id={pr} repo={repo} state={state} />}
+    </span>
   </p>
-  <div class="cl-change-desc"><slot /></div>
+  <div class="cl-change-reveal">
+    <div class="cl-change-desc"><slot /></div>
+  </div>
 </div>
 
 <style>
   /* No outer margin: each <Change> is a list item, so `.prose-changelog ul`'s
-     gap spaces the entries. */
+     gap spaces the entries. Mobile-first: a wrapping flex line; from md up,
+     a 3-column grid (title | tags | pr) whose fixed tag column keeps chips
+     vertically aligned across rows. */
   .cl-change {
     margin: 0;
+    outline: none;
   }
-  /* Title line: the scannable headline + its PR chip, baseline-aligned. */
   .cl-change-head {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 0.5rem;
+    gap: 0.4rem 0.6rem;
     margin: 0;
+    line-height: 1.35;
+  }
+  @media (min-width: 768px) {
+    .cl-change {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 10rem auto;
+      column-gap: 1rem;
+      align-items: baseline;
+    }
+    /* The <p> dissolves; title / tags / pr become the grid cells. */
+    .cl-change-head {
+      display: contents;
+    }
+    .cl-change-pr {
+      justify-self: end;
+    }
+    .cl-change-reveal {
+      grid-column: 1 / -1;
+    }
   }
   .cl-change-title {
     color: var(--color-ink);
     font-weight: 600;
     font-size: 1.02rem;
     letter-spacing: -0.01em;
+    line-height: 1.35;
   }
-  /* Description: supporting detail, deliberately quieter than the title so a
-     column of entries reads as a list of headlines, not a wall of prose. */
+  /* Area tags: what the change touches. Buttons — click to filter the page. */
+  .cl-change-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .cl-change-tag {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--color-ink-faint);
+    background: none;
+    border: 1px solid var(--color-rule);
+    border-radius: 9999px;
+    padding: 0.12em 0.65em;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease,
+      background 0.15s ease;
+  }
+  .cl-change-tag:hover {
+    color: var(--color-amber);
+    border-color: color-mix(in srgb, var(--color-amber) 45%, transparent);
+  }
+  .cl-change-tag[data-active="true"] {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
+  }
+  /* Collapse: the grid 0fr→1fr trick animates to the description's natural
+     height with no JS and no magic max-height. */
+  .cl-change-reveal {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.22s ease;
+  }
   .cl-change-desc {
+    overflow: hidden;
+    min-height: 0;
     color: var(--color-ink-muted);
     font-size: 0.88rem;
-    line-height: 1.6;
-    margin-top: 0.2rem;
+    line-height: 1.5;
+    opacity: 0;
+    transition: opacity 0.22s ease;
+  }
+  @media (hover: hover) {
+    .cl-change:hover .cl-change-reveal,
+    .cl-change:focus-within .cl-change-reveal {
+      grid-template-rows: 1fr;
+    }
+    .cl-change:hover .cl-change-desc,
+    .cl-change:focus-within .cl-change-desc {
+      opacity: 1;
+    }
+  }
+  /* No hover to reveal with (touch): the script below makes rows tap-to-toggle
+     (`.cl-tap` collapses, `.open` expands). Without JS, `.cl-tap` is never
+     added and descriptions stay open. */
+  @media (hover: none) {
+    .cl-change:not(.cl-tap) .cl-change-reveal,
+    .cl-change.open .cl-change-reveal {
+      grid-template-rows: 1fr;
+    }
+    .cl-change:not(.cl-tap) .cl-change-desc,
+    .cl-change.open .cl-change-desc {
+      opacity: 1;
+    }
+    .cl-change.cl-tap .cl-change-head {
+      cursor: pointer;
+    }
+  }
+  /* Breathing room between headline and unfolded description — lives INSIDE
+     the clipped box so the collapsed row stays exactly headline-height. */
+  .cl-change-desc > :global(:first-child) {
+    margin-top: 0.35rem;
   }
   .cl-change-desc :global(p) {
     margin: 0;
@@ -72,3 +188,20 @@ const { title, pr, repo, state } = Astro.props;
     margin-top: 0.5rem;
   }
 </style>
+
+<script>
+  // Touch devices have no hover to reveal descriptions with — make each row
+  // tap-to-toggle instead. Gated on (hover: none) so desktop keeps pure-CSS
+  // hover; without JS this never runs and the CSS leaves descriptions open.
+  if (matchMedia("(hover: none)").matches) {
+    for (const row of document.querySelectorAll(".cl-change")) {
+      row.classList.add("cl-tap");
+      row.addEventListener("click", (e) => {
+        // Let the PR chip stay a plain link tap, and tag chips filter.
+        if (e.target instanceof Element && e.target.closest("a, button"))
+          return;
+        row.classList.toggle("open");
+      });
+    }
+  }
+</script>
