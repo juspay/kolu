@@ -49,6 +49,7 @@ A surface is reached through one of several **links**. A link maps "a way to rea
 
 - `websocketLink(ws)` (`@kolu/surface/links/websocket`) — over a WebSocket; the browser path.
 - `stdioLink({ read, write })` (`@kolu/surface/links/stdio`) — over a subprocess / ssh stdio pair.
+- `unixSocketLink({ socketPath })` (`@kolu/surface/links/unix-socket`) — over a local unix socket; the local-IPC path to a daemon on the same machine (kolu-tui → kolu-server's pty-host). Async (it dials), and returns `{ client, dispose }` because it owns the socket it opened; the serve side is `serveOverUnixSocket` (`@kolu/surface/unix-socket`). Same framing as the stdio pair — a connected `net.Socket` is just a Duplex.
 - `directLink(router)` (`@kolu/surface/links/direct`) — the **identity element**: in-process, no wire. Feed it `implementSurface(surface, deps).router` and every call invokes the handlers directly (microtask-deferred), so the consumer holds the exact `ContractRouterClient<contract>` a socket/ssh consumer would — byte-identical across a later transport swap. Useful for tests, single-process deployments, or the in-process phase of a service that will later be decoupled behind a socket. (Streams come back as async iterables, exactly as the wire-link clients yield them.)
 
 `createLoopbackPair()` (`@kolu/surface/loopback`) is **not** a link — it's the in-process transport *primitive* you feed into `stdioLink` + `serveOverStdio` to exercise the wire codec without forking (so it lives outside `links/`). The serve side is `implementSurface(surface, deps)` (→ a router) plus, for wire links, `serveOverStdio({ router, transport })`.
@@ -690,7 +691,11 @@ serveOverStdio({
   transport?: { read, write },     // defaults to process.stdin / process.stdout
   handlerOptions?,                 // forwarded to StandardRPCHandler
   onFirstRequest?: () => void,     // lifecycle hook — fires once after the first inbound frame decodes
-}): Promise<void>                  // resolves when the read stream ends
+}): Promise<ServeOverStdioEnd>     // resolves when the read stream ends — NEVER rejects:
+                                   // { reason: "end" } on clean EOF, { reason: "error", error } on
+                                   // an abrupt transport death (peer reset). Both are ordinary
+                                   // peer-lifecycle events; a rejecting serve promise was an
+                                   // unhandled-rejection crash footgun for multi-peer hosts.
 
 // In-process loopback (tests / "local backend wrapped in remote client shape")
 createLoopbackPair(): {
@@ -706,6 +711,30 @@ createLoopbackPair(): {
 **Why base64+newline framing?** ssh stdin/stdout is a raw byte stream with no message boundaries. Base64 produces ASCII bytes that never contain `\n`, then we append a newline per frame — a line-buffered reader decodes back to the original `Uint8Array` the peer codec consumes. No length prefix, no out-of-band escape rules; the framing fits in 20 lines on each side.
 
 `pollOnEvent` is the underlying snapshot+install+re-read helper, exposed for advanced cases. Most poll-shape streams should use the declarative `{ read, install, isEqual }` form on `implementSurface(...).streams.<key>` (above) — the framework synthesizes the `pollOnEvent` call.
+
+### Unix-socket transport (`@kolu/surface/unix-socket`, `@kolu/surface/links/unix-socket`)
+
+The local-IPC member of the link family: a daemon serves its router on a per-user unix socket; short-lived CLI clients dial it. Each accepted connection is pumped through `serveOverStdio` (a connected `net.Socket` is a Duplex, so it IS the `{ read, write }` pair) — same base64+newline framing as the subprocess/ssh path, only the stream pair differs. Kolu's `kolu-tui` ↔ kolu-server pty-host is the headline consumer.
+
+```ts
+// Server (daemon process)
+serveOverUnixSocket({
+  socketPath,
+  router,                          // same "Router wrapping" rule as serveOverStdio
+  log?,                            // runtime events only (pino-compatible shape)
+}): Promise<UnixSocketListener>    // NEVER rejects — { socketPath, outcome, close() }
+
+// Client (CLI process)
+unixSocketLink<C>({ socketPath }): Promise<{ client: ContractRouterClient<C, ClientRetryPluginContext>; dispose(): void }>
+
+// The rendezvous path both processes compute independently
+getRuntimeSocketPath({ app, file, override? }): string
+  // override verbatim, else $XDG_RUNTIME_DIR/<app>/<file>, else /tmp/<app>-$UID/<file>
+```
+
+**Serving is additive by contract.** Every bind-time failure resolves to a no-op listener whose `outcome` says why — `dir-not-private`, `already-served`, `probe-failed`, `not-a-socket`, `bind-failed` — so a host whose socket is a convenience can never be crashed by it. The caller inspects `outcome` and logs app-flavored advice; the module owns only the transport verdicts. Stale-socket recovery is deliberately paranoid: a leftover inode is removed only when a `connect()` probe says nobody's listening **and** `lstat` confirms it's a socket — a probe error (EACCES) or a regular file at the path is refused, never unlinked.
+
+**Why the rendezvous path avoids `os.tmpdir()`:** it honours `$TMPDIR`, which differs by launch context (on macOS a launchd-spawned daemon gets a private `/var/folders/.../T` while a `nix run` CLI gets `/tmp`), so the two processes would compute different paths and never meet. The fallback is a fixed `/tmp/<app>-$UID/` (the tmux convention), created `0700` and verified owner-only before serving.
 
 ### Solid client (`@kolu/surface/solid`)
 

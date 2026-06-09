@@ -17,7 +17,7 @@
  * so a later step can serve the same shape over a unix socket (a surviving
  * daemon) or ssh stdio (a remote pty-host) by swapping only which morphism
  * builds the client — the consumer is invariant. See
- * `docs/plans/remote-terminals.pty-daemon.html` (#fresh-approach).
+ * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * Contract version. Keyed on the *wire shape*, not the kolu binary — so a
  * future long-lived daemon survives kolu upgrades that don't touch this
@@ -40,7 +40,11 @@
  * for a stably co-versioned pair.
  */
 
-import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import {
+  defineSurface,
+  isContractVersionCompatible,
+  type SurfaceTypes,
+} from "@kolu/surface/define";
 import { TerminalIdSchema } from "kolu-common/surface";
 import { z } from "zod";
 
@@ -53,23 +57,15 @@ import { z } from "zod";
 export const PTY_HOST_CONTRACT_VERSION = "2.1";
 
 /** Whether a pty-host reporting `reportedVersion` is wire-compatible with a
- *  consumer built against `expected` (both `major.minor`). Compatible when the
- *  majors match and the reported minor is >= ours — additive minor bumps stay
- *  backwards-compatible; a major mismatch is a forced restart. Tolerates a
- *  trailing patch/prerelease suffix on either side (only `major.minor` is
- *  load-bearing). */
+ *  consumer built against `expected` (both `major.minor`). The standard
+ *  surface handshake predicate (`isContractVersionCompatible`) under the
+ *  pty-host's name: majors must match, reported minor >= ours; an
+ *  incompatible skew is the (rare, accepted) forced restart. */
 export function isPtyHostContractCompatible(
   reportedVersion: string,
   expected: string,
 ): boolean {
-  const parse = (v: string): [number, number] | null => {
-    const m = /^(\d+)\.(\d+)/.exec(v);
-    return m ? [Number(m[1]), Number(m[2])] : null;
-  };
-  const a = parse(reportedVersion);
-  const b = parse(expected);
-  if (!a || !b) return false;
-  return a[0] === b[0] && a[1] >= b[1];
+  return isContractVersionCompatible(reportedVersion, expected);
 }
 
 const TerminalIdInputSchema = z.object({ id: TerminalIdSchema });

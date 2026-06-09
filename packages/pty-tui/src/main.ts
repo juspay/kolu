@@ -1,7 +1,7 @@
 /**
  * kolu-tui — a terminal-side client for kolu-server's in-process pty-host
  * (R-4 Phase 1: `list` + `snapshot`). It dials the server's unix socket via
- * `stdioLink` and speaks `ptyHostSurface` directly — the *raw* client (the
+ * `unixSocketLink` and speaks `ptyHostSurface` directly — the *raw* client (the
  * browser is the *rich* one over the full kolu contract). See
  * `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`.
  *

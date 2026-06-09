@@ -81,12 +81,12 @@ async function main(): Promise<void> {
     `mini-ci-runner: pipeline "${spec.name}" (${spec.tasks.length} tasks) in ${cwd} — serving over stdio`,
   );
 
-  await serveOverStdio({
+  const end = await serveOverStdio({
     router: runner.router,
     onFirstRequest: () => log("first RPC received — TUI attached"),
   });
   runner.dispose();
-  log("stdin closed — runner exiting");
+  log(`stdin closed (${end.reason}) — runner exiting`);
 }
 
 main().catch((err) => {

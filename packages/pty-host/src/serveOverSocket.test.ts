@@ -1,26 +1,18 @@
 /**
- * Falsifiability test for the R-4 Phase 1 transport: the pty-host router served
- * over a REAL unix socket (`net.Server`) and consumed over a REAL `net.Socket`
- * via `stdioLink` — the exact path kolu-tui uses, minus the CLI formatting
- * (covered by @kolu/pty-tui's render test). A green run proves serveOverStdio +
- * stdioLink hold over a socket, not just the in-process loopback.
+ * Falsifiability test for the R-4 Phase 1 transport: the pty-host router
+ * served over a REAL unix socket and consumed over a REAL `net.Socket` via
+ * `unixSocketLink` — the exact path kolu-tui uses, minus the CLI formatting
+ * (covered by @kolu/pty-tui's render test). A green run proves the
+ * pty-host's contract-wrapped router holds over the socket transport, not
+ * just the in-process loopback. The transport hardening itself (stale-inode
+ * clearing, regular-file/EACCES refusals, dir privacy) is pinned generically
+ * in `@kolu/surface`'s `unix-socket.test.ts`; here we pin the kolu wrapper's
+ * promise — a usable listener on success, a harmless no-op on refusal.
  */
-import {
-  chmodSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import {
-  createConnection,
-  createServer,
-  type Server,
-  type Socket,
-} from "node:net";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { stdioLink } from "@kolu/surface/links/stdio";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import type { Logger } from "kolu-shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
@@ -41,46 +33,35 @@ const silentLog = {
   child: () => silentLog,
 } as unknown as Logger;
 
-type Client = ReturnType<typeof stdioLink<typeof ptyHostSurface.contract>>;
+function makeRouter() {
+  const { servedRouter } = createInProcessPtyHost({
+    log: silentLog,
+    shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
+    version: "test",
+  });
+  return servedRouter;
+}
+
+const connect = () =>
+  unixSocketLink<typeof ptyHostSurface.contract>({ socketPath });
+
+let listener: PtyHostSocketListener;
+let socketPath: string;
 
 describe("servePtyHostOverUnixSocket — real unix-socket round-trip", () => {
-  let listener: PtyHostSocketListener;
-  let socketPath: string;
-
   beforeAll(async () => {
     socketPath = join(
       mkdtempSync(join(tmpdir(), "kolu-pty-sock-")),
       "pty-host.sock",
     );
-    const { servedRouter } = createInProcessPtyHost({
-      log: silentLog,
-      shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
-      version: "test",
-    });
     listener = await servePtyHostOverUnixSocket({
       socketPath,
-      router: servedRouter,
+      router: makeRouter(),
       log: silentLog,
     });
   });
 
   afterAll(() => listener.close());
-
-  function connect(): Promise<{ client: Client; dispose: () => void }> {
-    return new Promise((resolve, reject) => {
-      const socket: Socket = createConnection(socketPath, () => {
-        socket.removeListener("error", reject);
-        resolve({
-          client: stdioLink<typeof ptyHostSurface.contract>({
-            read: socket,
-            write: socket,
-          }),
-          dispose: () => socket.destroy(),
-        });
-      });
-      socket.once("error", reject);
-    });
-  }
 
   it("binds the requested socket path", () => {
     expect(listener.socketPath).toBe(socketPath);
@@ -110,83 +91,13 @@ describe("servePtyHostOverUnixSocket — real unix-socket round-trip", () => {
     b.dispose();
   });
 
-  it("refuses to delete an existing regular file at the socket path (no data loss)", async () => {
-    // `--pty-host-socket` is an arbitrary path; if it names the user's own
-    // regular file we must warn and noop, NOT `rmSync` it. A connect() probe
-    // against a regular file fails (ENOTSOCK), which must not be read as "stale
-    // socket → safe to delete".
-    const filePath = join(
-      mkdtempSync(join(tmpdir(), "kolu-pty-file-")),
-      "important.txt",
-    );
-    writeFileSync(filePath, "precious user data");
-    const { servedRouter } = createInProcessPtyHost({
-      log: silentLog,
-      shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
-      version: "test",
-    });
-    const l = await servePtyHostOverUnixSocket({
-      socketPath: filePath,
-      router: servedRouter,
-      log: silentLog,
-    });
-    // The file is untouched (not unlinked, contents intact) and nothing bound.
-    expect(existsSync(filePath)).toBe(true);
-    expect(readFileSync(filePath, "utf8")).toBe("precious user data");
-    expect(() => l.close()).not.toThrow();
-    expect(existsSync(filePath)).toBe(true);
-  });
-
-  it("refuses to delete a real socket inode it could not probe (EACCES, not stale)", async () => {
-    // The F1 holdout: a connect() probe that fails for a NON-stale reason must
-    // NOT be read as "stale socket → safe to delete". Here the inode IS a real
-    // socket (lstat confirms it — so the inode-type guard alone would happily
-    // unlink it), yet `connect()` fails with EACCES because we strip the socket
-    // file's own perms (connecting a unix socket needs write perm on it). The
-    // probe must report `unknown`, not `stale`, so the socket survives the bind
-    // attempt. Stripping only the SOCKET (not its dir) keeps lstat working, so
-    // this isolates the connect-error classification — the exact gap codex held
-    // F1 open on.
-    if (process.getuid?.() === 0) return; // root bypasses unix perm checks
-    const dir = mkdtempSync(join(tmpdir(), "kolu-pty-eacces-"));
-    const liveSocketPath = join(dir, "live.sock");
-    const peer: Server = await new Promise((resolve) => {
-      const s = createServer();
-      s.listen(liveSocketPath, () => resolve(s));
-    });
-    try {
-      expect(existsSync(liveSocketPath)).toBe(true);
-      chmodSync(liveSocketPath, 0o000); // connect() → EACCES; lstat still works
-      const { servedRouter } = createInProcessPtyHost({
-        log: silentLog,
-        shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
-        version: "test",
-      });
-      const l = await servePtyHostOverUnixSocket({
-        socketPath: liveSocketPath,
-        router: servedRouter,
-        log: silentLog,
-      });
-      expect(existsSync(liveSocketPath)).toBe(true);
-      expect(() => l.close()).not.toThrow();
-      expect(existsSync(liveSocketPath)).toBe(true);
-    } finally {
-      peer.close();
-    }
-  });
-
   it("degrades to a no-op (never throws) when the path is already served", async () => {
-    // A second instance racing for the same path must NOT crash the caller (the
-    // e2e harness boots many servers sharing the default socket). It resolves to
-    // a harmless no-op while the original keeps serving.
-    const { servedRouter } = createInProcessPtyHost({
-      log: silentLog,
-      shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
-      version: "test",
-    });
+    // A second instance racing for the same path must NOT crash the caller
+    // (the e2e harness boots many servers sharing the default socket). It
+    // resolves to a harmless no-op while the original keeps serving.
     const second = await servePtyHostOverUnixSocket({
       socketPath,
-      router: servedRouter,
+      router: makeRouter(),
       log: silentLog,
     });
     expect(() => second.close()).not.toThrow();

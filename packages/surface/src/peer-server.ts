@@ -78,6 +78,25 @@ export interface StdioTransport {
   write: Writable;
 }
 
+/** How a `serveOverStdio` call ended. `serveOverStdio` NEVER rejects —
+ *  serving ends when the read stream does, and both ways it does so are
+ *  ordinary peer-lifecycle events, not exceptional states for the serving
+ *  process: `"end"` is a clean EOF (the peer closed its end / the parent
+ *  exited), `"error"` is an abrupt transport death (peer reset, a pipe torn
+ *  mid-frame), with the cause in `error`.
+ *
+ *  Rejecting on transport error was a crash footgun: a host serving many
+ *  short-lived peers (e.g. `serveOverUnixSocket`'s per-connection serves)
+ *  fires one of these promises per peer, and an un-`.catch()`-ed rejection
+ *  from any flaky client became an unhandled rejection — fatal under
+ *  `process.exit(1)`-on-unhandledRejection policies. A settled result makes
+ *  the no-crash path the default; callers that care inspect `reason`. */
+export interface ServeOverStdioEnd {
+  reason: "end" | "error";
+  /** The read-stream error when `reason === "error"`. */
+  error?: unknown;
+}
+
 export interface ServeOverStdioOptions<T extends Context> {
   /** Top-level router accepted by `StandardRPCHandler`. The
    *  `implementSurface` fragment's `.router` field is already at the
@@ -105,11 +124,12 @@ export interface ServeOverStdioOptions<T extends Context> {
 }
 
 /** Serve a typed oRPC router over a stdio transport. Resolves when the
- *  read stream ends (the parent disconnected); the returned Promise is
- *  long-lived for the lifetime of the agent process. */
+ *  read stream ends (the parent disconnected) — with HOW it ended, never a
+ *  rejection (see `ServeOverStdioEnd`); the returned Promise is long-lived
+ *  for the lifetime of the agent process. */
 export function serveOverStdio<T extends Context>(
   opts: ServeOverStdioOptions<T>,
-): Promise<void> {
+): Promise<ServeOverStdioEnd> {
   const transport: StdioTransport = opts.transport ?? {
     read: process.stdin,
     write: process.stdout,
@@ -168,7 +188,10 @@ export function serveOverStdio<T extends Context>(
           }\n`,
         );
       });
-  }).finally(() => {
+  }).then(
+    (): ServeOverStdioEnd => ({ reason: "end" }),
+    (error: unknown): ServeOverStdioEnd => ({ reason: "error", error }),
+  ).finally(() => {
     peer.close();
   });
 }

@@ -650,6 +650,34 @@ export function defineSurface<const S extends SurfaceSpec>(
   };
 }
 
+/** Whether a peer reporting contract version `reportedVersion` is
+ *  wire-compatible with a consumer built against `expected` (both
+ *  `major.minor` strings). Compatible when the majors match and the reported
+ *  minor is >= the expected one — additive minor bumps (a new optional
+ *  field / procedure / stream) stay backwards-compatible; a major mismatch
+ *  is a breaking shape change. Tolerates a trailing patch/prerelease suffix
+ *  on either side (only `major.minor` is load-bearing).
+ *
+ *  This is the standard handshake predicate for a surface served across a
+ *  process boundary (a unix-socket daemon, an ssh agent): the server exposes
+ *  its contract version via a `system.version`-style procedure, the client
+ *  checks it with this BEFORE invoking anything else, and an incompatible
+ *  skew becomes an honest "restart the other side" message instead of an
+ *  opaque schema/procedure error from deep inside the RPC layer. */
+export function isContractVersionCompatible(
+  reportedVersion: string,
+  expected: string,
+): boolean {
+  const parse = (v: string): [number, number] | null => {
+    const m = /^(\d+)\.(\d+)/.exec(v);
+    return m ? [Number(m[1]), Number(m[2])] : null;
+  };
+  const a = parse(reportedVersion);
+  const b = parse(expected);
+  if (!a || !b) return false;
+  return a[0] === b[0] && a[1] >= b[1];
+}
+
 /** Compose a keyed map of surfaces into a single contract fragment of shape
  *  `{ surface: { <key>: innerContract } }` — the wire-level counterpart to
  *  `implementSurfaces`. A consumer spreads the result into their host
