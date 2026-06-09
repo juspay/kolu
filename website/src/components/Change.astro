@@ -1,0 +1,68 @@
+---
+/**
+ * One changelog entry, formatted for scanning. The title is the emphasized,
+ * bright headline you read down a column of twenty; the description recedes
+ * (dimmer, smaller) as supporting detail. The shipping PR rides the title line
+ * as a `<PR>` chip when `pr` is given.
+ *
+ *   <Change title="Terminals no longer silently freeze" pr={1235}>
+ *   A WebSocket that died without notice … resumes without a reload.
+ *   </Change>
+ *
+ * Auto-injected into changelog MDX (see `changelog.astro`'s `components` prop),
+ * so entries need no import. `repo` / `state` pass straight through to `<PR>`
+ * (default: a merged juspay/kolu pull).
+ */
+import PR from "./PR.astro";
+
+interface Props {
+  title: string;
+  pr?: number;
+  repo?: string;
+  state?: "merged" | "open" | "closed";
+}
+
+const { title, pr, repo, state } = Astro.props;
+---
+
+<div class="cl-change">
+  <p class="cl-change-head">
+    <span class="cl-change-title">{title}</span>
+    {pr !== undefined && <PR id={pr} repo={repo} state={state} />}
+  </p>
+  <div class="cl-change-desc"><slot /></div>
+</div>
+
+<style>
+  .cl-change {
+    margin: 0.7rem 0 1.25rem;
+  }
+  /* Title line: the scannable headline + its PR chip, baseline-aligned. */
+  .cl-change-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0;
+  }
+  .cl-change-title {
+    color: var(--color-ink);
+    font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: -0.01em;
+  }
+  /* Description: supporting detail, deliberately quieter than the title so a
+     column of entries reads as a list of headlines, not a wall of prose. */
+  .cl-change-desc {
+    color: var(--color-ink-muted);
+    font-size: 0.88rem;
+    line-height: 1.6;
+    margin-top: 0.2rem;
+  }
+  .cl-change-desc :global(p) {
+    margin: 0;
+  }
+  .cl-change-desc :global(p + p) {
+    margin-top: 0.5rem;
+  }
+</style>
