@@ -31,6 +31,7 @@ import {
   bold,
   dim,
   green,
+  link,
   magenta,
   red,
   spinnerAt,
@@ -57,6 +58,9 @@ export interface RunHeader {
    *  strict refuses a dirty tree). Shown loudly: a dirty run's verdict is
    *  about your working tree, not the commit. */
   dirty: boolean;
+  /** Forge page for the commit (GitHub origins) — the sha label becomes an
+   *  OSC 8 hyperlink on terminals that render them. Null elsewhere. */
+  commitUrl: string | null;
   lanes: ReadonlyArray<{ platform: string; host: string }>;
   hostsSource: string;
 }
@@ -210,9 +214,11 @@ export function renderRunFrame(opts: {
       ? red("✗")
       : green("✔")
     : yellow(spinnerAt(tick));
-  const sha = header.dirty
-    ? yellow(`@ ${commitLabel(header)}`)
-    : dim(`@ ${header.sha7}`);
+  const shaText =
+    header.commitUrl !== null
+      ? link(commitLabel(header), header.commitUrl)
+      : commitLabel(header);
+  const sha = header.dirty ? yellow(`@ ${shaText}`) : dim(`@ ${shaText}`);
   const lines: string[] = [
     `${bold("odu")} ${headGlyph} ${header.pipeline} ${sha} ${dim(
       formatGoDuration(now - opts.startedAt),

@@ -53,6 +53,7 @@ const header = {
   pipeline: "ci::default",
   sha7: "3cbac86",
   dirty: false,
+  commitUrl: "https://github.com/juspay/kolu/commit/3cbac86f",
   lanes: [
     { platform: "x86_64-linux", host: "kolu-ci-5" },
     { platform: "aarch64-darwin", host: "rasam" },

@@ -30,7 +30,7 @@ import {
 } from "@kolu/surface/server";
 import { destroyAllSessions, isLocalHost } from "@kolu/surface-nix-host";
 import { implement } from "@orpc/server";
-import { bold, dim, green, magenta, red } from "../cli/ansi";
+import { bold, dim, green, link, magenta, red } from "../cli/ansi";
 import { formatGoDuration } from "../common/duration";
 import { createLogTail } from "../common/logTail";
 import { fanId, onPlatform, splitFanId } from "../common/nodeId";
@@ -385,10 +385,15 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   mkdirSync(join(repoRoot, ".ci"), { recursive: true });
   const closeSocket = await serveSocket(router, join(repoRoot, SOCKET_PATH));
 
+  const commitUrl =
+    github !== null
+      ? `https://github.com/${github.owner}/${github.repo}/commit/${sha}`
+      : null;
   display.start({
     pipeline: spec.name,
     sha7,
     dirty: ctx.dirty,
+    commitUrl,
     lanes: [...tasksByPlatform.keys()].sort().map((platform) => ({
       platform,
       host: lanesByPlatform[platform] as string,
@@ -521,8 +526,13 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   display.stop(finalState);
   const counts = { ok: 0, failed: 0, errored: 0, skipped: 0 };
   let redCount = 0;
+  const shaLabel = commitLabel({ sha7, dirty: ctx.dirty });
   const lines: string[] = [
-    dim(`── ci run summary @ ${commitLabel({ sha7, dirty: ctx.dirty })} ──`),
+    dim(
+      `── ci run summary @ ${
+        commitUrl !== null ? link(shaLabel, commitUrl) : shaLabel
+      } ──`,
+    ),
   ];
   for (const id of finalState.order) {
     const node = finalState.nodes[id];

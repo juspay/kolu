@@ -38,3 +38,10 @@ const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 export function stripAnsi(s: string): string {
   return s.replace(ANSI_RE, "");
 }
+
+/** OSC 8 terminal hyperlink — modern terminals (incl. xterm.js with the
+ *  web-links addon, i.e. kolu's own panes) render `text` clickable. Plain
+ *  passthrough off-TTY, like every style here. */
+export function link(text: string, url: string): string {
+  return enabled ? `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\` : text;
+}
