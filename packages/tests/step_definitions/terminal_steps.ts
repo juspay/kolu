@@ -295,3 +295,51 @@ Then(
     );
   },
 );
+
+/** Read every terminal's font size keyed by data-terminal-id. The inner
+ *  terminal container carries both attributes; the outer CanvasTile wrapper
+ *  has data-terminal-id but no data-font-size, so it's filtered out. */
+async function readAllFontSizes(
+  world: KoluWorld,
+): Promise<Record<string, number>> {
+  return world.page.evaluate(() => {
+    const out: Record<string, number> = {};
+    for (const n of document.querySelectorAll(
+      "[data-terminal-id][data-font-size]",
+    )) {
+      const id = n.getAttribute("data-terminal-id");
+      const fs = n.getAttribute("data-font-size");
+      if (id && fs) out[id] = Number.parseFloat(fs);
+    }
+    return out;
+  });
+}
+
+Given(
+  "I note the font size of each terminal",
+  async function (this: KoluWorld) {
+    this.savedFontSizes = await readAllFontSizes(this);
+    assert.ok(
+      Object.keys(this.savedFontSizes).length >= 2,
+      `Expected at least 2 terminals, found ${Object.keys(this.savedFontSizes).length}`,
+    );
+  },
+);
+
+Then(
+  "exactly one terminal's font size should have changed",
+  async function (this: KoluWorld) {
+    const before = this.savedFontSizes;
+    assert.ok(before, "No saved per-terminal font sizes");
+    const after = await readAllFontSizes(this);
+    const changed = Object.keys(before).filter(
+      (id) => after[id] !== before[id],
+    );
+    assert.strictEqual(
+      changed.length,
+      1,
+      `Expected exactly one terminal to change font size, but ${changed.length} did. ` +
+        `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+    );
+  },
+);

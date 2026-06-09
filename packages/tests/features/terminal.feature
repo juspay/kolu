@@ -87,3 +87,15 @@ Feature: Terminal
     When I zoom out 2 times
     Then the font size should be smaller than the original
     And there should be no page errors
+
+  Scenario: Zoom only affects the focused canvas tile
+    # Regression for #1238: in canvas mode every tile is `visible`, so gating
+    # the zoom keydown listener on `visible` made Cmd/Ctrl +/- zoom every open
+    # terminal at once — two tiles could never be aligned to the same font
+    # size. Zoom must touch only the focused tile.
+    When I create a terminal with keyboard shortcut
+    And I wait for all terminals to settle
+    And I note the font size of each terminal
+    And I zoom in 2 times
+    Then exactly one terminal's font size should have changed
+    And there should be no page errors

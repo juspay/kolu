@@ -78,6 +78,10 @@ export class KoluWorld extends World {
   savedCanvas?: { x: number; y: number; width: number; height: number };
   previousCanvas?: { x: number; y: number; width: number; height: number };
   savedFontSize?: number;
+  /** Per-terminal font sizes keyed by data-terminal-id, captured by
+   *  `I note the font size of each terminal` for the #1238 zoom-isolation
+   *  regression (only the focused tile may change on zoom). */
+  savedFontSizes?: Record<string, number>;
   lastResponseText?: string;
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;

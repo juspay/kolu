@@ -182,7 +182,12 @@ const Terminal: Component<{
     fitRaf = requestAnimationFrame(() => fitAddon?.fit());
   }
 
-  const fontSize = createZoom(props.terminalId, () => props.visible);
+  // Gate zoom on `focused`, not `visible`: in canvas mode every tile is
+  // `visible` (so inactive xterms stay sized), so a `visible` gate let every
+  // tile's capture-phase zoom listener fire at once — Cmd/Ctrl +/- zoomed all
+  // terminals together (#1238). `focused` is true for exactly one tile (the
+  // active one in canvas; the single visible one in mobile), so only it zooms.
+  const fontSize = createZoom(props.terminalId, () => props.focused === true);
 
   let streamAbort: AbortController | null = null;
   let webgl: WebglAddon | null = null;
