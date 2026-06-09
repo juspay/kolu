@@ -134,7 +134,14 @@ export function classifyGhError(err: unknown): PrResult {
   // call. The user simply isn't on GitHub — same silent UI outcome as "no
   // PR on this branch", not an auth problem to warn about. Must precede the
   // auth check: the refusal message itself suggests `gh auth login`.
-  if (stderr.includes("none of the git remotes")) {
+  //
+  // Match the "known GitHub host" refusal specifically, NOT the bare
+  // "none of the git remotes" prefix — gh's remoteResolver emits a second
+  // message with that same prefix ("…correspond to the GH_HOST environment
+  // variable…") for a misconfigured GH_HOST that matches no remote. That is
+  // a real config failure the user should see, so it must fall through to
+  // `unknown` rather than be swallowed as `absent`.
+  if (stderr.includes("point to a known github host")) {
     return { kind: "absent" };
   }
   if (

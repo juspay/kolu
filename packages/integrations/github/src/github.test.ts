@@ -194,6 +194,22 @@ describe("classifyGhError", () => {
     ).toEqual({ kind: "absent" });
   });
 
+  it("keeps gh's GH_HOST-mismatch refusal as unavailable, not absent", () => {
+    // Same "none of the git remotes" prefix, but a real config failure: a
+    // GH_HOST is set that matches none of the remotes. The user should see
+    // this, not have it silently swallowed as "no PR on this branch".
+    expect(
+      classifyGhError({
+        code: 1,
+        stderr:
+          "none of the git remotes configured for this repository correspond to the GH_HOST environment variable. Try adding a matching remote or unsetting the variable",
+      }),
+    ).toEqual({
+      kind: "unavailable",
+      source: { provider: "gh", code: "unknown" },
+    });
+  });
+
   it.each([
     { input: new Error("JSON parse boom"), label: "Error instance" },
     { input: "raw string", label: "raw string" },
