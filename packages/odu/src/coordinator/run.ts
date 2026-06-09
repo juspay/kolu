@@ -33,6 +33,7 @@ import {
 import { isLocalHost } from "@kolu/surface-nix-host";
 import { implement } from "@orpc/server";
 import { formatGoDuration } from "../common/duration";
+import { fanId, onPlatform, splitFanId } from "../common/nodeId";
 import type { TaskSpec } from "../common/spec";
 import {
   clampLog,
@@ -240,7 +241,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   const laneStart = new Map<string, number>();
   for (const platform of [...tasksByPlatform.keys()].sort()) {
     const tasks = tasksByPlatform.get(platform) ?? [];
-    const setupId = `${SETUP}@${platform}`;
+    const setupId = fanId(SETUP, platform);
     order.push(setupId);
     nodes[setupId] = {
       id: setupId,
@@ -253,13 +254,13 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
       durationMs: null,
     };
     for (const task of tasks) {
-      const id = `${task.id}@${platform}`;
+      const id = fanId(task.id, platform);
       order.push(id);
       nodes[id] = {
         id,
         name: task.id,
         command: task.command,
-        needs: [...task.needs, SETUP].map((dep) => `${dep}@${platform}`),
+        needs: [...task.needs, SETUP].map((dep) => fanId(dep, platform)),
         status: "pending",
         exitCode: null,
         startedAt: null,
@@ -324,10 +325,10 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     procedures: {
       node: {
         rerun: async ({ input }) => {
-          const at = input.id.lastIndexOf("@");
-          const lane = at > 0 ? lanes.get(input.id.slice(at + 1)) : undefined;
+          const { namepath, platform } = splitFanId(input.id);
+          const lane = lanes.get(platform);
           if (lane === undefined) return { ok: false };
-          return { ok: await lane.rerun(input.id.slice(0, at)) };
+          return { ok: await lane.rerun(namepath) };
         },
       },
     },
@@ -338,11 +339,11 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   const emitProgress = (id: string, node: NodeState): void => {
     const status = PROGRESS_STATUS[node.status];
     if (status === null) return;
-    const at = id.lastIndexOf("@");
+    const { namepath, platform } = splitFanId(id);
     const event: ProgressEvent = {
       node: id,
-      recipe: id.slice(0, at),
-      platform: id.slice(at + 1),
+      recipe: namepath,
+      platform,
       status,
       ...(node.exitCode !== null ? { exit_code: node.exitCode } : {}),
       log: logPathFor(sha7, id),
@@ -405,7 +406,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   for (const platform of [...tasksByPlatform.keys()].sort()) {
     const host = lanesByPlatform[platform] as string;
     const tasks = tasksByPlatform.get(platform) ?? [];
-    const setupId = `${SETUP}@${platform}`;
+    const setupId = fanId(SETUP, platform);
     laneStart.set(platform, Date.now());
     updateNode(setupId, { status: "running", startedAt: Date.now() });
 
@@ -439,14 +440,14 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
         for (const laneId of laneState.order) {
           const laneNode = laneState.nodes[laneId];
           if (laneNode === undefined) continue;
-          const fanId = `${laneId}@${platform}`;
+          const id = fanId(laneId, platform);
           if (laneId === SETUP) {
             // justci's _ci-setup brackets ship+prep; ours brackets
             // provision+fetch+worktree — duration is coordinator-measured.
             const startedAt = laneStart.get(platform) ?? Date.now();
             const terminal =
               laneNode.status !== "pending" && laneNode.status !== "running";
-            updateNode(fanId, {
+            updateNode(id, {
               status:
                 laneNode.status === "pending" ? "running" : laneNode.status,
               exitCode: laneNode.exitCode,
@@ -454,7 +455,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
               durationMs: terminal ? Date.now() - startedAt : null,
             });
           } else {
-            updateNode(fanId, {
+            updateNode(id, {
               status: laneNode.status,
               exitCode: laneNode.exitCode,
               startedAt: laneNode.startedAt,
@@ -464,21 +465,21 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
         }
       },
       onLogFrame: (laneId, frame) => {
-        const fanId = `${laneId}@${platform}`;
+        const id = fanId(laneId, platform);
         if (frame.kind === "append") {
-          appendLocal(fanId, frame.text);
+          appendLocal(id, frame.text);
         } else if (laneId === SETUP) {
           // Never reset _ci-setup: the coordinator's provision lines precede
           // the lane stream and must survive the lane's snapshot frame.
-          if (frame.text !== "") appendLocal(fanId, frame.text);
-        } else if (frame.text !== "" || logFor(fanId).buffer !== "") {
-          resetLocal(fanId, frame.text);
+          if (frame.text !== "") appendLocal(id, frame.text);
+        } else if (frame.text !== "" || logFor(id).buffer !== "") {
+          resetLocal(id, frame.text);
         }
       },
       onDead: (error) => {
         const state = store.get();
         for (const id of state.order) {
-          if (!id.endsWith(`@${platform}`)) continue;
+          if (!onPlatform(id, platform)) continue;
           const status = state.nodes[id]?.status;
           if (status === "running") {
             appendLocal(id, `\n[odu] lane died: ${error}\n`);
@@ -564,12 +565,12 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     for (const id of finalState.order) {
       const node = finalState.nodes[id];
       if (node === undefined) continue;
-      const at = id.lastIndexOf("@");
+      const { namepath, platform } = splitFanId(id);
       timingLines.push(
         JSON.stringify({
           node: id,
-          recipe: at > 0 ? id.slice(0, at) : id,
-          platform: at > 0 ? id.slice(at + 1) : "unknown",
+          recipe: namepath,
+          platform,
           status: node.status,
           startedAt: node.startedAt,
           durationMs: node.durationMs,

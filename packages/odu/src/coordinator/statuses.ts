@@ -21,16 +21,15 @@
 
 import { spawn } from "node:child_process";
 import { formatGoDuration } from "../common/duration";
+import { splitFanId } from "../common/nodeId";
 import type { NodeStatus } from "../common/surface";
 
 export type GithubState = "pending" | "success" | "failure" | "error";
 
 /** `ci::e2e@x86_64-linux` → `.ci/<sha7>/x86_64-linux/ci::e2e.log` */
 export function logPathFor(sha7: string, nodeId: string): string {
-  const at = nodeId.lastIndexOf("@");
-  const prefix = at > 0 ? nodeId.slice(0, at) : nodeId;
-  const platform = at > 0 ? nodeId.slice(at + 1) : "unknown";
-  return `.ci/${sha7}/${platform}/${prefix}.log`;
+  const { namepath, platform } = splitFanId(nodeId);
+  return `.ci/${sha7}/${platform}/${namepath}.log`;
 }
 
 export interface StatusPayload {

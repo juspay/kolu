@@ -7,6 +7,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { fanId } from "../common/nodeId";
 import { loadHosts, resolveLanes } from "../coordinator/hosts";
 import { parseGithubRemote } from "../coordinator/statuses";
 import { loadJustPipeline } from "../just/ingest";
@@ -31,7 +32,7 @@ export async function protectCommand(args: ProtectArgs): Promise<number> {
     return 1;
   }
   const contexts = platforms.flatMap((platform) =>
-    spec.tasks.map((task) => `${task.id}@${platform}`),
+    spec.tasks.map((task) => fanId(task.id, platform)),
   );
 
   if (args.dryRun) {
