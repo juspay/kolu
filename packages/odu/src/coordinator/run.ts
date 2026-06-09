@@ -366,8 +366,14 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     status: NodeState["status"],
     exitCode: number | null,
   ): void => {
+    const id = fanId(SETUP, platform);
+    // Freeze the duration at the first terminal transition: lane frames keep
+    // arriving for the rest of the run, and re-deriving Date.now() − start
+    // on each one silently inflates the settled number.
+    const current = store.get().nodes[id]?.status;
+    if (current !== "pending" && current !== "running") return;
     const startedAt = laneStart.get(platform) ?? Date.now();
-    updateNode(fanId(SETUP, platform), {
+    updateNode(id, {
       status,
       exitCode,
       startedAt,
