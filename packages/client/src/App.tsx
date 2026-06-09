@@ -641,10 +641,16 @@ const App: Component = () => {
                       : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
                   }
                   onSizesChange={(sizes) => {
-                    // The `undefined` guard is just TypeScript narrowing —
-                    // Corvu always emits `sizes.length === 2` here. The
-                    // real load-bearing gate is `MIN_PANEL_SIZE = 0.05`
-                    // inside `useRightPanel.setPanelSize`, which drops the
+                    // The `undefined` guard does real work: when this
+                    // Resizable unmounts (last terminal closes → the
+                    // EmptyState takes over), Corvu's `unregisterPanel`
+                    // emits a LENGTH-1 renormalized array — `sizes[1]` is
+                    // undefined then, so the garbage value never reaches
+                    // the preference (CodeTab's vertical split reads
+                    // `sizes[0]` and needs an explicit length gate for
+                    // the same emission). The other load-bearing gate is
+                    // `MIN_PANEL_SIZE = 0.05` inside
+                    // `useRightPanel.setPanelSize`, which drops the
                     // collapsed `sizes[1] = 0` case so `preferences.size`
                     // never persists as zero (which would re-expand into
                     // an ungrabbable zero-width panel).

@@ -1093,6 +1093,26 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     Then the Code tab tree pane split handle should be visible
 
+  # Repro: preview a file, drag the split to grow the preview pane, open a
+  # second terminal (different, non-git cwd — the Code tab falls into its
+  # "Not in a git repository" fallback, unmounting the Resizable), then
+  # switch back. The split fraction rides the global
+  # `preferences.rightPanel.codeTabTreeSize`, so the remounted Resizable
+  # must restore the dragged size — not the 0.35 default.
+  Scenario: Tree/content split survives switching to another terminal and back
+    Given a Code tab in "browse" mode showing file "a.txt" with content "aaa"
+    When I open file "a.txt" in the Code tab
+    Then the selected file should show content "aaa"
+    When I note the Code tab preview pane height
+    And I drag the Code tab tree/content split handle up by 80 pixels
+    Then the Code tab preview pane should be about 80 pixels taller than noted
+    When I note the Code tab preview pane height
+    And I create a terminal
+    And I run "rm -rf /tmp/kolu-split-otherdir && mkdir -p /tmp/kolu-split-otherdir && cd /tmp/kolu-split-otherdir"
+    And I select workspace switcher entry 1
+    Then the selected file should show content "aaa"
+    And the Code tab preview pane height should match the noted height
+
   Scenario: File browser expands directories lazily
     When I run "git init /tmp/kolu-browse-expand && cd /tmp/kolu-browse-expand"
     And I run "mkdir -p lib && printf 'x\n' > lib/util.ts"

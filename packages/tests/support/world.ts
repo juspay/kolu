@@ -92,6 +92,10 @@ export class KoluWorld extends World {
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;
   savedWorkspaceSwitcherCount?: number;
+  /** Code-tab preview (diff-content) pane height captured by `I note the
+   *  Code tab preview pane height`, compared after terminal switches to
+   *  prove the tree/content split fraction survives. */
+  savedCodeTabPreviewHeight?: number;
   savedActiveTerminalId?: string;
   savedScrollTop?: number;
   savedVisibleText?: string;

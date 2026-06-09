@@ -730,6 +730,93 @@ Then(
   },
 );
 
+/** Drag the tree/content split handle upward, growing the preview
+ *  (content) pane. The handle element is zero-height (`h-0`) with a
+ *  `::before` pseudo drawing the real hit area, so Playwright's
+ *  `boundingBox()`/`dragTo()` (which require visibility) can't drive it —
+ *  read the rect directly and run a raw mouse drag through the hit zone. */
+When(
+  "I drag the Code tab tree\\/content split handle up by {int} pixels",
+  async function (this: KoluWorld, pixels: number) {
+    const handle = this.page.locator(
+      '[data-testid="diff-tree-content-handle"][data-corvu-resizable-handle]',
+    );
+    await handle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    const rect = await handle.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width };
+    });
+    const x = rect.x + rect.width / 2;
+    await this.page.mouse.move(x, rect.y);
+    await this.page.mouse.down();
+    await this.page.mouse.move(x, rect.y - pixels, { steps: 5 });
+    await this.page.mouse.up();
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I note the Code tab preview pane height",
+  async function (this: KoluWorld) {
+    const box = await this.page
+      .locator('[data-testid="diff-content"]')
+      .boundingBox();
+    if (!box) throw new Error("diff-content pane has no bounding box");
+    this.savedCodeTabPreviewHeight = box.height;
+  },
+);
+
+/** Sanity gate for the drag step above: proves the drag actually moved
+ *  the split (within a small tolerance for Corvu's min-size clamping and
+ *  fractional rounding) before the scenario goes on to test persistence. */
+Then(
+  "the Code tab preview pane should be about {int} pixels taller than noted",
+  async function (this: KoluWorld, pixels: number) {
+    const noted = this.savedCodeTabPreviewHeight;
+    if (noted === undefined) {
+      throw new Error("No noted preview pane height in this scenario");
+    }
+    await pollFor({
+      observe: async () =>
+        (await this.page.locator('[data-testid="diff-content"]').boundingBox())
+          ?.height,
+      isDone: (h) => h !== undefined && Math.abs(h - (noted + pixels)) <= 10,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `preview pane height ${last}px never reached ~${noted + pixels}px ` +
+            `(noted ${noted}px + ${pixels}px drag) within ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
+Then(
+  "the Code tab preview pane height should match the noted height",
+  async function (this: KoluWorld) {
+    const noted = this.savedCodeTabPreviewHeight;
+    if (noted === undefined) {
+      throw new Error("No noted preview pane height in this scenario");
+    }
+    // Poll: after a terminal switch the Code tab remounts behind
+    // `<Show when={repoPath()}>` and Corvu re-lays-out async — give the
+    // split a moment to converge before judging it.
+    await pollFor({
+      observe: async () =>
+        (await this.page.locator('[data-testid="diff-content"]').boundingBox())
+          ?.height,
+      isDone: (h) => h !== undefined && Math.abs(h - noted) <= 2,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `preview pane height settled at ${last}px, expected the noted ` +
+            `${noted}px (±2px) within ${elapsed}ms — the tree/content split ` +
+            `did not survive the terminal switch`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
 Then(
   "the file preview iframe should not be visible",
   async function (this: KoluWorld) {
