@@ -7,10 +7,9 @@
 #   - `odu-runner` — the lane agent. Never invoked by hand: the coordinator
 #     `nix copy`s its derivation closure to each lane host, realises it
 #     there, and runs it over `ssh <host> odu-runner --stdio`.
-#   - `odu` — the coordinator CLI (`nix run .#odu -- run|status|…`). Bakes
-#     the *current system's* runner drvPath as ODU_RUNNER_DRV's default;
-#     cross-arch lanes are resolved at run time via
-#     `nix eval <snapshot>#packages.<platform>.odu-runner.drvPath`.
+#   - `odu` — the coordinator CLI (`nix run .#odu -- run|status|…`). Every
+#     lane's runner drvPath — local and cross-arch alike — is resolved at run
+#     time via `nix eval <snapshot>#packages.<platform>.odu-runner.drvPath`.
 { pkgs, src, pnpmDeps }:
 let
   base = import ../surface/example/base.nix { inherit pkgs src pnpmDeps; };
@@ -50,7 +49,6 @@ let
     # the DAG ingest; `git` the strict gate.
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/odu \
       --add-flags "${entry}/cli/main.ts" \
-      --set-default ODU_RUNNER_DRV "${odu-runner.drvPath}" \
       --set ODU_GH_BIN "${pkgs.gh}/bin/gh" \
       --prefix PATH : ${pkgs.lib.makeBinPath [
         pkgs.nodejs
