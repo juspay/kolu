@@ -184,6 +184,16 @@ describe("classifyGhError", () => {
     ).toEqual({ kind: "absent" });
   });
 
+  it("classifies a non-GitHub remote (gh's 'none of the git remotes') as absent", () => {
+    expect(
+      classifyGhError({
+        code: 1,
+        stderr:
+          "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`",
+      }),
+    ).toEqual({ kind: "absent" });
+  });
+
   it.each([
     { input: new Error("JSON parse boom"), label: "Error instance" },
     { input: "raw string", label: "raw string" },

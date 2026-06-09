@@ -130,6 +130,13 @@ export function classifyGhError(err: unknown): PrResult {
     return ghUnavailable("timed-out");
   }
   const stderr = (e.stderr ?? "").toLowerCase();
+  // A non-GitHub remote (Forgejo, GitLab, …): gh refuses before any API
+  // call. The user simply isn't on GitHub — same silent UI outcome as "no
+  // PR on this branch", not an auth problem to warn about. Must precede the
+  // auth check: the refusal message itself suggests `gh auth login`.
+  if (stderr.includes("none of the git remotes")) {
+    return { kind: "absent" };
+  }
   if (
     stderr.includes("not logged in") ||
     stderr.includes("authentication") ||
