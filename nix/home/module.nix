@@ -37,6 +37,20 @@ in
       description = "The kolu package to use.";
     };
 
+    tuiPackage = lib.mkOption {
+      type = lib.types.nullOr lib.types.package;
+      default = null;
+      description = ''
+        The `kolu-tui` CLI package to install onto PATH alongside the running
+        server. When non-null, `kolu-tui` is added to `home.packages` so
+        `kolu-tui list` / `kolu-tui snapshot` work from any shell against this
+        server. The flake's `homeManagerModules.default` defaults this to the
+        matching `kolu-tui` build for the host platform, so the CLI ships
+        automatically with the service; set it to `null` to opt out, or to an
+        explicit package to pin a particular build.
+      '';
+    };
+
     host = lib.mkOption {
       type = lib.types.str;
       default = "127.0.0.1";
@@ -91,6 +105,10 @@ in
         message = "services.kolu.tls.certFile and services.kolu.tls.keyFile must both be set or both be null.";
       }
     ];
+
+    # Ship the terminal-side CLI on PATH so `kolu-tui` reaches this server's
+    # pty-host socket from any shell. Skipped only when explicitly set null.
+    home.packages = lib.optional (cfg.tuiPackage != null) cfg.tuiPackage;
 
     systemd.user.services = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
       kolu = {

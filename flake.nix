@@ -44,7 +44,14 @@
         import ./website { inherit pkgs; src = websiteSrc; });
     in
     {
-      homeManagerModules.default = import ./nix/home/module.nix;
+      # The module proper is platform-agnostic; the flake closes over it to
+      # default `tuiPackage` to this flake's matching `kolu-tui` build, so the
+      # CLI ships automatically with the server (override or set null to opt out).
+      homeManagerModules.default = { pkgs, lib, ... }: {
+        imports = [ ./nix/home/module.nix ];
+        config.services.kolu.tuiPackage =
+          lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.kolu-tui;
+      };
       packages = eachSystem (pkgs:
         let
           system = pkgs.stdenv.hostPlatform.system;

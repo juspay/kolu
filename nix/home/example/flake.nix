@@ -105,6 +105,17 @@
               "curl --fail --silent http://127.0.0.1:7681/ > /dev/null",
               timeout=120,
           )
+
+          # kolu-tui (auto-installed via home.packages) reaches the running
+          # server's pty-host socket over $XDG_RUNTIME_DIR/kolu/pty-host.sock
+          # and lists its (empty) terminals — end-to-end proof of both the
+          # R-4 Phase 1 CLI and its automatic install. The login shell picks
+          # up the home-manager profile PATH; the socket binds just after the
+          # HTTP listener, so retry briefly.
+          machine.wait_until_succeeds(
+              "machinectl -q shell alice@.host /run/current-system/sw/bin/bash -lc 'kolu-tui list'",
+              timeout=30,
+          )
         '';
       };
 
