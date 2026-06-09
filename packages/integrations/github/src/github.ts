@@ -130,18 +130,26 @@ export function classifyGhError(err: unknown): PrResult {
     return ghUnavailable("timed-out");
   }
   const stderr = (e.stderr ?? "").toLowerCase();
-  // A non-GitHub remote (Forgejo, GitLab, …): gh refuses before any API
-  // call. The user simply isn't on GitHub — same silent UI outcome as "no
-  // PR on this branch", not an auth problem to warn about. Must precede the
-  // auth check: the refusal message itself suggests `gh auth login`.
-  //
-  // Match the "known GitHub host" refusal specifically, NOT the bare
-  // "none of the git remotes" prefix — gh's remoteResolver emits a second
-  // message with that same prefix ("…correspond to the GH_HOST environment
-  // variable…") for a misconfigured GH_HOST that matches no remote. That is
-  // a real config failure the user should see, so it must fall through to
-  // `unknown` rather than be swallowed as `absent`.
-  if (stderr.includes("point to a known github host")) {
+  // Situations where a PR simply can't exist — same silent UI outcome as
+  // "no PR on this branch", not a problem to warn about:
+  //  - a non-GitHub remote (Forgejo, GitLab, …): gh refuses before any API
+  //    call. Match the "known GitHub host" refusal specifically, NOT the
+  //    bare "none of the git remotes" prefix — gh's remoteResolver emits a
+  //    second message with that same prefix ("…correspond to the GH_HOST
+  //    environment variable…") for a misconfigured GH_HOST that matches no
+  //    remote. That is a real config failure the user should see, so it
+  //    must fall through to `unknown` rather than be swallowed as `absent`.
+  //  - gh's literal "no pull requests found" for the current branch;
+  //  - a repo with no remote at all.
+  // This block sits before the auth check because the non-GitHub-remote
+  // refusal itself suggests `gh auth login`, which would otherwise match
+  // the auth branch.
+  const ABSENT_STDERR = [
+    "point to a known github host",
+    "no pull requests found",
+    "no git remotes found",
+  ];
+  if (ABSENT_STDERR.some((s) => stderr.includes(s))) {
     return { kind: "absent" };
   }
   if (
@@ -150,14 +158,6 @@ export function classifyGhError(err: unknown): PrResult {
     stderr.includes("gh auth login")
   ) {
     return ghUnavailable("not-authenticated");
-  }
-  if (stderr.includes("no pull requests found")) {
-    return { kind: "absent" };
-  }
-  // A repo with no remote can't have a PR — same UI outcome as "no PR on
-  // this branch" (silent), not a warning the user needs to act on.
-  if (stderr.includes("no git remotes found")) {
-    return { kind: "absent" };
   }
   return ghUnavailable("unknown");
 }
