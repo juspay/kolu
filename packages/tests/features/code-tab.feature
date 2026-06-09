@@ -1109,7 +1109,12 @@ Feature: Code tab (review + browse)
     When I note the Code tab preview pane height
     And I create a terminal
     And I run "rm -rf /tmp/kolu-split-otherdir && mkdir -p /tmp/kolu-split-otherdir && cd /tmp/kolu-split-otherdir"
-    And I select workspace switcher entry 1
+    # Wait for the non-git fallback to actually mount — this is what
+    # unmounts the inner Resizable and fires Corvu's unregister emission
+    # (the bug). Switching back before this races past the path the fix
+    # guards, so the regression could pass vacuously without it.
+    Then the Code tab should indicate no git repository
+    When I select workspace switcher entry 1
     Then the selected file should show content "aaa"
     And the Code tab preview pane height should match the noted height
 
