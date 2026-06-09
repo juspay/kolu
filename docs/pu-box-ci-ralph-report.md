@@ -1,3 +1,5 @@
+> **Historical (2026-06):** this report predates odu (`packages/odu`), which replaced justci as the repo's CI runner — `justci` invocations below are period-accurate, not current practice.
+
 # pu-box CI ralph report
 
 > **Superseded (2026-06):** the per-run **fork-a-golden** mechanism this report

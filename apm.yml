@@ -27,5 +27,4 @@ dependencies:
     - juspay/skills/skills/pg
     - anthropics/skills/skills/frontend-design
     - juspay/nix-chrome-devtools-mcp
-    - juspay/justci
     - juspay/project-unknown

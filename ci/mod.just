@@ -1,16 +1,17 @@
-# Kolu CI pipeline — consumed by github:juspay/justci.
+# Kolu CI pipeline — consumed by odu (packages/odu, `nix run .#odu`).
 #
 # The runner discovers the recipe tagged [metadata("ci")] (exactly one across
 # this justfile and its submodules), expands its reachable dependency subgraph,
-# and fans every (recipe × platform) pair out into a process-compose node.
-# Local platform runs against the worktree; non-local platforms ship a git
-# bundle over SSH to the host configured under that system tuple in
-# ~/.config/justci/hosts.json.
+# and fans every (recipe × platform) pair out as a pipeline node. Lane hosts
+# come from hosts.json ($ODU_HOSTS → ~/.config/odu/hosts.json →
+# ~/.config/justci/hosts.json); a `localhost` lane runs against the HEAD
+# snapshot, remote lanes `git fetch` the pushed SHA into a writable per-SHA
+# workspace on the host.
 #
-# Today every reachable recipe is replicated to every pipeline platform — the
-# per-recipe [linux]/[macos] filter is on the runner's roadmap. So a step
-# tagged [linux]-only would still be scheduled on macOS and fail there; keep
-# leaf recipes platform-neutral until that lands.
+# Today every reachable recipe is replicated to every pipeline platform — a
+# per-recipe [linux]/[macos] filter is future work (it was on justci's roadmap
+# too). So a step tagged [linux]-only would still be scheduled on macOS and
+# fail there; keep leaf recipes platform-neutral until that lands.
 
 # Submodule recipes default to running from the submodule's directory (`ci/`),
 # but commands like `nix build … --override-input flake .` and `nix develop -c`

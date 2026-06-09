@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-09T15:06:40.187902+00:00'
+generated_at: '2026-06-09T19:43:31.975089+00:00'
 apm_version: 0.18.0
 dependencies:
 - repo_url: anthropics/skills
@@ -12,17 +12,6 @@ dependencies:
   - .agents/skills/frontend-design
   - .claude/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
-- repo_url: juspay/justci
-  host: github.com
-  resolved_commit: 29d0d3d47bbbd037c50e5e8b50969b4ac3063c26
-  package_type: apm_package
-  deployed_files:
-  - .agents/skills/ci
-  - .claude/rules/workflow.md
-  - .claude/skills/ci
-  deployed_file_hashes:
-    .claude/rules/workflow.md: sha256:babf61cdd29cfc8f03b3d20f17b4bf13ef5f173dc05640bc83c505dca4b42010
-  content_hash: sha256:daf1681118ced26212fdddda490fe3b89bc6e2e3955d8b683da48fa7cecc4350
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
   resolved_commit: a202612693800c9d9ac9035ca0df80f2e92ded3b
@@ -122,6 +111,7 @@ local_deployed_files:
 - .agents/skills/be
 - .agents/skills/be-review
 - .agents/skills/blog-post
+- .agents/skills/ci
 - .agents/skills/codex-debate
 - .agents/skills/dev-server
 - .agents/skills/evidence
@@ -144,10 +134,12 @@ local_deployed_files:
 - .claude/rules/streaming.md
 - .claude/rules/surface.md
 - .claude/rules/toast-conventions.md
+- .claude/rules/workflow.md
 - .claude/skills/atlas
 - .claude/skills/be
 - .claude/skills/be-review
 - .claude/skills/blog-post
+- .claude/skills/ci
 - .claude/skills/codex-debate
 - .claude/skills/dev-server
 - .claude/skills/evidence
@@ -171,3 +163,4 @@ local_deployed_file_hashes:
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
   .claude/rules/surface.md: sha256:2d6e1255e1e277ef8498b0e0e630b411155d35862c15532b253d96b244c8af89
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
+  .claude/rules/workflow.md: sha256:babf61cdd29cfc8f03b3d20f17b4bf13ef5f173dc05640bc83c505dca4b42010

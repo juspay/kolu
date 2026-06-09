@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Lease an idle pool box, run justci's linux lane against it, release on exit.
+# Lease an idle pool box, run the CI runner's linux lane against it, release
+# on exit. The runner is odu (packages/odu, `nix run .#odu`), which replaced
+# justci; override with KOLU_CI_RUNNER=<flakeref> if you must pin another.
 #
 # Replaces the per-run fork+destroy model (the old ci/pu-ci-host.sh) with a
 # FIXED POOL of long-lived warm boxes — kolu-ci-1 .. kolu-ci-N. A run *leases*
@@ -12,11 +14,11 @@
 #     nothing, so the "5 cold boxes stalled > 12 min" contention can't happen.
 # Background + measurements: docs/pu-box-ci-ralph-report.md, juspay/kolu#1173.
 #
-# ─── Why this is one process that WRAPS justci (not a host-printing helper) ───
+# ─── Why this is one process that WRAPS the run (not a host-printing helper) ──
 # The lease is held for exactly the run's duration by keeping a file descriptor
 # open. An fd cannot span the agent's separate Bash tool-calls, so the lease
-# must live in the same process that runs justci. Hence: lease → run → release,
-# all here, with release wired to EXIT.
+# must live in the same process that runs the CI runner. Hence: lease → run →
+# release, all here, with release wired to EXIT.
 #
 # ─── Why the lease is RELIABLE (auto-releases even on SIGKILL) ───────────────
 # The lock lives ON THE BOX (`flock`). We hold it from here over the ssh DATA
@@ -36,16 +38,19 @@
 # `flock` is system-wide per inode, so claims from different coordinators/PRs are
 # mutually exclusive on the box regardless of who dials in.
 #
-# Usage:  ci/pu/run.sh <pr-number> [extra justci args...]
+# Usage:  ci/pu/run.sh <pr-number> [extra odu run args...]
 #   e.g.  ci/pu/run.sh 1234 --progress json
-# Prints the justci output on stdout (so the caller can tail --progress json).
+# Prints the run's output on stdout (so the caller can tail --progress json).
 # Always falls back — saturated pool → cold ephemeral box → hosts.json — so a
 # busy or unreachable pool never blocks CI.
 set -uo pipefail
 
-pr="${1:?usage: ci/pu/run.sh <pr> [justci args...]}"; shift || true
+pr="${1:?usage: ci/pu/run.sh <pr> [odu run args...]}"; shift || true
 
-JUSTCI="${KOLU_JUSTCI:-github:juspay/justci}"
+# The repo's own flake output by default, so the leased lane always runs the
+# odu that ships with the commit under test.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+RUNNER="${KOLU_CI_RUNNER:-$REPO_ROOT#odu}"
 POOL_SIZE="${KOLU_CI_POOL:-8}"
 POOL_PREFIX="${KOLU_CI_POOL_PREFIX:-kolu-ci-}"
 LOCK="${KOLU_CI_LOCK:-/tmp/kolu-ci.lease}"   # one lock per box ⇒ one run per box
@@ -140,8 +145,8 @@ if [ -z "$host" ]; then
   fi
 fi
 
-# ── 3) Run justci. With a host: pin the linux lane to it. Without: hosts.json. ──
-# KOLU_CI_DRYRUN=<secs> stands in for the justci run (holds the lease that long)
+# ── 3) Run odu. With a host: pin the linux lane to it. Without: hosts.json. ──
+# KOLU_CI_DRYRUN=<secs> stands in for the run (holds the lease that long)
 # so the lease/contention/release path can be exercised without the full pipeline.
 sha="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 start="$(date +%s)"
@@ -150,9 +155,9 @@ if [ -n "${KOLU_CI_DRYRUN:-}" ]; then
   sleep "$KOLU_CI_DRYRUN"; rc=0
 elif [ -n "$host" ]; then
   log "running linux lane on $host"
-  nix run "$JUSTCI" -- run --host "x86_64-linux=$host" "$@"; rc=$?
+  nix run "$RUNNER" -- run --host "x86_64-linux=$host" "$@"; rc=$?
 else
-  nix run "$JUSTCI" -- run "$@"; rc=$?
+  nix run "$RUNNER" -- run "$@"; rc=$?
 fi
 end="$(date +%s)"
 
