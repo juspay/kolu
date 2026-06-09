@@ -276,7 +276,12 @@ ${message}
 // (badge emoji, base-slice length, a new metadata row) is a mechanical mirror edit
 // — make it here and in codex-debate's ledgerHeader. If the runtime ever admits a
 // shared helper file, lift this common chrome there.
-function renderComment({ rounds, settledOut, unresolved, applied, handoff, reviewByLens, withPolice, base, clean }) {
+// `outcome` is the single mode bit for what happened to the agreed fixes:
+// { kind: 'applied', items } when this run implemented them, or
+// { kind: 'handed-off', items } when apply:false returned the plans to the
+// caller — one param, so "at most one of applied/handed-off" holds by
+// construction instead of by convention.
+function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, withPolice, base, clean }) {
   const badge = clean
     ? '✅ **Clean** — every lens found nothing worth raising'
     : unresolved.length === 0
@@ -297,16 +302,16 @@ function renderComment({ rounds, settledOut, unresolved, applied, handoff, revie
     `Independent findings: ${counts}`,
   ]
   const drops = settledOut.filter((s) => s.agreed && s.disposition === 'drop')
-  if (applied.length) {
-    lines.push('', `### Applied (${applied.length})`)
-    applied.forEach((a) => lines.push(`- \`${a.id}\` ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
+  if (outcome.kind === 'applied' && outcome.items.length) {
+    lines.push('', `### Applied (${outcome.items.length})`)
+    outcome.items.forEach((a) => lines.push(`- \`${a.id}\` ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
   }
   // apply:false runs hand the agreed plans to the caller instead of implementing
   // them; the comment records the handoff so the trail still shows what was agreed
   // (the caller appends its own apply outcomes when it posts this).
-  if ((handoff || []).length) {
-    lines.push('', `### Agreed fixes — handed off to the caller (${handoff.length})`)
-    handoff.forEach((f) => lines.push(`- \`${f.id}\` ${f.title} (${f.location})`))
+  if (outcome.kind === 'handed-off' && outcome.items.length) {
+    lines.push('', `### Agreed fixes — handed off to the caller (${outcome.items.length})`)
+    outcome.items.forEach((f) => lines.push(`- \`${f.id}\` ${f.title} (${f.location})`))
   }
   if (drops.length) {
     lines.push('', `### Agreed — no change (${drops.length})`)
@@ -355,7 +360,7 @@ if (combined.length === 0) {
   // Route the clean outcome through the SAME renderer as a debated run so the
   // comment carries the same audit metadata (base, lens roster, per-lens counts,
   // whether code-police ran) instead of a bare one-liner.
-  const comment = renderComment({ rounds: 0, settledOut: [], unresolved: [], applied: [], handoff: [], reviewByLens, withPolice, base, clean: true })
+  const comment = renderComment({ rounds: 0, settledOut: [], unresolved: [], outcome: { kind: apply ? 'applied' : 'handed-off', items: [] }, reviewByLens, withPolice, base, clean: true })
   return { status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', settled: [], unresolved: [], applied: [], fixes: [], reviews: reviewByLens, history: [], comment }
 }
 
@@ -484,5 +489,5 @@ return {
   fixes,
   reviews: reviewByLens,
   history,
-  comment: renderComment({ rounds, settledOut, unresolved, applied, handoff: apply ? [] : fixes, reviewByLens, withPolice, base }),
+  comment: renderComment({ rounds, settledOut, unresolved, outcome: apply ? { kind: 'applied', items: applied } : { kind: 'handed-off', items: fixes }, reviewByLens, withPolice, base }),
 }
