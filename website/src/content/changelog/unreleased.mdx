@@ -2,6 +2,10 @@
 version: Unreleased
 ---
 
+### Added
+
+- <Change title="Maximize a tile without the mouse" pr={1248}>You can now toggle a tile between the freeform canvas and maximized view straight from the keyboard with <kbd>Cmd/Ctrl+Shift+M</kbd>, or by running "Maximize terminal" from the command palette — no more reaching for the chrome-bar button or double-clicking a title bar. The command's label flips to "Restore canvas" once you're maximized, so it always names what the next click does.</Change>
+
 ### Fixed
 
 - <Change title="No more error spam in fresh repos" pr={1246}>Opening a terminal in a freshly `git init`'d repository (no remote, no commits) no longer logs a repeated "no base branch found" error on every change. The Code tab's Branch view now shows an empty diff there instead of failing — while repos that simply haven't fetched their remote still get the actionable "run git fetch" prompt.</Change>

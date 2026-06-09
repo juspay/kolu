@@ -22,7 +22,7 @@
 
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
-import { useViewPosture } from "./canvas/useViewPosture";
+import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";
@@ -68,9 +68,7 @@ const ChromeBar: Component<{
   // The maximize toggle's affordance describes the action a click performs,
   // so both the tooltip and the aria-label read from one source and can't
   // drift out of sync with the posture.
-  const maximizeLabel = createMemo(() =>
-    docked() ? "Restore canvas" : "Maximize terminal",
-  );
+  const maximizeLabel = createMemo(() => posturedActionLabel(posture.mode()));
 
   return (
     <header

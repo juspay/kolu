@@ -363,6 +363,32 @@ Feature: Canvas workspace
     Then no canvas tile should be maximized
     And there should be no page errors
 
+  Scenario: Keyboard shortcut toggles canvas maximize
+    # Mod+Shift+M drives the same useViewPosture.toggle as the chrome-bar
+    # button and the title-bar double-click — keyboard-first parity (#1242).
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I press the maximize toggle shortcut
+    Then canvas tile 1 should be maximized
+    When I press the maximize toggle shortcut
+    Then no canvas tile should be maximized
+    And there should be no page errors
+
+  Scenario: Command palette toggles canvas maximize with a state-reflecting label
+    # The palette command's label describes the action a select performs:
+    # "Maximize terminal" when tiled, "Restore canvas" when maximized (#1243).
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I open the command palette
+    And I type "Maximize" in the palette
+    And I select "Maximize terminal" in the palette
+    Then canvas tile 1 should be maximized
+    When I open the command palette
+    And I type "Restore" in the palette
+    And I select "Restore canvas" in the palette
+    Then no canvas tile should be maximized
+    And there should be no page errors
+
   Scenario: Switching the active terminal while maximized does not remount the xterm
     # Regression for #988: switching active in maximized mode used to move
     # the active tile between the tiled `<For>` and a separate `<Show keyed>`
