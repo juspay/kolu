@@ -53,8 +53,18 @@ export interface ProgressEvent {
 export interface RunHeader {
   pipeline: string;
   sha7: string;
+  /** Uncommitted changes in the tree this run reads (live-tree mode only —
+   *  strict refuses a dirty tree). Shown loudly: a dirty run's verdict is
+   *  about your working tree, not the commit. */
+  dirty: boolean;
   lanes: ReadonlyArray<{ platform: string; host: string }>;
   hostsSource: string;
+}
+
+/** `3cbac86` for a clean run, `3cbac86+dirty` when the working tree has
+ *  uncommitted changes — every face shows which code the verdict is about. */
+export function commitLabel(header: Pick<RunHeader, "sha7" | "dirty">): string {
+  return header.dirty ? `${header.sha7}+dirty` : header.sha7;
 }
 
 export interface Display {
@@ -119,7 +129,7 @@ class PlainDisplay implements Display {
       .map((l) => `${l.platform}=${l.host}`)
       .join(" · ");
     this.say(
-      `odu · ${header.pipeline} @ ${header.sha7} · ${lanes} (hosts: ${header.hostsSource})`,
+      `odu · ${header.pipeline} @ ${commitLabel(header)} · ${lanes} (hosts: ${header.hostsSource})`,
     );
     this.timer = setInterval(() => this.heartbeat(), HEARTBEAT_MS);
     this.timer.unref?.();
@@ -200,8 +210,11 @@ export function renderRunFrame(opts: {
       ? red("✗")
       : green("✔")
     : yellow(spinnerAt(tick));
+  const sha = header.dirty
+    ? yellow(`@ ${commitLabel(header)}`)
+    : dim(`@ ${header.sha7}`);
   const lines: string[] = [
-    `${bold("odu")} ${headGlyph} ${header.pipeline} ${dim(`@ ${header.sha7}`)} ${dim(
+    `${bold("odu")} ${headGlyph} ${header.pipeline} ${sha} ${dim(
       formatGoDuration(now - opts.startedAt),
     )}`,
     dim(

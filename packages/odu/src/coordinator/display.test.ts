@@ -52,6 +52,7 @@ const state: PipelineState = {
 const header = {
   pipeline: "ci::default",
   sha7: "3cbac86",
+  dirty: false,
   lanes: [
     { platform: "x86_64-linux", host: "kolu-ci-5" },
     { platform: "aarch64-darwin", host: "rasam" },
@@ -96,5 +97,18 @@ describe("renderRunFrame", () => {
 
   it("ends the header with the run's elapsed wall clock", () => {
     expect(frame.split("\n")[0]).toContain("10m0s");
+  });
+
+  it("names the commit, marking a dirty live-tree run loudly", () => {
+    expect(frame.split("\n")[0]).toContain("@ 3cbac86");
+    const dirtyFrame = renderRunFrame({
+      state,
+      header: { ...header, dirty: true },
+      tick: 0,
+      startedAt: 940_000,
+      now: 1_540_000,
+      columns: 100,
+    });
+    expect(dirtyFrame.split("\n")[0]).toContain("@ 3cbac86+dirty");
   });
 });

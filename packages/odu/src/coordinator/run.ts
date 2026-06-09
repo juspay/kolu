@@ -42,7 +42,7 @@ import {
   type PipelineState,
   STATUS_META,
 } from "../common/surface";
-import { createDisplay, type ProgressEvent } from "./display";
+import { commitLabel, createDisplay, type ProgressEvent } from "./display";
 import { laneTasks, loadJustPipeline, parseSelector } from "../just/ingest";
 import { loadHosts, resolveLanes } from "./hosts";
 import { type Lane, startLane } from "./lane";
@@ -388,6 +388,7 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   display.start({
     pipeline: spec.name,
     sha7,
+    dirty: ctx.dirty,
     lanes: [...tasksByPlatform.keys()].sort().map((platform) => ({
       platform,
       host: lanesByPlatform[platform] as string,
@@ -520,7 +521,9 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
   display.stop(finalState);
   const counts = { ok: 0, failed: 0, errored: 0, skipped: 0 };
   let redCount = 0;
-  const lines: string[] = [dim("── ci run summary ──")];
+  const lines: string[] = [
+    dim(`── ci run summary @ ${commitLabel({ sha7, dirty: ctx.dirty })} ──`),
+  ];
   for (const id of finalState.order) {
     const node = finalState.nodes[id];
     if (node === undefined) continue;
