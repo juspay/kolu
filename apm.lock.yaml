@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-08T19:05:49.519714+00:00'
+generated_at: '2026-06-09T15:06:40.187902+00:00'
 apm_version: 0.18.0
 dependencies:
 - repo_url: anthropics/skills
@@ -142,6 +142,7 @@ local_deployed_files:
 - .claude/rules/solidjs.md
 - .claude/rules/state.md
 - .claude/rules/streaming.md
+- .claude/rules/surface.md
 - .claude/rules/toast-conventions.md
 - .claude/skills/atlas
 - .claude/skills/be
@@ -168,4 +169,5 @@ local_deployed_file_hashes:
   .claude/rules/solidjs.md: sha256:a5cfe688d4399be719565de823ccacec874b9d2faa01d29897a7b40de1f49367
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
+  .claude/rules/surface.md: sha256:2d6e1255e1e277ef8498b0e0e630b411155d35862c15532b253d96b244c8af89
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
