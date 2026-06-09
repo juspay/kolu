@@ -143,3 +143,100 @@ export function createSurfaceSocket(opts: SurfaceSocketOptions): SurfaceSocket {
   }
   return { ws, echo };
 }
+
+/** How often the heartbeat probes a live socket, and how long it waits for an
+ *  answer before declaring the socket half-open. A healthy server answers the
+ *  probe in milliseconds, so the 10s timeout is a confident dead-signal; the 15s
+ *  interval keeps the keep-alive cheap. Worst-case auto-recovery after a socket
+ *  goes silently dead is one interval + one timeout (~25s). */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
+const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000;
+
+/** The structural socket `createHeartbeat` drives — a partysocket reduced to the
+ *  two verbs the watchdog touches: read `readyState`/`OPEN` (only probe a live
+ *  socket) and `reconnect()` (abandon a half-open one and connect fresh). */
+type HeartbeatSocket = {
+  readyState: number;
+  readonly OPEN: number;
+  reconnect: () => void;
+};
+
+/** Options for `createHeartbeat`. */
+export interface HeartbeatOptions {
+  /** The socket to watch — the `createSurfaceSocket` partysocket. */
+  ws: HeartbeatSocket;
+  /** A cheap server round-trip whose RESOLUTION is the liveness signal (its value
+   *  is ignored) — kolu reuses the `identity.info` probe. A REJECTION still
+   *  counts as alive: the round-trip completed (the server answered, even with an
+   *  error) and a genuine transport drop surfaces as a `close` partysocket already
+   *  reconnects through — so only a TIMEOUT (no answer at all) means half-open. */
+  probe: () => Promise<unknown>;
+  /** How often to probe while the socket is OPEN. Default 15s. */
+  intervalMs?: number;
+  /** How long to wait for a probe before declaring the socket half-open and
+   *  forcing a reconnect. Default 10s. */
+  timeoutMs?: number;
+  /** Report a forced reconnect (a missed probe). Defaults to a `console.warn` so
+   *  a silent half-open recovery is never invisible; pass your own logger. */
+  onStale?: () => void;
+}
+
+const warnStale = () =>
+  console.warn(
+    "surface-app: heartbeat probe timed out — forcing reconnect (half-open socket)",
+  );
+
+/** A heartbeat watchdog for a reconnecting WebSocket: it turns a SILENTLY
+ *  half-open socket — the TCP died with no FIN/RST (laptop sleep, Wi-Fi roam,
+ *  NAT/proxy idle eviction) — into a real `close` + reconnect, so the transport's
+ *  EXISTING recovery (partysocket auto-reconnect + oRPC stream re-subscribe via
+ *  the retry plugin) takes over. partysocket ships NO ping/keepalive, and a
+ *  half-open socket fires neither `error` nor `close`, so without this the socket
+ *  sits `OPEN` forever: every stream iterator hangs (never yields, never throws →
+ *  the retry plugin never re-fires) and the UI freezes until a manual reload.
+ *  This is the "no-op procedure on an interval" heartbeat `@kolu/surface`'s
+ *  peer-server note anticipates, layered on top of the link.
+ *
+ *  Each tick — only while `readyState === OPEN` — races `probe` against
+ *  `timeoutMs`. A probe that doesn't answer in time means the socket is
+ *  half-open, so `ws.reconnect()` abandons it (partysocket dispatches a `close`,
+ *  so the lifecycle drops to `disconnected` and in-flight streams error and
+ *  re-subscribe) and connects fresh — with code 1000, NOT the stale-tab 4001, so
+ *  the retire path is untouched. One miss forces the reconnect (no multi-miss
+ *  debounce that would only lengthen the freeze), and ticks never overlap: a tick
+ *  is skipped while the previous probe is still outstanding.
+ *
+ *  Framework-free (timers + the structural socket; no SolidJS), like its siblings
+ *  here. Returns `dispose()` to stop the interval — wire it to the consumer's
+ *  teardown (kolu's `onCleanup`). */
+export function createHeartbeat(opts: HeartbeatOptions): {
+  dispose: () => void;
+} {
+  const intervalMs = opts.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS;
+  let inFlight = false;
+  const tick = () => {
+    if (inFlight) return;
+    if (opts.ws.readyState !== opts.ws.OPEN) return;
+    inFlight = true;
+    // `settled` runs at most once per probe (either the answer or the timeout
+    // wins); the other path is a no-op once `inFlight` is cleared.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settled = (stale: boolean) => {
+      if (!inFlight) return;
+      inFlight = false;
+      if (timer !== undefined) clearTimeout(timer);
+      if (stale) {
+        (opts.onStale ?? warnStale)();
+        opts.ws.reconnect();
+      }
+    };
+    timer = setTimeout(() => settled(true), timeoutMs);
+    opts.probe().then(
+      () => settled(false),
+      () => settled(false),
+    );
+  };
+  const handle = setInterval(tick, intervalMs);
+  return { dispose: () => clearInterval(handle) };
+}

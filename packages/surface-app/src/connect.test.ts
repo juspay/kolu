@@ -9,8 +9,12 @@
  */
 
 import { shouldNotRetryORPCError } from "@kolu/surface/client";
-import { describe, expect, it } from "vitest";
-import { createProcessIdEcho, retireOnStaleClose } from "./connect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createHeartbeat,
+  createProcessIdEcho,
+  retireOnStaleClose,
+} from "./connect";
 import { STALE_PROCESS_CLOSE_CODE } from "./index";
 
 describe("createProcessIdEcho", () => {
@@ -110,5 +114,122 @@ describe("retireOnStaleClose", () => {
     }
     const fence = shouldNotRetryORPCError as (a: { error: unknown }) => boolean;
     expect(fence({ error: thrown })).toBe(false);
+  });
+});
+
+/** A socket reduced to what `createHeartbeat` reads: `readyState`/`OPEN` and a
+ *  `reconnect` spy. `OPEN` is 1 (the WebSocket constant); flip `readyState` to a
+ *  non-OPEN value to model a connecting/closed socket. */
+function fakeHeartbeatSocket(readyState = 1) {
+  return { readyState, OPEN: 1, reconnect: vi.fn() };
+}
+
+describe("createHeartbeat", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps probing without reconnecting while the server answers", async () => {
+    const ws = fakeHeartbeatSocket();
+    const probe = vi.fn().mockResolvedValue({ processId: "p1" });
+    const { dispose } = createHeartbeat({
+      ws,
+      probe,
+      intervalMs: 1000,
+      timeoutMs: 500,
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(probe).toHaveBeenCalledTimes(3);
+    expect(ws.reconnect).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("forces a reconnect when a probe never answers (half-open socket)", async () => {
+    const ws = fakeHeartbeatSocket();
+    const probe = vi.fn().mockReturnValue(new Promise<never>(() => {}));
+    const onStale = vi.fn();
+    const { dispose } = createHeartbeat({
+      ws,
+      probe,
+      intervalMs: 1000,
+      timeoutMs: 500,
+      onStale,
+    });
+    await vi.advanceTimersByTimeAsync(1000); // tick fires the probe
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(ws.reconnect).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(500); // probe timeout elapses
+    expect(onStale).toHaveBeenCalledTimes(1);
+    expect(ws.reconnect).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  it("treats a probe REJECTION as alive — a completed round-trip, not half-open", async () => {
+    const ws = fakeHeartbeatSocket();
+    const probe = vi.fn().mockRejectedValue(new Error("server said no"));
+    const { dispose } = createHeartbeat({
+      ws,
+      probe,
+      intervalMs: 1000,
+      timeoutMs: 500,
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(ws.reconnect).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("never probes while the socket is not OPEN", async () => {
+    const ws = fakeHeartbeatSocket(0); // CONNECTING
+    const probe = vi.fn().mockResolvedValue(null);
+    const { dispose } = createHeartbeat({
+      ws,
+      probe,
+      intervalMs: 1000,
+      timeoutMs: 500,
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(probe).not.toHaveBeenCalled();
+    expect(ws.reconnect).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("never overlaps probes — a tick is skipped while one is still outstanding", async () => {
+    const ws = fakeHeartbeatSocket();
+    let resolveProbe: ((v: unknown) => void) | undefined;
+    const probe = vi.fn().mockImplementation(
+      () =>
+        new Promise<unknown>((resolve) => {
+          resolveProbe = resolve;
+        }),
+    );
+    const { dispose } = createHeartbeat({
+      ws,
+      probe,
+      intervalMs: 1000,
+      timeoutMs: 5000,
+    });
+    await vi.advanceTimersByTimeAsync(1000); // tick 1 → probe in flight
+    await vi.advanceTimersByTimeAsync(1000); // tick 2 → inFlight, skipped
+    expect(probe).toHaveBeenCalledTimes(1);
+    resolveProbe?.({});
+    await vi.advanceTimersByTimeAsync(1000); // tick 3 → probe again
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(ws.reconnect).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("stops probing after dispose", async () => {
+    const ws = fakeHeartbeatSocket();
+    const probe = vi.fn().mockResolvedValue(null);
+    const { dispose } = createHeartbeat({
+      ws,
+      probe,
+      intervalMs: 1000,
+      timeoutMs: 500,
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(probe).toHaveBeenCalledTimes(1);
+    dispose();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(probe).toHaveBeenCalledTimes(1);
   });
 });

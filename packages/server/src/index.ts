@@ -36,6 +36,7 @@ import { initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
+import { startWsHeartbeat } from "./wsHeartbeat.ts";
 
 const argv = cli({
   name: "kolu",
@@ -319,6 +320,12 @@ const wss = new WebSocketServer({ noServer: true });
 const wsRpcHandler = new WsRPCHandler(appRouter as any, {
   plugins: rpcPlugins,
 });
+// Liveness heartbeat: ping accepted sockets and terminate any that stop ponging,
+// reaping the server-side zombie (and its stream subscriptions) a half-open
+// client would otherwise leak. The client half (`createHeartbeat`) un-freezes
+// the tab; this half frees the server. Stale tabs are closed before upgrade and
+// never register, so #1231's gate is untouched.
+const heartbeat = startWsHeartbeat(wss);
 
 let nextConnId = 0;
 wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
@@ -346,6 +353,9 @@ wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   }
 
   connLog.info({ total: wss.clients.size }, "connected");
+  // Accepted socket: enrol it in the liveness heartbeat (its `pong` keeps it
+  // alive; a missed ping terminates it) so a half-open client is reaped here.
+  heartbeat.register(ws);
   wsRpcHandler.upgrade(ws, { context: {} });
   ws.on("close", (code, reason) => {
     const reasonStr = reason.toString();
