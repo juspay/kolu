@@ -34,6 +34,7 @@ import {
   laneSurface,
   type NodeState,
   type NodeStatus,
+  pendingNode,
   type PipelineState,
 } from "../common/surface";
 import { prepareWorkspace } from "./workspace";
@@ -121,7 +122,7 @@ export function createLaneRunner(): LaneRunner {
 
     config = input;
     const nodes: Record<string, NodeState> = {
-      [SETUP_NODE_ID]: {
+      [SETUP_NODE_ID]: pendingNode({
         id: SETUP_NODE_ID,
         name: SETUP_NODE_ID,
         command:
@@ -129,23 +130,15 @@ export function createLaneRunner(): LaneRunner {
             ? `(workspace: ${input.workspace})`
             : `(fetch ${input.origin} @ ${input.sha?.slice(0, 7)})`,
         needs: [],
-        status: "pending",
-        exitCode: null,
-        startedAt: null,
-        durationMs: null,
-      },
+      }),
     };
     for (const task of input.tasks) {
-      nodes[task.id] = {
+      nodes[task.id] = pendingNode({
         id: task.id,
         name: task.name ?? task.id,
         command: task.command,
         needs: [...task.needs, SETUP_NODE_ID],
-        status: "pending",
-        exitCode: null,
-        startedAt: null,
-        durationMs: null,
-      };
+      });
     }
     ctx.cells.nodes.set({
       name: input.name,

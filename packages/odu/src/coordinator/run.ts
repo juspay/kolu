@@ -37,6 +37,7 @@ import type { TaskSpec } from "../common/spec";
 import {
   type NodeState,
   oduSurface,
+  pendingNode,
   type PipelineState,
   type ProgressStatus,
   STATUS_META,
@@ -232,29 +233,21 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     const tasks = tasksByPlatform.get(platform) ?? [];
     const setupId = fanId(SETUP, platform);
     order.push(setupId);
-    nodes[setupId] = {
+    nodes[setupId] = pendingNode({
       id: setupId,
       name: setupId,
       command: `(provision ${lanesByPlatform[platform]})`,
       needs: [],
-      status: "pending",
-      exitCode: null,
-      startedAt: null,
-      durationMs: null,
-    };
+    });
     for (const task of tasks) {
       const id = fanId(task.id, platform);
       order.push(id);
-      nodes[id] = {
+      nodes[id] = pendingNode({
         id,
         name: task.id,
         command: task.command,
         needs: [...task.needs, SETUP].map((dep) => fanId(dep, platform)),
-        status: "pending",
-        exitCode: null,
-        startedAt: null,
-        durationMs: null,
-      };
+      });
     }
   }
 

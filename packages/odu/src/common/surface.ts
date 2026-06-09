@@ -89,6 +89,25 @@ export const NodeStateSchema = z.object({
 });
 export type NodeState = z.infer<typeof NodeStateSchema>;
 
+/** A fresh node: the caller supplies identity + dependencies; the four
+ *  terminal/timing fields start at their `pending` defaults. One place owns
+ *  what an unstarted node looks like, so adding a `NodeState` field can't drift
+ *  across the coordinator and runner seed sites. */
+export function pendingNode(seed: {
+  id: string;
+  name: string;
+  command: string;
+  needs: string[];
+}): NodeState {
+  return {
+    ...seed,
+    status: "pending",
+    exitCode: null,
+    startedAt: null,
+    durationMs: null,
+  };
+}
+
 export const PipelineStateSchema = z.object({
   name: z.string(),
   /** Node ids in scheduling order — the row order dashboards paint. */
