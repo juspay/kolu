@@ -31,13 +31,13 @@ async function main(): Promise<void> {
 
   const runner = createLaneRunner();
   log("odu-runner: idle — waiting for run.configure over stdio");
-  await serveOverStdio({
+  const end = await serveOverStdio({
     router: runner.router,
     onFirstRequest: () =>
       log("odu-runner: first RPC received — coordinator attached"),
   });
   runner.dispose();
-  log("odu-runner: stdin closed — exiting");
+  log(`odu-runner: stdin closed (${end.reason}) — exiting`);
 }
 
 main().catch((err: unknown) => {
