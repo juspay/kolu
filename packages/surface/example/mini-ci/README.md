@@ -2,7 +2,7 @@
 
 A minimal CI-runner **TUI over oRPC stdio**. A long-lived **runner** owns a task DAG — each node a child process with a per-node log buffer — and serves it as a `@kolu/surface` over stdio. An ephemeral **TUI** attaches, paints a live node-status table plus the attached node's log tail, and exercises three surface primitives. Deliberately _not_ the real [justci](https://github.com/juspay/justci): no Haskell, no GitHub statuses, no multi-platform fan-out — just a DAG of shell commands, runnable locally or on a remote host.
 
-This is **Phase 0** of [`kolu-tui`](../../../../docs/plans/remote-terminals.pty-daemon.tui.html): the falsifiability test (lesson #3) for the "interactive TUI over oRPC stdio" pattern, the way the [notes app](../README.md) and the [remote-process-monitor](../remote-process-monitor/README.md) (→ [drishti](https://github.com/srid/drishti)) validated the earlier patterns. It is a clean structural twin of kolu-tui — if the surface primitives express it cleanly, the seam is at the right altitude for kolu-tui to inherit; if it were awkward, that's a framework finding to fix _before_ kolu-tui adopts it.
+This is **Phase 0** of [`kolu-tui`](../../../../docs/atlas/src/content/atlas/pty-daemon-tui.mdx): the falsifiability test (lesson #3) for the "interactive TUI over oRPC stdio" pattern, the way the [notes app](../README.md) and the [remote-process-monitor](../remote-process-monitor/README.md) (→ [drishti](https://github.com/srid/drishti)) validated the earlier patterns. It is a clean structural twin of kolu-tui — if the surface primitives express it cleanly, the seam is at the right altitude for kolu-tui to inherit; if it were awkward, that's a framework finding to fix _before_ kolu-tui adopts it.
 
 ## Architecture
 
@@ -81,6 +81,6 @@ Plus the live e2e: `just run localhost --json` type-checks remote-process-monito
 ## What's not in this demo
 
 - **Write-heavy CI tasks (builds).** The runner closure is read-only, so the default pipeline is typecheck-only. `vite build` / `nix build` would need a writable copy of the workspace first — the read-only-closure trade-off above.
-- **Server-restart survival.** This is client-side detach/reattach while the runner lives; surviving a _runner_ restart is kolu-server's job in the [daemon plan](../../../../docs/plans/remote-terminals.pty-daemon.html), not here.
+- **Server-restart survival.** This is client-side detach/reattach while the runner lives; surviving a _runner_ restart is kolu-server's job in the [daemon plan](../../../../docs/atlas/src/content/atlas/pty-daemon.mdx), not here.
 - **A real CI runner.** The DAG runs shell commands with no caching, no artifact passing, no platform fan-out — that's [justci](https://github.com/juspay/justci)'s job. mini-ci could graduate to its own repo the way remote-process-monitor became [drishti](https://github.com/srid/drishti).
 - **Known bug:** in some terminals the TUI can leave the terminal in raw mode on quit — filed as [juspay/kolu#1076](https://github.com/juspay/kolu/issues/1076).

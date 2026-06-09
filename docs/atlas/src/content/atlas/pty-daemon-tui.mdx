@@ -1,0 +1,195 @@
+---
+title: kolu-tui — a CLI terminal client for kolu-server
+description: A terminal-side client of kolu-server's in-process pty-host — list / attach / spawn from the shell over a unix socket, no browser and no daemon. The CLI face of kolu and the seed of a tmux replacement, shipped in beta phases.
+kind: feature
+status: accepted
+maturity: budding
+parents: [pty-daemon]
+updated: 2026-06-09
+---
+
+import D2 from "../../components/D2.astro";
+import Terminal from "../../components/Terminal.astro";
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+
+**A terminal-side client of kolu-server's pty-host.** kolu-server owns its PTYs _in-process_ today; `kolu-tui` connects to that same in-process pty-host over a local unix socket (speaking `ptyHostSurface`) and gives you `list` / `attach` / `spawn` from the terminal — no browser, **no daemon**. It is the CLI face of kolu and the seed of a `tmux`/`zmx` replacement (<Issue n={671} />), shipped in phases as a beta.
+
+_Scoped to kolu-tui-on-the-in-process-server. The parent plan's Phase B — moving the pty-host into a surviving daemon — is a separate plan this later dovetails with (see [Later](#later)). Ancestry: child of the [pty-daemon](pty-daemon.html) plan, sibling of the [chrome-bar rail](pty-daemon-chrome-bar.html); cf. [Ghostex vs. kolu remote-terminals](ghostex-vs-remote-terminals.html)._
+
+## Architecture — everything stays in-process
+
+No new process. kolu-server keeps owning the PTYs exactly as it does now; it just exposes the _same_ in-process router over an additional local socket so a second client — the CLI — can reach it. **The web path is byte-identical.**
+
+<D2
+  caption="One process, two transports onto one router. The browser is the rich client (kolu's full contract: PTY + the provider DAG); kolu-tui is the raw client (ptyHostSurface: PTY + the VT taps), at tmux altitude. The only server change is the additive serveOverStdio socket beside the unchanged directLink web path."
+  code={`direction: down
+browser: "browser (the GUI)"
+tui: "kolu-tui — packages/pty-tui"
+server: "kolu-server — ONE process · all in-process · NO daemon" {
+  router: "servePtyHost(deps).router — node-pty fds + @xterm/headless mirror + VT taps"
+  web: "directLink — web path, unchanged"
+  sock: "serveOverStdio — NEW, additive: the SAME router on a unix socket"
+  backend: "LocalTerminalBackend — providers, sessions…"
+  socket: "◆ pty-host.sock ◆"
+  router -> web
+  router -> sock
+  web -> backend
+  sock -> socket
+}
+browser -> server.router: "ws · rich: PTY + providers + sessions"
+tui -> server.socket: "ptyHostSurface · raw: PTY + taps"
+`}
+/>
+
+**The split by richness.** The browser is the _rich_ client — it speaks kolu-server's public contract and gets the whole world (PTY plus the provider DAG: git context, agent state, PR status, session grouping). `kolu-tui` is the _raw_ client — it speaks `ptyHostSurface` directly and gets the bare multiplexer (PTY plus the VT taps), exactly the `tmux` altitude. Both attach to the one in-process pty-host.
+
+<Callout kind="accent" title="The only server change is one additive socket">
+`servePtyHost(deps).router` already exists and is already consumed in-process via `directLink`. Phase 1 adds `serveOverStdio({ router })` on a unix socket beside it — the same router, a second transport. The in-process web path doesn't change; spawning, killing, and metadata all still flow through `LocalTerminalBackend` as today. _No PTY moves, no process is added, nothing survives a restart that didn't before._
+</Callout>
+
+### Why a second client at all
+
+Two reasons, both standing on their own without any reference to daemons.
+
+- **It's a feature.** A persistent-while-the-server-runs terminal you drive from the shell — the CLI face of kolu, the start of the `tmux` replacement <Issue n={671} /> has always pointed at.
+- **It proves the contract is consumer-agnostic.** A1 (<PrLink pr={1055} />) asserts `ptyHostSurface` is a clean seam — kolu-server talks to the pty-host through a contract, not through `node-pty` internals. The only real proof of that is a _second, independent consumer_. If writing a terminal client against the surface is clean, the seam is at the right altitude (the "framework needs an end-to-end demo, not just unit tests" lesson — parent plan, lesson #3). If it's awkward, that's a finding worth having early.
+
+<Callout kind="warn" title="Honest scope — client-side detach, not server survival">
+Because the pty-host is in-process, restarting kolu-server (a deploy) **kills** its PTYs — `kolu-tui` does not make terminals survive a _server_ restart. What it does give is **client-side** detach/reattach: the CLI can come and go (close the terminal, reopen, re-attach) while kolu-server keeps running and holds the PTY. Surviving a server restart is the separate daemon plan (Phase B), not this.
+</Callout>
+
+## The surface — ~150 LOC in `packages/pty-tui`
+
+A small node CLI in its own package, `packages/pty-tui`, that dials the unix socket through `unixSocketLink` (the local-IPC member of `@kolu/surface`'s link family — same base64+newline framing the daemon's ssh stdio path uses later) and gets a typed `ptyHostSurface` client. No new wire, no new framing — each accepted connection is pumped through the already-tested `serveOverStdio`.
+
+| Subcommand | Surface call | Behaviour |
+| --- | --- | --- |
+| `kolu-tui list` | `terminal.list()` | One-shot — print each live PTY's id · pid · idle · cmd · cwd (`cmd` = the OSC title or the foreground command), with the full entry under `--json`. The pty-host's inventory. _Shipped: the entry was enriched with `title` + `foregroundProcess` (contract 2.1) so this is one round-trip, not per-row tap fetches._ |
+| `kolu-tui attach <id>` | `terminalAttach.get({id})` (stream) + `terminal.write` / `terminal.resize` | Put the local tty in raw mode. First yield is the **scrollback snapshot** → paint to stdout; deltas stream after. Forward stdin via `write`; `SIGWINCH` → `resize({id, cols, rows})`. A line-start `~.` escape detaches — the CLI exits, kolu-server keeps the PTY. |
+| `kolu-tui spawn [-- cmd]` | `terminal.spawn({id: uuid, …})` then attach | Mint a UUID client-side, spawn, immediately attach. `--print-id` prints the id and does _not_ attach (for scripting). |
+| `kolu-tui snapshot <id>` | `terminal.getScreenText({id})` | One-shot, non-interactive: dump the current scrollback as **plain rendered text** (not the `terminalAttach` first frame — that's serialized VT screen state for late attach, which would replay control sequences and defeat `grep`) + a trailer line to stderr, then exit. The scriptable primitive the [headless test](#headless-test) asserts on. |
+| `kolu-tui kill <id>` | `terminal.kill({id})` | Out-of-band termination — exercises the order-safe kill path (abort the exit tap _then_ kill) from a non-browser client. |
+
+The taps (`subscribeCwd` / `subscribeTitle` / `subscribeForeground` / `exitPromise`) feed the status line — a second, non-browser consumer of the raw VT taps, proving those are transport-clean too. `--json` makes `list` machine-readable; `--pty-host-socket <path>` points at a non-default server.
+
+<Callout kind="note" title="Contract reality check">
+The subcommand → surface mapping is shorthand; these are the exact shapes the _current_ `ptyHostSurface` exposes (verified against `@kolu/pty-host` after A1 <PrLink pr={1055} /> and the link-family unification <PrLink pr={1059} />). **Phase 1 (<PrLink pr={1084} />) resolved the socket and list-metadata items**; the spawn-command and tap-naming items remain for Phases 2–3.
+
+- **`terminal.list` now carries the metadata — resolved in <PrLink pr={1084} />.** The entry was `{ id, pid, cwd, lastActivity }` with no title; Phase 1 enriched it with `title` + `foregroundProcess` (contract 2.1, additive · optional), so a one-shot `list` shows a `cmd` column without per-row tap subscriptions. `list --json` emits a top-level array (`jq '.[]'`-friendly).
+- **`terminal.spawn` has no command field — it always spawns `$SHELL`.** The input is `{ id?, cwd?, cols?, rows?, scrollback? }`; no `command`/`argv`. So Phase 3's `spawn [-- cmd]` needs a deliberate decision: add a `command` field (a `PTY_HOST_CONTRACT_VERSION` bump) or write the command into the spawned shell. This is the one real contract gap behind the flow examples.
+- **The taps are host-method names; on the wire they're streams.** `subscribeCwd`/`subscribeTitle`/`subscribeForeground`/`exitPromise` are `PtyHost` methods below the seam — a CLI client consumes the surface _streams_ `surface.cwd.get({id})` / `surface.title.get({id})` / `surface.foreground.get({id})` / `surface.exit.get({id})`. `exit` crosses as a one-shot _stream_ (yields `{ exitCode }` once, then ends), not a `Promise`.
+- **The socket exists at a stable path — resolved in <PrLink pr={1084} />.** `servePtyHostOverUnixSocket` chose `$XDG_RUNTIME_DIR/kolu/pty-host.sock` (distinct from the per-process `kolu-<serverProcessId>/` scratch dir), with a fixed, `$TMPDIR`-independent `/tmp/kolu-$UID/pty-host.sock` fallback off systemd — deliberately NOT `os.tmpdir()`, which differs by launch context so server and CLI would miss each other — and a `--pty-host-socket` override (the same flag name on server and CLI). `getPtyHostSocketPath` is the one resolver both share; a live-vs-stale probe stops a second server hijacking a live socket.
+</Callout>
+
+### Decisions recorded here (to be echoed in code comments)
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| **Home** | a tiny separate `packages/pty-tui` | An independent CLI package, not a `bin` folded into `@kolu/pty-host` — keeps the pty-host package focused on the contract + primitive, and keeps the CLI's own deps (raw-tty handling, arg parsing) out of the closure the A2 staleKey hashes. |
+| **Render fidelity** | raw VT passthrough | Write the pty-host's bytes straight to stdout; do _not_ re-render through a second `@xterm/headless` mirror. Simplest and truest, and it avoids a second rendering path drifting from the server's. _Recorded as a design-decision comment at the passthrough site._ |
+| **Detach / escape** | ssh-style line-start `~` escape — **never `Ctrl+B`** | A passthrough multiplexer must not steal any control char the inner tools need — `Ctrl+B` and `Ctrl+J` are reserved by Claude Code (`input/prohibitedKeybinds.ts`). The escape is the unambiguous ssh model: `~` recognised _only_ immediately after a newline. `~.` detach · `~k` kill · `~~` literal tilde · `~?` help; configurable via `--escape`. A literal `~` mid-line passes through untouched, so _every_ inner-app chord reaches the program unmodified. |
+
+## Phasing — three beta increments, all in-process
+
+Phases 1–3 build kolu-tui on the in-process server — each leaves Kolu working, ships on its own, and changes nothing in the web path. They're preceded by a **Phase 0** that lives _outside_ kolu: a surface example that rehearses the whole "interactive TUI over oRPC stdio" pattern.
+
+| Phase | Ships | Server change | User-visible |
+| --- | --- | --- | --- |
+| **0 · surface example** <Pill variant="ok">shipped</Pill> <PrLink pr={1073} /> | A minimal CI-runner TUI over oRPC stdio in `@kolu/surface`'s examples — the 3rd example, after the worker demo + the remote-process-monitor (→ [drishti](https://github.com/srid/drishti)). | None — separate from kolu-server. | A standalone example; proves the pattern and becomes kolu-tui's reference skeleton. |
+| **1 · `list`** <Pill variant="ok">shipped</Pill> <PrLink pr={1084} /> | kolu-server serves its in-process pty-host router over a unix socket (`@kolu/surface`'s `serveOverUnixSocket`); new `@kolu/pty-tui` with `list` + read-only `snapshot`. `list` carries full metadata from the enriched `terminal.list` (contract 2.1). | +1 local socket listener on the existing router (`servePtyHostOverUnixSocket`). Web path byte-identical. | A beta CLI that _lists_ and _snapshots_ your live terminals — `nix run …#kolu-tui`. |
+| **2 · `attach`** <Pill variant="todo">next</Pill> | Raw-tty passthrough, snapshot-then-delta, stdin→`write`, `SIGWINCH`→`resize`, the `~`-escape detach. | None beyond Phase 1. | Drive a terminal from the CLI; detach and re-attach while the server runs. |
+| **3 · `spawn` / `kill`** <Pill variant="todo">later</Pill> | `spawn` (+ `--print-id`), `kill`, `list --json`. | None. | Create and kill PTYs from the CLI — a usable raw multiplexer (beta). The richer `tmux`-replacement UX grows from here, as its own work. |
+
+Phase 1 alone is the smallest honest first ship of _kolu-tui_ — a one-shot RPC, no raw-tty mode, the "hello world" that proves `serveOverUnixSocket` + `unixSocketLink` + the contract round-trip, at near-zero risk.
+
+### Phase 0 — a minimal CI-runner TUI (the 3rd surface example) <Pill variant="ok">shipped</Pill> <PrLink pr={1073} />
+
+Before touching kolu, prove the pattern in `@kolu/surface`'s examples — the falsifiability test of lesson #3 applied to "interactive TUI over oRPC stdio," the way the worker demo and the remote-process-monitor (which became [drishti](https://github.com/srid/drishti)) validated the earlier patterns. The candidate: a **minimal CI runner** — justci-_flavoured_ but self-contained, deliberately _not_ the real [justci](https://github.com/juspay/justci). Just a small DAG of shell commands, runnable locally or on a single remote host.
+
+<Callout kind="good" title="As built (#1073, merged)">
+Shipped as `@kolu/surface-example-mini-ci`. Two things landed differently from the original sketch, both deliberately: the remote transport _pivoted from `git archive` source-ship to the drishti `HostSession` closure-ship_ (so the example exercises the very R-2 transport the parent plan builds on), and the default pipeline _runs real typecheck CI for the remote-process-monitor example_ (a `surface` + `nix-host` → `monitor` diamond of `tsc --noEmit` gates) rather than a toy `build → test → lint`. The dashboard binds **plain keys** (digits/`n`/`p`/`r`/`q`), _not_ the `~`-escape — it renders structured state and owns the keyboard. One constraint to carry forward: the runner ships as a read-only nix closure, so only read-only tasks (typecheck) belong in the default pipeline.
+</Callout>
+
+It's a clean structural twin of kolu-tui: a long-lived runner owns the DAG + each node's process + its log buffer, and streams to ephemeral TUI clients over stdio. The plan's `nodes.list()` / `node.log(id)` / `node.rerun(id)` map onto the framework-idiomatic spelling — a `nodes` _cell_ (`surface.nodes.get({})`) ↔ kolu-tui's `list`; a `nodeLog` _stream_ (snapshot-then-delta) ↔ `attach`; a `node.rerun` _procedure_ ↔ input. That this was clean to write against the surface primitives is the finding: the seam is at the right altitude for kolu-tui to inherit. The example is now kolu-tui's copy-paste skeleton and a permanent regression test for the pattern.
+
+<Terminal title="mini-ci · pipeline remote-process-monitor · attached: monitor" lines={[
+  "✔ surface    (2.3s)",
+  "✔ nix-host   (1.9s)",
+  "▶ monitor    running…  ──▶ attached  (needs: surface, nix-host)",
+  "────────────────────────────────",
+  "$ pnpm --filter @kolu/surface-example-remote-process-monitor typecheck",
+  "  $ tsc --noEmit",
+  "  ❯ type-checking…",
+  "1-9 attach · n/p cycle · r rerun · q quit · ● 1 running · 2 ok · 0 pending",
+]} />
+
+Remote mode ships the runner the drishti way: a prebuilt `mini-ci-runner` nix closure is `nix copy`'d to the host, realised, then run as `ssh host mini-ci-runner --stdio` with the TUI attached over **stdio-over-ssh** via `@kolu/surface-nix-host`'s `getHostSession({ host, binary, resolveDrvPath })` (which owns ref-count, reconnect, watchdog, and a `copying → connecting → connected` state cell). `localhost` skips the `nix copy` and runs the realised binary directly — the _same_ `HostSession`, only the transport differs.
+
+## The user flow
+
+The interactive loop a user walks, then the same loop scripted as a headless test. The running example: a PTY `3f9a…c21` in `~/code/kolu` that becomes a Claude Code session.
+
+### Interactive session
+
+**Is the server's pty-host reachable?** — an unreachable pty-host is a clear, immediate error, never a silent empty hang:
+
+```text
+$ kolu-tui list
+kolu-tui: no pty-host socket at /run/user/1000/kolu/pty-host.sock (ECONNREFUSED)
+          is kolu-server running? the socket appears once it boots.
+```
+
+**The inventory** — `list` from another shell, one row per live PTY (the status line reports the in-process pty-host):
+
+<Terminal title="kolu-tui · unixSocketLink → /run/user/1000/kolu/pty-host.sock" lines={[
+  "$ kolu-tui list",
+  "",
+  "ID         PID    IDLE  CMD                        CWD",
+  "3f9a…c21   12843  5s    claude: implement pty-tui  ~/code/kolu",
+  "7b2e…0d4   12901  2m    zsh                        ~/code/kolu/.worktrees/…",
+  "a18c…9ff   13044  1m    vim notes.md               ~/scratch",
+  "● 3 live PTYs (in kolu-server, in-process) · pty-host pid 9981",
+]} />
+
+**Birth → work → detach → re-attach** (Phase 2). `spawn` mints a PTY and attaches; the raw VT taps drive the status line live as the foreground process and title change; a line-start `~.` detaches (the server keeps the PTY); re-attach repaints the full scrollback snapshot instantly because the first yield of the attach stream _is_ the snapshot.
+
+<Terminal title="kolu-tui · re-attached 3f9a…c21 · claude: implement pty-tui" lines={[
+  "↻ snapshot restored — 1,284 lines · PTY pid 12843 unchanged",
+  "⏺ Bash(git status)",
+  "  ⎿ On branch master — working tree clean",
+  "> █",
+  "● live (reattached by id) · server up throughout · PTY pid unchanged",
+]} />
+
+_This is client-side detach — distinct from server survival. If kolu-server itself restarts, the in-process PTY dies; that persistence is the separate daemon plan._
+
+### Headless test — client-death detach/reattach, no browser
+
+The detach/reattach loop scripted: it asserts that the CLI client can die and a fresh one re-joins the same PTY (the server runs throughout) — fast, no browser.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1 · spawn a PTY with a unique marker in its scrollback (no attach)
+id=$(kolu-tui spawn --print-id -- bash -c 'echo "MARK-$$"; exec sleep 1d')
+pid_before=$(kolu-tui list --json | jq -r ".[] | select(.id==\"$id\").pid")
+
+# 2 · (no kolu-tui process is attached — simulating client death)
+
+# 3 · a fresh client re-attaches by id and asserts the state is intact
+kolu-tui snapshot "$id" | grep -q "MARK-"            # scrollback preserved
+pid_after=$(kolu-tui list --json | jq -r ".[] | select(.id==\"$id\").pid")
+[ "$pid_before" = "$pid_after" ]                     # same PTY, not a respawn
+
+echo "✓ client came and went; server held the PTY (pid $pid_after unchanged)"
+```
+
+This is the kolu-tui-scoped reattach test — the client can come and go while the server holds the PTY. (Surviving a _server_ restart is a different assertion that belongs to the daemon plan, not here.)
+
+## Later — how this dovetails with the daemon plan (out of scope)
+
+Stated only so we don't trip over it: when the parent plan's Phase B eventually moves the pty-host out of kolu-server into a surviving `kolu --stdio` daemon, `kolu-tui`'s socket target shifts from kolu-server to the daemon — **with no contract change**, because both serve the same `ptyHostSurface`. At that point the CLI's terminals gain server-restart survival for free, and the raw-vs-rich client split is unchanged. _But that is a separate plan; nothing in kolu-tui's phases above depends on it, and kolu-tui ships and is useful entirely on the in-process server._

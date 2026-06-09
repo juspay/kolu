@@ -14,7 +14,7 @@
  * only the link — this same `implementSurface` body is served over a unix
  * socket by the surviving `kolu --stdio` daemon (`serveOverStdio`), and the
  * consumer connects a socket-backed client of the identical type — so nothing
- * downstream changes. See `docs/plans/remote-terminals.pty-daemon.html`.
+ * downstream changes. See `docs/atlas/src/content/atlas/pty-daemon.mdx`.
  *
  * Host-specific config (`shellDir`, `version`) is **injected**, not imported:
  * the package owns the PTY + the contract + the serving, but not kolu-server's
@@ -29,13 +29,17 @@ import { randomUUID } from "node:crypto";
 import { directLink } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryChannelByName } from "@kolu/surface/server";
 import type { ContractRouterClient } from "@orpc/contract";
-import { ORPCError } from "@orpc/server";
+import { implement, ORPCError, type Router } from "@orpc/server";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import type { Logger } from "kolu-shared";
 import { currentPtyHostIdentity } from "./buildId.ts";
 import { createPtyHost, type PtyId } from "./ptyHost.ts";
-import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "./ptyHostSurface.ts";
+import {
+  PTY_HOST_CONTRACT_VERSION,
+  type PtyHostListEntry,
+  ptyHostSurface,
+} from "./ptyHostSurface.ts";
 
 /** The typed client for talking to a pty-host. In-process today (this module);
  *  the identical type backs a socket-served daemon later — so the consumer is
@@ -197,7 +201,22 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           host.resize(input.id, input.cols, input.rows);
           return { ok: true };
         },
-        list: async () => ({ entries: host.list() }),
+        // Map each host entry into the wire shape explicitly (annotated to the
+        // inferred type) so a host/schema drift is a compile error here rather
+        // than a silent zod field-strip: adding a field to TerminalListEntrySchema
+        // without populating it, or dropping one from PtyListEntry, fails to type-check.
+        list: async () => ({
+          entries: host.list().map(
+            (e): PtyHostListEntry => ({
+              id: e.id,
+              pid: e.pid,
+              cwd: e.cwd,
+              lastActivity: e.lastActivity,
+              title: e.title,
+              foregroundProcess: e.foregroundProcess,
+            }),
+          ),
+        }),
         getScreenState: async ({ input }) => {
           // Throw on a missing PTY rather than return "" — an empty string is
           // a legitimate screen state (a PTY that hasn't drawn yet), so
@@ -238,13 +257,43 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   });
 }
 
-/** Build the in-process pty-host and return a contract-typed client over it —
- *  the **identity link**: `directLink` consumes `servePtyHost`'s router with
- *  no wire, so the consumer (kolu-server) holds the exact `PtyHostClient` type
- *  a socket-served daemon would later hand it. Swapping `directLink` for a
- *  socket link is the only change that decoupling needs. */
-export function createInProcessPtyHostClient(
-  deps: InProcessPtyHostDeps,
-): PtyHostClient {
-  return directLink<typeof ptyHostSurface.contract>(servePtyHost(deps).router);
+/** The raw `implementSurface` fragment router — the `.router` field of
+ *  `servePtyHost`. `directLink` consumes this fragment directly (the
+ *  in-process web client); over-the-wire serving needs it wrapped first — see
+ *  `createInProcessPtyHost`'s `servedRouter`. */
+export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
+
+/** Build the in-process pty-host ONCE and return three views of the same host:
+ *   - `client` — the no-wire `directLink` client kolu-server's web path uses;
+ *   - `servedRouter` — the host's router wrapped in a top-level contract router,
+ *     ready to hand straight to `serveOverStdio` (the unix socket for kolu-tui;
+ *     the ssh stdio for a daemon). The bare fragment can't route over the wire
+ *     (the StandardRPCHandler answers "Not Found"), so the wrap lives here —
+ *     once, beside the contract it references — rather than at every serving
+ *     call site;
+ *   - `router` — the raw fragment, for advanced in-process use.
+ *  Call once per process; calling twice spawns two independent hosts. */
+export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
+  router: PtyHostRouter;
+  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param — the contract-wrapped served router's context type doesn't line up, though the runtime shape is exactly what serving wants.
+  servedRouter: Router<any, any>;
+  client: PtyHostClient;
+} {
+  const router = servePtyHost(deps).router;
+  // Wrap the implementSurface fragment in a top-level contract router so the
+  // StandardRPCHandler can route it over the wire; narrow the result back to
+  // the `Router<any, any>` serving wants (the fragment's procedure-context type
+  // doesn't line up with implement().router()'s contract-derived param, though
+  // the runtime shape is exactly correct — the same unavoidable mismatch as
+  // serveOverSocket.ts:125 and mini-ci's served router).
+  const servedRouter = implement(ptyHostSurface.contract).router(
+    // biome-ignore lint/suspicious/noExplicitAny: fragment procedure-context vs. contract-derived param mismatch (see above); runtime shape is correct.
+    router as any,
+    // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param (see above).
+  ) as Router<any, any>;
+  return {
+    router,
+    servedRouter,
+    client: directLink<typeof ptyHostSurface.contract>(router),
+  };
 }

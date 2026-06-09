@@ -224,13 +224,13 @@ async function main(): Promise<void> {
   const router = implement(surface.contract).router({ ...fragment.router });
 
   log("serving surface over stdio (read=stdin, write=stdout)");
-  await serveOverStdio({
+  const end = await serveOverStdio({
     // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't accepted by oRPC's Router<any, T> input type; runtime shape is valid (Kolu's main server.ts uses the same `as any` cast).
     router: router as any,
     onFirstRequest: () => log("first RPC received — link is live"),
   });
   clearInterval(interval);
-  log("stdin closed — agent exiting");
+  log(`stdin closed (${end.reason}) — agent exiting`);
 }
 
 main().catch((err) => {

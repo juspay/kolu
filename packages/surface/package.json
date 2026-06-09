@@ -17,7 +17,9 @@
     "./links/websocket": "./src/links/websocket.ts",
     "./links/stdio": "./src/links/stdio.ts",
     "./links/direct": "./src/links/direct.ts",
-    "./peer-server": "./src/peer-server.ts"
+    "./links/unix-socket": "./src/links/unix-socket.ts",
+    "./peer-server": "./src/peer-server.ts",
+    "./unix-socket": "./src/unix-socket.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
