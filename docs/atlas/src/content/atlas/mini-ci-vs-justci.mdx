@@ -1,6 +1,6 @@
 ---
 title: A CI runner you attach to — graduating mini-ci beyond justci
-description: Every local CI tool runs your pipeline as a batch process and leaves you log files. mini-ci inverts that — the runner is a small live server that owns the pipeline as state, and your terminal, your browser, and your coding agent all attach to it over plain ssh. What that buys, what it costs — and the accepted Phase 1, replacing justci in the kolu repo itself.
+description: Every local CI tool runs your pipeline as a batch process and leaves you log files. mini-ci inverts that — the runner is a small live server that owns the pipeline as state, and your terminal, your browser, and your coding agent all attach to it over plain ssh. What that buys, what it costs — and the accepted Phase 1, replacing justci in the kolu repo itself with the new package odu (Tamil for "run").
 kind: feature
 status: accepted
 maturity: seedling
@@ -19,7 +19,7 @@ import Milestone from "../../components/Milestone.astro";
 
 *The accepted plan: grow [`mini-ci`](https://github.com/juspay/kolu/blob/master/packages/surface/example/mini-ci/README.md) — a small CI runner that already works inside the kolu repo — into a standalone tool that takes over from [juspay/justci](https://github.com/juspay/justci), the way [remote-process-monitor](https://github.com/juspay/kolu/blob/master/packages/surface/example/remote-process-monitor/README.md) graduated into [srid/drishti](https://github.com/srid/drishti). Every load-bearing claim was checked against both codebases.* <Pill variant="new">22-agent workflow · adversarial verification</Pill>
 
-<p>Status: <Pill variant="ok">accepted</Pill> · maturity <Pill variant="todo">seedling</Pill> · the runner, protocol, and TUI are shipped and tested today (<PrLink pr={1076} label="known TUI raw-mode bug" />) · <strong>Phase 1 = replace justci in this repo</strong></p>
+<p>Status: <Pill variant="ok">accepted</Pill> · maturity <Pill variant="todo">seedling</Pill> · the runner, protocol, and TUI are shipped and tested today (<PrLink pr={1076} label="known TUI raw-mode bug" />) · <strong>Phase 1 = replace justci in this repo</strong> · named <strong><code>odu</code></strong> (Tamil ஓடு — "run")</p>
 
 <Callout kind="accent" title="The idea in one paragraph">
 Every local CI tool you have used — `make`, a `just` recipe over ssh, [act](https://github.com/nektos/act), justci — shares one shape: **the run is a process.** It starts, prints, and exits; your window into it is whatever that process wrote to your terminal or to log files. mini-ci inverts the shape: **the runner is a small live server that owns your pipeline as state**, and everything else — a terminal dashboard, a browser app, your coding agent — is a *client that attaches to it* over plain ssh. Attach late and you get the complete current state instantly, including the full log of a node that finished an hour ago. Disconnect and nothing is lost. Rerun one failed node — not the whole pipeline — with a typed call. That single inversion is the innovation; everything else in this note is what it buys, what it costs, and the plan — **Phase 1 replaces justci in this very repo.**
@@ -70,7 +70,7 @@ mini-ci moves exactly one load-bearing axis: **ssh carries a typed, live, snapsh
 
 ## Three faces over one surface
 
-The runner exposes its entire capability as **three typed primitives** — and because that protocol is the *whole* interface, every kind of client is a thin adapter over the same thing. The terminal dashboard above is one face. The second is a browser PWA (proposed), which also answers the multi-platform question: instead of justci fanning *out* one ssh + one log file + one status context per (recipe × platform) pair, runners on N platforms each serve the *same* surface and one dashboard fans them **in**:
+The runner exposes its entire capability as **three typed primitives** — and because that protocol is the *whole* interface, every kind of client is a thin adapter over the same thing. The terminal dashboard above is one face. The second is a browser PWA (proposed) — `odu`'s web face — which also answers the multi-platform question: instead of justci fanning *out* one ssh + one log file + one status context per (recipe × platform) pair, runners on N platforms each serve the *same* surface and one dashboard fans them **in**:
 
 export const S = {
   ok: { background: "#e3f4e9", color: "#1b7a3a", border: "1px solid #bce3c8" },
@@ -96,11 +96,11 @@ export const Dashboard = () => {
         <span style={{ width: ".7rem", height: ".7rem", borderRadius: "50%", background: "#ff5f56", display: "inline-block" }} />
         <span style={{ width: ".7rem", height: ".7rem", borderRadius: "50%", background: "#ffbd2e", display: "inline-block" }} />
         <span style={{ width: ".7rem", height: ".7rem", borderRadius: "50%", background: "#27c93f", display: "inline-block" }} />
-        <code style={{ flex: 1, fontSize: ".72rem", color: "#3a3f47", background: "#fff", border: "1px solid #e2ddcf", borderRadius: "7px", padding: ".3rem .6rem", marginLeft: ".3rem" }}>ci.srid.ca / juspay/kolu</code>
+        <code style={{ flex: 1, fontSize: ".72rem", color: "#3a3f47", background: "#fff", border: "1px solid #e2ddcf", borderRadius: "7px", padding: ".3rem .6rem", marginLeft: ".3rem" }}>odu.srid.ca / juspay/kolu</code>
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: ".7rem .95rem", background: "#fff", borderBottom: "1px solid #efeadd" }}>
         <span style={{ display: "inline-flex", alignItems: "baseline", gap: ".5rem" }}>
-          <strong style={{ color: "#1a1c20", fontSize: ".95rem" }}>mini-ci</strong>
+          <strong style={{ color: "#1a1c20", fontSize: ".95rem" }}>odu</strong>
           <span style={{ color: "#7a8089", fontSize: ".8rem" }}>juspay/kolu</span>
           <code style={{ color: "#5a3ff0", background: "#efebff", borderRadius: "5px", padding: ".05rem .35rem", fontSize: ".7rem" }}>26d2c2d</code>
         </span>
@@ -140,14 +140,14 @@ The third face is for **agents**. Because the runner already serves its surface 
 
 ```jsonc
 // .mcp.json (proposed) — Claude Code; Codex, opencode & Gemini CLI take the same shape
-{ "mcpServers": { "mini-ci": {
+{ "mcpServers": { "odu": {
   "type": "stdio", "command": "npx",
-  "args": ["-y", "@kolu/mini-ci-mcp", "--host", "srid1"] } } }
+  "args": ["-y", "@kolu/odu-mcp", "--host", "srid1"] } } }
 ```
 
-<Terminal title="claude — CI over the mini-ci MCP server" lines={[
-  `$ claude    # mini-ci declared in .mcp.json — stdio, over ssh`,
-  `# /mcp → mini-ci · 4 tools: get_nodes tail_log rerun_node wait_for_settle`,
+<Terminal title="claude — CI over the odu MCP server" lines={[
+  `$ claude    # odu declared in .mcp.json — stdio, over ssh`,
+  `# /mcp → odu · 4 tools: get_nodes tail_log rerun_node wait_for_settle`,
   ` `,
   `user: kolu CI went red on linux — find the broken node, show why, rerun it.`,
   ` `,
@@ -248,7 +248,7 @@ A CI tool has two halves. The **watch-and-drive half** — see state, read logs,
 
 ### Phase 1's work order — replacing justci in this repo
 
-The scope is set by what justci actually does for kolu today: the `[metadata("ci")]` DAG in `ci/mod.just`, the `/ci` skill's CLI surface, `.agency/do.md`'s pool runbook, and the `ci/pu` warm-box lease. Every row is <Pill variant="warn">harder</Pill> — net-new design + code on a proven substrate. "The framework *can*" is not "mini-ci *does*."
+The scope is set by what justci actually does for kolu today: the `[metadata("ci")]` DAG in `ci/mod.just`, the `/ci` skill's CLI surface, `.agency/do.md`'s pool runbook, and the `ci/pu` warm-box lease. The work lands as a **fresh package, `packages/odu`** — the mini-ci example stays untouched as the reference substrate. Every row is <Pill variant="warn">harder</Pill> — net-new design + code on a proven substrate. "The framework *can*" is not "mini-ci *does*."
 
 | justci does this for kolu today | What mini-ci builds to take it over |
 | --- | --- |
@@ -271,11 +271,11 @@ On the watch-and-drive half — **yes, outright, and it does more there than jus
 
 The delivery path is proven, not hypothetical. remote-process-monitor — another example app in the kolu repo — graduated into the standalone [srid/drishti](https://github.com/srid/drishti) by consuming the same packages this runner is built on (`@kolu/surface`, `surface-nix-host`, and later `surface-app` via <PrLink pr={47} repo="srid/drishti" label="freshness by composition" />), pinned via `npins` and hydrated by `cp -rL`. mini-ci's own README already names the path: *"mini-ci could graduate to its own repo the way remote-process-monitor became drishti."* The license is determined by composition — `surface-app` (needed for the PWA) is AGPL-3.0-or-later, which is already mini-ci's license — and the [electricity](../electricity.html) bar (domain-agnostic / hides hard volatility / has a second consumer) is already cleared by the underlying packages, with drishti as the proof. What graduates is the *product*, riding infrastructure that already graduated; reusable concerns grown in the new repo (strict hygiene, the trigger model, run identity) flow back to harden the libraries.
 
-**Naming** <Pill variant="todo">open</Pill> — deliberately deferred to graduation; **`mini-ci` stays the working name through Phase 1.** The eventual name is not bound to drishti's Sanskrit line — Tamil, any other language, or a coined word all qualify. The bar is simply: short, distinct, easy to say, and evocative of a runner that watches and guards the build.
+**Named: `odu`** <Pill variant="ok">decided</Pill> — Tamil ஓடு, the verb **"run"**: three letters, vowel-ending, an imperative you can type. It joins kolu (கொலு) and drishti (दृष्टि) in the one-word product line, and it is the package name from day one — **Phase 1 lands in `packages/odu`**, and the standalone repo inherits the name at graduation.
 
 <Roadmap>
   <Milestone status="done" label="Phase 0 · the proven substrate">Shipped: a long-lived runner owns the DAG and serves `nodes` + `nodeLog` + `rerun` over the real stdio transport; tests bank snapshot-then-delta, race-free topo order, late-subscriber log replay, rerun-the-closure, and no-false-greens; live e2e over a real ssh session. TUI-only, single host, read-only closure ⇒ typecheck-only.</Milestone>
-  <Milestone status="now" label="Phase 1 · replace justci in this repo">The dogfood milestone, scoped by the work order above: writable per-SHA workspaces (real builds), `just`-DAG ingestion + `dump-yaml`/`graph`, strict hygiene with justci's per-SHA log layout, commit-statuses + `protect`, multi-platform lanes over the existing warm-pool lease, and the `/ci`-skill CLI surface with *in-band* `status`/`logs`/`monitor`. **Exits when `nix run github:juspay/justci` appears nowhere in kolu**: branch protection runs on the new contexts, and the `/ci` skill + `.agency/do.md` describe this tool.</Milestone>
+  <Milestone status="now" label="Phase 1 · replace justci in this repo">The dogfood milestone — built fresh in `packages/odu`, scoped by the work order above: writable per-SHA workspaces (real builds), `just`-DAG ingestion + `dump-yaml`/`graph`, strict hygiene with justci's per-SHA log layout, commit-statuses + `protect`, multi-platform lanes over the existing warm-pool lease, and the `/ci`-skill CLI surface with *in-band* `status`/`logs`/`monitor`. **Exits when `nix run github:juspay/justci` appears nowhere in kolu**: branch protection runs on the new contexts, and the `/ci` skill + `.agency/do.md` describe this tool.</Milestone>
   <Milestone status="next" label="Phase 2 · beyond">The live-service dividends: the PWA dashboard **and the MCP server face — three faces over one surface**, both behind a new authz boundary (`rerun` is RCE; Phase 1's single-operator ssh trust doesn't stretch to multi-client faces); multi-platform fan-**in** with defined concurrent-mutation semantics; idle-attach + selective start; typed `cancel`/`cron`/`reload`; notifications + forge-event ingestion (beyond what justci ever had); runner-restart survival of live state; per-node platform filter. Price the idle-runner lifecycle against the warm pu-box pool.</Milestone>
-  <Milestone status="next" label="Phase 3 · graduation">A standalone repo, the drishti way: `npins`-pin the `@kolu/*` packages, thread the runner derivation, adopt `surface-app`, ship a flake / justfile / home-manager service. Extract reusable concerns back into the libraries. Choose the name — deferred until here.</Milestone>
+  <Milestone status="next" label="Phase 3 · graduation">A standalone repo, the drishti way: `npins`-pin the `@kolu/*` packages, thread the runner derivation, adopt `surface-app`, ship a flake / justfile / home-manager service. Extract reusable concerns back into the libraries. The repo takes the name it has carried since Phase 1: **odu**.</Milestone>
 </Roadmap>
