@@ -1,0 +1,131 @@
+---
+title: Multi-forge PR integration — the anyforge leaf
+description: Phased plan for kolu#1240 — phase 0a ships the gh log-noise fix, phase 0b extracts the forge-neutral PR kernel (schemas · poll loop · PrProvider · detection) into a new anyforge leaf as a zero-behavior refactor, phase 1 adds the Forgejo/Codeberg adapter. Grounded in a structural critique of the ic4-y/kolu#1 draft.
+kind: feature
+status: proposed
+maturity: seedling
+parents: [remote-terminals]
+updated: 2026-06-09
+---
+
+import D2 from "../../components/D2.astro";
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import Cite from "../../components/Cite.astro";
+
+**The plan for <Issue n={1240} /> — PR metadata on forges beyond GitHub.** Kolu's PR pill is hardcoded to `gh pr view`: on a Forgejo/Codeberg/GitLab remote it fails, gets misclassified as `not-authenticated`, and WARN-logs every 30s per terminal. ic4-y's draft <PrLink pr={1} repo="ic4-y/kolu" label="ic4-y/kolu#1" /> proves the feature end-to-end (open PRs resolve on a real Forgejo instance) and lands several right calls — but it grows the forge-neutral kernel *inside* `kolu-github`, so the Forgejo adapter depends on the GitHub adapter and even Forgejo's error codes live in GitHub's package. This plan re-cuts the same feature on the repo's own precedent: `anyagent` is the neutral leaf agents share (<Cite file="packages/integrations/anyagent/src/agent-provider.ts" lines="77-178" />); **`anyforge` is the same move for forges**. Phase 0b is a pure refactor (GitHub-only, zero behavior change), so phase 1 — or any future forge — is just a sibling adapter package.
+
+## Phases at a glance
+
+<D2
+  caption="Target package graph: anyforge is the stable kernel (wire schemas, PrProvider contract, generic poll loop, forge detection); kolu-github and kolu-forgejo are sibling adapters that never see each other; kolu-common and the client import schemas from the leaf instead of from one adapter."
+  code={`direction: down
+client: "client\\nPR pill · tooltip · recovery popover"
+server: "kolu-server providers.ts\\nstartPrProvider — one watcher\\nper terminal, per-resolve dispatch"
+common: "kolu-common\\nterminalMetadata wire schema"
+git: "kolu-git\\nGitInfo grows remoteUrl"
+adapters: "sibling adapters — never see each other" {
+  github: "kolu-github\\ngh pr view spawn\\nclassifyGhError · check rollup"
+  forgejo: "kolu-forgejo (phase 1)\\nForgejo/Codeberg REST"
+}
+anyforge: "anyforge — the new leaf\\nPrInfo · PrResult · unavailable schemas\\nPrProvider · subscribePr · detectForge" {
+  style.bold: true
+}
+client -> server: "WebSocket (m.pr)"
+client -> common: "TerminalMetadata"
+server -> git: "git channel\\n(remoteUrl feeds detection)"
+server -> adapters: "PrProvider registry"
+server -> anyforge: "subscribePr"
+common -> anyforge: "PrResultSchema"
+adapters -> anyforge: "implement PrProvider"
+`}
+/>
+
+| Phase | Gist | User-facing change | Status |
+| --- | --- | --- | --- |
+| **0a** | `classifyGhError`: gh's "none of the git remotes" refusal reclassified `absent`, not `not-authenticated`. One file + one test. | Non-GitHub repos stop WARN-logging every 30s and stop showing a lying auth warning. | <Pill variant="todo">first — ships alone</Pill> |
+| **0b** | Extract the **anyforge** leaf: neutral schemas (renamed `GitHubPrInfo`→`PrInfo` as part of the move), `subscribePr` poll loop, `PrProvider` contract, sync `detectForge`; `GitInfo.remoteUrl`; registry-based `startPrProvider` with the single github entry. | None — byte-identical behavior, every existing test green. | <Pill variant="todo">pure refactor</Pill> |
+| **1** | `kolu-forgejo` sibling adapter: Forgejo REST resolver (zod-validated, typed errors), Codeberg + `KOLU_FORGEJO_HOSTS`, popover recovery UX. | Full PR pill — number, title, open/merged/closed state, CI checks — on Codeberg and self-hosted Forgejo/Gitea. | <Pill variant="todo">closes #1240</Pill> |
+| **later** | GitLab adapter; per-host tokens; opt-in auto-detection probe. | — | <Pill variant="todo">not scheduled</Pill> |
+
+## What the draft teaches
+
+A structural pass (Hickey + Lowy lenses) over <PrLink pr={1} repo="ic4-y/kolu" label="ic4-y/kolu#1" /> sorted its ~1.5k-line diff into keep / re-home / redo:
+
+**Keep as-is** — the parts a clean implementation adopts verbatim:
+
+1. The `classifyGhError` reclassification (with its tripwire test) — the actual bug fix, done at the right layer (classification, not call-site log suppression).
+2. `remoteUrl` on `GitInfo` — right home (`kolu-git` owns remote discovery), best-effort `git remote get-url origin` → `null`, `gitInfoEqual` extended so a remote change re-triggers downstream.
+3. The `subscribePrResolver` extraction — the poll/dedup/pending/emit-guard machinery genuinely is forge-neutral, and the draft's Forgejo adapter correctly does **not** duplicate it.
+4. The registry idea mirroring `AgentProvider`, the exhaustive `ts-pattern` dispatch on `PrUnavailableSource.provider` (a new forge arm is a compile error at every render site), and the per-code popover recovery copy.
+
+**Re-home** — right code, wrong package. The neutral contract (`PrProvider`, `PrWatcher`, `subscribePrResolver`, `detectForge`, the `PrInfo`/`PrResult` schemas) all landed inside `kolu-github`, so `kolu-forgejo` imports its own types *from the GitHub adapter*, and `ForgejoUnavailableCodeSchema` is defined in GitHub's schemas file. The codebase already names this smell: the schemas header has carried a "when a second provider lands, promote the neutrals to their own leaf" note since day one (<Cite file="packages/integrations/github/src/schemas.ts" lines="1-9" />) — the draft *is* the second provider, and it edited the comment instead of doing the promotion. `kolu-common` importing `PrResultSchema` from `kolu-github/schemas` (<Cite file="packages/common/src/surface.ts" lines="48" />) is the same coupling on the wire side.
+
+**Redo** — design faults, not placement faults:
+
+- **Async detection races the git channel.** The draft probes unknown hosts over the network (`GET https://host/api/v1/version`) and `await`s that inside the git channel's `onEvent` — but the channel contract is synchronous fire-and-forget, so two quick git events can interleave and a stale slow probe can tear down the fresh watcher. Detection must be sync and pure.
+- **Auto-egress to arbitrary hosts** parsed out of git remotes is a privacy decision smuggled in as an implementation detail — and it's what makes the global `KOLU_FORGEJO_TOKEN` dangerous (a token sent to any host that answers the probe).
+- **Lifecycle churn from interface shape.** `subscribe(repoRoot, branch, remoteUrl, …)` bakes git state into construction, so the orchestrator grows a `lastKey` string and a teardown/rebuild dance just to survive a remote change; meanwhile `resolveGitHubPr` gained an unused `_branch` param mid-signature and `resolveForgejoPr` ignores its `repoRoot`.
+- **Resolver rigor**: responses parsed with `as T` casts despite zod being a dependency; HTTP status re-parsed out of error message *strings* (`msg.includes("401")`); branch matched by `head.ref` alone — the exact fork-PR bug GitHub's resolver documents avoiding — and only `state=open` queried, so Forgejo PRs can never show the merged/closed pill. Zero tests in the new package.
+
+## The anyforge leaf
+
+`packages/integrations/anyforge/` (package name `anyforge`, mirroring `anyagent`), a leaf depending only on `kolu-shared` + zod + ts-pattern. It owns the three things that are stable while forges vary:
+
+**The wire vocabulary.** `PrInfoSchema` (`number/title/url/state/checks/checkRuns` — already forge-neutral in shape), `PrStateSchema`, `CheckStatusSchema`, `CheckRunSchema`, `PrResultSchema` (`pending | ok | absent | unavailable`), and the **closed** `PrUnavailableSourceSchema` discriminated union including each forge's code enum (`GhUnavailableCode` today, `ForgejoUnavailableCode` in phase 1) plus the `reasonFor*` / `prValue` / `prLabel` / `prResultEqual` helpers. Per-forge error codes are part of the neutral UI contract, not adapter internals: the client renders recovery instructions per code and must `match(...).exhaustive()` — the same closed-union trade-off `AgentInfoSchema` already makes.
+
+**The provider contract — a pure resolver, chosen per resolve.** Simpler than the draft's `subscribe`-shaped interface:
+
+```ts
+type PrGitContext = { repoRoot: string; branch: string; remoteUrl: string | null };
+
+interface PrProvider {
+  readonly kind: ForgeKind; // "github" | "forgejo"
+  resolve(git: PrGitContext, log?: Logger): Promise<PrResult>;
+}
+```
+
+The generic watcher `subscribePr(providerFor, onChange, log)` keeps everything `subscribeGitHubPr` owns today — branch-change dedup via `prResultEqual`, synchronous `pending` emit so stale info never lingers, the 30s poll, the emit-guard — but takes the *git context* through `setGit(...)` and looks the provider up **on each resolve** (`providerFor(git)` = registry lookup on `detectForge(git.remoteUrl)`). One watcher per terminal for its whole life; a remote-URL change is just a different dispatch on the next resolve. The draft's `ensureWatcher`/`lastKey`/teardown machinery — and the race it created — never exists.
+
+**Detection, sync and pure.** `parseRemoteHost` (one remote-URL grammar — SSH shorthand + URL forms — also yielding owner/repo so adapters stop duplicating regexes) and `detectForge(remoteUrl)`: `codeberg.org` + `KOLU_FORGEJO_HOSTS` → `forgejo`, **everything else → `github`**. No probe, no `KOLU_GITHUB_HOSTS`: `gh` already resolves any GitHub-host remote it's authenticated for (GHE included), and after phase 0a it degrades to a silent `absent` on hosts it doesn't know. The gh CLI *is* the fallback prober — kolu doesn't need its own.
+
+## The phases in detail
+
+### 0a — stop the lying WARN <Pill variant="todo">one-file PR, ships first</Pill>
+
+`classifyGhError`: stderr containing `"none of the git remotes"` → `{ kind: "absent" }`, slotted above the `"gh auth login"` substring check that currently steals it (the refusal message mentions `gh auth login`, hence the misclassification). Plus the table-test row pinning the string. Adopt verbatim from the draft. **Verify:** unit test; a terminal in a Forgejo-remote repo shows no warning icon and logs nothing above debug.
+
+### 0b — extract anyforge <Pill variant="todo">pure refactor, zero behavior change</Pill>
+
+- Create `packages/integrations/anyforge/`; **move** (not copy) the neutral schemas + helpers out of `kolu-github/src/schemas.ts`, renaming on the way (`GitHubPrInfo`→`PrInfo`, `GitHubCheckStatus`→`CheckStatus`, `GitHubCheck`→`CheckRun`, `GitHubPrState`→`PrState`) — the rename and the move are one mechanical commit. `Gh*` unavailable codes move too (vocabulary is neutral; *classification* stays in `kolu-github`).
+- Move the poll loop as `subscribePr` with the per-resolve dispatch shape above; **delete** `subscribeGitHubPr` and the `GitHubPrWatcher` alias rather than shimming (private monorepo, one test file to update). `resolveGitHubPr`'s public signature changes once, to `PrGitContext` — no placeholder params.
+- `kolu-github` shrinks to the gh adapter: `getGhBin`/`resolveGitHubPr`, `classifyGhError`, `deriveCheckStatus`/`extractChecks`, exporting `githubPrProvider: PrProvider`.
+- `GitInfo.remoteUrl` (<Cite file="packages/integrations/git/src/schemas.ts" lines="8-15" />): schema field, best-effort resolution, `gitInfoEqual`, test fixtures — adopt from the draft.
+- `startGitHubPrProvider` (<Cite file="packages/server/src/terminalBackend/providers.ts" lines="250-284" />) becomes `startPrProvider`: registry `Map<ForgeKind, PrProvider>` with the single github entry; `onEvent` stays synchronous. Since every remote dispatches to github (detection has no forgejo hosts configured by default), behavior is bit-identical to today.
+- Re-point imports: `kolu-common/surface.ts` and the 8 client files (`prTooltip`, `RowPips`, `TerminalMeta`, `WorkspaceGrid`, `CloseConfirm`, `MetadataInspector`, `PrUnavailablePopover`, `terminalSubject`) from `kolu-github/schemas` → `anyforge/schemas`. README package table gains the anyforge row.
+
+**Verify:** every existing unit + e2e test green with no semantic edits (fixtures/rename plumbing only); no new env vars; no changelog entry — nothing changed.
+
+### 1 — the Forgejo adapter <Pill variant="todo">closes #1240</Pill>
+
+- `packages/integrations/forgejo/` depending on `anyforge` + `kolu-shared` only — `kolu-github` appears nowhere in its tree.
+- Resolver over the Forgejo REST API (keep the draft's endpoints: `/repos/{owner}/{repo}/pulls` + `/commits/{sha}/status`), fixed: zod-parse responses; a typed fetch error carrying `status: number` (classify by field, not substring); match head **repo** + ref so fork branches with the same name don't false-positive; query so merged/closed states are reachable; honor port/scheme from the remote where derivable.
+- `ForgejoUnavailableCode` joins the union **in anyforge** — the compiler then walks the plan to the client: `reasonForSource` and `ProviderUnavailableContent` each need their forgejo arm (keep the draft's per-code popover copy: token setup, timeout, not-found).
+- Tokens: `KOLU_FORGEJO_TOKEN`, injected as a parameter (not read from `process.env` inside the resolver), sent **only** to explicitly configured hosts — safe precisely because detection has no auto-probe.
+- Detection: `codeberg.org` built in; self-hosted via `KOLU_FORGEJO_HOSTS` (comma-separated), documented in the README the same change.
+- Unit tests for remote parsing, state/check mapping, and error classification; changelog entry (keep the draft's); **evidence**: PR pill screenshot against a real Codeberg repo.
+
+**Verify:** e2e on a Codeberg public repo (no token) and a token-bearing private instance; GitHub repos regression-checked; unknown forges still silent.
+
+## Decisions and open questions
+
+| # | Decision | Rationale |
+| --- | --- | --- |
+| D1 | Closed `PrUnavailableSource` union in anyforge, exhaustive match in UI | A new forge *should* be a compile error at every recovery-UX render site; mirrors `AgentInfoSchema`. |
+| D2 | Unknown forge → github adapter, no probe | gh handles GHE; 0a makes everything else silent. Kills the async-detection race and the egress/privacy question in one move. Cost: one no-op `gh` spawn per 30s poll on non-GitHub repos — exactly today's behavior. |
+| D3 | Provider = pure `resolve(git)`; dispatch per resolve | No watcher teardown/rebuild, no `lastKey`, channel handler stays sync. If a forge ever needs push/webhooks, widen the contract then — not before. |
+| D4 | `fj` CLI not used | The issue thread already found it rough; Forgejo's REST API is one authenticated `fetch` and needs no binary on `$PATH`. |
+
+Open: per-host tokens (`KOLU_FORGEJO_TOKEN` is one secret for all configured hosts — fine while hosts are explicit, revisit if auto-detection ever lands); whether `KOLU_FORGEJO_HOSTS` should graduate from env var to a settings-UI surface; GitLab (different API shape, separate adapter — the union and registry are ready for it).
