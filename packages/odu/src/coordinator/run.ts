@@ -317,8 +317,11 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     procedures: {
       node: {
         rerun: async ({ input }) => {
+          // A bare lane-local id (no `@`) carries no platform to route to:
+          // splitFanId reports it as the "unknown" sentinel, which has no lane,
+          // so the request is unroutable — `ok: false`, same as a missing lane.
           const { namepath, platform } = splitFanId(input.id);
-          const lane = lanes.get(platform);
+          const lane = platform === "unknown" ? undefined : lanes.get(platform);
           if (lane === undefined) return { ok: false };
           return { ok: await lane.rerun(namepath) };
         },
