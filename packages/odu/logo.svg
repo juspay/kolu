@@ -22,7 +22,6 @@
         font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', SFMono-Regular, Menlo, Consolas, monospace">$</text>
   <text x="148" y="282" font-size="148" font-weight="700" fill="#e8edf4" letter-spacing="2"
         font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', SFMono-Regular, Menlo, Consolas, monospace">odu</text>
-  <rect x="412" y="170" width="32" height="118" rx="7" fill="#2dd4bf"/>
 
   <!-- the live pipeline: ok → ok → running -->
   <line x1="170" y1="368" x2="246" y2="368" stroke="#334155" stroke-width="7" stroke-linecap="round"/>
