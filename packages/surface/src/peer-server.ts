@@ -188,12 +188,14 @@ export function serveOverStdio<T extends Context>(
           }\n`,
         );
       });
-  }).then(
-    (): ServeOverStdioEnd => ({ reason: "end" }),
-    (error: unknown): ServeOverStdioEnd => ({ reason: "error", error }),
-  ).finally(() => {
-    peer.close();
-  });
+  })
+    .then(
+      (): ServeOverStdioEnd => ({ reason: "end" }),
+      (error: unknown): ServeOverStdioEnd => ({ reason: "error", error }),
+    )
+    .finally(() => {
+      peer.close();
+    });
 }
 
 /** Re-export `implement` from `@orpc/server` so agent authors can wrap a
