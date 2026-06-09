@@ -140,32 +140,23 @@ function probeSocket(path: string): Promise<SocketProbe> {
   });
 }
 
-/** Is the inode at `path` an actual socket file? `lstat` (not `stat`) so a
- *  symlink is classified as itself and left intact rather than followed to
- *  its target. ENOENT (nothing there) counts as "removable" too — a no-op
- *  `rmSync`. Pairs with a `stale` probe verdict: we only unlink when BOTH
- *  agree the path is a dead socket inode, never on a probe error against an
- *  unknown inode. */
-function isSocketInodeOrAbsent(path: string): boolean {
+/** The three-way fact about what lives at `path`, the single source of truth
+ *  both serve-flow branches read instead of each owning an inverted boolean.
+ *  `lstat` (NOT `stat`) so a symlink is judged as itself and left intact
+ *  rather than followed to its target:
+ *  - `"socket"` — an actual socket inode (safe to `rmSync` + bind).
+ *  - `"absent"` — nothing is there (ENOENT); a `rmSync` is a no-op and bind
+ *    proceeds.
+ *  - `"other"` — a regular file, dir, symlink, OR an inode we cannot classify
+ *    (a non-ENOENT lstat error such as EACCES on the parent). This is the safe
+ *    refuse-don't-unlink verdict: deleting it could destroy user data, and an
+ *    unclassifiable inode must not be silently removed. */
+function classifyInode(path: string): "socket" | "absent" | "other" {
   try {
-    return lstatSync(path).isSocket();
+    return lstatSync(path).isSocket() ? "socket" : "other";
   } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "ENOENT";
-  }
-}
-
-/** Does an inode exist at `path` that is provably NOT a socket (a regular
- *  file, dir, or symlink)? Used to refine an `unknown` probe verdict: some
- *  platforms reject `connect()` on a regular file with `ENOTSOCK` (an
- *  unrecognized "free to bind" code), which would otherwise be reported as an
- *  opaque `probe-failed` rather than the machine-readable `not-a-socket`. An
- *  `lstat` settles it directly. Returns false when nothing is there (ENOENT)
- *  or the inode cannot be classified — those stay genuine probe failures. */
-function isNonSocketInode(path: string): boolean {
-  try {
-    return !lstatSync(path).isSocket();
-  } catch {
-    return false;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+    return "other";
   }
 }
 
@@ -248,7 +239,7 @@ export async function serveOverUnixSocket(opts: {
       // surface as `ENOTSOCK` on some platforms — that IS knowable, so lstat
       // settles it into the precise `not-a-socket` verdict instead of an
       // opaque `probe-failed`. A truly unclassifiable inode stays a failure.
-      if (isNonSocketInode(socketPath)) {
+      if (classifyInode(socketPath) === "other") {
         return refused({ kind: "not-a-socket" });
       }
       return refused({ kind: "probe-failed", code: probe.code });
@@ -258,7 +249,7 @@ export async function serveOverUnixSocket(opts: {
     // listen() won't EADDRINUSE, but ONLY if the inode is actually a socket
     // (or already gone): an arbitrary user-supplied path pointed at a
     // regular file/dir/symlink must refuse, never silently unlink data.
-    if (!isSocketInodeOrAbsent(socketPath)) {
+    if (classifyInode(socketPath) === "other") {
       return refused({ kind: "not-a-socket" });
     }
     rmSync(socketPath, { force: true });
