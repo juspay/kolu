@@ -24,8 +24,8 @@
  * serve unless it's owner-only, so the stable shared path stays private.
  *
  * This assumes one kolu-server per user session — the single-server model
- * R-4 Phase 1 ships. Pass an explicit override (the CLI's `--socket`, the
- * server's `--pty-host-socket`) to run more than one.
+ * R-4 Phase 1 ships. Pass an explicit override (the CLI's and the server's
+ * `--pty-host-socket`) to run more than one.
  */
 import { join } from "node:path";
 

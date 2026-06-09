@@ -29,7 +29,8 @@ Usage:
   kolu-tui help                show this help
 
 Options:
-  --socket <path>   pty-host socket (default: $XDG_RUNTIME_DIR/kolu/pty-host.sock
+  --pty-host-socket <path>
+                    pty-host socket (default: $XDG_RUNTIME_DIR/kolu/pty-host.sock
                     on systemd Linux, else /tmp/kolu-$UID/pty-host.sock)
   --json            machine-readable output (list)
   -h, --help        show this help
@@ -41,7 +42,7 @@ boots.`;
 interface Args {
   command: string | undefined;
   id: string | undefined;
-  socket: string | undefined;
+  ptyHostSocket: string | undefined;
   json: boolean;
   help: boolean;
 }
@@ -55,7 +56,7 @@ function parse(argv: string[]): Args {
     args: cleaned,
     allowPositionals: true,
     options: {
-      socket: { type: "string" },
+      "pty-host-socket": { type: "string" },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -63,7 +64,7 @@ function parse(argv: string[]): Args {
   return {
     command: positionals[0],
     id: positionals[1],
-    socket: values.socket,
+    ptyHostSocket: values["pty-host-socket"],
     json: values.json ?? false,
     help: values.help ?? false,
   };
@@ -153,7 +154,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const socketPath = getPtyHostSocketPath(args.socket);
+  const socketPath = getPtyHostSocketPath(args.ptyHostSocket);
   const conn = await connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
     return fail(
