@@ -98,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.23.0";
+const SCHEMA_VERSION = "1.24.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -437,6 +437,23 @@ export const store = new Conf<PersistedState>({
       store.set("preferences", {
         ...current,
         rightPanel: rest as typeof current.rightPanel,
+      } as Preferences);
+    },
+    // `rightPanel.codeTabTreeSize` (the Code tab's vertical split fraction)
+    // was added to RightPanelPrefsSchema in #918 without a migration. Files
+    // written before then carry a `rightPanel` with only `collapsed`/`size`,
+    // so `preferences.get` failed Zod validation on the wire
+    // (EVENT_ITERATOR_VALIDATION_FAILED) until the field was backfilled (#1237).
+    "1.24.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown> | undefined;
+      if (!rp || rp.codeTabTreeSize !== undefined) return;
+      store.set("preferences", {
+        ...current,
+        rightPanel: {
+          ...rp,
+          codeTabTreeSize: DEFAULT_PREFERENCES.rightPanel.codeTabTreeSize,
+        },
       } as Preferences);
     },
   },
