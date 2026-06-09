@@ -86,6 +86,11 @@ const REVIEWERS = [
 ]
 if (withPolice) REVIEWERS.push({ lens: 'code-police', framework: 'code quality, correctness, and common-mistake review' })
 
+// The result shape's empty collections, shared by the two EARLY returns
+// (merge-base-error, clean) so adding a result field is one edit, not a mirror
+// edit per return site. The final return carries real values and stays literal.
+const EMPTY_RESULT = { settled: [], unresolved: [], applied: [], fixes: [], reviews: {}, history: [] }
+
 // Resolve the diff base to the merge-base of (base, HEAD) BEFORE building DIFF
 // (which interpolates `base` eagerly), so the lenses review only what this branch
 // changed, not the base branch's drift since the fork. A thin mechanical git
@@ -103,16 +108,11 @@ if (!baseRes?.sha?.trim()) {
   const err = (baseRes?.error || '').trim()
   log(`Aborting: \`git merge-base ${rawBase} HEAD\` failed; the diff scope can't be trusted. Not falling back to the raw ${rawBase} tip.`)
   return {
+    ...EMPTY_RESULT,
     status: 'merge-base-error',
     base: rawBase,
     rounds: 0,
     withPolice,
-    settled: [],
-    unresolved: [],
-    applied: [],
-    fixes: [],
-    reviews: {},
-    history: [],
     note: `merge-base of \`${rawBase}\` and HEAD could not be resolved (missing/typoed base, stale ref, or unrelated history), so the review scope is untrustworthy. Fix the base ref (e.g. \`git fetch\`) and re-run.${err ? `\ngit error:\n${err}` : ''}`,
   }
 }
@@ -363,7 +363,7 @@ if (combined.length === 0) {
   // comment carries the same audit metadata (base, lens roster, per-lens counts,
   // whether code-police ran) instead of a bare one-liner.
   const comment = renderComment({ rounds: 0, settledOut: [], unresolved: [], outcome: { kind: apply ? 'applied' : 'handed-off', items: [] }, reviewByLens, withPolice, base, clean: true })
-  return { status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', settled: [], unresolved: [], applied: [], fixes: [], reviews: reviewByLens, history: [], comment }
+  return { ...EMPTY_RESULT, status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', reviews: reviewByLens, comment }
 }
 
 // ---------------------------------------------------------------------------
