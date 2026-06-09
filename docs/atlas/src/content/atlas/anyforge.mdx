@@ -2,8 +2,8 @@
 title: Multi-forge PR integration — the anyforge leaf
 description: Phased plan for kolu#1240 — phase 0a ships the gh log-noise fix, phase 0b extracts the forge-neutral PR kernel (schemas · poll loop · PrProvider · detection) into a new anyforge leaf as a zero-behavior refactor, phase 1 adds the Forgejo/Codeberg adapter. Grounded in a structural critique of the ic4-y/kolu#1 draft.
 kind: feature
-status: proposed
-maturity: seedling
+status: accepted
+maturity: budding
 parents: [remote-terminals]
 updated: 2026-06-09
 ---
@@ -45,7 +45,7 @@ adapters -> anyforge: "implement PrProvider"
 
 | Phase | Gist | User-facing change | Status |
 | --- | --- | --- | --- |
-| **0a** | `classifyGhError`: gh's "none of the git remotes" refusal reclassified `absent`, not `not-authenticated`. One file + one test. | Non-GitHub repos stop WARN-logging every 30s and stop showing a lying auth warning. | <Pill variant="todo">first — ships alone</Pill> |
+| **0a** | `classifyGhError`: gh's "none of the git remotes" refusal reclassified `absent`, not `not-authenticated`. One file + one test. | Non-GitHub repos stop WARN-logging every 30s and stop showing a lying auth warning. | <Pill variant="run">in review</Pill> <PrLink pr={1256} /> |
 | **0b** | Extract the **anyforge** leaf: neutral schemas (renamed `GitHubPrInfo`→`PrInfo` as part of the move), `subscribePr` poll loop, `PrProvider` contract, sync `detectForge`; `GitInfo.remoteUrl`; registry-based `startPrProvider` with the single github entry. | None — byte-identical behavior, every existing test green. | <Pill variant="todo">pure refactor</Pill> |
 | **1** | `kolu-forgejo` sibling adapter: Forgejo REST resolver (zod-validated, typed errors), Codeberg + `KOLU_FORGEJO_HOSTS`, popover recovery UX. | Full PR pill — number, title, open/merged/closed state, CI checks — on Codeberg and self-hosted Forgejo/Gitea. | <Pill variant="todo">closes #1240</Pill> |
 | **later** | GitLab adapter; per-host tokens; opt-in auto-detection probe. | — | <Pill variant="todo">not scheduled</Pill> |
@@ -93,7 +93,7 @@ The generic watcher `subscribePr(providerFor, onChange, log)` keeps everything `
 
 ## The phases in detail
 
-### 0a — stop the lying WARN <Pill variant="todo">one-file PR, ships first</Pill>
+### 0a — stop the lying WARN <Pill variant="run">in review</Pill> <PrLink pr={1256} />
 
 `classifyGhError`: stderr containing `"none of the git remotes"` → `{ kind: "absent" }`, slotted above the `"gh auth login"` substring check that currently steals it (the refusal message mentions `gh auth login`, hence the misclassification). Plus the table-test row pinning the string. Adopt verbatim from the draft. **Verify:** unit test; a terminal in a Forgejo-remote repo shows no warning icon and logs nothing above debug.
 
