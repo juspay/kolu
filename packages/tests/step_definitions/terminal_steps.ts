@@ -319,19 +319,16 @@ async function readFocusedTerminalId(world: KoluWorld): Promise<string | null> {
   }, ACTIVE_TERMINAL);
 }
 
-Given(
-  "I note the font size of each terminal",
-  async function (this: KoluWorld) {
-    const sizes = await readAllFontSizes(this);
-    assert.ok(
-      Object.keys(sizes).length >= 2,
-      `Expected at least 2 terminals, found ${Object.keys(sizes).length}`,
-    );
-    const focusedId = await readFocusedTerminalId(this);
-    assert.ok(focusedId, "Expected exactly one focused terminal before zoom");
-    this.savedTerminalZoom = { sizes, focusedId };
-  },
-);
+When("I note the font size of each terminal", async function (this: KoluWorld) {
+  const sizes = await readAllFontSizes(this);
+  assert.ok(
+    Object.keys(sizes).length >= 2,
+    `Expected at least 2 terminals, found ${Object.keys(sizes).length}`,
+  );
+  const focusedId = await readFocusedTerminalId(this);
+  assert.ok(focusedId, "Expected exactly one focused terminal before zoom");
+  this.savedTerminalZoom = { sizes, focusedId };
+});
 
 Then(
   "only the focused terminal's font size should have changed",
