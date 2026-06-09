@@ -1,0 +1,80 @@
+---
+title: kolu Release Runbook
+description: Cut a release with `/release X.Y.Z` — tag master, promote the Unreleased changelog entry, GitHub release. The changelog is a website content collection the agent appends to per PR; kolu.dev renders it Unreleased-and-all.
+kind: reference
+status: proposed
+maturity: seedling
+parents: [second-brain]
+updated: 2026-06-06
+---
+
+import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
+
+**Model — tag-on-master, rolling:**
+
+- Ships **only** as a Nix flake; users track `master` (`nix run github:juspay/kolu`).
+- A release is a **tag on master** — a named point, a pin, a dated changelog entry. Nothing is published that master doesn't already serve.
+- Version is picked by hand (it's an app, no API contract): `.0` = milestone, a normal bump otherwise. **Single source of truth: `packages/server/package.json` `version`** (valid semver) — Nix and the server runtime both read it, so there's nothing else to bump.
+
+## The changelog is website content
+
+- A **content collection** beside the blog (<Cite file="website/src/content.config.ts" lines="4-14" label="blog collection — same shape" />), not a root `CHANGELOG.md`.
+- One entry per release; `unreleased.mdx` is the open one.
+- **Authored per PR by `/be`** — its implement step appends one line under the right `###` heading (prose a user reads + a markdown PR link). No commit-prefix, no bump field.
+- **`### Heads-up`** = disruptive changes (removed feature, changed default, migration), written for the user.
+- **Conflict-free** — `unreleased.mdx merge=union` in `.gitattributes` auto-resolves concurrent appends.
+
+```
+website/src/content/changelog/
+  unreleased.mdx     ← agent appends here, every user-facing PR
+  1-0-0.mdx          ← stamped { version: "1.0.0", date: 2026-06-08 } at release
+```
+
+```mdx
+---
+version: Unreleased
+---
+### Added
+- Compose surfaces as siblings — one canvas, no surface-app seams. ([#1201](https://github.com/juspay/kolu/pull/1201))
+### Fixed
+- Dock pings stop pulsing once you switch to the row. ([#1198](https://github.com/juspay/kolu/pull/1198))
+### Heads-up
+- `KOLU_STATE_DIR` moved under `$XDG_CONFIG_HOME/kolu`; existing sessions auto-migrate.
+```
+
+## Keeping it filled — two checkpoints, no CI gate
+
+- **Write time** — `/be` authors the entry in its implement phase (<Cite file=".apm/skills/be/SKILL.md" lines="36" label="be §2 — Add a changelog entry" />); every PR rides through `/be`.
+- **Publish time** — `/release X.Y.Z`'s go/no-go preview prints the exact `Unreleased` notes about to publish and waits for confirmation; a thin section is visible right before it ships.
+- Enough for a single-maintainer, `/be`-driven repo. Add a merge-blocking **`changelog` CI check** (diff touches `unreleased.mdx` or `no-changelog` label) only once PRs arrive from contributors who don't run `/be`.
+
+## kolu.dev renders it — Unreleased included
+
+- A `/changelog` page maps the collection newest-first, **`Unreleased` on top** — shipped *and* upcoming, and a live preview the moment a PR merges.
+- The changelog **is** `website/**`, so the existing Pages deploy already fires on every edit (<Cite file=".github/workflows/pages.yml" lines="9-15" label="pages.yml — on.push.paths website/**" />) — nothing extra to wire.
+
+## Cutting a release
+
+Run **`/release X.Y.Z`** (<Cite file=".apm/skills/release/SKILL.md" lines="1" label="the /release skill" />). It does the *what* below and asks (via `AskUserQuestion`) where a call is yours; everything is read-only until the explicit go/no-go.
+
+Phases 1–3 are read-only; nothing is written before the go/no-go.
+
+1. **Settle** the version (editorial — `.0` milestone, normal bump otherwise; valid semver `X.Y.Z`) and date.
+2. **Preflight** — on `master`, clean, synced, CI green on `HEAD` (the base the release commit builds on). Refuse otherwise.
+3. **Confirm** — show the exact notes + version bump + tag, then go/no-go. `No` leaves the tree untouched.
+4. **Apply** — promote `unreleased.mdx` → `<version>.mdx` (`{ version, date }`), consolidating any duplicate `###` headings `merge=union` left behind into one section per heading + fresh empty Unreleased; set `packages/server/package.json` `version` (the single source — Nix + runtime both read it; nothing else to bump); commit (`release X.Y.Z`) + push `master`. **No tag yet.**
+5. **Wait** for CI to go green on the pushed release commit — never tag a commit CI hasn't passed.
+6. **Tag & publish** — annotated tag `vX.Y.Z` on the green commit, push, `gh release create`.
+7. **Verify** — tag on master, release live, `kolu.dev/changelog` updated; pin is `nix run github:juspay/kolu/vX.Y.Z`.
+
+## Wiring
+
+- **`changelog` collection** — ✓ <PrLink pr={1208} /> (schema, `/changelog` page, seeded `unreleased.mdx`, `merge=union`).
+- **Keep-it-filled** — ✓ the `/be` implement-step entry (<Cite file=".apm/skills/be/SKILL.md" lines="36" />); no CI gate.
+- **Identity rail** — ✓ version sourced once from `packages/server/package.json`, read at runtime via `serverVersion` (<Cite file="packages/server/src/hostname.ts" lines="17-23" label="serverVersion = pkg.version" />) and by Nix for the artifact version (<Cite file="default.nix" lines="15-19" />). No env var, nothing to propagate. `serverVersion` is the single runtime owner — it feeds the `buildInfo` cell → rail (`vX.Y.Z · <hash>`), `--version`, the startup log, and the pty's `TERM_PROGRAM_VERSION`.
+- **`/release` skill** — ✓ <Cite file=".apm/skills/release/SKILL.md" lines="1" />; the steps above.
+
+---
+
+*Status: `proposed`. Surface + rail stamp + `/release` skill landed in <PrLink pr={1208} />. First run: `/release 1.0.0`.*

@@ -22,13 +22,16 @@
   }
 }:
 let
+  # Single source for the website version — its own package.json (no literal to
+  # drift). Threaded into fetchPnpmDeps and the typecheck derivation below.
+  version = (pkgs.lib.importJSON ./package.json).version;
+
   # fetchPnpmDeps hash is platform-independent. Regenerate when pnpm-lock.yaml
   # changes — `just ci::pnpm-hash-fresh` checks this alongside the root's
   # pnpmDeps. On mismatch, Nix prints the expected hash; paste it back here.
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu-website";
-    version = "0.1.0";
-    inherit src;
+    inherit version src;
     # Determinism guard (juspay/kolu#1097). The fetcher runs `pnpm install
     # --force`, which pulls every platform's optional binaries (so Darwin and
     # Linux share one hash) — but `--force` treats those cross-platform
@@ -88,7 +91,7 @@ let
   # so a type error in the site would otherwise deploy green. The root flake
   # exposes this as checks.${system}.website-typecheck.
   typecheck = import ../nix/pnpm-typecheck.nix {
-    inherit pkgs src pnpmDeps;
+    inherit pkgs src pnpmDeps version;
     pname = "kolu-website-typecheck";
   };
 in

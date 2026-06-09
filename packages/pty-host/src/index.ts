@@ -64,4 +64,8 @@ export {
 // this package's source closure) and `currentCommitHash()` (the navigable git
 // ref), both read from nix-baked env. VALUE exports: a type-only re-export
 // would collapse them to nothing at runtime.
-export { currentBuildId, currentCommitHash } from "./buildId.ts";
+export {
+  currentBuildId,
+  currentCommitHash,
+  currentPtyHostIdentity,
+} from "./buildId.ts";

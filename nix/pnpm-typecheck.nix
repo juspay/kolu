@@ -11,10 +11,9 @@
 #
 # Callers: default.nix (workspace `tsc --noEmit`) and website/default.nix
 # (`astro check`). Each documents why its own scope needs gating.
-{ pkgs, pname, src, pnpmDeps }:
+{ pkgs, pname, src, pnpmDeps, version }:
 pkgs.stdenv.mkDerivation {
-  inherit pname src pnpmDeps;
-  version = "0.1.0";
+  inherit pname src pnpmDeps version;
 
   nativeBuildInputs = [
     pkgs.nodejs

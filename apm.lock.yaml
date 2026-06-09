@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-08T18:32:10.617799+00:00'
+generated_at: '2026-06-08T19:05:49.519714+00:00'
 apm_version: 0.18.0
 dependencies:
 - repo_url: anthropics/skills
@@ -129,6 +129,7 @@ local_deployed_files:
 - .agents/skills/parcel
 - .agents/skills/perf-diagnose
 - .agents/skills/pierre
+- .agents/skills/release
 - .agents/skills/test
 - .claude/rules/apm-sources.md
 - .claude/rules/apm-workflow.md
@@ -153,6 +154,7 @@ local_deployed_files:
 - .claude/skills/parcel
 - .claude/skills/perf-diagnose
 - .claude/skills/pierre
+- .claude/skills/release
 - .claude/skills/test
 local_deployed_file_hashes:
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
