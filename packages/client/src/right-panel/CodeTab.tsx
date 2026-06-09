@@ -57,6 +57,7 @@ import {
   pierreTreesShadowCss,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
+import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { app } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
@@ -736,17 +737,15 @@ const CodeTab: Component<{
             1 - rightPanel.codeTabTreeSize(),
           ]}
           onSizesChange={(sizes) => {
-            // Length gate: when this Resizable unmounts (the outer
-            // `<Show when={repoPath()}>` flips to its fallback — e.g. the
-            // active terminal moves to a non-git cwd), Corvu's
-            // `unregisterPanel` emits a LENGTH-1 array holding the
-            // surviving panel renormalized to `content − tree`. That
-            // value can land inside the legal 0.1–0.9 band, so without
-            // the gate it clobbers the persisted split fraction and the
-            // remount comes back at the wrong size. Only a report
-            // covering both panels describes a real layout.
-            if (sizes.length === 2 && sizes[0] !== undefined)
-              rightPanel.setCodeTabTreeSize(sizes[0]);
+            // `realSizes` drops Corvu's degenerate emissions (e.g. the
+            // LENGTH-1 renormalized array `unregisterPanel` emits when
+            // this Resizable unmounts — the outer `<Show when={repoPath()}>`
+            // flipping to its fallback as the active terminal moves to a
+            // non-git cwd — whose surviving value can land inside the
+            // legal 0.1–0.9 band and clobber the persisted split). Only a
+            // report covering both panels describes a real layout.
+            const s = realSizes(sizes);
+            if (s) rightPanel.setCodeTabTreeSize(s[0]);
           }}
           class="flex-1 min-h-0 overflow-hidden"
         >

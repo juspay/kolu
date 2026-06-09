@@ -11,6 +11,7 @@ import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
 import Commit from "./ui/Commit";
+import { realSizes } from "./ui/corvuResizable";
 import {
   type Component,
   createEffect,
@@ -641,21 +642,18 @@ const App: Component = () => {
                       : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
                   }
                   onSizesChange={(sizes) => {
-                    // The `undefined` guard does real work: when this
-                    // Resizable unmounts (last terminal closes → the
-                    // EmptyState takes over), Corvu's `unregisterPanel`
-                    // emits a LENGTH-1 renormalized array — `sizes[1]` is
-                    // undefined then, so the garbage value never reaches
-                    // the preference (CodeTab's vertical split reads
-                    // `sizes[0]` and needs an explicit length gate for
-                    // the same emission). The other load-bearing gate is
-                    // `MIN_PANEL_SIZE = 0.05` inside
+                    // `realSizes` drops Corvu's degenerate emissions (e.g.
+                    // the LENGTH-1 renormalized array `unregisterPanel`
+                    // emits when this Resizable unmounts as the last
+                    // terminal closes and the EmptyState takes over) so the
+                    // garbage value never reaches the preference. The other
+                    // load-bearing gate is `MIN_PANEL_SIZE = 0.05` inside
                     // `useRightPanel.setPanelSize`, which drops the
                     // collapsed `sizes[1] = 0` case so `preferences.size`
                     // never persists as zero (which would re-expand into
                     // an ungrabbable zero-width panel).
-                    if (sizes[1] !== undefined)
-                      rightPanel.setPanelSize(sizes[1]);
+                    const s = realSizes(sizes);
+                    if (s) rightPanel.setPanelSize(s[1]);
                   }}
                   class="flex-1 min-h-0 overflow-hidden"
                 >

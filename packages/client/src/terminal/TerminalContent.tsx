@@ -8,6 +8,7 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
+import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
@@ -52,11 +53,13 @@ const TerminalContent: Component<{
 
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle.
-    // Ignore tiny values — the Resizable fires onSizesChange with [1, 0]
-    // during programmatic transitions (e.g. expand from collapsed), which
-    // would immediately re-collapse the panel.
-    if (sizes[1] !== undefined && sizes[1] > 0.02) {
-      subPanel.setPanelSize(props.terminalId, sizes[1]);
+    // `realSizes` drops Corvu's degenerate emissions; the inline `> 0.02`
+    // gate then ignores the tiny `[1, 0]` values Corvu fires during
+    // programmatic transitions (e.g. expand from collapsed), which would
+    // immediately re-collapse the panel.
+    const s = realSizes(sizes);
+    if (s && s[1] > 0.02) {
+      subPanel.setPanelSize(props.terminalId, s[1]);
     }
   }
 
