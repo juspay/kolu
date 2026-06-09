@@ -2,7 +2,7 @@
  * mini-ci surface — the shape the runner serves over stdio and the TUI
  * consumes. Three primitives carry the whole tool, and they are a clean
  * structural twin of what `kolu-tui` will need (see
- * `docs/plans/remote-terminals.pty-daemon.tui.html`):
+ * `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`):
  *
  *   - `nodes`   — a Cell holding the entire pipeline's node-state.
  *                 Snapshot-then-delta. ↔ kolu-tui's `list`.

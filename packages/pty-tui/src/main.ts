@@ -3,7 +3,7 @@
  * (R-4 Phase 1: `list` + `snapshot`). It dials the server's unix socket via
  * `stdioLink` and speaks `ptyHostSurface` directly — the *raw* client (the
  * browser is the *rich* one over the full kolu contract). See
- * `docs/plans/remote-terminals.pty-daemon.tui.html`.
+ * `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`.
  *
  *   kolu-tui list [--json]     list your live terminals (id · pid · idle · cwd)
  *   kolu-tui snapshot <id>     print a terminal's current scrollback, then exit
