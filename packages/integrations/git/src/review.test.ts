@@ -67,6 +67,71 @@ describe("getDiff path authority", () => {
   });
 });
 
+describe("getStatus branch mode — no resolvable base", () => {
+  let repo: string;
+
+  beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-review-nobase-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("degrades gracefully on a fresh repo with no remote and no commits (issue #1244)", async () => {
+    // `git init` with no remote and no commits: there is no `origin`, so
+    // branch mode has nothing to diff against. It must NOT error — an error
+    // here is logged at ERROR by the surface's onStreamReadError on every
+    // repo-change tick (the bug). Expect an empty, base-less status instead.
+    await simpleGit(repo).init();
+
+    const result = await getStatus(repo, "branch");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.files).toEqual([]);
+    expect(result.value.base).toBeNull();
+  });
+
+  it("degrades gracefully on a remote-less repo that has commits", async () => {
+    // Even with local history, a repo with no `origin` remote has no base
+    // branch to compare against — branch mode is meaningless, not broken.
+    const git = simpleGit(repo);
+    await git.init();
+    await git.addConfig("user.email", "test@example.com");
+    await git.addConfig("user.name", "Test");
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
+    await git.add(".");
+    await git.commit("init");
+
+    const result = await getStatus(repo, "branch");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.files).toEqual([]);
+    expect(result.value.base).toBeNull();
+  });
+
+  it("still surfaces the actionable error when an origin remote exists but isn't fetched", async () => {
+    // A repo *with* an `origin` remote whose default branch hasn't been
+    // fetched is a genuinely actionable state — the user can run `git fetch`.
+    // Keep the BASE_BRANCH_NOT_FOUND error so explicit Branch mode can prompt.
+    const git = simpleGit(repo);
+    await git.init();
+    await git.addConfig("user.email", "test@example.com");
+    await git.addConfig("user.name", "Test");
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
+    await git.add(".");
+    await git.commit("init");
+    await git.addRemote("origin", "https://example.invalid/repo.git");
+
+    const result = await getStatus(repo, "branch");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("BASE_BRANCH_NOT_FOUND");
+  });
+});
+
 describe("getStatus branch mode — unicode paths", () => {
   let repo: string;
 

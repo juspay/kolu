@@ -291,12 +291,14 @@ const CodeTab: Component<{
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
   );
-  // Best-effort branch layer: a repo with no `origin/<default>` errors with
-  // BASE_BRANCH_NOT_FOUND (review.ts `resolveBase`) — an expected, not broken,
-  // state in this passive overlay. Swallow it (no toast): the merge falls back
-  // to the always-available local layer. The explicit Branch *mode* still
-  // surfaces the same error via its own `status` subscription, where it's
-  // actionable ("run git fetch").
+  // Best-effort branch layer: a repo with an `origin` remote whose default
+  // branch isn't fetched errors with BASE_BRANCH_NOT_FOUND (review.ts
+  // `resolveBase`) — an expected, not broken, state in this passive overlay.
+  // Swallow it (no toast): the merge falls back to the always-available local
+  // layer. The explicit Branch *mode* still surfaces the same error via its
+  // own `status` subscription, where it's actionable ("run git fetch"). A
+  // remote-less repo (#1244) degrades to an empty branch status instead of
+  // erroring, so it never reaches this handler.
   const browseBranchStatus = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
