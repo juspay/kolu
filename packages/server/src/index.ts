@@ -20,6 +20,7 @@ import {
   gateStaleSocket,
   installFreshStatic,
   installPwaManifest,
+  startWsHeartbeat,
 } from "@kolu/surface-app/server";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
@@ -36,7 +37,6 @@ import { initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
-import { startWsHeartbeat } from "./wsHeartbeat.ts";
 
 const argv = cli({
   name: "kolu",

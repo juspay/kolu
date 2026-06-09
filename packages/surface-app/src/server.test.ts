@@ -12,7 +12,7 @@
 
 import { implementSurfaces, inMemoryChannelByName } from "@kolu/surface/server";
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   NOTIFICATION_SW_SOURCE,
@@ -23,8 +23,11 @@ import {
   buildInfoServer,
   gateStaleSocket,
   type GateableSocket,
+  heartbeatSweep,
+  type HeartbeatableSocket,
   installFreshStatic,
   installSurfaceApp,
+  startWsHeartbeat,
   surfaceAppServer,
 } from "./server";
 import type { BuildInfo } from "./surface";
@@ -304,5 +307,99 @@ describe("gateStaleSocket — the WS-upgrade handshake gate", () => {
       expect.objectContaining({ message: "boom" }),
     );
     spy.mockRestore();
+  });
+});
+
+/** A server socket reduced to what the heartbeat touches: `readyState`/`OPEN`,
+ *  `ping`/`terminate` spies, and an `on("pong")` registrar whose handlers `pong()`
+ *  fires (to model a client answering). The structural `HeartbeatableSocket`, so
+ *  these tests never depend on `ws`. */
+function fakeServerSocket(readyState = 1) {
+  const pongHandlers: Array<() => void> = [];
+  return {
+    readyState,
+    OPEN: 1,
+    ping: vi.fn(),
+    terminate: vi.fn(),
+    on: vi.fn((event: string, cb: () => void) => {
+      if (event === "pong") pongHandlers.push(cb);
+    }),
+    pong: () => {
+      for (const h of pongHandlers) h();
+    },
+  } satisfies HeartbeatableSocket & { pong: () => void };
+}
+
+type FakeServerSocket = ReturnType<typeof fakeServerSocket>;
+const fakeServer = (...clients: FakeServerSocket[]) => ({
+  clients: new Set<HeartbeatableSocket>(clients),
+});
+
+describe("heartbeatSweep — the server-side liveness reaper", () => {
+  it("pings a live socket and clears its flag (so the next miss is detectable)", () => {
+    const ws = fakeServerSocket();
+    const alive = new WeakSet<HeartbeatableSocket>([ws]);
+    heartbeatSweep([ws], alive);
+    expect(ws.ping).toHaveBeenCalledTimes(1);
+    expect(ws.terminate).not.toHaveBeenCalled();
+    expect(alive.has(ws)).toBe(false);
+  });
+
+  it("terminates a socket that missed the previous ping", () => {
+    const ws = fakeServerSocket();
+    heartbeatSweep([ws], new WeakSet());
+    expect(ws.terminate).toHaveBeenCalledTimes(1);
+    expect(ws.ping).not.toHaveBeenCalled();
+  });
+
+  it("skips a socket that is not OPEN (a gate-closed stale tab mid-close)", () => {
+    const ws = fakeServerSocket(0);
+    heartbeatSweep([ws], new WeakSet());
+    expect(ws.terminate).not.toHaveBeenCalled();
+    expect(ws.ping).not.toHaveBeenCalled();
+  });
+});
+
+describe("startWsHeartbeat — the interval-driven sweep", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("pings a registered socket, then terminates it when no pong arrives", () => {
+    const ws = fakeServerSocket();
+    const { register, stop } = startWsHeartbeat(fakeServer(ws), {
+      intervalMs: 1000,
+    });
+    register(ws);
+    vi.advanceTimersByTime(1000); // sweep 1: alive → ping, clear flag
+    expect(ws.ping).toHaveBeenCalledTimes(1);
+    expect(ws.terminate).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000); // sweep 2: missed pong → terminate
+    expect(ws.terminate).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("keeps a socket alive when a pong arrives between sweeps", () => {
+    const ws = fakeServerSocket();
+    const { register, stop } = startWsHeartbeat(fakeServer(ws), {
+      intervalMs: 1000,
+    });
+    register(ws);
+    vi.advanceTimersByTime(1000); // ping, flag cleared
+    ws.pong(); // client answered → re-marked alive
+    vi.advanceTimersByTime(1000); // still alive → ping again, no terminate
+    expect(ws.terminate).not.toHaveBeenCalled();
+    expect(ws.ping).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
+  it("stop() halts the sweeps", () => {
+    const ws = fakeServerSocket();
+    const { register, stop } = startWsHeartbeat(fakeServer(ws), {
+      intervalMs: 1000,
+    });
+    register(ws);
+    stop();
+    vi.advanceTimersByTime(5000);
+    expect(ws.ping).not.toHaveBeenCalled();
   });
 });
