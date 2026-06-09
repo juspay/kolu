@@ -171,7 +171,9 @@ change requests and this contract, then relay its table:
 ## Push the fixes
 
 After the apply pass, **if anything was committed** (`git log --oneline
-<base>..HEAD` is non-empty vs. the start) **and a PR exists for this branch**
+$START..HEAD` is non-empty — `$START` was captured in Preflight; `<base>..HEAD`
+would be vacuously non-empty since preflight requires committed work) **and a
+PR exists for this branch**
 (`gh pr view --json number -q .number`), **push**: `git push`. No PR → nothing to
 push to, so skip (the local commits are still there for the human). **Never
 merge** — pushing updates the open PR; the human reviews the commits and merges
