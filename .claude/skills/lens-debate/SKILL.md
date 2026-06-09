@@ -1,7 +1,7 @@
 ---
 name: lens-debate
 description: Run a structural-review debate between two lenses — lowy (volatility-based decomposition) and hickey (structural simplicity) — on the current diff. Each reviews independently, then they cross-examine every finding until they agree per-finding, and the agreed fixes are applied. Use when the user types `/lens-debate`, or asks to "have lowy and hickey review this", "run the lens debate", "debate this diff structurally", or "argue the structure of this PR until the lenses agree".
-argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-comment] [--with-police]"
+argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-apply] [--no-comment] [--with-police]"
 ---
 
 # Lowy ⇄ Hickey lens debate
@@ -84,7 +84,7 @@ codex/opencode runtimes the skill is inert.
 
 ## Arguments
 
-Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-comment] [--with-police]`:
+Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-apply] [--no-comment] [--with-police]`:
 
 - **`<pr-number>`** (optional): a PR to debate. If given, `gh pr checkout <n>`
   first and default the base to that PR's base branch. If omitted, debate the
@@ -101,6 +101,12 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-co
 - **`--no-commit`**: still apply the agreed fixes to the working tree, but leave
   them uncommitted for you to commit yourself. Default is to **commit each fix
   individually** (see below).
+- **`--no-apply`**: skip the Apply phase entirely — the debate still settles every
+  finding, but the agreed `fix` plans are **returned** (the `fixes` field) instead
+  of implemented. For callers like `/be-review`'s parallel gauntlet, where the
+  lenses review a **pinned snapshot** and the live branch has moved on since, so
+  the caller must apply the change requests itself. Implies nothing about
+  commenting; the comment then records the fixes as "handed off".
 - **`--no-comment`**: don't post the debate summary to the PR. By **default**,
   when a PR exists, the summary IS posted as a PR comment (see step 3).
 - **`--with-police`**: fold in `/code-police` as a third, **lower-weight voice**.
@@ -132,6 +138,7 @@ Workflow({
     base: "<base branch>",               // a remote-tracking ref, e.g. origin/master
     maxRounds: <n, default 12>,
     commit: <false only if --no-commit>,
+    apply: <false only if --no-apply>,
     withPolice: <true only if --with-police>,
     rationale: "<optional author note on deliberate design decisions>",
     model: "<optional model override; defaults to opus>"
@@ -151,7 +158,8 @@ three phases the user can watch via `/workflows`:
   converge too (so Apply never picks one lens's plan arbitrarily).
 - **Apply** — one `apply:<finding-id>` per agreed `fix`, each followed (unless
   `--no-commit`) by a `commit:<finding-id>` that commits **exactly** that fix's
-  changed files with a message carrying the debate context.
+  changed files with a message carrying the debate context. Skipped wholesale
+  under `--no-apply` — the plans come back in `fixes` for the caller to apply.
 
 When `rationale` is set, pull it from the PR/issue description (the deliberate
 design decisions the author wants the lenses to respect, e.g. a deliberate
@@ -166,7 +174,8 @@ collide and the scratch never shows up in the diff the lenses review. It returns
   rounds, base, withPolice,
   settled,     // per-finding: id, origin, title, location, agreed disposition, plan, both reasonings
   unresolved,  // findings still contested at the backstop (empty on consensus)
-  applied,     // [{ id, title, files, commit }]
+  applied,     // [{ id, title, files, commit }] (empty under --no-apply)
+  fixes,       // the agreed `fix` findings with converged plans — the caller's change requests under --no-apply
   reviews,     // each lens's independent findings
   history,     // per-round dispositions
   comment }    // the deterministically rendered PR comment body — post it VERBATIM (step 3)
