@@ -33,5 +33,6 @@ export {
   bindArtifactSdk,
   observeIframeHistory,
   observeIframeNavigation,
+  observeIframeOpenExternal,
   pushHighlightsTo,
 } from "./bridge";

@@ -20,6 +20,7 @@
  */
 
 import { match, P } from "ts-pattern";
+import { isHttpUrl } from "../core/url";
 import type {
   IframeToParent,
   Locator,
@@ -174,6 +175,32 @@ export function observeIframeHistory(
         )
         .otherwise(() => null),
     onHistory,
+  );
+}
+
+/** Observe a request from the previewed document to open an external URL. The
+ *  opaque-origin sandbox swallows external-link clicks (no `allow-popups`, no
+ *  `allow-top-navigation`), so the in-iframe SDK traps the click and posts the
+ *  absolute URL here; the parent (not sandboxed) opens it in a real browser tab.
+ *  Mirrors `observeIframeNavigation`/`observeIframeHistory`: a focused listener
+ *  with the same `event.source` identity boundary. The payload guard requires a
+ *  string `url` AND an http(s) scheme — a hostile in-frame script can post any
+ *  shape, and a non-http URL handed to `window.open` would run in the parent's
+ *  origin. Returns a disposer. */
+export function observeIframeOpenExternal(
+  iframe: HTMLIFrameElement,
+  onOpenExternal: (url: string) => void,
+): () => void {
+  return observeFromIframe(
+    iframe,
+    (msg) =>
+      match(msg)
+        .with(
+          { type: "kolu-artifact-sdk:open-external", url: P.string },
+          (m) => (isHttpUrl(m.url) ? m.url : null),
+        )
+        .otherwise(() => null),
+    onOpenExternal,
   );
 }
 
