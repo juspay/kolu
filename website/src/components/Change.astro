@@ -5,13 +5,17 @@
  * (dimmer, smaller) as supporting detail. The shipping PR rides the title line
  * as a `<PR>` chip when `pr` is given.
  *
- *   <Change title="Terminals no longer silently freeze" pr={1235}>
- *   A WebSocket that died without notice … resumes without a reload.
- *   </Change>
+ *   ### Fixed
  *
- * Auto-injected into changelog MDX (see `changelog.astro`'s `components` prop),
- * so entries need no import. `repo` / `state` pass straight through to `<PR>`
- * (default: a merged juspay/kolu pull).
+ *   - <Change title="Terminals no longer silently freeze" pr={1235}>A WebSocket
+ *     that died without notice … resumes without a reload.</Change>
+ *
+ * Used as the content of a Markdown list item (`- <Change …>…</Change>`), so the
+ * `<ul>/<li>` and the `→` bullet come from `.prose-changelog`; this component
+ * owns the per-item title/description emphasis split + the PR chip. Auto-injected
+ * into changelog MDX (see `changelog.astro`'s `components` prop), so entries need
+ * no import. `repo` / `state` pass straight through to `<PR>` (default: a merged
+ * juspay/kolu pull).
  */
 import PR from "./PR.astro";
 
@@ -34,8 +38,10 @@ const { title, pr, repo, state } = Astro.props;
 </div>
 
 <style>
+  /* No outer margin: each <Change> is a list item, so `.prose-changelog ul`'s
+     gap spaces the entries. */
   .cl-change {
-    margin: 0.7rem 0 1.25rem;
+    margin: 0;
   }
   /* Title line: the scannable headline + its PR chip, baseline-aligned. */
   .cl-change-head {
