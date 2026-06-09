@@ -1,5 +1,7 @@
 # odu
 
+<img src="./logo.svg" width="128" align="right" alt="odu — $ odu with a live pipeline: two nodes green, one running" />
+
 **A CI runner you attach to.** odu (Tamil ஓடு — *run*) runs your
 [`just`](https://just.systems) recipe DAG across machines, posts GitHub
 commit statuses, and — unlike every batch CI tool — holds the run as **live,
@@ -117,6 +119,11 @@ HEAD commit, posts statuses. The opt-outs exist for dev iteration, not CI.
 - **Pushed SHAs only on remote lanes.** Hosts fetch your commit from the
   origin remote (anonymous https). odu does not ship git bundles, so a
   remote lane can't test an unpushed commit. Localhost lanes can.
+- **Live-tree mode is localhost-only.** `--no-snapshot`/`--no-strict` run the
+  live working tree, but only a localhost lane sees it — a remote lane still
+  fetches the committed HEAD. So on a *dirty* tree odu refuses remote lanes in
+  live mode rather than hand back a verdict that silently tested stale code;
+  slice to local platforms with `--platform`, or commit+push for a remote run.
 - **One-shot lanes.** If the ssh link to a lane dies mid-run, that lane's
   unfinished nodes are marked `errored` (GitHub state `error`) and the run
   fails — live state does not survive a runner restart in Phase 1; the
