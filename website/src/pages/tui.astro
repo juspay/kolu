@@ -1,0 +1,134 @@
+---
+/**
+ * kolu.dev/tui — quick reference for the kolu-tui CLI (beta).
+ *
+ * Deliberately UNLISTED: linked from nowhere on the site, excluded from the
+ * sitemap (astro.config.mjs), and noindex'd below — it's a URL you hand to
+ * someone trying the beta, not a navigation destination. Flip those three
+ * switches together when the CLI graduates.
+ */
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const commands = [
+  {
+    cmd: "kolu-tui list",
+    flags: "--json",
+    what: "One row per live terminal — id · pid · idle · cmd · cwd. --json emits a top-level array for jq.",
+  },
+  {
+    cmd: "kolu-tui snapshot <id>",
+    flags: "",
+    what: "Print a terminal's current scrollback as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean).",
+  },
+  {
+    cmd: "kolu-tui attach <id>",
+    flags: "--escape <char>",
+    what: "Take the terminal over, full screen. Raw passthrough — every keystroke and chord reaches the inner program; your window size follows along. Detach with the escape below.",
+  },
+];
+
+const escapes = [
+  { keys: "~.", what: "detach — kolu-tui exits, kolu-server keeps the terminal; re-attach anytime" },
+  { keys: "~~", what: "send one literal ~ to the shell" },
+  { keys: "~?", what: "show this escape help" },
+];
+---
+
+<BaseLayout
+  title="kolu-tui"
+  description="kolu-tui — list, snapshot, and attach to your kolu terminals from the shell."
+>
+  <meta name="robots" content="noindex" slot="head" />
+
+  <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
+    <p class="eyebrow mb-4">the terminal client · beta</p>
+    <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
+      kolu, without<br />the <span class="text-amber">browser</span>.
+    </h1>
+    <p class="mt-6 text-ink-dim max-w-xl leading-relaxed">
+      <code class="mono text-ink">kolu-tui</code> talks to your running
+      kolu-server over a local unix socket and drives the same terminals the
+      browser shows — list them, dump their scrollback, or attach and type.
+      The CLI comes and goes; the server keeps owning the terminals.
+    </p>
+    <p class="mono text-ink-faint text-sm leading-relaxed mt-7">
+      // start the server first, then:{" "}
+      <code class="text-ink">nix run github:juspay/kolu#kolu-tui -- list</code>
+      <br />
+      <span class="text-ink-faint">
+        the home-manager module installs it next to the server automatically.
+      </span>
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">commands</p>
+    {
+      commands.map((c) => (
+        <div class="border-t border-rule py-5 grid md:grid-cols-[16rem_1fr] gap-2 md:gap-8">
+          <div>
+            <code class="mono text-ink text-sm">{c.cmd}</code>
+            {c.flags && (
+              <div class="mono text-ink-faint text-xs mt-1">{c.flags}</div>
+            )}
+          </div>
+          <p class="text-ink-dim text-sm leading-relaxed">{c.what}</p>
+        </div>
+      ))
+    }
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">detaching — the ssh model</p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+      While attached, <em>nothing</em> is intercepted except a{" "}
+      <code class="mono text-ink">~</code> typed at the start of a line
+      (right after Enter — session start counts too). Mid-line tildes, every
+      Ctrl chord, and pasted text all pass straight through, so the program
+      inside never loses a key.
+    </p>
+    <div class="mt-5">
+      {
+        escapes.map((e) => (
+          <div class="border-t border-rule py-3.5 grid grid-cols-[5rem_1fr] gap-6">
+            <code class="mono text-amber text-sm">{e.keys}</code>
+            <p class="text-ink-dim text-sm leading-relaxed">{e.what}</p>
+          </div>
+        ))
+      }
+    </div>
+    <p class="mono text-ink-faint text-sm leading-relaxed mt-5">
+      // ~ clashes (nested ssh?) — rebind it:{" "}
+      <code class="text-ink">kolu-tui attach &lt;id&gt; --escape %</code>
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-24">
+    <p class="eyebrow mb-5">fine print</p>
+    <ul class="text-ink-dim text-sm leading-relaxed max-w-xl space-y-3">
+      <li>
+        The socket lives at{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR/kolu/pty-host.sock</code>{" "}
+        (falling back to{" "}
+        <code class="mono text-ink">/tmp/kolu-$UID/pty-host.sock</code>) and
+        appears when kolu-server boots. Point at a non-default server with{" "}
+        <code class="mono text-ink">--pty-host-socket &lt;path&gt;</code> —
+        same flag on the server.
+      </li>
+      <li>
+        Detach is <span class="text-ink">client-side</span>: the CLI can come
+        and go while the server holds the terminal. Restarting kolu-server
+        itself still ends its terminals — that persistence is later work.
+      </li>
+      <li>
+        When the program inside exits, kolu-tui exits with the same code.
+        An unreachable server is a one-line error, never a hang.
+      </li>
+      <li>
+        Next up: <code class="mono text-ink">spawn</code> and{" "}
+        <code class="mono text-ink">kill</code> — creating and ending
+        terminals from the shell.
+      </li>
+    </ul>
+  </section>
+</BaseLayout>
