@@ -92,7 +92,9 @@ selected track **before waiting on any of them**:
   call runs in the background. `repoPath` = the **live** worktree, `base` = `MB`.
 - **lens track**: follow `/lens-debate` (Skill tool) — its step-2 `Workflow` call
   also runs in the background. `repoPath` = the **snapshot**, `base` = `MB`,
-  `apply: false`, and thread the `rationale` through.
+  `apply: false`, and thread the `rationale` through. Skip its step 3 —
+  be-review posts the lens comment itself (see PR comments); letting the lens
+  skill also post would double-comment the PR.
 - **police track**: spawn one **background agent** (general-purpose,
   `run_in_background: true`) with this brief: read
   `.apm/skills/code-police/SKILL.md` and `.agency/code-police.md` (if present);
