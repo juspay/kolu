@@ -22,21 +22,24 @@ import Cite from "../../components/Cite.astro";
 <D2
   caption="Target package graph: anyforge is the stable kernel (wire schemas, PrProvider contract, generic poll loop, forge detection); kolu-github and kolu-forgejo are sibling adapters that never see each other; kolu-common and the client import schemas from the leaf instead of from one adapter."
   code={`direction: down
-client: "client — PR pill · tooltip · unavailable-popover (exhaustive per-forge recovery UX)"
-common: "kolu-common — terminalMetadata wire schema"
-server: "kolu-server providers.ts — startPrProvider: one watcher per terminal, per-resolve dispatch"
-anyforge: "anyforge (new leaf) — PrInfo/PrResult/unavailable schemas · PrProvider · subscribePr poll loop · detectForge" {
+client: "client\\nPR pill · tooltip · recovery popover"
+server: "kolu-server providers.ts\\nstartPrProvider — one watcher\\nper terminal, per-resolve dispatch"
+common: "kolu-common\\nterminalMetadata wire schema"
+git: "kolu-git\\nGitInfo grows remoteUrl"
+adapters: "sibling adapters — never see each other" {
+  github: "kolu-github\\ngh pr view spawn\\nclassifyGhError · check rollup"
+  forgejo: "kolu-forgejo (phase 1)\\nForgejo/Codeberg REST"
+}
+anyforge: "anyforge — the new leaf\\nPrInfo · PrResult · unavailable schemas\\nPrProvider · subscribePr · detectForge" {
   style.bold: true
 }
-github: "kolu-github — gh adapter (gh pr view spawn · classifyGhError · check rollup)"
-forgejo: "kolu-forgejo (phase 1) — Forgejo/Codeberg REST adapter"
-git: "kolu-git — GitInfo grows remoteUrl"
-client -> anyforge: "schemas (type-only)"
+client -> server: "WebSocket (m.pr)"
+client -> common: "TerminalMetadata"
+server -> git: "git channel\\n(remoteUrl feeds detection)"
+server -> adapters: "PrProvider registry"
+server -> anyforge: "subscribePr"
 common -> anyforge: "PrResultSchema"
-server -> anyforge: "subscribePr + registry"
-server -> git: "git channel (remoteUrl feeds detection)"
-github -> anyforge
-forgejo -> anyforge
+adapters -> anyforge: "implement PrProvider"
 `}
 />
 
