@@ -78,6 +78,16 @@ export class KoluWorld extends World {
   savedCanvas?: { x: number; y: number; width: number; height: number };
   previousCanvas?: { x: number; y: number; width: number; height: number };
   savedFontSize?: number;
+  /** One coherent pre-zoom snapshot captured atomically by `I note the font
+   *  size of each terminal` for the #1238 zoom-isolation regression: the
+   *  per-terminal font sizes keyed by data-terminal-id (`sizes`) plus the id
+   *  of the tile focused at that instant (`focusedId`) — the only tile
+   *  permitted to change on a subsequent zoom. Kept as one field so the
+   *  "captured together" invariant is mechanical, not a convention. */
+  savedTerminalZoom?: {
+    sizes: Record<string, number>;
+    focusedId: string | null;
+  };
   lastResponseText?: string;
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;

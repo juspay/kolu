@@ -77,6 +77,8 @@ const EMPTY_STATE: Record<GitDiffMode, string> = {
   branch: "No changes vs base",
 };
 
+const NO_BRANCH_BASE = "No branch base to compare";
+
 const FileSelectHint: Component<{ label: string }> = (props) => (
   <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
     <FileDiffIcon class="w-8 h-8 opacity-40" />
@@ -291,12 +293,14 @@ const CodeTab: Component<{
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
   );
-  // Best-effort branch layer: a repo with no `origin/<default>` errors with
-  // BASE_BRANCH_NOT_FOUND (review.ts `resolveBase`) — an expected, not broken,
-  // state in this passive overlay. Swallow it (no toast): the merge falls back
-  // to the always-available local layer. The explicit Branch *mode* still
-  // surfaces the same error via its own `status` subscription, where it's
-  // actionable ("run git fetch").
+  // Best-effort branch layer: a repo with an `origin` remote whose default
+  // branch isn't fetched errors with BASE_BRANCH_NOT_FOUND (review.ts
+  // `resolveBase`) — an expected, not broken, state in this passive overlay.
+  // Swallow it (no toast): the merge falls back to the always-available local
+  // layer. The explicit Branch *mode* still surfaces the same error via its
+  // own `status` subscription, where it's actionable ("run git fetch"). A
+  // remote-less repo (#1244) degrades to an empty branch status instead of
+  // erroring, so it never reaches this handler.
   const browseBranchStatus = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
@@ -602,12 +606,20 @@ const CodeTab: Component<{
     isDiffView() ? status.error() : allPaths.error();
   const treeReady = () => (isDiffView() ? status() : allPaths());
   const branchRef = (): string | null => status()?.base?.ref ?? null;
+  // True only while Branch mode is the active view *and* its status has
+  // loaded with no resolvable base (remote-less repo, #1244). `status`
+  // only subscribes for the current view, so this can't be read in
+  // browse/local view — there, `status()?.base` reflects local mode (always
+  // null) and would falsely claim Branch has no base.
+  const branchHasNoBase = (): boolean =>
+    view() === "branch" && status()?.base === null;
 
   // Mode catalog — owns the list of views, their labels, hints, and
   // test IDs. Adding a new mode (e.g. "stash") happens here, plus the
   // data-source switch above. ModeChipPicker is purely a presenter.
   const modeOptions = createMemo<ModeOption[]>(() => {
     const ref = branchRef();
+    const noBase = branchHasNoBase();
     return [
       {
         view: "browse",
@@ -628,7 +640,11 @@ const CodeTab: Component<{
         view: "branch",
         group: "Git",
         label: viewLabel("branch"),
-        hint: ref ? `vs ${ref}` : "Working tree vs branch base",
+        hint: ref
+          ? `vs ${ref}`
+          : noBase
+            ? NO_BRANCH_BASE
+            : "Working tree vs branch base",
         testId: "diff-mode-branch",
         icon: GitBranchIcon,
       },
@@ -762,7 +778,14 @@ const CodeTab: Component<{
                     >
                       {(() => {
                         const m = diffMode();
-                        return m ? EMPTY_STATE[m] : "Empty repository";
+                        if (!m) return "Empty repository";
+                        // Branch mode with no resolvable base (remote-less
+                        // repo, #1244): there's nothing to compare against, so
+                        // "No changes vs base" would be a false clean signal.
+                        if (branchHasNoBase()) {
+                          return NO_BRANCH_BASE;
+                        }
+                        return EMPTY_STATE[m];
                       })()}
                     </div>
                   }

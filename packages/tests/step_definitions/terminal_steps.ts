@@ -1,6 +1,11 @@
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
-import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
+import {
+  ACTIVE_TERMINAL,
+  readBufferText,
+  readPerTerminal,
+  waitForBufferContains,
+} from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 import type { KoluWorld } from "../support/world.ts";
 
@@ -292,6 +297,57 @@ Then(
     assert.ok(
       current < saved,
       `Font size ${current} not smaller than ${saved}`,
+    );
+  },
+);
+
+/** Read every terminal's font size keyed by data-terminal-id. */
+async function readAllFontSizes(
+  world: KoluWorld,
+): Promise<Record<string, number>> {
+  return readPerTerminal(world.page, "fontSize");
+}
+
+/** Id of the single focused terminal (data-focused is set on exactly one
+ *  tile — the active one in canvas, the visible one in mobile). The inner
+ *  terminal container carries data-focused alongside data-terminal-id. */
+async function readFocusedTerminalId(world: KoluWorld): Promise<string | null> {
+  return world.page.evaluate((sel) => {
+    const focused = document.querySelectorAll(sel);
+    if (focused.length !== 1) return null;
+    return focused[0]?.getAttribute("data-terminal-id") ?? null;
+  }, ACTIVE_TERMINAL);
+}
+
+When("I note the font size of each terminal", async function (this: KoluWorld) {
+  const sizes = await readAllFontSizes(this);
+  assert.ok(
+    Object.keys(sizes).length >= 2,
+    `Expected at least 2 terminals, found ${Object.keys(sizes).length}`,
+  );
+  const focusedId = await readFocusedTerminalId(this);
+  assert.ok(focusedId, "Expected exactly one focused terminal before zoom");
+  this.savedTerminalZoom = { sizes, focusedId };
+});
+
+Then(
+  "only the focused terminal's font size should have changed",
+  async function (this: KoluWorld) {
+    const snapshot = this.savedTerminalZoom;
+    assert.ok(snapshot, "No saved pre-zoom terminal snapshot");
+    const { sizes: before, focusedId } = snapshot;
+    const after = await readAllFontSizes(this);
+    const changed = Object.keys(before).filter(
+      (id) => after[id] !== before[id],
+    );
+    // The single terminal that changed must be the one that was focused —
+    // not just "some" terminal. An inverted fix that zoomed the inactive
+    // tile would also change exactly one terminal, but the wrong one.
+    assert.deepStrictEqual(
+      changed,
+      [focusedId],
+      `Expected only the focused terminal (${focusedId}) to change font size. ` +
+        `changed=${JSON.stringify(changed)} before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
     );
   },
 );

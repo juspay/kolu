@@ -95,7 +95,10 @@ export const GitStatusInputSchema = z.object({
 
 export const GitStatusOutputSchema = z.object({
   files: z.array(GitChangedFileSchema),
-  /** Null in local mode; resolved base ref in branch mode. */
+  /** Null in local mode. In branch mode it's the resolved base ref, or
+   *  null when the repo has no base to compare against (a remote-less repo
+   *  with no `origin`, #1244) — branch mode degrades to an empty diff there
+   *  rather than erroring. */
   base: GitBaseRefSchema.nullable(),
 });
 export type GitStatusOutput = z.infer<typeof GitStatusOutputSchema>;

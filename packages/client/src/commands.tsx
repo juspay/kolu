@@ -16,6 +16,7 @@ import type {
 } from "./CommandPalette";
 import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
 import type { DockSourceEntry } from "./canvas/dockModel";
+import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import {
   ACTIONS,
@@ -154,6 +155,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     deps.recencyOf,
     deps.activate,
   );
+
+  // Canvas posture — same reactive reader pattern as ChromeBar/Dock. The
+  // memo reads `mode()`/`canMaximize()` so the command's label and
+  // visibility track posture reactively. The *write* path stays on
+  // `deps.toggleCanvasPosture` (the shared `ActionContext` seam the keyboard
+  // shortcut also uses), so the two surfaces never drift if App later wraps
+  // the toggle with a guard or telemetry.
+  const posture = useViewPosture();
 
   return createMemo((): PaletteCommand[] => [
     // --- Workspaces ---
@@ -319,6 +328,21 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     // --- Canvas (desktop only — spatial tile actions) ---
     ...(supportsSpatialCanvas()
       ? [
+          // Maximize / restore — gated on a tile existing (posture's own
+          // `canMaximize`, matching the ChromeBar button being disabled at
+          // zero terminals). The label describes the action a select
+          // performs, so when already maximized it reads "Restore canvas",
+          // never "Maximize terminal" — same wording as the ChromeBar
+          // affordance. Carries the keybind chip so the palette advertises
+          // the Mod+Shift+M shortcut from one source of truth.
+          ...(posture.canMaximize()
+            ? [
+                actionPaletteCommand("toggleCanvasPosture", deps, {
+                  section: "canvas",
+                  name: posturedActionLabel(posture.mode()),
+                }),
+              ]
+            : []),
           {
             kind: "action" as const,
             name: "Center on active tile",

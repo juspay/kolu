@@ -21,7 +21,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
-import { simpleGit } from "simple-git";
+import { type SimpleGit, simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";
 import { assertRealpathUnder, resolveUnder } from "./safe-path.ts";
 import {
@@ -44,17 +44,35 @@ function toChangeStatus(letter: string): GitChangeStatus {
   return parsed.success ? parsed.data : "?";
 }
 
+/** True if the repo has an `origin` remote configured. A repo with no
+ *  remote can never resolve a base branch, so branch mode degrades to
+ *  "no base" rather than an actionable "go fetch" error. */
+async function hasOriginRemote(git: SimpleGit): Promise<boolean> {
+  const remotes = (await git.raw(["remote"])).split("\n");
+  return remotes.includes("origin");
+}
+
 /**
  * Resolve the base ref for branch mode: `origin/<defaultBranch>` and the
  * merge-base SHA between it and HEAD.
+ *
+ * Returns `ok(null)` when the repo has no base to compare against at all
+ * (a freshly-`git init`'d repo with no `origin` remote): branch mode is
+ * meaningless there, not broken, so callers degrade to an empty diff
+ * instead of erroring on every repo-change tick (#1244). The actionable
+ * `BASE_BRANCH_NOT_FOUND` is reserved for the genuinely-fixable case — an
+ * `origin` remote exists but its default branch hasn't been fetched yet.
  */
-async function resolveBase(repoPath: string): Promise<GitResult<GitBaseRef>> {
+async function resolveBase(
+  repoPath: string,
+): Promise<GitResult<GitBaseRef | null>> {
   const defaultBranch = await detectDefaultBranch(repoPath);
   const ref = `origin/${defaultBranch}`;
   const git = simpleGit(repoPath);
   try {
     await git.raw(["rev-parse", "--verify", `${ref}^{commit}`]);
   } catch {
+    if (!(await hasOriginRemote(git))) return ok(null);
     return err({
       code: "BASE_BRANCH_NOT_FOUND",
       ref,
@@ -160,6 +178,9 @@ export async function getStatus(
     }
     const baseResult = await resolveBase(repoPath);
     if (!baseResult.ok) return baseResult;
+    // No base to diff against (remote-less repo): nothing to show, not an
+    // error — branch mode is meaningless here (#1244).
+    if (baseResult.value === null) return ok({ files: [], base: null });
     const raw = await gitOutput(repoPath, [
       "diff",
       "--name-status",
@@ -289,6 +310,16 @@ export async function getDiff(
   } else {
     const baseResult = await resolveBase(repoPath);
     if (!baseResult.ok) return baseResult;
+    // No base to diff against — branch mode's empty file list means this is
+    // unreachable in practice, but stay total: emit an empty diff (#1244).
+    if (baseResult.value === null) {
+      return ok({
+        oldFileName: null,
+        newFileName: null,
+        hunks: [],
+        binary: false,
+      });
+    }
     baseRev = baseResult.value.sha;
   }
 

@@ -16,7 +16,11 @@ import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
  * Call inside a component — cleanup is automatic via @solid-primitives/event-listener.
  *
  * @param terminalId — persistence key (each terminal remembers its own zoom level)
- * @param isActive — accessor; zoom keys only apply when true (only the visible terminal zooms)
+ * @param isActive — accessor; zoom keys only apply when true. Callers pass the
+ *   *focused* state, not visibility: in canvas mode every tile is visible, so a
+ *   visibility gate would zoom all tiles at once (#1238). Exactly one tile is
+ *   focused (the active one in canvas; the single visible one in mobile), so
+ *   only that terminal handles the zoom keys.
  */
 export function createZoom(terminalId: TerminalId, isActive: () => boolean) {
   const [fontSize, setFontSize] = persistedPref<number>({
