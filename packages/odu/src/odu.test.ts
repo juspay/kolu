@@ -221,6 +221,29 @@ describe("odu lane runner over stdio (loopback)", () => {
     expect(summarize(final).failedOverall).toBe(true);
   });
 
+  it("gives nodes reopenable stdio — `pretty:/dev/stderr` class consumers", async () => {
+    // Node's 'pipe' stdio is an AF_UNIX socketpair and Linux can't open() a
+    // socket by path, so without the `| cat` interposition this exact shape
+    // (cucumber's pretty:/dev/stderr) dies with ENXIO. Regression for the
+    // first dogfood run's ci::e2e@x86_64-linux failure.
+    const h = harness();
+    await h.configure([
+      { id: "reopen", command: "echo REOPENED > /dev/stderr", needs: [] },
+    ]);
+    await until(
+      () =>
+        last(h).nodes.reopen?.status !== undefined && summarize(last(h)).done,
+    );
+    expect(last(h).nodes.reopen?.status).toBe("ok");
+
+    for await (const frame of await h.client.surface.nodeLog.get({
+      id: "reopen",
+    })) {
+      expect(frame.text).toContain("REOPENED");
+      break;
+    }
+  });
+
   it("rejects rerun of an unknown node", async () => {
     const h = harness();
     await h.configure(chain);

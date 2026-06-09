@@ -238,12 +238,23 @@ export function createLaneRunner(): LaneRunner {
   const spawnNode = (node: NodeState): void => {
     const startedAt = Date.now();
     setNode(node.id, { status: "running", startedAt });
-    const child = spawn(node.command, {
-      shell: true,
-      cwd: workspace,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
-    });
+    // Node's 'pipe' stdio is an AF_UNIX socketpair, and Linux cannot open() a
+    // socket by path — so anything that REOPENS its own output (cucumber's
+    // `pretty:/dev/stderr` format, redirections via /proc/self/fd) dies with
+    // ENXIO. justci's process-compose handed recipes real pipes; interposing
+    // `| cat` restores that: the recipe's fd 1/2 become genuine pipe(2)s from
+    // the shell, and only `cat` writes to the socketpair. pipefail keeps the
+    // recipe's exit code; the newline before `}` terminates the group even if
+    // the command ends in a comment.
+    const child = spawn(
+      "bash",
+      ["-o", "pipefail", "-c", `{ ${node.command}\n} 2>&1 | cat`],
+      {
+        cwd: workspace,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      },
+    );
     children.set(node.id, child);
     child.stdout?.setEncoding("utf-8");
     child.stderr?.setEncoding("utf-8");
