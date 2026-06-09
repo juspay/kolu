@@ -12,6 +12,7 @@ export function isHttpUrl(raw: string): boolean {
     const u = new URL(raw);
     return u.protocol === "http:" || u.protocol === "https:";
   } catch {
+    // `new URL()` throws for any unparseable string — not http(s).
     return false;
   }
 }

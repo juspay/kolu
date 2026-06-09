@@ -734,6 +734,8 @@ Then(
         try {
           return new URL(url).href === want;
         } catch {
+          // popup URL may be "about:blank" or otherwise unparseable before
+          // navigation commits — not done yet.
           return false;
         }
       },
