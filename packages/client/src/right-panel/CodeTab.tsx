@@ -77,6 +77,8 @@ const EMPTY_STATE: Record<GitDiffMode, string> = {
   branch: "No changes vs base",
 };
 
+const NO_BRANCH_BASE = "No branch base to compare";
+
 const FileSelectHint: Component<{ label: string }> = (props) => (
   <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
     <FileDiffIcon class="w-8 h-8 opacity-40" />
@@ -641,7 +643,7 @@ const CodeTab: Component<{
         hint: ref
           ? `vs ${ref}`
           : noBase
-            ? "No branch base to compare"
+            ? NO_BRANCH_BASE
             : "Working tree vs branch base",
         testId: "diff-mode-branch",
         icon: GitBranchIcon,
@@ -781,7 +783,7 @@ const CodeTab: Component<{
                         // repo, #1244): there's nothing to compare against, so
                         // "No changes vs base" would be a false clean signal.
                         if (branchHasNoBase()) {
-                          return "No branch base to compare";
+                          return NO_BRANCH_BASE;
                         }
                         return EMPTY_STATE[m];
                       })()}
