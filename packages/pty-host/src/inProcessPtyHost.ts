@@ -29,7 +29,7 @@ import { randomUUID } from "node:crypto";
 import { directLink } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryChannelByName } from "@kolu/surface/server";
 import type { ContractRouterClient } from "@orpc/contract";
-import { implement, ORPCError } from "@orpc/server";
+import { implement, ORPCError, type Router } from "@orpc/server";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import type { Logger } from "kolu-shared";
@@ -256,15 +256,25 @@ export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
  *  Call once per process; calling twice spawns two independent hosts. */
 export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   router: PtyHostRouter;
-  // biome-ignore lint/suspicious/noExplicitAny: the contract-wrapped served router's context type doesn't line up with serveOverStdio's `Router<any, Context>`, though the runtime shape is exactly what it wants (mini-ci types its served router `any` for the same reason).
-  servedRouter: any;
+  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param — the contract-wrapped served router's context type doesn't line up, though the runtime shape is exactly what serving wants.
+  servedRouter: Router<any, any>;
   client: PtyHostClient;
 } {
   const router = servePtyHost(deps).router;
+  // Wrap the implementSurface fragment in a top-level contract router so the
+  // StandardRPCHandler can route it over the wire; narrow the result back to
+  // the `Router<any, any>` serving wants (the fragment's procedure-context type
+  // doesn't line up with implement().router()'s contract-derived param, though
+  // the runtime shape is exactly correct — the same unavoidable mismatch as
+  // serveOverSocket.ts:125 and mini-ci's served router).
+  const servedRouter = implement(ptyHostSurface.contract).router(
+    // biome-ignore lint/suspicious/noExplicitAny: fragment procedure-context vs. contract-derived param mismatch (see above); runtime shape is correct.
+    router as any,
+    // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param (see above).
+  ) as Router<any, any>;
   return {
     router,
-    // biome-ignore lint/suspicious/noExplicitAny: the implementSurface fragment's procedure-context type doesn't line up with implement().router()'s contract-derived param, though the runtime shape is correct.
-    servedRouter: implement(ptyHostSurface.contract).router(router as any),
+    servedRouter,
     client: directLink<typeof ptyHostSurface.contract>(router),
   };
 }
