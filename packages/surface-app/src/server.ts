@@ -433,7 +433,10 @@ export function gateStaleSocket(
 }
 
 /** Default server heartbeat sweep cadence. A missed pong across one 30s window
- *  is a confident dead-signal for an idle streaming socket without being chatty. */
+ *  is a confident dead-signal for an idle streaming socket without being chatty.
+ *  Must comfortably exceed the client's worst-case recovery (createHeartbeat's
+ *  intervalMs + timeoutMs, ~25s) so the client's reconnect wins the race and this
+ *  reaper never terminates a socket the client is about to revive. */
 const DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /** A server-side WebSocket the liveness heartbeat acts on — the structural subset
