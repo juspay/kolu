@@ -34,7 +34,7 @@ ci/pu/report.sh "$pr"                   # after the run: post a PR comment — w
 
 (`run.sh` wraps `nix run .#odu -- run --host x86_64-linux=<box> …`; override the runner flakeref with `KOLU_CI_RUNNER` only for debugging the wrapper itself.)
 
-[`ci/pu/report.sh`](../ci/pu/report.sh) reads the sidecar `ci/pu/run.sh` leaves in `.ci/pu-run.env` (leased box, commit, verdict, wall) plus the per-recipe timings in `.ci/pc.log`, and posts a metrics comment so every run records *which* pool box served it, how long each recipe took, and the live pool status. Run it once the lane finishes (it's cheap; safe to skip if `pu` is unavailable).
+[`ci/pu/report.sh`](../ci/pu/report.sh) reads the sidecar `ci/pu/run.sh` leaves in `.ci/pu-run.env` (leased box, commit, verdict, wall) plus odu's per-node timing sidecar (`.ci/<sha7>/timings.jsonl`, durations straight from odu's state cell — it falls back to a legacy justci `.ci/pc.log` only when that's absent), and posts a metrics comment so every run records *which* pool box served it, how long each recipe took, and the live pool status. Run it once the lane finishes (it's cheap; safe to skip if `pu` is unavailable).
 
 A warm leased box keeps `ci::nix` ~20s (vs ~180s on a cold box re-realising the closure) and, pulling nothing from the substituter, never triggers the concurrent-load contention that stalls cold boxes when several PRs run at once (juspay/kolu#1173). The wrapper forwards odu's stdout (so the `--progress json` stream below works unchanged) and falls back — saturated/unreachable pool → cold ephemeral `pu create` → `hosts.json` — so CI is never blocked. Box lifecycle is the [`pu`](../.apm/skills/pu/SKILL.md) skill; runner mechanics are the [`ci`](../.apm/skills/ci/SKILL.md) skill.
 

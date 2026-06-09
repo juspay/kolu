@@ -19,6 +19,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,10 +82,15 @@ export async function prepareWorkspace(
   const home = process.env.HOME ?? tmpdir();
   const slug = slugFor(req.origin);
   const cache = join(home, ".cache", "odu", "repos", `${slug}.git`);
+  // A fresh, unique worktree name per invocation — pid alone collides when the
+  // same runner process prepares the same SHA twice (a `rerun(_ci-setup)` or a
+  // same-SHA retry), and `git worktree add` refuses an existing directory. The
+  // random suffix makes every call yield a brand-new path, honoring the
+  // idempotence this function advertises.
   const workdir = join(
     process.env.ODU_WORK_DIR ?? join(tmpdir(), "odu"),
     slug,
-    `${req.sha.slice(0, 7)}-${process.pid}`,
+    `${req.sha.slice(0, 7)}-${process.pid}-${randomBytes(4).toString("hex")}`,
   );
   const fail = (msg: string): WorkspaceResult => {
     onOutput(`[odu] _ci-setup failed: ${msg}`);

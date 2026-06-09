@@ -43,9 +43,9 @@ import {
   type PipelineState,
 } from "../common/surface";
 import { laneTasks, loadJustPipeline, parseSelector } from "../just/ingest";
-import { destroyAllSessions, type Lane, startLane } from "./lane";
 import { loadHosts, resolveLanes } from "./hosts";
-import { serveSocket, SOCKET_PATH } from "./socket";
+import { destroyAllSessions, type Lane, startLane } from "./lane";
+import { SOCKET_PATH, serveSocket } from "./socket";
 import {
   fetchUrlFor,
   logPathFor,
@@ -105,15 +105,13 @@ export async function runCommand(args: RunArgs): Promise<number> {
   // ── modes (the justci flag table: strict by default) ──
   const snapshotMode = !args.noStrict && !args.noSnapshot;
   const posting = snapshotMode && !args.noPost;
-  if (snapshotMode) {
-    const dirty = git(repoRoot, ["status", "--porcelain"]);
-    if (dirty !== "") {
-      process.stderr.write(
-        "odu: working tree is dirty — strict mode refuses it.\n" +
-          "Commit (or stash) first, or pass --no-strict for a dev iteration run.\n",
-      );
-      return 1;
-    }
+  const dirty = git(repoRoot, ["status", "--porcelain"]) !== "";
+  if (snapshotMode && dirty) {
+    process.stderr.write(
+      "odu: working tree is dirty — strict mode refuses it.\n" +
+        "Commit (or stash) first, or pass --no-strict for a dev iteration run.\n",
+    );
+    return 1;
   }
 
   const sha = git(repoRoot, ["rev-parse", "HEAD"]);
@@ -142,6 +140,7 @@ export async function runCommand(args: RunArgs): Promise<number> {
       sha7,
       posting,
       snapshotMode,
+      dirty,
     });
   } finally {
     cleanupSnapshot();
@@ -156,6 +155,8 @@ interface RunContext {
   sha7: string;
   posting: boolean;
   snapshotMode: boolean;
+  /** Working tree has uncommitted changes (only reachable when !snapshotMode). */
+  dirty: boolean;
 }
 
 async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
@@ -205,13 +206,22 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     );
   }
   for (const [platform, host] of Object.entries(lanesByPlatform)) {
-    if (
-      !isLocalHost(host) &&
-      originUrl === null &&
-      tasksByPlatform.has(platform)
-    ) {
+    if (!tasksByPlatform.has(platform)) continue;
+    if (!isLocalHost(host) && originUrl === null) {
       throw new Error(
         `odu: remote lane ${platform}=${host} needs an origin remote to fetch from`,
+      );
+    }
+    // Live-tree mode (no snapshot) only honors a dirty tree on localhost: a
+    // remote lane fetches the committed HEAD, so on a dirty tree it would
+    // silently test stale code while local lanes test your edits. Refuse it
+    // rather than hand back a misleading verdict.
+    if (!ctx.snapshotMode && ctx.dirty && !isLocalHost(host)) {
+      throw new Error(
+        `odu: live-tree mode (--no-snapshot/--no-strict) on a dirty tree only ` +
+          `applies to localhost lanes — remote lane ${platform}=${host} would ` +
+          `fetch the committed HEAD (${ctx.sha7}), not your uncommitted changes. ` +
+          `Commit and push first, or slice to local platforms with --platform.`,
       );
     }
   }
@@ -543,6 +553,36 @@ async function orchestrate(args: RunArgs, ctx: RunContext): Promise<number> {
     }`,
   );
   process.stderr.write(`${lines.join("\n")}\n`);
+
+  // ── timing sidecar: the per-node durations report.sh used to scrape out of
+  //    justci's process-compose log (.ci/pc.log). odu owns the durations in
+  //    its state cell, so it writes them directly rather than leaving anyone
+  //    to re-parse logs. JSON lines, one per node: {node, recipe, platform,
+  //    status, startedAt, durationMs, exitCode}. ──
+  try {
+    const timingLines: string[] = [];
+    for (const id of finalState.order) {
+      const node = finalState.nodes[id];
+      if (node === undefined) continue;
+      const at = id.lastIndexOf("@");
+      timingLines.push(
+        JSON.stringify({
+          node: id,
+          recipe: at > 0 ? id.slice(0, at) : id,
+          platform: at > 0 ? id.slice(at + 1) : "unknown",
+          status: node.status,
+          startedAt: node.startedAt,
+          durationMs: node.durationMs,
+          exitCode: node.exitCode,
+        }),
+      );
+    }
+    const timingsFile = join(repoRoot, ".ci", sha7, "timings.jsonl");
+    mkdirSync(dirname(timingsFile), { recursive: true });
+    writeFileSync(timingsFile, `${timingLines.join("\n")}\n`);
+  } catch {
+    // best-effort: a missing sidecar only degrades the metrics comment
+  }
 
   return red > 0 ? 1 : 0;
 }
