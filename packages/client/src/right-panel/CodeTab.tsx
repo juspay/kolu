@@ -604,12 +604,20 @@ const CodeTab: Component<{
     isDiffView() ? status.error() : allPaths.error();
   const treeReady = () => (isDiffView() ? status() : allPaths());
   const branchRef = (): string | null => status()?.base?.ref ?? null;
+  // True only while Branch mode is the active view *and* its status has
+  // loaded with no resolvable base (remote-less repo, #1244). `status`
+  // only subscribes for the current view, so this can't be read in
+  // browse/local view — there, `status()?.base` reflects local mode (always
+  // null) and would falsely claim Branch has no base.
+  const branchHasNoBase = (): boolean =>
+    view() === "branch" && status()?.base === null;
 
   // Mode catalog — owns the list of views, their labels, hints, and
   // test IDs. Adding a new mode (e.g. "stash") happens here, plus the
   // data-source switch above. ModeChipPicker is purely a presenter.
   const modeOptions = createMemo<ModeOption[]>(() => {
     const ref = branchRef();
+    const noBase = branchHasNoBase();
     return [
       {
         view: "browse",
@@ -630,7 +638,11 @@ const CodeTab: Component<{
         view: "branch",
         group: "Git",
         label: viewLabel("branch"),
-        hint: ref ? `vs ${ref}` : "Working tree vs branch base",
+        hint: ref
+          ? `vs ${ref}`
+          : noBase
+            ? "No branch base to compare"
+            : "Working tree vs branch base",
         testId: "diff-mode-branch",
         icon: GitBranchIcon,
       },
@@ -764,7 +776,14 @@ const CodeTab: Component<{
                     >
                       {(() => {
                         const m = diffMode();
-                        return m ? EMPTY_STATE[m] : "Empty repository";
+                        if (!m) return "Empty repository";
+                        // Branch mode with no resolvable base (remote-less
+                        // repo, #1244): there's nothing to compare against, so
+                        // "No changes vs base" would be a false clean signal.
+                        if (m === "branch" && status()?.base === null) {
+                          return "No branch base to compare";
+                        }
+                        return EMPTY_STATE[m];
                       })()}
                     </div>
                   }
