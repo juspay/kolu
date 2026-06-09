@@ -82,6 +82,9 @@ export class KoluWorld extends World {
    *  `I note the font size of each terminal` for the #1238 zoom-isolation
    *  regression (only the focused tile may change on zoom). */
   savedFontSizes?: Record<string, number>;
+  /** Id of the focused terminal at the moment `I note the font size of each
+   *  terminal` ran — the only tile permitted to change on a subsequent zoom. */
+  savedFocusedTerminalId?: string | null;
   lastResponseText?: string;
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;

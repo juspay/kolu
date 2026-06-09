@@ -315,6 +315,19 @@ async function readAllFontSizes(
   });
 }
 
+/** Id of the single focused terminal (data-focused is set on exactly one
+ *  tile — the active one in canvas, the visible one in mobile). The inner
+ *  terminal container carries data-focused alongside data-terminal-id. */
+async function readFocusedTerminalId(world: KoluWorld): Promise<string | null> {
+  return world.page.evaluate(() => {
+    const focused = document.querySelectorAll(
+      "[data-terminal-id][data-font-size][data-focused]",
+    );
+    if (focused.length !== 1) return null;
+    return focused[0]?.getAttribute("data-terminal-id") ?? null;
+  });
+}
+
 Given(
   "I note the font size of each terminal",
   async function (this: KoluWorld) {
@@ -323,23 +336,33 @@ Given(
       Object.keys(this.savedFontSizes).length >= 2,
       `Expected at least 2 terminals, found ${Object.keys(this.savedFontSizes).length}`,
     );
+    this.savedFocusedTerminalId = await readFocusedTerminalId(this);
+    assert.ok(
+      this.savedFocusedTerminalId,
+      "Expected exactly one focused terminal before zoom",
+    );
   },
 );
 
 Then(
-  "exactly one terminal's font size should have changed",
+  "only the focused terminal's font size should have changed",
   async function (this: KoluWorld) {
     const before = this.savedFontSizes;
     assert.ok(before, "No saved per-terminal font sizes");
+    const focusedId = this.savedFocusedTerminalId;
+    assert.ok(focusedId, "No saved focused terminal id");
     const after = await readAllFontSizes(this);
     const changed = Object.keys(before).filter(
       (id) => after[id] !== before[id],
     );
-    assert.strictEqual(
-      changed.length,
-      1,
-      `Expected exactly one terminal to change font size, but ${changed.length} did. ` +
-        `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+    // The single terminal that changed must be the one that was focused —
+    // not just "some" terminal. An inverted fix that zoomed the inactive
+    // tile would also change exactly one terminal, but the wrong one.
+    assert.deepStrictEqual(
+      changed,
+      [focusedId],
+      `Expected only the focused terminal (${focusedId}) to change font size. ` +
+        `changed=${JSON.stringify(changed)} before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
     );
   },
 );

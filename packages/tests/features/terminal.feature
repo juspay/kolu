@@ -97,5 +97,5 @@ Feature: Terminal
     And I wait for all terminals to settle
     And I note the font size of each terminal
     And I zoom in 2 times
-    Then exactly one terminal's font size should have changed
+    Then only the focused terminal's font size should have changed
     And there should be no page errors
