@@ -788,6 +788,42 @@ const tunnels = [
         </ul>
       </div>
     </details>
+
+    <details class="deep">
+      <summary>
+        <span class="deep-tag">beta</span>
+        Drive your terminals from the shell — <code>kolu-tui</code>
+      </summary>
+      <div class="deep-body">
+        <p>
+          A sneak preview: the same in-process PTYs the browser drives are now
+          reachable from a plain terminal. <code>kolu-tui</code> is a CLI client
+          that dials a <strong>running kolu-server</strong> over a local unix
+          socket and speaks the raw pty-host contract — no browser, no port. The
+          first beta is read-only:
+        </p>
+        <ul>
+          <li>
+            <code>kolu-tui list</code> — your live terminals, one per row
+            (<span class="mono">id · pid · idle · cmd · cwd</span>; <code
+              >--json</code
+            > carries the full metadata incl. raw title + foreground process).
+          </li>
+          <li>
+            <code>kolu-tui snapshot &lt;id&gt;</code> — dumps a terminal's
+            current scrollback to stdout.
+          </li>
+        </ul>
+        <p>
+          Run it against a live server with
+          <code>nix run github:juspay/kolu#kolu-tui -- list</code>
+          (<code>--socket &lt;path&gt;</code> points at a non-default server).
+          It's the CLI face of kolu and the seed of a <code>tmux</code>
+          replacement; <code>attach</code> / <code>spawn</code> / <code>kill</code>
+          land in later phases.
+        </p>
+      </div>
+    </details>
   </section>
 
   <!-- ── 07 · FAQ ─────────────────────────────────────────────────────── -->
