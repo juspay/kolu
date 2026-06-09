@@ -35,7 +35,11 @@ import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import type { Logger } from "kolu-shared";
 import { currentPtyHostIdentity } from "./buildId.ts";
 import { createPtyHost, type PtyId } from "./ptyHost.ts";
-import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "./ptyHostSurface.ts";
+import {
+  PTY_HOST_CONTRACT_VERSION,
+  type PtyHostListEntry,
+  ptyHostSurface,
+} from "./ptyHostSurface.ts";
 
 /** The typed client for talking to a pty-host. In-process today (this module);
  *  the identical type backs a socket-served daemon later — so the consumer is
@@ -197,7 +201,22 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           host.resize(input.id, input.cols, input.rows);
           return { ok: true };
         },
-        list: async () => ({ entries: host.list() }),
+        // Map each host entry into the wire shape explicitly (annotated to the
+        // inferred type) so a host/schema drift is a compile error here rather
+        // than a silent zod field-strip: adding a field to TerminalListEntrySchema
+        // without populating it, or dropping one from PtyListEntry, fails to type-check.
+        list: async () => ({
+          entries: host.list().map(
+            (e): PtyHostListEntry => ({
+              id: e.id,
+              pid: e.pid,
+              cwd: e.cwd,
+              lastActivity: e.lastActivity,
+              title: e.title,
+              foregroundProcess: e.foregroundProcess,
+            }),
+          ),
+        }),
         getScreenState: async ({ input }) => {
           // Throw on a missing PTY rather than return "" — an empty string is
           // a legitimate screen state (a PTY that hasn't drawn yet), so
