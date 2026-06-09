@@ -1,10 +1,10 @@
 /**
  * Contract-level lifecycle coverage for the in-process serving — exercises
- * `ptyHostSurface` end-to-end through `createInProcessPtyHostClient` (the identity
- * link) over a real PTY. Two layers: serving glue that needs no child (version
- * handshake, the NOT_FOUND existence guard) and a real shell driven through
- * the contract (spawn → list → snapshot-first attach → exit-on-kill), plus the
- * abort/kill-silence mechanism the consumer relies on.
+ * `ptyHostSurface` end-to-end through `createInProcessPtyHost(...).client` (the
+ * identity link) over a real PTY. Two layers: serving glue that needs no child
+ * (version handshake, the NOT_FOUND existence guard) and a real shell driven
+ * through the contract (spawn → list → snapshot-first attach → exit-on-kill),
+ * plus the abort/kill-silence mechanism the consumer relies on.
  */
 
 import { mkdtempSync } from "node:fs";
@@ -13,7 +13,7 @@ import { join } from "node:path";
 import type { Logger } from "kolu-shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  createInProcessPtyHostClient,
+  createInProcessPtyHost,
   type PtyHostClient,
 } from "./inProcessPtyHost.ts";
 import { PTY_HOST_CONTRACT_VERSION } from "./ptyHostSurface.ts";
@@ -27,14 +27,14 @@ const silentLog = {
 } as unknown as Logger;
 
 function makeClient(): PtyHostClient {
-  return createInProcessPtyHostClient({
+  return createInProcessPtyHost({
     log: silentLog,
     shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     version: "test",
-  });
+  }).client;
 }
 
-describe("createInProcessPtyHostClient — contract serving (no child)", () => {
+describe("createInProcessPtyHost — contract serving (no child)", () => {
   let client: PtyHostClient;
   beforeAll(() => {
     client = makeClient();
@@ -74,7 +74,7 @@ describe("createInProcessPtyHostClient — contract serving (no child)", () => {
   });
 });
 
-describe("createInProcessPtyHostClient — real PTY lifecycle through the contract", () => {
+describe("createInProcessPtyHost — real PTY lifecycle through the contract", () => {
   let client: PtyHostClient;
   beforeAll(() => {
     client = makeClient();
@@ -108,6 +108,41 @@ describe("createInProcessPtyHostClient — real PTY lifecycle through the contra
     const exit = await exitNext;
     expect(exit.done).toBe(false);
     if (!exit.done) expect(typeof exit.value.exitCode).toBe("number");
+  });
+
+  it("surfaces title + foregroundProcess on terminal.list (the metadata kolu-tui list shows)", async () => {
+    // contract 2.1 enriched the list entry with `title` + `foregroundProcess`
+    // (both optional, additive) so `kolu-tui list` renders a `cmd` column from
+    // one round-trip. Drive an OSC 2 title into the live shell and assert it
+    // reaches the entry THROUGH the contract — a regression that dropped the
+    // metadata at the surface boundary (not just the primitive) is caught here.
+    const dir = mkdtempSync(join(tmpdir(), "kolu-inproc-"));
+    const { id } = await client.surface.terminal.spawn({ cwd: dir });
+    // OSC 2 ; <title> ST — the same sequence kolu's preexec hook emits. Run it
+    // as a long-lived foreground command (`sleep`) so the title is NOT clobbered
+    // by the shell's prompt redraw before we read it, and so foregroundProcess
+    // reflects a known running process.
+    await client.surface.terminal.write({
+      id,
+      data: "printf '\\033]2;tui-list-title\\033\\\\'; sleep 5\n",
+    });
+
+    // Poll the contract `list` until the async title tap has propagated to the
+    // surface entry.
+    let entry: { title?: string; foregroundProcess?: string } | undefined;
+    for (let i = 0; i < 60; i++) {
+      const { entries } = await client.surface.terminal.list({});
+      entry = entries.find((e) => e.id === id);
+      if (entry?.title === "tui-list-title") break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(entry?.title).toBe("tui-list-title");
+    // foregroundProcess is present (a string) on the same entry — the second
+    // field the cmd column falls back to. Its exact value depends on what the
+    // shell is running, so assert presence/type, not a literal.
+    expect(typeof entry?.foregroundProcess).toBe("string");
+
+    await client.surface.terminal.kill({ id });
   });
 
   it("an aborted exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {

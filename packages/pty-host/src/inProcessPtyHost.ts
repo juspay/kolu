@@ -268,16 +268,3 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
     client: directLink<typeof ptyHostSurface.contract>(router),
   };
 }
-
-/** Build the in-process pty-host and return a contract-typed client over it —
- *  the **identity link**: `directLink` consumes `servePtyHost`'s router with
- *  no wire, so the consumer (kolu-server) holds the exact `PtyHostClient` type
- *  a socket-served daemon would later hand it. Swapping `directLink` for a
- *  socket link is the only change that decoupling needs. (Prefer
- *  `createInProcessPtyHost` when you also need the router to serve over a
- *  socket — this is the client-only shorthand.) */
-export function createInProcessPtyHostClient(
-  deps: InProcessPtyHostDeps,
-): PtyHostClient {
-  return createInProcessPtyHost(deps).client;
-}

@@ -10,7 +10,7 @@
  * Why route through the contract rather than call `PtyHost` directly: the
  * consumer here is then written against `PtyHostClient` — the exact shape a
  * surviving daemon (over a unix socket) or a remote ssh pty-host will serve.
- * A later step swaps only `createInProcessPtyHostClient` for a socket-served client;
+ * A later step swaps only the in-process client (`../ptyHost.ts`) for a socket-served client;
  * everything in this file is unchanged. And the provider DAG already has zero
  * synchronous dependency on the host (it reads taps, not a `PtyHandle`), so it
  * runs identically whether pty-host is in-process or across a wire. The same

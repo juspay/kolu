@@ -29,7 +29,8 @@ Usage:
   kolu-tui help                show this help
 
 Options:
-  --socket <path>   pty-host socket (default $XDG_RUNTIME_DIR/kolu/pty-host.sock)
+  --socket <path>   pty-host socket (default: $XDG_RUNTIME_DIR/kolu/pty-host.sock
+                    on systemd Linux, else /tmp/kolu-$UID/pty-host.sock)
   --json            machine-readable output (list)
   -h, --help        show this help
 

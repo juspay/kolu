@@ -13,7 +13,7 @@
  * ssh/subprocess path. The router is shared across connections (and with the
  * in-process `directLink` client); there is no per-connection state coupling.
  */
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { lstatSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { dirname } from "node:path";
 import { serveOverStdio } from "@kolu/surface/peer-server";
@@ -68,6 +68,24 @@ function isSocketLive(path: string): Promise<boolean> {
   });
 }
 
+/** Is `path` safe to `rmSync` so `listen()` can bind it? Only a *socket* file
+ *  (or nothing) is — a dead peer leaves a stale socket inode behind, and that's
+ *  the one thing we may clear. Anything else (a regular file, a directory, a
+ *  symlink) is NOT ours to delete: `--pty-host-socket` is an arbitrary
+ *  user-supplied path, so pointing it at an existing regular file must warn and
+ *  refuse, never silently unlink the user's data. `lstat` (not `stat`) so a
+ *  symlink at the path is itself classified as a non-socket and left intact
+ *  rather than followed to its target. ENOENT (nothing there) is the common,
+ *  expected case → safe to "remove" (a no-op `rmSync`). Any other probe error
+ *  (EACCES, …) is treated as not-removable: fail soft rather than guess. */
+function isRemovableStaleSocket(path: string): boolean {
+  try {
+    return lstatSync(path).isSocket();
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT";
+  }
+}
+
 /** Start serving `router` over a unix socket at `socketPath`. Returns a
  *  listener whose `close()` stops it and removes the socket file.
  *
@@ -111,7 +129,17 @@ export async function servePtyHostOverUnixSocket(opts: {
       );
       return noop;
     }
-    // Stale file from a crash (or nothing): clear it so listen() won't EADDRINUSE.
+    // A dead peer leaves a stale SOCKET inode; clear only that so listen()
+    // won't EADDRINUSE. Refuse if the path is a regular file/dir/symlink — an
+    // arbitrary `--pty-host-socket` could point at the user's own data, and
+    // unlinking it would be data loss, not stale-socket cleanup.
+    if (!isRemovableStaleSocket(socketPath)) {
+      log?.warn(
+        { socketPath },
+        "pty-host socket path exists and is not a socket (a regular file, dir, or symlink); refusing to remove it. Use --pty-host-socket to point at a free path.",
+      );
+      return noop;
+    }
     rmSync(socketPath, { force: true });
 
     const server = createServer((socket) => {

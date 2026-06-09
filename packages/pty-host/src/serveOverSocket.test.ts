@@ -5,7 +5,7 @@
  * (covered by @kolu/pty-tui's render test). A green run proves serveOverStdio +
  * stdioLink hold over a socket, not just the in-process loopback.
  */
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,6 +97,33 @@ describe("servePtyHostOverUnixSocket — real unix-socket round-trip", () => {
     expect((await b.client.surface.terminal.list({})).entries).toEqual([]);
     a.dispose();
     b.dispose();
+  });
+
+  it("refuses to delete an existing regular file at the socket path (no data loss)", async () => {
+    // `--pty-host-socket` is an arbitrary path; if it names the user's own
+    // regular file we must warn and noop, NOT `rmSync` it. A connect() probe
+    // against a regular file fails (ENOTSOCK), which must not be read as "stale
+    // socket → safe to delete".
+    const filePath = join(
+      mkdtempSync(join(tmpdir(), "kolu-pty-file-")),
+      "important.txt",
+    );
+    writeFileSync(filePath, "precious user data");
+    const { servedRouter } = createInProcessPtyHost({
+      log: silentLog,
+      shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
+      version: "test",
+    });
+    const l = await servePtyHostOverUnixSocket({
+      socketPath: filePath,
+      router: servedRouter,
+      log: silentLog,
+    });
+    // The file is untouched (not unlinked, contents intact) and nothing bound.
+    expect(existsSync(filePath)).toBe(true);
+    expect(readFileSync(filePath, "utf8")).toBe("precious user data");
+    expect(() => l.close()).not.toThrow();
+    expect(existsSync(filePath)).toBe(true);
   });
 
   it("degrades to a no-op (never throws) when the path is already served", async () => {
