@@ -41,15 +41,46 @@ const escapes = [
   <meta name="robots" content="noindex" slot="head" />
 
   <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
-    <p class="eyebrow mb-4">the terminal client · beta</p>
+    {/* Warning orange (--color-brand-amber), NOT the site accent: the
+        `amber` token is the purple brand accent, and an alpha warning must
+        read as a warning. */}
+    <div
+      class="mb-8 flex items-start gap-3 border border-brand-amber/50 bg-brand-amber/10 rounded-lg px-4 py-3 max-w-xl"
+    >
+      <svg
+        class="mt-0.5 h-5 w-5 shrink-0 text-brand-amber"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+        ></path>
+        <line x1="12" y1="9" x2="12" y2="13"></line>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+      <p class="mono text-sm text-ink leading-relaxed">
+        <span class="text-brand-amber font-semibold">alpha</span> — kolu-tui is
+        an early preview. Commands, flags, and output formats{" "}
+        <span class="text-ink">will change</span> before it's finalized for
+        production use; don't script against it yet.
+      </p>
+    </div>
+    <p class="eyebrow mb-4">the terminal client · alpha</p>
     <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
       kolu, without<br />the <span class="text-amber">browser</span>.
     </h1>
     <p class="mt-6 text-ink-dim max-w-xl leading-relaxed">
-      <code class="mono text-ink">kolu-tui</code> talks to your running
-      kolu-server over a local unix socket and drives the same terminals the
-      browser shows — list them, dump their scrollback, or attach and type.
-      The CLI comes and goes; the server keeps owning the terminals.
+      <code class="mono text-ink">kolu-tui</code> talks to{" "}
+      <span class="text-ink">kolu-server</span> — the process that{" "}
+      <code class="mono text-ink">nix run github:juspay/kolu</code> starts and
+      your browser points at — over a local unix socket, and drives the very
+      same terminals the browser shows: list them, dump their scrollback, or
+      attach and type. The CLI comes and goes; the server keeps owning the
+      terminals.
     </p>
     <p class="mono text-ink-faint text-sm leading-relaxed mt-7">
       // start the server first, then:{" "}
@@ -128,6 +159,15 @@ const escapes = [
         Next up: <code class="mono text-ink">spawn</code> and{" "}
         <code class="mono text-ink">kill</code> — creating and ending
         terminals from the shell.
+      </li>
+      <li>
+        The full design — architecture, phasing, and the decisions behind the
+        escape model — lives in the{" "}
+        <a
+          href="https://htmlpreview.github.io/?https://github.com/juspay/kolu/blob/master/docs/atlas/dist/pty-daemon-tui.html"
+          class="text-amber hover:underline"
+          rel="noopener">kolu-tui atlas note</a
+        >.
       </li>
     </ul>
   </section>
