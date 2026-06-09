@@ -62,6 +62,21 @@ describe("createInProcessPtyHost — contract serving (no child)", () => {
     expect(entries).toEqual([]);
   });
 
+  it("terminalAttach on an unknown PTY rejects with NOT_FOUND, not an opaque internal error", async () => {
+    // kolu-tui attach leans on this shape: its re-attach loop reads NOT_FOUND
+    // as "the PTY is gone" (vs a dropped stream) and falls through to the
+    // exit tombstone. The error may surface at `.get()` or at the first pull
+    // depending on the link, so iterate to flush it out.
+    const iterate = async (): Promise<void> => {
+      for await (const _ of await client.surface.terminalAttach.get({
+        id: "00000000-0000-0000-0000-000000000000",
+      })) {
+        break;
+      }
+    };
+    await expect(iterate()).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("getScreenState on an unknown PTY rejects rather than returning a blank string", async () => {
     // The existence check is `host.has(id)`, not `getCwd(id)` truthiness — and
     // a missing PTY must surface as an error, not masquerade as an empty

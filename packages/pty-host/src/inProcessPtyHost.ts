@@ -76,6 +76,16 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // Per-terminal output — snapshot then live deltas (streaming.md §2).
       terminalAttach: {
         source: async function* (input, signal) {
+          // Same fail-honest stance as getScreenState: a missing PTY is a
+          // clean NOT_FOUND, not `requireEntry`'s opaque internal error.
+          // kolu-tui attach leans on the shape — its re-attach loop reads
+          // NOT_FOUND as "the PTY is gone" (vs a dropped stream) and falls
+          // through to the exit tombstone for the real code.
+          if (!host.has(input.id)) {
+            throw new ORPCError("NOT_FOUND", {
+              message: `no PTY with id ${input.id}`,
+            });
+          }
           const att = host.attach(input.id, signal);
           yield { kind: "snapshot" as const, data: att.snapshot };
           for await (const data of att.deltas) {

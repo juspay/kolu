@@ -537,6 +537,9 @@ importers:
       columnify:
         specifier: ^1.6.0
         version: 1.6.0
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
     devDependencies:
       '@types/columnify':
         specifier: ^1.5.4

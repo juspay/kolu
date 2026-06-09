@@ -1,15 +1,20 @@
 /**
- * Filter terminal *query responses* out of xterm's `onData` before they reach
- * the PTY.
+ * Filter terminal *query responses* out of a mirroring client's input before
+ * they reach the PTY.
  *
  * The server runs a headless xterm that already answers device queries
- * (DA1/DA2, DSR/CPR, DECRQM, XTVERSION, window/colour reports, …). The
- * browser-side xterm answers them too, and those duplicate answers — arriving
- * late over the network — get echoed back into the PTY and printed as visible
- * garbage (the yazi/TUI escape-soup bug).
+ * (DA1/DA2, DSR/CPR, DECRQM, XTVERSION, window/colour reports, …). A mirroring
+ * client's terminal answers them too — the browser xterm (`Terminal.tsx`
+ * `onData`), or the user's real terminal when `kolu-tui attach` passes the PTY
+ * bytes through raw — and those duplicate answers, arriving late over the
+ * wire, get echoed back into the PTY and printed as visible garbage (the
+ * yazi/TUI escape-soup bug). Both clients run their input through this one
+ * predicate, so the suppressed set can never drift between them.
  *
- * `onData` fires once per discrete source event: a single keystroke, a single
- * paste, or a single terminal-generated response packet. A real keystroke and a
+ * The input event fires once per discrete source event (xterm's `onData`; a
+ * raw tty read returning one terminal-generated reply per kernel write): a
+ * single keystroke, a single paste, or a single response packet. A real
+ * keystroke and a
  * query response are therefore never coalesced into one chunk, so suppressing a
  * whole chunk that *is* a response cannot eat real input. To stay safe against
  * any future coalescing we still anchor every predicate to the full payload
