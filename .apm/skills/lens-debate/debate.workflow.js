@@ -11,7 +11,7 @@ export const meta = {
   phases: [
     { title: 'Review', detail: 'lowy and hickey (and optionally code-police) review the diff independently, in parallel', model: 'opus' },
     { title: 'Debate', detail: 'lowy and hickey cross-examine every finding until they agree per-finding', model: 'opus' },
-    { title: 'Apply', detail: 'implement each agreed fix as its own commit', model: 'opus' },
+    { title: 'Apply', detail: 'implement each agreed fix as its own commit (skipped under apply:false)', model: 'opus' },
   ],
 }
 
@@ -41,7 +41,15 @@ let base = a.base || 'origin/master'
 const maxRounds = a.maxRounds || 12
 // Apply agreed `fix` findings as individual commits (default on). `--no-commit`
 // still applies the edits to the working tree, it just leaves them uncommitted.
+// No-op when `apply` is false — the apply:false path returns plans in `fixes`
+// and never commits; `commit` only gates the in-workflow Apply phase.
 const commit = a.commit !== false
+// Run the Apply phase at all (default on). `apply: false` skips Phase 3 entirely:
+// the debate still settles every finding, but the agreed `fix` plans are RETURNED
+// (the `fixes` field) instead of implemented — for callers like /be-review's
+// parallel gauntlet, where the reviewed tree is a pinned snapshot and the fixes
+// must be applied by the caller against a branch that has moved on since.
+const apply = a.apply !== false
 // Fold in /code-police as a third, lower-weight voice: it SEEDS findings into
 // the debate set but does not get a vote in consensus (only lowy ⇄ hickey do).
 const withPolice = a.withPolice === true
@@ -78,6 +86,11 @@ const REVIEWERS = [
 ]
 if (withPolice) REVIEWERS.push({ lens: 'code-police', framework: 'code quality, correctness, and common-mistake review' })
 
+// The result shape's empty collections, shared by the two EARLY returns
+// (merge-base-error, clean) so adding a result field is one edit, not a mirror
+// edit per return site. The final return carries real values and stays literal.
+const EMPTY_RESULT = { settled: [], unresolved: [], applied: [], fixes: [], reviews: {}, history: [] }
+
 // Resolve the diff base to the merge-base of (base, HEAD) BEFORE building DIFF
 // (which interpolates `base` eagerly), so the lenses review only what this branch
 // changed, not the base branch's drift since the fork. A thin mechanical git
@@ -95,15 +108,11 @@ if (!baseRes?.sha?.trim()) {
   const err = (baseRes?.error || '').trim()
   log(`Aborting: \`git merge-base ${rawBase} HEAD\` failed; the diff scope can't be trusted. Not falling back to the raw ${rawBase} tip.`)
   return {
+    ...EMPTY_RESULT,
     status: 'merge-base-error',
     base: rawBase,
     rounds: 0,
     withPolice,
-    settled: [],
-    unresolved: [],
-    applied: [],
-    reviews: {},
-    history: [],
     note: `merge-base of \`${rawBase}\` and HEAD could not be resolved (missing/typoed base, stale ref, or unrelated history), so the review scope is untrustworthy. Fix the base ref (e.g. \`git fetch\`) and re-run.${err ? `\ngit error:\n${err}` : ''}`,
   }
 }
@@ -236,7 +245,8 @@ const posMap = (res) => Object.fromEntries((res?.positions ?? []).map((p) => [p.
 async function commitFix(fix, files, summary) {
   const fileArgs = files.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ')
   const msgPath = `${workDir}/commit-msg-${fix.id}.txt`
-  const message = `refactor: lens-debate — ${fix.title}
+  // `fix(lens):` — the same prefix /be-review's apply pass uses for lens-originated commits.
+  const message = `fix(lens): ${fix.title}
 
 ${summary}
 
@@ -268,7 +278,12 @@ ${message}
 // (badge emoji, base-slice length, a new metadata row) is a mechanical mirror edit
 // — make it here and in codex-debate's ledgerHeader. If the runtime ever admits a
 // shared helper file, lift this common chrome there.
-function renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, withPolice, base, clean }) {
+// `outcome` is the single mode bit for what happened to the agreed fixes:
+// { kind: 'applied', items } when this run implemented them, or
+// { kind: 'handed-off', items } when apply:false returned the plans to the
+// caller — one param, so "at most one of applied/handed-off" holds by
+// construction instead of by convention.
+function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, withPolice, base, clean }) {
   const badge = clean
     ? '✅ **Clean** — every lens found nothing worth raising'
     : unresolved.length === 0
@@ -289,9 +304,16 @@ function renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, 
     `Independent findings: ${counts}`,
   ]
   const drops = settledOut.filter((s) => s.agreed && s.disposition === 'drop')
-  if (applied.length) {
-    lines.push('', `### Applied (${applied.length})`)
-    applied.forEach((a) => lines.push(`- \`${a.id}\` ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
+  if (outcome.kind === 'applied' && outcome.items.length) {
+    lines.push('', `### Applied (${outcome.items.length})`)
+    outcome.items.forEach((a) => lines.push(`- \`${a.id}\` ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
+  }
+  // apply:false runs hand the agreed plans to the caller instead of implementing
+  // them; the comment records the handoff so the trail still shows what was agreed
+  // (the caller appends its own apply outcomes when it posts this).
+  if (outcome.kind === 'handed-off' && outcome.items.length) {
+    lines.push('', `### Agreed fixes — handed off to the caller (${outcome.items.length})`)
+    outcome.items.forEach((f) => lines.push(`- \`${f.id}\` ${f.title} (${f.location})`))
   }
   if (drops.length) {
     lines.push('', `### Agreed — no change (${drops.length})`)
@@ -340,8 +362,8 @@ if (combined.length === 0) {
   // Route the clean outcome through the SAME renderer as a debated run so the
   // comment carries the same audit metadata (base, lens roster, per-lens counts,
   // whether code-police ran) instead of a bare one-liner.
-  const comment = renderComment({ rounds: 0, settledOut: [], unresolved: [], applied: [], reviewByLens, withPolice, base, clean: true })
-  return { status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', settled: [], unresolved: [], applied: [], reviews: reviewByLens, history: [], comment }
+  const comment = renderComment({ rounds: 0, settledOut: [], unresolved: [], outcome: { kind: apply ? 'applied' : 'handed-off', items: [] }, reviewByLens, withPolice, base, clean: true })
+  return { ...EMPTY_RESULT, status: 'clean', rounds: 0, base, withPolice, note: 'every lens found nothing worth raising', reviews: reviewByLens, comment }
 }
 
 // ---------------------------------------------------------------------------
@@ -431,22 +453,28 @@ const unresolved = settledOut.filter((s) => !s.agreed)
 log(`Debate ended: ${status} after ${rounds} round(s); ${settledOut.length - unresolved.length}/${settledOut.length} settled, ${unresolved.length} unresolved.`)
 
 // ---------------------------------------------------------------------------
-// Phase 3 — apply the agreed `fix` findings, each as its own commit
+// Phase 3 — apply the agreed `fix` findings, each as its own commit. Skipped
+// wholesale under `apply: false`: the agreed plans are returned in `fixes` for
+// the caller to implement (it reviews a pinned snapshot, so the live branch may
+// have moved on — applying here would edit the wrong tree).
 // ---------------------------------------------------------------------------
-phase('Apply')
-
 const fixes = settledOut.filter((s) => s.agreed && s.disposition === 'fix')
 const applied = []
-for (const fix of fixes) {
-  const impl = await agent(implementBrief(fix), { label: `apply:${fix.id}`, phase: 'Apply', model, schema: IMPL_SCHEMA })
-  const files = impl?.filesChanged ?? []
-  let sha = null
-  if (commit && files.length > 0) {
-    const out = await commitFix(fix, files, impl.summary)
-    sha = (out || '').trim()
+if (apply) {
+  phase('Apply')
+  for (const fix of fixes) {
+    const impl = await agent(implementBrief(fix), { label: `apply:${fix.id}`, phase: 'Apply', model, schema: IMPL_SCHEMA })
+    const files = impl?.filesChanged ?? []
+    let sha = null
+    if (commit && files.length > 0) {
+      const out = await commitFix(fix, files, impl.summary)
+      sha = (out || '').trim()
+    }
+    applied.push({ id: fix.id, title: fix.title, files, commit: sha })
+    log(`Applied ${fix.id}: ${files.length} file(s)${sha ? `, committed ${sha.slice(0, 9)}` : ' (uncommitted)'}`)
   }
-  applied.push({ id: fix.id, title: fix.title, files, commit: sha })
-  log(`Applied ${fix.id}: ${files.length} file(s)${sha ? `, committed ${sha.slice(0, 9)}` : ' (uncommitted)'}`)
+} else if (fixes.length) {
+  log(`Apply skipped (apply: false) — returning ${fixes.length} agreed fix plan(s) to the caller.`)
 }
 
 return {
@@ -457,7 +485,11 @@ return {
   settled: settledOut,
   unresolved,
   applied,
+  // The agreed `fix` findings with their converged plans — the caller's
+  // change-request payload under `apply: false` (redundant with `settled` when
+  // the Apply phase ran, but always present so consumers need not re-filter).
+  fixes,
   reviews: reviewByLens,
   history,
-  comment: renderComment({ rounds, settledOut, unresolved, applied, reviewByLens, withPolice, base }),
+  comment: renderComment({ rounds, settledOut, unresolved, outcome: apply ? { kind: 'applied', items: applied } : { kind: 'handed-off', items: fixes }, reviewByLens, withPolice, base }),
 }

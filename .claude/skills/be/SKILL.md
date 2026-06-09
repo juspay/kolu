@@ -1,6 +1,6 @@
 ---
 name: be
-description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a serial AI review gauntlet (codex debate → lens debate (lowy ⇄ hickey) → code-police, each seeing the prior's fixes) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
+description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a parallel AI review gauntlet (codex debate ∥ lens debate (lowy ⇄ hickey) ∥ code-police, one editor + read-only reviewers, then an apply pass) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
 argument-hint: "<issue-url | prompt>"
 ---
 
@@ -48,17 +48,19 @@ Run **check** and **fmt**, then commit (conventional message) and push the featu
 
 ## 4. Review gauntlet
 
-Run **`/be-review`** (Skill tool) — it runs the three reviewers **serially** on the
-branch (`/codex-debate` → `/lens-debate` → `/code-police`, each seeing the prior's
-committed fixes, ordered heaviest-change-first → polish-last), each leaving a PR
-comment. Serial because the reviewers *edit*, and on a small change they all edit
-the same code — running them at once collides; running them in order doesn't.
+Run **`/be-review`** (Skill tool) — it runs the three reviewers **in parallel**
+with one editor: `/codex-debate` edits the branch (its per-round commits are the
+debate), while `/lens-debate --no-apply` and the code-police passes review a
+pinned snapshot read-only and return change requests; a final apply pass
+re-validates each request against the post-codex tree, implements the survivors,
+and commits each individually. Each track leaves a PR comment.
 
 - Pass `base` and the change **`rationale`** (so the lenses don't flag deliberate
   decisions). Preflight is a non-empty diff and (since codex runs) `codex login
   status`.
-- Each step commits its own `fix(…)` / `fix(police):` directly on the branch — no
-  worktrees, no consolidation. Confirm the three PR comments landed.
+- Codex's rounds commit `fix(…)` directly on the branch; the apply pass commits
+  `fix(lens):` / `fix(police):` for the surviving change requests. Confirm the
+  three PR comments landed.
 - On an **unresolved** lens finding, adjudicate it yourself before moving on.
 
 ## 5. Ship — CI and evidence in parallel
@@ -82,6 +84,6 @@ green before capturing.
 
 ## Done
 
-Report the PR URL, the serial gauntlet outcome (codex consensus or reviewer-error, lens-debate consensus, police findings actioned), and CI status. Never merge — the human reviews the commits and merges when satisfied.
+Report the PR URL, the gauntlet outcome (codex consensus or reviewer-error, lens-debate consensus + fixes applied, police findings actioned), and CI status. Never merge — the human reviews the commits and merges when satisfied.
 
 ARGUMENTS: $ARGUMENTS
