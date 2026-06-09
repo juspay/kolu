@@ -162,7 +162,7 @@ earns scoped styles + typed props as a real `.astro`).
 ## Navigation — a generated index, grouped by kind
 
 - **One section per category** — every note's `kind` (`bug` · `feature` · `analysis` · `reference`) lands it in a section; that's the index's primary skeleton. Membership is automatic (a note can never be unfiled); only the *edges* are authored.
-- **`parents` nests notes *within* a section** — a note lists one or more `parents` (flat slugs) and nests under each *same-category* parent. A cross-category parent isn't a tree edge — it's surfaced as a **related** link, so topical connections survive without tearing the sections apart. Retires the hand MOC + its `docs-moc` link-gate (kept only while legacy `docs/plans/*.html` exist).
+- **`parents` nests notes *within* a section** — a note lists one or more `parents` (flat slugs) and nests under each *same-category* parent. A cross-category parent isn't a tree edge — it's surfaced as a **related** link, so topical connections survive without tearing the sections apart. Retires the hand MOC + its `docs-moc` link-gate (gone with the last legacy `docs/plans/*.html`, migrated 2026-06-09).
 - **Flat, ancestry-free slugs** — the filename is a handle, not a path; both category and hierarchy are metadata (`kind`, `parents`), not the filename.
 - **Each row shows a `maturity` dot + status flags; drafts are hidden** from the build.
 - **A nested ToC** (`<Toc>`) is auto-inserted from each note's headings — the box above.
@@ -179,7 +179,7 @@ earns scoped styles + typed props as a real `.astro`).
 <Roadmap>
   <Milestone status="done" label="Shipped">original plans + MOC + house style + the `docs/**` agent rule (<PrLink pr={1095} />); the `docs-moc` gate + `plans::check` module (<PrLink pr={1098} />).</Milestone>
   <Milestone status="now" label="Now">the Atlas as a self-contained `docs/atlas/` project — generated index, render route, committed HTML, `.apm` rule + `ci::atlas-sync` gate, and the MDX component kit. First migrated note; `release-workflow` removed.</Milestone>
-  <Milestone status="next" label="Next">migrate the remaining `docs/plans/*.html` to Atlas notes on-touch; retire the hand-MOC + `docs-moc` gate as that completes; then ship the `/atlas` skill.</Milestone>
+  <Milestone status="done" label="Done">the remaining `docs/plans/*.html` migrated to Atlas notes (`remote-terminals`, `pty-daemon`, `pty-daemon-chrome-bar`, `pty-daemon-tui`, `surface-app`); `docs/plans/` retired; the `/atlas` skill shipped.</Milestone>
 </Roadmap>
 
 ---

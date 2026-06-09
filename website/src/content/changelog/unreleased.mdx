@@ -4,6 +4,7 @@ version: Unreleased
 
 ### Added
 
+- <Change title="kolu-tui: list and snapshot your terminals from the shell (beta)" pr={1084} tags={["terminal", "cli"]}>A new terminal-side CLI talks to your running kolu-server over a local unix socket — `kolu-tui list` prints every live terminal (id · pid · idle · command · cwd, or `--json`), and `kolu-tui snapshot <id>` dumps a terminal's current scrollback to stdout for piping and grepping. Read-only for now (attach/spawn land later); run it via `nix run github:juspay/kolu#kolu-tui`, and the home-manager module installs it alongside the server automatically. An unreachable server is an honest one-line error, never a hang.</Change>
 - <Change title="Maximize a tile without the mouse" pr={1248} tags={["canvas", "keyboard"]}>You can now toggle a tile between the freeform canvas and maximized view straight from the keyboard with <kbd>Cmd/Ctrl+Shift+M</kbd>, or by running "Maximize terminal" from the command palette — no more reaching for the chrome-bar button or double-clicking a title bar. The command's label flips to "Restore canvas" once you're maximized, so it always names what the next click does.</Change>
 
 ### Fixed

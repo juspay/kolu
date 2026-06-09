@@ -2,7 +2,17 @@ import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
+import {
+  getPtyHostSocketPath,
+  servePtyHostOverUnixSocket,
+} from "@kolu/pty-host";
 import { createDirServer } from "@kolu/serve-dir";
+import {
+  gateStaleSocket,
+  installFreshStatic,
+  installPwaManifest,
+  startWsHeartbeat,
+} from "@kolu/surface-app/server";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -16,12 +26,6 @@ import {
 } from "kolu-common/preview";
 import { configureNixShellEnv } from "kolu-pty";
 import { type WebSocket, WebSocketServer } from "ws";
-import {
-  gateStaleSocket,
-  installFreshStatic,
-  installPwaManifest,
-  startWsHeartbeat,
-} from "@kolu/surface-app/server";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import {
@@ -31,6 +35,7 @@ import {
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
+import { ptyHostServedRouter } from "./ptyHost.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
@@ -74,6 +79,11 @@ const argv = cli({
       type: String,
       description:
         "Allow running inside a nix shell, forwarding only these comma-separated env vars to PTY shells (dev/test only). Uses built-in default list if set to 'default'.",
+    },
+    ptyHostSocket: {
+      type: String,
+      description:
+        "Path for the pty-host unix socket that kolu-tui connects to (default $XDG_RUNTIME_DIR/kolu/pty-host.sock).",
     },
   },
   strictFlags: true,
@@ -383,3 +393,15 @@ server.on("upgrade", (req, socket, head) => {
     socket.destroy();
   }
 });
+
+// --- pty-host unix socket (kolu-tui, R-4 Phase 1) ---
+// One additive listener serving the SAME in-process pty-host router the web
+// path uses (./ptyHost.ts), so `kolu-tui` can list/snapshot the live PTYs from
+// the shell. Independent of the HTTP/WS server; its socket lives outside
+// koluRoot, so it gets its own exit-time cleanup.
+const ptyHostSocketListener = await servePtyHostOverUnixSocket({
+  socketPath: getPtyHostSocketPath(argv.flags.ptyHostSocket),
+  router: ptyHostServedRouter,
+  log,
+});
+process.on("exit", () => ptyHostSocketListener.close());

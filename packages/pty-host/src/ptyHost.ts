@@ -173,14 +173,19 @@ export interface ForegroundSample {
   foregroundPid: number | undefined;
 }
 
-/** One row of {@link PtyHost.list}: a live PTY's id, pid, cwd, and last
- *  activity timestamp. */
+/** One row of {@link PtyHost.list}: a live PTY's id, pid, cwd, last activity,
+ *  and the metadata taps' current values (so a one-shot `list` carries the full
+ *  picture without per-row tap subscriptions). */
 export interface PtyListEntry {
   id: PtyId;
   pid: number;
   cwd: string;
   /** Epoch ms of the last data observed — a proxy for idle detection. */
   lastActivity: number;
+  /** Current OSC 0/2 title (empty string if none set yet). */
+  title: string;
+  /** The PTY's current foreground process name (the running command). */
+  foregroundProcess: string;
 }
 
 /** Construction options for {@link createPtyHost}. */
@@ -668,6 +673,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         pid: entry.proc.pid,
         cwd: entry.cwd,
         lastActivity: entry.lastActivity,
+        title: entry.title,
+        foregroundProcess: entry.proc.process,
       })),
     has: (id) => entries.has(id),
     getForegroundPid,

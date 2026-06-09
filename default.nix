@@ -46,6 +46,7 @@ let
       ./packages/terminal-themes
       ./packages/memorable-names
       ./packages/pty-host
+      ./packages/pty-tui
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -68,7 +69,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-S728HMTPfKY1Xp1UAX7ZLLYgFEUoW0TqIURu0P3inIY=";
+    hash = "sha256-CL9BUWyv7HY2jhDeDxU1X+jELrUJ9NNMGEk0ASof5i8=";
     fetcherVersion = 3;
   };
 
@@ -233,6 +234,22 @@ let
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
 
+  # kolu-tui (R-4 Phase 1): the terminal-side CLI that connects to a running
+  # kolu-server's pty-host unix socket and lists/snapshots its live PTYs. Runs
+  # from the SAME built workspace closure as `kolu` (so @kolu/pty-host +
+  # @kolu/surface resolve identically) under tsx — no client bundle, no
+  # state dir, just nodejs.
+  kolu-tui = pkgs.runCommand "kolu-tui"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "kolu-tui";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu-tui \
+      --add-flags "${kolu}/packages/pty-tui/src/main.ts" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+  '';
+
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
   # so the fixed-output fetch is cached once.
@@ -260,5 +277,5 @@ let
   };
 in
 {
-  inherit default koluBin koluEnv pnpmDeps typecheck;
+  inherit default koluBin kolu-tui koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample

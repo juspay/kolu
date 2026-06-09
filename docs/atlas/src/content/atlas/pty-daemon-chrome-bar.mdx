@@ -1,0 +1,82 @@
+---
+title: ChromeBar identity rail (srv · pty)
+description: The consolidated connection + build/commit readout shipped in R-4 phase A2 — two explicit columns (srv = the server you're connected to, pty = the pty-host serving your terminals) that coincide while the pty-host is in-process; Phase B only lets them diverge (outdated / dead), never re-lay-out.
+kind: feature
+status: implemented
+maturity: budding
+parents: [pty-daemon]
+updated: 2026-06-09
+---
+
+import D2 from "../../components/D2.astro";
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Commit from "../../components/Commit.astro";
+
+**The UI design for A2's deliverable #3** — the consolidated connection + build/commit readout in the ChromeBar, shipped with A2 in <PrLink pr={1063} /> as `packages/client/src/ui/IdentityRail.tsx`. Built in its **final two-column shape from day one** — `srv` (the server you're connected to) and `pty` (the pty-host serving your terminals) — even though in A2 they're the same process. That coincidence is the point: it's the live proof A2's identity plumbing works, and it means [Phase B](pty-daemon.html) only has to let the columns *diverge*, never re-lay-out. The original prototype was rendered with the live dark-theme tokens from `packages/client/src/index.css` against the real `ChromeBar.tsx` layout.
+
+## The design call — two explicit columns in A2
+
+The R-4 plan originally deferred the daemon chip to B, reasoning that an always-green "daemon connected" chip would lie about an absent daemon. But in A2 the pty-host isn't absent — it's **in-process**. So a two-column `srv · pty` readout where the columns coincide is the literal truth, not a lie. Better still, it's the cleanest acceptance signal A2 could have:
+
+- **It's the acceptance test.** A one-sided readout would show the server's commit and call it done — exercising none of A2's actual wire work. The two-column rail forces the whole path to light up: server boots → fetches `system.version()` → relays `.identity` onto `server.info` → client renders the `pty` column. **The columns matching is the green test; a mismatch in A2 means the plumbing B depends on is broken.**
+- **The dot was already "srv".** The standalone WebSocket status dot represents the client↔server link — i.e. `srv` liveness. Consolidating it into the rail removes a redundant indicator and gives `pty` a parallel slot for its own liveness (in-process now, daemon-handle in B).
+- **What's genuinely inert until B: only the divergence** — the `outdated` / `dead` states — because nothing can diverge from itself. Those branches are wired in A2 (the rail is divergence-capable) but cannot fire until `pty` is a separate surviving process. The only A2 cost is a few dead `classList` branches — paid down to zero the moment B lands, with no re-layout and no migration of the client component.
+
+The rail sits in the **left identity cluster** where the bare WebSocket dot used to be: it's identity + liveness, not an action, so it groups with the logo, not the right-hand control cluster.
+
+## Wiring — three hops
+
+The rail is thin presentation, but the data takes three hops, because the client speaks kolu-server's surface (over the WebSocket), not the pty-host's:
+
+<D2
+  caption="A2 adds identity to the pty-host's system.version; kolu-server reads it once at boot and relays it onto its existing server.info (beside its OWN commit); the rail renders both columns from one client fact."
+  code={`direction: down
+pty: "pty-host contract — ptyHostSurface" {
+  v: "system.version → { contractVersion, pid, startedAt, identity? }"
+}
+server: "kolu-server" {
+  info: "server.info → { commit (srv), ptyHost? (relayed identity) }"
+}
+client: "client — IdentityRail.tsx" {
+  rail: "srv ● <commit>  ·  pty ● <commit> <staleKey>  ≡ in-process"
+}
+pty.v -> server.info: "fetched once at boot (in-process = always fresh)"
+server.info -> client.rail: "the existing one-shot server.info"
+`}
+/>
+
+| | `srv` | `pty` |
+| --- | --- | --- |
+| liveness dot | WebSocket status (the consolidated dot) | in-process (A2) → daemon handle (B) |
+| commit | server's `KOLU_COMMIT_HASH` | `identity.navigableCommit` |
+| build | — | `identity.staleKey` (closure hash) |
+| source | `server.info` (existing) | `system.version` → relayed |
+
+Only `pty` carries a *build*: the staleKey is the `@kolu/pty-host` closure hash, and it's the only thing whose staleness matters across a restart — the server always restarts on deploy, so it has no "survives" staleness, just a commit.
+
+Three constraints baked in: **(1)** `identity` is **optional on the wire** so a B-phase older daemon isn't force-restarted just to add a diagnostic (`PTY_HOST_CONTRACT_VERSION` unbumped); **(2)** `currentBuildId`/`currentCommitHash` re-export as **values**, not `import type` — the regression that collapsed the typed client to `unknown`; **(3)** the commit href is the **full SHA** (display `slice(0,7)`), matching the recovered <Commit sha="3fd7ea63" /> renderer and avoiding ambiguous-prefix edge cases.
+
+## States
+
+In A2 the rail's live axis is the WebSocket connection (the dot it absorbed). `pty` follows `srv` because it's the same process — when the link is down the client can't know anything, so `pty` reads *unknown*, not a false green.
+
+| State | Phase | Rendering |
+| --- | --- | --- |
+| **Connected** | live in A2 | WebSocket open · `srv ≡ pty` · both commits + build resolved · the `≡ in-process` tag |
+| **Connecting / reconnecting** | live in A2 | re-handshaking — both dots pulse amber, identity dimmed until the first yield (`srv connecting… · pty —`) |
+| **Disconnected** | live in A2 | `srv` red; `pty` *unknown* (grey) — honest: with the link down we can't claim pty state |
+| **Update pending** | <Pill variant="todo">inert until B</Pill> | `pty` build ≠ the expected build → amber via the read-site `staleKey !== currentBuildId()` derivation. The nudge #1034 over-fired now fires only here. |
+| **Daemon dead** | <Pill variant="todo">inert until B</Pill> | `pty` handle closed → red (`daemon dead — restart`). Pairs with the honest degraded canvas; never the empty-canvas lie. |
+
+No "dev / no-commit" state exists — kolu and the pty-host run **only under nix**, which always bakes both `KOLU_COMMIT_HASH` and `KOLU_PTY_HOST_BUILD_ID`. There is no off-nix fallback to render.
+
+## Decisions (resolved with the maintainer)
+
+- **Coincidence rendering** — always two explicit columns + the `≡ in-process` tag; verbose/explicit is favoured until the feature stabilizes, no collapse-when-equal.
+- **Labels** — `srv` / `pty`.
+- **Identity values** — nix is first-class, no fallback: both values are nix-injected on the `koluBin` wrapper; no dev-derivation, no placeholder dance, no `|| ""` softening.
+- **Closure scope** — no severing, no excluded deps. The staleKey hashes the pty-host package's own source closure — naturally tight (provider churn elsewhere can't over-prompt) and complete for the package's own wire+behaviour. The build-time test guards the one real regression: a wire/behaviour dependency landing *outside* the hashed package (the #1034 mis-scope) — it walks `index.ts`'s transitive imports and fails on any reached module that's neither in-package nor on a small allowlist of stable framework/leaf deps.
+
+This design revised the parent plan's "daemon chip lands in B" stance: the identity + connection rail consolidates in **A2** (honest, in-process), and **B adds only the divergence semantics** to the existing `pty` column.
