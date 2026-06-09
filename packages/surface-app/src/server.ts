@@ -425,8 +425,10 @@ export function gateStaleSocket(
   );
   const claimedPid = requestUrl.searchParams.get(SERVER_PROCESS_ID_PARAM);
   if (claimedPid !== null && rejectStaleProcess(claimedPid, liveProcessId)) {
-    opts.onReject?.(claimedPid);
+    // Close FIRST (the critical operation), then fire the observational
+    // `onReject` — a throwing reporter must never leave the stale tab connected.
     ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+    opts.onReject?.(claimedPid);
     return true;
   }
   return false;
