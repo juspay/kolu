@@ -17,7 +17,7 @@
  * `ptyHostRouter` is additionally served over a unix socket (`../index.ts`)
  * so `kolu-tui` can reach these PTYs — that's a second transport on the one
  * host, and changes nothing in this file. See
- * `docs/plans/remote-terminals.pty-daemon.html` (#fresh-approach).
+ * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * `TerminalBackend.fs/git` stay on this side, abstracted per-location and (for
  * local) shelling out to `kolu-git` directly.

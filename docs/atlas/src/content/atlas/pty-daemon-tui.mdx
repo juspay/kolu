@@ -4,6 +4,7 @@ description: A terminal-side client of kolu-server's in-process pty-host — lis
 kind: feature
 status: accepted
 maturity: budding
+parents: [pty-daemon]
 updated: 2026-06-09
 ---
 
@@ -16,7 +17,7 @@ import Issue from "../../components/Issue.astro";
 
 **A terminal-side client of kolu-server's pty-host.** kolu-server owns its PTYs _in-process_ today; `kolu-tui` connects to that same in-process pty-host over a local unix socket (speaking `ptyHostSurface`) and gives you `list` / `attach` / `spawn` from the terminal — no browser, **no daemon**. It is the CLI face of kolu and the seed of a `tmux`/`zmx` replacement (<Issue n={671} />), shipped in phases as a beta.
 
-_Scoped to kolu-tui-on-the-in-process-server. The parent plan's Phase B — moving the pty-host into a surviving daemon — is a separate plan this later dovetails with (see [Later](#later)). Ancestry: child of `remote-terminals.pty-daemon` (`docs/plans`), sibling of the chrome-bar rail; cf. [Ghostex vs. kolu remote-terminals](ghostex-vs-remote-terminals.html)._
+_Scoped to kolu-tui-on-the-in-process-server. The parent plan's Phase B — moving the pty-host into a surviving daemon — is a separate plan this later dovetails with (see [Later](#later)). Ancestry: child of the [pty-daemon](pty-daemon.html) plan, sibling of the [chrome-bar rail](pty-daemon-chrome-bar.html); cf. [Ghostex vs. kolu remote-terminals](ghostex-vs-remote-terminals.html)._
 
 ## Architecture — everything stays in-process
 
@@ -62,7 +63,7 @@ Because the pty-host is in-process, restarting kolu-server (a deploy) **kills** 
 
 ## The surface — ~150 LOC in `packages/pty-tui`
 
-A small node CLI in its own package, `packages/pty-tui`, that dials the unix socket through `stdioLink` (the same link the daemon would later use) and gets a typed `ptyHostSurface` client. No new wire, no new framing — `serveOverStdio` is already unit-tested via the loopback fixture.
+A small node CLI in its own package, `packages/pty-tui`, that dials the unix socket through `unixSocketLink` (the local-IPC member of `@kolu/surface`'s link family — same base64+newline framing the daemon's ssh stdio path uses later) and gets a typed `ptyHostSurface` client. No new wire, no new framing — each accepted connection is pumped through the already-tested `serveOverStdio`.
 
 | Subcommand | Surface call | Behaviour |
 | --- | --- | --- |
@@ -98,11 +99,11 @@ Phases 1–3 build kolu-tui on the in-process server — each leaves Kolu workin
 | Phase | Ships | Server change | User-visible |
 | --- | --- | --- | --- |
 | **0 · surface example** <Pill variant="ok">shipped</Pill> <PrLink pr={1073} /> | A minimal CI-runner TUI over oRPC stdio in `@kolu/surface`'s examples — the 3rd example, after the worker demo + the remote-process-monitor (→ [drishti](https://github.com/srid/drishti)). | None — separate from kolu-server. | A standalone example; proves the pattern and becomes kolu-tui's reference skeleton. |
-| **1 · `list`** <Pill variant="ok">shipped</Pill> <PrLink pr={1084} /> | kolu-server serves its in-process pty-host router over a unix socket (`serveOverStdio`); new `@kolu/pty-tui` with `list` + read-only `snapshot`. `list` carries full metadata from the enriched `terminal.list` (contract 2.1). | +1 local socket listener on the existing router (`servePtyHostOverUnixSocket`). Web path byte-identical. | A beta CLI that _lists_ and _snapshots_ your live terminals — `nix run …#kolu-tui`. |
+| **1 · `list`** <Pill variant="ok">shipped</Pill> <PrLink pr={1084} /> | kolu-server serves its in-process pty-host router over a unix socket (`@kolu/surface`'s `serveOverUnixSocket`); new `@kolu/pty-tui` with `list` + read-only `snapshot`. `list` carries full metadata from the enriched `terminal.list` (contract 2.1). | +1 local socket listener on the existing router (`servePtyHostOverUnixSocket`). Web path byte-identical. | A beta CLI that _lists_ and _snapshots_ your live terminals — `nix run …#kolu-tui`. |
 | **2 · `attach`** <Pill variant="todo">next</Pill> | Raw-tty passthrough, snapshot-then-delta, stdin→`write`, `SIGWINCH`→`resize`, the `~`-escape detach. | None beyond Phase 1. | Drive a terminal from the CLI; detach and re-attach while the server runs. |
 | **3 · `spawn` / `kill`** <Pill variant="todo">later</Pill> | `spawn` (+ `--print-id`), `kill`, `list --json`. | None. | Create and kill PTYs from the CLI — a usable raw multiplexer (beta). The richer `tmux`-replacement UX grows from here, as its own work. |
 
-Phase 1 alone is the smallest honest first ship of _kolu-tui_ — a one-shot RPC, no raw-tty mode, the "hello world" that proves `serveOverStdio`-over-a-real-socket + `stdioLink` + the contract round-trip, at near-zero risk.
+Phase 1 alone is the smallest honest first ship of _kolu-tui_ — a one-shot RPC, no raw-tty mode, the "hello world" that proves `serveOverUnixSocket` + `unixSocketLink` + the contract round-trip, at near-zero risk.
 
 ### Phase 0 — a minimal CI-runner TUI (the 3rd surface example) <Pill variant="ok">shipped</Pill> <PrLink pr={1073} />
 
@@ -143,7 +144,7 @@ kolu-tui: no pty-host socket at /run/user/1000/kolu/pty-host.sock (ECONNREFUSED)
 
 **The inventory** — `list` from another shell, one row per live PTY (the status line reports the in-process pty-host):
 
-<Terminal title="kolu-tui · stdioLink → /run/user/1000/kolu/pty-host.sock" lines={[
+<Terminal title="kolu-tui · unixSocketLink → /run/user/1000/kolu/pty-host.sock" lines={[
   "$ kolu-tui list",
   "",
   "ID         PID    IDLE  CMD                        CWD",

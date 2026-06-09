@@ -81,6 +81,6 @@ Plus the live e2e: `just run localhost --json` type-checks remote-process-monito
 ## What's not in this demo
 
 - **Write-heavy CI tasks (builds).** The runner closure is read-only, so the default pipeline is typecheck-only. `vite build` / `nix build` would need a writable copy of the workspace first — the read-only-closure trade-off above.
-- **Server-restart survival.** This is client-side detach/reattach while the runner lives; surviving a _runner_ restart is kolu-server's job in the [daemon plan](../../../../docs/plans/remote-terminals.pty-daemon.html), not here.
+- **Server-restart survival.** This is client-side detach/reattach while the runner lives; surviving a _runner_ restart is kolu-server's job in the [daemon plan](../../../../docs/atlas/src/content/atlas/pty-daemon.mdx), not here.
 - **A real CI runner.** The DAG runs shell commands with no caching, no artifact passing, no platform fan-out — that's [justci](https://github.com/juspay/justci)'s job. mini-ci could graduate to its own repo the way remote-process-monitor became [drishti](https://github.com/srid/drishti).
 - **Known bug:** in some terminals the TUI can leave the terminal in raw mode on quit — filed as [juspay/kolu#1076](https://github.com/juspay/kolu/issues/1076).

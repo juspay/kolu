@@ -1,0 +1,105 @@
+---
+title: Remote terminals over SSH
+description: The phased implementation plan for kolu#951 — the TerminalBackend seam (R-1), @kolu/surface framework gaps + @kolu/surface-nix-host (R-1.5), the shared provider engine (R-1.6), local PTY daemonization (R-4, in progress), then the ssh transport (R-2) and network-blip resilience (R-3).
+kind: feature
+status: accepted
+maturity: budding
+updated: 2026-06-09
+---
+
+import D2 from "../../components/D2.astro";
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+
+**The master plan for <Issue n={951} /> — remote terminals over SSH**, shipped as phases on different volatility axes. R-1 (<PrLink pr={981} />), R-1.5 (<PrLink pr={984} />), and R-1.6 (<PrLink pr={1004} />) are on master. R-4 — local PTY daemonization — was re-sequenced *before* R-2/R-3 (a whole-plan `/lowy` pass showed building the long-lived multi-client PTY primitive once collapses R-2 + R-3 from ~1860 to ~740 LoC combined) and now lives in its own note, [pty-daemon](pty-daemon.html), with A1 + A2 landed and B (the daemon) next. R-2 then adds the ssh transport against the same backend; R-3 adds the version handshake + session-ID persistence.
+
+_This note is the migrated + heavily compressed `docs/plans/remote-terminals.html` (the 208 KB monolith). Zed v1.5.0 (`3a81f8e9`) was the studied reference; the full file:line citation list lives in git history with the original. Cf. [Ghostex vs. kolu remote-terminals](ghostex-vs-remote-terminals.html) and [herdr vs. kolu](herdr-vs-kolu.html)._
+
+## Phases at a glance
+
+<D2
+  caption="The target three-tier shape (proven in miniature by R-1.5's remote-process-monitor demo): browser ↔ kolu-server over WebSocket, kolu-server ↔ a remote kolu --stdio agent over ssh-stdio. The TerminalBackend seam is the only place that pattern-matches on location.kind."
+  code={`direction: down
+browser: "browser (SolidJS client)"
+server: "kolu-server" {
+  seam: "TerminalBackend seam — getTerminalBackendFor(location)"
+  local: "LocalTerminalBackend (in-process)"
+  remote: "RemoteTerminalBackend (R-2)"
+  seam -> local
+  seam -> remote
+}
+agent: "remote ssh host" {
+  pty: "kolu --stdio agent — @kolu/pty-host + the providers.ts engine"
+}
+browser -> server.seam: "WebSocket (oRPC)"
+server.remote -> agent.pty: "ssh stdio (stdioLink) · .drv-ship + remote realise"
+`}
+/>
+
+| Phase | Gist | User-facing change | Status |
+| --- | --- | --- | --- |
+| **R-1** | Server spine collapses around one `TerminalBackend` interface; the `meta/*.ts` orchestrators dissolve into `LocalTerminalBackend`. | None — byte-identical refactor. | <Pill variant="ok">shipped</Pill> <PrLink pr={981} /> |
+| **R-1.5** | `@kolu/surface` grew the stdio link, loopback link, peer-server, and in-memory channel/cell/publisher; new `@kolu/surface-nix-host` package (ssh + `.drv`-provisioning + lifecycle). Validated by the remote-process-monitor demo — "miniature Kolu". | None directly — framework capability. | <Pill variant="ok">shipped</Pill> <PrLink pr={984} /> |
+| **R-1.6** | The provider DAG (agent detectors ×3, git watcher, PR watcher, command tracker, foreground observer) extracts into `terminalBackend/providers.ts` behind `ProviderHooks` — one engine, two future hosts. | None — byte-identical refactor. | <Pill variant="ok">shipped</Pill> <PrLink pr={1004} /> |
+| **R-4** | Local PTYs move into a surviving daemon; `@kolu/pty-host` published. **Owned by the [pty-daemon](pty-daemon.html) note** — A1 <PrLink pr={1055} /> + A2 <PrLink pr={1063} /> landed; B next. | Local terminals survive a kolu-server restart — replaces tmux/zmx, closes <Issue n={671} />. | <Pill variant="run">in progress</Pill> |
+| **R-2** | The ssh transport variant + remote-only UI: `.drv`-ship + remote-realise, HostChip on five surfaces, DisconnectedOverlay ssh states, SSH host picker, restore preserves location, paste/upload guard. | Remote terminals work end-to-end — PTY, branch chip, agent badge, PR, Code tab, upload, restore. | <Pill variant="todo">after R-4</Pill> |
+| **R-3** | Persist `remoteSessionId`; retire the `--refresh` hack; close the overflow-recovery loop. The reattach machinery itself ships with R-4. | Remote terminals survive network blips with full scrollback. | <Pill variant="todo">last</Pill> |
+
+## Volatility axes and the lessons that shaped them
+
+Lowy's question — what changes for its own reasons, and is each axis isolated to one module? Three axes:
+
+| Axis | Encapsulated by |
+| --- | --- |
+| Where a terminal's state lives (this machine vs an SSH host) | The `TerminalBackend` interface + `location` discriminator — everything downstream talks to the backend and never asks "which kind?". |
+| How the backend reaches its agent (transport, framing, reconnect) | `HostSession` + `@kolu/surface/links/stdio` — loopback today, ssh tomorrow, mTLS-over-TCP later. |
+| Where the PTY process runs + how scrollback persists across reconnect | `@kolu/pty-host` (R-4) — the long-lived multi-client PTY owner; consumers never touch node-pty or `@xterm/headless` directly. |
+
+Hickey's complement: an earlier draft had per-domain remote providers (`RemoteGitInfoProvider`, …) — each a transport adapter wearing a domain costume. The single-`TerminalBackend` cut has **zero domain knowledge crossing the transport boundary**; the agent runs the unmodified providers and the boundary just ships their output.
+
+Six lessons from the exploratory prototype, each naming a failure mode a redo would otherwise hit:
+
+1. **Hand-rolled transport adapters mask framework work** — if it would benefit any oRPC consumer, it belongs in `@kolu/surface`, not `packages/server/`.
+2. **Per-entity reactive state wants collections, not parameterized streams** — one `terminalMetadata` collection keyed by id, not eight `Stream<{id}, T>` entries.
+3. **Framework code needs an end-to-end demo, not just unit tests** — the demo is a falsifiability test: if writing it against the primitives feels awkward, the primitives are at the wrong altitude.
+4. **"Shadow entry sync, I/O async" belongs in the `spawnPty` contract** — register a connecting-state entry synchronously, do I/O on a later tick; this is what makes the instant-tile UX work.
+5. **Wire-shape drift is a real bug class — fail fast, no defaults.** `KOLU_AGENT_FLAKE_REF` is required; a baked-in fallback masks the drift (every RPC 404s silently).
+6. **Cold remote realisation can take minutes — design for it**: instant tile + connecting overlay; pre-generated terminal id; heartbeat deferred until the first RPC roundtrips.
+
+## What shipped — R-1 · R-1.5 · R-1.6
+
+### R-1 — the TerminalBackend seam <PrLink pr={981} />
+
+A `TerminalBackend` is *the per-terminal world a terminal lives in*: what process owns the PTY, what filesystem the Code tab reads, where the git watcher and agent detectors observe. The interface (in `packages/common/src/terminalBackend.ts`): `spawnPty` / `terminalChannel<K>` / `killTerminal` / `uploadFile` plus `fs` and `git` sub-surfaces. Invariants that carried forward: **kill convergence** (`killTerminal` is the sole termination path — `TerminalHandle` has no `dispose()`); **snapshot-then-delta on every stream** (what makes `ClientRetryPlugin` reconnect transparently); **the backend owns its filesystem**; **sync shadow entry, async I/O**. `LocalTerminalBackend` absorbed every `meta/*.ts` orchestrator as private wiring; `getTerminalBackendFor(location)` is the single dispatch point.
+
+### R-1.5 — @kolu/surface framework gaps + @kolu/surface-nix-host <PrLink pr={984} />
+
+Closed the framework's browser-coupling gaps with generic additions: the **stdio link** (base64+newline framing over a `Readable`/`Writable` pair), the **loopback pair**, the **peer server** (`serveOverStdio`), and the **in-memory pub/sub family** (`inMemoryChannelByName` being the load-bearing piece — without name-dedupe, publish-site and subscribe-site land on different channels and every delta is lost). The new `@kolu/surface-nix-host` package extracted the wholly-generic remote machinery: `HostSession<C>` (one ref-counted ssh subprocess per host, state machine, reconnect), `provisionAgent` (`nix copy --derivation` + remote `nix-store --realise` — ships the *derivation*, so a darwin parent drives a linux remote with no cross-builder), `mirrorRemoteCollection`, `waitForNextClient`.
+
+The falsifiability gate was the **remote-process-monitor demo** — a top-shaped live view of any ssh-reachable host, the same three-tier shape R-2 will have, exercising all twelve falsifiability rows (stdio-over-ssh, snapshot-then-delta across a network hop, deferred heartbeat surviving multi-minute cold realisation, single session per host, instant pane + async fill, drift-impossible-by-construction, reconnect-reconciles-no-ghosts, and the stdout-is-protocol regression reproducer). Footguns found and pinned: `implementSurface(...).router` is a *fragment* needing one `implement(contract).router(...)` wrap; agent stdout is the protocol channel (logs go to fd 2); the stdio link doesn't auto-reconnect mid-stream — consumers loop on `waitForNextClient`.
+
+### R-1.6 — the shared provider engine <PrLink pr={1004} />
+
+The per-terminal provider DAG moved out of `LocalTerminalBackend` into `terminalBackend/providers.ts` (~510 LoC), parameterized over `ProviderRecord` / `ProviderChannels` / `ProviderHooks` so the same engine runs on kolu-server *and* the future remote agent. The type-fence is load-bearing: writing a live field through `updateServerMetadata` is a compile error, so the `terminals:dirty` autosave firehose can't be reintroduced by a new provider. Codex caught the one hidden invariant in review — `record.meta.cwd` is read once at provider start; subsequent changes flow only through `channels.cwd` (the parent aliased the object, a second host wouldn't).
+
+## What remains — R-2 then R-3
+
+**R-2 (~610 LoC incremental, one PR, four commits).** No `RemoteTerminalBackend` class to invent and no screen mirror to build — R-4 implements both once; R-2 is a transport configuration plus the remote-only UI: **(1)** the ssh transport variant — drvPath resolver via `nix eval --raw "$KOLU_AGENT_FLAKE_REF.packages.<remote-system>.…"` with the system probed over `ssh $host uname -ms`; **(2)** remote-only backend behavior — the paste/upload `PRECONDITION_FAILED` guard (filesystem asymmetry), restore preserving `location`, sub-terminals inheriting the parent's location via one resolver; **(3)** SSH host picker (`ssh -G` probes — no bespoke config parser) + the DisconnectedOverlay `copying` state + pre-warm `provisionAgent` on picker-open; **(4)** HostChip on five surfaces (title bar, dock pill ×3 states, workspace card, restore card, saved list), rendering nothing for `local`. The agent's wire shape: one `terminalMetadata` collection (lesson #2), separate `terminalData`/`terminalCommandRun`/`terminalTitle` streams for backpressure isolation, and a deliberately **narrow contract** — the agent serves what the backend needs, never the full appRouter.
+
+**R-3 (~130 LoC).** Persist `remoteSessionId` in `ServerPersistedTerminalFieldsSchema` and reattach by it on reconnect; retire the blanket `--refresh` at the call site (the `system.version` handshake ships with R-4); pre-warm on host-picker open; and **close the overflow-recovery loop** — `@kolu/pty-host`'s bounded channel sheds a slow subscriber by *ending* its attach stream, which is not a transport error, so the client must treat an overflow-drop as "re-attach for a fresh snapshot" (distinguishable from PTY-exit). Why bytes and metadata stay on separate streams: multiplexing high-throughput raw bytes with low-frequency structured snapshots tangles backpressure semantics.
+
+## History and the prototype retros
+
+| Date | Event | Outcome |
+| --- | --- | --- |
+| 2026-05-26 | R-1 shipped <PrLink pr={981} />; earlier R-2 exploration <PrLink pr={976} /> closed (hand-rolled stdio transport — wrong altitude, lesson #1). | merged / superseded |
+| 2026-05-27 | R-1.5 shipped <PrLink pr={984} />; R-2 prototype <PrLink pr={994} /> — working remote terminals, 46 commits, CI-green, never merged. | merged / superseded by the carve |
+| 2026-05-28 | R-1.6 shipped <PrLink pr={1004} />; R-4 whole-daemon prototype <PrLink pr={1010} /> (the systemd survive-premise later falsified in prod). | merged / never merged |
+| 2026-05-29 | R4a <PrLink pr={1023} /> + R4b <PrLink pr={1028} /> merged; R4c <PrLink pr={1031} /> deployed then dropped — a stale daemon nothing could evict (staleness keyed on the inert `pkgVersion`). | see [pty-daemon](pty-daemon.html) |
+| 2026-05-30/31 | R-4 redesigned from scratch (the fresh `/lowy` + `/hickey` pass); A1 <PrLink pr={1055} /> + link family <PrLink pr={1059} /> + A2 <PrLink pr={1063} /> landed. | [pty-daemon](pty-daemon.html) owns R-4 |
+
+**What the #994 prototype taught** (and the plan kept): the single `TerminalBackend` seam was vindicated — ~85% of the 3.5k-LoC diff sat in `remote.ts`/`agent.ts`; `KOLU_AGENT_FLAKE_REF`-required produced zero drift bugs; deferred heartbeat survived cold realisation. What it missed: the provider DAG had to be *extracted*, not reused in place (became R-1.6); a parent-side screen mirror leaked in from R-3 (dissolved by R-4's `attach()` snapshot); and connection lifecycle has 5+ states and 4 invariants, not the 3 the plan listed.
+
+**Process retro — agent-driven development pitfalls** (durable rules from the #994 session log): the turn isn't over until the agent has driven the feature and observed the user-named outcome — CI-green is necessary, not sufficient; when adding a symmetric variant, **diff against the original as an explicit checklist** (half of one review round was "local publishes/disposes X; remote doesn't"); when invalidating cached state, grep for *every* reader of that cache; every `void someAsync()` needs its rejection path traced, and callbacks on unknown primitives may fire synchronously on subscribe; a harness-injected "continue" prompt means the work is *unfinished*, not "nothing more to do"; for any feature that writes a file then references it elsewhere, name which host owns the filesystem at each step; and for library-defined enums, open the library's source — `FAILED_PRECONDITION` (gRPC) silently diluted to HTTP 500 because oRPC spells it `PRECONDITION_FAILED`.

@@ -14,7 +14,7 @@
  * only the link — this same `implementSurface` body is served over a unix
  * socket by the surviving `kolu --stdio` daemon (`serveOverStdio`), and the
  * consumer connects a socket-backed client of the identical type — so nothing
- * downstream changes. See `docs/plans/remote-terminals.pty-daemon.html`.
+ * downstream changes. See `docs/atlas/src/content/atlas/pty-daemon.mdx`.
  *
  * Host-specific config (`shellDir`, `version`) is **injected**, not imported:
  * the package owns the PTY + the contract + the serving, but not kolu-server's
