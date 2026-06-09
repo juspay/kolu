@@ -10,10 +10,13 @@
  *  outputs after reader-specific behaviors would couple this interface
  *  to their internals.
  *
- *  Mobile is a separate axis (device class, media query) handled one
- *  level up in App.tsx (`MobileTileView` vs `TerminalCanvas`) and
- *  deliberately stays out of this hook — different change frequency,
- *  different reactivity source, different blast radius. Tracked: kolu#628. */
+ *  Mobile is a separate axis (device class, media query) and the *posture
+ *  state* (`mode`, `canMaximize`) stays canvas-focused: which view to mount
+ *  (`MobileTileView` vs `TerminalCanvas`) is decided one level up in App.tsx
+ *  — different change frequency, different reactivity source, different blast
+ *  radius. The one exception is `toggle()`, which guards on
+ *  `supportsSpatialCanvas()` so a mobile/narrow hardware-keyboard press can't
+ *  silently flip the persisted flag (see its doc below). Tracked: kolu#628. */
 
 import { supportsSpatialCanvas } from "../capabilities";
 import { useTerminalStore } from "../terminal/useTerminalStore";
