@@ -936,6 +936,17 @@ const CodeTab: Component<{
                           terminalId={tid}
                           repoPath={repo}
                           filePath={path}
+                          // The live repo file list — the vault a `[[wikilink]]`
+                          // in the previewed doc resolves against, pathless —
+                          // paired with its readiness as one value. `fsListAll`
+                          // resubscribes (and briefly empties `treePaths()`) on
+                          // tab toggles; `pending` rides alongside the snapshot
+                          // so the click guard reads the readiness of the very
+                          // list it resolves against, never a drifted pair.
+                          repoVault={{
+                            paths: treePaths(),
+                            pending: allPaths.pending(),
+                          }}
                           theme={diffTheme()}
                           initialSelectedLines={selectedRange()}
                           // Following a link inside an HTML preview is the

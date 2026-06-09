@@ -108,9 +108,13 @@ const ChromeBar: Component<{
               // sibling outside the Resizable ever shrinks the
               // container, switch to a measured pixel offset or a
               // host-published CSS custom property.
-              right: rightPanel.collapsed()
-                ? 0
-                : `${rightPanel.panelSize() * 100}vw`,
+              // `panelOpen()` (not raw `collapsed()`) so an empty workspace —
+              // where the panel host isn't even mounted (App's `showEmpty`)
+              // — reserves no width here. Otherwise the cluster floats 25vw
+              // shy of the right edge with nothing filling the gap.
+              right: rightPanel.panelOpen()
+                ? `${rightPanel.panelSize() * 100}vw`
+                : 0,
             }
       }
     >
@@ -184,22 +188,27 @@ const ChromeBar: Component<{
           </button>
         </Tip>
         <Tip
-          label={`Toggle inspector (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
+          label={`Toggle right panel (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
         >
           <button
             type="button"
             data-testid="inspector-toggle"
             class={toggleBtnClass}
             classList={{
-              "bg-surface-2 text-fg": !rightPanel.collapsed(),
+              "bg-surface-2 text-fg": rightPanel.panelOpen(),
               "text-fg-3 hover:bg-surface-2 hover:text-fg":
-                rightPanel.collapsed(),
+                rightPanel.hasTerminals() && !rightPanel.panelOpen(),
+              "text-fg-3/40 cursor-not-allowed": !rightPanel.hasTerminals(),
             }}
-            data-active={!rightPanel.collapsed() ? "" : undefined}
+            data-active={rightPanel.panelOpen() ? "" : undefined}
+            // Dead on an empty workspace: there's no panel to reveal, so the
+            // toggle joins the maximize button in being disabled until a
+            // terminal exists (the keybind/palette no-op via togglePanel too).
+            disabled={!rightPanel.hasTerminals()}
             onClick={() => rightPanel.togglePanel()}
-            aria-label="Toggle inspector"
+            aria-label="Toggle right panel"
           >
-            <InspectorToggleIcon active={!rightPanel.collapsed()} />
+            <InspectorToggleIcon active={rightPanel.panelOpen()} />
           </button>
         </Tip>
         <div class="pointer-events-auto">

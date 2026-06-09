@@ -9,7 +9,12 @@ const normalized = pathname.replace(new RegExp(`^${base}`), '') || '/';
 const isActive = (p: string) =>
   p === '/' ? normalized === '/' : normalized.startsWith(p);
 
+// `hideOnMobile` drops the longest, most-redundant labels below `sm` so the
+// single-row nav fits narrow phones (≤360px) without overflowing. The brand
+// logo already links home, so "Get started" is the safe one to hide there.
 const nav = [
+  { label: 'Get started', href: `${href('/')}#quickstart`, path: '/', hideOnMobile: true },
+  { label: 'Changelog', href: href('/changelog'), path: '/changelog' },
   { label: 'Blog', href: href('/blog'), path: '/blog' },
   { label: 'GitHub', href: 'https://github.com/juspay/kolu', external: true },
 ];
@@ -32,7 +37,7 @@ const nav = [
       </span>
     </a>
 
-    <nav class="flex items-center gap-5 sm:gap-7 mono text-[0.78rem]">
+    <nav class="flex items-center gap-4 sm:gap-7 mono text-[0.78rem]">
       {
         nav.map((item) =>
           'external' in item ? (
@@ -49,6 +54,7 @@ const nav = [
               href={item.href}
               class:list={[
                 'transition-colors',
+                'hideOnMobile' in item && 'hidden sm:inline-block',
                 isActive(item.path) ? 'text-amber' : 'text-ink-dim hover:text-ink',
               ]}
             >

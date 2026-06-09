@@ -47,6 +47,12 @@ const { Terminal } =
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
+/** The terminal-identity string the headless PTY reports in its XTVERSION
+ *  (CSI > q) reply. The DCS reply is built from this — see the XTVERSION
+ *  handler in {@link createPtyHost} — so the byte layout lives in one place.
+ *  Exported so tests assert against the same source rather than a copy. */
+export const HEADLESS_TERM_ID = "xterm-headless(kolu)";
+
 /** Opaque PTY identifier. */
 export type PtyId = string;
 
@@ -483,6 +489,26 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         scheduleForegroundBurst(entry);
         return true;
       }),
+    );
+
+    // XTVERSION (CSI > 0 q): identify the terminal. TUIs like Yazi query this
+    // synchronously at startup and block until they receive a DCS reply. The
+    // headless xterm has no built-in handler, so without this it never answers
+    // — and the browser xterm's reply is filtered out as a late duplicate
+    // (see terminalResponseFilter.ts). Answer here so the PTY is never blocked.
+    entry.disposables.push(
+      headless.parser.registerCsiHandler(
+        { prefix: ">", final: "q" },
+        (params) => {
+          // XTVERSION is "CSI > Ps q" with Ps absent or 0. Mirror xterm's own
+          // sendXtVersion: answer only for Ps <= 0, but always consume the
+          // sequence so it never leaks downstream as a no-op CSI.
+          const ps = params[0];
+          if (typeof ps === "number" && ps > 0) return true;
+          proc.write(`\x1bP>|${HEADLESS_TERM_ID}\x1b\\`);
+          return true;
+        },
+      ),
     );
 
     // Forward device-query responses (DA1/DSR) from the headless terminal

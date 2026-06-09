@@ -14,9 +14,24 @@ import {
   clientIsStale,
   isCleanRef,
   isImmutableAssetPath,
+  NOTIFICATION_SW_SOURCE,
+  rejectStaleProcess,
   SHELL_CACHE_CONTROL,
+  SW_MESSAGE_TYPE,
   SW_SOURCE,
 } from "./index";
+
+describe("rejectStaleProcess", () => {
+  it("passes the first-ever connect (no claimed pid)", () => {
+    expect(rejectStaleProcess(null, "live-1")).toBe(false);
+  });
+  it("passes a matching pid (transient drop, same process)", () => {
+    expect(rejectStaleProcess("live-1", "live-1")).toBe(false);
+  });
+  it("rejects a mismatched pid (tab bound to a previous process)", () => {
+    expect(rejectStaleProcess("dead-0", "live-1")).toBe(true);
+  });
+});
 
 describe("cacheControlFor", () => {
   it("pins content-hashed assets immutable", () => {
@@ -150,5 +165,43 @@ describe("SW_SOURCE (the self-destructing retirement worker)", () => {
     expect(SW_SOURCE).toContain("self.registration.unregister()");
     expect(SW_SOURCE).toContain("caches.delete");
     expect(SW_SOURCE).toContain("client.navigate(client.url)");
+  });
+});
+
+describe("NOTIFICATION_SW_SOURCE (the fetch-less notification worker)", () => {
+  it("registers NO fetch handler — the property that keeps it freshness-safe", () => {
+    // A fetch handler is the only way a worker can serve a stale shell; without
+    // one it does zero caching, so it can't violate the freshness contract.
+    expect(NOTIFICATION_SW_SOURCE).not.toContain('"fetch"');
+    expect(NOTIFICATION_SW_SOURCE).not.toContain("onfetch");
+  });
+
+  it("handles notificationclick and routes the click back to a window", () => {
+    // The worker stamps the shared SW_MESSAGE_TYPE discriminator on the click
+    // envelope (interpolated from the exported constant, not a duplicated literal),
+    // so a rename moves both sides at once instead of silently desyncing the page.
+    expect(NOTIFICATION_SW_SOURCE).toContain(JSON.stringify(SW_MESSAGE_TYPE));
+    expect(NOTIFICATION_SW_SOURCE).toContain("client.focus()");
+    expect(NOTIFICATION_SW_SOURCE).toContain("client.postMessage");
+    expect(NOTIFICATION_SW_SOURCE).toContain("openWindow");
+  });
+
+  it("heals a legacy caching worker on activate (purge caches + claim), without self-unregistering", () => {
+    expect(NOTIFICATION_SW_SOURCE).toContain("self.skipWaiting()");
+    expect(NOTIFICATION_SW_SOURCE).toContain("caches.delete");
+    expect(NOTIFICATION_SW_SOURCE).toContain("self.clients.claim()");
+    // It must persist (it's the live notification host) — unlike SW_SOURCE.
+    expect(NOTIFICATION_SW_SOURCE).not.toContain(
+      "self.registration.unregister()",
+    );
+  });
+
+  it("navigates open windows when it purges a legacy cache, so retirement needs no user action", () => {
+    // The stale-client guarantee SW_SOURCE gives: a tab the legacy caching
+    // worker may have served a stale shell to must land on the fresh shell with
+    // no manual reload. Presence of caches is the tell-tale; the navigate is
+    // gated on it so a clean first install never reloads a tab gratuitously.
+    expect(NOTIFICATION_SW_SOURCE).toContain("keys.length > 0");
+    expect(NOTIFICATION_SW_SOURCE).toContain("client.navigate(client.url)");
   });
 });

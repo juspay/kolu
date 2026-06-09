@@ -82,13 +82,16 @@ export const clientIsStale = (
   isCleanRef(clientCommit) &&
   serverCommit !== clientCommit;
 
-/** The self-destructing service worker, as a string the app writes to its
- *  public dir at `/sw.js` (served `no-cache`, see `cacheControlFor`). surface-app
- *  ships NO worker; this one exists ONLY to retire a worker an earlier build of a
- *  consumer left registered — the browser's own update check installs it, and on
+/** The self-destructing service worker — the DEFAULT `/sw.js` source for the
+ *  no-worker class of app. It exists ONLY to retire a worker an earlier build of
+ *  a consumer left registered — the browser's own update check installs it, and on
  *  activation it deletes caches, unregisters itself, and reloads controlled tabs.
- *  The `/sw.js` route serves this constant verbatim (see `installFreshStatic` in
- *  `./server`), so there is no separate served file and no lockstep test to maintain. */
+ *  Pair with `retireServiceWorker()` (the page-side call). The `/sw.js` route
+ *  serves this constant verbatim (see `installFreshStatic` in `./server`), so
+ *  there is no separate served file and no lockstep test to maintain.
+ *
+ *  An app that needs notifications opts into `NOTIFICATION_SW_SOURCE` instead
+ *  (`installFreshStatic({ serviceWorker: "notify" })` + `registerServiceWorker()`). */
 export const SW_SOURCE = `// @kolu/surface-app: self-destructing service worker (retires a legacy worker).
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(retire()));
@@ -100,3 +103,109 @@ async function retire() {
   for (const client of clients) client.navigate(client.url);
 }
 `;
+
+/** The `postMessage` discriminator the notification worker stamps on the click
+ *  envelope it sends to the page (`{ type: SW_MESSAGE_TYPE, data }`). This is the
+ *  receptacle's stable contract: the worker source below interpolates this same
+ *  constant, and the page-side listener imports it to match — so a rename here is
+ *  a compile error on the page instead of a silently-dropped click. */
+export const SW_MESSAGE_TYPE = "notificationclick";
+
+/** The notification service worker — the opt-in `/sw.js` source for an app that
+ *  shows OS notifications (`ServiceWorkerRegistration.showNotification`, the ONLY
+ *  notification path that works in an installed PWA — the page-level
+ *  `new Notification()` constructor is an illegal constructor in `standalone`
+ *  display mode on Chromium).
+ *
+ *  It is **deliberately fetch-less**: it registers NO `fetch` handler, so it
+ *  never intercepts a navigation or asset request and thus *cannot* serve a stale
+ *  shell. That is what keeps it compatible with the freshness contract — the
+ *  contract bans a *caching* worker, and a worker with no `fetch` handler does
+ *  zero caching. On `activate` it still purges any cache a legacy worker left and
+ *  `clients.claim()`s, so registering it over an old caching worker heals the
+ *  stale-shell bug the same way the self-destructing worker did. Crucially, when
+ *  it actually finds caches to purge — the tell-tale of a legacy *caching* worker
+ *  that was just controlling these tabs and may have served them a stale shell —
+ *  it also navigates the open window clients, so a tab still running the old
+ *  in-memory build lands on the fresh shell with no user action (the same
+ *  no-reload-needed guarantee `SW_SOURCE` gives). A clean first install finds no
+ *  caches, so it never reloads a tab gratuitously. `notificationclick` focuses an
+ *  open app window (and `postMessage`s the notification's `data` so the page can
+ *  route the click — e.g. activate the right terminal) or opens one.
+ *
+ *  Pair with `registerServiceWorker()` (the page-side call) and
+ *  `installFreshStatic({ serviceWorker: "notify" })` (the server side). */
+export const NOTIFICATION_SW_SOURCE = `// @kolu/surface-app: notification service worker (fetch-less — never caches).
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(takeover()));
+async function takeover() {
+  const keys = await caches.keys().catch(() => []);
+  await Promise.all(keys.map((key) => caches.delete(key)));
+  await self.clients.claim();
+  // Caches present means a legacy *caching* worker was just controlling these
+  // tabs — the navigation that triggered this activation may have been served a
+  // stale shell from its cache. Reload the open windows onto the fresh shell so
+  // retirement needs no user action (matching SW_SOURCE). A clean first install
+  // finds no caches and skips this, so it never reloads a tab gratuitously.
+  if (keys.length > 0) {
+    const clients = await self.clients.matchAll({ type: "window" });
+    for (const client of clients) client.navigate(client.url);
+  }
+}
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(focusApp(event.notification.data || {}));
+});
+async function focusApp(data) {
+  const clients = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+  const client = clients.find((c) => "focus" in c);
+  if (client) {
+    await client.focus();
+    client.postMessage({ type: ${JSON.stringify(SW_MESSAGE_TYPE)}, data });
+  } else {
+    await self.clients.openWindow("/");
+  }
+}
+`;
+
+// ── Stale-tab handshake (the restart axis's wire contract) ────────────────────
+// A surface app mints a fresh `processId` per boot (see `serverIdentity` in
+// `/server`). A tab open across a restart reconnects to the NEW process and
+// replays its live subscriptions against state the fresh process never had. The
+// handshake closes that window at the connection boundary: the client echoes its
+// last-known id as a query param on every (re)connect; the server rejects a
+// mismatch before the transport upgrades. These three framework-free pieces are
+// the shared contract both ends (and both runtimes — Node and Bun) build on; the
+// per-runtime extraction and the close itself stay in the consumer.
+
+/** WebSocket URL query param carrying the client's last-known server
+ *  `processId`. The client echoes it on every (re)connect so the server can
+ *  recognize a stale tab reconnecting to a RESTARTED instance at the handshake —
+ *  before any live subscription replays. Absent on the first connect (the client
+ *  hasn't observed an identity yet). */
+export const SERVER_PROCESS_ID_PARAM = "pid";
+
+/** WebSocket close code the server uses to reject a client bound to a previous
+ *  process (its `pid` no longer matches the live `processId`). In the application
+ *  range (4000–4999, per RFC 6455 §7.4.2). */
+export const STALE_PROCESS_CLOSE_CODE = 4001;
+
+/** The pure stale-tab decision: does a reconnecting client's claimed processId
+ *  belong to a previous instance? `true` → reject it (the caller closes with
+ *  `STALE_PROCESS_CLOSE_CODE`); `false` → let the handshake proceed. An absent
+ *  `claimedPid` (the first-ever connect, before the client observed an identity)
+ *  always passes. A total function of two strings — no transport, no request
+ *  object — so it's identically callable from a Node `IncomingMessage` host and a
+ *  Bun Fetch-`Request` host; each extracts `claimedPid` with
+ *  `SERVER_PROCESS_ID_PARAM` off its own request and applies the close itself.
+ *  `liveId` MUST be the same id the `identity.info` probe reports (see
+ *  `serverIdentity`), or the gate compares against an id the client never saw. */
+export function rejectStaleProcess(
+  claimedPid: string | null,
+  liveId: string,
+): boolean {
+  return claimedPid !== null && claimedPid !== liveId;
+}

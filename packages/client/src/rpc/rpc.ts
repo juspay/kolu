@@ -14,14 +14,16 @@
  * Transport setup (PartySocket, typed oRPC client) lives in `../wire.ts`.
  */
 
+import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
 import {
   createServerLifecycle,
+  retireSocket,
   type ServerLifecycleEvent,
   surfaceAppProbe,
 } from "@kolu/surface-app/solid";
 import { createMemo } from "solid-js";
 import { match } from "ts-pattern";
-import { surfaceApp, ws } from "../wire";
+import { rememberServerProcessId, surfaceApp, ws } from "../wire";
 
 export type WsStatus = "connecting" | "open" | "closed";
 export type { ServerLifecycleEvent };
@@ -41,10 +43,32 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // probe call shape lives in surface-app's `surfaceAppProbe`, beside the surface
   // that defines the probe — not re-cast here.
   probe: () => surfaceAppProbe(surfaceApp),
+  // Echo each observed identity back as the `pid` handshake param on the next
+  // reconnect — that's how the server recognizes a stale tab after a restart and
+  // rejects it with `STALE_PROCESS_CLOSE_CODE`. The lifecycle PUBLISHES the id via
+  // this hook (the probe stays pure); `wire.ts` stashes it in the mutable its URL
+  // thunk reads. Distinct from `serverProcessId()`, which is `undefined` on a
+  // stale-close — the echo must keep re-presenting the last *observed* (now dead)
+  // id so each reconnect is re-rejected.
+  onProcessId: rememberServerProcessId,
   // A persistently-broken probe would otherwise silently leave the UI stuck in
   // its prior connection state. Log it (the next open retries) — same as the
   // pre-extraction rpc.ts.
   onProbeError: (err) => console.error("surfaceApp.info probe failed:", err),
+  // The server closes a stale tab (one bound to a previous process) with this
+  // code at the handshake. Treat it as a definitive restart so the reload
+  // overlay takes over, instead of a "reconnecting" spinner that would loop as
+  // the client keeps re-presenting the same stale id.
+  restartCloseCode: STALE_PROCESS_CLOSE_CODE,
+  // Once the server rejects this tab as stale, permanently retire the socket
+  // (`retireSocket` from `@kolu/surface-app/solid` — stop reconnect + fail sends
+  // loudly, so neither partysocket's offline buffer nor oRPC's pending peers grow
+  // unbounded behind the reload overlay; the partysocket/oRPC-internals knowledge
+  // lives in surface-app, beside the transport contract it manipulates). `wire.ts`
+  // only owns the `ws` instance being retired (and its process-id URL state).
+  // The library fires this at the single site that decodes the stale-close, so we
+  // provide the action without a second `event.code` decode or a reactive effect.
+  onStaleRestart: () => retireSocket(ws),
 });
 
 // `status` is the surface-app `ConnectionStatus` projection of the same
@@ -53,12 +77,18 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
 // no double `surfaceApp.info` probe per reconnect, no observer disagreement).
 export { lifecycle, serverProcessId, status };
 
-/** Transport status for the header dot. */
+/** Transport status for the header dot — read from the lifecycle ALONE. A
+ *  `restarted` event carries its own `transport`: a reconnect-restart (socket
+ *  open against a fresh process — `"open"`) reads green; a stale-restart (the
+ *  server closed this tab at the handshake — `"closed"`) reads red. The split is
+ *  the library's, so kolu never re-inspects the socket to recover it. */
 const wsStatus = createMemo<WsStatus>(() =>
-  match(lifecycle().kind)
-    .with("connecting", () => "connecting" as const)
-    .with("disconnected", () => "closed" as const)
-    .with("connected", "reconnected", "restarted", () => "open" as const)
+  match(lifecycle())
+    .with({ kind: "connecting" }, () => "connecting" as const)
+    .with({ kind: "disconnected" }, () => "closed" as const)
+    .with({ kind: "restarted", transport: "closed" }, () => "closed" as const)
+    .with({ kind: "restarted" }, () => "open" as const)
+    .with({ kind: "connected" }, { kind: "reconnected" }, () => "open" as const)
     .exhaustive(),
 );
 

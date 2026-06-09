@@ -23,7 +23,6 @@
 
 import type { Readable, Writable } from "node:stream";
 import type { ClientContext, ClientOptions } from "@orpc/client";
-import { ORPCError } from "@orpc/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type {
   StandardLinkClient,
@@ -36,6 +35,7 @@ import type {
   StandardRequest,
 } from "@orpc/standard-server";
 import { ClientPeer } from "@orpc/standard-server-peer";
+import { SURFACE_STDIO_TRANSPORT_CLOSED, deadTransportError } from "../client";
 import { wireClient, wireRetryPlugins } from "./_wire";
 import { encodeFrame, readFramedLines } from "./stdio-codec";
 
@@ -119,10 +119,10 @@ export class LinkStdioClient<T extends ClientContext>
     _input: unknown,
   ): Promise<StandardLazyResponse> {
     if (this.closed) {
-      throw new ORPCError("SURFACE_STDIO_TRANSPORT_CLOSED", {
-        message:
-          "stdio transport is closed (the peer process exited or its stream ended); request not sent.",
-      });
+      throw deadTransportError(
+        SURFACE_STDIO_TRANSPORT_CLOSED,
+        "stdio transport is closed (the peer process exited or its stream ended); request not sent.",
+      );
     }
     const response = await this.peer.request(request);
     return { ...response, body: () => Promise.resolve(response.body) };

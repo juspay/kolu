@@ -62,6 +62,11 @@ const TileTitleActions: Component<{
             onClick={(e) => {
               e.stopPropagation();
               store.setActiveSilently(props.id);
+              // The agent indicator is an Inspector entry point — the agent's
+              // metadata lives on the Inspector tab. Select it explicitly
+              // before revealing, otherwise a fresh terminal (whose Code tab
+              // is the default surface) would open on Code instead.
+              rightPanel.showInspector();
               rightPanel.reveal();
             }}
             title="Open inspector"

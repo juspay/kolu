@@ -3,7 +3,8 @@
  *
  * `installFreshStatic` is the freshness contract on the wire: no-store shell,
  * immutable hashed assets, 404 on an asset miss (never the HTML shell), the
- * self-destructing `/sw.js`, and the SPA fallback. `installPwaManifest` serves
+ * `/sw.js` worker (self-destructing by default; the fetch-less notification
+ * worker when `serviceWorker: "notify"`), and the SPA fallback. `installPwaManifest` serves
  * the desktop-app manifest. `installSurfaceApp` wires both in the common order.
  * `buildInfoServer` is the buildInfo cell's server impl; `surfaceAppServer`
  * bundles it with the `identity.info` probe impl as the deps a consumer drops
@@ -21,11 +22,27 @@ import {
   cacheControlFor,
   type FreshnessPaths,
   isImmutableAssetPath,
+  NOTIFICATION_SW_SOURCE,
+  rejectStaleProcess,
+  SERVER_PROCESS_ID_PARAM,
   SHELL_CACHE_CONTROL,
+  STALE_PROCESS_CLOSE_CODE,
   SW_SOURCE,
 } from "./index";
 import type { BuildInfo } from "./surface";
 import { resolveCommit } from "./vite";
+
+/** Which worker the `/sw.js` route serves — and which page-side lifecycle call
+ *  it pairs with. `"retire"` (default) serves the self-destructing `SW_SOURCE`
+ *  for the no-worker class of app (pair with `retireServiceWorker()`). `"notify"`
+ *  serves the fetch-less `NOTIFICATION_SW_SOURCE` so the app can show OS
+ *  notifications (pair with `registerServiceWorker()`). */
+export type ServiceWorkerMode = "retire" | "notify";
+
+const SW_SOURCE_FOR: Record<ServiceWorkerMode, string> = {
+  retire: SW_SOURCE,
+  notify: NOTIFICATION_SW_SOURCE,
+};
 
 /** A web app manifest. `name` is required; everything else has a sensible
  *  default, and any extra fields (id, description, orientation, screenshots,
@@ -41,19 +58,21 @@ export interface ManifestOptions {
 }
 
 /** Stamp the freshness `Cache-Control` policy onto a Hono app and serve the SPA
- *  from `root`. Serves the self-destructing `/sw.js` itself (no-cache); a
- *  `/assets/*` miss 404s; any other unmatched path serves the `no-store` shell
- *  so a normal reload can never replay a stale one. */
+ *  from `root`. Serves the `/sw.js` worker itself (no-cache); a `/assets/*` miss
+ *  404s; any other unmatched path serves the `no-store` shell so a normal reload
+ *  can never replay a stale one. `serviceWorker` picks which worker `/sw.js`
+ *  serves (default `"retire"`, the self-destructing one). */
 export function installFreshStatic(
   app: Hono,
-  opts: { root: string } & FreshnessPaths,
+  opts: { root: string; serviceWorker?: ServiceWorkerMode } & FreshnessPaths,
 ): void {
   const root = resolve(opts.root);
-  // The retirement worker, served no-cache — registered first so the static
+  const swSource = SW_SOURCE_FOR[opts.serviceWorker ?? "retire"];
+  // The `/sw.js` worker, served no-cache — registered first so the static
   // catch-all never shadows it, and so the app never hand-rolls this route.
   app.get("/sw.js", (c) => {
     c.header("Cache-Control", cacheControlFor("/sw.js")!);
-    return c.body(SW_SOURCE, 200, {
+    return c.body(swSource, 200, {
       "content-type": "text/javascript; charset=utf-8",
     });
   });
@@ -111,13 +130,18 @@ export function installPwaManifest(
  *  apps that want to compose them by hand. */
 export function installSurfaceApp(
   app: Hono,
-  opts: { clientDist: string; manifest?: ManifestOptions } & FreshnessPaths,
+  opts: {
+    clientDist: string;
+    manifest?: ManifestOptions;
+    serviceWorker?: ServiceWorkerMode;
+  } & FreshnessPaths,
 ): void {
   if (opts.manifest) installPwaManifest(app, opts.manifest);
   installFreshStatic(app, {
     root: opts.clientDist,
     assetPrefix: opts.assetPrefix,
     shellPaths: opts.shellPaths,
+    serviceWorker: opts.serviceWorker,
   });
 }
 
@@ -298,10 +322,18 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
  *  provider's `probe={() => client.rpc.surface.identity.info({})}` (the scoped
  *  sibling client consumes the `surfaceApp` key). */
 export function serverIdentity(opts: { processId?: string } = {}): {
+  /** The id this process minted (or the injected override). This is the
+   *  read-back seam for a consumer that lets `serverIdentity` MINT the id
+   *  internally (no external source): it captures `const { processId } =
+   *  serverIdentity()` and feeds that to `rejectStaleProcess`, so the stale-tab
+   *  gate and the `identity.info` probe single-source one id. A consumer that
+   *  mints its own id externally (like kolu) single-sources by INJECTING it via
+   *  `opts.processId` and need not read this field back. */
+  processId: string;
   identity: { info: () => Promise<{ processId: string }> };
 } {
   const processId = opts.processId ?? randomUUID();
-  return { identity: { info: async () => ({ processId }) } };
+  return { processId, identity: { info: async () => ({ processId }) } };
 }
 
 /** The whole surface-app server side in one call — the `buildInfo` cell impl
@@ -319,10 +351,83 @@ export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
   opts: Parameters<typeof buildInfoServer<T>>[0] & { processId?: string } = {},
 ): {
   cells: BuildInfoServerFragment<T>;
+  /** The minted (or injected) per-process id — the same one the `identity.info`
+   *  probe reports. This is the read-back seam for a consumer that lets
+   *  `surfaceAppServer` MINT the id internally (no external source): it captures
+   *  `const { processId } = surfaceAppServer(...)` and feeds that to
+   *  `rejectStaleProcess`, so the stale-tab gate and the probe single-source one
+   *  id (a second mint would never match). A consumer that mints its own id
+   *  externally (like kolu) single-sources by INJECTING it via `opts.processId`
+   *  and need not read this field back. */
+  processId: string;
   procedures: { identity: { info: () => Promise<{ processId: string }> } };
 } {
+  const identity = serverIdentity({ processId: opts.processId });
   return {
     cells: buildInfoServer<T>(opts),
-    procedures: serverIdentity({ processId: opts.processId }),
+    processId: identity.processId,
+    procedures: { identity: identity.identity },
   };
+}
+
+/** A server-side WebSocket the stale-tab gate acts on — the structural subset of
+ *  the `ws` package's socket both kolu (single `/rpc/ws`) and drishti (per-host
+ *  dispatch) upgrade. Kept structural so surface-app needn't depend on `ws`. */
+export interface GateableSocket {
+  on: (event: "error", listener: (err: Error) => void) => unknown;
+  close: (code: number, reason?: string) => void;
+}
+
+/** Apply the stale-tab handshake gate at the WS upgrade, in the ONE correct
+ *  order — so no consumer re-derives it (and re-introduces the crash kolu#1231's
+ *  review caught). The three steps the server must do BEFORE oRPC upgrades the
+ *  socket, encapsulated:
+ *
+ *   1. **Install the `error` listener FIRST.** A socket rejected in step 3 is
+ *      still a live `EventEmitter` until its close handshake settles; an
+ *      unhandled `error` in that window is fatal to the process. Installing it
+ *      before the early return is the ordering a hand-rolled gate gets wrong —
+ *      drishti's pre-extraction upgrade handler did, and only avoided the crash
+ *      by luck of timing.
+ *   2. **Decide via `rejectStaleProcess`**, reading the claimed `pid` off the
+ *      request URL with `SERVER_PROCESS_ID_PARAM` — the param name stays internal
+ *      here, single-sourced with the client echo in `./connect`.
+ *   3. **On a stale tab, `close(STALE_PROCESS_CLOSE_CODE, …)`** and report `true`
+ *      so the caller returns WITHOUT upgrading; `false` means proceed.
+ *
+ *  `liveProcessId` MUST be the id the `identity.info` probe reports
+ *  (`surfaceAppServer().processId` / an externally-minted id injected into it),
+ *  or the gate compares against an id the client never saw. The `error` listener
+ *  is installed for ACCEPTED sockets too (it must, to survive the reject window),
+ *  so it's also this socket's standing transport-error handler. `onError` thus
+ *  defaults to a LOUD `console.error` (matching `buildInfoServer`) rather than a
+ *  silent no-op — a swallowed transport error on an accepted socket is the exact
+ *  footgun a shared helper should not bake in; pass your own logger to override,
+ *  or an explicit no-op at the call site if you genuinely want silence. `onReject`
+ *  logs the rejection. */
+export function gateStaleSocket(
+  ws: GateableSocket,
+  requestUrl: URL,
+  liveProcessId: string,
+  opts: {
+    onError?: (err: Error) => void;
+    onReject?: (claimedPid: string) => void;
+  } = {},
+): boolean {
+  ws.on(
+    "error",
+    opts.onError ??
+      ((err) =>
+        console.error(
+          "gateStaleSocket: WebSocket error (pass `onError` to handle this).",
+          err,
+        )),
+  );
+  const claimedPid = requestUrl.searchParams.get(SERVER_PROCESS_ID_PARAM);
+  if (claimedPid !== null && rejectStaleProcess(claimedPid, liveProcessId)) {
+    opts.onReject?.(claimedPid);
+    ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+    return true;
+  }
+  return false;
 }

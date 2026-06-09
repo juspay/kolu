@@ -23,11 +23,17 @@ if (!fontsDir) {
 }
 
 export default defineConfig({
-  // No VitePWA / service worker: kolu doesn't use one (it can't work offline and
-  // a precaching worker only served stale builds across deploys — see
+  // No VitePWA / no *caching* service worker: kolu can't work offline and a
+  // precaching worker only served stale builds across deploys (see
   // docs/cache-bug.md). Freshness is surface-app's contract: the server's
-  // `no-store` shell + immutable hashed assets; surface-app serves a
-  // self-destructing `/sw.js` that retires any SW an earlier build registered.
+  // `no-store` shell + immutable hashed assets. In production kolu DOES register
+  // one worker — a *fetch-less* notification worker (surface-app's
+  // `NOTIFICATION_SW_SOURCE`, served at `/sw.js` via
+  // `installFreshStatic({ serviceWorker: "notify" })`) so an installed PWA can
+  // raise OS notifications; with no `fetch` handler it never caches, so freshness
+  // still holds. That `/sw.js` is served by the prod server, not Vite, so it is
+  // intentionally absent under `just dev` — `registerServiceWorker()` simply
+  // no-ops there (registration fails → falls back to retiring any legacy worker).
   //
   // `surfaceApp()` stamps `__SURFACE_APP_COMMIT__` from kolu's `KOLU_COMMIT_HASH`
   // env (→ git → "dev"), the single commit source shared with the server cell.

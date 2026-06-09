@@ -22,11 +22,10 @@ When("I collapse the right panel", async function (this: KoluWorld) {
 When(
   "I click the inspector toggle icon in the header",
   async function (this: KoluWorld) {
-    // The inspector toggle is the right-oriented PanelToggleIcon in the header.
-    // It doesn't have a dedicated data-testid, so locate by aria-label.
-    const toggle = this.page.locator(
-      'header button[aria-label*="Toggle inspector"]',
-    );
+    // The right-panel toggle in the header — `data-testid="inspector-toggle"`
+    // (the test-id is kept stable even though the visible label is now
+    // "Toggle right panel").
+    const toggle = this.page.locator('header [data-testid="inspector-toggle"]');
     await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await toggle.click();
     await this.waitForFrame();
@@ -109,6 +108,59 @@ Then(
     assert.ok(
       text && text.trim().length > 0,
       `Expected inspector theme section to have a theme name, got "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the inspector toggle should not be active",
+  async function (this: KoluWorld) {
+    // The header toggle drops its `data-active` marker when the panel isn't
+    // effectively open — which an empty workspace forces regardless of the
+    // collapsed preference.
+    await this.page.waitForFunction(
+      () => {
+        const btn = document.querySelector(
+          'header [data-testid="inspector-toggle"]',
+        );
+        return !!btn && !btn.hasAttribute("data-active");
+      },
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the inspector toggle should be disabled",
+  async function (this: KoluWorld) {
+    // Use the `:disabled` selector with waitFor so the assertion polls until
+    // SolidJS reactivity has flushed the `disabled` attribute onto the button —
+    // the same idiom as "the Code tab back/forward button should be disabled".
+    // A bare isDisabled() snapshot after waitFor(attached) is a race: the
+    // element can exist in the DOM before the reactive flush propagates
+    // `disabled={true}`.
+    const toggle = this.page.locator(
+      'header [data-testid="inspector-toggle"]:disabled',
+    );
+    await toggle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the chrome bar should reserve no right-panel space",
+  async function (this: KoluWorld) {
+    // The ghost: the floating chrome's inline `right` offset reserves the
+    // panel's width. With no panel mounted it must collapse to 0 so the
+    // control cluster sits flush against the viewport's right edge.
+    await this.page.waitForFunction(
+      () => {
+        const bar = document.querySelector('[data-testid="chrome-bar"]');
+        if (!bar) return false;
+        return getComputedStyle(bar).right === "0px";
+      },
+      null,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

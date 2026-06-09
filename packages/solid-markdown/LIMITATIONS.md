@@ -31,6 +31,16 @@ tab) rather than navigating the app origin — GitHub-faithfully (a trailing
 `#fragment` opens the file but doesn't yet scroll to the heading). Everything is
 themed for light/dark.
 
+**Obsidian-style wikilinks** (`[[Note]]`, `[[Note|alias]]`, `[[Note#heading]]`)
+render as a visually distinct (violet, bracketed) anchor and resolve *pathless*
+across the whole repo: `[[Architecture]]` opens `Architecture.md` (only `.md`
+implied — never a same-stemmed `Architecture.feature`) wherever it lives, with no
+directory hint. A qualified `[[docs/Note]]` narrows to that directory. Resolution is lazy (on click) and routes through the
+same Code-tab front door; an ambiguous basename surfaces a disambiguation menu
+anchored to the link, and a miss toasts. The `![[…]]` **embed/transclusion**
+form is deliberately left inert (literal text), and a `#heading` opens the file
+but doesn't scroll to the heading — same as relative links.
+
 ## Not implemented
 
 These are genuine GitHub features we don't render yet:
@@ -55,6 +65,8 @@ Obsidian extensions. Listed for completeness; low priority.
 - Definition-list `Term / : def` markdown syntax (raw `<dl>` works).
 - Abbreviations `*[HTML]: …`, `[[TOC]]` generation, inline footnotes
   `^[note]`, image-dimension `![](url =200x100)`, TOML front-matter (`+++`).
+- Obsidian `![[…]]` **embeds/transclusion** (the `[[…]]` *link* form IS
+  supported — see above; only inlining the referenced note's content isn't).
 
 ## Partial / known edges
 

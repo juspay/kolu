@@ -12,6 +12,12 @@
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
 
+  # App version — the SINGLE source of truth is packages/server/package.json
+  # (`/release` bumps it before tagging; the server reads the same file at
+  # runtime via pkg.version). Read it here so the nix artifact's version tracks
+  # it with no duplicated literal to drift.
+  version = (pkgs.lib.importJSON ./packages/server/package.json).version;
+
   # INVARIANT: this fileset must include every workspace package that has a
   # `typecheck` script — the typecheck derivation (nix/pnpm-typecheck.nix) reuses
   # this `src`, so a package omitted here is silently skipped by the type
@@ -46,6 +52,7 @@ let
       ./packages/transcript-core
       ./packages/transcript-html
       ./packages/artifact-sdk
+      ./packages/serve-dir
       ./packages/html-escape
       ./packages/url-shape
       ./packages/log
@@ -54,8 +61,7 @@ let
 
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu";
-    version = "0.1.0";
-    inherit src;
+    inherit version src;
     # Platform-independent. fetchPnpmDeps runs `pnpm install --force`, which
     # sets includeIncompatiblePackages=true and bypasses pnpm's os/cpu/libc
     # gating (pkg-manager/headless/src/index.ts:260 in pnpm 10.32.1), so
@@ -63,7 +69,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-kAkiERNc4Z/q1zPJ0/TvfZZ0c+gNGGiJ4Bg/+7tzv7g=";
+    hash = "sha256-S728HMTPfKY1Xp1UAX7ZLLYgFEUoW0TqIURu0P3inIY=";
     fetcherVersion = 3;
   };
 
@@ -99,8 +105,7 @@ let
 
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
-    version = "0.1.0";
-    inherit src;
+    inherit version src;
 
     nativeBuildInputs = [
       pkgs.nodejs
@@ -267,7 +272,7 @@ let
   # comment), so this checks exactly what `pnpm typecheck` does. flake.nix
   # strips this from `packages` and routes it to `checks`.
   typecheck = import ./nix/pnpm-typecheck.nix {
-    inherit pkgs src pnpmDeps;
+    inherit pkgs src pnpmDeps version;
     pname = "kolu-typecheck";
   };
 in

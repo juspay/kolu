@@ -33,7 +33,7 @@ import { useRightPanel } from "./useRightPanel";
  *  via `match(kind).exhaustive()`, which also fails-compile on a missing
  *  variant — so adding a new kind is a three-place change that the
  *  compiler enforces end-to-end. */
-const TAB_KINDS: readonly RightPanelTabKind[] = ["inspector", "code"] as const;
+const TAB_KINDS: readonly RightPanelTabKind[] = ["code", "inspector"] as const;
 
 const TAB_LABEL: Record<RightPanelTabKind, string> = {
   inspector: "Inspector",
