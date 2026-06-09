@@ -696,9 +696,15 @@ body {
   letter-spacing: 0.15em;
   text-transform: uppercase;
   color: var(--color-amber);
-  margin: 1.8rem 0 0.9rem;
+  margin: 1.1rem 0 0.55rem;
   /* Reset prose-invert heading overrides */
   font-weight: 600;
+}
+
+/* First section header in a body hugs the top — its top margin is dead space
+   between the version column and the first entry. */
+.prose-changelog h3:first-child {
+  margin-top: 0;
 }
 
 .prose-changelog ul {
@@ -707,7 +713,7 @@ body {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.45rem;
 }
 
 .prose-changelog li {
@@ -720,6 +726,18 @@ body {
   position: absolute;
   left: 0;
   color: var(--color-ink-faint);
+  transition:
+    transform 0.22s ease,
+    color 0.22s ease;
+}
+
+/* While a <Change> row is unfolded (hover / keyboard focus), its arrow swings
+   down and lights up — the one moving part that says "this row is open". */
+.prose-changelog li:has(.cl-change:hover)::before,
+.prose-changelog li:has(.cl-change:focus-within)::before,
+.prose-changelog li:has(.cl-change.open)::before {
+  transform: rotate(90deg);
+  color: var(--color-amber);
 }
 
 .prose-changelog strong {
