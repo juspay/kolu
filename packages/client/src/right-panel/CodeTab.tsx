@@ -780,7 +780,7 @@ const CodeTab: Component<{
                         // Branch mode with no resolvable base (remote-less
                         // repo, #1244): there's nothing to compare against, so
                         // "No changes vs base" would be a false clean signal.
-                        if (m === "branch" && status()?.base === null) {
+                        if (branchHasNoBase()) {
                           return "No branch base to compare";
                         }
                         return EMPTY_STATE[m];
