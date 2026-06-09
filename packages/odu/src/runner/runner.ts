@@ -157,6 +157,9 @@ export function createLaneRunner(): LaneRunner {
     node.status === "pending" &&
     node.needs.some((dep) => {
       const s = statusOf(dep);
+      // 'errored' is coordinator-only (surface.ts) and unreachable in lane
+      // state; kept so blocked() reads as the full failed-set and survives any
+      // future in-lane errored.
       return s === "failed" || s === "skipped" || s === "errored";
     });
 
