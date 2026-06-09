@@ -503,6 +503,9 @@ export function startWsHeartbeat(
   opts: { intervalMs?: number } = {},
 ): { register: (ws: HeartbeatableSocket) => void; stop: () => void } {
   const alive = new WeakSet<HeartbeatableSocket>();
+  /** Call exactly once per accepted socket — it attaches a `pong` listener with
+   *  no removal path (the listener dies with the socket); a second call would
+   *  attach a duplicate handler. */
   const register = (ws: HeartbeatableSocket): void => {
     alive.add(ws);
     ws.on("pong", () => alive.add(ws));
