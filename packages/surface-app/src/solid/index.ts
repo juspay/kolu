@@ -37,6 +37,7 @@ export {
   retireSocket,
 } from "../lifecycle";
 
+import { createHeartbeat } from "../connect";
 import { reloadForUpdate, retireSocket } from "../lifecycle";
 
 /** The live relationship to the server this client is bound to. */
@@ -400,12 +401,18 @@ export type ConnectionSource<P extends ServerProbe = ServerProbe> =
   | { status: Accessor<ConnectionStatus>; ws?: undefined; probe?: undefined }
   | {
       // The turnkey source OWNS the socket's whole lifecycle — observe (open/
-      // close → status) AND retire it on a stale-restart — so its `ws` is
-      // `WsLike` PLUS the two verbs `retireSocket` needs. The observation-only
-      // `WsLike` stays minimal for the `{ status }` path; only here, where the
-      // provider tears the socket down, is the richer shape required (every real
-      // socket satisfies it).
-      ws: WsLike & { close(): void; send: unknown };
+      // close → status), retire it on a stale-restart, AND keep it alive with a
+      // heartbeat — so its `ws` is `WsLike` PLUS the verbs `retireSocket` and
+      // `createHeartbeat` need. The observation-only `WsLike` stays minimal for
+      // the `{ status }` path; only here, where the provider acts on the socket,
+      // is the richer shape required (every real partysocket satisfies it).
+      ws: WsLike & {
+        close(): void;
+        send: unknown;
+        reconnect(): void;
+        readyState: number;
+        readonly OPEN: number;
+      };
       probe: () => Promise<P>;
       restartCloseCode?: number;
       /** Fired with each observed `processId` (forwards `createServerLifecycle`'s
@@ -521,6 +528,19 @@ export function SurfaceAppProvider<
         props.onError?.(err instanceof Error ? err : new Error(String(err))),
     });
     status = lifecycle.status;
+    // The turnkey source owns the socket, so it also owns its LIVENESS: start a
+    // heartbeat that turns a silently half-open socket (no `close`/`error` ever
+    // fires) into a real reconnect, the same way it already owns the stale-restart
+    // retire above. A consumer using this `{ ws, probe }` shape (e.g. drishti's
+    // admin control plane) gets the watchdog for free — no extra wiring. The
+    // `{ status }` source never reaches here: that app owns the socket and wires
+    // its own `createHeartbeat` beside the `createServerLifecycle` it derived
+    // (e.g. kolu's `rpc.ts`). Re-uses the SAME `probe` as the liveness signal; a
+    // missed probe just warns and reconnects (a routine recovery, not an app
+    // error, so it stays off `onError`). Disposed with the provider so the
+    // interval never outlives the component.
+    const heartbeat = createHeartbeat({ ws, probe: props.probe });
+    onCleanup(heartbeat.dispose);
   } else {
     status = () => "live";
   }
