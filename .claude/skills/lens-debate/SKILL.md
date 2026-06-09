@@ -106,7 +106,8 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-ap
   of implemented. For callers like `/be-review`'s parallel gauntlet, where the
   lenses review a **pinned snapshot** and the live branch has moved on since, so
   the caller must apply the change requests itself. Implies nothing about
-  commenting; the comment then records the fixes as "handed off".
+  commenting; the comment then records the fixes as "handed off". (`--no-commit`
+  is moot under `--no-apply` — nothing is implemented, so nothing is committed.)
 - **`--no-comment`**: don't post the debate summary to the PR. By **default**,
   when a PR exists, the summary IS posted as a PR comment (see step 3).
 - **`--with-police`**: fold in `/code-police` as a third, **lower-weight voice**.

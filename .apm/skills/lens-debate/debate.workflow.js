@@ -41,6 +41,8 @@ let base = a.base || 'origin/master'
 const maxRounds = a.maxRounds || 12
 // Apply agreed `fix` findings as individual commits (default on). `--no-commit`
 // still applies the edits to the working tree, it just leaves them uncommitted.
+// No-op when `apply` is false — the apply:false path returns plans in `fixes`
+// and never commits; `commit` only gates the in-workflow Apply phase.
 const commit = a.commit !== false
 // Run the Apply phase at all (default on). `apply: false` skips Phase 3 entirely:
 // the debate still settles every finding, but the agreed `fix` plans are RETURNED
