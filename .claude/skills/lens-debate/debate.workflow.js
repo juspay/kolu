@@ -243,7 +243,8 @@ const posMap = (res) => Object.fromEntries((res?.positions ?? []).map((p) => [p.
 async function commitFix(fix, files, summary) {
   const fileArgs = files.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ')
   const msgPath = `${workDir}/commit-msg-${fix.id}.txt`
-  const message = `refactor: lens-debate — ${fix.title}
+  // `fix(lens):` — the same prefix /be-review's apply pass uses for lens-originated commits.
+  const message = `fix(lens): ${fix.title}
 
 ${summary}
 
