@@ -21,8 +21,9 @@
  *
  * Contract version. Keyed on the *wire shape*, not the kolu binary — so a
  * future long-lived daemon survives kolu upgrades that don't touch this
- * shape. The consumer decides compatibility via `isPtyHostContractCompatible`;
- * an incompatible skew is the (rare, accepted) forced restart. The *build
+ * shape. The consumer decides compatibility via `isContractVersionCompatible`
+ * from `@kolu/surface/define`; an incompatible skew is the (rare, accepted)
+ * forced restart. The *build
  * identity* — a finer per-build key for an "update pending" nudge on a
  * wire-compatible but stale survivor — is a separate concern layered onto
  * `system.version` later; this module defines only the wire shape.
@@ -40,11 +41,7 @@
  * for a stably co-versioned pair.
  */
 
-import {
-  defineSurface,
-  isContractVersionCompatible,
-  type SurfaceTypes,
-} from "@kolu/surface/define";
+import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import { TerminalIdSchema } from "kolu-common/surface";
 import { z } from "zod";
 
@@ -55,18 +52,6 @@ import { z } from "zod";
  *  it — that's the point, so a long-lived pty-host survives most kolu
  *  upgrades. */
 export const PTY_HOST_CONTRACT_VERSION = "2.1";
-
-/** Whether a pty-host reporting `reportedVersion` is wire-compatible with a
- *  consumer built against `expected` (both `major.minor`). The standard
- *  surface handshake predicate (`isContractVersionCompatible`) under the
- *  pty-host's name: majors must match, reported minor >= ours; an
- *  incompatible skew is the (rare, accepted) forced restart. */
-export function isPtyHostContractCompatible(
-  reportedVersion: string,
-  expected: string,
-): boolean {
-  return isContractVersionCompatible(reportedVersion, expected);
-}
 
 const TerminalIdInputSchema = z.object({ id: TerminalIdSchema });
 

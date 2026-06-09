@@ -53,12 +53,11 @@ export {
   type PtySpawnOpts,
   type PtySpawnResult,
 } from "./ptyHost.ts";
-// The pty-host wire contract — the surface, its version, and the
-// compatibility check. `ptyHostSurface` is a VALUE export (not type-only):
-// consumers do `typeof ptyHostSurface.contract` to type their client, which
-// collapses to `unknown` under a type-only re-export.
+// The pty-host wire contract — the surface and its version. `ptyHostSurface`
+// is a VALUE export (not type-only): consumers do `typeof ptyHostSurface.contract`
+// to type their client, which collapses to `unknown` under a type-only re-export.
+// Compatibility check: `isContractVersionCompatible` from `@kolu/surface/define`.
 export {
-  isPtyHostContractCompatible,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostDataMsg,
   type PtyHostForegroundMsg,

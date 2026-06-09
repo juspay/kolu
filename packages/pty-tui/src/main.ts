@@ -14,9 +14,9 @@
 import { homedir } from "node:os";
 import {
   getPtyHostSocketPath,
-  isPtyHostContractCompatible,
   PTY_HOST_CONTRACT_VERSION,
 } from "@kolu/pty-host";
+import { isContractVersionCompatible } from "@kolu/surface/define";
 import { cli, command } from "cleye";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { formatList, formatListJson } from "./render.ts";
@@ -122,7 +122,7 @@ async function assertCompatible(conn: Connection): Promise<void> {
       );
     });
   if (
-    !isPtyHostContractCompatible(contractVersion, PTY_HOST_CONTRACT_VERSION)
+    !isContractVersionCompatible(contractVersion, PTY_HOST_CONTRACT_VERSION)
   ) {
     fail(
       `pty-host contract mismatch: server speaks ${contractVersion}, kolu-tui needs ${PTY_HOST_CONTRACT_VERSION}. Restart kolu-server (and kolu-tui) to the same build.`,
