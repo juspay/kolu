@@ -107,6 +107,9 @@ export type BrowseFileDispatcherProps = {
   /** Forwarded to the iframe renderer so the mouse back/forward (X1/X2)
    *  buttons work over an HTML preview (the sandbox traps them in the frame). */
   onHistory?: (direction: "back" | "forward") => void;
+  /** Forwarded to the iframe renderer so an external link clicked in an HTML
+   *  preview opens in a real browser tab (the sandbox can't open one itself). */
+  onOpenExternal?: (url: string) => void;
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
@@ -318,6 +321,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
             url={file.url ?? ""}
             onNavigate={props.onNavigate}
             onHistory={props.onHistory}
+            onOpenExternal={props.onOpenExternal}
           />,
         ),
     },

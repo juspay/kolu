@@ -73,5 +73,22 @@ export type HistoryMsg = {
   direction: "back" | "forward";
 };
 
-export type IframeToParent = SelectMsg | ReadyMsg | HistoryMsg;
+/** Iframe → parent: the user clicked an anchor that resolves to a different
+ *  origin than the previewed document. The opaque-origin sandbox swallows such
+ *  clicks — `allow-scripts` carries no `allow-popups` (so `target=_blank` is
+ *  blocked) and no `allow-top-navigation` — and a plain click would replace the
+ *  preview with the remote page in-pane. The SDK traps the click, suppresses the
+ *  default, and forwards the absolute URL so the parent (top frame, not
+ *  sandboxed) opens it in a real browser tab. The parent re-checks the scheme
+ *  before opening — `postMessage` is reachable by any in-frame script. */
+export type OpenExternalMsg = {
+  type: "kolu-artifact-sdk:open-external";
+  url: string;
+};
+
+export type IframeToParent =
+  | SelectMsg
+  | ReadyMsg
+  | HistoryMsg
+  | OpenExternalMsg;
 export type ParentToIframe = PathMsg | RenderHighlightsMsg;

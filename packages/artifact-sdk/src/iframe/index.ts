@@ -26,6 +26,7 @@ import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
 import type {
   HistoryMsg,
   Locator,
+  OpenExternalMsg,
   ParentToIframe,
   ReadyMsg,
   SelectMsg,
@@ -38,8 +39,46 @@ let currentPath: string | null = null;
 let lastSelectionRange: Range | null = null;
 let pillEl: HTMLDivElement | null = null;
 
-function postToParent(msg: SelectMsg | ReadyMsg | HistoryMsg): void {
+function postToParent(
+  msg: SelectMsg | ReadyMsg | HistoryMsg | OpenExternalMsg,
+): void {
   window.parent.postMessage(msg, "*");
+}
+
+/** The absolute URL to open in a real browser tab when `anchor` is clicked, or
+ *  null to let the click proceed in-frame. A link is "external" when it loads
+ *  over http(s) at a different host than the previewed document: same-host links
+ *  stay in-frame (the parent maps them back to a repo path via the `ready`
+ *  pathname report) and non-web schemes (`mailto:`, fragment-only `#foo`,
+ *  `javascript:`) are left to the browser's own handling. `anchor.href` is
+ *  already resolved absolute against the document's base URL. */
+function externalHref(anchor: HTMLAnchorElement): string | null {
+  let url: URL;
+  try {
+    url = new URL(anchor.href);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  if (url.host === window.location.host) return null;
+  return url.href;
+}
+
+/** Trap a primary-button click on an external anchor and forward it to the
+ *  parent. The opaque-origin sandbox carries no `allow-popups`/`allow-top-
+ *  navigation`, so the browser would otherwise swallow the click or replace the
+ *  preview in-pane; the parent opens the URL in a real tab instead. Bubble phase
+ *  + a `defaultPrevented` guard so a page that handles its own links wins. We
+ *  don't branch on modifier/middle clicks — the destination (a new tab) is the
+ *  same whether or not the user asked for one. */
+function onAnchorClick(event: MouseEvent): void {
+  if (event.defaultPrevented || event.button !== 0) return;
+  const anchor = (event.target as Element | null)?.closest("a");
+  if (!anchor) return;
+  const url = externalHref(anchor);
+  if (url === null) return;
+  event.preventDefault();
+  postToParent({ type: "kolu-artifact-sdk:open-external", url });
 }
 
 function clearPill(): void {
@@ -161,6 +200,10 @@ function onMessage(event: MessageEvent<ParentToIframe>): void {
 function boot(): void {
   ensureHighlightStyle();
   document.addEventListener("selectionchange", onSelectionChange);
+  // External links can't escape the opaque-origin sandbox on their own
+  // (`allow-scripts` only — no `allow-popups`/`allow-top-navigation`), so trap
+  // their clicks and ask the parent to open them in a real browser tab.
+  document.addEventListener("click", onAnchorClick);
   window.addEventListener("message", onMessage);
   // The mouse's dedicated back/forward (X1/X2) buttons. The opaque-origin
   // sandbox traps them in this frame, so the parent can't see them; forward the

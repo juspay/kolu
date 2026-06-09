@@ -692,6 +692,47 @@ When(
   },
 );
 
+// Click an EXTERNAL `<a>` inside the sandboxed preview. The frame is
+// `allow-scripts` only (no `allow-popups`/`allow-top-navigation`), so a real
+// browser would either swallow the click or replace the preview in-pane — the
+// in-iframe artifact-sdk traps it and asks the parent to `window.open` the URL
+// in a fresh tab, which surfaces as a new page on the context. The route stub
+// fulfils the external host so the popup commits without network egress; the
+// captured page is stashed for the assertion step.
+When(
+  "I click the external link {string} in the file preview iframe",
+  async function (this: KoluWorld, linkText: string) {
+    await this.context.route("https://example.com/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: "<!doctype html><h1>external target reached</h1>",
+      }),
+    );
+    const link = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .getByRole("link", { name: linkText });
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const popup = this.context.waitForEvent("page", { timeout: POLL_TIMEOUT });
+    await link.click();
+    this.externalPopup = await popup;
+  },
+);
+
+Then(
+  "a new browser tab should open to {string}",
+  async function (this: KoluWorld, expected: string) {
+    const popup = this.externalPopup;
+    if (!popup) throw new Error("no external popup was captured");
+    await pollFor({
+      observe: () => Promise.resolve(popup.url()),
+      isDone: (url) => url.includes(expected),
+      onTimeout: (last) =>
+        new Error(`popup opened to "${last}", expected "${expected}"`),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
 Then(
   "the file preview image should be visible",
   async function (this: KoluWorld) {

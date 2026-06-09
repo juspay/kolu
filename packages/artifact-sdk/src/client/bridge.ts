@@ -177,6 +177,47 @@ export function observeIframeHistory(
   );
 }
 
+/** True only for an absolute `http:`/`https:` URL. The parent re-checks the
+ *  scheme of any URL the in-iframe SDK asks it to open: `postMessage` is a
+ *  network-grade boundary reachable by any in-frame script, and `window.open`
+ *  runs in the parent's trusted origin — a `javascript:` or `data:` URL must
+ *  never reach it. The in-iframe SDK already filters to external http(s), so
+ *  this is defense in depth, not the only gate. */
+function isHttpUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Observe a request from the previewed document to open an external URL. The
+ *  opaque-origin sandbox swallows external-link clicks (no `allow-popups`, no
+ *  `allow-top-navigation`), so the in-iframe SDK traps the click and posts the
+ *  absolute URL here; the parent (not sandboxed) opens it in a real browser tab.
+ *  Mirrors `observeIframeNavigation`/`observeIframeHistory`: a focused listener
+ *  with the same `event.source` identity boundary. The payload guard requires a
+ *  string `url` AND an http(s) scheme — a hostile in-frame script can post any
+ *  shape, and a non-http URL handed to `window.open` would run in the parent's
+ *  origin. Returns a disposer. */
+export function observeIframeOpenExternal(
+  iframe: HTMLIFrameElement,
+  onOpenExternal: (url: string) => void,
+): () => void {
+  return observeFromIframe(
+    iframe,
+    (msg) =>
+      match(msg)
+        .with(
+          { type: "kolu-artifact-sdk:open-external", url: P.string },
+          (m) => (isHttpUrl(m.url) ? m.url : null),
+        )
+        .otherwise(() => null),
+    onOpenExternal,
+  );
+}
+
 /** Imperative push — call when the comments set or current path changes
  *  after the initial handshake. The bridge re-broadcasts on every call. */
 export function pushHighlightsTo(

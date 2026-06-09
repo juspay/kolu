@@ -1365,6 +1365,30 @@ Feature: Code tab (review + browse)
     Then the file preview iframe should contain "second page"
     And the file "second.html" should be selected in the file browser
 
+  # External links must escape the sandboxed preview. The frame runs
+  # `allow-scripts` only — no `allow-popups`, no `allow-top-navigation` — so a
+  # plain external `<a>` would replace the preview with the remote page in-pane
+  # and a `target=_blank` would be swallowed silently. The in-iframe artifact-sdk
+  # traps the click and forwards the absolute URL to the parent (top frame, not
+  # sandboxed), which opens it in a real browser tab and leaves the preview put.
+  # Unquoted `href` keeps the fixture free of inner quotes (the `I run "…"` step
+  # has no escape for them).
+  Scenario: Clicking an external link opens a new browser tab and leaves the preview in place
+    When I run "rm -rf /tmp/kolu-html-ext && git init /tmp/kolu-html-ext && cd /tmp/kolu-html-ext"
+    And I run "printf '<!doctype html><h1>home page</h1><a href=https://example.com/docs>external docs</a>\n' > home.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "home.html" in the file browser
+    Then the file preview iframe should be visible
+    And the file preview iframe should contain "home page"
+    When I click the external link "external docs" in the file preview iframe
+    Then a new browser tab should open to "https://example.com/docs"
+    # The preview did NOT navigate away in-pane — the click escaped to a tab and
+    # home.html is still the shown, selected file.
+    And the file preview iframe should contain "home page"
+    And the file "home.html" should be selected in the file browser
+
   # Regression (CONFIRMED live on the Atlas docs): reaching a file via an
   # IN-IFRAME LINK CLICK (not a tree click) desyncs the live-reload watch from
   # the displayed file. Mirrors the real case: an index.html in a nested dist/

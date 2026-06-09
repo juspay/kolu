@@ -11,6 +11,7 @@
 import {
   observeIframeHistory,
   observeIframeNavigation,
+  observeIframeOpenExternal,
 } from "@kolu/artifact-sdk/client";
 import { pathFromPreviewPathname } from "@kolu/solid-browser";
 import { IframeRenderer } from "@kolu/solid-fileview/renderers/iframe";
@@ -36,6 +37,11 @@ export type BrowseIframeRendererProps = {
    *  SDK forwards the intent and the host drives the Code-tab browser's
    *  history — the buttons then work over the preview as well as the tree. */
   onHistory?: (direction: "back" | "forward") => void;
+  /** Open an external link clicked inside the preview. The sandbox can't open a
+   *  new tab on its own (no `allow-popups`/`allow-top-navigation`), so the
+   *  in-iframe SDK forwards the (re-validated http(s)) URL and the host opens it
+   *  in a real browser tab — leaving the preview on the current document. */
+  onOpenExternal?: (url: string) => void;
 };
 
 const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
@@ -75,6 +81,18 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
     if (!el) return;
     const dispose = observeIframeHistory(el, (direction) =>
       props.onHistory?.(direction),
+    );
+    onCleanup(dispose);
+  });
+
+  // External-link clicks can't escape the opaque-origin sandbox, so the
+  // in-iframe SDK forwards the URL (already filtered to external http(s), and
+  // re-validated by the observer) and the host opens it in a real browser tab.
+  createEffect(() => {
+    const el = iframeEl();
+    if (!el) return;
+    const dispose = observeIframeOpenExternal(el, (url) =>
+      props.onOpenExternal?.(url),
     );
     onCleanup(dispose);
   });

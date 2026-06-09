@@ -983,6 +983,13 @@ const CodeTab: Component<{
                           onHistory={(direction) =>
                             direction === "back" ? goBack() : goForward()
                           }
+                          // An external link in the sandboxed preview can't open
+                          // a tab itself (no `allow-popups`); the in-iframe SDK
+                          // forwards the http(s) URL and we open it in a real
+                          // browser tab, severing the opener.
+                          onOpenExternal={(url) =>
+                            window.open(url, "_blank", "noopener,noreferrer")
+                          }
                         />
                       );
                     })()}
