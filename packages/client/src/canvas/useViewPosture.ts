@@ -29,6 +29,15 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
  *  change shape, only the discriminant values grow. */
 export type ViewPostureMode = "tiled" | "maximized";
 
+/** Human-readable name of the posture-toggle affordance, reflecting the
+ *  action a select/click performs from the current posture: "Restore canvas"
+ *  when already maximized, "Maximize terminal" when tiled. The single home
+ *  for this label — read by ChromeBar's tooltip/aria-label, the command
+ *  palette entry, and the tips registry — so the wording lives once and a
+ *  future posture arm updates exactly one site. */
+export const posturedActionLabel = (mode: ViewPostureMode): string =>
+  mode === "maximized" ? "Restore canvas" : "Maximize terminal";
+
 export function useViewPosture() {
   const store = useTerminalStore();
   /** "Maximize is meaningful" — there is a tile to maximize. With zero

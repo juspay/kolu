@@ -16,7 +16,7 @@ import type {
 } from "./CommandPalette";
 import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
 import type { DockSourceEntry } from "./canvas/dockModel";
-import { useViewPosture } from "./canvas/useViewPosture";
+import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import {
   ACTIONS,
@@ -339,10 +339,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             ? [
                 actionPaletteCommand("toggleCanvasPosture", deps, {
                   section: "canvas",
-                  name:
-                    posture.mode() === "maximized"
-                      ? "Restore canvas"
-                      : "Maximize terminal",
+                  name: posturedActionLabel(posture.mode()),
                 }),
               ]
             : []),
