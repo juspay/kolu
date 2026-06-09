@@ -139,6 +139,12 @@ export function classifyGhError(err: unknown): PrResult {
   //    environment variable…") for a misconfigured GH_HOST that matches no
   //    remote. That is a real config failure the user should see, so it
   //    must fall through to `unknown` rather than be swallowed as `absent`.
+  //    Known false-negative: the same refusal fires for a GitHub Enterprise
+  //    remote the user hasn't run `gh auth login --hostname <ghe>` for —
+  //    gh's known-host set is its authenticated hosts + the default host +
+  //    github.com — where the old not-authenticated classification was
+  //    correct. Indistinguishable on stderr; phase 0b's remote-URL-based
+  //    detectForge restores that distinction.
   //  - gh's literal "no pull requests found" for the current branch;
   //  - a repo with no remote at all.
   // This block sits before the auth check because the non-GitHub-remote
