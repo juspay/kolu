@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createEscapeScanner, type EscapeEvent } from "./escape.ts";
+import {
+  createEscapeScanner,
+  type EscapeEvent,
+  isValidEscapeChar,
+} from "./escape.ts";
 
 /** Feed `chunks` and flatten the result into (forwarded-string, actions). */
 function scan(
@@ -105,10 +109,15 @@ describe("createEscapeScanner — the ssh line-start model", () => {
     expect(actions).toEqual(["detach"]);
   });
 
-  it("rejects a multi-char or non-printable escape", () => {
-    expect(() => createEscapeScanner("ab")).toThrow(/single printable/);
-    expect(() => createEscapeScanner("\x01")).toThrow(/single printable/);
-    expect(() => createEscapeScanner("")).toThrow(/single printable/);
+  it("isValidEscapeChar accepts one printable ASCII char, rejects the rest", () => {
+    // The CLI boundary (main.ts) is the single enforcement site; the scanner
+    // trusts its caller. Validate the predicate directly.
+    expect(isValidEscapeChar("~")).toBe(true);
+    expect(isValidEscapeChar("%")).toBe(true);
+    expect(isValidEscapeChar("ab")).toBe(false); // multi-char
+    expect(isValidEscapeChar("\x01")).toBe(false); // control char
+    expect(isValidEscapeChar("é")).toBe(false); // multibyte
+    expect(isValidEscapeChar("")).toBe(false); // empty
   });
 });
 

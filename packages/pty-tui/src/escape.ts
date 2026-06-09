@@ -43,12 +43,10 @@ export function isValidEscapeChar(s: string): boolean {
   return /^[\x20-\x7e]$/.test(s);
 }
 
+/** `escapeChar` MUST already be a single printable ASCII char — validate it at
+ *  the CLI boundary with `isValidEscapeChar` (main.ts does). The byte machine
+ *  assumes `escByte = escapeChar.charCodeAt(0)` is one byte. */
 export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
-  if (!isValidEscapeChar(escapeChar)) {
-    throw new Error(
-      `escape must be a single printable ASCII character, got ${JSON.stringify(escapeChar)}`,
-    );
-  }
   const escByte = escapeChar.charCodeAt(0);
 
   // Session start counts as line-start (ssh behaviour): `kolu-tui attach`
