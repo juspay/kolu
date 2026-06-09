@@ -187,7 +187,11 @@ const Terminal: Component<{
   // tile's capture-phase zoom listener fire at once — Cmd/Ctrl +/- zoomed all
   // terminals together (#1238). `focused` is true for exactly one tile (the
   // active one in canvas; the single visible one in mobile), so only it zooms.
-  const fontSize = createZoom(props.terminalId, () => props.focused === true);
+  // One predicate for "is this the focused tile" — fed to both the zoom gate
+  // and the data-focused attribute the e2e harness reads, so the attribute is
+  // provably equal to the gate it stands in for (no divergence on `undefined`).
+  const isFocused = () => props.focused === true;
+  const fontSize = createZoom(props.terminalId, isFocused);
 
   let streamAbort: AbortController | null = null;
   let webgl: WebglAddon | null = null;
@@ -966,7 +970,7 @@ const Terminal: Component<{
         class="w-full h-full overflow-hidden touch-manipulation data-[drop-target]:outline data-[drop-target]:outline-2 data-[drop-target]:-outline-offset-2 data-[drop-target]:outline-sky-400/70"
         data-terminal-id={props.terminalId}
         data-visible={props.visible ? "" : undefined}
-        data-focused={props.focused !== false ? "" : undefined}
+        data-focused={isFocused() ? "" : undefined}
         data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
         data-renderer={hasWebgl() ? "webgl" : "dom"}
