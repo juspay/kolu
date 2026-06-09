@@ -337,16 +337,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           // the Mod+Shift+M shortcut from one source of truth.
           ...(posture.canMaximize()
             ? [
-                {
-                  kind: "action" as const,
+                actionPaletteCommand("toggleCanvasPosture", deps, {
+                  section: "canvas",
                   name:
                     posture.mode() === "maximized"
                       ? "Restore canvas"
                       : "Maximize terminal",
-                  section: "canvas" as const,
-                  keybind: ACTIONS.toggleCanvasPosture.keybind,
-                  onSelect: () => deps.toggleCanvasPosture(),
-                },
+                }),
               ]
             : []),
           {
