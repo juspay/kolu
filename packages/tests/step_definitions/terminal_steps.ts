@@ -322,26 +322,23 @@ async function readFocusedTerminalId(world: KoluWorld): Promise<string | null> {
 Given(
   "I note the font size of each terminal",
   async function (this: KoluWorld) {
-    this.savedFontSizes = await readAllFontSizes(this);
+    const sizes = await readAllFontSizes(this);
     assert.ok(
-      Object.keys(this.savedFontSizes).length >= 2,
-      `Expected at least 2 terminals, found ${Object.keys(this.savedFontSizes).length}`,
+      Object.keys(sizes).length >= 2,
+      `Expected at least 2 terminals, found ${Object.keys(sizes).length}`,
     );
-    this.savedFocusedTerminalId = await readFocusedTerminalId(this);
-    assert.ok(
-      this.savedFocusedTerminalId,
-      "Expected exactly one focused terminal before zoom",
-    );
+    const focusedId = await readFocusedTerminalId(this);
+    assert.ok(focusedId, "Expected exactly one focused terminal before zoom");
+    this.savedTerminalZoom = { sizes, focusedId };
   },
 );
 
 Then(
   "only the focused terminal's font size should have changed",
   async function (this: KoluWorld) {
-    const before = this.savedFontSizes;
-    assert.ok(before, "No saved per-terminal font sizes");
-    const focusedId = this.savedFocusedTerminalId;
-    assert.ok(focusedId, "No saved focused terminal id");
+    const snapshot = this.savedTerminalZoom;
+    assert.ok(snapshot, "No saved pre-zoom terminal snapshot");
+    const { sizes: before, focusedId } = snapshot;
     const after = await readAllFontSizes(this);
     const changed = Object.keys(before).filter(
       (id) => after[id] !== before[id],
