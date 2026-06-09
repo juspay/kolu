@@ -11,6 +11,7 @@ import {
   gateStaleSocket,
   installFreshStatic,
   installPwaManifest,
+  startWsHeartbeat,
 } from "@kolu/surface-app/server";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
@@ -329,6 +330,13 @@ const wss = new WebSocketServer({ noServer: true });
 const wsRpcHandler = new WsRPCHandler(appRouter as any, {
   plugins: rpcPlugins,
 });
+// Liveness heartbeat: ping accepted sockets and terminate any that stop ponging,
+// reaping the server-side zombie (and its stream subscriptions) a half-open
+// client would otherwise leak. The client half (`createHeartbeat`) un-freezes
+// the tab; this half frees the server. Stale tabs are closed before the oRPC
+// upgrade and never register (the ws upgrade has already accepted them), so
+// #1231's gate is untouched.
+const heartbeat = startWsHeartbeat(wss);
 
 let nextConnId = 0;
 wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
@@ -356,6 +364,9 @@ wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   }
 
   connLog.info({ total: wss.clients.size }, "connected");
+  // Accepted socket: enrol it in the liveness heartbeat (its `pong` keeps it
+  // alive; a missed ping terminates it) so a half-open client is reaped here.
+  heartbeat.register(ws);
   wsRpcHandler.upgrade(ws, { context: {} });
   ws.on("close", (code, reason) => {
     const reasonStr = reason.toString();

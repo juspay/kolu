@@ -1,6 +1,13 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { getCollection, render } from "astro:content";
+import PR from "../components/PR.astro";
+import Change from "../components/Change.astro";
+
+// Components auto-injected into every changelog entry's MDX, so an entry writes
+// `<Change title="…" pr={1235}>…</Change>` (or a bare `<PR id={…} />`) with no
+// per-file import.
+const mdxComponents = { PR, Change };
 
 const fmtDate = (d: Date) =>
   d
@@ -80,7 +87,16 @@ const rendered = await Promise.all(
       <div>
         {
           unreleasedHasBody && UnreleasedBody ? (
-            <div class="prose prose-changelog"><UnreleasedBody /></div>
+            <div>
+              <div class="prose prose-changelog">
+                <UnreleasedBody components={mdxComponents} />
+              </div>
+              <p class="mono text-ink-faint text-sm leading-relaxed mt-7">
+                // already on{" "}
+                <code class="text-ink">master</code> — get these now:{" "}
+                <code class="text-ink">nix run github:juspay/kolu</code>
+              </p>
+            </div>
           ) : (
             <p class="mono text-ink-muted text-sm leading-relaxed">
               // nothing unreleased — you're on the latest tagged build.<br />
@@ -123,7 +139,7 @@ const rendered = await Promise.all(
               </time>
             </div>
             <div class="prose prose-changelog">
-              <Body />
+              <Body components={mdxComponents} />
             </div>
           </article>
         );

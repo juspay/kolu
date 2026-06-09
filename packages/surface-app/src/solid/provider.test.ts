@@ -15,7 +15,7 @@ import {
   createRoot,
   createSignal,
 } from "solid-js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   type ConnectionStatus,
   type ControlPlane,
@@ -34,19 +34,33 @@ function fakeWs() {
     Array<(event?: { code?: number }) => void>
   > = { open: [], close: [] };
   let closed = 0;
-  // The turnkey `{ ws, probe }` source owns teardown, so its `ws` is
-  // `WsLike & { close, send }` — the fake carries both so it satisfies the type
-  // and the auto-retirement is observable.
-  const ws: WsLike & { close(): void; send: unknown } = {
+  let reconnects = 0;
+  // The turnkey `{ ws, probe }` source owns teardown AND liveness, so its `ws` is
+  // `WsLike & { close, send, reconnect, readyState, OPEN }` — the fake carries all
+  // of them so it satisfies the type and the auto-retire / heartbeat-reconnect are
+  // observable. `readyState` starts OPEN (1) so the heartbeat actually probes.
+  const ws: WsLike & {
+    close(): void;
+    send: unknown;
+    reconnect(): void;
+    readyState: number;
+    readonly OPEN: number;
+  } = {
     addEventListener: (type, fn) => listeners[type].push(fn),
     close: () => {
       closed++;
     },
     send: (() => {}) as unknown,
+    reconnect: () => {
+      reconnects++;
+    },
+    readyState: 1,
+    OPEN: 1,
   };
   return {
     ws,
     closedCount: () => closed,
+    reconnectCount: () => reconnects,
     sendThrows: () => {
       try {
         (ws.send as (d: string) => void)("x");
@@ -175,6 +189,45 @@ describe("SurfaceAppProvider — updateReady", () => {
       expect(seen).toEqual(["p1"]);
       dispose();
     });
+  });
+
+  it("starts a heartbeat in the turnkey source — a half-open socket forces a reconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = fakeWs();
+      await createRoot(async (dispose) => {
+        // The open probe resolves (lifecycle goes live); the NEXT probe — the
+        // heartbeat's — hangs, modelling a silently half-open socket.
+        let calls = 0;
+        const probe = () => {
+          calls += 1;
+          return calls === 1
+            ? Promise.resolve({ processId: "p1" })
+            : new Promise<{ processId: string }>(() => {});
+        };
+        createComponent(SurfaceAppProvider, {
+          controlPlane: fakeControlPlane("0784979"),
+          clientCommit: "0784979",
+          ws: t.ws,
+          probe,
+          get children() {
+            useSurfaceApp();
+            return null;
+          },
+        });
+        t.fire("open");
+        await vi.advanceTimersByTimeAsync(0); // flush the open probe
+        expect(t.reconnectCount()).toBe(0);
+        // One heartbeat interval (default 15s) fires a probe that never answers;
+        // after the default 10s timeout the watchdog forces a reconnect — the
+        // turnkey consumer (drishti's admin socket) gets this with zero wiring.
+        await vi.advanceTimersByTimeAsync(15_000 + 10_000);
+        expect(t.reconnectCount()).toBe(1);
+        dispose();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("flips on staleness (cached old bundle) while the link is otherwise live", () => {

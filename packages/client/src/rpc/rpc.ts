@@ -15,6 +15,7 @@
  */
 
 import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
+import { createHeartbeat } from "@kolu/surface-app/connect";
 import {
   createServerLifecycle,
   retireSocket,
@@ -70,6 +71,19 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // provide the action without a second `event.code` decode or a reactive effect.
   onStaleRestart: () => retireSocket(ws),
 });
+
+// Heartbeat watchdog over the SAME transport + probe. partysocket ships no
+// keepalive, so a SILENTLY half-open socket — TCP dead with no FIN/RST (laptop
+// sleep, Wi-Fi roam, NAT/proxy idle eviction during a long Claude Code session)
+// — fires neither `error` nor `close`: the socket sits `OPEN`, every
+// terminal-attach stream hangs with no error for `STREAM_RETRY` to re-fire on,
+// and the UI freezes until a manual reload. The watchdog re-uses the
+// `identity.info` probe as its keep-alive; an unanswered probe means half-open,
+// so it forces `ws.reconnect()` (close code 1000, NOT the stale-tab 4001 — the
+// retire path is untouched) and the existing recovery takes over: lifecycle
+// `disconnected` → fresh open → oRPC re-subscribes every stream. Module-level
+// singleton, so it runs for the app's lifetime (no dispose), like the lifecycle.
+createHeartbeat({ ws, probe: () => surfaceAppProbe(surfaceApp) });
 
 // `status` is the surface-app `ConnectionStatus` projection of the same
 // lifecycle — handed to `<SurfaceAppProvider status=...>` so the provider reads

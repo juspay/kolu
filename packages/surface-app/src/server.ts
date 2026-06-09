@@ -425,9 +425,100 @@ export function gateStaleSocket(
   );
   const claimedPid = requestUrl.searchParams.get(SERVER_PROCESS_ID_PARAM);
   if (claimedPid !== null && rejectStaleProcess(claimedPid, liveProcessId)) {
-    opts.onReject?.(claimedPid);
+    // Close FIRST (the critical operation), then fire the observational
+    // `onReject` — a throwing reporter must never leave the stale tab connected.
     ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+    opts.onReject?.(claimedPid);
     return true;
   }
   return false;
+}
+
+/** Default server heartbeat sweep cadence. A missed pong across one 30s window
+ *  is a confident dead-signal for an idle streaming socket without being chatty.
+ *  Must comfortably exceed the client's worst-case recovery (createHeartbeat's
+ *  intervalMs + timeoutMs, ~25s) so the client's reconnect wins the race and this
+ *  reaper never terminates a socket the client is about to revive. */
+const DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS = 30_000;
+
+/** A server-side WebSocket the liveness heartbeat acts on — the structural subset
+ *  of the `ws` package's socket the reaper pings and reaps. Kept structural (the
+ *  `GateableSocket` twin) so surface-app needn't depend on `ws`. `pong` is the one
+ *  inbound event; `ping`/`terminate` are the outbound actions; `readyState`/`OPEN`
+ *  gate the non-OPEN skip. */
+export interface HeartbeatableSocket {
+  readyState: number;
+  readonly OPEN: number;
+  ping(): void;
+  terminate(): void;
+  on(event: "pong", listener: () => void): unknown;
+}
+
+/** One heartbeat sweep over the accepted clients: `terminate()` any that didn't
+ *  pong since the previous sweep (absent from `alive`), then `ping()` the rest
+ *  and clear their flag so the NEXT sweep can detect a miss. Sockets that aren't
+ *  `OPEN` are skipped — a stale tab the gate closed (before the oRPC upgrade) is
+ *  mid-close and is neither pinged nor terminated here. Pure over its injected
+ *  deps (no timers, no server), so it's unit-testable without a real server. */
+export function heartbeatSweep(
+  clients: Iterable<HeartbeatableSocket>,
+  alive: WeakSet<HeartbeatableSocket>,
+): void {
+  for (const ws of clients) {
+    if (ws.readyState !== ws.OPEN) continue;
+    if (!alive.has(ws)) {
+      ws.terminate();
+      continue;
+    }
+    alive.delete(ws);
+    ws.ping();
+  }
+}
+
+/**
+ * Start the liveness heartbeat over a server's ACCEPTED sockets — the server twin
+ * of `createHeartbeat` (`@kolu/surface-app/connect`) and the liveness sibling of
+ * `gateStaleSocket`.
+ *
+ * `ws` (and partysocket on the client) ship NO application-level ping/pong, so a
+ * SILENTLY half-open socket — the TCP died with no FIN/RST (a client's laptop
+ * slept, Wi-Fi roamed, or a NAT/proxy evicted the idle connection) — never fires
+ * `close` on the server either. The dead socket lingers in `clients` holding its
+ * per-terminal stream subscriptions open forever. This is the server half of the
+ * half-open fix; the client half (`createHeartbeat`) is what un-freezes a stuck
+ * tab. Here we ping accepted clients on an interval and `terminate()` any that
+ * didn't pong since the last sweep, reaping the server-side zombie.
+ *
+ * `register(ws)` is called once per accepted connection (AFTER `gateStaleSocket`)
+ * — it marks the socket alive and wires its `pong` to re-mark it. Liveness lives
+ * in a `WeakSet` the caller re-adds to on every `pong`, NOT monkey-patched onto
+ * the socket. The stale-tab gate runs AFTER the ws upgrade accepted the socket
+ * but BEFORE the oRPC upgrade and this registration, so a rejected stale tab never
+ * enrols here (it is closing) and kolu#1231's protection is untouched — the
+ * non-OPEN skip in `heartbeatSweep` covers the brief window it lingers in
+ * `clients` while that close settles.
+ *
+ * Pass the server's accepted-socket population as `{ clients }` (a `ws`
+ * `WebSocketServer` IS one structurally) so surface-app keeps its no-`ws`-dependency
+ * stance. The interval is `unref`'d so the heartbeat never keeps the process alive
+ * on its own. Returns `stop()` to clear the interval.
+ */
+export function startWsHeartbeat(
+  server: { clients: Iterable<HeartbeatableSocket> },
+  opts: { intervalMs?: number } = {},
+): { register: (ws: HeartbeatableSocket) => void; stop: () => void } {
+  const alive = new WeakSet<HeartbeatableSocket>();
+  /** Call exactly once per accepted socket — it attaches a `pong` listener with
+   *  no removal path (the listener dies with the socket); a second call would
+   *  attach a duplicate handler. */
+  const register = (ws: HeartbeatableSocket): void => {
+    alive.add(ws);
+    ws.on("pong", () => alive.add(ws));
+  };
+  const handle = setInterval(
+    () => heartbeatSweep(server.clients, alive),
+    opts.intervalMs ?? DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS,
+  );
+  handle.unref?.();
+  return { register, stop: () => clearInterval(handle) };
 }

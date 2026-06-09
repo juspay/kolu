@@ -42,7 +42,7 @@ Run **check** and **fmt**, then commit (conventional message) and push the featu
 
 **Before any review** — so every reviewer's findings land as comments on a real PR. Load **`/forge-pr`** (Skill tool) and `gh pr create --draft` with a genuine title/body covering the scope so far. The PR exists for the rest of the run; later steps push commits and post comments to it.
 
-**Backfill the changelog PR link.** If §2 added a changelog line, append the markdown PR link to it now that the number exists (`… ([#<n>](https://github.com/juspay/kolu/pull/<n>))`), then commit and push so the link rides this PR. Skip if §2 added no entry.
+**Backfill the changelog PR link.** If §2 added a changelog entry, fill in its PR now that the number exists — set the **`pr={<n>}`** prop on the entry's `<Change title="…" pr={<n>}>…</Change>` (auto-injected into changelog MDX, so no import; it renders the GitHub-style PR chip). Then commit and push so the link rides this PR. Skip if §2 added no entry.
 
 **If there's a plan of record, finalize it now.** Once the PR URL exists, **finalize the Atlas note via `/atlas`**: set `status: implemented`, link the PR with `<PrLink pr={<n>} />`, rebuild + stage `dist/`, commit (`docs(atlas): link PR #<n>`) and push so it's part of this PR. *(A legacy `docs/plans/*.html` plan stays HTML — edit its status/PR link in place.)*
 
