@@ -169,7 +169,10 @@ export interface HeartbeatOptions {
    *  is ignored) — kolu reuses the `identity.info` probe. A REJECTION still
    *  counts as alive: the round-trip completed (the server answered, even with an
    *  error) and a genuine transport drop surfaces as a `close` partysocket already
-   *  reconnects through — so only a TIMEOUT (no answer at all) means half-open. */
+   *  reconnects through — so only a TIMEOUT (no answer at all) means half-open. A
+   *  SYNCHRONOUS throw is treated DIFFERENTLY: it means no round-trip happened
+   *  (the probe is miswired), so it's reported via `onProbeError` rather than
+   *  silently counted as liveness, and does NOT force a reconnect. */
   probe: () => Promise<unknown>;
   /** How often to probe while the socket is OPEN. Default 15s. */
   intervalMs?: number;
@@ -179,11 +182,22 @@ export interface HeartbeatOptions {
   /** Report a forced reconnect (a missed probe). Defaults to a `console.warn` so
    *  a silent half-open recovery is never invisible; pass your own logger. */
   onStale?: () => void;
+  /** Report a probe that threw SYNCHRONOUSLY (a miswired/broken probe, distinct
+   *  from an async rejection). Defaults to a `console.warn` so the heartbeat
+   *  going inert is never silent; pass your own logger. */
+  onProbeError?: (error: unknown) => void;
 }
 
 const warnStale = () =>
   console.warn(
     "surface-app: heartbeat probe timed out — forcing reconnect (half-open socket)",
+  );
+
+const warnProbeThrew = (error: unknown) =>
+  console.warn(
+    "surface-app: heartbeat probe threw synchronously — no round-trip was made; " +
+      "the probe is likely miswired (heartbeat is inert until fixed)",
+    error,
   );
 
 /** A heartbeat watchdog for a reconnecting WebSocket: it turns a SILENTLY
@@ -245,15 +259,25 @@ export function createHeartbeat(opts: HeartbeatOptions): {
     if (opts.ws.readyState !== opts.ws.OPEN) return;
     inFlight = true;
     probeTimer = setTimeout(() => settled(true), timeoutMs);
-    // `Promise.resolve().then(opts.probe)` so a SYNCHRONOUS throw from `probe`
-    // is normalized to a rejection — alive (a completed attempt), the same as the
-    // documented async-rejection case — instead of an uncaught timer exception.
-    Promise.resolve()
-      .then(opts.probe)
-      .then(
-        () => settled(false),
-        () => settled(false),
-      );
+    // A SYNCHRONOUS throw from `probe` means NO round-trip was made at all — the
+    // probe is miswired (a bad client cast, a missing method), not a liveness
+    // signal — so it must NOT be silently classified as alive the way a genuine
+    // async REJECTION (the server answered with an error) is. We surface it and
+    // settle WITHOUT reconnecting: a broken probe is a local fault the socket
+    // can't fix, so a reconnect would only churn. The heartbeat goes inert until
+    // the probe is fixed, but the warning makes that visible instead of silent.
+    let probing: Promise<unknown>;
+    try {
+      probing = opts.probe();
+    } catch (error) {
+      (opts.onProbeError ?? warnProbeThrew)(error);
+      settled(false);
+      return;
+    }
+    Promise.resolve(probing).then(
+      () => settled(false),
+      () => settled(false),
+    );
   };
   const handle = setInterval(tick, intervalMs);
   return {

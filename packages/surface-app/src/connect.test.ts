@@ -177,6 +177,34 @@ describe("createHeartbeat", () => {
     dispose();
   });
 
+  it("surfaces a SYNCHRONOUS probe throw — reports it, does NOT reconnect, and does NOT silently count it as alive", async () => {
+    const ws = fakeHeartbeatSocket();
+    const probe = vi.fn(() => {
+      throw new Error("probe miswired");
+    });
+    const onProbeError = vi.fn();
+    const onStale = vi.fn();
+    const { dispose } = createHeartbeat({
+      ws,
+      probe: probe as unknown as () => Promise<unknown>,
+      intervalMs: 1000,
+      timeoutMs: 500,
+      onProbeError,
+      onStale,
+    });
+    await vi.advanceTimersByTimeAsync(1000); // tick fires the probe → it throws
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(onProbeError).toHaveBeenCalledTimes(1);
+    expect(onProbeError).toHaveBeenCalledWith(expect.any(Error));
+    // A sync throw is NOT a transport problem, so it must not churn the socket…
+    await vi.advanceTimersByTimeAsync(1000); // let the probe timeout window pass
+    expect(ws.reconnect).not.toHaveBeenCalled();
+    expect(onStale).not.toHaveBeenCalled();
+    // …and it must settle so the next tick can probe again (not wedge inFlight).
+    expect(probe).toHaveBeenCalledTimes(2);
+    dispose();
+  });
+
   it("never probes while the socket is not OPEN", async () => {
     const ws = fakeHeartbeatSocket(0); // CONNECTING
     const probe = vi.fn().mockResolvedValue(null);
