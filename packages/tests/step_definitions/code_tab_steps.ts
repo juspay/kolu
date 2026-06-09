@@ -29,6 +29,7 @@ import {
 const TREE = '[data-testid="pierre-file-tree"]';
 const DIFF_VIEW = '[data-testid="pierre-diff-view"]';
 const FILE_VIEW = '[data-testid="pierre-file-view"]';
+const DIFF_CONTENT = '[data-testid="diff-content"]';
 
 function fileRow(path: string): string {
   return `${TREE} [data-item-path="${path}"][data-item-type="file"]:not([data-file-tree-sticky-row])`;
@@ -692,6 +693,60 @@ When(
   },
 );
 
+// Click an EXTERNAL `<a>` inside the sandboxed preview. The frame is
+// `allow-scripts` only (no `allow-popups`/`allow-top-navigation`), so a real
+// browser would either swallow the click or replace the preview in-pane — the
+// in-iframe artifact-sdk traps it and asks the parent to `window.open` the URL
+// in a fresh tab, which surfaces as a new page on the context. The route stub
+// fulfils the external host so the popup commits without network egress; the
+// captured page is stashed for the assertion step.
+When(
+  "I click the external link {string} in the file preview iframe",
+  async function (this: KoluWorld, linkText: string) {
+    await this.context.route("https://example.com/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: "<!doctype html><h1>external target reached</h1>",
+      }),
+    );
+    const link = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .getByRole("link", { name: linkText });
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const popup = this.context.waitForEvent("page", { timeout: POLL_TIMEOUT });
+    await link.click();
+    this.externalPopup = await popup;
+  },
+);
+
+Then(
+  "a new browser tab should open to {string}",
+  async function (this: KoluWorld, expected: string) {
+    const popup = this.externalPopup;
+    if (!popup) throw new Error("no external popup was captured");
+    // Compare normalized hrefs exactly, not a substring: `includes` would pass
+    // for a wrong destination that merely contains the expected string (e.g.
+    // `…/docs-bad`, or `…?next=https://example.com/docs`). `new URL().href`
+    // normalizes both sides so a trailing-slash difference isn't a false miss.
+    const want = new URL(expected).href;
+    await pollFor({
+      observe: () => Promise.resolve(popup.url()),
+      isDone: (url) => {
+        try {
+          return new URL(url).href === want;
+        } catch {
+          // popup URL may be "about:blank" or otherwise unparseable before
+          // navigation commits — not done yet.
+          return false;
+        }
+      },
+      onTimeout: (last) =>
+        new Error(`popup opened to "${last}", expected "${expected}"`),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
 Then(
   "the file preview image should be visible",
   async function (this: KoluWorld) {
@@ -727,6 +782,89 @@ Then(
       '[data-testid="diff-tree-content-handle"][data-corvu-resizable-handle]',
     );
     await handle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** Drag the tree/content split handle upward, growing the preview
+ *  (content) pane. The handle element is zero-height (`h-0`) with a
+ *  `::before` pseudo drawing the real hit area, so Playwright's
+ *  `boundingBox()`/`dragTo()` (which require visibility) can't drive it —
+ *  read the rect directly and run a raw mouse drag through the hit zone. */
+When(
+  "I drag the Code tab tree\\/content split handle up by {int} pixels",
+  async function (this: KoluWorld, pixels: number) {
+    const handle = this.page.locator(
+      '[data-testid="diff-tree-content-handle"][data-corvu-resizable-handle]',
+    );
+    await handle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    const rect = await handle.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width };
+    });
+    const x = rect.x + rect.width / 2;
+    await this.page.mouse.move(x, rect.y);
+    await this.page.mouse.down();
+    await this.page.mouse.move(x, rect.y - pixels, { steps: 5 });
+    await this.page.mouse.up();
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I note the Code tab preview pane height",
+  async function (this: KoluWorld) {
+    const box = await this.page.locator(DIFF_CONTENT).boundingBox();
+    if (!box) throw new Error("diff-content pane has no bounding box");
+    this.savedCodeTabPreviewHeight = box.height;
+  },
+);
+
+/** Sanity gate for the drag step above: proves the drag actually moved
+ *  the split (within a small tolerance for Corvu's min-size clamping and
+ *  fractional rounding) before the scenario goes on to test persistence. */
+Then(
+  "the Code tab preview pane should be about {int} pixels taller than noted",
+  async function (this: KoluWorld, pixels: number) {
+    const noted = this.savedCodeTabPreviewHeight;
+    if (noted === undefined) {
+      throw new Error("No noted preview pane height in this scenario");
+    }
+    await pollFor({
+      observe: async () =>
+        (await this.page.locator(DIFF_CONTENT).boundingBox())?.height,
+      isDone: (h) => h !== undefined && Math.abs(h - (noted + pixels)) <= 10,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `preview pane height ${last}px never reached ~${noted + pixels}px ` +
+            `(noted ${noted}px + ${pixels}px drag) within ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
+Then(
+  "the Code tab preview pane height should match the noted height",
+  async function (this: KoluWorld) {
+    const noted = this.savedCodeTabPreviewHeight;
+    if (noted === undefined) {
+      throw new Error("No noted preview pane height in this scenario");
+    }
+    // Poll: after a terminal switch the Code tab remounts behind
+    // `<Show when={repoPath()}>` and Corvu re-lays-out async — give the
+    // split a moment to converge before judging it.
+    await pollFor({
+      observe: async () =>
+        (await this.page.locator(DIFF_CONTENT).boundingBox())?.height,
+      isDone: (h) => h !== undefined && Math.abs(h - noted) <= 2,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `preview pane height settled at ${last}px, expected the noted ` +
+            `${noted}px (±2px) within ${elapsed}ms — the tree/content split ` +
+            `did not survive the terminal switch`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 

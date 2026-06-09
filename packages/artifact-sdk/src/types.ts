@@ -73,5 +73,32 @@ export type HistoryMsg = {
   direction: "back" | "forward";
 };
 
-export type IframeToParent = SelectMsg | ReadyMsg | HistoryMsg;
+/** Iframe → parent: a request to open an absolute URL in a real browser tab,
+ *  emitted by the SDK when it traps a click on an anchor that resolves to a
+ *  different origin than the previewed document. The opaque-origin sandbox
+ *  swallows such clicks — `allow-scripts` carries no `allow-popups` (so
+ *  `target=_blank` is blocked) and no `allow-top-navigation` — and a plain click
+ *  would replace the preview with the remote page in-pane. The SDK suppresses
+ *  the default and forwards the absolute URL so the parent (top frame, not
+ *  sandboxed) opens it.
+ *
+ *  Trust note: this is an UNAUTHENTICATED message. The previewed HTML runs
+ *  arbitrary scripts under the same opaque origin, so any of them — not only the
+ *  SDK's click trap — can post this with an attacker-chosen http(s) `url`. The
+ *  parent must treat it as a request from untrusted content, not proof of a real
+ *  user click. It is accepted anyway because the granted capability (open a
+ *  `noopener,noreferrer` http(s) foreground tab) is strictly weaker than the
+ *  `location =`/`fetch` egress a sandboxed script already has. The parent
+ *  re-validates the scheme before `window.open` so `javascript:`/`data:` URLs
+ *  (which would execute in kolu's trusted origin) can never reach it. */
+export type OpenExternalMsg = {
+  type: "kolu-artifact-sdk:open-external";
+  url: string;
+};
+
+export type IframeToParent =
+  | SelectMsg
+  | ReadyMsg
+  | HistoryMsg
+  | OpenExternalMsg;
 export type ParentToIframe = PathMsg | RenderHighlightsMsg;

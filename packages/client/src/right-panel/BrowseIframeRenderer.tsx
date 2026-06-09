@@ -11,6 +11,7 @@
 import {
   observeIframeHistory,
   observeIframeNavigation,
+  observeIframeOpenExternal,
 } from "@kolu/artifact-sdk/client";
 import { pathFromPreviewPathname } from "@kolu/solid-browser";
 import { IframeRenderer } from "@kolu/solid-fileview/renderers/iframe";
@@ -36,7 +37,30 @@ export type BrowseIframeRendererProps = {
    *  SDK forwards the intent and the host drives the Code-tab browser's
    *  history — the buttons then work over the preview as well as the tree. */
   onHistory?: (direction: "back" | "forward") => void;
+  /** Open an external link clicked inside the preview. The sandbox can't open a
+   *  new tab on its own (no `allow-popups`/`allow-top-navigation`), so the
+   *  in-iframe SDK forwards the (re-validated http(s)) URL and the host opens it
+   *  in a real browser tab — leaving the preview on the current document. */
+  onOpenExternal?: (url: string) => void;
 };
+
+/** Bind an iframe observer once the element is available and clean up on
+ *  unmount. All three observers share this shape: wait for the iframe signal,
+ *  call the observer (which installs a `window.addEventListener("message", …)`
+ *  and returns a disposer), then clean up when the element changes or the
+ *  component unmounts. Props are read live inside the callback (which fires on
+ *  a postMessage, outside SolidJS's tracking scope) so a changed prop is
+ *  reflected without re-binding the listener. */
+function useIframeObserver(
+  iframeEl: () => HTMLIFrameElement | undefined,
+  observe: (el: HTMLIFrameElement) => () => void,
+): void {
+  createEffect(() => {
+    const el = iframeEl();
+    if (!el) return;
+    onCleanup(observe(el));
+  });
+}
 
 const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
   const [iframeEl, setIframeEl] = createSignal<HTMLIFrameElement | undefined>();
@@ -48,14 +72,8 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
   // followed a link to another file: tell the host so the tree selection (and
   // this preview, on remount) follow. The initial boot reports the path we
   // already show, so it's a no-op.
-  createEffect(() => {
-    const el = iframeEl();
-    if (!el) return;
-    // All three props are read live inside the callback (which fires on a
-    // postMessage, outside this tracking scope) rather than captured here —
-    // so a changed `onNavigate`/`url`/`path` is reflected without re-binding
-    // the listener, and the effect depends only on the iframe element.
-    const dispose = observeIframeNavigation(el, (pathname) => {
+  useIframeObserver(iframeEl, (el) =>
+    observeIframeNavigation(el, (pathname) => {
       const next = pathFromPreviewPathname(
         pathname,
         props.url,
@@ -63,21 +81,22 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
         previewPathCodec,
       );
       if (next !== null && next !== props.path) props.onNavigate?.(next);
-    });
-    onCleanup(dispose);
-  });
+    }),
+  );
 
   // The mouse's back/forward (X1/X2) buttons pressed *inside* the preview never
   // reach the parent's Code-tab listener (the opaque-origin sandbox traps
   // them), so the in-iframe SDK forwards them here and the host drives history.
-  createEffect(() => {
-    const el = iframeEl();
-    if (!el) return;
-    const dispose = observeIframeHistory(el, (direction) =>
-      props.onHistory?.(direction),
-    );
-    onCleanup(dispose);
-  });
+  useIframeObserver(iframeEl, (el) =>
+    observeIframeHistory(el, (direction) => props.onHistory?.(direction)),
+  );
+
+  // External-link clicks can't escape the opaque-origin sandbox, so the
+  // in-iframe SDK forwards the URL (already filtered to external http(s), and
+  // re-validated by the observer) and the host opens it in a real browser tab.
+  useIframeObserver(iframeEl, (el) =>
+    observeIframeOpenExternal(el, (url) => props.onOpenExternal?.(url)),
+  );
 
   return (
     <>

@@ -1093,6 +1093,31 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     Then the Code tab tree pane split handle should be visible
 
+  # Repro: preview a file, drag the split to grow the preview pane, open a
+  # second terminal (different, non-git cwd — the Code tab falls into its
+  # "Not in a git repository" fallback, unmounting the Resizable), then
+  # switch back. The split fraction rides the global
+  # `preferences.rightPanel.codeTabTreeSize`, so the remounted Resizable
+  # must restore the dragged size — not the 0.35 default.
+  Scenario: Tree/content split survives switching to another terminal and back
+    Given a Code tab in "browse" mode showing file "a.txt" with content "aaa"
+    When I open file "a.txt" in the Code tab
+    Then the selected file should show content "aaa"
+    When I note the Code tab preview pane height
+    And I drag the Code tab tree/content split handle up by 80 pixels
+    Then the Code tab preview pane should be about 80 pixels taller than noted
+    When I note the Code tab preview pane height
+    And I create a terminal
+    And I run "rm -rf /tmp/kolu-split-otherdir && mkdir -p /tmp/kolu-split-otherdir && cd /tmp/kolu-split-otherdir"
+    # Wait for the non-git fallback to actually mount — this is what
+    # unmounts the inner Resizable and fires Corvu's unregister emission
+    # (the bug). Switching back before this races past the path the fix
+    # guards, so the regression could pass vacuously without it.
+    Then the Code tab should indicate no git repository
+    When I select workspace switcher entry 1
+    Then the selected file should show content "aaa"
+    And the Code tab preview pane height should match the noted height
+
   Scenario: File browser expands directories lazily
     When I run "git init /tmp/kolu-browse-expand && cd /tmp/kolu-browse-expand"
     And I run "mkdir -p lib && printf 'x\n' > lib/util.ts"
@@ -1364,6 +1389,30 @@ Feature: Code tab (review + browse)
     When I click the link "go to second" in the file preview iframe
     Then the file preview iframe should contain "second page"
     And the file "second.html" should be selected in the file browser
+
+  # External links must escape the sandboxed preview. The frame runs
+  # `allow-scripts` only — no `allow-popups`, no `allow-top-navigation` — so a
+  # plain external `<a>` would replace the preview with the remote page in-pane
+  # and a `target=_blank` would be swallowed silently. The in-iframe artifact-sdk
+  # traps the click and forwards the absolute URL to the parent (top frame, not
+  # sandboxed), which opens it in a real browser tab and leaves the preview put.
+  # Unquoted `href` keeps the fixture free of inner quotes (the `I run "…"` step
+  # has no escape for them).
+  Scenario: Clicking an external link opens a new browser tab and leaves the preview in place
+    When I run "rm -rf /tmp/kolu-html-ext && git init /tmp/kolu-html-ext && cd /tmp/kolu-html-ext"
+    And I run "printf '<!doctype html><h1>home page</h1><a href=https://example.com/docs>external docs</a>\n' > home.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "home.html" in the file browser
+    Then the file preview iframe should be visible
+    And the file preview iframe should contain "home page"
+    When I click the external link "external docs" in the file preview iframe
+    Then a new browser tab should open to "https://example.com/docs"
+    # The preview did NOT navigate away in-pane — the click escaped to a tab and
+    # home.html is still the shown, selected file.
+    And the file preview iframe should contain "home page"
+    And the file "home.html" should be selected in the file browser
 
   # Regression (CONFIRMED live on the Atlas docs): reaching a file via an
   # IN-IFRAME LINK CLICK (not a tree click) desyncs the live-reload watch from

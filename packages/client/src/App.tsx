@@ -11,6 +11,7 @@ import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
 import Commit from "./ui/Commit";
+import { realSizes } from "./ui/corvuResizable";
 import {
   type Component,
   createEffect,
@@ -641,15 +642,12 @@ const App: Component = () => {
                       : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
                   }
                   onSizesChange={(sizes) => {
-                    // The `undefined` guard is just TypeScript narrowing —
-                    // Corvu always emits `sizes.length === 2` here. The
-                    // real load-bearing gate is `MIN_PANEL_SIZE = 0.05`
-                    // inside `useRightPanel.setPanelSize`, which drops the
-                    // collapsed `sizes[1] = 0` case so `preferences.size`
-                    // never persists as zero (which would re-expand into
-                    // an ungrabbable zero-width panel).
-                    if (sizes[1] !== undefined)
-                      rightPanel.setPanelSize(sizes[1]);
+                    // `MIN_PANEL_SIZE = 0.05` inside `setPanelSize` drops
+                    // the collapsed `sizes[1] = 0` case so `preferences.size`
+                    // never persists as zero (which would re-expand into an
+                    // ungrabbable zero-width panel).
+                    const s = realSizes(sizes);
+                    if (s) rightPanel.setPanelSize(s[1]);
                   }}
                   class="flex-1 min-h-0 overflow-hidden"
                 >
