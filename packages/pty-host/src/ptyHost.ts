@@ -496,7 +496,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // synchronously at startup and block until they receive a DCS reply. The
     // headless xterm has no built-in handler, so without this it never answers
     // — and the browser xterm's reply is filtered out as a late duplicate
-    // (see terminalResponseFilter.ts). Answer here so the PTY is never blocked.
+    // (see @kolu/terminal-protocol responseFilter). Answer here so the PTY is
+    // never blocked.
     entry.disposables.push(
       headless.parser.registerCsiHandler(
         { prefix: ">", final: "q" },
