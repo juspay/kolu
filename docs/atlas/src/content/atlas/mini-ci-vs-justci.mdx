@@ -142,17 +142,17 @@ The plan to outgrow that is to **rebuild it on [OpenTUI](https://opentui.com/)**
 
 ### The agent face — MCP <Pill variant="warn">Phase 2 · next</Pill>
 
-This is the face Phase 2 actually builds. Because the runner already serves its surface over a byte pipe, an **MCP server is just another serve target**: `odu mcp --host <h>` dials the very runner the CLI dials and re-exposes the surface as MCP tools — a thin adapter (~one file over the official MCP TypeScript SDK), no second protocol. So Claude Code, Codex, opencode, or Gemini CLI drive your CI with structured calls instead of scraping terminal output. Declare it over stdio — the transport everything else already rides:
+This is the face Phase 2 actually builds. Because the runner already serves its surface over a byte pipe, an **MCP server is just another serve target**: `odu mcp` is *in-band* — like `odu status` / `logs` / `monitor`, it dials the `.ci/odu.sock` the coordinator already serves and re-exposes that surface as MCP tools (a thin adapter, ~one file over the official MCP TypeScript SDK, no second protocol). It **predetermines no host**: *which* boxes run the lanes is the coordinator's job — a linux box leased from the warm `kolu-ci-*` pool, a macos host from `hosts.json` — exactly as for the CLI, so the `.mcp.json` below is identical on every machine. Claude Code, Codex, opencode, or Gemini CLI then drive your CI with structured calls instead of scraping terminal output. Declare it over stdio — the transport everything else already rides:
 
 ```jsonc
 // .mcp.json (proposed) — Claude Code; Codex, opencode & Gemini CLI take the same shape
 { "mcpServers": { "odu": {
   "type": "stdio", "command": "nix",
-  "args": ["run", "github:juspay/odu", "--", "mcp", "--host", "srid1"] } } }
+  "args": ["run", "github:juspay/odu", "--", "mcp"] } } }
 ```
 
 <Terminal title="claude — CI over the odu MCP server" lines={[
-  `$ claude    # odu declared in .mcp.json — stdio, over ssh`,
+  `$ claude    # odu declared in .mcp.json — stdio, in-band`,
   `# /mcp → odu · 4 tools: get_nodes tail_log rerun_node wait_for_settle`,
   ` `,
   `user: kolu CI went red on linux — find the broken node, show why, rerun it.`,
@@ -188,7 +188,7 @@ This is the face Phase 2 actually builds. Because the runner already serves its 
 
 **This is the one place justci *told us itself* the batch shape is the obstacle.** <Issue n={22} repo="juspay/justci" label="MCP server for ci, done properly" /> is justci's own design note for an agent-controlled MCP mode. It **built one and reverted it** (<PrLink pr={18} repo="juspay/justci" label="reverted in the same PR" />) because, in a batch translator, *launching the MCP server auto-ran every recipe* — process-compose has no serve-only / `--no-start` mode. A runner that owns the DAG as *idle state* has that separation by construction, and the snapshot-then-delta log is precisely the live event source #22 couldn't get.
 
-**No new authz boundary — which is exactly why MCP, not the browser, is next.** An earlier draft of this note parked the agent face behind an authn/authz split. That conflated *agent* access with *multi-client* access. `odu mcp` runs as the same operator, on the same machine, dialing the same `.ci/odu.sock` / `ssh host odu-runner --stdio` the CLI already uses; `rerun_node` is remote code execution, but it is RCE the operator already holds through the CLI — the agent acts *as* the operator, under the same ssh trust. So the single-operator MCP face needs no new trust model and lands in Phase 2 directly. A read-observer-vs-mutator authz boundary becomes load-bearing only when a *second, untrusted* client appears — the browser face below — which is why that face, not this one, carries the prerequisite.
+**No new authz boundary — which is exactly why MCP, not the browser, is next.** An earlier draft of this note parked the agent face behind an authn/authz split. That conflated *agent* access with *multi-client* access. `odu mcp` runs as the same operator, on the same machine, dialing the same `.ci/odu.sock` the CLI's `status` / `logs` / `monitor` already use; `rerun_node` is remote code execution, but it is RCE the operator already holds through the CLI — the agent acts *as* the operator, under the same ssh trust. So the single-operator MCP face needs no new trust model and lands in Phase 2 directly. A read-observer-vs-mutator authz boundary becomes load-bearing only when a *second, untrusted* client appears — the browser face below — which is why that face, not this one, carries the prerequisite.
 
 ### A browser face — the surface allows it, a CLI doesn't need it <Pill variant="todo">latent</Pill>
 
