@@ -4,6 +4,11 @@
       "command": ".claude/skills/nix-chrome-devtools-mcp/bin/serve",
       "args": [],
       "type": "stdio"
+    },
+    "odu": {
+      "type": "stdio",
+      "command": ".claude/skills/odu-mcp/bin/serve",
+      "args": []
     }
   }
 }
