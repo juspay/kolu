@@ -153,16 +153,20 @@ async function codexAnswers(round, other) {
       : `2. Using the Write tool (NOT a shell heredoc — the content has special characters), create \`${crossPath}\` with EXACTLY this content (overwriting any existing file):
 
 ${JSON.stringify(other, null, 2)}`
+  // Every path below is spliced into a shell command the runner agent executes, so
+  // POSIX-quote each one (worktrees or skill dirs with spaces/metacharacters would
+  // otherwise break the command or misdirect it). The Write-tool file CONTENTS
+  // (${prompt}, ${JSON.stringify(other)}) are not shell-parsed and stay verbatim.
   const runnerPrompt = `You are a MECHANICAL RUNNER for one round of an automated answer-debate. Do exactly the steps below and nothing else. Do NOT answer the question yourself, do NOT edit repository files, do NOT add commentary.
 
-1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`. Using the Write tool (NOT a heredoc), create \`${promptPath}\` with EXACTLY this content (overwriting any existing file):
+1. Ensure the scratch dir exists: \`mkdir -p ${shq(workDir)}\`. Using the Write tool (NOT a heredoc), create \`${promptPath}\` with EXACTLY this content (overwriting any existing file):
 
 ${prompt}
 
 ${crossStep}
 
 3. Run (cd into the repo root so the script's internal \`git\` targets THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-answer.sh ${promptPath} ${crossArg} ${answerPath} ${REASONING_EFFORT}\`
+   \`cd ${shq(repoPath)} && bash ${shq(`${skillDir}/scripts/codex-answer.sh`)} ${shq(promptPath)} ${crossArg === '-' ? '-' : shq(crossArg)} ${shq(answerPath)} ${shq(REASONING_EFFORT)}\`
 
    This shells out to the codex CLI as a read-only peer; it can take 1-3 minutes. It prints a JSON answer as its final stdout and also writes it to \`${answerPath}\`.
 
@@ -254,17 +258,32 @@ let status = 'consensus'
 let claudeAns = null
 let codexAns = null
 
+// A side "agrees" only when it BOTH set agreesWithOther AND left no objection. The
+// boolean and the objections list must be consistent (the schema says so), but a
+// model can set the flag while still listing a disagreement; honour the objections
+// too so a leftover objection can't be papered over by an over-eager boolean.
+const sideAgrees = (a) => a.agreesWithOther === true && (a.objections || []).length === 0
+
 // ---------------------------------------------------------------------------
 // The loop — round 1 is the independent answer (parallel); rounds 2+ are
-// cross-checks. Runs until BOTH sides agree. No round cap, no deadlock exit:
-// each side keeps cross-checking until they converge (the harness's per-workflow
-// agent backstop is the only hard ceiling — interrupt via /workflows or TaskStop).
+// cross-checks. Runs until BOTH sides agree, then ONE confirmation round. No round
+// cap, no deadlock exit: each side keeps cross-checking until they converge (the
+// harness's per-workflow agent backstop is the only hard ceiling — interrupt via
+// /workflows or TaskStop).
 //
-// Both sides run in PARALLEL each round, so in round N each cross-checks the
-// OTHER's round-(N-1) answer. Convergence is thus mutual agreement on the prior
-// round's answers — safe (it can only end on real agreement, never prematurely),
-// at worst one round later than a strictly-serial handoff would.
+// Both sides run in PARALLEL each round, so in round N each cross-checks the OTHER's
+// round-(N-1) answer. That parallelism creates a SWAP hazard: if Claude adopts
+// codex's prior answer while codex simultaneously adopts Claude's prior answer, both
+// can report agreesWithOther:true in the SAME round even though their CURRENT outputs
+// are swapped and may still differ. So a single mutually-agreeing round is NOT
+// sufficient. We require TWO CONSECUTIVE mutually-agreeing rounds: after the first,
+// each side runs once more and now cross-checks the OTHER's just-agreed answer; only
+// if both still agree (having seen each other's current answers) do we converge. A
+// real swap surfaces a fresh objection in that confirmation round; genuine agreement
+// holds. Convergence is therefore on answers both sides have actually seen — safe,
+// at worst two rounds later than a strictly-serial handoff would be.
 // ---------------------------------------------------------------------------
+let agreedStreak = 0
 for (let round = 1; ; round++) {
   const prevClaude = claudeAns
   const prevCodex = codexAns
@@ -299,14 +318,23 @@ for (let round = 1; ; round++) {
   await writeSection(entry)
 
   // Consensus: from round 2 on (round 1 has no cross-check), BOTH sides report no
-  // remaining disagreement with the other's latest answer.
-  if (round >= 2 && claude.agreesWithOther === true && codex.agreesWithOther === true) {
-    log(`Round ${round}: both sides agree — converged.`)
+  // remaining disagreement — agreesWithOther:true AND no objections. One such round
+  // can be a parallel-swap false positive (see the loop header), so require TWO in a
+  // row: the second round has each side cross-check the other's just-agreed answer,
+  // confirming on outputs both have actually seen.
+  const bothAgree = round >= 2 && sideAgrees(claude) && sideAgrees(codex)
+  agreedStreak = bothAgree ? agreedStreak + 1 : 0
+  if (agreedStreak >= 2) {
+    log(`Round ${round}: both sides agree for a second consecutive round — converged.`)
     break
   }
-  log(
-    `Round ${round}: claude agrees=${!!claude.agreesWithOther} (objections=${(claude.objections || []).length}), codex agrees=${!!codex.agreesWithOther} (objections=${(codex.objections || []).length})`,
-  )
+  if (bothAgree) {
+    log(`Round ${round}: both sides agree — running one confirmation round before converging.`)
+  } else {
+    log(
+      `Round ${round}: claude agrees=${sideAgrees(claude)} (objections=${(claude.objections || []).length}), codex agrees=${sideAgrees(codex)} (objections=${(codex.objections || []).length})`,
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +359,16 @@ ${JSON.stringify(codexAns, null, 2)}
 Return the unified answer in \`answer\`.`,
     { label: 'synthesis', phase: 'Synthesis', model, schema: FINAL_SCHEMA },
   )
-  finalAnswer = synth ? synth.answer : null
+  finalAnswer = synth && synth.answer ? synth.answer : null
+  // Synthesis is the user-facing payload of a consensus run. If the synthesis agent
+  // died (null) or returned an empty answer, there is no answer to present — do NOT
+  // keep reporting "consensus" with finalAnswer:null, which A3 would mis-handle as a
+  // successful answer. Demote to an explicit failure terminus so the skill surfaces
+  // it as broken (the sides DID agree; only the final merge failed).
+  if (!finalAnswer) {
+    status = 'synthesis-error'
+    log('Synthesis produced no answer — both sides agreed but the merge failed; reporting synthesis-error.')
+  }
 }
 
 log(`Answer-debate ended: ${status} after ${transcript.length} round(s).`)

@@ -95,12 +95,46 @@ synthesize_error_verdict() {
   }' >"$out"
 }
 
-# Two prompts: a lean cross-check follow-up for the WARM (resume) path that leans
-# on codex's retained answer, and the full answer prompt for the COLD path (round
-# 1, or the fallback when no session id was captured). Unquoted heredocs: only
-# $prompt_text and $crosscheck expand; their expansions are inserted literally
-# (heredoc results aren't re-scanned), so special chars stay inert.
-if [ -n "$resume_id" ] && [ -n "$crosscheck" ]; then
+# Whether this is a cross-check round: a cross-check file was provided (not "-") AND
+# it actually held CLAUDE's answer. A follow-up round MUST cross-check even when the
+# warm session id is missing — dropping the cross-check would tell codex to answer
+# independently again (agreesWithOther:false, no objections) and the debate could
+# never converge. So the cross-check, not the resume id, gates which prompt we use.
+is_crosscheck=
+[ -n "$crosscheck" ] && is_crosscheck=1
+
+# A reusable block carrying CLAUDE's latest answer + the cross-check instructions,
+# spliced into BOTH the warm and cold follow-up prompts (mirrors codex-review.sh's
+# $rebuttal_block) so a missing resume id degrades to a COLD CROSS-CHECK, never to a
+# fresh independent answer. Empty on round 1.
+crosscheck_block=""
+if [ -n "$is_crosscheck" ]; then
+  crosscheck_block="$(cat <<EOF
+
+CLAUDE's LATEST answer (JSON) is:
+$crosscheck
+
+Cross-check CLAUDE's answer against your own. Then:
+  - Where CLAUDE is right and you were wrong or incomplete, UPDATE your answer to
+    match and note what you changed in changedMind.
+  - Where CLAUDE is wrong or has a gap, keep your position and record it under
+    objections with a specific, evidence-backed reason (cite file:line for repo
+    questions).
+EOF
+)"
+fi
+
+# Three prompt shapes, chosen by (resume id × cross-check):
+#   * WARM follow-up   (resume id + cross-check): lean prompt leaning on codex's
+#     retained answer.
+#   * COLD follow-up   (no resume id + cross-check): the full answer prompt PLUS the
+#     cross-check block — codex re-derives its own answer from scratch but still
+#     reconciles against CLAUDE's, so the debate keeps converging.
+#   * COLD first round (no cross-check): the independent answer prompt.
+# Unquoted heredocs: only $prompt_text, $crosscheck, and $crosscheck_block expand;
+# their expansions are inserted literally (heredoc results aren't re-scanned), so
+# special chars stay inert.
+if [ -n "$resume_id" ] && [ -n "$is_crosscheck" ]; then
   prompt="$(cat <<EOF
 You are CODEX, continuing the SAME answer session you started earlier — you still
 have your own previous answer and reasoning in context. You and another assistant
@@ -110,18 +144,10 @@ to reach ONE agreed answer.
 The original question was:
 $prompt_text
 
-CLAUDE's LATEST answer (JSON) is:
-$crosscheck
-
 Cross-check CLAUDE's answer against your own (READ-ONLY — you may read repo files,
 git diff/log, grep to verify, but do NOT modify, create, or delete anything, and
-run no git write command: add/commit/push/stash/checkout). Then:
-  - Where CLAUDE is right and you were wrong or incomplete, UPDATE your answer to
-    match and note what you changed in changedMind.
-  - Where CLAUDE is wrong or has a gap, keep your position and record it under
-    objections with a specific, evidence-backed reason (cite file:line for repo
-    questions).
-
+run no git write command: add/commit/push/stash/checkout).
+$crosscheck_block
 Return the JSON schema:
   - answer: your UPDATED, self-contained unified answer as it stands now.
   - keyPoints: the core claims your answer rests on.
@@ -137,8 +163,8 @@ else
 You are CODEX, a rigorous, truthful expert. Answer the user's question below
 thoroughly and honestly — exactly as you would for a careful colleague. You are in
 a debate with another assistant ("CLAUDE") who is answering the SAME question
-independently; afterward you'll cross-check each other until you agree, so give
-your best, most defensible answer now.
+independently; you cross-check each other until you agree, so give your best, most
+defensible answer.
 
 You may inspect this repository to ground your answer (READ-ONLY — read files, run
 git diff/log/grep; do NOT modify, create, or delete anything, and run no git write
@@ -147,13 +173,17 @@ codebase. If the question isn't about this repo, answer from your own knowledge.
 
 The question:
 $prompt_text
-
+$crosscheck_block
 Return the JSON schema:
-  - answer: your complete, self-contained answer.
+  - answer: your complete, self-contained answer (on a cross-check round, your
+    UPDATED unified answer revised in light of CLAUDE's).
   - keyPoints: the core claims your answer rests on, one per item.
-  - objections: leave empty this round (you haven't seen CLAUDE's answer yet).
-  - changedMind: empty string this round.
-  - agreesWithOther: false this round (you haven't seen CLAUDE's answer yet).
+  - objections: your remaining disagreements with CLAUDE's latest answer — empty
+    when you fully agree, and empty on the first round (no cross-check yet).
+  - changedMind: what CLAUDE convinced you to change this round (empty if nothing,
+    and empty on the first round).
+  - agreesWithOther: true ONLY when CLAUDE's latest answer is correct and complete
+    and you have NO objection left. false on the first round (no cross-check yet).
 EOF
 )"
 fi

@@ -291,17 +291,21 @@ per-worktree `<repoPath>/.codex-debate/`, so parallel debates never collide. It
 returns:
 
 ```
-{ status: "consensus" | "reviewer-error" | "agent-error" | "no-prompt",
+{ status: "consensus" | "reviewer-error" | "agent-error" | "synthesis-error" | "no-prompt",
   rounds, prompt, finalAnswer, transcriptPath, reasoningEffort, codexError }
 ```
 
-- **consensus** — the only normal terminus: both sides agreed, and `finalAnswer`
-  is the synthesized unified answer. `transcriptPath` points at the saved
-  Markdown transcript (`.codex-debate/answer-<slug>.md`).
+- **consensus** — the only normal terminus: both sides agreed (for two consecutive
+  rounds — see the convergence note), and `finalAnswer` is the synthesized unified
+  answer. `transcriptPath` points at the saved Markdown transcript
+  (`.codex-debate/answer-<slug>.md`).
 - **reviewer-error** — codex itself failed to produce an answer (broken/unavailable
   CLI) after retries; `codexError` carries the failure detail. Infrastructure
   failure, not a debate outcome.
 - **agent-error** — one side died on a terminal API error after retries.
+- **synthesis-error** — both sides DID agree, but the final synthesis pass produced
+  no answer (the synthesis agent died or returned empty). Not a successful answer —
+  report it as a failure (there is agreement on record, only the merge failed).
 - **no-prompt** — the prompt was empty (shouldn't happen if A1 guarded it).
 
 ### A3. Present the result
@@ -321,10 +325,17 @@ returns:
 
 ## Answer-mode safety & notes
 
-- **Both peers read-only.** codex runs under `--sandbox read-only` (kernel-
-  enforced, belt-and-suspenders with the prompt text — it reads arbitrary repo
-  files and could be prompt-injected); the Claude peer is instructed to read but
-  never edit. No mode of this debate writes to the repo.
+- **Both peers read-only — but enforced ASYMMETRICALLY.** codex runs under
+  `--sandbox read-only` (kernel-enforced, belt-and-suspenders with the prompt text —
+  it reads arbitrary repo files and could be prompt-injected). The **Claude peer is
+  only prompt-enforced**: the harness's `agent()` exposes no sandbox/tool restriction
+  (the same is true of every Claude reviewer in `/lens-debate` and review mode), so
+  Claude's read-only behaviour rests on instruction, not a kernel guard. A
+  prompt-injected or mistaken Claude agent *could* in principle edit files or run a
+  git write — answer mode does not, and cannot here, harden against that the way it
+  does for codex. If that risk matters for a given prompt, run the debate in a
+  disposable/read-only worktree. Treat the read-only guarantee as **hard for codex,
+  best-effort for Claude.**
 - **Warm codex session.** Round 1 cold-starts `codex exec`; every later round
   resumes the same session (`codex exec resume`) so codex cross-checks from its own
   prior answer rather than reconstructing it. The session id lives in the
@@ -332,10 +343,18 @@ returns:
   so it never collides with review mode's session), degrading gracefully to a cold
   start if capture ever fails.
 - **Symmetric convergence, schema-detected.** Each side emits `agreesWithOther` +
-  `objections`; the loop ends only when both sides agree, with no round cap and no
-  deadlock exit. Because the two run in parallel each round, agreement is on the
-  prior round's answers — safe (it only ever ends on real agreement), at worst one
-  round later than a serial handoff.
+  `objections`; a side counts as agreeing only when it sets `agreesWithOther:true`
+  AND leaves no objection, so a stray objection can't be papered over by an
+  over-eager boolean. The loop ends only when both sides agree, with no round cap and
+  no deadlock exit. Because the two run in parallel each round, a single
+  mutually-agreeing round can be a **swap false positive** (Claude adopts codex's
+  prior answer while codex adopts Claude's — both report agreement, but their current
+  outputs are swapped and may still differ). So convergence requires **two
+  consecutive** mutually-agreeing rounds: after the first, each side cross-checks the
+  other's just-agreed answer, and only if both still agree — having now seen each
+  other's current answers — does the loop stop. A real swap surfaces a fresh
+  objection in that confirmation round. Convergence is thus on answers both sides
+  have actually seen — safe, at worst two rounds later than a serial handoff.
 - **Chat + saved transcript, no outward writes.** The unified answer is presented
   in chat and the full transcript is saved to the gitignored
   `.codex-debate/answer-<slug>.md`. Unlike review mode, answer mode never commits
