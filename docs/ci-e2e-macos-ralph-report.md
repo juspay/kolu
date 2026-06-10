@@ -367,3 +367,16 @@ Two `justfile` changes land in the `test` recipe to absorb this structurally:
   setting CI ran stably on for months.
 
 Neither change touches coverage (same 440 scenarios) or app behaviour.
+
+### Validation (real `odu run e2e@aarch64-darwin`, same host, same day)
+
+| Run | host condition | workers | lane wall | result |
+| --- | --- | --- | --- | --- |
+| recent-PR baseline | degraded + pile-up | 6 | **41–60 min** | green (retry-absorbed) |
+| post-fix, quiet | mediaanalysisd dead, no vira build | 6 | **9m18s** | 440/440, first attempt |
+| post-fix, contended | live vira GHC build (load 8–11) | 5 (auto) | **11m24s** | 440/440, first attempt |
+
+The contended run is the telling one: under the same external load class that
+used to produce 33-min cucumber phases, the load-aware sizing held the lane to
+~11 min. fseventsd was still wedged during both runs — the admin runbook above
+is unrealized upside.
