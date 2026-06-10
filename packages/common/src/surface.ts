@@ -45,8 +45,10 @@ import {
   GitStatusInputSchema,
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
-import { PrResultSchema } from "anyforge/schemas";
+import { PrInfoSchema } from "anyforge/schemas";
+import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
+import { match } from "ts-pattern";
 import { z } from "zod";
 
 // ── Sub-schemas — terminal identity, agent, foreground, layout ────────
@@ -60,6 +62,57 @@ export const AgentInfoSchema = z.discriminatedUnion("kind", [
   CodexInfoSchema,
   OpenCodeInfoSchema,
 ]);
+
+// ── PR resolution — closed forge union + wire result ──────────────────
+//
+// anyforge owns the forge-neutral, generic shapes (`PrUnavailableSourceBase`,
+// `PrResult<S>`); each forge adapter owns its own arm (`GhUnavailableSchema`
+// in kolu-github). The CLOSED, exhaustively-matchable union over those arms —
+// and the zod wire schema pinned to it — composes here in the app, exactly as
+// `AgentInfoSchema` composes the per-agent `*InfoSchema`s above. A new forge's
+// arm joins this union; the anyforge leaf never changes.
+
+/** The closed `PrUnavailableSource` union — one arm per forge adapter.
+ *  Discriminated on `provider` so render sites can `match(...).exhaustive()`
+ *  and a new forge is a compile error at every dispatch. */
+export const PrUnavailableSourceSchema = z.discriminatedUnion("provider", [
+  GhUnavailableSchema,
+]);
+export type PrUnavailableSource = z.infer<typeof PrUnavailableSourceSchema>;
+
+/** The wire `PrResult` — anyforge's generic `PrResult<S>` pinned to the closed
+ *  `PrUnavailableSource` union. Lives here (not in the leaf) for the same
+ *  reason `AgentInfoSchema` does: the leaf names no forge. */
+export const PrResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("pending") }),
+  z.object({ kind: z.literal("ok"), value: PrInfoSchema }),
+  z.object({ kind: z.literal("absent") }),
+  z.object({
+    kind: z.literal("unavailable"),
+    source: PrUnavailableSourceSchema,
+  }),
+]);
+export type PrResult = z.infer<typeof PrResultSchema>;
+
+/** Display reason for a closed-union failure source — exhaustive over every
+ *  forge arm. Moved from anyforge (which now names no forge); dispatches the
+ *  gh arm to kolu-github's `reasonForGhCode`. A new forge arm is a compile
+ *  error here until it adds its `.with({ provider: "…" }, …)` branch. */
+export function reasonForSource(source: PrUnavailableSource): string {
+  return match(source)
+    .with({ provider: "gh" }, ({ code }) => reasonForGhCode(code))
+    .exhaustive();
+}
+
+/** The display reason when a PR is `unavailable`, else null. */
+export function prUnavailableReason(pr: PrResult): string | null {
+  return pr.kind === "unavailable" ? reasonForSource(pr.source) : null;
+}
+
+/** The tagged failure source when a PR is `unavailable`, else null. */
+export function prUnavailableSource(pr: PrResult): PrUnavailableSource | null {
+  return pr.kind === "unavailable" ? pr.source : null;
+}
 
 /** Foreground process info from PTY. */
 export const ForegroundSchema = z.object({

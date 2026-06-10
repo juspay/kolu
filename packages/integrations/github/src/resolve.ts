@@ -10,6 +10,7 @@ import type { PrGitContext, PrProvider, PrResult } from "anyforge";
 import { PrStateSchema } from "anyforge/schemas";
 import type { Logger } from "kolu-shared";
 import { classifyGhError, deriveCheckStatus, extractChecks } from "./github.ts";
+import type { GhUnavailableSource } from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -56,7 +57,7 @@ interface GhPrViewResult {
 export async function resolveGitHubPr(
   git: PrGitContext,
   log?: Logger,
-): Promise<PrResult> {
+): Promise<PrResult<GhUnavailableSource>> {
   try {
     const { stdout } = await execFileAsync(
       getGhBin(),
@@ -106,8 +107,11 @@ function logGhResolveFailure(
   );
 }
 
-/** The gh adapter — the `PrProvider` the host injects into `subscribePr`. */
-export const githubPrProvider: PrProvider = {
+/** The gh adapter — the `PrProvider` the host injects into `subscribePr`.
+ *  Typed at its concrete `GhUnavailableSource` so `subscribePr` infers
+ *  `S = GhUnavailableSource` and its `PrResult<GhUnavailableSource>` lands
+ *  in the app's closed `PrResult` without a cast (gh is the union's member). */
+export const githubPrProvider: PrProvider<GhUnavailableSource> = {
   kind: "github",
   resolve: resolveGitHubPr,
 };

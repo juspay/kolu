@@ -188,6 +188,9 @@ importers:
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
+      kolu-github:
+        specifier: workspace:*
+        version: link:../integrations/github
       tailwindcss:
         specifier: ^4.1.0
         version: 4.2.2
@@ -233,6 +236,9 @@ importers:
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
+      kolu-github:
+        specifier: workspace:*
+        version: link:../integrations/github
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -410,6 +416,9 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

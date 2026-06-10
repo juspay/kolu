@@ -17,7 +17,11 @@
 
 import type { Logger } from "kolu-shared";
 import type { PrGitContext, PrProvider } from "./provider.ts";
-import { type PrResult, prResultEqual } from "./schemas.ts";
+import {
+  type PrResult,
+  prResultEqual,
+  type PrUnavailableSourceBase,
+} from "./schemas.ts";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -45,16 +49,16 @@ function gitContextEqual(
  *  injected forge adapter that resolves every PR for this watcher — the
  *  watcher is forge-agnostic because the provider is injected, mirroring
  *  how `startAgentProvider` takes one `AgentProvider`. */
-export function subscribePr(
-  provider: PrProvider,
-  onChange: (pr: PrResult) => void,
+export function subscribePr<S extends PrUnavailableSourceBase>(
+  provider: PrProvider<S>,
+  onChange: (pr: PrResult<S>) => void,
   log?: Logger,
 ): PrWatcher {
   let lastGit: PrGitContext | null = null;
-  let lastPr: PrResult = { kind: "pending" };
+  let lastPr: PrResult<S> = { kind: "pending" };
   let stopped = false;
 
-  function emit(pr: PrResult): void {
+  function emit(pr: PrResult<S>): void {
     if (stopped || prResultEqual(pr, lastPr)) return;
     lastPr = pr;
     // `onChange` is the caller's callback (a metadata write that can throw).

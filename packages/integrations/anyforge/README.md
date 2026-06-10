@@ -1,25 +1,24 @@
 # anyforge
 
-The forge-neutral PR kernel — what stays stable while forges vary. Leaf package (deps: `kolu-shared` types + zod + ts-pattern), browser-safe via the `anyforge/schemas` subpath. `anyagent` is the same move for agents; plan of record: `docs/atlas/src/content/atlas/anyforge.mdx` (kolu#1240).
+The forge-neutral PR kernel — what stays stable while forges vary, and **nothing forge-specific**. Leaf package (deps: `kolu-shared` types + zod + ts-pattern), browser-safe via the `anyforge/schemas` subpath. It is to forges what `anyagent` is to agents: the leaf names no concrete forge (`PrProvider.kind` is a bare `string`, exactly like `AgentProvider.kind`). Plan of record: `docs/atlas/src/content/atlas/anyforge.mdx` (kolu#1240).
 
 ## Modules
 
-| Module         | Exports                                                                                | Purpose                                                                                  |
-| -------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `schemas.ts`   | `PrInfoSchema`, `PrResultSchema`, `PrUnavailableSourceSchema`, `reasonForSource`, `prResultEqual`, … | Wire vocabulary + display helpers (browser-safe)                                          |
-| `provider.ts`  | `PrProvider`, `PrGitContext`, `ForgeKind`                                              | The adapter contract — a pure `resolve(git)`, dispatched per resolve                       |
-| `detect.ts`    | `detectForge`, `parseRemoteHost`                                                       | Sync, pure forge detection from the remote URL — no network probe                          |
-| `subscribe.ts` | `subscribePr`, `PrWatcher`                                                             | Generic poll/dedup/pending/emit-guard loop, one watcher per terminal                       |
+| Module         | Exports                                                                          | Purpose                                                                       |
+| -------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `schemas.ts`   | `PrInfoSchema`, `CheckRunSchema`, `PrStateSchema`, the generic `PrResult<S>` + `PrUnavailableSourceBase`, `prResultEqual`, `prValue`, `prLabel` | Neutral wire shapes + generic result type + display/equality helpers (browser-safe) |
+| `provider.ts`  | `PrProvider<S>`, `PrGitContext`                                                    | The adapter contract — `kind: string` + a pure `resolve(git)`                  |
+| `subscribe.ts` | `subscribePr`, `PrWatcher`                                                         | Generic poll/dedup/pending/emit-guard loop; takes one injected `PrProvider`    |
 
 ## Design
 
-- **Closed `PrUnavailableSource` union.** Per-forge failure codes live here, not in adapters, because the client renders recovery instructions per code and must `match(...).exhaustive()` — a new forge is a compile error at every render site.
-- **Provider = pure `resolve(git)`, chosen per resolve.** `subscribePr(providerFor, onChange)` looks the adapter up on each resolve, so a remote-URL change is a different dispatch on the next resolve — no watcher teardown/rebuild, and the git channel's synchronous `onEvent` contract is never crossed by an awaited detection.
-- **Unknown forge → github, no probe.** `gh` already resolves any GitHub-host remote it's authenticated for (GHE included) and degrades to a silent `absent` elsewhere — the gh CLI *is* the fallback prober.
+- **The leaf enumerates no forge.** `PrProvider.kind` is `string`; the failure source is the open `PrUnavailableSourceBase = { provider: string; code: string }`, and `PrResult<S>` is generic over it. The **closed** `PrUnavailableSource` union and the wire `PrResultSchema` — the part that must be exhaustively `match`-ed at every client render site — are composed in the app (`kolu-common`), exactly where `AgentInfoSchema` composes the per-agent schemas. A concrete adapter's failure codes live **in that adapter** (`GhUnavailableCodeSchema` is in `kolu-github`), not here.
+- **Provider = pure `resolve(git)`, injected.** `subscribePr(provider, onChange)` takes one `PrProvider`, mirroring how `startAgentProvider` takes one `AgentProvider`. No registry, no per-resolve dispatch, no detection in the kernel — with a single forge there is nothing to dispatch *to*. (Forge detection — which adapter resolves a given remote — is a server concern that arrives with the second adapter; see the plan note, decision D2.)
+- **Generic, so it stays type-safe without naming a forge.** An adapter produces `PrResult<ItsOwnSource>` (`githubPrProvider: PrProvider<GhUnavailableSource>`); that's a member of the app's closed union, so it's assignable to the wire `PrResult` covariantly — no cast.
 
 ## Adapters
 
 Forge adapters implement `PrProvider` against these shapes and never import each other:
 
-- `kolu-github` — `gh pr view` spawn, stderr classification, check-rollup derivation.
+- `kolu-github` — `gh pr view` spawn, stderr classification, check-rollup derivation; owns `GhUnavailableCodeSchema` (`kolu-github/schemas`).
 - `kolu-forgejo` — Forgejo/Codeberg REST (kolu#1240 phase 1, not yet landed).

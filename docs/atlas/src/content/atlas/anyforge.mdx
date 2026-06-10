@@ -24,13 +24,13 @@ import Cite from "../../components/Cite.astro";
   code={`direction: down
 client: "client\\nPR pill · tooltip · recovery popover"
 server: "kolu-server providers.ts\\nstartPrProvider — one watcher per terminal\\ninjects the gh adapter (0b);\\nadds detection + registry (phase 1)"
-common: "kolu-common\\nterminalMetadata wire schema"
+common: "kolu-common\\nterminalMetadata wire schema\\ncomposes closed PrUnavailableSource union\\n(like AgentInfoSchema)"
 git: "kolu-git\\nGitInfo (gains remoteUrl in phase 1)"
 adapters: "sibling adapters — never see each other" {
-  github: "kolu-github\\ngh pr view spawn\\nclassifyGhError · check rollup"
+  github: "kolu-github\\ngh pr view spawn\\nclassifyGhError · check rollup\\nowns GhUnavailable codes"
   forgejo: "kolu-forgejo (phase 1)\\nForgejo/Codeberg REST"
 }
-anyforge: "anyforge — the new leaf\\nPrInfo · PrResult · unavailable schemas\\nPrProvider (kind: string) · subscribePr" {
+anyforge: "anyforge — the new leaf · names no forge\\nPrInfo · generic PrResult<S> · PrUnavailableSourceBase\\nPrProvider (kind: string) · subscribePr" {
   style.bold: true
 }
 client -> server: "WebSocket (m.pr)"
@@ -76,7 +76,7 @@ A structural pass (Hickey + Lowy lenses) over <PrLink pr={1} repo="ic4-y/kolu" l
 
 `packages/integrations/anyforge/` (package name `anyforge`, mirroring `anyagent`), a leaf depending only on `kolu-shared` + zod + ts-pattern. It owns the two things that are stable while forges vary — and, crucially, **names no specific forge** (the kernel is the *receptacle*, not a registry of plugs):
 
-**The wire vocabulary.** `PrInfoSchema` (`number/title/url/state/checks/checkRuns` — already forge-neutral in shape), `PrStateSchema`, `CheckStatusSchema`, `CheckRunSchema`, `PrResultSchema` (`pending | ok | absent | unavailable`), and the **closed** `PrUnavailableSourceSchema` discriminated union holding each adapter's code enum (`GhUnavailableCode` today, a second forge's in phase 1) plus the `reasonFor*` / `prValue` / `prLabel` / `prResultEqual` helpers. Per-forge error codes are part of the neutral UI contract, not adapter internals: the client renders recovery instructions per code and must `match(...).exhaustive()` — the same closed-union trade-off `AgentInfoSchema` already makes.
+**The wire vocabulary — the neutral half.** `PrInfoSchema` (`number/title/url/state/checks/checkRuns` — already forge-neutral in shape), `PrStateSchema`, `CheckStatusSchema`, `CheckRunSchema`, the **generic** `PrResult<S>` (`pending | ok | absent | unavailable{ source: S }`) over the open `PrUnavailableSourceBase = { provider: string; code: string }`, plus the `prValue` / `prLabel` / `prResultEqual` helpers. The leaf names **no forge**. The **closed** `PrUnavailableSource` union and the wire `PrResultSchema` — the part the client must `match(...).exhaustive()` — are composed one layer up, in the app (`kolu-common`), and each adapter's failure codes live **in that adapter** (`GhUnavailableCodeSchema` + `reasonForGhCode` in `kolu-github`). This is exactly the `anyagent` split: `AgentInfoShape` (generic, in the leaf) → `ClaudeCodeInfoSchema` (concrete, in `kolu-claude-code`) → `AgentInfoSchema` (the closed union, composed in `kolu-common`). The closed-union exhaustiveness trade-off is preserved — just at the layer that owns it.
 
 **The provider contract — a pure resolver.** Mirrors `anyagent`'s `AgentProvider` exactly: a `kind: string` discriminator (the leaf enumerates no forge — just as `AgentProvider.kind` is `string` and the concrete `AgentKindSchema` enum lives in the app, `kolu-common`, not the leaf) plus one stateless `resolve`:
 
@@ -101,11 +101,11 @@ The generic watcher `subscribePr(provider, onChange, log)` keeps everything `sub
 
 ### 0b — extract anyforge <Pill variant="run">in review</Pill> <PrLink pr={1257} />
 
-- Create `packages/integrations/anyforge/`; **move** (not copy) the neutral schemas + helpers out of `kolu-github/src/schemas.ts`, renaming on the way (`GitHubPrInfo`→`PrInfo`, `GitHubCheckStatus`→`CheckStatus`, `GitHubCheck`→`CheckRun`, `GitHubPrState`→`PrState`) — the rename and the move are one mechanical commit. `Gh*` unavailable codes move too (vocabulary is neutral; *classification* stays in `kolu-github`).
+- Create `packages/integrations/anyforge/`; **move** (not copy) the **neutral** schemas + helpers out of `kolu-github/src/schemas.ts`, renaming on the way (`GitHubPrInfo`→`PrInfo`, `GitHubCheckStatus`→`CheckStatus`, `GitHubCheck`→`CheckRun`, `GitHubPrState`→`PrState`) — the rename and the move are one mechanical commit. The leaf gets only the *generic* `PrResult<S>` over `{ provider: string; code: string }`. The `Gh*` unavailable codes **stay in `kolu-github`** (on a browser-safe `kolu-github/schemas` arm, like `kolu-claude-code`'s); the **closed** `PrUnavailableSource` union + the wire `PrResultSchema` compose in **`kolu-common`**, next to `AgentInfoSchema`.
 - Move the poll loop as `subscribePr(provider, onChange, log)` taking one injected `PrProvider`; **delete** `subscribeGitHubPr` and the `GitHubPrWatcher` alias rather than shimming (private monorepo, one test file to update). `PrProvider.kind` is `string` — **no `ForgeKind` union in the leaf** (the `anyagent` precedent: `AgentProvider.kind: string`, concrete enum in `kolu-common`).
 - `kolu-github` shrinks to the gh adapter: `getGhBin`/`resolveGitHubPr`, `classifyGhError`, `deriveCheckStatus`/`extractChecks`, exporting `githubPrProvider: PrProvider` (`kind: "github"`).
 - `startGitHubPrProvider` (<Cite file="packages/server/src/terminalBackend/providers.ts" lines="255-294" />) becomes `startPrProvider`, which **injects `githubPrProvider`** into `subscribePr` and feeds it `{repoRoot, branch}` off the git channel. No registry, no detection — there is one forge, so there is nothing to dispatch. `onEvent` stays synchronous.
-- Re-point imports: `kolu-common/surface.ts` and the 8 client files (`prTooltip`, `RowPips`, `TerminalMeta`, `WorkspaceGrid`, `CloseConfirm`, `MetadataInspector`, `PrUnavailablePopover`, `terminalSubject`) from `kolu-github/schemas` → `anyforge/schemas`. README package table gains the anyforge row.
+- Re-point imports: the neutral helpers (`prValue`, `prLabel`, `PrInfo`, …) → `anyforge/schemas`; the closed-union helpers (`PrUnavailableSource`, `reasonForSource`, `prUnavailableReason/Source`) → `kolu-common/surface`; the gh codes (`GhUnavailableCode`) → `kolu-github/schemas`. README package table gains the anyforge row.
 - **Explicitly *not* in 0b**: `GitInfo.remoteUrl`, `detectForge`, the provider registry — all phase 1. The kernel ships GitHub-only with zero forge knowledge.
 
 **Verify:** every existing unit + e2e test green; no new env vars. One behavior change, surfaced by the review gauntlet and worth a changelog line: the stale-resolve guard (a latent bug carried by the old `subscribeGitHubPr` — switching branches mid-lookup could briefly show the old branch's PR — is now fixed in the moved loop).
@@ -127,7 +127,7 @@ The generic watcher `subscribePr(provider, onChange, log)` keeps everything `sub
 | # | Decision | Rationale |
 | --- | --- | --- |
 | D0 | **The kernel enumerates no forge.** `PrProvider.kind: string`; no `ForgeKind` union, no `detectForge`, no `remoteUrl` in `anyforge`. | The `anyagent` precedent, exactly: `AgentProvider.kind` is `string` and the leaf never names claude/codex/opencode; the closed `AgentKindSchema` enum lives in the app (`kolu-common`). A GitHub-only kernel that hardcodes `"forgejo"` and ships detection nothing calls is premature coupling — the leaf should know *that* forges vary, not *which* ones. Detection lands in phase 1, server-side, with the forge that needs it. |
-| D1 | Closed `PrUnavailableSource` union in anyforge, exhaustive match in UI | A new forge *should* be a compile error at every recovery-UX render site; mirrors `AgentInfoSchema`. (This is the one closed shape the kernel carries — the *failure-mode* vocabulary the client must exhaustively render — not a registry of which forges exist.) |
+| D1 | Closed `PrUnavailableSource` union composed in **kolu-common** (gh arm owned by `kolu-github`), exhaustive match in UI | A new forge *should* be a compile error at every recovery-UX render site. But that closed union names forges, so it composes in the app — `discriminatedUnion("provider", [GhUnavailableSchema, …])` — exactly where `AgentInfoSchema = discriminatedUnion("kind", [ClaudeCodeInfoSchema, …])` lives, with each arm owned by its adapter package. The leaf carries only the *generic* `PrResult<S>` over `{ provider: string; code: string }`; the adapter produces `PrResult<GhUnavailableSource>` (a member of the closed union, assignable covariantly, no cast). (Corrects an earlier cut that put the closed union and the `Gh*` codes in the leaf.) |
 | D2 | Unknown forge → github adapter, no probe *(phase 1)* | gh handles GHE; 0a makes everything else silent. Kills the async-detection race and the egress/privacy question in one move. Cost: one no-op `gh` spawn per 30s poll on non-GitHub repos — exactly today's behavior. |
 | D3 | Provider = pure `resolve(git)`; injected, not constructed | 0b injects one provider into `subscribePr` (mirrors `startAgentProvider`); phase 1's registry dispatches per resolve on `detectForge`. Either way: no watcher teardown/rebuild, no `lastKey`, channel handler stays sync. If a forge ever needs push/webhooks, widen the contract then — not before. |
 | D4 | `fj` CLI not used | The issue thread already found it rough; Forgejo's REST API is one authenticated `fetch` and needs no binary on `$PATH`. |

@@ -8,7 +8,7 @@
  *  detection (see the anyforge Atlas note, decision D3). */
 
 import type { Logger } from "kolu-shared";
-import type { PrResult } from "./schemas.ts";
+import type { PrResult, PrUnavailableSourceBase } from "./schemas.ts";
 
 /** The git state a resolve needs — handed through `PrWatcher.setGit` and
  *  passed verbatim to the provider. */
@@ -17,13 +17,15 @@ export type PrGitContext = {
   branch: string;
 };
 
-export interface PrProvider {
+export interface PrProvider<
+  S extends PrUnavailableSourceBase = PrUnavailableSourceBase,
+> {
   /** Discriminator for this adapter, e.g. "github" — mirrors anyagent's
    *  AgentProvider.kind: string. The leaf enumerates no forge. */
   readonly kind: string;
   /** Resolve the PR for the given git context. Must not throw — failures
    *  are classified into the `PrResult` variants (`absent` for "no PR can
-   *  exist here", `unavailable` with a typed code for everything
-   *  actionable). */
-  resolve(git: PrGitContext, log?: Logger): Promise<PrResult>;
+   *  exist here", `unavailable` with this adapter's typed source `S` for
+   *  everything actionable). */
+  resolve(git: PrGitContext, log?: Logger): Promise<PrResult<S>>;
 }

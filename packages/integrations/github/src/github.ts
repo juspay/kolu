@@ -2,13 +2,9 @@
  *  these with the `gh pr view` spawn; the wire shapes they produce live in
  *  `anyforge/schemas`. */
 
-import type {
-  CheckRun,
-  PrInfo,
-  PrResult,
-  PrUnavailableSource,
-} from "anyforge/schemas";
+import type { CheckRun, PrInfo, PrResult } from "anyforge/schemas";
 import { match, P } from "ts-pattern";
+import type { GhUnavailableCode, GhUnavailableSource } from "./schemas.ts";
 
 /**
  * Derive combined check status from GitHub's statusCheckRollup entries.
@@ -109,7 +105,7 @@ export function extractChecks(rollup: RollupEntry[] | undefined): CheckRun[] {
  *  fall through to `unknown` and the UI loses the actionable recovery copy.
  *  The parametrized table tests in `github.test.ts` pin the current strings;
  *  if gh bumps a major and they drift, those tests are the tripwire. */
-export function classifyGhError(err: unknown): PrResult {
+export function classifyGhError(err: unknown): PrResult<GhUnavailableSource> {
   const e = err as {
     code?: string | number;
     killed?: boolean;
@@ -117,8 +113,8 @@ export function classifyGhError(err: unknown): PrResult {
     stderr?: string;
   };
   const ghUnavailable = (
-    code: Extract<PrUnavailableSource, { provider: "gh" }>["code"],
-  ): PrResult => ({
+    code: GhUnavailableCode,
+  ): PrResult<GhUnavailableSource> => ({
     kind: "unavailable",
     source: { provider: "gh", code },
   });

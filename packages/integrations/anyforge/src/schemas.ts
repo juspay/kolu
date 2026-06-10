@@ -1,17 +1,23 @@
-/** Zod schemas + pure helpers for forge-neutral PR metadata.
+/** Zod schemas + pure helpers for forge-neutral PR metadata — and the GENERIC
+ *  result/provider shapes that name no forge.
  *
- *  The wire vocabulary every forge adapter speaks: `PrInfo` (the resolved
- *  PR), `PrResult` (the resolution state machine), and the **closed**
- *  `PrUnavailableSource` union of per-forge failure codes. Per-forge codes
- *  are part of this neutral contract — not adapter internals — because the
- *  client renders recovery instructions per code and must
- *  `match(...).exhaustive()`: a new forge arm is a compile error at every
- *  render site, the same trade-off `AgentInfoSchema` makes (kolu-common's
- *  surface).
+ *  The wire vocabulary every forge adapter speaks: `PrInfo` (the resolved PR)
+ *  and `PrResult` (the resolution state machine), generic over the failure
+ *  `source` so this leaf enumerates no forge. A concrete adapter (kolu-github)
+ *  owns its own `*UnavailableSchema` in its own `./schemas` subpath; the app
+ *  (kolu-common) composes the CLOSED, exhaustively-matchable
+ *  `PrUnavailableSource` union and pins `PrResult` to it.
  *
- *  Browser-safe: zod + ts-pattern only, no node APIs. Adapters (kolu-github
- *  today) implement `PrProvider` against these shapes and never import each
- *  other; a second forge adapter's arm joins this union later. */
+ *  This is the same generic-shape-in-leaf / closed-union-in-app split anyagent
+ *  makes: `AgentInfoShape { kind: string; … }` lives in the anyagent leaf
+ *  (naming no agent), each agent owns its `*InfoSchema`, and `AgentInfoSchema`
+ *  — the discriminated union — composes in kolu-common's surface. Here
+ *  `PrUnavailableSourceBase { provider: string; code: string }` is the generic
+ *  base, the gh arm lives in kolu-github, and the closed union composes in the
+ *  app. A new forge's arm joins that app-side union; this leaf never changes.
+ *
+ *  Browser-safe: zod + ts-pattern only, no node APIs. Adapters implement
+ *  `PrProvider<S>` against these shapes and never import each other. */
 
 import { match, P } from "ts-pattern";
 import { z } from "zod";
@@ -49,74 +55,15 @@ export const PrInfoSchema = z.object({
 });
 export type PrInfo = z.infer<typeof PrInfoSchema>;
 
-// --- gh-specific unavailable code ---
+// --- Generic unavailable source + PrResult ---
 
-/** Typed gh-failure code for the `unavailable` PrResult variant.
- *
- *  A discriminator separate from any human-readable display text so UI
- *  callers that want to dispatch per-failure can `match(code).exhaustive()`
- *  and get a compile error when a new code is added without a handler —
- *  rather than string-comparing display text and silently breaking on typo.
- *
- *  Named with the `Gh` prefix so a parallel `<forge>UnavailableCodeSchema`
- *  lives alongside this one when a second forge adapter lands;
- *  `PrUnavailableSourceSchema` already reserves the `provider`
- *  discriminator for the tagged-union extension. */
-export const GhUnavailableCodeSchema = z.enum([
-  "not-installed",
-  "not-authenticated",
-  "timed-out",
-  "unknown",
-]);
-export type GhUnavailableCode = z.infer<typeof GhUnavailableCodeSchema>;
+/** The generic failure source the kernel knows: a provider tag + its code.
+ *  The CLOSED, exhaustively-matchable union over concrete adapters is composed
+ *  in the app (kolu-common), exactly as AgentInfoSchema composes the per-agent
+ *  schemas — the leaf names no forge. */
+export type PrUnavailableSourceBase = { provider: string; code: string };
 
-/** Display text for a gh unavailable code — single source of truth. Defined
- *  as a fresh `Record<GhUnavailableCode, string>` literal (not wrapped in
- *  `match`) so TypeScript's required/excess-property checks enforce both
- *  sides of exhaustiveness — adding a code without updating this table
- *  fails compilation, and removing one leaves a dead key that also fails. */
-const GH_REASONS: Record<GhUnavailableCode, string> = {
-  "not-installed": "gh: not installed",
-  "not-authenticated": "gh: not authenticated",
-  "timed-out": "gh: timed out",
-  unknown: "gh: unknown error",
-};
-
-export function reasonForGhCode(code: GhUnavailableCode): string {
-  return GH_REASONS[code];
-}
-
-// --- Provider-tagged unavailable source ---
-
-export const GhUnavailableSchema = z.object({
-  provider: z.literal("gh"),
-  code: GhUnavailableCodeSchema,
-});
-
-/** Which provider classified the failure, plus that provider's typed code.
- *
- *  Today only `gh`; a sibling unavailable schema joins this union when a
- *  second forge adapter lands. UI dispatch sites that render recovery
- *  instructions should `match(source.provider).exhaustive()` so adding a
- *  new provider arm forces every render site to handle it. */
-export const PrUnavailableSourceSchema = z.discriminatedUnion("provider", [
-  GhUnavailableSchema,
-]);
-export type PrUnavailableSource = z.infer<typeof PrUnavailableSourceSchema>;
-
-/** Display string for any unavailable source — dispatches on provider to the
- *  provider's own reason lookup. `.exhaustive()` forces a compile error when
- *  a new forge adds its arm to `PrUnavailableSourceSchema` until a matching
- *  `.with` lands here. */
-export function reasonForSource(source: PrUnavailableSource): string {
-  return match(source)
-    .with({ provider: "gh" }, ({ code }) => reasonForGhCode(code))
-    .exhaustive();
-}
-
-// --- PrResult ---
-
-/** PR resolution state.
+/** PR resolution state, generic over the failure `source`.
  *
  *  Decomplects distinct conditions that `PrInfo | null` used to
  *  collapse into one value:
@@ -124,32 +71,37 @@ export function reasonForSource(source: PrUnavailableSource): string {
  *    ok          — resolver succeeded; a PR exists for this branch
  *    absent      — resolver succeeded; no PR for this branch (expected case)
  *    unavailable — resolver couldn't run; `source` carries the provider +
- *                  typed failure code, and the display reason is derived by
- *                  `reasonForSource`.
+ *                  typed failure code, and the display reason is derived in
+ *                  the app (kolu-common's `reasonForSource`).
  *
  *  The UI needs to distinguish "absent" (nothing to show) from "unavailable"
  *  (show a warning with recovery instructions). Keeping the provenance in
  *  the same field as the value avoids a sibling-flag invariant.
  *
+ *  Generic over `S extends PrUnavailableSourceBase` so this leaf names no
+ *  forge: a concrete adapter instantiates it at its own tagged source
+ *  (`PrResult<GhUnavailableSource>`), and the app pins it to the CLOSED
+ *  union (the `PrResultSchema`-inferred type in kolu-common). The wire/zod
+ *  schema lives in the app for the same reason `AgentInfoSchema` does.
+ *
  *  Analogous schemas for git/agent/foreground are not introduced yet — their
  *  failure modes don't currently surface as user-actionable warnings. If they
  *  do, mirror this shape per-provider rather than inventing a cross-cutting
  *  status registry (see PR description for juspay/kolu#148). */
-export const PrResultSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("pending") }),
-  z.object({ kind: z.literal("ok"), value: PrInfoSchema }),
-  z.object({ kind: z.literal("absent") }),
-  z.object({
-    kind: z.literal("unavailable"),
-    source: PrUnavailableSourceSchema,
-  }),
-]);
-export type PrResult = z.infer<typeof PrResultSchema>;
+export type PrResult<
+  S extends PrUnavailableSourceBase = PrUnavailableSourceBase,
+> =
+  | { kind: "pending" }
+  | { kind: "ok"; value: PrInfo }
+  | { kind: "absent" }
+  | { kind: "unavailable"; source: S };
 
 /** Extract the `PrInfo` when `kind === "ok"`, else `null`.
  *  Lets SolidJS `<Show when={prValue(meta.pr)}>` work without tripping on the
  *  object-truthy trap (every variant is a non-null object). */
-export function prValue(pr: PrResult): PrInfo | null {
+export function prValue<S extends PrUnavailableSourceBase>(
+  pr: PrResult<S>,
+): PrInfo | null {
   return pr.kind === "ok" ? pr.value : null;
 }
 
@@ -159,21 +111,14 @@ export function prLabel(pr: PrInfo): string {
   return `#${pr.number} ${pr.title}`;
 }
 
-/** Extract the display reason when `kind === "unavailable"`, else `null`. */
-export function prUnavailableReason(pr: PrResult): string | null {
-  return pr.kind === "unavailable" ? reasonForSource(pr.source) : null;
-}
-
-/** Extract the tagged source when `kind === "unavailable"`, else `null`. Use
- *  this when the UI needs to dispatch on provider/code; `prUnavailableReason`
- *  is enough for a plain string tooltip. */
-export function prUnavailableSource(pr: PrResult): PrUnavailableSource | null {
-  return pr.kind === "unavailable" ? pr.source : null;
-}
-
 /** Compare two PR resolution states for equality — the dedup gate
- *  `subscribePr` runs before every emit. */
-export function prResultEqual(a: PrResult, b: PrResult): boolean {
+ *  `subscribePr` runs before every emit. Generic over the source: the body
+ *  only compares `source.provider`/`source.code` (strings), so one
+ *  implementation serves every concrete adapter and the closed app union. */
+export function prResultEqual<S extends PrUnavailableSourceBase>(
+  a: PrResult<S>,
+  b: PrResult<S>,
+): boolean {
   if (a === b) return true;
   if (a.kind !== b.kind) return false;
   // `a.kind === b.kind` from here on, so each arm safely narrows `b` to `a`'s
@@ -185,7 +130,7 @@ export function prResultEqual(a: PrResult, b: PrResult): boolean {
   return (
     match(a)
       .with({ kind: "ok" }, (a) => {
-        const bv = (b as Extract<PrResult, { kind: "ok" }>).value;
+        const bv = (b as Extract<PrResult<S>, { kind: "ok" }>).value;
         return (
           a.value.number === bv.number &&
           a.value.title === bv.title &&
@@ -199,7 +144,7 @@ export function prResultEqual(a: PrResult, b: PrResult): boolean {
         // Compare the tagged source: provider + code. Both are the typed
         // discriminators; the display reason derives from them via
         // `reasonForSource` and doesn't need its own comparison.
-        const bs = (b as Extract<PrResult, { kind: "unavailable" }>).source;
+        const bs = (b as Extract<PrResult<S>, { kind: "unavailable" }>).source;
         return a.source.provider === bs.provider && a.source.code === bs.code;
       })
       // "pending" and "absent" have no payload — kind equality (already checked)

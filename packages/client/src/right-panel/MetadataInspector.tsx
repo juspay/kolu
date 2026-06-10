@@ -1,8 +1,11 @@
 /** MetadataInspector — live view of the active terminal's full context.
  *  Pure rendering: receives metadata, renders sections. */
 
-import type { TerminalMetadata } from "kolu-common/surface";
-import { prUnavailableSource, prValue } from "anyforge/schemas";
+import { prValue } from "anyforge/schemas";
+import {
+  prUnavailableSource,
+  type TerminalMetadata,
+} from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import ChecksIndicator from "../terminal/ChecksIndicator";
