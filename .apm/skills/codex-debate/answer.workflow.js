@@ -1,0 +1,367 @@
+export const meta = {
+  name: 'codex-answer-debate',
+  description: 'Have Claude and codex each answer a prompt in parallel, then cross-check until they agree, and synthesize one unified answer (no round cap, no deadlock exit)',
+  phases: [
+    { title: 'Answer', detail: 'claude + codex answer the prompt independently, in parallel' },
+    { title: 'Reconcile', detail: 'each cross-checks the other, round after round, until both agree' },
+    { title: 'Synthesis', detail: 'merge the two agreed answers into one unified reply' },
+  ],
+}
+
+// ---------------------------------------------------------------------------
+// Inputs (passed via the Workflow tool's `args`)
+// ---------------------------------------------------------------------------
+const a = args || {}
+const repoPath = a.repoPath || '.'
+// The user's freeform prompt — the question both assistants answer and then
+// cross-check toward one agreed reply. Required; the orchestrator passes it.
+const prompt = (a.prompt || '').trim()
+// Where the generated skill lives, so the codex runner can find codex-answer.sh.
+const skillDir = a.skillDir || '.claude/skills/codex-debate'
+// Per-worktree scratch dir, shared with the review mode. Gitignored, derived from
+// repoPath (the worktree root === $PWD) so parallel debates in DIFFERENT worktrees
+// never collide on shared /tmp paths and these files never pollute the repo.
+const workDir = `${repoPath}/.codex-debate`
+
+// Model tiers. The claude-answer round does real reasoning (answering, then
+// cross-checking codex) → `model` (Opus). The final synthesis is also user-facing
+// prose, so it runs on `model` too. The codex RUNNER must relay codex's answer
+// JSON faithfully (a verbatim copy, not a paraphrase — the weakest tier corrupts
+// it silently) → `copyModel` (Sonnet). The file writers/assemblers are mechanical
+// → `mechModel` (Haiku). Defaults match a direct invocation.
+const model = a.model || 'opus'
+const mechModel = a.mechModel || 'haiku'
+const copyModel = a.copyModel || 'sonnet'
+
+// The reasoning effort codex runs at, scoped to the debate. This JS constant is
+// the SINGLE home for the value: it is passed script-ward (a 4th positional arg to
+// codex-answer.sh, which sets `-c model_reasoning_effort`) and read by the
+// transcript header, so the `-c` flag and the header both derive from here.
+const REASONING_EFFORT = 'xhigh'
+
+// POSIX single-quote a path for safe interpolation into a shell command (spaces,
+// globs, metacharacters inert; embedded single quotes escaped via '\'' ). Used for
+// the destructive scratch reset (`rm -f`) below.
+const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
+
+// A filesystem-safe slug for this prompt, so the saved transcript has a readable,
+// deterministic name (Date.now()/Math.random() are unavailable in workflow scripts,
+// so the name is derived purely from the prompt text). Falls back to 'answer'.
+const slug =
+  (prompt.toLowerCase().match(/[a-z0-9]+/g) || []).slice(0, 8).join('-').slice(0, 60) || 'answer'
+const answerDocPath = `${workDir}/answer-${slug}.md`
+
+// ---------------------------------------------------------------------------
+// Schema — shared by both debaters (codex's runner mirrors
+// scripts/codex-answer.schema.json). `reviewerError` is set ONLY by the codex
+// runner script when codex itself failed; the claude side never sets it.
+// ---------------------------------------------------------------------------
+const OBJECTION = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { point: { type: 'string' }, reason: { type: 'string' } },
+  required: ['point', 'reason'],
+}
+const ANSWER_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    answer: { type: 'string' },
+    keyPoints: { type: 'array', items: { type: 'string' } },
+    agreesWithOther: { type: 'boolean' },
+    objections: { type: 'array', items: OBJECTION },
+    changedMind: { type: 'string' },
+    reviewerError: { type: 'boolean' },
+  },
+  required: ['answer', 'keyPoints', 'agreesWithOther', 'objections', 'changedMind'],
+}
+const FINAL_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { answer: { type: 'string' } },
+  required: ['answer'],
+}
+
+if (!prompt) {
+  return {
+    status: 'no-prompt',
+    rounds: 0,
+    prompt,
+    transcriptPath: null,
+    finalAnswer: null,
+    note: 'No prompt was passed to the answer-debate workflow; nothing to answer.',
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The two debaters (symmetric: each answers, then cross-checks the other)
+// ---------------------------------------------------------------------------
+// CLAUDE answers/cross-checks via a harness subagent (Claude isn't headless under
+// Max auth, so agent() is the only way to run it). Read-only: it may inspect the
+// repo to ground its answer but must not edit anything.
+async function claudeAnswers(round, other, myPrev) {
+  const block =
+    round === 1
+      ? `Answer the question below thoroughly and honestly — your best, most defensible answer. You are in a debate with another assistant ("CODEX") answering the SAME question independently; you'll cross-check each other afterward, so make this strong.`
+      : `This is a CROSS-CHECK round. You and CODEX each answered the question; now reconcile toward ONE agreed answer.
+
+Your OWN previous answer (build on it — don't re-derive from scratch):
+${JSON.stringify(myPrev, null, 2)}
+
+CODEX's LATEST answer (and its objections to your previous answer) (JSON):
+${JSON.stringify(other, null, 2)}
+
+Weigh CODEX's answer against yours:
+  - Where CODEX is right and you were wrong or incomplete, UPDATE your answer to match and say what you changed in changedMind.
+  - Where CODEX is wrong or has a gap, hold your position and record it under objections with a specific, evidence-backed reason.`
+  const prompt_ = `You and CODEX were asked the SAME question. ${block}
+
+You may inspect the repo at \`${repoPath}\` to ground your answer — your shell cwd may be a different worktree, so use \`git -C ${repoPath}\` and absolute paths under it. READ-ONLY: read files, \`git -C ${repoPath} diff/log\`, grep; do NOT edit, create, delete, or run any git write command. Cite file:line for claims about this codebase. If the question isn't about this repo, answer from your own knowledge.
+
+The question:
+${prompt}
+
+Return the schema:
+  - answer: your complete, self-contained answer as it stands now (on a cross-check round, your UPDATED unified answer).
+  - keyPoints: the core claims your answer rests on, one per item.
+  - objections: your remaining disagreements with CODEX's latest answer (empty on round 1, and empty once you fully agree).
+  - changedMind: what CODEX convinced you to change this round (empty on round 1 or if nothing changed).
+  - agreesWithOther: true ONLY when CODEX's latest answer is correct and complete and you have NO objection left — your two answers say the same thing. false on round 1.`
+  return agent(prompt_, {
+    label: `claude:round${round}`,
+    phase: round === 1 ? 'Answer' : 'Reconcile',
+    model,
+    schema: ANSWER_SCHEMA,
+  })
+}
+
+// CODEX answers/cross-checks via codex-answer.sh (warm session across rounds). The
+// agent here is a MECHANICAL RUNNER: it writes the prompt + cross-check files,
+// shells out to the script, and relays codex's JSON answer verbatim — it does NOT
+// answer the question itself. The user's prompt and CLAUDE's latest answer carry
+// arbitrary characters, so they're written with the Write tool, never a heredoc.
+async function codexAnswers(round, other) {
+  const answerPath = `${workDir}/answer-codex-${round}.json`
+  const promptPath = `${workDir}/answer-prompt.txt`
+  const crossPath = `${workDir}/answer-crosscheck.json`
+  // The cross-check argument to the script: `-` on round 1 (codex answers
+  // independently), else the file holding CLAUDE's latest answer.
+  const crossArg = round === 1 ? '-' : crossPath
+  const crossStep =
+    round === 1
+      ? `2. (No cross-check this round — codex answers independently.)`
+      : `2. Using the Write tool (NOT a shell heredoc — the content has special characters), create \`${crossPath}\` with EXACTLY this content (overwriting any existing file):
+
+${JSON.stringify(other, null, 2)}`
+  const runnerPrompt = `You are a MECHANICAL RUNNER for one round of an automated answer-debate. Do exactly the steps below and nothing else. Do NOT answer the question yourself, do NOT edit repository files, do NOT add commentary.
+
+1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`. Using the Write tool (NOT a heredoc), create \`${promptPath}\` with EXACTLY this content (overwriting any existing file):
+
+${prompt}
+
+${crossStep}
+
+3. Run (cd into the repo root so the script's internal \`git\` targets THIS worktree — your shell cwd may be a different worktree):
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-answer.sh ${promptPath} ${crossArg} ${answerPath} ${REASONING_EFFORT}\`
+
+   This shells out to the codex CLI as a read-only peer; it can take 1-3 minutes. It prints a JSON answer as its final stdout and also writes it to \`${answerPath}\`.
+
+4. Read \`${answerPath}\` and return its exact contents as your structured output. Copy the values faithfully; do not paraphrase or "improve" them.`
+  return agent(runnerPrompt, {
+    label: `codex:round${round}`,
+    phase: round === 1 ? 'Answer' : 'Reconcile',
+    model: copyModel, // must relay codex's answer JSON faithfully
+    schema: ANSWER_SCHEMA,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Transcript rendering — deterministic, in-process (no agent retypes the blob)
+// ---------------------------------------------------------------------------
+function renderObjections(objs) {
+  if (!objs || objs.length === 0) return '  - _(none)_'
+  return objs.map((o) => `  - **${o.point}** — ${o.reason}`).join('\n')
+}
+
+function renderSide(name, ans) {
+  if (!ans) return `**${name}** — _(no turn this round)_`
+  const lines = [
+    `**${name}** — agrees with other: \`${!!ans.agreesWithOther}\``,
+    '',
+    ans.answer,
+  ]
+  if (ans.changedMind && ans.changedMind.trim()) lines.push('', `_changed mind:_ ${ans.changedMind}`)
+  lines.push('', 'Objections to the other side:', renderObjections(ans.objections))
+  return lines.join('\n')
+}
+
+function roundSection(entry) {
+  return [
+    `### Round ${entry.round}`,
+    '',
+    renderSide('claude', entry.claude),
+    '',
+    renderSide('codex', entry.codex),
+  ].join('\n')
+}
+
+function transcriptHeader(meta) {
+  const badge = meta.status === 'consensus' ? '✅ **Agreed**' : `⚠️ **${meta.status}**`
+  return `# Codex ⇄ Claude answer-debate
+
+> **Prompt:** ${meta.prompt}
+
+${badge} after ${meta.rounds} round(s) · codex answered at \`${meta.reasoningEffort}\` reasoning effort`
+}
+
+function renderTranscript(transcript, meta, finalAnswer) {
+  const parts = [transcriptHeader(meta)]
+  if (finalAnswer) parts.push('## Final unified answer', '', finalAnswer)
+  parts.push('## Convergence trail', ...transcript.map(roundSection))
+  return parts.join('\n\n')
+}
+
+// Zero-pad the round so the section glob sorts in round order for the assembly.
+const sectionFile = (round) => `${workDir}/answer-section-${String(round).padStart(3, '0')}.md`
+
+// Write ONE round's section to its own small file (Haiku-safe — just this round).
+async function writeSection(entry) {
+  const text = roundSection(entry)
+  const path = sectionFile(entry.round)
+  const p = `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
+
+1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+2. Using the Write tool, create \`${path}\` with EXACTLY this content, overwriting any existing file:
+
+${text}`
+  return agent(p, { label: `section:round${entry.round}`, phase: 'Reconcile', model: mechModel })
+}
+
+// ---------------------------------------------------------------------------
+// Set up scratch — clear any stale per-round sections from a PRIOR debate in this
+// worktree so they don't leak into the assembled transcript. Scoped to the
+// answer-section files; the review mode's section-NNN.md and the verdict/answer
+// JSONs keep their own lifecycle.
+// ---------------------------------------------------------------------------
+phase('Answer')
+await agent(
+  `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`mkdir -p -- ${shq(workDir)} && rm -f -- ${shq(workDir)}/answer-section-*.md\`. Do not edit any other file. Do not run git.`,
+  { label: 'sections:reset', phase: 'Answer', model: mechModel },
+)
+
+const transcript = []
+let status = 'consensus'
+let claudeAns = null
+let codexAns = null
+
+// ---------------------------------------------------------------------------
+// The loop — round 1 is the independent answer (parallel); rounds 2+ are
+// cross-checks. Runs until BOTH sides agree. No round cap, no deadlock exit:
+// each side keeps cross-checking until they converge (the harness's per-workflow
+// agent backstop is the only hard ceiling — interrupt via /workflows or TaskStop).
+//
+// Both sides run in PARALLEL each round, so in round N each cross-checks the
+// OTHER's round-(N-1) answer. Convergence is thus mutual agreement on the prior
+// round's answers — safe (it can only end on real agreement, never prematurely),
+// at worst one round later than a strictly-serial handoff would.
+// ---------------------------------------------------------------------------
+for (let round = 1; ; round++) {
+  const prevClaude = claudeAns
+  const prevCodex = codexAns
+  const [claude, codex] = await parallel([
+    () => claudeAnswers(round, round === 1 ? null : prevCodex, prevClaude),
+    () => codexAnswers(round, round === 1 ? null : prevClaude),
+  ])
+
+  // codex infrastructure failure — terminal. The runner could not get an answer
+  // out of codex (broken/unavailable CLI), so it synthesized reviewerError:true.
+  // Retrying a dead reviewer just spins, so abort and surface the failure. This is
+  // deliberately separate from the "no deadlock exit" rule for real disagreement.
+  if (codex && codex.reviewerError) {
+    status = 'reviewer-error'
+    log(`Round ${round}: codex error — aborting. ${codex.answer}`)
+    transcript.push({ round, claude, codex })
+    break
+  }
+  // A side died on a terminal API error after retries (agent() returned null).
+  // We can't reconcile half a debate, so abort loudly rather than loop on nulls.
+  if (!claude || !codex) {
+    status = 'agent-error'
+    log(`Round ${round}: ${!claude ? 'claude' : 'codex'} produced no answer (agent error) — aborting.`)
+    transcript.push({ round, claude, codex })
+    break
+  }
+
+  claudeAns = claude
+  codexAns = codex
+  const entry = { round, claude, codex }
+  transcript.push(entry)
+  await writeSection(entry)
+
+  // Consensus: from round 2 on (round 1 has no cross-check), BOTH sides report no
+  // remaining disagreement with the other's latest answer.
+  if (round >= 2 && claude.agreesWithOther === true && codex.agreesWithOther === true) {
+    log(`Round ${round}: both sides agree — converged.`)
+    break
+  }
+  log(
+    `Round ${round}: claude agrees=${!!claude.agreesWithOther} (objections=${(claude.objections || []).length}), codex agrees=${!!codex.agreesWithOther} (objections=${(codex.objections || []).length})`,
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Synthesis — merge the two AGREED answers into one unified reply for the user.
+// Only on consensus: on a failure terminus there's no agreement to synthesize.
+// ---------------------------------------------------------------------------
+let finalAnswer = null
+if (status === 'consensus' && claudeAns && codexAns) {
+  phase('Synthesis')
+  const synth = await agent(
+    `Claude and codex were each asked the question below and, after cross-checking, AGREED. Merge their two (now-equivalent) answers into ONE clean, unified, self-contained answer for the user — no "Claude said / codex said" framing, no meta-commentary about the debate, just the best single answer. Preserve every substantive point both kept; where they used different wording for the same idea, pick the clearest. Keep any file:line citations.
+
+The question:
+${prompt}
+
+Claude's final answer (JSON):
+${JSON.stringify(claudeAns, null, 2)}
+
+Codex's final answer (JSON):
+${JSON.stringify(codexAns, null, 2)}
+
+Return the unified answer in \`answer\`.`,
+    { label: 'synthesis', phase: 'Synthesis', model, schema: FINAL_SCHEMA },
+  )
+  finalAnswer = synth ? synth.answer : null
+}
+
+log(`Answer-debate ended: ${status} after ${transcript.length} round(s).`)
+
+// Persist the full transcript to a single readable file the user can revisit
+// (chat + saved transcript). Rendered deterministically in-process, then handed to
+// one mechanical writer — the payload can be large, so use copyModel for faithful
+// reproduction (the same tier the codex relay uses).
+const transcriptText = renderTranscript(
+  transcript,
+  { status, rounds: transcript.length, prompt, reasoningEffort: REASONING_EFFORT },
+  finalAnswer,
+)
+await agent(
+  `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
+
+1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+2. Using the Write tool, create \`${answerDocPath}\` with EXACTLY this content, overwriting any existing file:
+
+${transcriptText}`,
+  { label: 'transcript:write', phase: 'Synthesis', model: copyModel },
+)
+
+return {
+  status,
+  rounds: transcript.length,
+  prompt,
+  transcriptPath: answerDocPath,
+  finalAnswer,
+  reasoningEffort: REASONING_EFFORT,
+  // The error terminus carries codex's failure detail in its answer text.
+  codexError: status === 'reviewer-error' ? (codexAns && codexAns.answer) || null : null,
+}
