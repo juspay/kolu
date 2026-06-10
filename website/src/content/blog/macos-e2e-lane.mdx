@@ -1,0 +1,232 @@
+---
+title: "Green, and Wrong by 14x"
+description: "Kolu's macOS e2e lane took 49 minutes; now it takes three and a half. In between: a Mac with a 64 GB fseventsd leak, three test suites trampling each other, and a one-character bash typo that ran 440 scenarios on a single worker — while every check stayed green."
+pubDate: 2026-06-10
+author: "Sridhar Ratnakumar"
+---
+
+import PR from "../../components/PR.astro";
+import Prompt from "../../components/Prompt.astro";
+
+[Kolu](https://github.com/juspay/kolu) is a terminal-native cockpit for coding agents, and its e2e suite is the expensive kind of honest: 440 [Cucumber](https://github.com/cucumber/cucumber-js) scenarios driving real [Chromium](https://www.chromium.org/) instances via [Playwright](https://playwright.dev/) against real Kolu servers, on every PR, on two platforms. The macOS lane runs on `rasam`, a 24-core, 128 GB Apple Silicon box we share with other CI. On June 9 I noticed that lane was taking the better part of an hour, and typed this:
+
+<Prompt>/goal Optimize CI times for the e2e step on macOS (running on rasam)</Prompt>
+
+What follows is what the investigation actually found, in the order it found it. Three independent causes were stacked on top of each other, and the most embarrassing one had been in `master` for three days, invisible because every run was green.
+
+<svg viewBox="0 0 680 200" role="img" aria-label="Lane time trajectory: baseline 41 to 60 minutes, after PR 1259 9 to 13 minutes, after host healing and PR 1261 3 minutes 28 seconds" style="width:100%;max-width:680px;display:block;margin:1.5rem auto;">
+  <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">ci::e2e@aarch64-darwin — lane wall-clock</text>
+  <line x1="110" y1="46" x2="650" y2="46" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <rect x="479" y="36" width="171" height="20" rx="3" fill="var(--color-live-alert)" fill-opacity="0.75" />
+  <text x="104" y="50" fill="var(--color-ink-dim)" font-size="12" text-anchor="end" font-family="monospace">Jun 9 baseline</text>
+  <text x="472" y="50" fill="var(--color-live-alert)" font-size="12" text-anchor="end" font-family="monospace">41–60 min</text>
+  <line x1="110" y1="96" x2="650" y2="96" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <rect x="191" y="86" width="36" height="20" rx="3" fill="var(--color-amber)" fill-opacity="0.9" />
+  <text x="104" y="100" fill="var(--color-ink-dim)" font-size="12" text-anchor="end" font-family="monospace">after #1259</text>
+  <text x="235" y="100" fill="var(--color-amber-bright)" font-size="12" font-family="monospace">9–13 min (host still sick)</text>
+  <line x1="110" y1="146" x2="650" y2="146" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <rect x="110" y="136" width="31" height="20" rx="3" fill="var(--color-live-lime)" fill-opacity="0.9" />
+  <text x="104" y="150" fill="var(--color-ink-dim)" font-size="12" text-anchor="end" font-family="monospace">healed + #1261</text>
+  <text x="149" y="150" fill="var(--color-live-lime)" font-size="12" font-family="monospace">3m28s</text>
+  <line x1="110" y1="168" x2="650" y2="168" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <text x="110" y="186" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">0</text>
+  <text x="245" y="186" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">15</text>
+  <text x="380" y="186" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">30</text>
+  <text x="515" y="186" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">45</text>
+  <text x="650" y="186" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">60 min</text>
+</svg>
+
+Same 440 scenarios at every point on that chart. No test was deleted, no timeout trimmed, no coverage moved.
+
+## Reading the lane before touching the suite
+
+Kolu's CI runner, [odu](https://github.com/juspay/odu), posts a [commit status](https://docs.github.com/en/rest/commits/statuses) per `recipe@platform` and keeps a per-recipe log. That gives you two free instruments: status timestamps for lane wall-clock across PRs, and the log to decompose a single lane. The decomposition of a typical 37-minute lane was lopsided:
+
+| Phase | Time |
+| --- | --- |
+| setup + `pnpm install` | ~30 s |
+| `nix build .#koluBin` (warm store) | ~1 min |
+| **Cucumber suite** | **33m 10s** |
+
+The suite was the whole cost — but the *same suite* finished in ~8 minutes on the Linux lane. So nothing was wrong with the tests. Something was wrong with where they ran, and with how many of them ran at once. It turned out to be both, plus a third thing nobody suspected.
+
+## Cause 1: the host was sick
+
+First instinct on any slow shared box: profile the *host*, not the workload. `ps aux | sort -k3 -rn | head` on rasam, 83 days of uptime:
+
+```
+PID    %CPU  RSS      COMMAND
+366    99.7  64.0 GB  fseventsd          ← root, pegged for weeks
+18755  98.8   4.9 GB  mediaanalysisd-access   ← ~60 days of CPU burned
+583     7.8   243 MB  mds_stores         ← Spotlight, bursts >100% during builds
+43257 104.5   6.5 GB  ghc                ← co-tenant CI building Haskell
+```
+
+Three Apple daemons and one legitimate neighbor:
+
+- **[fseventsd](https://developer.apple.com/documentation/coreservices/file_system_events)** — the kernel's file-system-events broker — was wedged at ~100% of a core with a **64 GB** resident leak, *even when the host was otherwise idle*. This is doubly poisonous for e2e testing: FSEvents is exactly the channel Kolu's file watchers (and the test suite's live-reload scenarios) depend on, so a drowning fseventsd doesn't just steal a core — it drops the events whose absence we'd been calling "darwin flakiness" and absorbing with retries.
+- **mediaanalysisd**, Apple's photo-analysis agent, had spent roughly **60 days of accumulated CPU** analyzing the Photos library of a headless CI bot account.
+- **[Spotlight](https://support.apple.com/guide/mac-help/search-with-spotlight-mchlp1008/mac)** was dutifully indexing every file that [Nix](https://nixos.org/) builds wrote, all day.
+- **[vira](https://github.com/juspay/vira)**, a co-tenant CI service, runs multi-hour [GHC](https://www.haskell.org/ghc/) builds that legitimately take ~16 cores. Intermittent, but real.
+
+<svg viewBox="0 0 680 180" role="img" aria-label="fseventsd before and after restart: 64 gigabytes and 100 percent CPU before, 18 megabytes and 0 percent CPU after" style="width:100%;max-width:680px;display:block;margin:1.5rem auto;">
+  <rect x="10" y="14" width="320" height="130" rx="8" fill="none" stroke="var(--color-live-alert)" stroke-width="1.5" stroke-opacity="0.6" />
+  <text x="30" y="42" fill="var(--color-ink-dim)" font-size="12" font-family="monospace">fseventsd · before (84 days up)</text>
+  <text x="30" y="86" fill="var(--color-live-alert)" font-size="34" font-weight="700" font-family="monospace">64 GB</text>
+  <text x="30" y="118" fill="var(--color-ink)" font-size="15" font-family="monospace">RSS · 100% CPU at idle</text>
+  <rect x="350" y="14" width="320" height="130" rx="8" fill="none" stroke="var(--color-live-lime)" stroke-width="1.5" stroke-opacity="0.6" />
+  <text x="370" y="42" fill="var(--color-ink-dim)" font-size="12" font-family="monospace">after kill (launchd respawn)</text>
+  <text x="370" y="86" fill="var(--color-live-lime)" font-size="34" font-weight="700" font-family="monospace">18 MB</text>
+  <text x="370" y="118" fill="var(--color-ink)" font-size="15" font-family="monospace">RSS · 0% CPU</text>
+  <text x="340" y="170" fill="var(--color-ink-muted)" font-size="12" text-anchor="middle" font-family="monospace">~90 GB of RAM returned to a 128 GB host</text>
+</svg>
+
+The lesson generalizes: **long uptimes are a liability on macOS CI hosts.** None of this shows up in your test profiler, because none of it is your code.
+
+## Cause 2: our own runs were trampling each other
+
+odu fans each PR's pipeline out independently, and rasam is a single shared lane host. Pull the e2e status timestamps for one afternoon's PRs and the problem draws itself:
+
+<svg viewBox="0 0 680 210" role="img" aria-label="Gantt chart of three overlapping e2e lanes between 15:40 and 17:10" style="width:100%;max-width:680px;display:block;margin:1.5rem auto;">
+  <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">one afternoon on rasam — e2e lanes per PR</text>
+  <rect x="180" y="30" width="193" height="120" fill="var(--color-live-alert)" fill-opacity="0.08" />
+  <rect x="83" y="36" width="290" height="22" rx="3" fill="var(--color-amber)" fill-opacity="0.75" />
+  <text x="90" y="51" fill="var(--color-void)" font-size="11" font-weight="600" font-family="monospace">#1246 · 45 min</text>
+  <rect x="160" y="76" width="316" height="22" rx="3" fill="var(--color-amber)" fill-opacity="0.75" />
+  <text x="167" y="91" fill="var(--color-void)" font-size="11" font-weight="600" font-family="monospace">#1247 · 49 min</text>
+  <rect x="180" y="116" width="309" height="22" rx="3" fill="var(--color-amber)" fill-opacity="0.75" />
+  <text x="187" y="131" fill="var(--color-void)" font-size="11" font-weight="600" font-family="monospace">#1248 · 48 min</text>
+  <line x1="70" y1="156" x2="650" y2="156" stroke="var(--color-rule-strong)" stroke-width="1" />
+  <text x="70" y="174" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">15:40</text>
+  <text x="199" y="174" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">16:00</text>
+  <text x="328" y="174" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">16:20</text>
+  <text x="457" y="174" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">16:40</text>
+  <text x="586" y="174" fill="var(--color-ink-muted)" font-size="10" text-anchor="middle" font-family="monospace">17:00</text>
+  <text x="276" y="198" fill="var(--color-ink-dim)" font-size="11" text-anchor="middle" font-family="monospace">↑ three full suites at once, on a host the daemons had already half-eaten</text>
+</svg>
+
+Each suite spawns its workers' Kolu servers and Chromium instances; three at once is dozens of processes contending for whatever cores fseventsd, Spotlight, and a GHC build had left over. Every overlapped lane took 41–60 minutes. The fix isn't to make the suites politer — it's to stop them overlapping at all.
+
+### A mutex and a load-aware worker count
+
+<PR id={1259} /> made two changes to the `just test` recipe, both in plain bash:
+
+<svg viewBox="0 0 680 150" role="img" aria-label="Flow: build koluBin outside the lock, acquire host mutex, sample load to size workers, run cucumber" style="width:100%;max-width:680px;display:block;margin:1.5rem auto;">
+  <rect x="10" y="40" width="140" height="44" rx="6" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.2" />
+  <text x="80" y="58" fill="var(--color-ink)" font-size="11" text-anchor="middle" font-family="monospace">nix build</text>
+  <text x="80" y="74" fill="var(--color-ink)" font-size="11" text-anchor="middle" font-family="monospace">.#koluBin</text>
+  <text x="80" y="102" fill="var(--color-ink-muted)" font-size="9.5" text-anchor="middle" font-family="monospace">outside the lock —</text>
+  <text x="80" y="114" fill="var(--color-ink-muted)" font-size="9.5" text-anchor="middle" font-family="monospace">store locking dedups</text>
+  <polygon points="166,62 156,57 156,67" fill="var(--color-ink-dim)" />
+  <line x1="150" y1="62" x2="158" y2="62" stroke="var(--color-ink-dim)" stroke-width="1.2" />
+  <rect x="170" y="40" width="160" height="44" rx="6" fill="none" stroke="var(--color-amber)" stroke-width="1.2" />
+  <text x="250" y="58" fill="var(--color-ink)" font-size="11" text-anchor="middle" font-family="monospace">acquire host mutex</text>
+  <text x="250" y="74" fill="var(--color-ink-dim)" font-size="10" text-anchor="middle" font-family="monospace">mkdir, atomic</text>
+  <text x="250" y="102" fill="var(--color-ink-muted)" font-size="9.5" text-anchor="middle" font-family="monospace">dead pid → steal</text>
+  <text x="250" y="114" fill="var(--color-ink-muted)" font-size="9.5" text-anchor="middle" font-family="monospace">60 min → proceed unlocked</text>
+  <polygon points="346,62 336,57 336,67" fill="var(--color-ink-dim)" />
+  <line x1="330" y1="62" x2="338" y2="62" stroke="var(--color-ink-dim)" stroke-width="1.2" />
+  <rect x="350" y="40" width="200" height="44" rx="6" fill="none" stroke="var(--color-amber)" stroke-width="1.2" />
+  <text x="450" y="58" fill="var(--color-ink)" font-size="11" text-anchor="middle" font-family="monospace">workers = clamp(</text>
+  <text x="450" y="74" fill="var(--color-ink)" font-size="11" text-anchor="middle" font-family="monospace">(cores − load) / 3, 4, cap)</text>
+  <text x="450" y="102" fill="var(--color-ink-muted)" font-size="9.5" text-anchor="middle" font-family="monospace">sampled AFTER the lock —</text>
+  <text x="450" y="114" fill="var(--color-ink-muted)" font-size="9.5" text-anchor="middle" font-family="monospace">size from the load that remains</text>
+  <polygon points="566,62 556,57 556,67" fill="var(--color-ink-dim)" />
+  <line x1="550" y1="62" x2="558" y2="62" stroke="var(--color-ink-dim)" stroke-width="1.2" />
+  <rect x="570" y="40" width="100" height="44" rx="6" fill="none" stroke="var(--color-live-lime)" stroke-width="1.2" />
+  <text x="620" y="66" fill="var(--color-ink)" font-size="11" text-anchor="middle" font-family="monospace">cucumber</text>
+</svg>
+
+The mutex is twelve lines of [`mkdir`](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/mkdir.html)-as-atomic-primitive — macOS ships no `flock(1)` — with a dead-pid steal for crashed runs and a hard 60-minute ceiling after which a run proceeds *unlocked*: degraded mode is exactly the old behavior, never a deadlock. The binary build stays outside the lock because the Nix store already dedups concurrent builds of the same derivation.
+
+The worker count stopped pretending the host was ours: `(cores − loadavg1) / 3`, clamped to the old floor and cap, sampled **after** acquiring the lock — a run that queued for half an hour must size itself from the load that's left, not the load the previous suite was generating.
+
+Lanes dropped from 41–60 minutes to 9–13. Good. Not the headline.
+
+## Cause 3: the suite had been serial for three days
+
+While validating <PR id={1259} /> I added a one-line log of the resolved worker count, on a whim. The next run printed this:
+
+```
+e2e: workers=cap (cores=24 load=2 cap=6)
+```
+
+Not `workers=6`. The *string* `cap`. The clamp line read:
+
+```bash
+if (( par > cap )); then par=cap; fi     # ← assigns the literal string "cap"
+                  #         par=$cap     # ← what it meant
+```
+
+Inside `(( ))`, bash treats `cap` as a variable; in a plain assignment it's just three letters. The bug had entered `master` three days earlier in <PR id={1223} />, in the most innocent refactor imaginable — `par=8` became `par=cap` when the cap went per-platform, and the `$` stayed behind.
+
+Downstream, the damage was perfectly silent. Cucumber's config does:
+
+```js
+const parallel = parseInt(process.env.CUCUMBER_PARALLEL || "1", 10);  // "cap" → NaN
+...(parallel > 1 && { parallel }),                                    // NaN > 1 → option dropped
+```
+
+`NaN > 1` is `false`, the `parallel` option vanishes, and **440 scenarios run on one worker — green, every time**. On every host whose computed count exceeded its cap. Which was every CI host we have, on both platforms, since June 7.
+
+### The signature that gives serialism away
+
+You don't need a log line to catch this class of bug. Cucumber prints two durations at the end of a run, and their ratio is a worker count:
+
+<svg viewBox="0 0 680 240" role="img" aria-label="Comparison of wall time versus total step time for serial and parallel runs" style="width:100%;max-width:680px;display:block;margin:1.5rem auto;">
+  <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">wall-clock vs. sum of step durations</text>
+  <text x="20" y="48" fill="var(--color-live-alert)" font-size="12" font-weight="600" font-family="monospace">the bug (linux lane)</text>
+  <text x="120" y="72" fill="var(--color-ink-dim)" font-size="11" text-anchor="end" font-family="monospace">wall</text>
+  <rect x="130" y="62" width="106" height="14" rx="2" fill="var(--color-amber)" fill-opacity="0.9" />
+  <text x="244" y="73" fill="var(--color-ink-dim)" font-size="11" font-family="monospace">7m36s</text>
+  <text x="120" y="94" fill="var(--color-ink-dim)" font-size="11" text-anchor="end" font-family="monospace">steps</text>
+  <rect x="130" y="84" width="105" height="14" rx="2" fill="var(--color-ink-muted)" />
+  <text x="244" y="95" fill="var(--color-ink-dim)" font-size="11" font-family="monospace">7m33s</text>
+  <text x="130" y="120" fill="var(--color-live-alert)" font-size="11" font-family="monospace">wall ≈ steps ⇒ one worker, whatever the config says</text>
+  <text x="20" y="152" fill="var(--color-live-lime)" font-size="12" font-weight="600" font-family="monospace">fixed (darwin lane, healed host)</text>
+  <text x="120" y="176" fill="var(--color-ink-dim)" font-size="11" text-anchor="end" font-family="monospace">wall</text>
+  <rect x="130" y="166" width="45" height="14" rx="2" fill="var(--color-amber)" fill-opacity="0.9" />
+  <text x="183" y="177" fill="var(--color-ink-dim)" font-size="11" font-family="monospace">3m12s</text>
+  <text x="120" y="198" fill="var(--color-ink-dim)" font-size="11" text-anchor="end" font-family="monospace">steps</text>
+  <rect x="130" y="188" width="262" height="14" rx="2" fill="var(--color-ink-muted)" />
+  <text x="400" y="199" fill="var(--color-ink-dim)" font-size="11" font-family="monospace">18m43s</text>
+  <text x="130" y="224" fill="var(--color-live-lime)" font-size="11" font-family="monospace">steps ÷ wall ≈ 5.9 ⇒ six workers actually working</text>
+</svg>
+
+Every "slow but green" lane in the baseline had the left-hand signature sitting in its log. We just never looked, because green.
+
+<PR id={1261} /> is the fix: one `$`, plus a guard that refuses any non-numeric worker count out loud — `e2e: invalid worker count` and a hard exit — so the next config value that degrades parallelism does it as a red build instead of a quiet one. The Linux lane went from 7m35s to **1m29s** on the same commit.
+
+## Healing the host needed sudo, and sudo has walls
+
+<Prompt>I merged your PR, and rasam sudo password is ████████████</Prompt>
+
+With root, the runbook was three moves — and macOS pushed back on each:
+
+| Move | Result | The wall it hit |
+| --- | --- | --- |
+| `kill` wedged fseventsd | [launchd](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html) respawns it: 64 GB → 18 MB, 100% → 0% | none — just give a 64 GB teardown a few seconds before you conclude the kill "didn't take" |
+| `mdutil -a -i off` (Spotlight off) | `mds_stores` settles to 0% | the separate `/System/Volumes/Data` mount reports `unknown indexing state`; disabling `/` and kicking the mds processes settles it |
+| remove mediaanalysisd | contained, not removed | `launchctl bootout` is blocked by [SIP](https://support.apple.com/en-us/102149) *even as root*; moving its Photos-library trigger is blocked by [TCC](https://support.apple.com/guide/security/controlling-app-access-to-files-secddd1d86a6/web) over ssh; the per-user `launchctl disable` only sticks at the *next* console login |
+
+The containment for that last one is a five-line root [LaunchDaemon](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html) — `/Library/LaunchDaemons` is *not* SIP-protected — that `pkill`s the agent every five minutes until a human next logs into the console and the real disable takes effect. Crude, reversible, effective.
+
+And one move we deliberately did **not** make: reboot. [FileVault](https://support.apple.com/guide/mac-help/protect-data-on-your-mac-with-filevault-mh11785/mac) is on with no auto-login, so a remote reboot parks the machine at the pre-boot unlock screen — no ssh, no CI host, until someone with physical or Screen-Sharing access types a password. Check `fdesetup status` *before* you need to know this.
+
+## The scoreboard
+
+| Stage | darwin e2e lane | what changed |
+| --- | --- | --- |
+| baseline, Jun 9 | **41–60 min** | serial suite (#1223 typo) × sick host × 3-suite pile-ups |
+| <PR id={1259} /> | **9–13 min** | suite mutex + load-aware workers (which, under load, also happened to restore parallelism) |
+| host healed + <PR id={1261} /> | **3m28s** | fseventsd/Spotlight/mediaanalysisd dealt with; the `$` restored; fail-loud guard |
+
+![The merged fix PR, with the healed-host validation: 440/440 scenarios on the first attempt in 3m28s, and the worker count finally resolving to a number](/blog/macos-e2e-pr-validation.png)
+
+Two numbers tell the cleaner story. The suite's *total step time* — the sum of every step's duration, independent of worker count — fell from 46–53 minutes to 16–19 minutes: that's the host healing, with parallelism factored out. And the *wall-to-steps ratio* went from 1.0 to ~5.9: that's the typo dying.
+
+The part I keep returning to: every one of those 41–60 minute lanes was **green**. Green is a statement about correctness, and we read it as a statement about health. The lane had been telling us exactly what was wrong the whole time — in a ratio of two durations nobody compared, on a host nobody profiled, behind a worker count nobody logged. The fix for that isn't cleverness. It's one `echo`:
+
+```
+e2e: workers=6 (cores=24 load=4 cap=6)
+```

@@ -391,8 +391,18 @@ at the unlock screen) — mediaanalysisd contained by a root LaunchDaemon
 `launchctl disable` stick). The healed-host lane time, **3m28s**, matches the
 original report's clean-host numbers scaled to today's 440 scenarios.
 
-One regression shipped in the first PR and is fixed here: the cap clamp wrote
-`par=cap` (literal string) instead of `par=$cap`, and `cucumber.js`
-`parseInt`→`NaN` silently *dropped* the `parallel` option — a serial suite that
-still looks green (the linux lane's `wall ≈ executing-steps` signature gave it
-away). The recipe now fails loud on any non-numeric worker count.
+One pre-existing bug was caught and fixed during this pass (juspay/kolu#1261).
+**Provenance correction**: the cap clamp bug did *not* originate in #1259 as
+this section earlier claimed — `git log -S 'par=cap'` shows it shipped in
+**#1223 (2026-06-07)**, where the literal `par=8` was refactored to a
+per-platform cap and `par=cap` (missing `$`) was written instead of `par=$cap`.
+#1259's rewrite faithfully preserved the typo. Consequence: from Jun 7 to Jun
+10, `CUCUMBER_PARALLEL` was the literal string `"cap"` on every CI host whose
+computed worker count exceeded its cap — i.e. all of them, both platforms —
+and `cucumber.js` `parseInt`→`NaN` silently *dropped* the `parallel` option:
+**the whole suite ran serial while green**. The baseline lane log confirms it
+(run `06f4d12`: `33m10s wall ≈ 33m07s executing-steps` — the serial
+signature), as does the linux lane (`7m35s ≈ 7m33s`; after the fix: 1m29s at
+workers=8). Under load, #1259's free-core formula happened to produce numeric
+(≤ cap) counts, which is why the 9–13 min sick-host runs were genuinely
+parallel. The recipe now fails loud on any non-numeric worker count.
