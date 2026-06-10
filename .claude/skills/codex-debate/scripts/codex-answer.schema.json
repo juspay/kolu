@@ -39,5 +39,11 @@
       "description": "What you revised this round because the other assistant convinced you, and why. Empty string on round 1 or when nothing changed."
     }
   },
-  "required": ["answer", "keyPoints", "agreesWithOther", "objections", "changedMind"]
+  "required": [
+    "answer",
+    "keyPoints",
+    "agreesWithOther",
+    "objections",
+    "changedMind"
+  ]
 }

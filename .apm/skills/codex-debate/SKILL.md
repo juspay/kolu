@@ -1,34 +1,47 @@
 ---
 name: codex-debate
-description: 'Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two modes. REVIEW mode (default, for code review) — codex (reviewer) critiques the current diff and a Claude subagent (author) fixes/disputes, looping until they agree. ANSWER mode (a freeform prompt arg) — Claude and codex each answer the prompt in parallel, then cross-check until they agree, and a unified answer is returned. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".'
-argument-hint: "[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]  |  \"<prompt to answer>\""
+description: 'Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two explicit subcommands. `review` (also the bare/back-compat default) — codex (reviewer) critiques the current diff and a Claude subagent (author) fixes/disputes, looping until they agree. `answer` — Claude and codex each answer a freeform prompt in parallel, then cross-check until they agree, and a unified answer is returned. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".'
+argument-hint: "review [<pr-number>] [--base <branch>] [--no-commit] [--no-comment]  |  answer \"<prompt>\""
 ---
 
 # Codex ⇄ Claude debate
 
 This skill runs an automated debate between **codex** and **Claude** that loops to
-consensus with no round cap and no deadlock exit. It has **two modes**, chosen by
-the argument:
+consensus with no round cap and no deadlock exit. It has **two modes**, selected by
+an **explicit leading subcommand** — never by guessing from the argument's shape:
 
-- **Review mode** (default) — the original behavior. codex reviews the current
-  diff, a Claude author fixes/disputes, round after round until they agree, and the
-  trail is committed + posted to the PR. This is everything from
+- **`review`** — codex reviews the current diff, a Claude author fixes/disputes,
+  round after round until they agree, and the trail is **committed + posted to the
+  PR** (a mutating, outward-facing mode). This is everything from
   [Review mode](#review-mode) down.
-- **Answer mode** — triggered when you pass a **freeform prompt** instead of a PR
-  number/flags. Claude and codex **each answer the prompt in parallel**, then
-  **cross-check each other** until both agree, and a **unified answer** is returned
-  to you (plus a saved transcript). See [Answer mode](#answer-mode).
+- **`answer`** — Claude and codex **each answer a freeform prompt in parallel**,
+  then **cross-check each other** until both agree, and a **unified answer** is
+  returned to you (read-only; plus a saved transcript). See
+  [Answer mode](#answer-mode).
+
+The two modes have **different side-effect contracts** (review mutates + writes to
+the PR; answer is read-only), so the mode is chosen **explicitly**, not inferred
+from whether the argument looks like a PR number or like prose. Inferring a
+mutating action from prose shape is exactly the coupling this design avoids.
 
 ## Mode detection (do this first)
 
-Parse `$ARGUMENTS`:
+Look at the **first whitespace-delimited token** of `$ARGUMENTS`:
 
-- **No args, OR the first non-flag token is a number** (a PR number), OR the only
-  args are the review flags (`--base`, `--no-commit`, `--no-comment`) → **review
-  mode**. Continue with [Review mode](#review-mode) below.
-- **The args are a freeform prompt** (any quoted string, a question, or prose that
-  isn't a bare PR number) → **answer mode**. Jump to [Answer mode](#answer-mode);
-  the review-mode steps do not apply.
+- **`answer`** → **answer mode**. The prompt is everything after the `answer`
+  token. Jump to [Answer mode](#answer-mode); the review-mode steps do not apply.
+- **`review`** → **review mode**. The remaining args are the review grammar
+  (`[<pr-number>] [--base …] [--no-commit] [--no-comment]`). Continue with
+  [Review mode](#review-mode).
+- **No args, OR the first token is a number (a PR number) or a `--flag`** →
+  **review mode** (the backward-compatible bare alias for the original
+  `/codex-debate [<pr>] [flags]`, so existing callers like `/be-review` keep
+  working). Continue with [Review mode](#review-mode).
+- **Anything else** (freeform prose with no recognized subcommand) → **ambiguous**.
+  Do **not** guess — ask the user to pick an explicit mode and stop, e.g.: "Did you
+  mean `/codex-debate answer \"<your prompt>\"` (read-only) or `/codex-debate review
+  [<pr>] [flags]` (mutating)?" Only the safe, backward-compatible review grammar
+  auto-routes; prose never silently triggers a mode.
 
 Both modes require Claude Code's **`Workflow` tool** (the engine). Under
 codex/opencode runtimes the skill is inert.
@@ -72,7 +85,9 @@ codex/opencode runtimes the skill is inert.
 
 ## Arguments
 
-Parse `[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]`:
+A leading `review` subcommand token, if present, is consumed by mode detection;
+what remains is `[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]` (the
+bare alias passes the whole argument string through unchanged). Parse:
 
 - **`<pr-number>`** (optional): a PR to debate. If given, `gh pr checkout <n>`
   first and default the base to that PR's base branch. If omitted, debate the
@@ -243,8 +258,8 @@ the loop ends only when **both** sides report no remaining disagreement. There i
 ### A1. Resolve context
 
 - Determine `repoPath` (the worktree root, normally the cwd).
-- Capture the **prompt**: everything in `$ARGUMENTS` (strip surrounding quotes). If
-  it's empty, ask the user what they want answered and stop.
+- Capture the **prompt**: everything **after the `answer` subcommand token** (strip
+  surrounding quotes). If it's empty, ask the user what they want answered and stop.
 - **Preflight codex**: `codex login status`. If not logged in, stop and tell the
   user to run `codex login` (suggest the `!` prefix to do it in-session).
 - No `git fetch` / base resolution / `gh pr checkout` here — answer mode doesn't
@@ -380,19 +395,26 @@ returns:
 
 ## Files
 
+Shared:
+
+- `scripts/codex-exec-lib.sh` — the sourced core both modes share: the read-only
+  `codex exec`/`resume` invocation, warm-session resolve/persist, retry/backoff,
+  thread-id capture, and the synthesized error-verdict fallback (via a caller hook).
+  The two mode scripts source this and add only their own prompts + verdict shape.
+
 Review mode:
 
 - `debate.workflow.js` — the Workflow script (the loop + consensus logic).
-- `scripts/codex-review.sh` — the canonical, deterministic `codex exec` invocation
-  (cold-starts round 1, `codex exec resume`s the warm session thereafter).
+- `scripts/codex-review.sh` — the review-specific invocation (arg parsing, the
+  review prompts, the verdict schema/session file, the verdict-shaped error).
 - `scripts/codex-verdict.schema.json` — the JSON Schema codex's verdict is constrained to.
 
 Answer mode:
 
 - `answer.workflow.js` — the Workflow script for the symmetric answer-debate
   (parallel answers → cross-check loop to agreement → synthesis).
-- `scripts/codex-answer.sh` — the canonical, deterministic `codex exec` invocation
-  for answering a prompt as a read-only peer (warm session across cross-check rounds).
+- `scripts/codex-answer.sh` — the answer-specific invocation (arg parsing, the
+  answer prompts, the answer schema/session file, the answer-shaped error).
 - `scripts/codex-answer.schema.json` — the JSON Schema codex's answer is constrained to.
 
 These are generated from `.apm/skills/codex-debate/`; edit the source there and
