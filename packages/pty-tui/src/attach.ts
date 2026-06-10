@@ -4,8 +4,9 @@
  * section) and are echoed at their sites below: device-query reply filtering,
  * resize-then-attach, one-shot notices only, exit-stream discrimination with
  * no auto-retry, and one deterministic restore on every exit path (the restore
- * itself — `TTY_RESET` + un-raw — is the caller's job, in `main.ts`, so it can
- * also run on signals and crashes that never return through this function).
+ * itself — `@kolu/terminal-protocol`'s `SNAPSHOT_TTY_RESET` + un-raw — is the
+ * caller's job, in `main.ts`, so it can also run on signals and crashes that
+ * never return through this function).
  *
  * Factored over `AttachTty` (streams + size, no `process.*`) so the loop is
  * integration-testable against a real pty-host over a real unix socket with no
