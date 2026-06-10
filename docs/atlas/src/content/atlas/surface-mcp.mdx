@@ -1,5 +1,5 @@
 ---
-title: "@kolu/surface/mcp — every surface an MCP server, honestly scoped"
+title: "@kolu/surface-mcp — every surface an MCP server, honestly scoped"
 description: A generic adapter that re-exposes any @kolu/surface spec to an MCP host. The 1:1 primitive→tool map is the demo; the real package is the subscribe/teardown lifecycle, the zod→JSON-Schema bridge, and the tool-selection/authz gate. Grounded in odu's hand-built mcp face — the validated, and partial, prior art.
 kind: feature
 status: proposed
@@ -13,44 +13,53 @@ import Pill from "../../components/Pill.astro";
 import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 import D2 from "../../components/D2.astro";
+import Terminal from "../../components/Terminal.astro";
 
 *Plan of record for <Issue n={982} label="@kolu/surface: expose any stdio-served surface as an MCP server" />. The issue's framing — "the framework is one adapter away from *every Kolu surface is also an MCP server*" — is true and worth building. This note argues for **scoping it to the part that's actually a framework primitive**, because we already shipped the rest by hand and learned exactly where the seam is.* <Pill variant="new">grounded in odu's shipped mcp face</Pill>
 
 <Callout kind="accent">
-The 1:1 map — every cell a resource, every procedure a tool — is a **morning's work and the partly-*wrong* 80%**. The agent-useful tools aren't procedures; the dangerous procedure must not be a tool; and the real engineering is the subscribe/unsubscribe teardown, the zod→JSON-Schema bridge, and the stdout-is-the-protocol discipline. Lead `@kolu/surface/mcp` with the **lifecycle spine + the selection/authz gate**; the auto-map is the demo, not the product.
+The 1:1 map — every cell a resource, every procedure a tool — is a **morning's work and the partly-*wrong* 80%**. The agent-useful tools aren't procedures; the dangerous procedure must not be a tool; and the real engineering is the subscribe/unsubscribe teardown, the zod→JSON-Schema bridge, and the stdout-is-the-protocol discipline. Lead `@kolu/surface-mcp` with the **lifecycle spine + the selection/authz gate**; the auto-map is the demo, not the product.
 </Callout>
 
 The strongest evidence isn't speculative — **it already exists, built by hand.** odu's `odu mcp` face (<PrLink pr={3} repo="juspay/odu" />, consumed in kolu <PrLink pr={1258} />) is exactly this adapter: it re-exposes the `oduSurface` to Claude Code / Codex / opencode / Gemini CLI as MCP tools and resources. So the core correspondence is **validated, not hoped for** — and shipping it taught us which 20% is the framework and which 80% is the consumer's. This note is that lesson, turned into a scope.
 
 <D2
-  caption="Where the seam falls. The adapter sits between a surface — in either of two shapes — and an MCP host. The generic spine (mapping + subscribe/teardown lifecycle + zod→JSON-Schema + stdout discipline) is the framework primitive worth extracting. The selection/authz gate above it is NOT free: it's per-surface curation the consumer must write, and it's exactly what keeps the dangerous procedure off the wire."
+  caption="Where the seam falls, read top to bottom. A surface (in either of two shapes) feeds the generic spine — mapping + subscribe/teardown lifecycle + zod→JSON-Schema + stdout discipline — the framework primitive worth extracting. Downstream of it, fronting the host, sits the selection/authz gate: NOT free, per-surface curation the consumer must write, and exactly what keeps the dangerous procedure off the wire."
   code={`
 direction: down
 
 src: "a @kolu/surface — two shapes" {
-  fresh: "fresh spec + handlers — the notes demo (implementSurface)"
-  live: "a running served surface — odu's .ci/odu.sock (a link)"
+  grid-columns: 1
+  fresh: "fresh spec + handlers"
+  live: "live surface — odu's .ci/odu.sock"
 }
 
-adapter: "@kolu/surface/mcp — proposed" {
-  gate: "consumer curation — NOT free" {
-    sel: "@mcp-tool / @mcp-resource selection"
-    guard: "guards · observer-vs-mutator authz"
-  }
-  spine: "generic spine — the electricity" {
-    map: "primitive -> resource / tool"
-    life: "subscribe/unsubscribe teardown · generation-token · notify"
-    zod: "zod -> JSON-Schema"
+adapter: "@kolu/surface-mcp — proposed" {
+  grid-columns: 1
+  spine: "generic spine — framework-owned" {
+    grid-columns: 1
+    map: "primitive → resource / tool"
+    life: "subscribe/teardown lifecycle"
+    zod: "zod → JSON-Schema"
     out: "stdout-is-the-protocol discipline"
   }
+  gate: "consumer curation — default-deny" {
+    grid-columns: 1
+    sel: "@mcp-tool / @mcp-resource selection"
+    guard: "guards · observer/mutator authz"
+  }
 }
 
-host: "MCP host — Claude Code · Codex · opencode · Gemini CLI"
+host: "MCP host — Claude · Codex · opencode · Gemini"
 
 src -> adapter: "serve fresh  OR  bridge live"
-adapter -> host: "tools · resources · notifications/* over stdio"
+adapter -> host: "tools · resources · notifications/*"
 `}
 />
+
+<Callout kind="note" title="Package: a sibling, not a subpath">
+#982 names it `@kolu/surface/mcp` (a subpath of core). Prefer **`packages/surface-mcp/` → `@kolu/surface-mcp`** — matching the existing `@kolu/surface-app` / `@kolu/surface-nix-host` siblings, and keeping the `@modelcontextprotocol/sdk` dependency **out of core `@kolu/surface`** (drishti, the browser client, and every non-MCP consumer shouldn't pull the SDK). It needs only surface's public introspection — `surface.spec` + `descriptors` — which a sibling consumes cleanly; the dependency arrow points one way, `surface-mcp → surface`, never back.
+</Callout>
 
 ## The map is a morning; the selection is the project
 
@@ -95,16 +104,84 @@ Two more pieces of the spine are concrete, generic, and currently missing:
 
 The issue quietly conflates two different adapters, and the package should name them apart:
 
-1. **Serve a spec fresh** — wrap a `defineSurface` spec, supply its handlers via `implementSurface`, and serve *that* over stdio as an MCP server. This is the notes-app demo #982 calls for (`pnpm notes-mcp`): the MCP server *is* the surface's backend.
+1. **Serve a spec fresh** — wrap a `defineSurface` spec, supply its handlers via `implementSurface`, and serve *that* over stdio. The MCP server *is* the surface's backend — the shape for an app with no separate running server to dial.
 2. **Bridge a live surface** — be a **client** that dials an already-running served surface and re-projects it. This is odu: `odu mcp` predetermines no host, dials `.ci/odu.sock` on every call, reads a snapshot or opens a stream, detaches. The MCP server owns no domain state; it's a face on a server that already exists.
 
-These have different ownership (backend vs. client), different lifecycles (process-local vs. attach/reconnect), and different failure modes (handler bug vs. socket drop). A serve-a-spec adapter can't express odu; a bridge adapter can't express the notes demo without a server to dial. The package should pick **bridge-a-live-surface as the primary shape** (it's the one with a real consumer and the harder lifecycle) and offer serve-fresh as the thin composition `implementSurface` + the bridge already imply.
+These have different ownership (backend vs. client), different lifecycles (process-local vs. attach/reconnect), and different failure modes (handler bug vs. socket drop). A serve-a-spec adapter can't express odu (which dials a server that already exists); a bridge adapter can't serve an app that has no server yet. The package should pick **bridge-a-live-surface as the primary shape** (it's the one with a real consumer and the harder lifecycle) and offer serve-fresh as the thin composition `implementSurface` + the bridge already imply.
+
+## See it in action: odu's agent face, on the package
+
+odu's hand-built MCP face is ~1550 lines of `src/mcp/`. On `@kolu/surface-mcp`, the bridge case collapses to a declaration — dial the surface odu already serves on `.ci/odu.sock`, name what an agent may touch, serve it over stdio:
+
+```ts
+// odu mcp, rebuilt on the package (proposed shape)
+import { oduAgentSurface } from "./common/agent-surface"; // a curated projection — see below
+import { unixSocketLink } from "@kolu/surface";
+import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
+
+await serveSurfaceAsMcp({
+  link: () => unixSocketLink({ socketPath: ".ci/odu.sock" }), // BRIDGE the live coordinator
+  surface: oduAgentSurface,
+  expose: {
+    nodes:        "resource",                  // cell   → odu://nodes  (+ live notifications)
+    log:          "resource",                  // stream → odu://log/{node}  (bounded, path-guarded)
+    settled:      "tool",                      // event  → fail-fast "wait until done / first red"
+    run:          { tool: { mutates: true } }, // procedure → start the run
+    "node.rerun": { tool: { mutates: true } }, // procedure → rerun one node + dependents
+  },
+});
+```
+
+The package owns what was the *bulk* of those 1550 lines — the `ResourcePusher` subscribe/teardown dance, the `resources/subscribe` → `notifications/resources/updated` wiring, each tool's zod→JSON-Schema, and the stdout discipline (via `serveOverStdio`). odu keeps only what is odu's: the projection that *defines* `oduAgentSurface` (next-but-one section), and the `expose` allowlist.
+
+Nothing about the agent's experience changes — it's the same session that drives kolu's CI today:
+
+<Terminal title="claude — odu's CI surface as MCP, via @kolu/surface-mcp" lines={[
+  `$ claude        # odu in .mcp.json — stdio, in-band, predetermines no host`,
+  `# /mcp → odu · resources: odu://nodes  odu://log/{node} · tools: run settled node.rerun`,
+  ` `,
+  `user: run CI; if it goes red, find the broken node, show why, rerun it.`,
+  ` `,
+  `→ run()                          # procedure → starts the coordinator`,
+  `→ read odu://nodes               # cell resource, live`,
+  `    surface ✓ ok   nix-host ✓ ok   attach ✗ failed`,
+  `→ read odu://log/attach          # bounded + path-guarded by the projection`,
+  `    src/client/wire.ts:88 — TS2345: 'string' not assignable to 'NodeId'`,
+  ` `,
+  `assistant: attach failed on a tsc error at wire.ts:88 — fixed the cast.`,
+  ` `,
+  `→ node.rerun({ id: "attach" })   # the rerun mutator`,
+  `→ settled({ failFast: true })    # event → blocks until done or first red`,
+  `    { passed: true, durationMs: 4100 }`,
+  ` `,
+  `assistant: Green ✓ — attach passed in 4.1s.`,
+]} />
+
+The whole diff from hand-rolled to package: **~1550 lines of protocol plumbing → a projection surface + that `expose` map.**
 
 ## The authz boundary every adapter inherits
 
 "Every surface is an MCP server" means **every exposed procedure is RCE for whoever is connected.** That is *fine* under odu's model — single operator, same ssh trust as the CLI, `run.configure` simply not on the wire — and it is **load-bearing the moment this enables multi-client exposure.** The read-observer-versus-mutator boundary the browser PWA face would also force (catalogued as latent in [the odu note](./mini-ci-vs-justci.html)) is the same boundary here, arriving earlier: an MCP host is an untrusted-ish caller by default.
 
-So the curation gate isn't only about *usefulness* (surface the four good tools), it's about *safety* (keep the dangerous verb off, and mark which tools mutate). A generic adapter must make "this tool mutates / this resource is read-only" a first-class, default-deny annotation — not a comment. This is why the gate sits *above* the spine in the diagram: the spine makes the wire correct; the gate decides what's allowed onto it.
+So the curation gate isn't only about *usefulness* (surface the four good tools), it's about *safety* (keep the dangerous verb off, and mark which tools mutate). A generic adapter must make "this tool mutates / this resource is read-only" a first-class, default-deny annotation — not a comment. This is why the gate sits *downstream* of the spine in the diagram, fronting the host: the spine makes the wire correct; the gate decides what's allowed onto it.
+
+## Curation as a second surface — the sharper cut
+
+The sections above say the curation "stays hand-written." That's true of odu *today* — but it's an accident of **layering**, not a law. The sharp question: what if odu exposed its curation as a *second surface*, so the generic adapter subsumes that too? It can, and it's the better factoring.
+
+odu's compositions are all expressible as surface primitives derived from the live coordinator:
+
+- `wait_for_settle` → a **`settled` event** off the `nodes` cell: fires once the run is terminal, or — fail-fast — the instant a node goes red.
+- `tail_log` → a **`log` stream** that bakes the 64 KB bound and the path-traversal refusal into its *projection*, so it's safe **by construction** before it's ever a primitive.
+- `run` → a **procedure** that spawns the coordinator; `get_nodes`' `red` bit → a derived field on the `nodes` cell.
+
+Bundle those into `oduAgentSurface` — a surface that is itself a **client of `oduSurface`**, re-deriving a curated, observer-safe view. odu's coordinator is *already* a server-that's-a-client, so this is in-grain. Now `@kolu/surface-mcp` maps `oduAgentSurface` **1:1**, and the migration is total: odu deletes the compositions too, keeping only the projection that *defines* the second surface.
+
+What this buys — and the honest costs:
+
+- **The guards move to where they belong.** Path-traversal and the bounded read become part of the `log` stream's handler, not MCP-only code — so the TUI and a future web face get the same safe stream. Curation stops being stranded in `src/mcp/`. *(Lowy: encapsulate the volatility — "what's a safe, useful projection of a run" — behind one socket, consumed by every face.)*
+- **Authz becomes the *shape* of the second surface, not an annotation.** `run.configure` isn't "denied" — it simply isn't *in* `oduAgentSurface`. Observer-vs-mutator becomes "expose the read-only surface, or the mutating one"; the `expose` map shrinks to "which surface, and which of its few procedures mutate."
+- **Cost, named.** It wants an ergonomic **projection-surface** pattern — a surface defined as a derivation of another. The pieces exist (a server that's a client, `composeSurfaceContracts`, sibling surfaces), but "project surface A into surface B" isn't first-class yet, and making it so may be a bigger framework ask than #982. And a sliver resists: tool-call *ergonomics* like `settled`'s timeout/fail-fast flags or `run`'s liveness wait sit awkwardly as pure primitive inputs and may stay adapter-side. Call it ~90% total, not 100%.
 
 ## Does it graduate? — the electricity test, applied honestly
 
@@ -112,8 +189,8 @@ So the curation gate isn't only about *usefulness* (surface the four good tools)
 
 - **① domain-agnostic — yes.** The spine maps *any* spec; no CI/notes/terminal vocabulary leaks into it.
 - **② hard volatility — yes, and it's the right one.** Not "a tidy generic module" (the leaf trap the electricity note warns about) — it hides the MCP **subscribe/teardown lifecycle**, the notification framing, the zod→JSON-Schema bridge, and the stdout-is-protocol discipline. That's transport-and-protocol volatility, the receptacle kind.
-- **③ graduates — yes, but *partially*, and that's the honest scope.** odu's `odu mcp` is a real first consumer; the notes demo is the second. But here's the graduation test stated precisely: **can odu's `src/mcp/*` refactor *onto* the package?** Our bet is that the *spine* subsumes (the `ResourcePusher` lifecycle, the resource wiring, the schema bridge — odu deletes those), while the *curation* stays hand-written (the `run`/`wait_for_settle`/`tail_log` compositions, the path-traversal and 64 KB bounded-read guards, the fail-fast verdict). That's not a failure of the test — it's the test telling us the boundary. The package is the spine; the curation was never going to be free.
+- **③ graduates — yes, and *more completely than it first looks*.** odu's `odu mcp` is a real, shipped first consumer — no toy demo needed. The graduation test, stated precisely: **can odu's `src/mcp/*` refactor *onto* the package?** The *spine* subsumes outright (the `ResourcePusher` lifecycle, the resource wiring, the schema bridge — odu deletes them). And the *curation* can subsume too — not by living in MCP code, but by moving into a second surface (previous section). What's irreducibly the consumer's then shrinks to the projection logic (domain work, now in the right layer) and the `expose` allowlist. So graduation is **as total as you'll pay a projection-surface for**: partial if curation stays in MCP land, near-total if you push it into surface land. Either way the package itself is real electricity.
 
 <Callout kind="good" title="The recommendation, in one line">
-Ship #982 — but scope it to the **lifecycle spine + the default-deny selection/authz gate + composition with `serveOverStdio`**, with the notes-app demo as the falsifiability proof and odu's partial migration as the graduation receipt. Resist "every surface is an MCP server *for free*"; the honest pitch is "every surface is an MCP server *without re-writing the subscribe-teardown dance, the schema bridge, or the stdout discipline* — you still curate and guard what's exposed." That's a smaller promise and a true one.
+Ship #982 as a **sibling package — `packages/surface-mcp/`** (so `@modelcontextprotocol/sdk` never enters core `@kolu/surface`), scoped to the **lifecycle spine + composition with `serveOverStdio`**. Make exposure **default-deny**, and prefer expressing curation as a **curated second surface** over scattering `@mcp-tool` annotations. **odu is the falsifiability proof** — a real, shipped consumer, so no toy `notes-mcp` is needed; its `src/mcp/` is the graduation receipt. Resist "every surface is an MCP server *for free*"; the true pitch is "every surface is an MCP server *without re-writing the subscribe-teardown dance, the schema bridge, or the stdout discipline* — you still choose, and shape, what's exposed." A smaller promise, and a true one.
 </Callout>
