@@ -9,7 +9,7 @@ description: Reference for the `odu` runner — how to invoke a full pipeline, a
 recipe DAG tagged `[metadata("ci")]` across platforms and posts GitHub
 commit statuses per `<recipe>@<platform>` context. Unlike batch runners,
 the run is **live state you attach to**: the coordinator serves a typed
-surface on `.ci/odu.sock`, so `status`/`logs`/`monitor` are in-band — no
+surface on `.ci/odu.sock`, so `status`/`logs`/`attach` are in-band — no
 process-compose, no separately-versioned socket client.
 
 ## Invoking
@@ -98,7 +98,7 @@ While `odu run` is live in a checkout, these attach to its surface over
 
 ```sh
 nix run github:juspay/odu -- status          # snapshot; -o json for tooling
-nix run github:juspay/odu -- monitor         # live TUI dashboard on a tty
+nix run github:juspay/odu -- attach          # live TUI dashboard on a tty
                                              # (digits attach · n/p cycle ·
                                              #  r rerun · q quit); -o json
                                              # = transition stream
