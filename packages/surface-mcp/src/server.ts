@@ -108,6 +108,34 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     ]),
   );
 
+  // The whole tool namespace's uniqueness invariant in one place: the union of
+  // generated tool names (`resolveExpose`) and bespoke tool names must have no
+  // duplicate. A collision would put two entries in `tools/list` and make
+  // dispatch order-dependent. This single pass subsumes proc-vs-proc (two
+  // procedures whose `<ns>_<verb>` collapse to one name, e.g. `a.b_c` / `a_b.c`,
+  // or `a.b` exposed twice), proc-vs-bespoke, and bespoke-vs-bespoke — each
+  // candidate tagged by its origin so the error names both colliding sources.
+  const toolSources: { name: string; source: string }[] = [
+    ...resolved.tools.map((t) => ({
+      name: t.name,
+      source: `procedure ${t.ns}.${t.verb}`,
+    })),
+    ...Object.keys(bespoke).map((name) => ({
+      name,
+      source: `bespoke ${name}`,
+    })),
+  ];
+  const sourceByToolName = new Map<string, string>();
+  for (const { name, source } of toolSources) {
+    const prior = sourceByToolName.get(name);
+    if (prior !== undefined) {
+      throw new Error(
+        `surface-mcp: tool name "${name}" is produced by both ${prior} and ${source} — rename one`,
+      );
+    }
+    sourceByToolName.set(name, source);
+  }
+
   const server = new Server(opts.serverInfo ?? DEFAULT_SERVER_INFO, {
     capabilities: { tools: {}, resources: { subscribe: true } },
   });
@@ -193,16 +221,6 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       console.error("surface-mcp: pusher stream/dial error", err);
     },
   });
-
-  // A generated tool name that collides with a bespoke tool name would put two
-  // entries in `tools/list` and make dispatch order-dependent. Reject at boot.
-  for (const t of resolved.tools) {
-    if (t.name in bespoke) {
-      throw new Error(
-        `surface-mcp: tool name "${t.name}" is produced by both the exposed procedure "${t.ns}.${t.verb}" and a bespoke tool — rename one`,
-      );
-    }
-  }
 
   // ── tools/list ─────────────────────────────────────────────────────────
   // `annotations` carry the read/write distinction to the host: a read-only

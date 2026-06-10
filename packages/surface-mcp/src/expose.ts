@@ -283,21 +283,8 @@ export function resolveExpose<S extends SurfaceSpec>(
     }
   }
 
-  // Two distinct procedures whose `<ns>_<verb>` collapse to the same MCP tool
-  // name (e.g. `a.b_c` and `a_b.c`, or `a.b` exposed twice) would silently
-  // produce duplicate `tools/list` entries and an ambiguous dispatch. Catch it
-  // at boot, naming both source procedures.
-  const byToolName = new Map<string, string>();
-  for (const t of tools) {
-    const source = `${t.ns}.${t.verb}`;
-    const prior = byToolName.get(t.name);
-    if (prior !== undefined) {
-      throw new Error(
-        `surface-mcp: tool name "${t.name}" is produced by both "${prior}" and "${source}" — rename one procedure`,
-      );
-    }
-    byToolName.set(t.name, source);
-  }
-
+  // Tool-name uniqueness (proc-vs-proc, proc-vs-bespoke, bespoke-vs-bespoke) is
+  // checked in one pass in `serveSurfaceAsMcp`, where the full namespace — the
+  // exposed procedures here plus the bespoke tools — is in view.
   return { resources, resourceTemplates, tools };
 }

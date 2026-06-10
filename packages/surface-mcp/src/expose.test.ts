@@ -156,23 +156,6 @@ describe("resolveExpose", () => {
     expect(tmpl.keySchema.safeParse("42").success).toBe(false);
   });
 
-  it("collapsing two procedures to the same tool name throws (F10)", () => {
-    const spec = defineSurface({
-      procedures: {
-        // `a.b_c` and `a_b.c` both collapse to the MCP tool name `a_b_c`.
-        a: { b_c: { output: z.boolean() } },
-        a_b: { c: { output: z.boolean() } },
-      },
-    }).spec;
-
-    expect(() =>
-      resolveExpose(spec, {
-        "a.b_c": "tool",
-        "a_b.c": "tool",
-      }),
-    ).toThrow(/produced by both/);
-  });
-
   it("an exposed procedure carries its wrapped flag (F3)", () => {
     const spec = defineSurface({
       procedures: {

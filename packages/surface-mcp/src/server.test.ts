@@ -442,6 +442,27 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
         tools: { counter_bump: { handler: () => "x" } },
         transport: serverTransport,
       }),
-    ).rejects.toThrow(/both the exposed procedure/);
+    ).rejects.toThrow(
+      /tool name "counter_bump" is produced by both procedure counter\.bump and bespoke counter_bump/,
+    );
+  });
+
+  it("two procedures collapsing to one tool name throws (F10)", async () => {
+    const surface = defineSurface({
+      procedures: {
+        // `a.b_c` and `a_b.c` both collapse to the MCP tool name `a_b_c`.
+        a: { b_c: { output: z.boolean() } },
+        a_b: { c: { output: z.boolean() } },
+      },
+    });
+    const [, serverTransport] = InMemoryTransport.createLinkedPair();
+    await expect(
+      serveSurfaceAsMcp({
+        surface,
+        client: () => ({ surface: {} }) as never,
+        expose: { "a.b_c": "tool", "a_b.c": "tool" },
+        transport: serverTransport,
+      }),
+    ).rejects.toThrow(/tool name "a_b_c" is produced by both/);
   });
 });
