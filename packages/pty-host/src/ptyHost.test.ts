@@ -333,3 +333,133 @@ describe("createPtyHost", () => {
     await host.exitPromise(id);
   });
 });
+
+/**
+ * The device-query contract — the executable form of the invariant that was
+ * previously prose-only on both sides ("client-suppressed ⇒ server-answered",
+ * `kolu-common/terminalResponseFilter.ts` ⇄ the answerer/forwarder here).
+ *
+ * Every query class the client filter suppresses is in exactly one of two
+ * deliberate states, and these tests pin the full table so drift on either
+ * side (an xterm upgrade changing what the headless answers; a new suppressed
+ * class added to the filter) breaks loudly instead of hanging a TUI silently:
+ *
+ *   1. ANSWERED — the headless answers it (natively, or via the hand-rolled
+ *      XTVERSION handler) and the reply is forwarded to the child. Suppressing
+ *      the mirroring client's duplicate is then safe: exactly one answerer.
+ *   2. UNIFORMLY SILENT — NOBODY answers through kolu (the headless doesn't
+ *      synthesize it, the forwarder drops `ESC ]` regardless, and the client
+ *      filter suppresses the browser's theme-derived answer). Programs
+ *      querying these (colour reports, window geometry) carry their own
+ *      timeout fallbacks; consistent silence beats per-client divergence.
+ */
+describe("device-query contract — suppressed ⇄ answered pairing", () => {
+  const { isTerminalQueryResponse } =
+    require("kolu-common/terminalResponseFilter") as typeof import("kolu-common/terminalResponseFilter");
+
+  function freshHeadless(): InstanceType<typeof Terminal> {
+    return new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+  }
+
+  async function repliesTo(
+    term: InstanceType<typeof Terminal>,
+    query: string,
+  ): Promise<string[]> {
+    const got: string[] = [];
+    const sub = term.onData((d: string) => got.push(d));
+    await writeAndFlush(term, query);
+    sub.dispose();
+    return got;
+  }
+
+  it("every reply the headless natively emits is a shape the client filter suppresses", async () => {
+    const term = freshHeadless();
+    const answered: Array<[string, string]> = [
+      ["DA1", "\x1b[c"],
+      ["DA2", "\x1b[>c"],
+      ["DSR", "\x1b[5n"],
+      ["CPR", "\x1b[6n"],
+      ["DECRQM bracketed-paste", "\x1b[?2004$p"],
+      ["DECRQSS SGR", "\x1bP$qm\x1b\\"],
+    ];
+    for (const [name, query] of answered) {
+      const replies = await repliesTo(term, query);
+      expect(replies.length, `${name}: headless must answer`).toBeGreaterThan(
+        0,
+      );
+      for (const reply of replies) {
+        // The pairing itself: the server's own answer is exactly the shape
+        // the client filter drops — so the duplicate-drop can never eat a
+        // reply the headless wouldn't have produced itself.
+        expect(
+          isTerminalQueryResponse(reply),
+          `${name}: reply ${JSON.stringify(reply)} must match the suppressed grammars`,
+        ).toBe(true);
+      }
+    }
+    term.dispose();
+  });
+
+  it("the hand-rolled XTVERSION reply is a shape the client filter suppresses", () => {
+    // The one class the headless has no built-in answerer for — ptyHost's
+    // CSI > q handler synthesizes the DCS reply (answered behaviorally in
+    // "answers XTVERSION" above); this pins its shape to the filter grammar.
+    expect(isTerminalQueryResponse(`\x1bP>|${HEADLESS_TERM_ID}\x1b\\`)).toBe(
+      true,
+    );
+  });
+
+  it("colour and window-report queries are uniformly silent — the headless answers none", async () => {
+    // The filter suppresses the BROWSER's answers to these (it has a theme
+    // and a window; the headless has neither), keeping kolu's two clients
+    // consistent with the headless's silence: through kolu, nobody answers,
+    // and the querying program's own timeout fallback kicks in. If an xterm
+    // upgrade starts answering any of these, this pin fails → re-audit the
+    // forwarder's `ESC ]` drop and the filter comments together.
+    const term = freshHeadless();
+    const silent: Array<[string, string]> = [
+      ["OSC 10 fg", "\x1b]10;?\x07"],
+      ["OSC 11 bg", "\x1b]11;?\x07"],
+      ["OSC 4 palette", "\x1b]4;1;?\x07"],
+      ["win size px (14t)", "\x1b[14t"],
+      ["win size chars (18t)", "\x1b[18t"],
+    ];
+    for (const [name, query] of silent) {
+      const replies = await repliesTo(term, query);
+      expect(replies, `${name}: expected uniform silence`).toEqual([]);
+    }
+    term.dispose();
+  });
+
+  it("a colour query through a real PTY yields silence, never reply garbage", async () => {
+    // End-to-end form of the same contract, covering the forwarder's
+    // `startsWith("\\x1b]")` drop guard: even if the headless ever emitted an
+    // OSC reply, it must not reach the child (where the cooked tty would echo
+    // it back as visible escape soup — the original yazi-bug class). The
+    // child's raw output (attach deltas, echo included) must never contain a
+    // colour REPLY (`rgb:`), only the query the child itself printed.
+    const host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "printf '\\033]11;?\\007'; printf 'OSC_SENTINEL'; sleep 1"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    const { deltas } = host.attach(id);
+    let raw = "";
+    const it = deltas[Symbol.asyncIterator]();
+    while (!raw.includes("OSC_SENTINEL")) {
+      const next = await Promise.race([
+        it.next(),
+        new Promise<IteratorResult<string>>((resolve) =>
+          setTimeout(() => resolve({ done: true, value: undefined }), 2500),
+        ),
+      ]);
+      if (next.done) break;
+      raw += next.value;
+    }
+    expect(raw).toContain("OSC_SENTINEL");
+    expect(raw).not.toContain("rgb:");
+    host.dispose();
+  });
+});

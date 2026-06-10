@@ -31,17 +31,26 @@
  *     boundary, tests JUST that sequence, and drops only the matches — see its
  *     own doc comment below.
  *
- * INVARIANT (client-suppressed ⇒ server-answered): every sequence class this
- * module suppresses MUST be answered by the headless server, or a TUI that
- * blocks on the query hangs forever (we drop the browser's reply and nothing
- * else replies). This is the reciprocal of the forwarding decision in
- * `pty-host/src/ptyHost.ts`: the headless `onData` forwarder relays the
- * server's own query answers, and its XTVERSION handler exists precisely
- * because the headless xterm has no built-in answerer for that one class. The
- * converse also holds — OSC 52 (clipboard) is NOT in the headless-answered set
- * (the headless terminal has no clipboard provider), so it is deliberately left
- * forwarded here rather than suppressed. Keep the two sides in step: before
- * suppressing a new class here, confirm the headless server answers it.
+ * INVARIANT (one answerer, or none): every sequence class this module
+ * suppresses is in exactly one of two deliberate states —
+ *
+ *   1. ANSWERED by the headless server (DA1/DA2 · DSR/CPR · DECRPM · DECRQSS
+ *      natively; XTVERSION via the hand-rolled handler in
+ *      `pty-host/src/ptyHost.ts`) and forwarded to the PTY child. Dropping the
+ *      mirroring client's duplicate is then safe: exactly one answerer.
+ *   2. UNIFORMLY SILENT — the headless does NOT answer it (colour reports,
+ *      window-size reports: it has no theme and no window) and the forwarder
+ *      drops `ESC ]` regardless, so suppressing the browser's theme-derived
+ *      reply keeps kolu's clients consistent with that silence. Programs
+ *      querying these carry their own timeout fallbacks; consistent silence
+ *      beats answers that differ per attached client.
+ *
+ * What must NEVER happen is a suppressed class the inner program needs that
+ * lands in neither state. The table is pinned mechanically by the
+ * "device-query contract" tests in `pty-host/src/ptyHost.test.ts` — extend
+ * them before suppressing a new class here. The converse also holds — OSC 52
+ * (clipboard) is NOT suppressed: only the browser can answer it (the headless
+ * has no clipboard provider), so its reply must reach the PTY.
  */
 
 // CSI responses, anchored to the whole payload:
@@ -49,15 +58,20 @@
 //   DSR      CSI Ps… n              e.g. ESC [ 0 n
 //   CPR      CSI Ps ; Ps R          e.g. ESC [ 12 ; 40 R
 //   DECRPM   CSI ? Ps ; Ps $ y      e.g. ESC [ ? 25 ; 1 $ y   (note the `$y`)
-//   size     CSI Ps ; Ps ; Ps t     window/text-area reports
+//   size     CSI Ps ; Ps ; Ps t     window/text-area reports — the one CSI
+//            class on the "uniformly silent" arm: xterm answers CSI t only
+//            with `windowOptions` enabled (off in both kolu terminals), so
+//            this is defensive parity with the headless's silence, not a
+//            duplicate-drop (pinned in ptyHost.test.ts).
 const CSI_RESPONSE = /^\x1b\[[?>=]?[\d;]*(?:\$y|[cnRt])$/;
 
-// OSC *colour* responses, anchored to the colour report classes the headless
-// server actually answers — NOT every OSC packet:
+// OSC *colour* responses — NOT every OSC packet:
 //   OSC 4 ; index ; rgb:… (BEL|ST)   palette colour report
 //   OSC 10–19 ; rgb:… (BEL|ST)       dynamic colours (fg/bg/cursor/…)
-// These are the only OSC replies the browser xterm synthesises that duplicate a
-// headless-side answer, so they're the garbage we drop. Critically this does
+// The "uniformly silent" arm of the invariant: the headless never answers
+// colour queries (no theme — pinned in ptyHost.test.ts), so the browser's
+// theme-derived reply isn't a duplicate, it's a per-client divergence —
+// suppressed to keep kolu consistently silent here. Critically this does
 // NOT match OSC 52 (clipboard): with `ClipboardAddon`/`SafeClipboardProvider`
 // loaded, the OSC 52 *read* reply (`OSC 52 ; c ; <base64> …`) is generated
 // only in the browser from the real system clipboard — the headless terminal
@@ -72,13 +86,13 @@ const OSC_COLOUR_RESPONSE = /^\x1b\](?:4|1[0-9]);[\s\S]*?(?:\x07|\x1b\\)$/;
 // Sixel/DECUDK/etc. are program *output*, never keyboard input, and don't carry
 // these introducers, so they stay forwarded.
 //
-// INVARIANT: any response class suppressed here MUST be answered by the headless
-// server, or a TUI that blocks on the query (e.g. Yazi waiting on XTVERSION)
-// hangs forever — we drop the browser's reply and nothing else replies. XTVERSION
-// is the load-bearing case: ptyHost.ts registers an explicit CSI `> q` handler
-// precisely because the headless xterm has no built-in answerer. Before adding a
-// new suppressed class here, confirm the headless server answers it (or document
-// why it must NOT, like the browser-only OSC 52 clipboard reply above).
+// Both DCS classes sit on the ANSWERED arm of the invariant: DECRQSS the
+// headless answers natively, XTVERSION via ptyHost.ts's explicit CSI `> q`
+// handler (the load-bearing case — a TUI like Yazi blocks on it, and without
+// the handler we'd drop the browser's reply while nothing else answered).
+// Before adding a new suppressed class anywhere in this module, extend the
+// device-query contract tests in `pty-host/src/ptyHost.test.ts` so the class
+// is pinned to one arm — answered-and-forwarded, or uniformly silent.
 const DCS_RESPONSE = /^\x1bP(?:>\||[01]\$r)[\s\S]*?\x1b\\$/;
 
 /** True when `data` is a complete terminal-generated query response. */

@@ -45,7 +45,13 @@ export type AttachOutcome =
  *  the serialized state replays alt-buffer, mouse tracking, bracketed paste,
  *  app cursor/keypad modes onto the user's REAL terminal, so restore is much
  *  more than `setRawMode(false)`. One fixed reset, idempotent, safe to fire on
- *  every exit path (detach, PTY exit, signals, crash). */
+ *  every exit path (detach, PTY exit, signals, crash).
+ *
+ *  SOURCE OF TRUTH: this list is the reciprocal of the mode vocabulary
+ *  `@xterm/addon-serialize` (0.14.x, pinned in `@kolu/pty-host`) can emit in
+ *  a snapshot (`_serializeModes`). An xterm/serialize upgrade that starts
+ *  serializing new modes (kitty keyboard, sixel scrolling, …) must extend
+ *  this reset — audit it on every bump. */
 export const TTY_RESET =
   "\x1b[?1049l" + // leave the alt screen (back to the user's shell buffer)
   "\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l" + // mouse reporting off
