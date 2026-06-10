@@ -135,11 +135,45 @@ Return the schema:
   })
 }
 
+// A confirmation/approval turn for ONE side, judging a SINGLE shared candidate
+// answer (the synthesized merge) WITHOUT rewriting its own. Both sides judge the
+// IDENTICAL text, so no swap/oscillation is possible (the swap hazard exists only
+// because each parallel round adopts the OTHER's separate answer). Returns
+// `agreesWithOther` + `objections` against that candidate. Claude runs it directly
+// (it's read-only reasoning); codex runs it through the same cross-check machinery
+// (the candidate is handed to it as "CLAUDE's latest answer" to approve).
+async function claudeConfirms(round, candidate) {
+  const prompt_ = `You and CODEX were asked the SAME question, debated, and AGREED. A unified candidate answer has been synthesized from your two agreed answers. Your ONLY job now is to APPROVE it or object — do NOT rewrite it, do NOT produce a new answer of your own.
+
+You may inspect the repo at \`${repoPath}\` to verify (READ-ONLY — \`git -C ${repoPath} diff/log\`, read files, grep; do NOT edit/create/delete or run any git write).
+
+The question:
+${prompt}
+
+The candidate unified answer to approve:
+${candidate}
+
+Return the schema:
+  - answer: echo the candidate VERBATIM (you are approving it, not rewriting it).
+  - keyPoints: the core claims the candidate rests on.
+  - objections: anything the candidate gets wrong, drops, or overstates relative to what you agreed — empty if you approve it as-is. Be specific (file:line for repo claims).
+  - changedMind: empty (you are confirming, not revising).
+  - agreesWithOther: true ONLY if you approve the candidate as a correct, complete unified answer with NO objection left.`
+  return agent(prompt_, {
+    label: `claude:confirm${round}`,
+    phase: 'Synthesis',
+    model,
+    schema: ANSWER_SCHEMA,
+  })
+}
+
 // CODEX answers/cross-checks via codex-answer.sh (warm session across rounds). The
 // agent here is a MECHANICAL RUNNER: it writes the prompt + cross-check files,
 // shells out to the script, and relays codex's JSON answer verbatim — it does NOT
 // answer the question itself. The user's prompt and CLAUDE's latest answer carry
 // arbitrary characters, so they're written with the Write tool, never a heredoc.
+// On a confirmation turn (`confirm`), the cross-check input is the SINGLE shared
+// candidate, and the runner relays codex's approval/objections to it.
 async function codexAnswers(round, other) {
   const answerPath = `${workDir}/answer-codex-${round}.json`
   const promptPath = `${workDir}/answer-prompt.txt`
@@ -234,7 +268,7 @@ async function writeSection(entry) {
   const path = sectionFile(entry.round)
   const p = `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
 
-1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+1. Ensure the scratch dir exists: \`mkdir -p ${shq(workDir)}\`.
 2. Using the Write tool, create \`${path}\` with EXACTLY this content, overwriting any existing file:
 
 ${text}`
@@ -264,32 +298,70 @@ let codexAns = null
 // too so a leftover objection can't be papered over by an over-eager boolean.
 const sideAgrees = (a) => a.agreesWithOther === true && (a.objections || []).length === 0
 
+// Synthesize a SINGLE candidate answer from the two agreed answers. This is the
+// user-facing unified reply, but it is NOT returned until BOTH sides approve it (the
+// confirmation phase below), so the synthesized text is never reported as consensus
+// without both debaters having signed off on it. Returns the candidate string, or
+// null if the synthesis agent died / returned empty.
+async function synthesize(claudeFinal, codexFinal) {
+  const synth = await agent(
+    `Claude and codex were each asked the question below and, after cross-checking, AGREED. Merge their two (now-equivalent) answers into ONE clean, unified, self-contained answer for the user — no "Claude said / codex said" framing, no meta-commentary about the debate, just the best single answer. Preserve every substantive point both kept; where they used different wording for the same idea, pick the clearest. Keep any file:line citations.
+
+The question:
+${prompt}
+
+Claude's final answer (JSON):
+${JSON.stringify(claudeFinal, null, 2)}
+
+Codex's final answer (JSON):
+${JSON.stringify(codexFinal, null, 2)}
+
+Return the unified answer in \`answer\`.`,
+    { label: 'synthesis', phase: 'Synthesis', model, schema: FINAL_SCHEMA },
+  )
+  return synth && synth.answer ? synth.answer : null
+}
+
 // ---------------------------------------------------------------------------
 // The loop — round 1 is the independent answer (parallel); rounds 2+ are
-// cross-checks. Runs until BOTH sides agree, then ONE confirmation round. No round
-// cap, no deadlock exit: each side keeps cross-checking until they converge (the
-// harness's per-workflow agent backstop is the only hard ceiling — interrupt via
-// /workflows or TaskStop).
+// cross-checks. Runs until BOTH sides agree, then a CONFIRMATION phase on a single
+// synthesized candidate. No round cap, no deadlock exit: each side keeps
+// cross-checking until they converge (the harness's per-workflow agent backstop is
+// the only hard ceiling — interrupt via /workflows or TaskStop).
 //
 // Both sides run in PARALLEL each round, so in round N each cross-checks the OTHER's
-// round-(N-1) answer. That parallelism creates a SWAP hazard: if Claude adopts
-// codex's prior answer while codex simultaneously adopts Claude's prior answer, both
-// can report agreesWithOther:true in the SAME round even though their CURRENT outputs
-// are swapped and may still differ. So a single mutually-agreeing round is NOT
-// sufficient. We require TWO CONSECUTIVE mutually-agreeing rounds: after the first,
-// each side runs once more and now cross-checks the OTHER's just-agreed answer; only
-// if both still agree (having seen each other's current answers) do we converge. A
-// real swap surfaces a fresh objection in that confirmation round; genuine agreement
-// holds. Convergence is therefore on answers both sides have actually seen — safe,
-// at worst two rounds later than a strictly-serial handoff would be.
+// round-(N-1) answer. That parallelism creates a SWAP/OSCILLATION hazard: if Claude
+// adopts codex's prior answer while codex simultaneously adopts Claude's prior
+// answer, both can report agreesWithOther:true in the SAME round even though their
+// CURRENT outputs are swapped and still differ — and they can keep swapping back and
+// forth, so counting consecutive parallel agreements does NOT prove the current
+// outputs match. The only sound test is to make BOTH sides judge ONE shared piece of
+// text. So when a round shows mutual agreement, we synthesize a single candidate
+// from the two agreed answers and run a CONFIRMATION phase: both sides review that
+// IDENTICAL candidate (without rewriting their own answer) and either approve it or
+// object. Approval is on one fixed text both actually saw, so no swap is possible. If
+// both approve, that candidate IS the converged answer (already debater-approved). If
+// either objects, its objections fold back into the cross-check loop and we continue.
 // ---------------------------------------------------------------------------
-let agreedStreak = 0
+let finalAnswer = null
+// On a confirmation turn, each side's "other" input is the synthesized candidate
+// (wrapped in the answer shape so the existing cross-check machinery accepts it).
+// Carried across iterations so a rejected confirmation feeds the candidate + the
+// objector's complaints back into the next ordinary cross-check round.
+let pendingCandidate = null
 for (let round = 1; ; round++) {
+  const confirming = pendingCandidate !== null
+  const candidateAns = confirming
+    ? { answer: pendingCandidate, keyPoints: [], agreesWithOther: true, objections: [], changedMind: '' }
+    : null
   const prevClaude = claudeAns
   const prevCodex = codexAns
   const [claude, codex] = await parallel([
-    () => claudeAnswers(round, round === 1 ? null : prevCodex, prevClaude),
-    () => codexAnswers(round, round === 1 ? null : prevClaude),
+    () =>
+      confirming
+        ? claudeConfirms(round, pendingCandidate)
+        : claudeAnswers(round, round === 1 ? null : prevCodex, prevClaude),
+    () => codexAnswers(round, round === 1 ? null : confirming ? candidateAns : prevClaude),
   ])
 
   // codex infrastructure failure — terminal. The runner could not get an answer
@@ -317,57 +389,43 @@ for (let round = 1; ; round++) {
   transcript.push(entry)
   await writeSection(entry)
 
-  // Consensus: from round 2 on (round 1 has no cross-check), BOTH sides report no
-  // remaining disagreement — agreesWithOther:true AND no objections. One such round
-  // can be a parallel-swap false positive (see the loop header), so require TWO in a
-  // row: the second round has each side cross-check the other's just-agreed answer,
-  // confirming on outputs both have actually seen.
-  const bothAgree = round >= 2 && sideAgrees(claude) && sideAgrees(codex)
-  agreedStreak = bothAgree ? agreedStreak + 1 : 0
-  if (agreedStreak >= 2) {
-    log(`Round ${round}: both sides agree for a second consecutive round — converged.`)
-    break
+  // CONFIRMATION phase: both sides judged the SAME synthesized candidate. If both
+  // approve it (agreesWithOther:true + no objections), that candidate is the agreed,
+  // debater-approved unified answer — converge. If either objects, drop the candidate
+  // and continue the cross-check loop (their objections are already in `claudeAns` /
+  // `codexAns` and feed the next round).
+  if (confirming) {
+    if (sideAgrees(claude) && sideAgrees(codex)) {
+      finalAnswer = pendingCandidate
+      log(`Round ${round}: both sides approved the synthesized candidate — converged.`)
+      break
+    }
+    log(`Round ${round}: candidate rejected (claude agrees=${sideAgrees(claude)}, codex agrees=${sideAgrees(codex)}) — resuming cross-check.`)
+    pendingCandidate = null
+    continue
   }
+
+  // From round 2 on (round 1 has no cross-check), if BOTH sides report no remaining
+  // disagreement, synthesize one candidate and enter the confirmation phase next
+  // round. A single parallel-agreeing round can be a swap false positive, so we do
+  // NOT converge here — we converge only after both sides approve the SAME candidate.
+  const bothAgree = round >= 2 && sideAgrees(claude) && sideAgrees(codex)
   if (bothAgree) {
-    log(`Round ${round}: both sides agree — running one confirmation round before converging.`)
+    phase('Synthesis')
+    pendingCandidate = await synthesize(claude, codex)
+    if (!pendingCandidate) {
+      // The merge itself failed (synthesis agent died / returned empty). The sides
+      // DID agree; only the merge broke — surface that explicitly rather than spin.
+      status = 'synthesis-error'
+      log('Synthesis produced no candidate — both sides agreed but the merge failed; reporting synthesis-error.')
+      break
+    }
+    log(`Round ${round}: both sides agree — synthesized a candidate; confirming it next round.`)
+    phase('Reconcile')
   } else {
     log(
       `Round ${round}: claude agrees=${sideAgrees(claude)} (objections=${(claude.objections || []).length}), codex agrees=${sideAgrees(codex)} (objections=${(codex.objections || []).length})`,
     )
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Synthesis — merge the two AGREED answers into one unified reply for the user.
-// Only on consensus: on a failure terminus there's no agreement to synthesize.
-// ---------------------------------------------------------------------------
-let finalAnswer = null
-if (status === 'consensus' && claudeAns && codexAns) {
-  phase('Synthesis')
-  const synth = await agent(
-    `Claude and codex were each asked the question below and, after cross-checking, AGREED. Merge their two (now-equivalent) answers into ONE clean, unified, self-contained answer for the user — no "Claude said / codex said" framing, no meta-commentary about the debate, just the best single answer. Preserve every substantive point both kept; where they used different wording for the same idea, pick the clearest. Keep any file:line citations.
-
-The question:
-${prompt}
-
-Claude's final answer (JSON):
-${JSON.stringify(claudeAns, null, 2)}
-
-Codex's final answer (JSON):
-${JSON.stringify(codexAns, null, 2)}
-
-Return the unified answer in \`answer\`.`,
-    { label: 'synthesis', phase: 'Synthesis', model, schema: FINAL_SCHEMA },
-  )
-  finalAnswer = synth && synth.answer ? synth.answer : null
-  // Synthesis is the user-facing payload of a consensus run. If the synthesis agent
-  // died (null) or returned an empty answer, there is no answer to present — do NOT
-  // keep reporting "consensus" with finalAnswer:null, which A3 would mis-handle as a
-  // successful answer. Demote to an explicit failure terminus so the skill surfaces
-  // it as broken (the sides DID agree; only the final merge failed).
-  if (!finalAnswer) {
-    status = 'synthesis-error'
-    log('Synthesis produced no answer — both sides agreed but the merge failed; reporting synthesis-error.')
   }
 }
 
@@ -385,7 +443,7 @@ const transcriptText = renderTranscript(
 await agent(
   `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
 
-1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+1. Ensure the scratch dir exists: \`mkdir -p ${shq(workDir)}\`.
 2. Using the Write tool, create \`${answerDocPath}\` with EXACTLY this content, overwriting any existing file:
 
 ${transcriptText}`,

@@ -295,10 +295,10 @@ returns:
   rounds, prompt, finalAnswer, transcriptPath, reasoningEffort, codexError }
 ```
 
-- **consensus** — the only normal terminus: both sides agreed (for two consecutive
-  rounds — see the convergence note), and `finalAnswer` is the synthesized unified
-  answer. `transcriptPath` points at the saved Markdown transcript
-  (`.codex-debate/answer-<slug>.md`).
+- **consensus** — the only normal terminus: both sides agreed and then both
+  **approved the synthesized candidate** (see the convergence note), and
+  `finalAnswer` is that approved unified answer. `transcriptPath` points at the saved
+  Markdown transcript (`.codex-debate/answer-<slug>.md`).
 - **reviewer-error** — codex itself failed to produce an answer (broken/unavailable
   CLI) after retries; `codexError` carries the failure detail. Infrastructure
   failure, not a debate outcome.
@@ -342,19 +342,23 @@ returns:
   gitignored per-worktree `.codex-debate/` (a distinct `codex-answer-session.id`,
   so it never collides with review mode's session), degrading gracefully to a cold
   start if capture ever fails.
-- **Symmetric convergence, schema-detected.** Each side emits `agreesWithOther` +
-  `objections`; a side counts as agreeing only when it sets `agreesWithOther:true`
-  AND leaves no objection, so a stray objection can't be papered over by an
-  over-eager boolean. The loop ends only when both sides agree, with no round cap and
-  no deadlock exit. Because the two run in parallel each round, a single
-  mutually-agreeing round can be a **swap false positive** (Claude adopts codex's
-  prior answer while codex adopts Claude's — both report agreement, but their current
-  outputs are swapped and may still differ). So convergence requires **two
-  consecutive** mutually-agreeing rounds: after the first, each side cross-checks the
-  other's just-agreed answer, and only if both still agree — having now seen each
-  other's current answers — does the loop stop. A real swap surfaces a fresh
-  objection in that confirmation round. Convergence is thus on answers both sides
-  have actually seen — safe, at worst two rounds later than a serial handoff.
+- **Symmetric convergence, schema-detected, candidate-confirmed.** Each side emits
+  `agreesWithOther` + `objections`; a side counts as agreeing only when it sets
+  `agreesWithOther:true` AND leaves no objection, so a stray objection can't be
+  papered over by an over-eager boolean. Because the two run in parallel each round,
+  a single mutually-agreeing round can be a **swap false positive** (Claude adopts
+  codex's prior answer while codex adopts Claude's — both report agreement, but their
+  current outputs are swapped and still differ), and they can keep swapping back and
+  forth, so counting consecutive parallel agreements does **not** prove the current
+  outputs match. The only sound test is to make both sides judge **one shared piece
+  of text**. So when a round shows mutual agreement, the workflow synthesizes a single
+  **candidate** from the two agreed answers and runs a **confirmation phase**: both
+  sides review that *identical* candidate (without rewriting their own answer) and
+  either approve it or object. Approval is on one fixed text both actually saw, so no
+  swap is possible; if both approve, that candidate is the converged answer — already
+  signed off by both debaters (which is also why `finalAnswer` is never unapproved
+  synthesized text). If either objects, the candidate is dropped and the cross-check
+  loop resumes with the objections folded in. No round cap, no deadlock exit.
 - **Chat + saved transcript, no outward writes.** The unified answer is presented
   in chat and the full transcript is saved to the gitignored
   `.codex-debate/answer-<slug>.md`. Unlike review mode, answer mode never commits
