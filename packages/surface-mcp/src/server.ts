@@ -95,13 +95,18 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
 ): Promise<{ server: Server; close: () => Promise<void> }> {
   const resolved = resolveExpose(opts.surface.spec, opts.expose);
   const bespoke = opts.tools ?? {};
-  // Precompute each bespoke tool's wrap flag once (running `z.toJSONSchema` per
-  // call would be wasteful): a scalar/array/union input is advertised wrapped
-  // under `value`, so dispatch must unwrap `args.value` before parsing.
-  const bespokeWrap = new Map<string, boolean>();
-  for (const [name, t] of Object.entries(bespoke)) {
-    bespokeWrap.set(name, bespokeWrapped(t));
-  }
+  // Resolve each bespoke tool to a record carrying its `wrapped` flag alongside
+  // the tool — the same way `ToolEntry` carries `wrapped` for exposed
+  // procedures — so dispatch reads one shape rather than a side Map. A
+  // scalar/array/union input is advertised wrapped under `value` (computed once
+  // here; `z.toJSONSchema` per call would be wasteful), so dispatch must unwrap
+  // `args.value` before parsing.
+  const bespokeTools = new Map<string, { tool: BespokeTool; wrapped: boolean }>(
+    Object.entries(bespoke).map(([name, t]) => [
+      name,
+      { tool: t, wrapped: bespokeWrapped(t) },
+    ]),
+  );
 
   const server = new Server(opts.serverInfo ?? DEFAULT_SERVER_INFO, {
     capabilities: { tools: {}, resources: { subscribe: true } },
@@ -247,9 +252,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
         // (`toInputSchema`), so unwrap it back to the bare value the
         // procedure's zod expects.
         const callArgs = exposed.hasInput
-          ? exposed.wrapped
-            ? (args as Record<string, unknown>).value
-            : args
+          ? unwrapArgs(exposed.wrapped, args)
           : undefined;
         try {
           const out = await proc(callArgs, { signal: extra.signal });
@@ -261,14 +264,13 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
           throw e;
         }
       }
-      const tool = bespoke[name];
-      if (tool !== undefined) {
+      const entry = bespokeTools.get(name);
+      if (entry !== undefined) {
+        const { tool } = entry;
         // Bespoke inputs are advertised through the same `toInputSchema`, so a
         // scalar/array/union input is also wrapped under `value` — unwrap
         // before parsing with the tool's own zod.
-        const rawInput = bespokeWrap.get(name)
-          ? (args as Record<string, unknown>).value
-          : args;
+        const rawInput = unwrapArgs(entry.wrapped, args);
         const parsed =
           tool.input !== undefined ? tool.input.parse(rawInput) : rawInput;
         const client = await getClient();
@@ -562,6 +564,14 @@ function toolInputSchema(tool: BespokeTool): Record<string, unknown> {
  *  scalar/array/union). The dispatcher unwraps `args.value` before parsing. */
 function bespokeWrapped(tool: BespokeTool): boolean {
   return inputSchema(tool.input).wrapped;
+}
+
+/** Undo the `enforceObject` wrapping before handing args to a procedure/tool's
+ *  zod. A non-object input (scalar/array/union) is advertised wrapped under a
+ *  single `value` property; `wrapped` is the bit `inputSchema` reports for that
+ *  case. The one place this rule lives, called by both dispatch branches. */
+function unwrapArgs(wrapped: boolean, args: Record<string, unknown>): unknown {
+  return wrapped ? args.value : args;
 }
 
 /** Coerce an unknown thrown value into a failed `ToolResult`. */
