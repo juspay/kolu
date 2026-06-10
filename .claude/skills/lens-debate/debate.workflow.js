@@ -46,9 +46,8 @@ const maxRounds = a.maxRounds || 12
 const commit = a.commit !== false
 // Run the Apply phase at all (default on). `apply: false` skips Phase 3 entirely:
 // the debate still settles every finding, but the agreed `fix` plans are RETURNED
-// (the `fixes` field) instead of implemented — for callers like /be-review's
-// parallel gauntlet, where the reviewed tree is a pinned snapshot and the fixes
-// must be applied by the caller against a branch that has moved on since.
+// (the `fixes` field) instead of implemented — for callers that want the agreed
+// fix plans returned so they can apply them against a tree of their choosing.
 const apply = a.apply !== false
 // Fold in /code-police as a third, lower-weight voice: it SEEDS findings into
 // the debate set but does not get a vote in consensus (only lowy ⇄ hickey do).
@@ -245,7 +244,7 @@ const posMap = (res) => Object.fromEntries((res?.positions ?? []).map((p) => [p.
 async function commitFix(fix, files, summary) {
   const fileArgs = files.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ')
   const msgPath = `${workDir}/commit-msg-${fix.id}.txt`
-  // `fix(lens):` — the same prefix /be-review's apply pass uses for lens-originated commits.
+  // `fix(lens):` — the conventional prefix for lens-originated commits.
   const message = `fix(lens): ${fix.title}
 
 ${summary}
@@ -455,8 +454,7 @@ log(`Debate ended: ${status} after ${rounds} round(s); ${settledOut.length - unr
 // ---------------------------------------------------------------------------
 // Phase 3 — apply the agreed `fix` findings, each as its own commit. Skipped
 // wholesale under `apply: false`: the agreed plans are returned in `fixes` for
-// the caller to implement (it reviews a pinned snapshot, so the live branch may
-// have moved on — applying here would edit the wrong tree).
+// the caller to implement against whatever tree it chooses.
 // ---------------------------------------------------------------------------
 const fixes = settledOut.filter((s) => s.agreed && s.disposition === 'fix')
 const applied = []

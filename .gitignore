@@ -23,7 +23,5 @@ packages/client/public/fonts
 .codex-debate/
 # /lens-debate skill: per-worktree scratch (commit-message files)
 .lens-debate/
-# /be-review orchestrator: per-worktree scratch (PR-comment files + the pinned read-only snapshot worktree the lens/police tracks review)
-.be-review/
 # /dev-server skill: per-worktree scratch (remembered dev-server ports)
 .dev-server/
