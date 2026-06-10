@@ -70,22 +70,24 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   const host = createPtyHost({ log });
   const startedAt = Date.now();
 
+  // The id-existence policy, owned once: a missing PTY is a clean NOT_FOUND
+  // (not `requireEntry`'s opaque internal error). kolu-tui's attach re-attach
+  // loop leans on this shape — NOT_FOUND reads as "the PTY is gone" (vs a
+  // dropped stream) and falls through to the exit tombstone for the real code.
+  // The three handlers below compose this rather than each re-deriving it.
+  const requirePty = (id: PtyId): void => {
+    if (!host.has(id)) {
+      throw new ORPCError("NOT_FOUND", { message: `no PTY with id ${id}` });
+    }
+  };
+
   return implementSurface(ptyHostSurface, {
     channel: inMemoryChannelByName(),
     streams: {
       // Per-terminal output — snapshot then live deltas (streaming.md §2).
       terminalAttach: {
         source: async function* (input, signal) {
-          // Same fail-honest stance as getScreenState: a missing PTY is a
-          // clean NOT_FOUND, not `requireEntry`'s opaque internal error.
-          // kolu-tui attach leans on the shape — its re-attach loop reads
-          // NOT_FOUND as "the PTY is gone" (vs a dropped stream) and falls
-          // through to the exit tombstone for the real code.
-          if (!host.has(input.id)) {
-            throw new ORPCError("NOT_FOUND", {
-              message: `no PTY with id ${input.id}`,
-            });
-          }
+          requirePty(input.id as PtyId);
           const att = host.attach(input.id, signal);
           yield { kind: "snapshot" as const, data: att.snapshot };
           for await (const data of att.deltas) {
@@ -231,19 +233,11 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           // Throw on a missing PTY rather than return "" — an empty string is
           // a legitimate screen state (a PTY that hasn't drawn yet), so
           // masking a divergence as a blank terminal would hide a real bug.
-          if (!host.has(input.id)) {
-            throw new ORPCError("NOT_FOUND", {
-              message: `no PTY with id ${input.id}`,
-            });
-          }
+          requirePty(input.id as PtyId);
           return { data: host.getScreenState(input.id) };
         },
         getScreenText: async ({ input }) => {
-          if (!host.has(input.id)) {
-            throw new ORPCError("NOT_FOUND", {
-              message: `no PTY with id ${input.id}`,
-            });
-          }
+          requirePty(input.id as PtyId);
           return {
             text: host.getScreenText(
               input.id,
