@@ -159,6 +159,7 @@ test: install
     if (( par < 4 )); then par=4; fi
     if (( par > cap )); then par=cap; fi
     par="${CUCUMBER_PARALLEL:-$par}"
+    echo "e2e: workers=$par (cores=$cores load=$load cap=$cap)"
     # No `pnpm install` here: the `install` dep (and, in CI, the ci::install
     # node) already installed the whole workspace, packages/tests included. A
     # second `pnpm install` re-links the shared workspace `node_modules/.bin`,
