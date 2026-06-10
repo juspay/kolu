@@ -171,6 +171,24 @@ describe("createTerminalResponseStripper — streaming raw-tty strip", () => {
     expect(run([`${ESC}P${tail}`])).toBe(`${ESC}P${tail}`);
   });
 
+  // The cap must hold even when the tail is all ESC bytes. A run of ESC after
+  // `ESC ]` keeps flipping the half-typed-ST flag (`escSeen`) on every byte, so
+  // a length check buried in the byte-dispatch branches would never fire and
+  // `seq` would grow forever. The cap is enforced per byte AFTER terminator
+  // handling, so this still fails open.
+  it("fails open on `ESC ]` followed by a long run of ESC bytes", () => {
+    const tail = ESC.repeat(9000);
+    expect(run([`${ESC}]${tail}`])).toBe(`${ESC}]${tail}`);
+  });
+
+  // Repeated `ESC x` pairs (ESC then a non-backslash) alternate `escSeen`
+  // true/false on every pair without ever terminating — the other path that
+  // would dodge a branch-local cap.
+  it("fails open on `ESC P` followed by repeated `ESC x` pairs past the cap", () => {
+    const tail = `${ESC}z`.repeat(5000);
+    expect(run([`${ESC}P${tail}`])).toBe(`${ESC}P${tail}`);
+  });
+
   it("still drops a genuine OSC colour reply that starts with the same `ESC ]`", () => {
     // The fail-open bound doesn't weaken suppression of real (short) replies.
     expect(run([`${ESC}]11;rgb:0000/0000/0000${ST}`])).toBe("");

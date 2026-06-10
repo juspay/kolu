@@ -255,7 +255,13 @@ export function createTerminalResponseStripper(): TerminalResponseStripper {
           else pending = { kind: "string", escSeen: false };
         } else if (b === ESC) {
           pending = { kind: "string", escSeen: true };
-        } else if (seq.length >= MAX_STRING_SEQ) {
+        }
+        // Cap enforced after terminator handling, on EVERY byte still in string
+        // mode — not branch-local. An ESC-heavy tail (`ESC ]` then a run of ESC
+        // bytes, or repeated `ESC x` pairs) keeps flipping `escSeen` and would
+        // otherwise sail past a length check buried in the dispatch above,
+        // growing `seq` forever. Check the live state once the byte is placed.
+        if (pending.kind === "string" && seq.length >= MAX_STRING_SEQ) {
           // No terminator in sight after a generous run — fail open rather than
           // buffer the rest of the session behind a stray `ESC ]` / `ESC P`.
           failOpenSequence();
