@@ -375,8 +375,24 @@ Neither change touches coverage (same 440 scenarios) or app behaviour.
 | recent-PR baseline | degraded + pile-up | 6 | **41–60 min** | green (retry-absorbed) |
 | post-fix, quiet | mediaanalysisd dead, no vira build | 6 | **9m18s** | 440/440, first attempt |
 | post-fix, contended | live vira GHC build (load 8–11) | 5 (auto) | **11m24s** | 440/440, first attempt |
+| post-fix + host healed | fseventsd restarted, Spotlight off, mediaanalysisd contained | 6 | **3m28s** | 440/440, first attempt |
 
 The contended run is the telling one: under the same external load class that
 used to produce 33-min cucumber phases, the load-aware sizing held the lane to
-~11 min. fseventsd was still wedged during both runs — the admin runbook above
-is unrealized upside.
+~11 min.
+
+The admin runbook was then executed with sudo (same day): Spotlight disabled
+(`mdutil -a -i off`), the wedged fseventsd killed (fresh instance: 18 MB RSS /
+0% CPU vs 64 GB / 100%; ~90 GB RAM returned to the system), and — since SIP
+blocks `bootout` and FileVault rules out a remote reboot (the host would park
+at the unlock screen) — mediaanalysisd contained by a root LaunchDaemon
+(`/Library/LaunchDaemons/net.kolu.ci.kill-mediaanalysisd.plist`, pkill every
+300 s; delete it after the next console login makes the per-user
+`launchctl disable` stick). The healed-host lane time, **3m28s**, matches the
+original report's clean-host numbers scaled to today's 440 scenarios.
+
+One regression shipped in the first PR and is fixed here: the cap clamp wrote
+`par=cap` (literal string) instead of `par=$cap`, and `cucumber.js`
+`parseInt`→`NaN` silently *dropped* the `parallel` option — a serial suite that
+still looks green (the linux lane's `wall ≈ executing-steps` signature gave it
+away). The recipe now fails loud on any non-numeric worker count.
