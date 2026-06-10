@@ -1,6 +1,6 @@
 ---
 title: A CI runner you attach to — graduating mini-ci beyond justci
-description: Every local CI tool runs your pipeline as a batch process and leaves you log files. mini-ci inverts that — the runner is a small live server that owns the pipeline as state, and your terminal, your browser, and your coding agent all attach to it over plain ssh. What that buys, what it costs — and Phase 1 — shipped in PR #1252 — which replaced justci in the kolu repo itself with the new package odu (Tamil for "run").
+description: Every local CI tool runs your pipeline as a batch process and leaves you log files. mini-ci inverts that — the runner is a small live server that owns the pipeline as state, and your terminal and your coding agent attach to it over plain ssh. What that buys, what it costs — and Phase 1 — shipped in PR #1252 — which replaced justci in the kolu repo itself with the new package odu (Tamil for "run").
 kind: feature
 status: implemented
 maturity: seedling
@@ -19,10 +19,10 @@ import Milestone from "../../components/Milestone.astro";
 
 *The plan — Phase 1 of which has shipped: grow [`mini-ci`](https://github.com/juspay/kolu/blob/master/packages/surface/example/mini-ci/README.md) — a small CI runner that already works inside the kolu repo — into a standalone tool that takes over from [juspay/justci](https://github.com/juspay/justci), the way [remote-process-monitor](https://github.com/juspay/kolu/blob/master/packages/surface/example/remote-process-monitor/README.md) graduated into [srid/drishti](https://github.com/srid/drishti). Every load-bearing claim was checked against both codebases.* <Pill variant="new">22-agent workflow · adversarial verification</Pill>
 
-<p>Status: <Pill variant="ok">implemented</Pill> · maturity <Pill variant="todo">seedling</Pill> · <strong>Phase 1 shipped</strong> — <PrLink pr={1252} label="odu replaced justci in this repo" />, dogfooded by posting that very PR's required checks · Phases 2–3 (PWA + MCP faces, graduation) are the open roadmap · named <strong><code>odu</code></strong> (Tamil ஓடு — "run")</p>
+<p>Status: <Pill variant="ok">implemented</Pill> · maturity <Pill variant="todo">seedling</Pill> · <strong>Phase 1 shipped</strong> — <PrLink pr={1252} label="odu replaced justci in this repo" />, dogfooded by posting that very PR's required checks · Phase 2 (the MCP agent face) is the open roadmap; graduation has largely landed (juspay/odu) · named <strong><code>odu</code></strong> (Tamil ஓடு — "run")</p>
 
 <Callout kind="accent" title="The idea in one paragraph">
-Every local CI tool you have used — `make`, a `just` recipe over ssh, [act](https://github.com/nektos/act), justci — shares one shape: **the run is a process.** It starts, prints, and exits; your window into it is whatever that process wrote to your terminal or to log files. mini-ci inverts the shape: **the runner is a small live server that owns your pipeline as state**, and everything else — a terminal dashboard, a browser app, your coding agent — is a *client that attaches to it* over plain ssh. Attach late and you get the complete current state instantly, including the full log of a node that finished an hour ago. Disconnect and nothing is lost. Rerun one failed node — not the whole pipeline — with a typed call. That single inversion is the innovation; everything else in this note is what it buys, what it costs, and the plan — **Phase 1 replaced justci in this very repo** (<PrLink pr={1252} />).
+Every local CI tool you have used — `make`, a `just` recipe over ssh, [act](https://github.com/nektos/act), justci — shares one shape: **the run is a process.** It starts, prints, and exits; your window into it is whatever that process wrote to your terminal or to log files. mini-ci inverts the shape: **the runner is a small live server that owns your pipeline as state**, and everything else — a terminal dashboard, your coding agent, even a browser — is a *client that attaches to it* over plain ssh. Attach late and you get the complete current state instantly, including the full log of a node that finished an hour ago. Disconnect and nothing is lost. Rerun one failed node — not the whole pipeline — with a typed call. That single inversion is the innovation; everything else in this note is what it buys, what it costs, and the plan — **Phase 1 replaced justci in this very repo** (<PrLink pr={1252} />).
 </Callout>
 
 ## What it is — attach, don't scrape
@@ -68,9 +68,9 @@ So "watching a justci run" means a side channel: its `status` / `monitor` / `log
 mini-ci moves exactly one load-bearing axis: **ssh carries a typed, live, snapshot-then-delta surface instead of opaque bytes.** The pipeline state and every node's log are *in-band, on the same connection a client attaches to* — observable whether or not anything is currently running, with no second binary and no socket file. Everything "more" in this note falls out of that one change.
 </Callout>
 
-## Three faces over one surface
+## Faces over one surface
 
-The runner exposes its entire capability as **three typed primitives** — and because that protocol is the *whole* interface, every kind of client is a thin adapter over the same thing. The terminal dashboard above is one face. The second is a browser PWA (proposed) — `odu`'s web face — which also answers the multi-platform question: instead of justci fanning *out* one ssh + one log file + one status context per (recipe × platform) pair, runners on N platforms each serve the *same* surface and one dashboard fans them **in**:
+The runner exposes its entire capability as **three typed primitives** (the next section names them), and because that surface *is* the whole interface, every client is a thin adapter over the same thing. A CI runner wants two of those adapters — one for the human driving it, one for the agent driving it. The same surface leaves a third — a browser dashboard — available for free, catalogued at the end as a latent capability a CLI tool doesn't actually need.
 
 export const S = {
   ok: { background: "#e3f4e9", color: "#1b7a3a", border: "1px solid #bce3c8" },
@@ -134,17 +134,21 @@ export const Dashboard = () => {
   );
 };
 
-<Dashboard />
+### The human face — the TUI <Pill variant="ok">shipped</Pill>
 
-Between those two faces sits a plan for the *first* one: **rebuild the TUI on [OpenTUI](https://opentui.com/)** <Pill variant="warn">proposed</Pill> — the MIT-licensed, Zig-cored terminal framework from Anomaly that powers opencode in production, with a first-class **SolidJS reconciler** (`@opentui/solid`). Today odu's dashboard and live run matrix are hand-rolled ANSI — pure render functions, a repaint region, a braille spinner — fine at 26 rows, but every scroll pane, focus ring, and resize from here on is bespoke code; OpenTUI replaces that layer with flexbox layout (Yoga), real components (ScrollBox, Code, Diff, Input), and tree-sitter highlighting for the log pane. The architectural pull is stronger than the widgets, though: `@kolu/surface`'s reactive client hooks (`useCell`, `useStream`) are Solid-only, so the hand-rolled TUI can't touch them and consumes the raw oRPC client instead. On `@opentui/solid`, the terminal dashboard becomes a Solid component tree over the *same hooks the PWA face uses* — "three faces over one surface" stops being a protocol claim and becomes **shared view code**, with only the reconciler differing. The costs, **verified against 0.4.0** rather than guessed: packaging is a non-issue — `@opentui/core` ships prebuilt natives for eight targets (including all four kolu systems) as esbuild-style `optionalDependencies`, so consumers need no Zig and `fetchPnpmDeps` ingests them like it already ingests esbuild's binary. The real gate is the runtime: the FFI layer is **bun-only today** — under node 24, `createCliRenderer` throws `OpenTUI native FFI is not available for this runtime yet` (reproduced empirically; the native package ships `libopentui.so` for `bun:ffi`, no napi addon), while the same probe renders fine under bun. Two smaller pins: `@opentui/solid` peer-depends on `solid-js` at exactly `1.9.12`, and odu's processes are all `tsx`-on-node today. So the plan is gated, not dated: prototype `odu monitor` on it (read-only, smallest blast radius) **when upstream's node support lands** — the error message's own "yet" — or earlier by running just the monitor face under bun if the itch wins.
+The live `just run` dashboard at the top of this note is this face: a (recipe × platform) matrix, a braille spinner, a log-tail footer, a coloured verdict, OSC-8 commit links. It is hand-rolled ANSI today — pure render functions over a repaint region — fine at 26 rows, but bespoke for every scroll pane, focus ring, and resize from here.
 
-The third face is for **agents**. Because the runner already serves its surface over a byte pipe, an **MCP server is just another serve target** — a thin adapter (~one file over the official MCP SDK) that exposes the same three primitives as MCP tools, so Claude Code, Codex, opencode, or Gemini CLI can drive your CI with structured calls instead of scraping terminal output. Declare it over stdio, the same transport everything else rides:
+The plan to outgrow that is to **rebuild it on [OpenTUI](https://opentui.com/)** <Pill variant="warn">proposed</Pill> — the MIT-licensed, Zig-cored terminal framework from Anomaly that powers opencode in production, with a first-class **SolidJS reconciler** (`@opentui/solid`). It swaps the bespoke ANSI layer for flexbox layout (Yoga), real components (ScrollBox, Code, Diff, Input), and tree-sitter highlighting for the log pane. The costs were **verified against 0.4.0**, not guessed: packaging is a non-issue — `@opentui/core` ships prebuilt natives for eight targets (all four kolu systems included) as esbuild-style `optionalDependencies`, so consumers need no Zig and `fetchPnpmDeps` ingests them like it already ingests esbuild's binary. The real gate is the runtime: the FFI layer is **bun-only today** — under node 24, `createCliRenderer` throws `OpenTUI native FFI is not available for this runtime yet` (reproduced empirically; the native package ships `libopentui.so` for `bun:ffi`, no napi addon), while the same probe renders fine under bun. Two smaller pins: `@opentui/solid` peer-depends on `solid-js` at exactly `1.9.12`, and odu's processes are all `tsx`-on-node today. So the plan is gated, not dated: prototype `odu monitor` on it (read-only, smallest blast radius) **when upstream's node support lands** — the error message's own "yet" — or earlier under bun for just the monitor face. The pull beyond the widgets: `@kolu/surface`'s reactive client hooks (`useCell`, `useStream`) are Solid-only, so the hand-rolled TUI can't touch them and drives the raw oRPC client instead; on `@opentui/solid` the terminal becomes a Solid tree over those hooks — and if the browser face below ever ships, both render the *same* hooks over the *same* surface, so "faces over one surface" becomes shared view code, not just a shared protocol.
+
+### The agent face — MCP <Pill variant="warn">Phase 2 · next</Pill>
+
+This is the face Phase 2 actually builds. Because the runner already serves its surface over a byte pipe, an **MCP server is just another serve target**: `odu mcp --host <h>` dials the very runner the CLI dials and re-exposes the surface as MCP tools — a thin adapter (~one file over the official MCP TypeScript SDK), no second protocol. So Claude Code, Codex, opencode, or Gemini CLI drive your CI with structured calls instead of scraping terminal output. Declare it over stdio — the transport everything else already rides:
 
 ```jsonc
 // .mcp.json (proposed) — Claude Code; Codex, opencode & Gemini CLI take the same shape
 { "mcpServers": { "odu": {
-  "type": "stdio", "command": "npx",
-  "args": ["-y", "@kolu/odu-mcp", "--host", "srid1"] } } }
+  "type": "stdio", "command": "nix",
+  "args": ["run", "github:juspay/odu", "--", "mcp", "--host", "srid1"] } } }
 ```
 
 <Terminal title="claude — CI over the odu MCP server" lines={[
@@ -171,19 +175,40 @@ The third face is for **agents**. Because the runner already serves its surface 
   `assistant: Green ✓ — monitor passed in 4.1s. The wire.ts fix cleared it.`,
 ]} />
 
-This is the one place justci has *told us itself* that the batch shape is the obstacle: <Issue n={22} repo="juspay/justci" label="MCP server for ci, done properly" /> is justci's own design note for an agent-controlled MCP mode. It **built one and reverted it** (<PrLink pr={18} repo="juspay/justci" label="reverted in the same PR" />) because, in a batch translator, *launching the MCP server auto-ran every recipe* — process-compose has no serve-only / `--no-start` mode, and its MCP surface is "request/response only, no streaming." A runner that owns the DAG as *idle state* has that separation by construction, and the log stream's snapshot-then-delta is precisely the live event source #22 couldn't get. *(The MCP and PWA faces are designed, not built — and `rerun_node` is remote code execution, so the agent face must land behind the authz boundary in Phase 1 below.)*
+**The tools are the surface, one-to-one** — four MCP tools, three of them straight projections of the three primitives plus one blocking wait:
+
+| MCP tool | Surface call | What it returns |
+| --- | --- | --- |
+| `get_nodes()` | `surface.nodes.get({})` — Cell | Every node's status / exit / duration in one structured snapshot. |
+| `tail_log({ id })` | `surface.nodeLog.get({ id })` — Stream | One node's buffered output so far — even a node that finished before the agent attached. |
+| `rerun_node({ id })` | `surface.node.rerun({ id })` — Procedure | The only mutation: reset a node + its transitive dependents and reschedule on the live DAG. |
+| `wait_for_settle({ timeoutMs })` | blocks on the `nodes` Cell | `{ passed, failed[], durationMs }` once every node reaches a terminal state. |
+
+**An agent doesn't need streaming — and that's the whole trick.** Issue #22's wall was that process-compose's MCP surface is "request/response only, no streaming," so an agent watching a long recipe had no live event source. odu removes the *need*: an agent doesn't want a byte stream, it wants (a) a point-in-time snapshot — which `get_nodes` / `tail_log` serve from the Cell/Stream's buffered frame — and (b) one blocking "tell me when it's done" — `wait_for_settle`, backed by the live Cell. Two request/response calls stand in for a subscription. The loop is exactly those four tools: `get_nodes` → read the red node's `tail_log` → fix → `rerun_node` → `wait_for_settle` → confirm green (the transcript above).
+
+**This is the one place justci *told us itself* the batch shape is the obstacle.** <Issue n={22} repo="juspay/justci" label="MCP server for ci, done properly" /> is justci's own design note for an agent-controlled MCP mode. It **built one and reverted it** (<PrLink pr={18} repo="juspay/justci" label="reverted in the same PR" />) because, in a batch translator, *launching the MCP server auto-ran every recipe* — process-compose has no serve-only / `--no-start` mode. A runner that owns the DAG as *idle state* has that separation by construction, and the snapshot-then-delta log is precisely the live event source #22 couldn't get.
+
+**No new authz boundary — which is exactly why MCP, not the browser, is next.** An earlier draft of this note parked the agent face behind an authn/authz split. That conflated *agent* access with *multi-client* access. `odu mcp` runs as the same operator, on the same machine, dialing the same `.ci/odu.sock` / `ssh host odu-runner --stdio` the CLI already uses; `rerun_node` is remote code execution, but it is RCE the operator already holds through the CLI — the agent acts *as* the operator, under the same ssh trust. So the single-operator MCP face needs no new trust model and lands in Phase 2 directly. A read-observer-vs-mutator authz boundary becomes load-bearing only when a *second, untrusted* client appears — the browser face below — which is why that face, not this one, carries the prerequisite.
+
+### A browser face — the surface allows it, a CLI doesn't need it <Pill variant="todo">latent</Pill>
+
+The same surface would drive a browser PWA without a new line of protocol — the `useCell` / `useStream` hooks are Solid, and kolu already ships [surface-app](../surface-app.html) for exactly this. It would also answer the multi-platform question by fanning N platform runners *in* to one dashboard, where justci fans *out* one ssh + one log file + one status context per (recipe × platform) pair:
+
+<Dashboard />
+
+But odu is a CLI CI runner. Nobody opens a browser tab to watch a run they kicked off from their shell, and a hosted dashboard is the one client that *does* drag in the authz boundary the CLI and MCP faces dodge. So the PWA stays a **latent capability** the architecture leaves open — not a roadmap item. If it ever ships, it is the face that forces the read-observer/mutator split, and the face that turns OpenTUI's "shared view code" from a bonus into the point.
 
 ## The architecture — three primitives over ssh
 
 <D2
-  caption="The architecture as a single vertical spine. SOLID = shipped in mini-ci today; the DASHED edge marks the gate half that Phase 1 builds — strict runs, commit-statuses, branch protection: exactly what justci does for kolu today. Clients attach to a typed surface over ssh stdio; the runner is long-lived, owns the DAG, and runs one-per-platform (fanned in)."
+  caption="The architecture as a single vertical spine. The gate half — strict runs, commit-statuses, branch protection — shipped in Phase 1 (PR #1252); the next client is the MCP agent face. Clients attach to a typed surface over ssh stdio; the runner is long-lived, owns the DAG, and runs one-per-platform (fanned in)."
   code={`
 direction: down
 
 clients: "clients — attach / detach / reconnect" {
   tui: "TUI · shipped"
-  pwa: "PWA dashboard · proposed"
-  mcp: "MCP server · proposed — agent CLIs"
+  mcp: "MCP · Phase 2 — agent CLIs"
+  pwa: "PWA · latent"
 }
 
 wire: "@kolu/surface — typed wire" {
@@ -200,17 +225,15 @@ runner: "runner — long-lived, owns the DAG" {
   serve: "nodes · nodeLog · rerun"
 }
 
-front: "gate half — Phase 1 scope" {
+front: "gate half — shipped in Phase 1" {
   t: "strict run on pinned SHA"
   g: "commit-status · protect · per-SHA logs"
 }
 
-clients -> wire: "typed, live — TUI · Web · MCP"
+clients -> wire: "typed, live — TUI · MCP · Web"
 wire -> host: "over ssh stdio"
 host -> runner: "one per platform — fan-in"
-runner -> front: "owed — Phase 1 builds this" {
-  style.stroke-dash: 4
-}
+runner -> front: "Phase 1 — shipped (PR #1252)"
 `}
 />
 
@@ -243,7 +266,7 @@ A CI tool has two halves. The **watch-and-drive half** — see state, read logs,
 | Typed `rerun` of a node + dependents on the **live** DAG (no new process) | `justci run RECIPE@PLATFORM` spins up a brand-new batch | <Pill variant="run">beyond</Pill> |
 | Self-healing reconnect — fresh snapshot on every resubscribe, infinite retry, session respawn | No reattach to an in-flight run (side-socket introspection only) | <Pill variant="run">beyond</Pill> |
 | Idle attach + selective start — clients connect *before* anything runs | <Issue n={22} repo="juspay/justci" label="MCP server for ci" /> — no serve-only mode in process-compose; justci tried and reverted (<PrLink pr={18} repo="juspay/justci" />) | <Pill variant="run">beyond</Pill> |
-| **Three faces over one surface** — TUI · PWA · MCP, each a thin adapter, only the link differs | No live dashboard and no agent-drivable API | <Pill variant="run">beyond</Pill> |
+| **Faces over one surface** — TUI (shipped) · MCP (Phase 2) · PWA (latent), each a thin adapter, only the link differs | No live dashboard and no agent-drivable API | <Pill variant="run">beyond</Pill> |
 | Fan-**in**: N platform runners into one typed dashboard | Fan-**out**: one ssh + log + status context per (recipe × platform), plus a <Issue n={47} repo="juspay/justci" label="sharding" /> aggregator hack | <Pill variant="todo">open</Pill> |
 | Typed `cancel` / `cron` / mid-run reload | Sealed at preflight, pinned to a worktree SHA — foreclosed under the translator | <Pill variant="todo">open</Pill> |
 | Concurrent-client mutation semantics (who may rerun, when) | A non-question under one-run-one-driver — a **new problem** the live shape creates and must own | <Pill variant="todo">open</Pill> |
@@ -263,7 +286,7 @@ The scope is set by what justci actually does for kolu today: the `[metadata("ci
 
 **Exit criterion:** kolu's branch protection is satisfied by contexts this tool posted; `nix run github:juspay/justci` appears nowhere in the repo; the `/ci` skill and `.agency/do.md` describe the new tool.
 
-**Deferred past the dogfood** — none of these block replacing justci here, because justci doesn't have them either (and the single-operator ssh trust model covers Phase 1 exactly as it covers justci): authn/authz + a read-observer vs. mutator split (required *before* the multi-client PWA/MCP faces — `rerun` is remote code execution); runner-restart survival of *live* state (per-SHA logs already survive); notifications and forge-event ingestion (beyond both tools); caching / artifact passing; the per-recipe `[linux]`/`[macos]` filter (justci's own open roadmap item); a run-history model richer than per-SHA logs.
+**Deferred past the dogfood** — none of these block replacing justci here, because justci doesn't have them either (and the single-operator ssh trust model covers Phase 1 exactly as it covers justci): authn/authz + a read-observer vs. mutator split (required *before* a multi-client browser face — `rerun` is remote code execution; the single-operator MCP face needs no new boundary, acting as the operator under the same ssh trust); runner-restart survival of *live* state (per-SHA logs already survive); notifications and forge-event ingestion (beyond both tools); caching / artifact passing; the per-recipe `[linux]`/`[macos]` filter (justci's own open roadmap item); a run-history model richer than per-SHA logs.
 
 <Callout kind="warn" title="So is it a replacement?">
 On the watch-and-drive half — **yes, outright, and it does more there than justci can**. On the gate half it is now a *work order with an exit criterion*, and dogfooding it on kolu is the test: if the live shape can't gate these PRs as reliably as justci's strict batch does, that surfaces in weeks, on this repo — a finding, not a footnote. The humility that remains: the novelty claim is against *local* CI tools like justci, not against hosted CI (GitHub Actions, Buildkite, Dagger stream logs too) — the durable edge is the substrate: a typed, reconnecting, composable surface over **your own ssh**, with no hosted runner and nothing to install on the remote but Nix.
@@ -278,6 +301,6 @@ The delivery path is proven, not hypothetical. remote-process-monitor — anothe
 <Roadmap>
   <Milestone status="done" label="Phase 0 · the proven substrate">Shipped: a long-lived runner owns the DAG and serves `nodes` + `nodeLog` + `rerun` over the real stdio transport; tests bank snapshot-then-delta, race-free topo order, late-subscriber log replay, rerun-the-closure, and no-false-greens; live e2e over a real ssh session. TUI-only, single host, read-only closure ⇒ typecheck-only.</Milestone>
   <Milestone status="done" label="Phase 1 · replace justci in this repo">Shipped: <PrLink pr={1252} label="the Phase-1 PR" /> — `packages/odu` built fresh per the work order (writable per-SHA workspaces, `just`-DAG ingestion + `dump`/`graph`, strict hygiene with justci's per-SHA log layout, byte-compatible commit statuses + `protect`, multi-platform lanes over the warm-pool lease untouched, in-band `status`/`logs`/`monitor` on `.ci/odu.sock`), the `/ci` skill + `.agency/do.md` rewritten, the lease wrapper repointed, and the exit criterion met the strong way: **the PR's own required checks were posted by odu**, with `nix run github:juspay/justci` gone from every live path (the justci-era ralph reports carry historical notes). Dogfooding fixed what only production could: real pipes for recipes that reopen `/dev/stderr`, host-provided nix (a pinned client corrupts CA handling against a newer daemon), one-shot lane semantics with `errored` posts.</Milestone>
-  <Milestone status="next" label="Phase 2 · beyond">The live-service dividends: the PWA dashboard **and the MCP server face — three faces over one surface**, both behind a new authz boundary (`rerun` is RCE; Phase 1's single-operator ssh trust doesn't stretch to multi-client faces); the TUI face rebuilt on OpenTUI's Solid reconciler so terminal and PWA share view code over the same surface hooks (prototype `odu monitor` first); multi-platform fan-**in** with defined concurrent-mutation semantics; idle-attach + selective start; typed `cancel`/`cron`/`reload`; notifications + forge-event ingestion (beyond what justci ever had); runner-restart survival of live state; per-node platform filter. Price the idle-runner lifecycle against the warm pu-box pool.</Milestone>
+  <Milestone status="next" label="Phase 2 · the agent face">The headline dividend is the **MCP server face** — `odu mcp` re-exposing the live surface as agent tools (`get_nodes` · `tail_log` · `rerun_node` · `wait_for_settle`), the agent-controlled CI justci built and reverted (<Issue n={22} repo="juspay/justci" label="MCP server for ci" />) because its batch shape had no serve-only mode. It needs **no new authz**: single-operator, same ssh trust as the CLI. The rest of the live-service backlog rides behind it: idle-attach + selective start (the runner you reach with nothing live); the TUI rebuilt on OpenTUI's Solid reconciler (prototype `odu monitor` first); typed `cancel`/`cron`/`reload`; multi-platform fan-**in** with defined concurrent-mutation semantics; notifications + forge-event ingestion (beyond what justci ever had); runner-restart survival of live state; the per-node platform filter. The browser PWA — and the read-observer/mutator authz boundary it alone forces — stays latent until a multi-client need is real. Price the idle-runner lifecycle against the warm pu-box pool.</Milestone>
   <Milestone status="now" label="Phase 3 · graduation">Landed: <PrLink pr={1} repo="juspay/odu" label="juspay/odu#1" /> (merged) stood the standalone repo up the drishti way — `npins`-pinned `@kolu/{surface,surface-nix-host}` extracted by overlay and hydrated as raw TypeScript (no vendoring), a zero-input flake (`nix run github:juspay/odu`), and self-hosted CI from day one — GitHub Actions runs odu-on-odu per push (two platform lanes, strict, posting `ci::*` statuses with the odu built from the commit under test; first run green in 2m31s). Remaining: thread the runner derivation for repos that don't expose `odu-runner` themselves, adopt `surface-app` (with the PWA face), a home-manager service, and extracting reusable concerns back into the libraries. The dependency then flipped: kolu deleted `packages/odu` and consumes the graduated repo via an npins pin re-exported through its own flake (`npins update odu` to bump).</Milestone>
 </Roadmap>
