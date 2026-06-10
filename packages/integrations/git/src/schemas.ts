@@ -12,12 +12,6 @@ export const GitInfoSchema = z.object({
   branch: z.string(),
   isWorktree: z.boolean(),
   mainRepoRoot: z.string(),
-  /** `origin`'s URL, or null when the repo has no remote (best-effort —
-   *  a failed lookup also yields null). Feeds forge detection downstream
-   *  (anyforge's `detectForge`). `.default(null)` so an older server
-   *  emitting payloads without this field still parses on a newer
-   *  client. */
-  remoteUrl: z.string().nullable().default(null),
 });
 
 // --- Git worktree operations ---

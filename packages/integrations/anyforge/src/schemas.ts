@@ -10,8 +10,8 @@
  *  surface).
  *
  *  Browser-safe: zod + ts-pattern only, no node APIs. Adapters (kolu-github
- *  today, kolu-forgejo in kolu#1240 phase 1) implement `PrProvider` against
- *  these shapes and never import each other. */
+ *  today) implement `PrProvider` against these shapes and never import each
+ *  other; a second forge adapter's arm joins this union later. */
 
 import { match, P } from "ts-pattern";
 import { z } from "zod";
@@ -58,9 +58,9 @@ export type PrInfo = z.infer<typeof PrInfoSchema>;
  *  and get a compile error when a new code is added without a handler —
  *  rather than string-comparing display text and silently breaking on typo.
  *
- *  Named with the `Gh` prefix so a parallel `ForgejoUnavailableCodeSchema`
- *  lives alongside this one when the Forgejo adapter lands (kolu#1240
- *  phase 1); `PrUnavailableSourceSchema` already reserves the `provider`
+ *  Named with the `Gh` prefix so a parallel `<forge>UnavailableCodeSchema`
+ *  lives alongside this one when a second forge adapter lands;
+ *  `PrUnavailableSourceSchema` already reserves the `provider`
  *  discriminator for the tagged-union extension. */
 export const GhUnavailableCodeSchema = z.enum([
   "not-installed",
@@ -95,11 +95,10 @@ export const GhUnavailableSchema = z.object({
 
 /** Which provider classified the failure, plus that provider's typed code.
  *
- *  Today only `gh`; a sibling `ForgejoUnavailableSchema` joins this union
- *  when the Forgejo adapter lands (kolu#1240 phase 1). UI dispatch sites
- *  that render recovery instructions should `match(source.provider)
- *  .exhaustive()` so adding a new provider arm forces every render site to
- *  handle it. */
+ *  Today only `gh`; a sibling unavailable schema joins this union when a
+ *  second forge adapter lands. UI dispatch sites that render recovery
+ *  instructions should `match(source.provider).exhaustive()` so adding a
+ *  new provider arm forces every render site to handle it. */
 export const PrUnavailableSourceSchema = z.discriminatedUnion("provider", [
   GhUnavailableSchema,
 ]);

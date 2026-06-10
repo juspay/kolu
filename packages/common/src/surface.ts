@@ -204,8 +204,8 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
  */
 export const LiveTerminalFieldsSchema = z.object({
   /** Forge PR resolution — discriminated union (see PrResultSchema).
-   *  Forge-neutral: the resolving adapter is chosen per the remote's host
-   *  (anyforge's `detectForge`), GitHub today, Forgejo next. */
+   *  Forge-neutral PR resolution (anyforge); the gh adapter resolves it
+   *  today. */
   pr: PrResultSchema,
   /** AI coding agent status (Claude Code, OpenCode, etc.). */
   agent: AgentInfoSchema.nullable(),

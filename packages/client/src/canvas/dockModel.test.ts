@@ -19,7 +19,6 @@ function makeGit(overrides: Partial<GitInfo> = {}): GitInfo {
     branch: "main",
     isWorktree: false,
     mainRepoRoot: "/home/user/kolu",
-    remoteUrl: null,
     ...overrides,
   };
 }

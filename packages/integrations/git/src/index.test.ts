@@ -25,10 +25,6 @@ import {
   it,
 } from "vitest";
 import {
-  _resetSharedConfigWatchers,
-  _sharedConfigWatcherCount,
-} from "./config-watcher.ts";
-import {
   _resetSharedCwdGitWatchers,
   _sharedCwdGitWatcherCount,
 } from "./cwd-git-watcher.ts";
@@ -353,7 +349,6 @@ describe("gitInfoEqual", () => {
     branch: "main",
     isWorktree: false,
     mainRepoRoot: "/home/user/repo",
-    remoteUrl: null,
   };
 
   it("returns true for identical references", () => {
@@ -378,7 +373,6 @@ describe("gitInfoEqual", () => {
     { field: "repoRoot", value: "/other" },
     { field: "branch", value: "develop" },
     { field: "worktreePath", value: "/other" },
-    { field: "remoteUrl", value: "https://github.com/other/repo.git" },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(gitInfoEqual(info, { ...info, [field]: value })).toBe(false);
   });
@@ -524,38 +518,6 @@ describe("resolveGitInfo", () => {
     expect(result.value.repoName).toBe("proj");
     expect(result.value.repoName).not.toBe(".worktrees");
     expect(result.value.mainRepoRoot).toBe(fs.realpathSync(proj));
-  });
-
-  it("passes through an SCP-shorthand remote unchanged (no userinfo to redact)", async () => {
-    const { dir, git } = await initRepo("scp-remote");
-    await git.addRemote("origin", "git@github.com:juspay/kolu.git");
-
-    const result = await resolveGitInfo(dir);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    // `git@host:owner/repo` is SSH-user syntax, not a secret — and it isn't a
-    // parseable URL, so it must survive verbatim for `detectForge` to read.
-    expect(result.value.remoteUrl).toBe("git@github.com:juspay/kolu.git");
-  });
-
-  it("strips embedded credentials from an HTTPS remote before it reaches GitInfo", async () => {
-    const { dir, git } = await initRepo("creds-remote");
-    // An HTTPS remote can carry a token in its userinfo. This value would
-    // otherwise be persisted to disk and published over terminal metadata.
-    await git.addRemote(
-      "origin",
-      "https://user:ghp_secrettoken@github.com/juspay/kolu.git",
-    );
-
-    const result = await resolveGitInfo(dir);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const url = result.value.remoteUrl ?? "";
-    expect(url).not.toContain("ghp_secrettoken");
-    expect(url).not.toContain("user:");
-    // Host (what `detectForge` needs) is preserved.
-    expect(url).toContain("github.com");
-    expect(url).toContain("juspay/kolu.git");
   });
 });
 
@@ -974,15 +936,11 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     // registry reset breaks the leak-cascade (#955).
     _resetSharedHeadWatchers();
     _resetSharedCwdGitWatchers();
-    _resetSharedConfigWatchers();
   });
 
   afterEach(() => {
     expect(_sharedHeadWatcherCount()).toBe(0);
     expect(_sharedCwdGitWatcherCount()).toBe(0);
-    // Head mode installs a config watcher alongside HEAD; it must tear down
-    // on the same lifecycle so it can't leak past the subscription.
-    expect(_sharedConfigWatcherCount()).toBe(0);
   });
 
   /** Tracks watcher install/retire log lines as a vitest-friendly counter. */
@@ -1203,77 +1161,5 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
 
     expect(_sharedHeadWatcherCount()).toBe(0);
     expect(counter.installs).toBe(counter.retires);
-  });
-
-  // Regression (#1253 review F3): `git remote set-url` rewrites .git/config
-  // but not .git/HEAD. Without a config watch the new remote wouldn't reach
-  // GitInfo (and thus forge detection) until the next branch/cwd change. The
-  // head-mode config watcher must re-resolve on a config write.
-  it("re-resolves GitInfo when the origin remote URL changes", async () => {
-    const { dir, git } = await initRepo("remote-change");
-    await git.addRemote("origin", "https://github.com/old/repo.git");
-
-    const updates: (GitInfo | null)[] = [];
-    const sub = subscribeGitInfo(dir, (info) => {
-      updates.push(info);
-    });
-
-    await waitFor(() => updates.length >= 1);
-    expect(updates.at(-1)?.remoteUrl).toBe("https://github.com/old/repo.git");
-
-    // Change only the remote URL — HEAD is untouched. Only a config watch
-    // catches this.
-    await git.remote([
-      "set-url",
-      "origin",
-      "https://codeberg.org/new/repo.git",
-    ]);
-
-    await waitFor(
-      () => updates.at(-1)?.remoteUrl === "https://codeberg.org/new/repo.git",
-      3000,
-    );
-
-    sub.stop();
-  });
-
-  // Regression (#1253 review F3, round 2): in a *linked worktree* the
-  // per-worktree git dir is `.git/worktrees/<name>` (where HEAD lives), but
-  // `config` lives in the shared `--git-common-dir` (`<main>/.git`). A config
-  // watch keyed on `--git-dir` would watch the wrong directory and miss
-  // `git remote set-url` run from inside the worktree. The config watcher
-  // must key on the common dir so the remote change still re-resolves.
-  it("re-resolves GitInfo on a remote change from inside a linked worktree", async () => {
-    const { dir, git } = await initRepo("wt-remote-main");
-    await git.addRemote("origin", "https://github.com/old/repo.git");
-    const worktreeDir = path.join(tmpDir, "wt-remote-linked");
-    await git.raw(["worktree", "add", "-b", "wt-feature", worktreeDir]);
-
-    const updates: (GitInfo | null)[] = [];
-    const sub = subscribeGitInfo(worktreeDir, (info) => {
-      updates.push(info);
-    });
-
-    await waitFor(() => updates.length >= 1);
-    expect(updates.at(-1)?.isWorktree).toBe(true);
-    expect(updates.at(-1)?.remoteUrl).toBe("https://github.com/old/repo.git");
-
-    // Rewrite the shared common-dir `config` — from the worktree. Only a
-    // config watch keyed on `--git-common-dir` (not the worktree's own
-    // `.git/worktrees/<name>`) catches this.
-    const worktreeGit = simpleGit(worktreeDir);
-    await worktreeGit.remote([
-      "set-url",
-      "origin",
-      "https://codeberg.org/new/repo.git",
-    ]);
-
-    await waitFor(
-      () => updates.at(-1)?.remoteUrl === "https://codeberg.org/new/repo.git",
-      3000,
-    );
-
-    sub.stop();
-    await git.raw(["worktree", "remove", worktreeDir, "--force"]);
   });
 });

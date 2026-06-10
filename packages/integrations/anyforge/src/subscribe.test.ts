@@ -28,7 +28,6 @@ function ctx(overrides: Partial<PrGitContext> = {}): PrGitContext {
   return {
     repoRoot: "/repo",
     branch: "feature",
-    remoteUrl: null,
     ...overrides,
   };
 }
@@ -62,7 +61,7 @@ describe("subscribePr", () => {
     const log = spyLogger();
     let calls = 0;
     const watcher = subscribePr(
-      () => stubProvider({ kind: "absent" }),
+      stubProvider({ kind: "absent" }),
       () => {
         calls += 1;
         throw new Error("metadata write blew up");
@@ -101,7 +100,7 @@ describe("subscribePr", () => {
     // throwing yet.
     let shouldThrow = false;
     const watcher = subscribePr(
-      () => stubProvider({ kind: "absent" }),
+      stubProvider({ kind: "absent" }),
       () => {
         if (shouldThrow) throw new Error("metadata write blew up");
       },
@@ -138,10 +137,10 @@ describe("subscribePr", () => {
     const log = spyLogger();
     const onChange = vi.fn();
     const watcher = subscribePr(
-      () => ({
+      {
         kind: "github",
         resolve: () => Promise.reject(new Error("adapter bug")),
-      }),
+      },
       onChange,
       log,
     );
@@ -160,54 +159,20 @@ describe("subscribePr", () => {
     }
   });
 
-  it("dispatches per resolve — a remote-URL change reaches a different provider with no new watcher", async () => {
-    // The core of the per-resolve design (Atlas note, decision D3): the
-    // provider is looked up on EACH resolve, so a remote change is just a
-    // different dispatch on the same watcher — no teardown/rebuild.
-    const seen: PrResult[] = [];
-    const resolvedBy: string[] = [];
-    const providerFor = (git: PrGitContext): PrProvider => {
-      const kind = git.remoteUrl?.includes("codeberg") ? "forgejo" : "github";
-      return {
-        kind,
-        resolve: async () => {
-          resolvedBy.push(kind);
-          return { kind: "absent" };
-        },
-      };
-    };
-    const watcher = subscribePr(providerFor, (pr) => seen.push(pr));
-
-    try {
-      watcher.setGit(ctx({ remoteUrl: "https://github.com/o/r.git" }));
-      await settle();
-      // Same repo + branch, different remote: dedup must NOT swallow it, and
-      // the next resolve must reach the other adapter.
-      watcher.setGit(ctx({ remoteUrl: "https://codeberg.org/o/r.git" }));
-      await settle();
-
-      expect(resolvedBy).toEqual(["github", "forgejo"]);
-      // absent → pending (context change) → absent: each emitted once.
-      expect(seen.map((p) => p.kind)).toEqual(["absent", "pending", "absent"]);
-    } finally {
-      watcher.stop();
-    }
-  });
-
   it("drops a stale in-flight resolve when the branch switches mid-flight", async () => {
     // A resolve from branch A is slow; while it's pending the terminal
     // switches to branch B and B resolves first. A's late result must NOT
     // overwrite B's — the watcher gates each emit on the current context.
     const deferred = new Map<string, (pr: PrResult) => void>();
-    const providerFor = (git: PrGitContext): PrProvider => ({
+    const provider: PrProvider = {
       kind: "github",
       resolve: (g) =>
         new Promise<PrResult>((resolve) => {
           deferred.set(g.branch, resolve);
         }),
-    });
+    };
     const seen: PrResult[] = [];
-    const watcher = subscribePr(providerFor, (pr) => seen.push(pr));
+    const watcher = subscribePr(provider, (pr) => seen.push(pr));
 
     try {
       watcher.setGit(ctx({ branch: "A" })); // floats resolve(A), still pending
@@ -257,15 +222,15 @@ describe("subscribePr", () => {
     // A boxed resolver — a plain `let` would be narrowed to `null` at the
     // call site because TS can't see the executor closure assign it.
     const box: { resolve: ((pr: PrResult) => void) | null } = { resolve: null };
-    const providerFor = (): PrProvider => ({
+    const provider: PrProvider = {
       kind: "github",
       resolve: () =>
         new Promise<PrResult>((resolve) => {
           box.resolve = resolve;
         }),
-    });
+    };
     const seen: PrResult[] = [];
-    const watcher = subscribePr(providerFor, (pr) => seen.push(pr));
+    const watcher = subscribePr(provider, (pr) => seen.push(pr));
 
     try {
       watcher.setGit(ctx()); // floats a resolve, still pending
@@ -300,14 +265,14 @@ describe("subscribePr", () => {
   it("dedups an unchanged git context", async () => {
     const resolves = vi.fn(async (): Promise<PrResult> => ({ kind: "absent" }));
     const watcher = subscribePr(
-      () => ({ kind: "github", resolve: resolves }),
+      { kind: "github", resolve: resolves },
       () => {},
     );
 
     try {
       watcher.setGit(ctx());
       await settle();
-      watcher.setGit(ctx()); // same repoRoot/branch/remoteUrl — a no-op
+      watcher.setGit(ctx()); // same repoRoot/branch — a no-op
       await settle();
 
       expect(resolves).toHaveBeenCalledTimes(1);

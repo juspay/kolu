@@ -106,7 +106,7 @@ function logGhResolveFailure(
   );
 }
 
-/** The gh adapter, as anyforge's registry entry. */
+/** The gh adapter — the `PrProvider` the host injects into `subscribePr`. */
 export const githubPrProvider: PrProvider = {
   kind: "github",
   resolve: resolveGitHubPr,

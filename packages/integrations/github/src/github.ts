@@ -130,8 +130,8 @@ export function classifyGhError(err: unknown): PrResult {
   const stderr = (e.stderr ?? "").toLowerCase();
   // Situations where a PR simply can't exist — same silent UI outcome as
   // "no PR on this branch", not a problem to warn about:
-  //  - a non-GitHub remote (Forgejo, GitLab, …): gh refuses before any API
-  //    call. Match the "known GitHub host" refusal specifically, NOT the
+  //  - a non-GitHub remote (another forge, GitLab, …): gh refuses before
+  //    any API call. Match the "known GitHub host" refusal specifically, NOT the
   //    bare "none of the git remotes" prefix — gh's remoteResolver emits a
   //    second message with that same prefix ("…correspond to the GH_HOST
   //    environment variable…") for a misconfigured GH_HOST that matches no
@@ -141,10 +141,10 @@ export function classifyGhError(err: unknown): PrResult {
   //    remote the user hasn't run `gh auth login --hostname <ghe>` for —
   //    gh's known-host set is its authenticated hosts + the default host +
   //    github.com — where the old not-authenticated classification was
-  //    correct. Indistinguishable on stderr, and remote-URL detection
-  //    (anyforge's `detectForge`) can't tell a GHE host from any other
-  //    unknown host without configuration, so the gap stays until per-host
-  //    config lands (see the anyforge Atlas note's open questions).
+  //    correct. Indistinguishable on stderr, and a host can't be told apart
+  //    from any other unknown host without configuration, so the gap stays
+  //    until per-host config lands (see the anyforge Atlas note's open
+  //    questions).
   //  - gh's literal "no pull requests found" for the current branch;
   //  - a repo with no remote at all.
   // This block sits before the auth check because the non-GitHub-remote

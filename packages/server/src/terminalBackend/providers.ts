@@ -45,13 +45,7 @@ import type {
   AgentWatcher,
 } from "anyagent";
 import { agentInfoEqual, parseAgentCommand } from "anyagent";
-import {
-  detectForge,
-  type ForgeKind,
-  type PrGitContext,
-  type PrProvider,
-  subscribePr,
-} from "anyforge";
+import { subscribePr } from "anyforge";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
 import { subscribeGitInfo } from "kolu-git";
@@ -254,28 +248,6 @@ function startGitProvider(
 
 // ── PR watcher ────────────────────────────────────────────────────────
 
-/** Forge-adapter registry: `detectForge` picks the kind, this map picks
- *  the adapter. The Forgejo entry lands in kolu#1240 phase 1; until then
- *  a detected-but-unregistered kind falls back to the github adapter —
- *  gh refuses non-GitHub remotes with a silent `absent` (see
- *  `classifyGhError`), which is exactly the pre-registry behavior. */
-const prProviders = new Map<ForgeKind, PrProvider>([
-  ["github", githubPrProvider],
-]);
-
-/** Project a `GitInfo` onto the forge-relevant subset the PR watcher needs.
- *  Names the `{repoRoot, branch, remoteUrl}` "forge-relevant subset" as one
- *  declared thing — the same fields anyforge's `gitContextEqual` compares and
- *  `gitInfoEqual`'s remoteUrl arm guards — instead of an unenforced convention
- *  spread across the inline projection. */
-function prGitContextFromGitInfo(git: GitInfo): PrGitContext {
-  return {
-    repoRoot: git.repoRoot,
-    branch: git.branch,
-    remoteUrl: git.remoteUrl,
-  };
-}
-
 function startPrProvider(
   record: ProviderRecord,
   terminalId: TerminalId,
@@ -284,8 +256,9 @@ function startPrProvider(
 ): () => void {
   const plog = log.child({ provider: "pr", terminal: terminalId });
   plog.debug("started");
+  // The gh adapter resolves the PR for every git context this watcher sees.
   const watcher = subscribePr(
-    (git) => prProviders.get(detectForge(git.remoteUrl)) ?? githubPrProvider,
+    githubPrProvider,
     (pr) => {
       hooks.updateServerLiveMetadata(record, (m) => {
         m.pr = pr;
@@ -305,7 +278,10 @@ function startPrProvider(
     plog,
   );
   const cleanup = channels.git.consume({
-    onEvent: (git) => watcher.setGit(git ? prGitContextFromGitInfo(git) : null),
+    onEvent: (git) =>
+      watcher.setGit(
+        git ? { repoRoot: git.repoRoot, branch: git.branch } : null,
+      ),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
   return () => {

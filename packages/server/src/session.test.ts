@@ -25,7 +25,6 @@ const terminal: SavedTerminal = {
     branch: "main",
     isWorktree: false,
     mainRepoRoot: "/home/user/project",
-    remoteUrl: null,
   },
   lastActivityAt: 0,
 };

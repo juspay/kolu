@@ -7,14 +7,7 @@
  *  `HEAD`, `index`, and `logs/` actually live (those are private to each
  *  worktree).
  *
- *  `resolveGitCommonDir` is the *common* gitDir lookup (`--git-common-dir`).
- *  It coincides with `resolveGitDir` in a regular repo, but in a linked
- *  worktree it points back at the main repo's `.git` — where `config` (and
- *  thus `remote.origin.url`) lives, shared across every worktree. The config
- *  watcher keys off this so `git remote set-url` is caught from inside a
- *  worktree too; HEAD/index/reflog stay on the per-worktree `resolveGitDir`.
- *
- *  Both are synchronous because watchers install once at subscribe time.
+ *  It is synchronous because watchers install once at subscribe time.
  *
  *  `WATCHER_DEBOUNCE_MS` is the trailing-edge debounce window every
  *  watcher and composed primitive in this layer uses. Tuned for editor
@@ -52,12 +45,4 @@ function revParseDir(cwd: string, flag: string): string | null {
  *  `index`, and `logs/` — the right target for those watchers. */
 export function resolveGitDir(cwd: string): string | null {
   return revParseDir(cwd, "--git-dir");
-}
-
-/** Common git dir (`--git-common-dir`). Equals `resolveGitDir` in a normal
- *  repo; in a linked worktree it points back at the main repo's `.git`,
- *  where `config` (and `remote.origin.url`) lives. The config watcher uses
- *  this so a remote change is caught from inside a worktree. */
-export function resolveGitCommonDir(cwd: string): string | null {
-  return revParseDir(cwd, "--git-common-dir");
 }

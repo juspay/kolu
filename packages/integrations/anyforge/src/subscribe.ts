@@ -11,9 +11,9 @@
  *  last-seen context (PRs can be created/updated externally).
  *
  *  Does not own: the git source, metadata publishing, terminal lifecycle,
- *  or *which* forge answers — `providerFor` is consulted on each resolve,
- *  so a remote-URL change simply dispatches differently on the next
- *  resolve instead of tearing the watcher down. */
+ *  or *which* forge answers — the single `provider` is injected, so the
+ *  watcher is forge-agnostic without ever naming a forge, mirroring how
+ *  `startAgentProvider` takes one `AgentProvider`. */
 
 import type { Logger } from "kolu-shared";
 import type { PrGitContext, PrProvider } from "./provider.ts";
@@ -38,19 +38,15 @@ function gitContextEqual(
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return (
-    a.repoRoot === b.repoRoot &&
-    a.branch === b.branch &&
-    a.remoteUrl === b.remoteUrl
-  );
+  return a.repoRoot === b.repoRoot && a.branch === b.branch;
 }
 
-/** Subscribe to PR changes for a terminal. `providerFor` maps a git
- *  context to the adapter that should resolve it (registry lookup on
- *  `detectForge(git.remoteUrl)` in the server) and is consulted per
- *  resolve. */
+/** Subscribe to PR changes for a terminal. `provider` is the single
+ *  injected forge adapter that resolves every PR for this watcher — the
+ *  watcher is forge-agnostic because the provider is injected, mirroring
+ *  how `startAgentProvider` takes one `AgentProvider`. */
 export function subscribePr(
-  providerFor: (git: PrGitContext) => PrProvider,
+  provider: PrProvider,
   onChange: (pr: PrResult) => void,
   log?: Logger,
 ): PrWatcher {
@@ -75,7 +71,7 @@ export function subscribePr(
 
   async function fetchAndEmit(git: PrGitContext): Promise<void> {
     try {
-      const pr = await providerFor(git).resolve(git, log);
+      const pr = await provider.resolve(git, log);
       // Drop a result whose git context is no longer current. A resolve is
       // async, so a branch/repo switch (or leaving the repo via
       // `setGit(null)`) can land `lastGit` on a different context — or null —
