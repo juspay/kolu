@@ -6,7 +6,8 @@
  *  are part of this neutral contract — not adapter internals — because the
  *  client renders recovery instructions per code and must
  *  `match(...).exhaustive()`: a new forge arm is a compile error at every
- *  render site, the same trade-off `AgentInfoSchema` makes (anyagent).
+ *  render site, the same trade-off `AgentInfoSchema` makes (kolu-common's
+ *  surface).
  *
  *  Browser-safe: zod + ts-pattern only, no node APIs. Adapters (kolu-github
  *  today, kolu-forgejo in kolu#1240 phase 1) implement `PrProvider` against
