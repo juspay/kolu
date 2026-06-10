@@ -13,7 +13,7 @@
  *  today, kolu-forgejo in kolu#1240 phase 1) implement `PrProvider` against
  *  these shapes and never import each other. */
 
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { z } from "zod";
 
 // --- PR info ---
@@ -177,26 +177,35 @@ export function prUnavailableSource(pr: PrResult): PrUnavailableSource | null {
 export function prResultEqual(a: PrResult, b: PrResult): boolean {
   if (a === b) return true;
   if (a.kind !== b.kind) return false;
-  if (a.kind === "ok" && b.kind === "ok") {
-    return (
-      a.value.number === b.value.number &&
-      a.value.title === b.value.title &&
-      a.value.url === b.value.url &&
-      a.value.state === b.value.state &&
-      a.value.checks === b.value.checks &&
-      checkRunsEqual(a.value.checkRuns, b.value.checkRuns)
-    );
-  }
-  if (a.kind === "unavailable" && b.kind === "unavailable") {
-    // Compare the tagged source: provider + code. Both are the typed
-    // discriminators; the display reason derives from them via
-    // `reasonForSource` and doesn't need its own comparison.
-    return (
-      a.source.provider === b.source.provider && a.source.code === b.source.code
-    );
-  }
-  // "pending" and "absent" have no payload — kind equality is enough.
-  return true;
+  // `a.kind === b.kind` from here on, so each arm safely narrows `b` to `a`'s
+  // variant. Matched exhaustively (not a `kind`-cascade with a bare
+  // `return true` tail) so a future payload-bearing PrResult variant is a
+  // compile error here — without it, a new variant would fall through to
+  // always-equal and the dedup gate would swallow every update to it
+  // invisibly.
+  return match(a)
+    .with({ kind: "ok" }, (a) => {
+      const bv = (b as Extract<PrResult, { kind: "ok" }>).value;
+      return (
+        a.value.number === bv.number &&
+        a.value.title === bv.title &&
+        a.value.url === bv.url &&
+        a.value.state === bv.state &&
+        a.value.checks === bv.checks &&
+        checkRunsEqual(a.value.checkRuns, bv.checkRuns)
+      );
+    })
+    .with({ kind: "unavailable" }, (a) => {
+      // Compare the tagged source: provider + code. Both are the typed
+      // discriminators; the display reason derives from them via
+      // `reasonForSource` and doesn't need its own comparison.
+      const bs = (b as Extract<PrResult, { kind: "unavailable" }>).source;
+      return a.source.provider === bs.provider && a.source.code === bs.code;
+    })
+    // "pending" and "absent" have no payload — kind equality (already checked)
+    // is enough.
+    .with({ kind: P.union("pending", "absent") }, () => true)
+    .exhaustive();
 }
 
 /** Shallow per-element equality for the per-check breakdown. Same length
