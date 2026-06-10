@@ -19,8 +19,9 @@ import {
   PTY_HOST_CONTRACT_VERSION,
 } from "@kolu/pty-host";
 import { isContractVersionCompatible } from "@kolu/surface/define";
+import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
 import { cli, command } from "cleye";
-import { type AttachTty, runAttach, TTY_RESET } from "./attach.ts";
+import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { isValidEscapeChar } from "./escape.ts";
 import { formatList, formatListJson } from "./render.ts";

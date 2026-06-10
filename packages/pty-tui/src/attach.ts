@@ -12,10 +12,7 @@
  * actual tty — see `attach.test.ts`.
  */
 import { StringDecoder } from "node:string_decoder";
-import {
-  createTerminalResponseStripper,
-  SNAPSHOT_TTY_RESET,
-} from "@kolu/terminal-protocol";
+import { createTerminalResponseStripper } from "@kolu/terminal-protocol";
 import type { PtyTuiClient } from "./connect.ts";
 import { createEscapeScanner } from "./escape.ts";
 
@@ -43,11 +40,6 @@ export type AttachOutcome =
   | { kind: "exited"; exitCode: number }
   /** Transport/contract failure — `message` is ready to print. */
   | { kind: "error"; message: string };
-
-/** The deterministic restore (see `SNAPSHOT_TTY_RESET` in
- *  `@kolu/terminal-protocol` for the mode list and its source of truth).
- *  Re-exported so the CLI's restore wiring (`main.ts`) has one import. */
-export const TTY_RESET = SNAPSHOT_TTY_RESET;
 
 export function helpText(escapeChar: string): string {
   const e = escapeChar;
