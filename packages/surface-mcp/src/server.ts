@@ -184,6 +184,22 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     sharedConn = null;
     conn?.dispose();
   };
+  // The failure-reset policy in one place: any shared-connection use that
+  // throws (a transport drop manifests as a thrown call) drops the connection
+  // so the NEXT call re-dials a fresh one rather than reusing a dead socket.
+  // Every read/tool path goes through here, so the policy can't be omitted at a
+  // new call site.
+  const withClient = async <R>(
+    fn: (client: SurfaceClientCallable) => Promise<R>,
+  ): Promise<R> => {
+    const client = await getClient();
+    try {
+      return await fn(client);
+    } catch (e) {
+      resetSharedConn();
+      throw e;
+    }
+  };
 
   // Index resources by URI for O(1) read/subscribe dispatch.
   const byUri = new Map<string, ResourceEntry>();
@@ -262,30 +278,24 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     try {
       const exposed = toolByName.get(name);
       if (exposed !== undefined) {
-        const client = await getClient();
-        const proc = client.surface[exposed.ns]?.[exposed.verb];
-        if (proc === undefined) {
-          return fail(
-            `surface-mcp: client has no procedure "${exposed.ns}.${exposed.verb}"`,
-          );
-        }
-        // A no-input procedure's contract is `oc.input(z.void())`, which
-        // rejects an empty `{}` — call it with `undefined` instead. A
-        // scalar/array/union input was advertised wrapped under `value`
-        // (`toInputSchema`), so unwrap it back to the bare value the
-        // procedure's zod expects.
-        const callArgs = exposed.hasInput
-          ? unwrapArgs(exposed.wrapped, args)
-          : undefined;
-        try {
+        return withClient(async (client) => {
+          const proc = client.surface[exposed.ns]?.[exposed.verb];
+          if (proc === undefined) {
+            return fail(
+              `surface-mcp: client has no procedure "${exposed.ns}.${exposed.verb}"`,
+            );
+          }
+          // A no-input procedure's contract is `oc.input(z.void())`, which
+          // rejects an empty `{}` — call it with `undefined` instead. A
+          // scalar/array/union input was advertised wrapped under `value`
+          // (`toInputSchema`), so unwrap it back to the bare value the
+          // procedure's zod expects.
+          const callArgs = exposed.hasInput
+            ? unwrapArgs(exposed.wrapped, args)
+            : undefined;
           const out = await proc(callArgs, { signal: extra.signal });
           return ok(out);
-        } catch (e) {
-          // A transport drop surfaces here — drop the shared connection so the
-          // next call re-dials rather than reusing a dead socket.
-          resetSharedConn();
-          throw e;
-        }
+        });
       }
       const entry = bespokeTools.get(name);
       if (entry !== undefined) {
@@ -296,14 +306,10 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
         const rawInput = unwrapArgs(entry.wrapped, args);
         const parsed =
           tool.input !== undefined ? tool.input.parse(rawInput) : rawInput;
-        const client = await getClient();
-        try {
+        return withClient(async (client) => {
           const out = await tool.handler(parsed, client, extra.signal);
           return ok(out);
-        } catch (e) {
-          resetSharedConn();
-          throw e;
-        }
+        });
       }
       return fail(`surface-mcp: unknown tool "${name}"`);
     } catch (e) {
@@ -340,14 +346,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // ── resources/read ─────────────────────────────────────────────────────
   server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
     const { uri } = req.params;
-    const client = await getClient();
-    let snapshot: Snapshot | undefined;
-    try {
-      snapshot = await readSnapshot(client, uri, byUri, keySchemaByCollection);
-    } catch (e) {
-      resetSharedConn();
-      throw e;
-    }
+    const snapshot = await withClient((client) =>
+      readSnapshot(client, uri, byUri, keySchemaByCollection),
+    );
     if (snapshot === undefined) {
       throw new Error(`surface-mcp: unknown resource "${uri}"`);
     }
