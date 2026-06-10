@@ -203,7 +203,9 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
  * kept off the autosave channel.
  */
 export const LiveTerminalFieldsSchema = z.object({
-  /** GitHub PR resolution — discriminated union (see PrResultSchema). */
+  /** Forge PR resolution — discriminated union (see PrResultSchema).
+   *  Forge-neutral: the resolving adapter is chosen per the remote's host
+   *  (anyforge's `detectForge`), GitHub today, Forgejo next. */
   pr: PrResultSchema,
   /** AI coding agent status (Claude Code, OpenCode, etc.). */
   agent: AgentInfoSchema.nullable(),

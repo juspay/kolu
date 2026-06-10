@@ -194,6 +194,109 @@ describe("subscribePr", () => {
     }
   });
 
+  it("drops a stale in-flight resolve when the branch switches mid-flight", async () => {
+    // A resolve from branch A is slow; while it's pending the terminal
+    // switches to branch B and B resolves first. A's late result must NOT
+    // overwrite B's — the watcher gates each emit on the current context.
+    const deferred = new Map<string, (pr: PrResult) => void>();
+    const providerFor = (git: PrGitContext): PrProvider => ({
+      kind: "github",
+      resolve: (g) =>
+        new Promise<PrResult>((resolve) => {
+          deferred.set(g.branch, resolve);
+        }),
+    });
+    const seen: PrResult[] = [];
+    const watcher = subscribePr(providerFor, (pr) => seen.push(pr));
+
+    try {
+      watcher.setGit(ctx({ branch: "A" })); // floats resolve(A), still pending
+      watcher.setGit(ctx({ branch: "B" })); // floats resolve(B), still pending
+      await settle();
+
+      // B resolves first with a real PR, then the stale A resolves.
+      const prB: PrResult = {
+        kind: "ok",
+        value: {
+          number: 2,
+          title: "B",
+          url: "u",
+          state: "open",
+          checks: null,
+          checkRuns: [],
+        },
+      };
+      deferred.get("B")?.({ ...prB });
+      await settle();
+      deferred.get("A")?.({
+        kind: "ok",
+        value: {
+          number: 1,
+          title: "A",
+          url: "u",
+          state: "open",
+          checks: null,
+          checkRuns: [],
+        },
+      });
+      await settle();
+
+      // Last emitted value must be B's PR, never re-overwritten by A.
+      const last = seen.at(-1);
+      expect(last?.kind).toBe("ok");
+      if (last?.kind === "ok") expect(last.value.number).toBe(2);
+    } finally {
+      watcher.stop();
+    }
+  });
+
+  it("drops a stale in-flight resolve when the terminal leaves the repo", async () => {
+    // `setGit(null)` (leaving the repo) stops polling. A resolve that was
+    // in flight when we left must NOT land afterward — there is no poll to
+    // correct it, so a late stale emit would persist forever.
+    // A boxed resolver — a plain `let` would be narrowed to `null` at the
+    // call site because TS can't see the executor closure assign it.
+    const box: { resolve: ((pr: PrResult) => void) | null } = { resolve: null };
+    const providerFor = (): PrProvider => ({
+      kind: "github",
+      resolve: () =>
+        new Promise<PrResult>((resolve) => {
+          box.resolve = resolve;
+        }),
+    });
+    const seen: PrResult[] = [];
+    const watcher = subscribePr(providerFor, (pr) => seen.push(pr));
+
+    try {
+      watcher.setGit(ctx()); // floats a resolve, still pending
+      await settle();
+      watcher.setGit(null); // leave the repo → emits pending, polling stops
+      await settle();
+
+      // The stale resolve lands after we've left.
+      box.resolve?.({
+        kind: "ok",
+        value: {
+          number: 9,
+          title: "stale",
+          url: "u",
+          state: "open",
+          checks: null,
+          checkRuns: [],
+        },
+      });
+      await settle();
+
+      // The terminal left the repo: the stale `ok` must never reach the
+      // consumer. (Both pending emits dedup against the watcher's initial
+      // pending state, so the consumer legitimately sees nothing at all — the
+      // load-bearing assertion is that no PR landed.)
+      expect(seen.some((p) => p.kind === "ok")).toBe(false);
+    } finally {
+      watcher.stop();
+    }
+  });
+
   it("dedups an unchanged git context", async () => {
     const resolves = vi.fn(async (): Promise<PrResult> => ({ kind: "absent" }));
     const watcher = subscribePr(

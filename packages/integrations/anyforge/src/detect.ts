@@ -17,20 +17,30 @@ import type { ForgeKind } from "./provider.ts";
 const FORGEJO_HOSTS = new Set(["codeberg.org"]);
 
 /** Extract the lowercased host from a git remote URL. Handles the SSH
- *  shorthand (`git@host:owner/repo.git`) and every URL form
+ *  shorthand (`[user@]host:owner/repo.git`) and every URL form
  *  (`https://host/...`, `ssh://git@host/...`). Returns null for
  *  unparseable input. */
 export function parseRemoteHost(remoteUrl: string): string | null {
   const trimmed = remoteUrl.trim();
   if (!trimmed) return null;
-  // URL parser first — handles https://, ssh://, git:// forms.
+  // URL parser first — handles https://, ssh://, git:// forms. Trust it ONLY
+  // when it yields a real hostname: a host:path SCP shorthand parses as a URL
+  // too (`codeberg.org:owner/repo.git` has scheme `codeberg.org:`, empty
+  // host), so an empty hostname means "not a real URL" and must fall through
+  // to the SCP grammar below rather than returning null.
   try {
     const host = new URL(trimmed).hostname;
-    return host ? host.toLowerCase() : null;
+    if (host) return host.toLowerCase();
   } catch {
     // Not a URL — fall through to the SSH shorthand grammar.
   }
-  const sshMatch = trimmed.match(/^[^@/]+@([^:/]+):/);
+  // SCP-style SSH shorthand: `[user@]host:path`. The user is optional — git
+  // also accepts userless forms like `codeberg.org:owner/repo.git` (the user
+  // comes from `~/.ssh/config`). Git treats a remote as SCP-style only when
+  // there is no slash before the first colon, so the host segment forbids
+  // `/` (and `@`, which would belong to the user portion) — that keeps local
+  // paths like `/srv/git/repo.git` and `./sibling` from matching.
+  const sshMatch = trimmed.match(/^(?:[^@/]+@)?([^@:/]+):/);
   return sshMatch?.[1]?.toLowerCase() ?? null;
 }
 

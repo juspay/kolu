@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
 import { simpleGit } from "simple-git";
+import { watchGitConfig } from "./config-watcher.ts";
 import { watchCwdForGitDir } from "./cwd-git-watcher.ts";
 import { err, type GitResult, ok } from "./errors.ts";
 import { watchGitHead } from "./head-watcher.ts";
@@ -24,7 +25,30 @@ export function hasGitDir(cwd: string): boolean {
   }
 }
 
-/** Best-effort `origin` URL. Returns null when the repo has no `origin`
+/** Strip any embedded credentials from a remote URL before it leaves this
+ *  module. An HTTPS remote can carry a username + token in its userinfo
+ *  (`https://user:token@host/repo.git`); that value is persisted on
+ *  `GitInfo`, published through terminal metadata, and round-tripped to
+ *  disk, so it must never reach the client surface or the state file.
+ *  Downstream only needs the host (forge detection) and `gh` re-derives the
+ *  remote itself, so dropping userinfo costs nothing. Returns the input
+ *  unchanged for non-URL forms (SCP shorthand has no parseable userinfo to
+ *  redact — `git@host:owner/repo` carries the SSH user, not a secret). */
+function stripRemoteCredentials(remoteUrl: string): string {
+  try {
+    const url = new URL(remoteUrl);
+    if (!url.username && !url.password) return remoteUrl;
+    url.username = "";
+    url.password = "";
+    return url.toString();
+  } catch {
+    // Not a parseable URL (SCP shorthand, local path) — nothing to redact.
+    return remoteUrl;
+  }
+}
+
+/** Best-effort `origin` URL, with any embedded credentials stripped (see
+ *  `stripRemoteCredentials`). Returns null when the repo has no `origin`
  *  remote or the command fails — forge detection downstream treats null
  *  as "dispatch to the default adapter" and stays quiet. */
 async function resolveRemoteUrl(
@@ -32,7 +56,8 @@ async function resolveRemoteUrl(
   log?: Logger,
 ): Promise<string | null> {
   try {
-    return (await git.raw(["remote", "get-url", "origin"])).trim() || null;
+    const raw = (await git.raw(["remote", "get-url", "origin"])).trim();
+    return raw ? stripRemoteCredentials(raw) : null;
   } catch (err) {
     log?.debug(
       { err: err instanceof Error ? err.message : String(err) },
@@ -150,10 +175,13 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
 /**
  * Subscribe to the GitInfo stream for a cwd. Owns the full resolve + watch
  * + re-resolve loop: initial resolve, dedup via `gitInfoEqual`, and the
- * two watcher modes — `.git/HEAD` while in a repo, the cwd entry watcher
- * while out, swapping as the resolved state flips. The cwd watcher is what
- * makes `git init` in the current shell cwd reach the client without an
- * OSC 7 re-emit (the shell doesn't re-emit because cwd didn't change).
+ * two watcher modes — `.git/HEAD` + `.git/config` while in a repo, the cwd
+ * entry watcher while out, swapping as the resolved state flips. Watching
+ * config alongside HEAD is what makes `git remote set-url` re-resolve (and
+ * re-dispatch forge detection) without waiting for a branch change. The cwd
+ * watcher is what makes `git init` in the current shell cwd reach the client
+ * without an OSC 7 re-emit (the shell doesn't re-emit because cwd didn't
+ * change).
  *
  * `onChange` fires once per actual change — never for a dedup miss. Initial
  * resolve is best-effort: if the cwd isn't a git repo at start, the cwd
@@ -188,9 +216,21 @@ export function subscribeGitInfo(
   }
 
   function install(mode: WatcherMode): () => void {
-    return mode === "head"
-      ? watchGitHead(currentCwd, handleWatcherEvent, log)
-      : watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
+    if (mode === "cwd") {
+      return watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
+    }
+    // Head mode watches two files in the same gitDir: `.git/HEAD` (branch
+    // identity) and `.git/config` (remote URL). A `git remote set-url`
+    // rewrites config but not HEAD, so without the config watch a remote
+    // change wouldn't re-resolve until the next branch/cwd change — leaving
+    // forge dispatch stale. Both feed the same `handleWatcherEvent`; combine
+    // their stops.
+    const stopHead = watchGitHead(currentCwd, handleWatcherEvent, log);
+    const stopConfig = watchGitConfig(currentCwd, handleWatcherEvent, log);
+    return () => {
+      stopHead();
+      stopConfig();
+    };
   }
 
   function ensureMode(mode: WatcherMode): void {

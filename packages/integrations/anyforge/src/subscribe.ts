@@ -76,6 +76,14 @@ export function subscribePr(
   async function fetchAndEmit(git: PrGitContext): Promise<void> {
     try {
       const pr = await providerFor(git).resolve(git, log);
+      // Drop a result whose git context is no longer current. A resolve is
+      // async, so a branch/repo switch (or leaving the repo via
+      // `setGit(null)`) can land `lastGit` on a different context — or null —
+      // while this one is in flight. Emitting here would overwrite the fresh
+      // context's PR with a stale one; worse, after `setGit(null)` the poll
+      // stops, so a late stale emit would never be corrected and would
+      // persist. Re-check against `lastGit` immediately before publishing.
+      if (!gitContextEqual(git, lastGit)) return;
       emit(pr);
     } catch (err) {
       // The provider contract says resolve() classifies failures into

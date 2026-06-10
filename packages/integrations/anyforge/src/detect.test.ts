@@ -29,6 +29,11 @@ describe("parseRemoteHost", () => {
       host: "github.com",
     },
     {
+      label: "userless SCP-style shorthand (user from ~/.ssh/config)",
+      url: "codeberg.org:owner/repo.git",
+      host: "codeberg.org",
+    },
+    {
       label: "SSH shorthand with surrounding whitespace",
       url: "  git@codeberg.org:owner/repo.git\n",
       host: "codeberg.org",
@@ -56,6 +61,7 @@ describe("detectForge", () => {
   it.each([
     "https://codeberg.org/owner/repo.git",
     "git@codeberg.org:owner/repo.git",
+    "codeberg.org:owner/repo.git",
   ])("maps codeberg.org remote %s to forgejo", (url) => {
     expect(detectForge(url)).toBe("forgejo");
   });
