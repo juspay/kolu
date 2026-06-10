@@ -12,10 +12,10 @@ that re-exposes a live CI run as agent tools (`run`, `get_nodes`, `tail_log`,
 `odu://log/{node}`), so Claude Code / Codex / opencode / Gemini CLI drive CI
 with structured calls instead of scraping terminal output.
 
-`bin/serve` resolves odu through the consuming repo's own pinned flake output
-(`nix run .#odu -- mcp`) and serves over stdio in that repo (dialing
-`.ci/odu.sock`) — the exact, npins-pinned odu the repo's CI uses, never an
-unpinned `github:` fetch. Override the flake-ref with `ODU_FLAKE`.
+`bin/serve` is self-contained — it resolves odu via `nix run` and serves over
+stdio in the consumer's repo (dialing `.ci/odu.sock`). Set `ODU_FLAKE` to
+override the odu flake-ref (default `github:juspay/odu`); a repo that
+re-exports odu can point it at its own pinned output with `ODU_FLAKE=.#odu`.
 
 Full docs in the [repo README](https://github.com/juspay/odu/blob/master/README.md).
 

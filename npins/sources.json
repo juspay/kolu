@@ -33,11 +33,11 @@
         "owner": "juspay",
         "repo": "odu"
       },
-      "branch": "agent-face-mcp",
+      "branch": "master",
       "submodules": false,
-      "revision": "30341310213649dd21bc8df715c98541a6776c36",
-      "url": "https://github.com/juspay/odu/archive/30341310213649dd21bc8df715c98541a6776c36.tar.gz",
-      "hash": "sha256-QjX6U3Wvm0UTMH9v7NiA5zseeF0AzZKLsoZ0UHPSZlI="
+      "revision": "aa0af7cf389682acbd8cf007db6dd50f14aa4ce4",
+      "url": "https://github.com/juspay/odu/archive/aa0af7cf389682acbd8cf007db6dd50f14aa4ce4.tar.gz",
+      "hash": "sha256-ID0MOsVYFJOGHXZQvUKSa9Xe9rriOa6ntMvUC4eEkso="
     }
   },
   "version": 7
