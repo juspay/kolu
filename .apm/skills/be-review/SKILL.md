@@ -68,7 +68,9 @@ it once per step.
    local-only round commits before be-review pushes). Its step-2 `Workflow` runs
    in the background; **wait for it to finish** before starting the lens step. It
    commits its rounds and **returns** its rendered comment body — hold onto it to
-   post after the final push.
+   post after the final push. (On persistent `reviewer-error` there is **no
+   body to post** — per `/codex-debate`, an unresolved reviewer error is not a
+   consensus to report; skip the codex comment in that case.)
 
    **Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
    either in `consensus` or in `reviewer-error` — the latter meaning codex never
@@ -139,20 +141,25 @@ First settle whether there is anything to push: `git log --oneline $START..HEAD`
 **Never merge** — pushing updates the open PR; the human reviews the commits and
 merges when satisfied.
 
-When you do post, post **one comment per track that ran** — skip any track
-`--tracks` excluded, since it has no captured body: the codex body and the lens
-body verbatim (`gh pr comment -F`), and the police summary below.
+When you do post, post **one comment per track that produced a body** — skip any
+track `--tracks` excluded, and skip a track that ran but yielded no postable
+comment (codex on persistent `reviewer-error`, lens on `merge-base-error`): the
+codex body and the lens body verbatim (`gh pr comment -F`), and the police
+summary (the `## [👮 Code-police](https://agency.srid.ca/)` comment described in
+Report).
 
 ## Report
 
 Summarize in chat — reporting **only the selected tracks**, and naming any track
 `--tracks` **skipped** so the absence is explicit, not silent:
 
-- **codex** — consensus / reviewer-error (note how many attempts if retried); its
-  PR comment landed (posted after the push, per "Push, then comment").
+- **codex** — consensus / reviewer-error (note how many attempts if retried); on
+  consensus its PR comment landed (posted after the push, per "Push, then
+  comment") — on persistent reviewer-error there is no comment to post.
 - **lens** — status (**consensus** + fixes applied, or **unresolved** + how many
   findings still need human adjudication and how you adjudicated each, or
-  `merge-base-error`); its PR comment landed (posted after the push).
+  `merge-base-error`); its PR comment landed (posted after the push) — except on
+  `merge-base-error`, which has no comment body to post.
 - **simplify** — whether it changed anything and what it committed.
 - **police** — findings and how each was actioned; the
   `## [👮 Code-police](https://agency.srid.ca/)` summary comment landed (posted
