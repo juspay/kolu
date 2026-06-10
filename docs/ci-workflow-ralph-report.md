@@ -1,3 +1,5 @@
+> **Historical (2026-06):** this report predates odu (`packages/odu`), which replaced justci as the repo's CI runner — `justci` invocations below are period-accurate, not current practice.
+
 # CI workflow ralph report
 
 Measurement-driven improvement of Kolu's CI workflow, optimizing for the three

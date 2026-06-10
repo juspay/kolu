@@ -1,3 +1,5 @@
+> **Historical (2026-06):** this report predates odu (`packages/odu`), which replaced justci as the repo's CI runner — `justci` invocations below are period-accurate, not current practice.
+
 # CI e2e macOS (rasam) ralph report
 
 Measurement-driven optimization of the **`e2e` CI recipe on the `aarch64-darwin`

@@ -330,7 +330,7 @@ Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are wel
 
 ## CI
 
-The pipeline (defined in [`ci/mod.just`](ci/mod.just)) is driven by [juspay/justci](https://github.com/juspay/justci): it builds all flake outputs on x86_64-linux and aarch64-darwin, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses per `(recipe, platform)` pair. Non-local platforms run over SSH against hosts listed in `~/.config/justci/hosts.json`. For the x86_64-linux lane, `/do` instead **leases an idle box from a fixed pool of warm Incus containers** (`kolu-ci-1..8`, managed by [`ci/pu/run.sh`](ci/pu/run.sh) and `just ci::pool-ensure`) so the build starts with a hot Nix store and concurrent PRs don't contend on the substituter; see [`.agency/do.md`](.agency/do.md).
+The pipeline (defined in [`ci/mod.just`](ci/mod.just)) is driven by [odu](https://github.com/juspay/odu) — the CI runner that grew up here, replaced [juspay/justci](https://github.com/juspay/justci), and graduated to its own repo (design history: the [mini-ci-vs-justci](docs/atlas/dist/mini-ci-vs-justci.html) Atlas note). kolu consumes it via an npins pin (`npins update odu` to bump) re-exported through this repo's flake, so the `nix run .#odu` invocations below work unchanged. It builds all flake outputs on x86_64-linux and aarch64-darwin, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses per `(recipe, platform)` pair. Remote lanes run over SSH against hosts from `~/.config/odu/hosts.json` (falls back to `~/.config/justci/hosts.json`), and a live run is attachable: `nix run .#odu -- monitor` paints a dashboard over the run's typed surface on `.ci/odu.sock`. For the x86_64-linux lane, `/do` instead **leases an idle box from a fixed pool of warm Incus containers** (`kolu-ci-1..8`, managed by [`ci/pu/run.sh`](ci/pu/run.sh) and `just ci::pool-ensure`) so the build starts with a hot Nix store and concurrent PRs don't contend on the substituter; see [`.agency/do.md`](.agency/do.md).
 
 The DAG is shaped to keep the critical path short: `e2e`, `smoke`, and `home-manager` each build the one store path they need (`.#koluBin`, `.#default`, kolu-via-override) rather than depending on the full devour-flake `nix` node, so the ~2-min e2e suite runs **concurrently** with the big build instead of after it (Nix store locking dedups the shared drv). `nix` still runs as a gate, so typecheck/website/packaging coverage is unchanged. See [`docs/ci-workflow-ralph-report.md`](docs/ci-workflow-ralph-report.md) for the critical-path model.
 
@@ -339,8 +339,9 @@ Workspace typechecking runs as a flake check (`checks.x86_64-linux.typecheck`), 
 Only the runner posts GitHub commit statuses; the `just` shortcuts below stay entirely local.
 
 ```sh
-nix run github:juspay/justci -- run                  # multi-platform fanout + commit statuses (strict by default)
-nix run github:juspay/justci -- run --progress json  # + live NDJSON per-node feed on stdout (for agents/tools driving CI in the background)
+nix run .#odu -- run                  # multi-platform fanout + commit statuses (strict by default)
+nix run .#odu -- run --progress json  # + live NDJSON per-node feed on stdout (for agents/tools driving CI in the background)
+nix run .#odu -- monitor              # attach a live dashboard to a run in progress
 just ci                                          # local single-platform pipeline, no statuses
 just ci::e2e                                     # one recipe, no statuses
 ```
