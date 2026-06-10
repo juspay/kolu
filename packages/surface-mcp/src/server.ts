@@ -453,10 +453,11 @@ function resolveCall<Client extends SurfaceClientCallable>(
     const proc = ns?.get;
     if (proc === undefined) return undefined;
     const keySchema = keySchemaByCollection.get(item.key);
-    // Decode the URI's string `<id>` into the collection's key type. A string
-    // key passes straight through; a `z.number()` / `z.boolean()` key parses
-    // from its JSON form (`"42"` → `42`). A key that decodes to neither is an
-    // addressing error — leave it `undefined` so the call resolves nothing.
+    // Decode the URI's string `<id>` into the collection's key type via the one
+    // rule keyed off the schema's type: a string key passes straight through; a
+    // `z.number()` / `z.boolean()` key parses from its JSON form (`"42"` → `42`).
+    // A value that fails its key schema is an addressing error — leave it
+    // `undefined` so the call resolves nothing.
     const key =
       keySchema !== undefined ? decodeKey(keySchema, item.id) : item.id;
     if (key === undefined) return undefined;
@@ -471,20 +472,34 @@ function resolveCall<Client extends SurfaceClientCallable>(
 }
 
 /** Decode a collection item URI's string `<id>` segment into the collection's
- *  declared key type. Tries the raw string first (the common case — string
- *  keys), then its JSON form (so a numeric/boolean key round-trips). Returns
- *  `undefined` when neither parses, so the caller treats it as an unaddressable
- *  item rather than calling `.get` with a wrong-typed key. */
+ *  declared key type. The wire encoding is a single rule chosen by the key
+ *  schema's type, not by trial-and-error: a **string-typed** key (`z.string()`,
+ *  a string enum) decodes the segment verbatim; every **non-string** key
+ *  decodes via `JSON.parse(id)` (so `"42"` → `42`, `"true"` → `true`). Either
+ *  way the result is validated through `keySchema`, and a value that fails
+ *  validation (or non-JSON text for a JSON key) returns `undefined`, so the
+ *  caller treats it as an unaddressable item rather than calling `.get` with a
+ *  wrong-typed key. */
 function decodeKey(keySchema: ZodType, id: string): unknown {
-  const asString = keySchema.safeParse(id);
-  if (asString.success) return asString.data;
-  try {
-    const asJson = keySchema.safeParse(JSON.parse(id));
-    if (asJson.success) return asJson.data;
-  } catch {
-    // not JSON — fall through
+  if (isStringKey(keySchema)) {
+    const decoded = keySchema.safeParse(id);
+    return decoded.success ? decoded.data : undefined;
   }
-  return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(id);
+  } catch {
+    return undefined; // not JSON — unaddressable for a non-string key
+  }
+  const decoded = keySchema.safeParse(parsed);
+  return decoded.success ? decoded.data : undefined;
+}
+
+/** Whether a key schema's type is string — i.e. it accepts a string but not a
+ *  number. Drives the one canonical `<id>` wire encoding in `decodeKey`: a
+ *  string key is addressed verbatim, every other key via its JSON form. */
+function isStringKey(keySchema: ZodType): boolean {
+  return keySchema.safeParse("").success && !keySchema.safeParse(0).success;
 }
 
 /** Open the streaming source for a subscribed URI (the pusher's `StreamFor`).
