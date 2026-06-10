@@ -37,17 +37,7 @@
     "changedMind": {
       "type": "string",
       "description": "What you revised this round because the other assistant convinced you, and why. Empty string on round 1 or when nothing changed."
-    },
-    "reviewerError": {
-      "type": "boolean",
-      "description": "Set by the runner script ONLY when codex itself failed to produce an answer (broken/unavailable CLI). Not part of a real answer."
     }
   },
-  "required": [
-    "answer",
-    "keyPoints",
-    "agreesWithOther",
-    "objections",
-    "changedMind"
-  ]
+  "required": ["answer", "keyPoints", "agreesWithOther", "objections", "changedMind"]
 }

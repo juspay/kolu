@@ -1,6 +1,6 @@
 ---
 name: codex-debate
-description: Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two modes. REVIEW mode (default, code-review): codex (reviewer) critiques the current diff and a Claude subagent (author) fixes/disputes, looping until they agree. ANSWER mode (a freeform prompt arg): Claude and codex each answer the prompt in parallel, then cross-check until they agree, and a unified answer is returned. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".
+description: 'Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two modes. REVIEW mode (default, for code review) — codex (reviewer) critiques the current diff and a Claude subagent (author) fixes/disputes, looping until they agree. ANSWER mode (a freeform prompt arg) — Claude and codex each answer the prompt in parallel, then cross-check until they agree, and a unified answer is returned. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".'
 argument-hint: "[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]  |  \"<prompt to answer>\""
 ---
 

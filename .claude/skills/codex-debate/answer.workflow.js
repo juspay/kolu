@@ -362,6 +362,12 @@ return {
   transcriptPath: answerDocPath,
   finalAnswer,
   reasoningEffort: REASONING_EFFORT,
-  // The error terminus carries codex's failure detail in its answer text.
-  codexError: status === 'reviewer-error' ? (codexAns && codexAns.answer) || null : null,
+  // The error terminus carries codex's failure detail in the synthesized verdict's
+  // answer text. Sourced from the transcript (not codexAns) because the
+  // reviewer-error branch breaks BEFORE assigning codexAns — the failing round is
+  // recorded in the transcript, so read the detail back from there.
+  codexError:
+    status === 'reviewer-error'
+      ? transcript.find((e) => e.codex && e.codex.reviewerError)?.codex.answer || null
+      : null,
 }
