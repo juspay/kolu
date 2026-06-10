@@ -216,14 +216,33 @@ export interface DerivedCellDeps<T> {
  *  subscription lives as long as B's implementation does — which is correct: B's
  *  cell must keep tracking A for B's whole life. The returned `dispose` lets a
  *  caller that *does* own a teardown point (a test, a scoped adapter) abort the
- *  upstream explicitly. */
+ *  upstream explicitly.
+ *
+ *  Error policy: the subscribe loop is fire-and-forget (the framework calls
+ *  `connect` and never awaits it), so a non-abort upstream failure cannot
+ *  propagate to a caller — left to throw it would become an *unhandled
+ *  rejection* and the derived cell would silently stop tracking. Instead a
+ *  non-abort error is routed to `opts.onError` and the loop ends; the cell
+ *  keeps its last value. `onError` defaults to a stderr log so a failure is
+ *  never invisible — pass `() => {}` to opt into silent-stop deliberately, or
+ *  supply a handler that re-arms the subscription if you need retry/backoff.
+ *  (Abort-time rejections — `dispose()` / shutdown — are end-of-life noise and
+ *  are always swallowed.) */
 export function deriveCell<F, T>(
   upstream: (opts: { signal?: AbortSignal }) => Promise<AsyncIterable<F>>,
   map: (frame: F) => T,
   initial: T,
+  opts?: { onError?: (err: unknown) => void },
 ): DerivedCellDeps<T> & { dispose: () => void } {
   const store = inMemoryCell<T>(initial);
   const controller = new AbortController();
+  const onError =
+    opts?.onError ??
+    ((err: unknown) => {
+      console.error("deriveCell: upstream subscription failed", err);
+    });
+  const isAbort = (err: unknown): boolean =>
+    controller.signal.aborted && err === controller.signal.reason;
   return {
     // `inMemoryCell` satisfies the `{ get, set }` store shape via
     // `current()` / `set()`; adapt the names the cell store interface uses.
@@ -236,24 +255,15 @@ export function deriveCell<F, T>(
       // after the cell ctx is wired, handing us its setter — every mapped
       // frame flows through the surface's equals/onWrite/store.set/bus.publish
       // path (we do NOT touch `store` directly, or the wire side wouldn't see
-      // the publish). Abort-time upstream rejections are swallowed.
+      // the publish). Abort-time upstream rejections are swallowed; any other
+      // failure is routed to `onError` rather than rethrown into the void.
       void (async () => {
-        let iterable: AsyncIterable<F>;
         try {
-          iterable = await upstream({ signal: controller.signal });
-        } catch (err) {
-          if (controller.signal.aborted && err === controller.signal.reason) {
-            return;
-          }
-          throw err;
-        }
-        try {
+          const iterable = await upstream({ signal: controller.signal });
           for await (const frame of iterable) cell.set(map(frame));
         } catch (err) {
-          if (controller.signal.aborted && err === controller.signal.reason) {
-            return;
-          }
-          throw err;
+          if (isAbort(err)) return;
+          onError(err);
         }
       })();
     },

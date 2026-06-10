@@ -171,9 +171,14 @@ const bSpec = {
     nodes: { schema: z.array(bNodeSchema), default: [] as BNode[] },
   },
   streams: {
-    // B.log = A.nodeLog mapped passthrough (the "bounded/guarded" projection).
+    // B.log = A.nodeLog for a FIXED node, mapped passthrough (the
+    // "bounded/guarded" projection). B's `log` is a no-input stream — the
+    // projection bakes in *which* node's log is observable, so it's a single
+    // static MCP resource (`surface://streams/log`). An input-bearing stream
+    // can't be a static resource (it would have no input to pass on read);
+    // fixing the input in the projection is exactly the curation cut.
     log: {
-      inputSchema: z.object({ id: z.string() }),
+      inputSchema: z.void(),
       outputSchema: z.string(),
     },
   },
@@ -210,8 +215,10 @@ function projectB(a: SourceA) {
         ),
       },
       streams: {
+        // B.log fixes the upstream node id ("a") in the projection, so B's
+        // `log` takes no input and is a valid static resource.
         log: deriveStream(
-          (input, opts) => client.surface.nodeLog.get(input, opts),
+          (_input: void, opts) => client.surface.nodeLog.get({ id: "a" }, opts),
           (line) => line,
         ),
       },

@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { toInputSchema } from "./jsonschema";
+import { inputSchema, toInputSchema } from "./jsonschema";
 
 describe("toInputSchema", () => {
   it("no schema → empty object schema (a no-arg procedure)", () => {
@@ -100,5 +100,45 @@ describe("toInputSchema", () => {
   it("strips $schema metadata from the top level", () => {
     const out = toInputSchema(z.object({ a: z.number() }));
     expect("$schema" in out).toBe(false);
+  });
+
+  it("prunes required for a recursive property dropped under a NESTED object (F11)", () => {
+    // The recursive schema sits under a nested `wrapper` object, not the root.
+    // When its self-ref `child` property is dropped, the NESTED object's
+    // `required` must not still name `child`.
+    const Node = z.object({
+      label: z.string(),
+      get child() {
+        return Node;
+      },
+    });
+    const schema = z.object({ wrapper: z.object({ inner: Node }) });
+    const out = toInputSchema(schema);
+    const json = JSON.stringify(out);
+    expect(json).not.toContain("$ref");
+
+    // Walk every object node — no `required` entry may name an absent property.
+    const checkNode = (node: unknown): void => {
+      if (node === null || typeof node !== "object") return;
+      const obj = node as Record<string, unknown>;
+      const props = obj.properties as Record<string, unknown> | undefined;
+      if (Array.isArray(obj.required) && props !== undefined) {
+        for (const name of obj.required) {
+          expect(name in props).toBe(true);
+        }
+      }
+      for (const v of Object.values(obj)) checkNode(v);
+      if (props) for (const v of Object.values(props)) checkNode(v);
+    };
+    checkNode(out);
+  });
+
+  it("inputSchema reports whether a non-object input was wrapped (F3)", () => {
+    // A scalar/array/union is wrapped under `value` → wrapped: true.
+    expect(inputSchema(z.string()).wrapped).toBe(true);
+    expect(inputSchema(z.array(z.number())).wrapped).toBe(true);
+    // An object input and a no-arg procedure are NOT wrapped.
+    expect(inputSchema(z.object({ a: z.number() })).wrapped).toBe(false);
+    expect(inputSchema(undefined).wrapped).toBe(false);
   });
 });

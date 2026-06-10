@@ -56,6 +56,11 @@ export interface PusherDeps<Client> {
   /** Optional disposer run on detach (close the dialed socket etc.). The
    *  bridge case passes one; the in-process case may not need it. */
   dispose?: (client: Client) => void;
+  /** Optional sink for unexpected errors the pusher would otherwise swallow —
+   *  a rejecting client factory, or a stream that fails before its first
+   *  frame. The retry is still scheduled; this is for observability. Omit to
+   *  drop them silently. */
+  onError?: (err: unknown) => void;
   /** Retry window while a subscriber waits for a not-yet-live source. */
   retryMs?: number;
   /** Debounce window for `updated` notifications (deltas are chatty). */
@@ -113,13 +118,27 @@ export class ResourcePusher<Client> {
   private async ensureAttached(): Promise<void> {
     if (this.client !== null || this.stopped) return;
     if (this.subscribed.size === 0) return;
-    const client = await this.deps.client();
+    let client: Client | null;
+    try {
+      client = await this.deps.client();
+    } catch (err) {
+      // The client factory rejected (a bridge dial failed). Don't let it
+      // become an unhandled rejection — log it and schedule a bounded retry
+      // while subscribers still wait, exactly as a `null` (not-live-yet)
+      // return does.
+      this.deps.onError?.(err);
+      this.scheduleRetry();
+      return;
+    }
     if (client === null) {
       this.scheduleRetry();
       return;
     }
-    // A concurrent ensureAttached won the race, or we were stopped mid-dial.
-    if (this.client !== null || this.stopped) {
+    // A concurrent ensureAttached won the race, or we were stopped, or the
+    // last subscriber left while we were dialing — in every case there's no
+    // owner for this freshly-opened client, so dispose it rather than store an
+    // attachment nobody will ever tear down.
+    if (this.client !== null || this.stopped || this.subscribed.size === 0) {
       this.deps.dispose?.(client);
       return;
     }
@@ -134,6 +153,8 @@ export class ResourcePusher<Client> {
     const gen = this.generation;
     void (async () => {
       let yielded = false;
+      let failed = false;
+      let error: unknown;
       try {
         const source = await this.deps.stream(client, uri, abort.signal);
         if (source === undefined) {
@@ -145,25 +166,30 @@ export class ResourcePusher<Client> {
           yielded = true;
           if (this.subscribed.has(uri)) this.notify(uri);
         }
-      } catch {
+      } catch (err) {
         // link torn down (we detached / single-URI abort) or a transport
-        // error — the generation check below decides whether to stand ready
-        // for the source coming back.
+        // error. The generation + abort checks below decide whether this was
+        // a teardown (don't reschedule) or a real failure (re-attach).
+        failed = true;
+        error = err;
       }
       // A detach bumped the generation and already disposed the client —
-      // don't reschedule. Otherwise the stream ended on its own (the source
-      // settled / the link dropped while a subscriber still waits): detach
-      // and retry so a re-served source re-attaches.
+      // don't reschedule.
       if (gen !== this.generation) return;
       this.aborts.delete(uri);
-      // Only treat a stream that actually produced frames as a "live source
-      // that ended" worth re-attaching for; a stream that errored before its
-      // first frame (source not live yet) is handled by the retry the failed
-      // attach already scheduled, so re-detaching here would thrash.
-      if (yielded) {
-        this.detach();
-        this.scheduleRetry();
-      }
+      // A single-URI unsubscribe aborted just this stream while the socket
+      // stays open for others — `stopStream` already removed it from
+      // `subscribed`; nothing to re-attach.
+      if (abort.signal.aborted || !this.subscribed.has(uri)) return;
+      // Otherwise the stream ended while a subscriber still waits: either it
+      // produced frames and then settled / dropped, or it FAILED before its
+      // first frame (e.g. the source wasn't live yet, or a transport error on
+      // open). Both warrant a detach + bounded retry so a re-served source
+      // re-attaches — a pre-first-frame failure here is NOT covered by the
+      // attach retry (the attach succeeded; only the stream open failed).
+      if (failed && !yielded) this.deps.onError?.(error);
+      this.detach();
+      this.scheduleRetry();
     })();
   }
 

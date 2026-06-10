@@ -139,7 +139,9 @@ import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
 import { z } from "zod";
 
 await serveSurfaceAsMcp({
-  link: () => unixSocketLink({ socketPath: ".ci/odu.sock" }), // BRIDGE the live coordinator
+  // BRIDGE the live coordinator — `unixSocketLink` returns `{ client, dispose }`,
+  // an owned connection the adapter closes on teardown / re-dials after a drop.
+  client: () => unixSocketLink({ socketPath: ".ci/odu.sock" }),
   surface: oduAgentSurface,
   // 1:1 surface primitives → resources & tools (default-deny allowlist)
   expose: {

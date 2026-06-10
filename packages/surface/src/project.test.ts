@@ -387,4 +387,39 @@ describe("projectSurface — surface B derived from a client of surface A", () =
     // dispose must not throw and must abort the upstream subscription cleanly.
     expect(() => derived.dispose()).not.toThrow();
   });
+
+  it("deriveCell routes a non-abort upstream failure to onError, not the void (F8)", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const boom = new Error("upstream blew up after the first frame");
+      const errors: unknown[] = [];
+      // An upstream that yields one frame, then throws a NON-abort error.
+      const upstream = async (): Promise<AsyncIterable<number>> => ({
+        async *[Symbol.asyncIterator]() {
+          yield 1;
+          throw boom;
+        },
+      });
+
+      const derived = deriveCell(upstream, (n) => n + 1, 0, {
+        onError: (e) => errors.push(e),
+      });
+      const seen: number[] = [];
+      derived.connect({ set: (v) => seen.push(v) });
+
+      // The first frame lands; then the failure is routed to onError, NOT
+      // rethrown into an unhandled rejection.
+      await vi.waitFor(() => expect(errors).toEqual([boom]));
+      expect(seen).toEqual([2]); // map(1) === 2 made it through
+      // Give any stray rejection a tick to surface.
+      await new Promise((r) => setTimeout(r, 10));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
 });

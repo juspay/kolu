@@ -41,7 +41,22 @@ function emptyObjectSchema(): JsonSchema {
  *  runs `z.toJSONSchema` with the pinned options, dereferences every local
  *  `$ref`, and enforces a top-level object. */
 export function toInputSchema(schema?: ZodType): Record<string, unknown> {
-  if (schema === undefined) return emptyObjectSchema();
+  return inputSchema(schema).schema;
+}
+
+/** As `toInputSchema`, but also reports whether the original schema was a
+ *  non-object (scalar/array/union) that had to be wrapped under a single
+ *  `value` property to satisfy MCP's "tool input is an object" rule. The
+ *  dispatch layer needs `wrapped` so it can unwrap `args.value` back into the
+ *  bare value the procedure's zod actually expects (a `z.string()` input is
+ *  advertised as `{ value: string }`, but `proc`/`tool.input.parse` want the
+ *  string itself — see server.ts dispatch). */
+export function inputSchema(schema?: ZodType): {
+  schema: Record<string, unknown>;
+  wrapped: boolean;
+} {
+  if (schema === undefined)
+    return { schema: emptyObjectSchema(), wrapped: false };
 
   const raw = z.toJSONSchema(schema, {
     target: "draft-2020-12",
@@ -114,7 +129,10 @@ function dereference(doc: JsonSchema): JsonSchema {
       // structurally valid rather than silently losing a keyword.
       out[key] = child ?? value;
     }
-    return out;
+    // Prune at EVERY object node, not just the root: a dropped recursive
+    // property can sit under a nested object too, leaving its `required`
+    // array naming a property that no longer exists.
+    return pruneRequired(out);
   };
 
   /** Walk a `properties` map: a property whose schema dereferences to a
@@ -131,9 +149,10 @@ function dereference(doc: JsonSchema): JsonSchema {
     return out;
   };
 
-  const result = walk(doc, new Set()) ?? emptyObjectSchema();
-  // A dropped recursive property may leave it in `required`; prune.
-  return pruneRequired(result);
+  // `walk` prunes `required` at every object node it builds (including the
+  // root), so a dropped recursive property — wherever it sat — never leaves a
+  // dangling `required` name behind.
+  return walk(doc, new Set()) ?? emptyObjectSchema();
 }
 
 /** Index every `$defs`/`definitions` entry by its JSON-pointer ref string
@@ -176,15 +195,22 @@ function pruneRequired(node: JsonSchema): JsonSchema {
 /** Ensure the top-level schema is an object — MCP tool inputs must be. A zod
  *  scalar/array/union input (`z.string()`, `z.array(...)`) is wrapped under a
  *  single `value` property so the tool still presents an object to the host;
- *  the dispatch layer unwraps it. */
-function enforceObject(schema: JsonSchema): JsonSchema {
-  if (schema.type === "object") return schema;
+ *  the dispatch layer unwraps it (signalled by `wrapped: true`). */
+function enforceObject(schema: JsonSchema): {
+  schema: JsonSchema;
+  wrapped: boolean;
+} {
+  if (schema.type === "object") return { schema, wrapped: false };
   // An empty schema (`{}`, from a degraded `z.date()` at top level) is most
   // useful as "accept any object" rather than a wrapped scalar.
-  if (Object.keys(schema).length === 0) return emptyObjectSchema();
+  if (Object.keys(schema).length === 0)
+    return { schema: emptyObjectSchema(), wrapped: false };
   return {
-    type: "object",
-    properties: { value: schema },
-    required: ["value"],
+    schema: {
+      type: "object",
+      properties: { value: schema },
+      required: ["value"],
+    },
+    wrapped: true,
   };
 }

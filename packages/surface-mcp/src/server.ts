@@ -31,13 +31,14 @@ import {
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { ZodType } from "zod";
 import {
   COLLECTION_PREFIX,
   type ExposeMap,
   type ResourceEntry,
   resolveExpose,
 } from "./expose";
-import { toInputSchema } from "./jsonschema";
+import { inputSchema } from "./jsonschema";
 import { ResourcePusher } from "./pusher";
 import { type BespokeTool, fail, ok, type ToolResult } from "./tools";
 
@@ -56,12 +57,23 @@ export type SurfaceClientOf<_S extends SurfaceSpec> = {
   surface: Record<string, Record<string, (...args: any[]) => any>>;
 };
 
+/** What `opts.client()` may return. Either a bare client (the in-process
+ *  `directLink` case — nothing to dispose) or an *owned connection*
+ *  `{ client, dispose }` (the bridge case — `unixSocketLink` opens a socket it
+ *  owns, so `dispose()` must close it). The adapter normalizes both, disposes
+ *  every connection it opens on teardown, and re-dials after a drop. */
+export type ClientOrConnection<S extends SurfaceSpec> =
+  | SurfaceClientOf<S>
+  | { client: SurfaceClientOf<S>; dispose: () => void };
+
 export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
   surface: Surface<S>;
-  /** Live-client factory. Bridge case: dial the served surface. Serve-fresh
-   *  case: a `directLink` over an in-process implementation. Re-invoked on
-   *  retry after a drop. */
-  client: () => SurfaceClientOf<S> | Promise<SurfaceClientOf<S>>;
+  /** Live-client factory. Bridge case: dial the served surface (return
+   *  `{ client, dispose }` so the adapter can close the socket it owns).
+   *  Serve-fresh case: a `directLink` over an in-process implementation
+   *  (return the bare client — nothing to dispose). Re-invoked on retry after
+   *  a drop, and re-dialed for reads/tools after a transport failure. */
+  client: () => ClientOrConnection<S> | Promise<ClientOrConnection<S>>;
   /** Default-deny allowlist — what an agent may touch. */
   expose: ExposeMap<S>;
   /** Hand-authored, call-shaped MCP tools composing over the live client. */
@@ -82,46 +94,128 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
 ): Promise<{ server: Server; close: () => Promise<void> }> {
   const resolved = resolveExpose(opts.surface.spec, opts.expose);
   const bespoke = opts.tools ?? {};
+  // Precompute each bespoke tool's wrap flag once (running `z.toJSONSchema` per
+  // call would be wasteful): a scalar/array/union input is advertised wrapped
+  // under `value`, so dispatch must unwrap `args.value` before parsing.
+  const bespokeWrap = new Map<string, boolean>();
+  for (const [name, t] of Object.entries(bespoke)) {
+    bespokeWrap.set(name, bespokeWrapped(t));
+  }
 
   const server = new Server(opts.serverInfo ?? DEFAULT_SERVER_INFO, {
     capabilities: { tools: {}, resources: { subscribe: true } },
   });
 
-  // ── A single shared client for reads + bespoke tools ───────────────────
-  // The pusher manages its own (re-)attaching client for the streaming
-  // subscription face; reads and tool calls dial on demand via the factory.
-  // We memoize one client for the lifetime so reads/tools don't re-dial per
-  // call (the bridge case's factory may open a socket each time).
-  let sharedClient: SurfaceClientOf<S> | null = null;
+  // Normalize whatever `opts.client()` returns into an owned connection. The
+  // bare-client (in-process `directLink`) case gets a no-op disposer; the
+  // `{ client, dispose }` (bridge) case keeps its socket-closing disposer.
+  const dial = async (): Promise<{
+    client: SurfaceClientOf<S>;
+    dispose: () => void;
+  }> => {
+    const result = await opts.client();
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      "client" in result &&
+      "dispose" in result
+    ) {
+      return result;
+    }
+    return { client: result as SurfaceClientOf<S>, dispose: () => {} };
+  };
+
+  // ── A single shared connection for reads + bespoke tools ───────────────
+  // The pusher manages its own (re-)attaching connection for the streaming
+  // subscription face; reads and tool calls dial on demand. We memoize one
+  // connection for the lifetime so reads/tools don't re-dial per call (the
+  // bridge case's factory may open a socket each time). On a read/tool
+  // failure (which a transport drop manifests as) we reset it so the NEXT
+  // call re-dials a fresh connection rather than reusing a dead socket.
+  let sharedConn: { client: SurfaceClientOf<S>; dispose: () => void } | null =
+    null;
   const getClient = async (): Promise<SurfaceClientOf<S>> => {
-    if (sharedClient === null) sharedClient = await opts.client();
-    return sharedClient;
+    if (sharedConn === null) sharedConn = await dial();
+    return sharedConn.client;
+  };
+  const resetSharedConn = (): void => {
+    const conn = sharedConn;
+    sharedConn = null;
+    conn?.dispose();
   };
 
   // Index resources by URI for O(1) read/subscribe dispatch.
   const byUri = new Map<string, ResourceEntry>();
   for (const r of resolved.resources) byUri.set(r.uri, r);
+  // Index collection key schemas by surface key for item-template key decode.
+  const keySchemaByCollection = new Map<string, ZodType>();
+  for (const t of resolved.resourceTemplates) {
+    keySchemaByCollection.set(t.key, t.keySchema);
+  }
 
   // ── ResourcePusher (subscribe/teardown lifecycle) ──────────────────────
+  // The pusher dials its own connections (one per attach). We track each
+  // connection's disposer by client identity so the pusher's `dispose(client)`
+  // hook can close the socket it opened — without this the bridge case leaks a
+  // socket on every detach.
+  const pusherDisposers = new WeakMap<object, () => void>();
   const pusher = new ResourcePusher<SurfaceClientOf<S>>({
     notify: (uri) => {
       void server.sendResourceUpdated({ uri });
     },
-    client: () => opts.client(),
-    stream: (client, uri, signal) => streamForUri(client, uri, byUri, signal),
+    client: async () => {
+      const conn = await dial();
+      pusherDisposers.set(conn.client as object, conn.dispose);
+      return conn.client;
+    },
+    stream: (client, uri, signal) =>
+      streamForUri(client, uri, byUri, keySchemaByCollection, signal),
+    dispose: (client) => {
+      const d = pusherDisposers.get(client as object);
+      if (d !== undefined) {
+        pusherDisposers.delete(client as object);
+        d();
+      }
+    },
+    // A swallowed dial/stream failure here would otherwise be invisible; the
+    // pusher still retries, but surface it to stderr so a perpetually-failing
+    // bridge is diagnosable. (stdout is the MCP protocol channel — never log
+    // there.)
+    onError: (err) => {
+      console.error("surface-mcp: pusher stream/dial error", err);
+    },
   });
 
+  // A generated tool name that collides with a bespoke tool name would put two
+  // entries in `tools/list` and make dispatch order-dependent. Reject at boot.
+  for (const t of resolved.tools) {
+    if (t.name in bespoke) {
+      throw new Error(
+        `surface-mcp: tool name "${t.name}" is produced by both the exposed procedure "${t.ns}.${t.verb}" and a bespoke tool — rename one`,
+      );
+    }
+  }
+
   // ── tools/list ─────────────────────────────────────────────────────────
+  // `annotations` carry the read/write distinction to the host: a read-only
+  // tool (`readOnlyHint`) can be auto-approved or surfaced separately from a
+  // mutating one (`destructiveHint`). Without these the `mutates` flag the API
+  // and docs promise never reaches the host.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       ...resolved.tools.map((t) => ({
         name: t.name,
         inputSchema: t.inputSchema,
+        annotations: { readOnlyHint: !t.mutates, destructiveHint: t.mutates },
       })),
       ...Object.entries(bespoke).map(([name, t]) => ({
         name,
         description: t.description,
         inputSchema: toolInputSchema(t),
+        annotations: {
+          readOnlyHint: !(t.mutates ?? false),
+          destructiveHint: t.mutates ?? false,
+        },
       })),
     ],
   }));
@@ -145,17 +239,43 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
           );
         }
         // A no-input procedure's contract is `oc.input(z.void())`, which
-        // rejects an empty `{}` — call it with `undefined` instead.
-        const callArgs = exposed.hasInput ? args : undefined;
-        const out = await proc(callArgs, { signal: extra.signal });
-        return ok(out);
+        // rejects an empty `{}` — call it with `undefined` instead. A
+        // scalar/array/union input was advertised wrapped under `value`
+        // (`toInputSchema`), so unwrap it back to the bare value the
+        // procedure's zod expects.
+        const callArgs = exposed.hasInput
+          ? exposed.wrapped
+            ? (args as Record<string, unknown>).value
+            : args
+          : undefined;
+        try {
+          const out = await proc(callArgs, { signal: extra.signal });
+          return ok(out);
+        } catch (e) {
+          // A transport drop surfaces here — drop the shared connection so the
+          // next call re-dials rather than reusing a dead socket.
+          resetSharedConn();
+          throw e;
+        }
       }
       const tool = bespoke[name];
       if (tool !== undefined) {
-        const parsed = tool.input !== undefined ? tool.input.parse(args) : args;
+        // Bespoke inputs are advertised through the same `toInputSchema`, so a
+        // scalar/array/union input is also wrapped under `value` — unwrap
+        // before parsing with the tool's own zod.
+        const rawInput = bespokeWrap.get(name)
+          ? (args as Record<string, unknown>).value
+          : args;
+        const parsed =
+          tool.input !== undefined ? tool.input.parse(rawInput) : rawInput;
         const client = await getClient();
-        const out = await tool.handler(parsed, client, extra.signal);
-        return ok(out);
+        try {
+          const out = await tool.handler(parsed, client, extra.signal);
+          return ok(out);
+        } catch (e) {
+          resetSharedConn();
+          throw e;
+        }
       }
       return fail(`surface-mcp: unknown tool "${name}"`);
     } catch (e) {
@@ -193,7 +313,13 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
     const { uri } = req.params;
     const client = await getClient();
-    const snapshot = await readSnapshot(client, uri, byUri);
+    let snapshot: Snapshot | undefined;
+    try {
+      snapshot = await readSnapshot(client, uri, byUri, keySchemaByCollection);
+    } catch (e) {
+      resetSharedConn();
+      throw e;
+    }
     if (snapshot === undefined) {
       throw new Error(`surface-mcp: unknown resource "${uri}"`);
     }
@@ -232,10 +358,12 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
 
   const close = async (): Promise<void> => {
     pusher.stop();
+    resetSharedConn();
     await server.close();
   };
   server.onclose = () => {
     pusher.stop();
+    resetSharedConn();
   };
 
   return { server, close };
@@ -274,6 +402,18 @@ function isSubscribable(
   return byUri.has(`${COLLECTION_PREFIX}${encodeURIComponent(item.key)}`);
 }
 
+interface ResolvedCall {
+  proc: (
+    // biome-ignore lint/suspicious/noExplicitAny: an opaque method on the consumer's typed client — args are bivariant here by design.
+    ...args: any[]
+  ) => Promise<AsyncIterable<unknown>> | AsyncIterable<unknown>;
+  input: unknown;
+  mimeType: string;
+  /** Which primitive kind backs the URI — `event` has no snapshot, so a
+   *  one-shot read must not block on a first frame. */
+  kind: ResourceEntry["kind"] | "collection-item";
+}
+
 /** Resolve a resource URI to its streaming call on the client: which key, the
  *  verb (`get`/`keys`), the input, and the mime type — one source of truth for
  *  both the live subscription (`streamForUri`) and the one-shot read
@@ -282,35 +422,64 @@ function isSubscribable(
  *  Cells/streams/events read via `.get(undefined)` (their contract has either
  *  no input or `z.void()` — an empty `{}` would fail validation); a
  *  collection's key-set via `.keys(undefined)`; a collection item via
- *  `.get({ key })`. */
+ *  `.get({ key })`, where `key` is the URI's `<id>` segment decoded through the
+ *  collection's key schema (so a `z.number()` key addresses item `42`, not
+ *  `"42"`). */
 function resolveCall<Client extends SurfaceClientOf<SurfaceSpec>>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,
-):
-  | {
-      // biome-ignore lint/suspicious/noExplicitAny: an opaque method on the consumer's typed client — args are bivariant here by design.
-      proc: (
-        ...args: any[]
-      ) => Promise<AsyncIterable<unknown>> | AsyncIterable<unknown>;
-      input: unknown;
-      mimeType: string;
-    }
-  | undefined {
+  keySchemaByCollection: Map<string, ZodType>,
+): ResolvedCall | undefined {
   const entry = byUri.get(uri);
   if (entry !== undefined) {
     const ns = client.surface[entry.key];
     if (ns === undefined) return undefined;
     const proc = entry.kind === "collection" ? ns.keys : ns.get;
     if (proc === undefined) return undefined;
-    return { proc, input: undefined, mimeType: entry.mimeType };
+    return {
+      proc,
+      input: undefined,
+      mimeType: entry.mimeType,
+      kind: entry.kind,
+    };
   }
   const item = parseCollectionItem(uri);
   if (item !== null) {
     const ns = client.surface[item.key];
     const proc = ns?.get;
     if (proc === undefined) return undefined;
-    return { proc, input: { key: item.id }, mimeType: "application/json" };
+    const keySchema = keySchemaByCollection.get(item.key);
+    // Decode the URI's string `<id>` into the collection's key type. A string
+    // key passes straight through; a `z.number()` / `z.boolean()` key parses
+    // from its JSON form (`"42"` → `42`). A key that decodes to neither is an
+    // addressing error — leave it `undefined` so the call resolves nothing.
+    const key =
+      keySchema !== undefined ? decodeKey(keySchema, item.id) : item.id;
+    if (key === undefined) return undefined;
+    return {
+      proc,
+      input: { key },
+      mimeType: "application/json",
+      kind: "collection-item",
+    };
+  }
+  return undefined;
+}
+
+/** Decode a collection item URI's string `<id>` segment into the collection's
+ *  declared key type. Tries the raw string first (the common case — string
+ *  keys), then its JSON form (so a numeric/boolean key round-trips). Returns
+ *  `undefined` when neither parses, so the caller treats it as an unaddressable
+ *  item rather than calling `.get` with a wrong-typed key. */
+function decodeKey(keySchema: ZodType, id: string): unknown {
+  const asString = keySchema.safeParse(id);
+  if (asString.success) return asString.data;
+  try {
+    const asJson = keySchema.safeParse(JSON.parse(id));
+    if (asJson.success) return asJson.data;
+  } catch {
+    // not JSON — fall through
   }
   return undefined;
 }
@@ -321,9 +490,10 @@ function streamForUri<Client extends SurfaceClientOf<SurfaceSpec>>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,
+  keySchemaByCollection: Map<string, ZodType>,
   signal: AbortSignal | undefined,
 ): Promise<AsyncIterable<unknown>> | AsyncIterable<unknown> | undefined {
-  const call = resolveCall(client, uri, byUri);
+  const call = resolveCall(client, uri, byUri, keySchemaByCollection);
   if (call === undefined) return undefined;
   return call.proc(call.input, { signal });
 }
@@ -334,14 +504,23 @@ interface Snapshot {
 }
 
 /** Read a one-shot snapshot for a resource URI: pull the first frame of the
- *  primitive's streaming source and return immediately. */
+ *  primitive's streaming source and return immediately.
+ *
+ *  An **event** has no snapshot by contract (`EventHandlerDeps` may yield zero
+ *  frames, and a late subscriber misses past occurrences). Awaiting its first
+ *  frame would block `resources/read` forever or until the next occurrence, so
+ *  an event reads as an immediate explicit `null` — its live value is the
+ *  `notifications/resources/updated` stream, delivered via `resources/subscribe`,
+ *  not a readable snapshot. */
 async function readSnapshot<Client extends SurfaceClientOf<SurfaceSpec>>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,
+  keySchemaByCollection: Map<string, ZodType>,
 ): Promise<Snapshot | undefined> {
-  const call = resolveCall(client, uri, byUri);
+  const call = resolveCall(client, uri, byUri, keySchemaByCollection);
   if (call === undefined) return undefined;
+  if (call.kind === "event") return { value: null, mimeType: call.mimeType };
   const source = await call.proc(call.input);
   const value = await firstFrame(source);
   return { value, mimeType: call.mimeType };
@@ -358,7 +537,13 @@ async function firstFrame(source: unknown): Promise<unknown> {
 
 /** Compute a bespoke tool's `inputSchema` from its optional zod input. */
 function toolInputSchema(tool: BespokeTool): Record<string, unknown> {
-  return toInputSchema(tool.input);
+  return inputSchema(tool.input).schema;
+}
+
+/** Whether a bespoke tool's input was wrapped under `value` (a non-object
+ *  scalar/array/union). The dispatcher unwraps `args.value` before parsing. */
+function bespokeWrapped(tool: BespokeTool): boolean {
+  return inputSchema(tool.input).wrapped;
 }
 
 /** Coerce an unknown thrown value into a failed `ToolResult`. */

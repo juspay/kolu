@@ -18,7 +18,8 @@ It generalizes the hand-built `src/mcp/` face of [odu](https://github.com/juspay
 `serveSurfaceAsMcp` takes the surface spec, a **client factory** for a live implementation of it, and a **default-deny `expose` allowlist** — then builds and connects an MCP server.
 
 ```ts
-import { directLink, implementSurface } from "@kolu/surface/server";
+import { implementSurface } from "@kolu/surface/server";
+import { directLink } from "@kolu/surface/links/direct";
 import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
 
 const { router } = implementSurface(surface, deps);          // your surface, implemented

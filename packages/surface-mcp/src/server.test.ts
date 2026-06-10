@@ -254,4 +254,194 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
       mcp.subscribeResource({ uri: "surface://cells/does-not-exist" }),
     ).rejects.toThrow();
   });
+
+  it("tools/list carries read-only / destructive annotations (F7)", async () => {
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const { tools } = await mcp.listTools();
+    const bump = tools.find((t) => t.name === "counter_bump");
+    // counter.bump is exposed with `mutates: true`.
+    expect(bump?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+    });
+    // The bespoke `greet` has no `mutates` → read-only.
+    const greet = tools.find((t) => t.name === "greet");
+    expect(greet?.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
+  });
+});
+
+// ── A second surface exercising the shape-mismatch fixes ──────────────────
+
+/** A surface with an event (no snapshot), a scalar-input procedure, a
+ *  numeric-key collection, and an array-input bespoke tool — the cases the
+ *  shape-mismatch findings (F2/F3/F9) covered. */
+function buildEdgeSurface() {
+  const surface = defineSurface({
+    collections: {
+      // NON-string key — exercises the item-template key decode (F9).
+      rows: { keySchema: z.number(), schema: z.object({ v: z.string() }) },
+    },
+    events: {
+      // No snapshot by contract — `resources/read` must not block (F2).
+      pinged: { inputSchema: z.void(), outputSchema: z.number() },
+    },
+    procedures: {
+      echo: {
+        // A scalar input — advertised wrapped under `value`, dispatched
+        // unwrapped (F3).
+        shout: { input: z.string(), output: z.string() },
+      },
+    },
+  });
+
+  const rows = new Map<number, { v: string }>([[42, { v: "answer" }]]);
+  const { router } = implementSurface(surface, {
+    channel: inMemoryChannelByName(),
+    collections: {
+      rows: {
+        readAll: () => rows,
+        upsert: (k, val) => {
+          rows.set(k, val);
+        },
+        remove: (k) => {
+          rows.delete(k);
+        },
+      },
+    },
+    events: { pinged: {} },
+    procedures: {
+      echo: {
+        shout: ({ input }) => `${input}!`,
+      },
+    },
+  });
+
+  const client = directLink<typeof surface.contract>(router);
+  return { surface, client };
+}
+
+async function connectEdge(over: ReturnType<typeof buildEdgeSurface>) {
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+
+  const served = await serveSurfaceAsMcp({
+    surface: over.surface,
+    client: () => over.client,
+    expose: {
+      rows: "resource",
+      pinged: "resource",
+      "echo.shout": "tool",
+    },
+    tools: {
+      // An array-input bespoke tool — also wrapped under `value` (F3).
+      sum: {
+        input: z.array(z.number()),
+        handler: (args) => (args as number[]).reduce((a, b) => a + b, 0),
+      },
+    },
+    serverInfo: { name: "edge-surface", version: "0.0.0" },
+    transport: serverTransport,
+  });
+
+  const mcp = new Client({ name: "edge-client", version: "0.0.0" });
+  await mcp.connect(clientTransport);
+  return { mcp, served };
+}
+
+describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
+  it("reads an event resource as an immediate null (no snapshot, F2)", async () => {
+    const over = buildEdgeSurface();
+    const { mcp, served } = await connectEdge(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // Must return promptly — an event has no snapshot, so this can't await a
+    // frame that may never come.
+    const read = await mcp.readResource({
+      uri: "surface://events/pinged",
+    });
+    const body = (read.contents[0] as { text: string }).text;
+    expect(JSON.parse(body)).toBeNull();
+  });
+
+  it("a scalar-input procedure dispatches the unwrapped value (F3)", async () => {
+    const over = buildEdgeSurface();
+    const { mcp, served } = await connectEdge(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // The tool's inputSchema wrapped the string under `value`; the host passes
+    // `{ value: "hi" }`, and dispatch unwraps it back to the bare string.
+    const res = await mcp.callTool({
+      name: "echo_shout",
+      arguments: { value: "hi" },
+    });
+    expect(res.isError).toBeFalsy();
+    const text = (res.content as Array<{ type: string; text: string }>)[0];
+    expect(JSON.parse(text?.text ?? "null")).toBe("hi!");
+  });
+
+  it("an array-input bespoke tool dispatches the unwrapped array (F3)", async () => {
+    const over = buildEdgeSurface();
+    const { mcp, served } = await connectEdge(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({
+      name: "sum",
+      arguments: { value: [1, 2, 3] },
+    });
+    expect(res.isError).toBeFalsy();
+    const text = (res.content as Array<{ type: string; text: string }>)[0];
+    expect(JSON.parse(text?.text ?? "null")).toBe(6);
+  });
+
+  it("reads a collection item with a NON-string key (F9)", async () => {
+    const over = buildEdgeSurface();
+    const { mcp, served } = await connectEdge(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    // The URI segment is the string "42"; the adapter decodes it through the
+    // collection's `z.number()` key schema before `.get({ key: 42 })`.
+    const read = await mcp.readResource({
+      uri: "surface://collections/rows/42",
+    });
+    const body = (read.contents[0] as { text: string }).text;
+    expect(JSON.parse(body)).toEqual({ v: "answer" });
+  });
+});
+
+describe("serveSurfaceAsMcp — boot-time guards", () => {
+  it("a bespoke tool colliding with a generated tool name throws (F10)", async () => {
+    const over = buildSurface();
+    const [, serverTransport] = InMemoryTransport.createLinkedPair();
+    await expect(
+      serveSurfaceAsMcp({
+        surface: over.surface,
+        client: () => over.client,
+        expose: { "counter.bump": "tool" },
+        // `counter_bump` collides with the generated name for counter.bump.
+        tools: { counter_bump: { handler: () => "x" } },
+        transport: serverTransport,
+      }),
+    ).rejects.toThrow(/both the exposed procedure/);
+  });
 });

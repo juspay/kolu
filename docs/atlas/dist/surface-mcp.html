@@ -232,7 +232,9 @@
 <span class="line"><span style="color:#D73A49">import</span><span style="color:#24292E"> { z } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> &quot;zod&quot;</span><span style="color:#24292E">;</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#D73A49">await</span><span style="color:#6F42C1"> serveSurfaceAsMcp</span><span style="color:#24292E">({</span></span>
-<span class="line"><span style="color:#6F42C1">  link</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=&gt;</span><span style="color:#6F42C1"> unixSocketLink</span><span style="color:#24292E">({ socketPath: </span><span style="color:#032F62">&quot;.ci/odu.sock&quot;</span><span style="color:#24292E"> }), </span><span style="color:#6A737D">// BRIDGE the live coordinator</span></span>
+<span class="line"><span style="color:#6A737D">  // BRIDGE the live coordinator — `unixSocketLink` returns `{ client, dispose }`,</span></span>
+<span class="line"><span style="color:#6A737D">  // an owned connection the adapter closes on teardown / re-dials after a drop.</span></span>
+<span class="line"><span style="color:#6F42C1">  client</span><span style="color:#24292E">: () </span><span style="color:#D73A49">=&gt;</span><span style="color:#6F42C1"> unixSocketLink</span><span style="color:#24292E">({ socketPath: </span><span style="color:#032F62">&quot;.ci/odu.sock&quot;</span><span style="color:#24292E"> }),</span></span>
 <span class="line"><span style="color:#24292E">  surface: oduAgentSurface,</span></span>
 <span class="line"><span style="color:#6A737D">  // 1:1 surface primitives → resources &amp; tools (default-deny allowlist)</span></span>
 <span class="line"><span style="color:#24292E">  expose: {</span></span>

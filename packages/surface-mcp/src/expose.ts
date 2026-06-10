@@ -20,7 +20,8 @@
  */
 
 import type { SurfaceSpec } from "@kolu/surface/define";
-import { toInputSchema } from "./jsonschema";
+import type { ZodType } from "zod";
+import { inputSchema } from "./jsonschema";
 
 // ── Expose map types ────────────────────────────────────────────────────
 
@@ -94,6 +95,12 @@ export interface ResourceTemplateEntry {
   key: string;
   name: string;
   mimeType: string;
+  /** The collection's key schema — used to decode an item-template URI's
+   *  `<id>` segment (a string) back into the collection's actual key type
+   *  before calling `.get({ key })`. A `keySchema: z.number()` collection
+   *  must turn the string `"42"` into `42`, not address item `"42"`. */
+  // biome-ignore lint/suspicious/noExplicitAny: opaque zod schema carried for runtime key decoding.
+  keySchema: ZodType<any>;
 }
 
 /** A tool backed by an exposed procedure. */
@@ -109,6 +116,11 @@ export interface ToolEntry {
    *  is `oc.input(z.void())`, which rejects `{}` — so the dispatcher must call
    *  it with `undefined`, not the empty args object. */
   hasInput: boolean;
+  /** Whether the input schema wrapped a non-object (scalar/array/union) input
+   *  under a `value` property to satisfy MCP. The dispatcher must unwrap
+   *  `args.value` before handing it to the procedure's zod, which expects the
+   *  bare value (a `z.string()` input is advertised as `{ value: string }`). */
+  wrapped: boolean;
 }
 
 export interface ResolvedExpose {
@@ -189,13 +201,15 @@ export function resolveExpose<S extends SurfaceSpec>(
       }
       const mutates =
         typeof exposure === "object" ? (exposure.tool.mutates ?? false) : false;
+      const built = inputSchema(procSpec.input);
       tools.push({
         name: toolName(ns, verb),
         ns,
         verb,
         mutates,
-        inputSchema: toInputSchema(procSpec.input),
+        inputSchema: built.schema,
         hasInput: procSpec.input !== undefined,
+        wrapped: built.wrapped,
       });
       continue;
     }
@@ -215,6 +229,7 @@ export function resolveExpose<S extends SurfaceSpec>(
         mimeType: "application/json",
       });
     } else if (key in collections) {
+      const collSpec = collections[key] as { keySchema: ZodType };
       resources.push({
         uri: collectionUri(key),
         kind: "collection",
@@ -227,8 +242,25 @@ export function resolveExpose<S extends SurfaceSpec>(
         key,
         name: `${key} item`,
         mimeType: "application/json",
+        keySchema: collSpec.keySchema,
       });
     } else if (key in streams) {
+      // A stream is a static resource only if its input accepts being called
+      // with no argument — `surface://streams/<key>` carries no input, so the
+      // adapter reads/subscribes it via `.get(undefined)`. A stream whose
+      // `inputSchema` *requires* an argument (e.g. `z.object({ id })`) can't
+      // be a single static resource; reject it at boot rather than register a
+      // resource that fails validation on every read/subscribe. (An
+      // input-bearing stream belongs behind a projection that fixes the
+      // input, or a future resource-template encoding.)
+      const streamSpec = streams[key] as { inputSchema: ZodType };
+      const accepts = streamSpec.inputSchema.safeParse(undefined).success;
+      if (!accepts) {
+        throw new Error(
+          `surface-mcp: stream "${key}" requires an input, so it can't be exposed as a static resource ` +
+            `(surface://streams/${key} carries no input). Project it to a no-input stream, or expose a fixed-input view.`,
+        );
+      }
       resources.push({
         uri: streamUri(key),
         kind: "stream",
@@ -249,6 +281,22 @@ export function resolveExpose<S extends SurfaceSpec>(
         `surface-mcp: expose names "${key}" but the spec has no such cell/collection/stream/event`,
       );
     }
+  }
+
+  // Two distinct procedures whose `<ns>_<verb>` collapse to the same MCP tool
+  // name (e.g. `a.b_c` and `a_b.c`, or `a.b` exposed twice) would silently
+  // produce duplicate `tools/list` entries and an ambiguous dispatch. Catch it
+  // at boot, naming both source procedures.
+  const byToolName = new Map<string, string>();
+  for (const t of tools) {
+    const source = `${t.ns}.${t.verb}`;
+    const prior = byToolName.get(t.name);
+    if (prior !== undefined) {
+      throw new Error(
+        `surface-mcp: tool name "${t.name}" is produced by both "${prior}" and "${source}" — rename one procedure`,
+      );
+    }
+    byToolName.set(t.name, source);
   }
 
   return { resources, resourceTemplates, tools };

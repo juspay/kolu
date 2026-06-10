@@ -114,4 +114,81 @@ describe("resolveExpose", () => {
       } as unknown as Record<string, "resource">),
     ).toThrow(/procedures map to tools/);
   });
+
+  it("an input-bearing stream can't be exposed as a static resource (F1)", () => {
+    const spec = defineSurface({
+      streams: {
+        // Requires an `{ id }` — no value can be passed at a static resource
+        // read, so this exposure is rejected at boot.
+        nodeLog: {
+          inputSchema: z.object({ id: z.string() }),
+          outputSchema: z.string(),
+        },
+        // A void-input stream is fine.
+        ticks: { inputSchema: z.void(), outputSchema: z.number() },
+      },
+    }).spec;
+
+    expect(() => resolveExpose(spec, { nodeLog: "resource" })).toThrow(
+      /requires an input/,
+    );
+    // The void-input stream still resolves.
+    expect(resolveExpose(spec, { ticks: "resource" }).resources).toHaveLength(
+      1,
+    );
+  });
+
+  it("carries the collection key schema on the item template (F9)", () => {
+    const spec = defineSurface({
+      collections: {
+        // A NON-string key — the item-template read must decode the URI's
+        // string `<id>` through this schema before `.get({ key })`.
+        rows: { keySchema: z.number(), schema: z.object({ v: z.string() }) },
+      },
+    }).spec;
+
+    const r = resolveExpose(spec, { rows: "resource" });
+    const tmpl = r.resourceTemplates[0];
+    if (tmpl === undefined) throw new Error("expected one item template");
+    expect(tmpl.key).toBe("rows");
+    // The schema round-trips a numeric key from its JSON form.
+    expect(tmpl.keySchema.safeParse(42).success).toBe(true);
+    expect(tmpl.keySchema.safeParse("42").success).toBe(false);
+  });
+
+  it("collapsing two procedures to the same tool name throws (F10)", () => {
+    const spec = defineSurface({
+      procedures: {
+        // `a.b_c` and `a_b.c` both collapse to the MCP tool name `a_b_c`.
+        a: { b_c: { output: z.boolean() } },
+        a_b: { c: { output: z.boolean() } },
+      },
+    }).spec;
+
+    expect(() =>
+      resolveExpose(spec, {
+        "a.b_c": "tool",
+        "a_b.c": "tool",
+      }),
+    ).toThrow(/produced by both/);
+  });
+
+  it("an exposed procedure carries its wrapped flag (F3)", () => {
+    const spec = defineSurface({
+      procedures: {
+        echo: {
+          // A scalar input — advertised wrapped under `value`.
+          shout: { input: z.string(), output: z.string() },
+          // An object input — not wrapped.
+          tag: { input: z.object({ k: z.string() }), output: z.string() },
+        },
+      },
+    }).spec;
+
+    const r = resolveExpose(spec, { "echo.shout": "tool", "echo.tag": "tool" });
+    const shout = r.tools.find((t) => t.name === "echo_shout");
+    const tag = r.tools.find((t) => t.name === "echo_tag");
+    expect(shout?.wrapped).toBe(true);
+    expect(tag?.wrapped).toBe(false);
+  });
 });
