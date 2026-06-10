@@ -2,15 +2,8 @@
 
 In 2026, anyone can ask a coding agent for a 500-line PR in an afternoon. The bottleneck isn't *who writes the code* — it's *who agrees to maintain the feature*. So we keep the conversation about **what to build** separate from the conversation about **how to build it**.
 
-## Who can open a PR (temporary)
-
-> **Right now, pull requests are restricted to collaborators.** If you're not a collaborator on this repo, please **file an issue first** describing what you'd like to change — we'll discuss it there, and a collaborator will carry it into a PR.
->
-> This is a *temporary* restriction. We (the authors) are still working out what a healthy PR workflow looks like in the AI-first era, where anyone can generate a large PR on demand. Once we've settled on that workflow, we'll reopen PRs more broadly and update this section.
-
 ## TL;DR
 
-- **Not a collaborator?** [File an issue](../../issues) first — don't open a PR.
 - **Trivial fix?** Open a PR directly.
 - **New user-facing feature, behavior change, or anything reasonable people might disagree about?** Open a *proposal* first.
 
