@@ -635,6 +635,9 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../surface-app
+      '@kolu/terminal-protocol':
+        specifier: workspace:*
+        version: link:../terminal-protocol
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13

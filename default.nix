@@ -45,6 +45,7 @@ let
       ./packages/shared
       ./packages/terminal-themes
       ./packages/memorable-names
+      ./packages/terminal-protocol
       ./packages/pty-host
       ./packages/pty-tui
       ./packages/server

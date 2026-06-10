@@ -9,6 +9,10 @@
  * between the surface fragment and the raw RPCs.
  */
 
+import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+} from "@kolu/terminal-protocol";
 import { ORPCError } from "@orpc/server";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
@@ -62,7 +66,7 @@ function base64DecodedLength(data: string): number {
  *  paste-as-file-path (codex, Claude Code) attach the file. Shared by every
  *  handler that uploads content to per-terminal scratch storage. */
 function bracketedPastePath(entry: TerminalProcess, path: string): void {
-  entry.handle.write(`\x1b[200~${path}\x1b[201~`);
+  entry.handle.write(`${BRACKETED_PASTE_START}${path}${BRACKETED_PASTE_END}`);
 }
 
 export const appRouter = t.router({

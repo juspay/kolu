@@ -149,6 +149,21 @@ const RBRACKET = 0x5d; // ]
 const P_UPPER = 0x50; // P (DCS)
 const BACKSLASH = 0x5c; // \  (the ST in ESC \)
 
+// Fail-open cap on an unterminated string sequence (OSC / DCS). `ESC ]` and
+// `ESC P` are not only reply introducers — they are also real keystrokes
+// (Alt+] is `ESC ]`, Alt+Shift+P is `ESC P`). Without a bound, pressing one
+// would put the stripper into the string state and buffer every subsequent
+// keystroke forever, waiting for a BEL/ST that never comes — input freezes
+// and `seq` grows without limit. So once a string sequence outruns any
+// legitimate reply, we FAIL OPEN: flush the buffered bytes to the PTY
+// untouched and reset. The cap is generous on purpose — the suppressible
+// string replies are tiny (colour reports ~30B, XTVERSION/DECRQSS ~20B), and
+// the one large *forwarded* string reply (an OSC 52 clipboard read) is exactly
+// what we want flushed when it overruns, not eaten. The cost of the bound is
+// only borne by a malformed or user-generated `ESC ]`/`ESC P`, whose tail then
+// reaches the PTY — the safe default everywhere else in this filter.
+const MAX_STRING_SEQ = 8192;
+
 /** What kind of escape sequence the pending buffer is accumulating. */
 type Pending =
   | { kind: "none" }
@@ -187,6 +202,17 @@ export function createTerminalResponseStripper(): TerminalResponseStripper {
     if (!isTerminalQueryResponse(bytes.toString("latin1"))) {
       for (const b of bytes) out.push(b);
     }
+  };
+
+  // A string sequence (OSC / DCS) that has outrun any legitimate reply without
+  // terminating — fail open: forward what we buffered and reset, so a
+  // user-typed `ESC ]` / `ESC P` (Alt+], Alt+Shift+P) can never swallow the
+  // session (see MAX_STRING_SEQ). The bytes were never a suppressible reply, so
+  // forwarding them is the same safe default as any unrecognised escape.
+  const failOpenSequence = (): void => {
+    for (const b of seq) out.push(b);
+    seq = [];
+    pending = { kind: "none" };
   };
 
   return {
@@ -229,6 +255,10 @@ export function createTerminalResponseStripper(): TerminalResponseStripper {
           else pending = { kind: "string", escSeen: false };
         } else if (b === ESC) {
           pending = { kind: "string", escSeen: true };
+        } else if (seq.length >= MAX_STRING_SEQ) {
+          // No terminator in sight after a generous run — fail open rather than
+          // buffer the rest of the session behind a stray `ESC ]` / `ESC P`.
+          failOpenSequence();
         }
       }
       // End of chunk. A bare trailing ESC (introducer still unknown) is NOT

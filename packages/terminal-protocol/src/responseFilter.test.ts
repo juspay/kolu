@@ -149,4 +149,37 @@ describe("createTerminalResponseStripper — streaming raw-tty strip", () => {
     // pushes — the inner editor sees a real Escape then a real `i`.
     expect(perChunk([ESC, "i"])).toEqual([ESC, "i"]);
   });
+
+  // `ESC ]` (Alt+]) and `ESC P` (Alt+Shift+P) share their introducer with the
+  // OSC/DCS reply grammars, so the stripper must treat them as the START of a
+  // (possibly split) string sequence — a bare `ESC ]` could be the first bytes
+  // of a colour reply arriving across reads. What it must NOT do is buffer the
+  // rest of the session waiting for a terminator that a user-typed Alt+] will
+  // never produce: once the run outruns any legitimate reply it FAILS OPEN and
+  // the buffered bytes (the introducer + everything typed since) reach the PTY.
+  it("fails open on a user-typed `ESC ]` (Alt+]) so input never freezes", () => {
+    // 8192-byte cap: type Alt+] then keep typing; the whole run is forwarded
+    // (never eaten) once it overruns, so the session stays alive.
+    const tail = "x".repeat(9000);
+    const forwarded = run([`${ESC}]${tail}`]);
+    // Every typed byte reaches the PTY; nothing is swallowed.
+    expect(forwarded).toBe(`${ESC}]${tail}`);
+  });
+
+  it("fails open on a user-typed `ESC P` (Alt+Shift+P) the same way", () => {
+    const tail = "y".repeat(9000);
+    expect(run([`${ESC}P${tail}`])).toBe(`${ESC}P${tail}`);
+  });
+
+  it("still drops a genuine OSC colour reply that starts with the same `ESC ]`", () => {
+    // The fail-open bound doesn't weaken suppression of real (short) replies.
+    expect(run([`${ESC}]11;rgb:0000/0000/0000${ST}`])).toBe("");
+  });
+
+  it("forwards a large OSC 52 clipboard reply even past the fail-open cap", () => {
+    // OSC 52 is never suppressed; a clipboard read longer than the cap must
+    // still reach the PTY (fail-open forwards it rather than eating it).
+    const big = `${ESC}]52;c;${"Zg".repeat(6000)}${ST}`;
+    expect(run([big])).toBe(big);
+  });
 });
