@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-10T00:22:09.038290+00:00'
+generated_at: '2026-06-10T02:33:18.071617+00:00'
 apm_version: 0.18.0
 dependencies:
 - repo_url: anthropics/skills
@@ -22,12 +22,15 @@ dependencies:
   content_hash: sha256:51308bd8cc8b6ae24781a77b67a7c8140bdea5d793e35427e7b8fcbeb0662074
 - repo_url: juspay/odu
   host: github.com
-  resolved_commit: a9cdbc1e53579326483f2e38968255a50ce83b0b
+  resolved_commit: 2997b5b8b707d33d919cb8e971e41c8e1b54f557
+  resolved_ref: agent-face-mcp
   package_type: apm_package
   deployed_files:
   - .agents/skills/ci
+  - .agents/skills/odu-mcp
   - .claude/skills/ci
-  content_hash: sha256:f55a52a3e808ba12002c774585984f4e77387c8ba9d02901d94af58f421394d6
+  - .claude/skills/odu-mcp
+  content_hash: sha256:9b4b9b0d4bc73f5e0466659353742a6d8b6d8ddf2d62d4a81e146df0afc69ec2
 - repo_url: juspay/project-unknown
   host: github.com
   resolved_commit: 27c4973ae3837eaa54b0439faa5346a3320ac379
@@ -108,12 +111,18 @@ dependencies:
   content_hash: sha256:703dc7eb1a510ab80f5daa4cd7d9997ed1c748cb0942ff3ced88ac7bd062944b
 mcp_servers:
 - chrome-devtools
+- odu
 mcp_configs:
   chrome-devtools:
     name: chrome-devtools
     transport: stdio
     registry: false
     command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
+  odu:
+    name: odu
+    transport: stdio
+    registry: false
+    command: .agents/skills/odu-mcp/bin/serve
 local_deployed_files:
 - .agents/skills/atlas
 - .agents/skills/be
