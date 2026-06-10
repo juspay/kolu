@@ -1223,7 +1223,11 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
 
     // Change only the remote URL — HEAD is untouched. Only a config watch
     // catches this.
-    await git.remote(["set-url", "origin", "https://codeberg.org/new/repo.git"]);
+    await git.remote([
+      "set-url",
+      "origin",
+      "https://codeberg.org/new/repo.git",
+    ]);
 
     await waitFor(
       () => updates.at(-1)?.remoteUrl === "https://codeberg.org/new/repo.git",
@@ -1231,5 +1235,45 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     );
 
     sub.stop();
+  });
+
+  // Regression (#1253 review F3, round 2): in a *linked worktree* the
+  // per-worktree git dir is `.git/worktrees/<name>` (where HEAD lives), but
+  // `config` lives in the shared `--git-common-dir` (`<main>/.git`). A config
+  // watch keyed on `--git-dir` would watch the wrong directory and miss
+  // `git remote set-url` run from inside the worktree. The config watcher
+  // must key on the common dir so the remote change still re-resolves.
+  it("re-resolves GitInfo on a remote change from inside a linked worktree", async () => {
+    const { dir, git } = await initRepo("wt-remote-main");
+    await git.addRemote("origin", "https://github.com/old/repo.git");
+    const worktreeDir = path.join(tmpDir, "wt-remote-linked");
+    await git.raw(["worktree", "add", "-b", "wt-feature", worktreeDir]);
+
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(worktreeDir, (info) => {
+      updates.push(info);
+    });
+
+    await waitFor(() => updates.length >= 1);
+    expect(updates.at(-1)?.isWorktree).toBe(true);
+    expect(updates.at(-1)?.remoteUrl).toBe("https://github.com/old/repo.git");
+
+    // Rewrite the shared common-dir `config` — from the worktree. Only a
+    // config watch keyed on `--git-common-dir` (not the worktree's own
+    // `.git/worktrees/<name>`) catches this.
+    const worktreeGit = simpleGit(worktreeDir);
+    await worktreeGit.remote([
+      "set-url",
+      "origin",
+      "https://codeberg.org/new/repo.git",
+    ]);
+
+    await waitFor(
+      () => updates.at(-1)?.remoteUrl === "https://codeberg.org/new/repo.git",
+      3000,
+    );
+
+    sub.stop();
+    await git.raw(["worktree", "remove", worktreeDir, "--force"]);
   });
 });

@@ -5,9 +5,15 @@
  * — anything that rewrites `.git/config`. `subscribeGitInfo` pairs this with
  * `watchGitHead` in head mode so a remote change re-resolves `GitInfo` (and
  * thus re-dispatches forge detection) without waiting for a branch or cwd
- * change. For worktrees the resolved gitDir is the main repo's `.git`, where
- * `config` (and `remote.origin.url`) actually lives — shared across every
- * worktree — so one watcher per repo covers them all.
+ * change.
+ *
+ * Keys off the **common** git dir (`resolveGitCommonDir` → `--git-common-dir`),
+ * not the per-worktree git dir `watchGitHead` uses. They coincide in a normal
+ * repo, but in a linked worktree `--git-dir` is `.git/worktrees/<name>` (no
+ * `config` there) while `config` lives in the shared `--git-common-dir`
+ * (`<main>/.git`). Keying on the common dir means a `git remote set-url` run
+ * from inside a worktree is caught, and every worktree of the same repo
+ * dedupes to the one watcher on the shared `config`.
  *
  * Implementation is the same thin specialization of the generic shared
  * dir+filename watcher as `watchGitHead`: one `fs.watch(gitDir)` per gitDir,
@@ -16,10 +22,10 @@
  */
 
 import { createDirFilenameWatcher } from "kolu-io";
-import { resolveGitDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
+import { resolveGitCommonDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
 const configWatcher = createDirFilenameWatcher({
-  resolveDir: resolveGitDir,
+  resolveDir: resolveGitCommonDir,
   filename: "config",
   debounceMs: WATCHER_DEBOUNCE_MS,
   logLabel: "git: config",

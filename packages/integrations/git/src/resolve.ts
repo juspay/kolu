@@ -219,8 +219,9 @@ export function subscribeGitInfo(
     if (mode === "cwd") {
       return watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
     }
-    // Head mode watches two files in the same gitDir: `.git/HEAD` (branch
-    // identity) and `.git/config` (remote URL). A `git remote set-url`
+    // Head mode watches two files: `HEAD` (branch identity, in the
+    // per-worktree git dir) and `config` (remote URL, in the common git
+    // dir — they differ in a linked worktree). A `git remote set-url`
     // rewrites config but not HEAD, so without the config watch a remote
     // change wouldn't re-resolve until the next branch/cwd change — leaving
     // forge dispatch stale. Both feed the same `handleWatcherEvent`; combine
