@@ -748,16 +748,31 @@ export function publisherChannel<T>(
   };
 }
 
+/** The abort-time swallow contract in one predicate: a rejection is
+ *  end-of-life noise iff `signal` has aborted and the error *is* its abort
+ *  reason (the publisher rejects pending pulls with `signal.reason` on
+ *  shutdown). Exported as the single home of that rule so the iteration
+ *  swallow (`iterateUntilAborted`) and the projection layer's pre-iteration
+ *  `upstream()` / connect-loop swallows (`./project`) all decide "is this
+ *  the expected shutdown rejection?" with one body — a fix to the contract
+ *  (the kind `kill.feature` pins) lands in exactly one place. */
+export function isAbortReason(
+  err: unknown,
+  signal: AbortSignal | undefined,
+): boolean {
+  return signal?.aborted === true && err === signal.reason;
+}
+
 /** Iterate `source` and yield each item, ending cleanly if the iterator
  *  rejects with the signal's abort reason. Adds one microtask of delay
  *  per yield (see `publisherChannel`'s comment for why that matters).
  *
- *  Exported as the single home of the abort-time iterator-teardown
- *  contract: a downstream pull rejected with `signal.reason` on shutdown
- *  is end-of-life noise, swallowed here so it never bubbles as an
- *  unhandled rejection. `projectSurface`'s `mapUpstream` composes on top
- *  of this so the per-frame swallow has exactly one definition; a fix to
- *  the abort contract (the kind `kill.feature` pins) lands in one place. */
+ *  The single home of the abort-time iterator-teardown contract: a
+ *  downstream pull rejected with `signal.reason` on shutdown is end-of-life
+ *  noise, swallowed here (via `isAbortReason`) so it never bubbles as an
+ *  unhandled rejection. `projectSurface`'s `mapUpstream` composes on top of
+ *  this so the per-frame swallow has exactly one definition; a fix to the
+ *  abort contract (the kind `kill.feature` pins) lands in one place. */
 export async function* iterateUntilAborted<T>(
   source: AsyncIterable<T>,
   signal: AbortSignal | undefined,
@@ -765,7 +780,7 @@ export async function* iterateUntilAborted<T>(
   try {
     for await (const item of source) yield item;
   } catch (err) {
-    if (signal?.aborted && err === signal.reason) return;
+    if (isAbortReason(err, signal)) return;
     throw err;
   }
 }

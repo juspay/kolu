@@ -46,6 +46,7 @@ import {
   type ImplementSurfaceDeps,
   implementSurface,
   inMemoryCell,
+  isAbortReason,
   iterateUntilAborted,
   type StreamHandlerDeps,
 } from "./server";
@@ -115,17 +116,16 @@ export type UpstreamSource<I, F> = (
  *  it returns early (abort), `for await … of` calls the upstream iterator's
  *  `return()`, tearing down A's subscription.
  *
- *  The per-frame abort-time swallow lives in exactly one place: the server's
- *  `iterateUntilAborted`, which we compose on top of. A's publisher may reject
- *  a pending pull with `signal.reason` on shutdown — that's expected
- *  end-of-life noise, and `iterateUntilAborted` ends cleanly on it rather than
- *  letting it bubble as an unhandled rejection. Forking that contract here
- *  would mean a fix to the abort behaviour (the kind `kill.feature` pins) has
- *  to be applied twice.
- *
- *  Only the *pre-iteration* `upstream()` rejection is handled locally: A's
- *  iterable is obtained before there's an iterator for `iterateUntilAborted`
- *  to drive, so an abort-shaped rejection at that point is swallowed here. */
+ *  The abort-time swallow contract has one home for both phases. The per-frame
+ *  swallow is the server's `iterateUntilAborted`, which we compose on top of:
+ *  A's publisher may reject a pending pull with `signal.reason` on shutdown,
+ *  expected end-of-life noise that ends the iteration cleanly rather than
+ *  bubbling as an unhandled rejection. The *pre-iteration* `upstream()`
+ *  rejection is handled here only because A's iterable is obtained before
+ *  there's an iterator for `iterateUntilAborted` to drive — but it decides
+ *  "is this the shutdown rejection?" through the same `isAbortReason`
+ *  predicate `iterateUntilAborted` uses, so a fix to the abort behaviour (the
+ *  kind `kill.feature` pins) lands in that one predicate, not two copies. */
 async function* mapUpstream<I, F, T>(
   upstream: UpstreamSource<I, F>,
   input: I,
@@ -136,7 +136,7 @@ async function* mapUpstream<I, F, T>(
   try {
     iterable = await upstream(input, { signal });
   } catch (err) {
-    if (signal?.aborted && err === signal.reason) return;
+    if (isAbortReason(err, signal)) return;
     throw err;
   }
   for await (const frame of iterateUntilAborted(iterable, signal)) {
@@ -246,7 +246,7 @@ export function deriveCell<F, T>(
       console.error("deriveCell: upstream subscription failed", err);
     });
   const isAbort = (err: unknown): boolean =>
-    controller.signal.aborted && err === controller.signal.reason;
+    isAbortReason(err, controller.signal);
   return {
     // `inMemoryCell` satisfies the `{ get, set }` store shape via
     // `current()` / `set()`; adapt the names the cell store interface uses.
