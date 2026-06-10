@@ -636,15 +636,21 @@ export function inMemoryChannelByName(): <T>(name: string) => Channel<T> {
  *  `publish(v)` is an alias for `set(v)` so the cell still satisfies
  *  the `Channel<T>` interface that `implementSurface` expects when one
  *  is passed as the `channel:` dep — meaning the same cell can serve
- *  in-process observers AND back a framework-managed surface cell. */
-export function inMemoryCell<T>(initial: T): Channel<T> & {
-  current(): T;
-  set(value: T): void;
-} {
+ *  in-process observers AND back a framework-managed surface cell.
+ *
+ *  `get()` is an alias for `current()` so the cell also satisfies the
+ *  `CellStore<T>` interface — one read/write store shape across the whole
+ *  cell path (no rename adapter needed when handing the cell's store into a
+ *  `CellStore`-typed slot). */
+export function inMemoryCell<T>(initial: T): Channel<T> &
+  CellStore<T> & {
+    current(): T;
+  } {
   let value = initial;
   const deltas = inMemoryChannel<T>();
   return {
     current: () => value,
+    get: () => value,
     set: (v) => {
       value = v;
       deltas.publish(v);

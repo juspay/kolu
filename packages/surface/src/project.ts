@@ -42,6 +42,7 @@ import {
   type SurfaceSpec,
 } from "./define";
 import {
+  type CellStore,
   type EventHandlerDeps,
   type ImplementSurfaceDeps,
   implementSurface,
@@ -191,7 +192,7 @@ export function deriveEvent<I, F, T>(
  *  `inMemoryCell` store and a `connect` hook that subscribes upstream. Matches
  *  the no-patch branch of `CellImplDeps`. */
 export interface DerivedCellDeps<T> {
-  store: { get(): T; set(value: T): void };
+  store: CellStore<T>;
   connect: (cell: { set: (next: T) => void }) => void;
 }
 
@@ -248,12 +249,9 @@ export function deriveCell<F, T>(
   const isAbort = (err: unknown): boolean =>
     isAbortReason(err, controller.signal);
   return {
-    // `inMemoryCell` satisfies the `{ get, set }` store shape via
-    // `current()` / `set()`; adapt the names the cell store interface uses.
-    store: {
-      get: () => store.current(),
-      set: (v) => store.set(v),
-    },
+    // `inMemoryCell` satisfies `CellStore<T>` directly (its `get`/`set`),
+    // so hand its store straight through — no rename adapter.
+    store,
     connect: (cell) => {
       // Fire-and-forget subscribe loop. The framework calls `connect` once,
       // after the cell ctx is wired, handing us its setter — every mapped
