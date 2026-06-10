@@ -95,16 +95,21 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
 ): Promise<{ server: Server; close: () => Promise<void> }> {
   const resolved = resolveExpose(opts.surface.spec, opts.expose);
   const bespoke = opts.tools ?? {};
-  // Resolve each bespoke tool to a record carrying its `wrapped` flag alongside
-  // the tool — the same way `ToolEntry` carries `wrapped` for exposed
-  // procedures — so dispatch reads one shape rather than a side Map. A
-  // scalar/array/union input is advertised wrapped under `value` (computed once
-  // here; `z.toJSONSchema` per call would be wasteful), so dispatch must unwrap
-  // `args.value` before parsing.
-  const bespokeTools = new Map<string, { tool: BespokeTool; wrapped: boolean }>(
+  // Resolve each bespoke tool to a record carrying its computed `inputSchema`
+  // result alongside the tool — the same way `ToolEntry` carries its schema for
+  // exposed procedures — so both tools/list and dispatch read one shape. The
+  // `inputSchema(t.input)` pass (zod→JSON-Schema + dereference) runs once here:
+  // `tools/list` reads `schema`, and dispatch reads `wrapped` (a scalar/array/
+  // union input is advertised wrapped under `value`, so dispatch unwraps
+  // `args.value` before parsing). Computing it per request would re-run the full
+  // pass each time.
+  const bespokeTools = new Map<
+    string,
+    { tool: BespokeTool; schema: Record<string, unknown>; wrapped: boolean }
+  >(
     Object.entries(bespoke).map(([name, t]) => [
       name,
-      { tool: t, wrapped: bespokeWrapped(t) },
+      { tool: t, ...inputSchema(t.input) },
     ]),
   );
 
@@ -234,13 +239,13 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
         inputSchema: t.inputSchema,
         annotations: { readOnlyHint: !t.mutates, destructiveHint: t.mutates },
       })),
-      ...Object.entries(bespoke).map(([name, t]) => ({
+      ...[...bespokeTools].map(([name, { tool, schema }]) => ({
         name,
-        description: t.description,
-        inputSchema: toolInputSchema(t),
+        description: tool.description,
+        inputSchema: schema,
         annotations: {
-          readOnlyHint: !(t.mutates ?? false),
-          destructiveHint: t.mutates ?? false,
+          readOnlyHint: !(tool.mutates ?? false),
+          destructiveHint: tool.mutates ?? false,
         },
       })),
     ],
@@ -571,17 +576,6 @@ async function firstFrame(source: unknown): Promise<unknown> {
     return frame;
   }
   return null;
-}
-
-/** Compute a bespoke tool's `inputSchema` from its optional zod input. */
-function toolInputSchema(tool: BespokeTool): Record<string, unknown> {
-  return inputSchema(tool.input).schema;
-}
-
-/** Whether a bespoke tool's input was wrapped under `value` (a non-object
- *  scalar/array/union). The dispatcher unwraps `args.value` before parsing. */
-function bespokeWrapped(tool: BespokeTool): boolean {
-  return inputSchema(tool.input).wrapped;
 }
 
 /** Undo the `enforceObject` wrapping before handing args to a procedure/tool's
