@@ -46,6 +46,7 @@ let
       ./packages/shared
       ./packages/terminal-themes
       ./packages/memorable-names
+      ./packages/terminal-protocol
       ./packages/pty-host
       ./packages/pty-tui
       ./packages/server
@@ -70,7 +71,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-CL9BUWyv7HY2jhDeDxU1X+jELrUJ9NNMGEk0ASof5i8=";
+    hash = "sha256-XnYnIyYCJPkEzWLFIVlWMLXmv6u/WQKelgTfbIY0ChY=";
     fetcherVersion = 3;
   };
 
@@ -88,12 +89,20 @@ let
   # contract's reachable closure by packages/pty-host/src/buildId.closure.test.ts
   # — keep the fileFilter and that test in lockstep.
   ptyHostSrc = pkgs.lib.fileset.toSource {
-    root = ./packages/pty-host;
+    root = ./packages;
     fileset = pkgs.lib.fileset.unions [
       (pkgs.lib.fileset.fileFilter
         (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name)
         ./packages/pty-host/src)
       ./packages/pty-host/package.json
+      # @kolu/terminal-protocol is wire/behaviour the pty-host serves (the
+      # device-query forward/drop policy + the suppression grammars), reached
+      # from the runtime closure — so it is hashed too, or a protocol change
+      # would escape the staleKey.
+      (pkgs.lib.fileset.fileFilter
+        (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name)
+        ./packages/terminal-protocol/src)
+      ./packages/terminal-protocol/package.json
     ];
   };
 

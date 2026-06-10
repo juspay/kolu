@@ -26,6 +26,7 @@
 
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "kolu-shared";
 import * as pty from "node-pty";
 import { Channel } from "./channel.ts";
@@ -495,7 +496,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // synchronously at startup and block until they receive a DCS reply. The
     // headless xterm has no built-in handler, so without this it never answers
     // — and the browser xterm's reply is filtered out as a late duplicate
-    // (see terminalResponseFilter.ts). Answer here so the PTY is never blocked.
+    // (see @kolu/terminal-protocol responseFilter). Answer here so the PTY is
+    // never blocked.
     entry.disposables.push(
       headless.parser.registerCsiHandler(
         { prefix: ">", final: "q" },
@@ -514,12 +516,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // Forward device-query responses (DA1/DSR) from the headless terminal
     // back to the PTY. TUIs like Yazi probe terminal capabilities at
     // startup — the headless terminal answers immediately, avoiding a
-    // round trip to a (possibly absent) client. Filter OSC responses
-    // (e.g. OSC 10/11/12 color queries) — programs don't consume these, so
-    // the shell would echo them as visible garbage.
+    // round trip to a (possibly absent) client. The forward/drop policy
+    // (CSI/DCS forward; OSC drop — nothing consumes a headless OSC answer,
+    // and a cooked tty echoes it as visible garbage) is shared protocol,
+    // owned by @kolu/terminal-protocol beside the client-side suppression
+    // it reciprocates.
     entry.disposables.push(
       headless.onData((response: string) => {
-        if (response.startsWith("\x1b]")) return;
+        if (!shouldForwardHeadlessReply(response)) return;
         proc.write(response);
       }),
     );

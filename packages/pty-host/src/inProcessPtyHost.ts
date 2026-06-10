@@ -70,12 +70,25 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   const host = createPtyHost({ log });
   const startedAt = Date.now();
 
+  // The id-existence policy, owned once: a missing PTY is a clean NOT_FOUND
+  // (not `requireEntry`'s opaque internal error). kolu-tui's attach re-attach
+  // loop leans on this shape — NOT_FOUND reads as "the PTY is gone" (vs a
+  // dropped stream) and falls through to the exit tombstone for the real code.
+  // Handlers below compose this rather than each re-deriving it (`exit` alone
+  // opts out — see its comment).
+  const requirePty = (id: PtyId): void => {
+    if (!host.has(id)) {
+      throw new ORPCError("NOT_FOUND", { message: `no PTY with id ${id}` });
+    }
+  };
+
   return implementSurface(ptyHostSurface, {
     channel: inMemoryChannelByName(),
     streams: {
       // Per-terminal output — snapshot then live deltas (streaming.md §2).
       terminalAttach: {
         source: async function* (input, signal) {
+          requirePty(input.id as PtyId);
           const att = host.attach(input.id, signal);
           yield { kind: "snapshot" as const, data: att.snapshot };
           for await (const data of att.deltas) {
@@ -85,6 +98,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       cwd: {
         source: async function* (input, signal) {
+          requirePty(input.id as PtyId);
           for await (const cwd of host.subscribeCwd(input.id, signal)) {
             yield { cwd };
           }
@@ -92,6 +106,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       title: {
         source: async function* (input, signal) {
+          requirePty(input.id as PtyId);
           for await (const title of host.subscribeTitle(input.id, signal)) {
             yield { title };
           }
@@ -99,6 +114,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       commandRun: {
         source: async function* (input, signal) {
+          requirePty(input.id as PtyId);
           for await (const command of host.subscribeCommandRun(
             input.id,
             signal,
@@ -112,6 +128,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // snapshot is harmless: the consumer's reconcile is idempotent).
       foreground: {
         source: async function* (input, signal) {
+          requirePty(input.id as PtyId);
           const sub = host.subscribeForeground(input.id, signal);
           yield {
             process: host.getProcess(input.id) ?? "",
@@ -122,7 +139,9 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       // Natural exit — yields the exit code once, then ends. The signal aborts
       // the host-side waiter on teardown (a kill aborts this before the kill
-      // RPC, so an intentional kill never yields here).
+      // RPC, so an intentional kill never yields here). Deliberately NOT
+      // guarded by `requirePty`: dead ids are this stream's legitimate input —
+      // kolu-tui fetches the exit tombstone AFTER the PTY is gone.
       exit: {
         source: async function* (input, signal) {
           try {
@@ -221,19 +240,11 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           // Throw on a missing PTY rather than return "" — an empty string is
           // a legitimate screen state (a PTY that hasn't drawn yet), so
           // masking a divergence as a blank terminal would hide a real bug.
-          if (!host.has(input.id)) {
-            throw new ORPCError("NOT_FOUND", {
-              message: `no PTY with id ${input.id}`,
-            });
-          }
+          requirePty(input.id as PtyId);
           return { data: host.getScreenState(input.id) };
         },
         getScreenText: async ({ input }) => {
-          if (!host.has(input.id)) {
-            throw new ORPCError("NOT_FOUND", {
-              message: `no PTY with id ${input.id}`,
-            });
-          }
+          requirePty(input.id as PtyId);
           return {
             text: host.getScreenText(
               input.id,

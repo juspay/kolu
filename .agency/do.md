@@ -16,7 +16,7 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 ## CI command
 
-Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, live introspection). The runner is **odu** ([github.com/juspay/odu](https://github.com/juspay/odu), npins-pinned and re-exported as `nix run .#odu`), which replaced justci — same status contexts, same per-SHA logs, same flag table. Two Kolu-specific operational notes layered on top of it:
+**Drive CI through the odu MCP server — it is the single front door.** The runner is **odu** ([github.com/juspay/odu](https://github.com/juspay/odu), npins-pinned and re-exported as `nix run .#odu`), which replaced justci — same status contexts, same per-SHA logs, same flag table. Start and watch a run with the MCP tools, not a shell wrapper: `mcp__odu__run` (spawns the background coordinator), `mcp__odu__wait_for_settle` (block until settle / first red node), `mcp__odu__tail_log` / `mcp__odu__get_nodes` (drill into a failure), `mcp__odu__rerun_node` (close a red check). Use the `/ci` skill for the underlying runner mechanics (subcommands, flags, modes, the socket surface). Two Kolu-specific operational notes layered on top of it:
 
 > **Banned flags: never pass `--no-post`, `--no-strict`, or `--no-snapshot`.** CI on this repo is **always strict and always posts** GitHub commit statuses. A run that doesn't post statuses doesn't update the PR's checks — so it isn't CI, it's a private dry-run that leaves the PR looking unverified. Every CI invocation here (PR runs *and* the master pool-warming runs below) runs strict and posts. If you catch yourself reaching for an opt-out flag to "avoid disturbing the checks," that's exactly the run the PR needs.
 
@@ -24,33 +24,39 @@ Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, live in
 
 **Darwin build host: `rasam`, not `sincereintent`.** The `aarch64-darwin` lane runs on **`rasam`** (Apple Silicon `T6020`, 24 cores, 128 GB, macOS 15.5) — the hosts entry (`$ODU_HOSTS` → `~/.config/odu/hosts.json` → fallback `~/.config/justci/hosts.json`) is `"aarch64-darwin": "nix-infra@rasam.tail12b27.ts.net"`. (The old `sincereintent` box is retired for kolu CI; if you see it in stale docs or an old hosts file, switch it to `rasam`.)
 
-**Linux build host: a leased pool box per run.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. [`ci/pu/run.sh`](../ci/pu/run.sh) wraps the whole odu invocation: it leases an idle pool box, pins the linux lane to it with `--host`, and releases on exit. Just call it with the PR number and your `odu run` args:
+**Linux build host: a leased pool box per run.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. Since the MCP owns the run, the lease can no longer wrap it; [`ci/pu/lease.sh`](../ci/pu/lease.sh) holds the box as a **separate background process** and you pass its box pin to `mcp__odu__run`. The four-step flow:
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
-ci/pu/run.sh "$pr" --progress json     # lease idle kolu-ci-N → run linux lane on it → release; cold-create then hosts.json fallback
-ci/pu/report.sh "$pr"                   # after the run: post a PR comment — which box ran CI, timings, pool status
+
+# 1) Acquire + HOLD a box in the background (Bash run_in_background). It writes
+#    .ci/pu-lease.env and prints PU_LEASE_HOST=x86_64-linux=<box> (empty on the
+#    saturated → cold-ephemeral → hosts.json fallback), then blocks holding it.
+ci/pu/lease.sh acquire "$pr"            # ← run this in the background
+
+# 2) Read the pin and start the run THROUGH the MCP, pinning the linux lane.
+host=$(. .ci/pu-lease.env; echo "$PU_LEASE_HOST")
+#    mcp__odu__run  hosts=["$host"]     (omit hosts entirely when $host is empty)
+#    mcp__odu__wait_for_settle          (then tail_log / rerun_node as needed)
+
+# 3) Release the box (frees the flock; or just stop the backgrounded task).
+ci/pu/lease.sh release
+
+# 4) Post the metrics comment — which box ran CI, per-recipe timings, pool status.
+ci/pu/report.sh "$pr"
 ```
 
-(`run.sh` wraps `nix run .#odu -- run --host x86_64-linux=<box> …`; override the runner flakeref with `KOLU_CI_RUNNER` only for debugging the wrapper itself.)
+The lease auto-releases even on a hard crash: stop the backgrounded `acquire` (or end the session) and its open fd dies → the box's `flock` frees within seconds (a `read -t TTL` half-open backstop and a `MAX_HOLD` leak backstop cover the rest). An empty `PU_LEASE_HOST` means the pool was saturated/unreachable and `lease.sh` either took a cold ephemeral box (recorded in `.ci/pu-lease.env`) or left it to `hosts.json` — either way call `mcp__odu__run` with **no** `hosts` pin.
 
-[`ci/pu/report.sh`](../ci/pu/report.sh) reads the sidecar `ci/pu/run.sh` leaves in `.ci/pu-run.env` (leased box, commit, verdict, wall) plus odu's per-node timing sidecar (`.ci/<sha7>/timings.jsonl`, durations straight from odu's state cell — it falls back to a legacy justci `.ci/pc.log` only when that's absent), and posts a metrics comment so every run records *which* pool box served it, how long each recipe took, and the live pool status. Run it once the lane finishes (it's cheap; safe to skip if `pu` is unavailable).
+[`ci/pu/report.sh`](../ci/pu/report.sh) reads the sidecar `ci/pu/lease.sh` leaves in `.ci/pu-lease.env` (leased box, commit) plus odu's per-node timing sidecar (`.ci/<sha7>/timings.jsonl`, durations straight from odu's state cell — and the lane verdict, since there's no wrapper exit to read; it falls back to a legacy justci `.ci/pc.log` only when that's absent), and posts a metrics comment so every run records *which* pool box served it, how long each recipe took, and the live pool status. Run it once the lane finishes (it's cheap; safe to skip if `pu` is unavailable).
 
-A warm leased box keeps `ci::nix` ~20s (vs ~180s on a cold box re-realising the closure) and, pulling nothing from the substituter, never triggers the concurrent-load contention that stalls cold boxes when several PRs run at once (juspay/kolu#1173). The wrapper forwards odu's stdout (so the `--progress json` stream below works unchanged) and falls back — saturated/unreachable pool → cold ephemeral `pu create` → `hosts.json` — so CI is never blocked. Box lifecycle is the [`pu`](../.apm/skills/pu/SKILL.md) skill; runner mechanics are the [`ci`](../.apm/skills/ci/SKILL.md) skill.
+A warm leased box keeps `ci::nix` ~20s (vs ~180s on a cold box re-realising the closure) and, pulling nothing from the substituter, never triggers the concurrent-load contention that stalls cold boxes when several PRs run at once (juspay/kolu#1173). Box lifecycle is the [`pu`](../.apm/skills/pu/SKILL.md) skill; runner mechanics are the [`ci`](../.apm/skills/ci/SKILL.md) skill; the MCP face is the [`odu-mcp`](../.apm/skills/odu-mcp/SKILL.md) skill.
 
 *Why a lease, not a fork:* the lock lives on the box (`flock`) and is held over the ssh data channel, so it auto-releases the instant the run ends — even on a hard crash (verified). This replaces the old fork-a-golden-per-run model, whose `pu fork` was unreliable — non-deterministic cross-gateway placement left the forked box unreachable (juspay/kolu#1204). Measurements and the full rationale: [`docs/pu-box-ci-ralph-report.md`](../docs/pu-box-ci-ralph-report.md).
 
-**Keep the pool warm and healthy.** A pool box warms on its first real CI run and stays warm across leases. Bring the pool up to strength (and repair any missing/unhealthy slot) with `just ci::pool-ensure`; inspect with `just ci::pool-status`. Keep stores hot by periodically running the linux lane against `master` on idle slots (e.g. after a merge): `nix run .#odu -- run --platform x86_64-linux --host x86_64-linux=kolu-ci-<N>` (strict and posting, like every run here). (The old `kolu-ci-golden` fork template is retired — the pool boxes are themselves the warm hosts.)
+**Keep the pool warm and healthy.** A pool box warms on its first real CI run and stays warm across leases. Bring the pool up to strength (and repair any missing/unhealthy slot) with `just ci::pool-ensure`; inspect with `just ci::pool-status`. Keep stores hot by periodically running the linux lane against `master` on idle slots (e.g. after a merge) — `mcp__odu__run` with `platforms=["x86_64-linux"]` and `hosts=["x86_64-linux=kolu-ci-<N>"]` (strict and posting, like every run here; warming targets a specific idle box deliberately, so no lease is needed). (The old `kolu-ci-golden` fork template is retired — the pool boxes are themselves the warm hosts.)
 
-**Live failure surfacing — consume the `--progress json` stream.** The CI step runs in the background (the `/do` skill backgrounds it), and `--progress json` makes odu emit one NDJSON line to stdout per node transition, read straight off the run's state cell: `{node, recipe, platform, status, exit_code?, log}` with `status ∈ running|success|failed|skipped|errored` and namepath-form values (`"node":"ci::biome@x86_64-linux"`, `"log":".ci/<sha7>/x86_64-linux/ci::biome.log"`). **Don't wait for the run to finish, and don't poll `gh pr checks` in a loop.** Tail the backgrounded output and react the moment a node turns `failed`/`errored` — while sibling lanes are still running:
-
-```sh
-# Against the backgrounded CI output (the /do skill's task output file):
-grep -o '{.*}' "$ci_output" | jq -c 'select(.status=="failed" or .status=="errored")'
-# → {"node":"ci::biome@x86_64-linux","recipe":"ci::biome","platform":"x86_64-linux","status":"failed","exit_code":1,"log":".ci/<sha7>/x86_64-linux/ci::biome.log"}
-```
-
-The instant such a line appears, read its `log` path to diagnose — the failing recipe's full output is already on disk before the other lanes finish. You can also attach to the live run from another terminal: `nix run .#odu -- status` / `logs -f <node>` / `attach` speak to the coordinator's socket at `.ci/odu.sock`. Begin the fix → fmt → commit → retry-CI loop as soon as you have a confirmed failure; you needn't let the rest of the pipeline drain first. (`gh pr checks` / `nix run .#odu -- protect --dry-run` remain the source of truth for the *final* green-gate below — the stream is for reacting fast, the checks are for confirming done.) A node `errored` (as opposed to `failed`) means infrastructure death — a lane's ssh link dropped or the coordinator was interrupted; rerun those rather than hunting for a test bug.
+**Live failure surfacing — fail fast on the MCP, don't drain the pipeline.** `mcp__odu__wait_for_settle` returns the instant a node goes red (`fail_fast` defaults true) with `{settled, passed, failed[], errored[]}` — so you learn about a failure while sibling lanes are still running. **Don't wait for the whole run to finish, and don't poll `gh pr checks` in a loop.** The moment `wait_for_settle` returns a non-empty `failed[]`/`errored[]`, drill in: `mcp__odu__get_nodes` for the per-node status + log paths, then `mcp__odu__tail_log` (or read the `.ci/<sha7>/x86_64-linux/<recipe>.log` path directly — the failing recipe's full output is already on disk). Begin the fix → fmt → commit → retry-CI loop as soon as you have a confirmed failure; you needn't let the rest of the pipeline drain first. (`gh pr checks` / `nix run .#odu -- protect --dry-run` remain the source of truth for the *final* green-gate below — the MCP is for reacting fast, the checks are for confirming done.) A node in `errored` (as opposed to `failed`) means infrastructure death — a lane's ssh link dropped or the coordinator was interrupted; `mcp__odu__rerun_node` those rather than hunting for a test bug.
 
 **`pu` misbehaves → log it on [juspay/kolu#1204](https://github.com/juspay/kolu/issues/1204) with full diagnostics.** Whenever `pu` fails to do its job — `create`/`fork` errors out, a box lands with no egress (`nix run` hangs on "Resolving timed out"), a fork lands cross-gateway and is unreachable, retries keep landing on dead hosts, or `connect`/`destroy` misbehaves — don't just silently fall back. **Post a comment on the central pu-issues log [#1204](https://github.com/juspay/kolu/issues/1204)** so the `pu`/Incus admin can read across sessions and fix the underlying host permanently instead of every run papering over it. **This applies in every session, not only `/do`** — any time `pu` misbehaves, drop a #1204 comment. Gather everything the admin needs to pin the bad physical host, then continue per the fallback above (a diagnostic comment must never block the run).
 
