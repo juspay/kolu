@@ -1,0 +1,119 @@
+---
+title: "@kolu/surface/mcp — every surface an MCP server, honestly scoped"
+description: A generic adapter that re-exposes any @kolu/surface spec to an MCP host. The 1:1 primitive→tool map is the demo; the real package is the subscribe/teardown lifecycle, the zod→JSON-Schema bridge, and the tool-selection/authz gate. Grounded in odu's hand-built mcp face — the validated, and partial, prior art.
+kind: feature
+status: proposed
+maturity: seedling
+updated: 2026-06-10
+parents: [mini-ci-vs-justci, electricity]
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import D2 from "../../components/D2.astro";
+
+*Plan of record for <Issue n={982} label="@kolu/surface: expose any stdio-served surface as an MCP server" />. The issue's framing — "the framework is one adapter away from *every Kolu surface is also an MCP server*" — is true and worth building. This note argues for **scoping it to the part that's actually a framework primitive**, because we already shipped the rest by hand and learned exactly where the seam is.* <Pill variant="new">grounded in odu's shipped mcp face</Pill>
+
+<Callout kind="accent">
+The 1:1 map — every cell a resource, every procedure a tool — is a **morning's work and the partly-*wrong* 80%**. The agent-useful tools aren't procedures; the dangerous procedure must not be a tool; and the real engineering is the subscribe/unsubscribe teardown, the zod→JSON-Schema bridge, and the stdout-is-the-protocol discipline. Lead `@kolu/surface/mcp` with the **lifecycle spine + the selection/authz gate**; the auto-map is the demo, not the product.
+</Callout>
+
+The strongest evidence isn't speculative — **it already exists, built by hand.** odu's `odu mcp` face (<PrLink pr={3} repo="juspay/odu" />, consumed in kolu <PrLink pr={1258} />) is exactly this adapter: it re-exposes the `oduSurface` to Claude Code / Codex / opencode / Gemini CLI as MCP tools and resources. So the core correspondence is **validated, not hoped for** — and shipping it taught us which 20% is the framework and which 80% is the consumer's. This note is that lesson, turned into a scope.
+
+<D2
+  caption="Where the seam falls. The adapter sits between a surface — in either of two shapes — and an MCP host. The generic spine (mapping + subscribe/teardown lifecycle + zod→JSON-Schema + stdout discipline) is the framework primitive worth extracting. The selection/authz gate above it is NOT free: it's per-surface curation the consumer must write, and it's exactly what keeps the dangerous procedure off the wire."
+  code={`
+direction: down
+
+src: "a @kolu/surface — two shapes" {
+  fresh: "fresh spec + handlers — the notes demo (implementSurface)"
+  live: "a running served surface — odu's .ci/odu.sock (a link)"
+}
+
+adapter: "@kolu/surface/mcp — proposed" {
+  gate: "consumer curation — NOT free" {
+    sel: "@mcp-tool / @mcp-resource selection"
+    guard: "guards · observer-vs-mutator authz"
+  }
+  spine: "generic spine — the electricity" {
+    map: "primitive -> resource / tool"
+    life: "subscribe/unsubscribe teardown · generation-token · notify"
+    zod: "zod -> JSON-Schema"
+    out: "stdout-is-the-protocol discipline"
+  }
+}
+
+host: "MCP host — Claude Code · Codex · opencode · Gemini CLI"
+
+src -> adapter: "serve fresh  OR  bridge live"
+adapter -> host: "tools · resources · notifications/* over stdio"
+`}
+/>
+
+## The map is a morning; the selection is the project
+
+The wire shapes line up cleanly — that part of the issue is right:
+
+| `@kolu/surface` primitive | MCP shape | Auto-mappable? |
+| --- | --- | --- |
+| **Cell** (singleton value) | resource + `resources/subscribe` → `notifications/resources/updated` | clean |
+| **Collection** (keyed map) | resource list + per-key resource | clean-ish (key→URI encoding) |
+| **Stream** (derived, input-driven) | resource snapshot **or** notification | needs intent — pull vs push |
+| **Event** (occurrences, no snapshot) | notification | clean |
+| **Procedure** (imperative verb) | tool | **unsafe to auto-map** |
+
+So a literal "every cell→resource, every procedure→tool" adapter is real, and it's a demo. The trouble is what it produces. Look at what `odu mcp` actually exposes versus the `oduSurface` it wraps:
+
+| `odu mcp` tool | backing primitive | what it really is |
+| --- | --- | --- |
+| `get_nodes` | `nodes` cell | projection — a snapshot + a computed `red` verdict bit |
+| `tail_log` | `nodeLog` stream | **composition** — live stream snapshot *or* the durable per-SHA file, with a path-traversal guard |
+| `rerun_node` | `node.rerun` procedure | the **only** 1:1 tool |
+| `wait_for_settle` | `nodes` cell (streamed) | **composition** — blocking wait with fail-fast + cancellation + half-observed-run safety |
+| `run` | *none* | **composition** — spawns the coordinator, polls the socket up |
+
+Five tools; **one** is a procedure mapped 1:1. The four valuable ones are hand-authored projections and compositions. And the surface's *other* procedure — `run.configure`, lane-only and dangerous — is **deliberately not a tool at all** (it lives on the `laneSurface` the coordinator never re-exposes). "Every procedure is a tool" would have shipped the one dangerous verb and missed the four good ones.
+
+<Callout kind="warn" title="The annotation the issue lists as an open question is the project">
+#982 asks "which primitives map cleanly, and which need an explicit `@mcp-resource` / `@mcp-tool` annotation?" — and files it under *open questions*. It's not a detail; it **is the package**. The default must be *deny*: nothing reaches an agent until the surface author opts it in (and says whether a stream is pull-a-snapshot or push-notifications, and whether a tool mutates). Auto-expose is the demo's convenience and a production foot-gun. The curation layer — selection + guards — is the part a generic package makes *safe and ergonomic*; it is not the part it makes *disappear*.
+</Callout>
+
+## The hard part is lifecycle, not mapping
+
+If the mapping is a morning, the lifecycle is the month — and it's the part that's genuinely *generic*, so it's the strongest candidate for the package. In odu, the bulk of `src/mcp/` (~1550 lines, not "one file") isn't the five tool bodies; it's `ResourcePusher` — the thing that makes `resources/subscribe` correct under teardown.
+
+The subtle bug it dodges is an `ERR_STREAM_DESTROYED` race: when the last subscriber leaves (or the run ends), aborting each per-resource stream controller races the oRPC cancel-send against the socket close. odu's fix is a **detach-without-abort + generation-token** dance — bump a generation counter *before* disposing, close the whole attachment so the transport tears every stream at once, and have each in-flight stream loop check `gen !== this.generation` so it knows it was torn down (versus ended because the run settled) and doesn't reschedule a retry. Per-stream abort is reserved for the one case where a *single* resource unsubscribes while the socket stays open for others. Getting that right generically — plus debounced `notifications/resources/updated`, a bounded retry while subscribers wait for a not-yet-live surface, and clean EOF vs error teardown — is where a shared package earns its test burden. **Nobody should hand-write this twice.**
+
+Two more pieces of the spine are concrete, generic, and currently missing:
+
+- **zod → JSON-Schema.** Surface descriptors carry their schemas as `ZodType` (every `descriptor.schema` / `.inputSchema` / `.outputSchema`); MCP tool inputs are JSON Schema. There is **no converter in-repo today** — odu side-steps it by validating tool inputs with its own zod and never re-deriving from the surface. A generic adapter can't side-step it: turning a spec's zod into MCP tool schemas is real work the package must own (and the seam where the SDK's zod version and the surface's zod version can drift — name it).
+- **The stdout discipline, already solved upstream.** `serveOverStdio` (shipped in `peer-server.ts`, the R-1.5 work #982 builds on) already owns base64+newline framing and the "stdout *is* the protocol channel — redirect `console.log` to stderr" invariant that MCP-over-stdio needs identically. The adapter should **compose with it, not re-own the transport.** That answers the issue's third open question directly: don't own stdio, sit on `serveOverStdio`.
+
+## Two shapes: serve a spec, or bridge a live surface
+
+The issue quietly conflates two different adapters, and the package should name them apart:
+
+1. **Serve a spec fresh** — wrap a `defineSurface` spec, supply its handlers via `implementSurface`, and serve *that* over stdio as an MCP server. This is the notes-app demo #982 calls for (`pnpm notes-mcp`): the MCP server *is* the surface's backend.
+2. **Bridge a live surface** — be a **client** that dials an already-running served surface and re-projects it. This is odu: `odu mcp` predetermines no host, dials `.ci/odu.sock` on every call, reads a snapshot or opens a stream, detaches. The MCP server owns no domain state; it's a face on a server that already exists.
+
+These have different ownership (backend vs. client), different lifecycles (process-local vs. attach/reconnect), and different failure modes (handler bug vs. socket drop). A serve-a-spec adapter can't express odu; a bridge adapter can't express the notes demo without a server to dial. The package should pick **bridge-a-live-surface as the primary shape** (it's the one with a real consumer and the harder lifecycle) and offer serve-fresh as the thin composition `implementSurface` + the bridge already imply.
+
+## The authz boundary every adapter inherits
+
+"Every surface is an MCP server" means **every exposed procedure is RCE for whoever is connected.** That is *fine* under odu's model — single operator, same ssh trust as the CLI, `run.configure` simply not on the wire — and it is **load-bearing the moment this enables multi-client exposure.** The read-observer-versus-mutator boundary the browser PWA face would also force (catalogued as latent in [the odu note](./mini-ci-vs-justci.html)) is the same boundary here, arriving earlier: an MCP host is an untrusted-ish caller by default.
+
+So the curation gate isn't only about *usefulness* (surface the four good tools), it's about *safety* (keep the dangerous verb off, and mark which tools mutate). A generic adapter must make "this tool mutates / this resource is read-only" a first-class, default-deny annotation — not a comment. This is why the gate sits *above* the spine in the diagram: the spine makes the wire correct; the gate decides what's allowed onto it.
+
+## Does it graduate? — the electricity test, applied honestly
+
+[Electricity](./electricity.html) is the bar for a `@kolu/*` extraction: ① domain-agnostic, ② hides a *hard* volatility, ③ graduates — a *different* consumer plugs in, proven not aspired.
+
+- **① domain-agnostic — yes.** The spine maps *any* spec; no CI/notes/terminal vocabulary leaks into it.
+- **② hard volatility — yes, and it's the right one.** Not "a tidy generic module" (the leaf trap the electricity note warns about) — it hides the MCP **subscribe/teardown lifecycle**, the notification framing, the zod→JSON-Schema bridge, and the stdout-is-protocol discipline. That's transport-and-protocol volatility, the receptacle kind.
+- **③ graduates — yes, but *partially*, and that's the honest scope.** odu's `odu mcp` is a real first consumer; the notes demo is the second. But here's the graduation test stated precisely: **can odu's `src/mcp/*` refactor *onto* the package?** Our bet is that the *spine* subsumes (the `ResourcePusher` lifecycle, the resource wiring, the schema bridge — odu deletes those), while the *curation* stays hand-written (the `run`/`wait_for_settle`/`tail_log` compositions, the path-traversal and 64 KB bounded-read guards, the fail-fast verdict). That's not a failure of the test — it's the test telling us the boundary. The package is the spine; the curation was never going to be free.
+
+<Callout kind="good" title="The recommendation, in one line">
+Ship #982 — but scope it to the **lifecycle spine + the default-deny selection/authz gate + composition with `serveOverStdio`**, with the notes-app demo as the falsifiability proof and odu's partial migration as the graduation receipt. Resist "every surface is an MCP server *for free*"; the honest pitch is "every surface is an MCP server *without re-writing the subscribe-teardown dance, the schema bridge, or the stdout discipline* — you still curate and guard what's exposed." That's a smaller promise and a true one.
+</Callout>
