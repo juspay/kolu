@@ -6,6 +6,13 @@
       "command": [
         ".agents/skills/nix-chrome-devtools-mcp/bin/serve"
       ]
+    },
+    "odu": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        ".agents/skills/odu-mcp/bin/serve"
+      ]
     }
   }
 }

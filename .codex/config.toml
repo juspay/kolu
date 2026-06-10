@@ -3,4 +3,11 @@ command = ".agents/skills/nix-chrome-devtools-mcp/bin/serve"
 args = []
 id = ""
 
+[mcp_servers.odu]
+command = ".agents/skills/odu-mcp/bin/serve"
+args = []
+id = ""
+
 [mcp_servers.chrome-devtools.env]
+
+[mcp_servers.odu.env]

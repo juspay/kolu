@@ -1,6 +1,6 @@
 ---
 name: be
-description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a parallel AI review gauntlet (codex debate ∥ lens debate (lowy ⇄ hickey) ∥ code-police, one editor + read-only reviewers, then an apply pass) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
+description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a serial AI review gauntlet (codex debate → lens debate (lowy ⇄ hickey) → simplify → code-police, each editing the branch in turn) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
 argument-hint: "<issue-url | prompt>"
 ---
 
@@ -48,19 +48,21 @@ Run **check** and **fmt**, then commit (conventional message) and push the featu
 
 ## 4. Review gauntlet
 
-Run **`/be-review`** (Skill tool) — it runs the three reviewers **in parallel**
-with one editor: `/codex-debate` edits the branch (its per-round commits are the
-debate), while `/lens-debate --no-apply` and the code-police passes review a
-pinned snapshot read-only and return change requests; a final apply pass
-re-validates each request against the post-codex tree, implements the survivors,
-and commits each individually. Each track leaves a PR comment.
+Run **`/be-review`** (Skill tool) — it runs four reviewers **serially**, each the
+sole editor while it runs: `/codex-debate` (its per-round commits are the debate),
+then `/lens-debate` applying the agreed fixes, then `/simplify`, then code-police.
+Each step reads a clean tree (the previous step has committed) and applies its own
+fixes directly — no snapshot, no apply pass. be-review pushes once at the end and
+*then* posts the PR comments (codex, lens, and a code-police summary), so no
+comment advertises a local-only commit.
 
 - Pass `base` and the change **`rationale`** (so the lenses don't flag deliberate
   decisions). Preflight is a non-empty diff and (since codex runs) `codex login
   status`.
-- Codex's rounds commit `fix(…)` directly on the branch; the apply pass commits
-  `fix(lens):` / `fix(police):` for the surviving change requests. Confirm the
-  three PR comments landed.
+- Codex's rounds commit `fix(…)`; lens-debate commits its agreed fixes; simplify
+  and code-police commit `refactor:` / `fix(police):`. Confirm the post-push PR
+  comments landed: codex, lens, and — when the police track ran — the code-police
+  summary.
 - On an **unresolved** lens finding, adjudicate it yourself before moving on.
 
 ## 5. Ship — CI and evidence in parallel

@@ -375,8 +375,34 @@ Neither change touches coverage (same 440 scenarios) or app behaviour.
 | recent-PR baseline | degraded + pile-up | 6 | **41–60 min** | green (retry-absorbed) |
 | post-fix, quiet | mediaanalysisd dead, no vira build | 6 | **9m18s** | 440/440, first attempt |
 | post-fix, contended | live vira GHC build (load 8–11) | 5 (auto) | **11m24s** | 440/440, first attempt |
+| post-fix + host healed | fseventsd restarted, Spotlight off, mediaanalysisd contained | 6 | **3m28s** | 440/440, first attempt |
 
 The contended run is the telling one: under the same external load class that
 used to produce 33-min cucumber phases, the load-aware sizing held the lane to
-~11 min. fseventsd was still wedged during both runs — the admin runbook above
-is unrealized upside.
+~11 min.
+
+The admin runbook was then executed with sudo (same day): Spotlight disabled
+(`mdutil -a -i off`), the wedged fseventsd killed (fresh instance: 18 MB RSS /
+0% CPU vs 64 GB / 100%; ~90 GB RAM returned to the system), and — since SIP
+blocks `bootout` and FileVault rules out a remote reboot (the host would park
+at the unlock screen) — mediaanalysisd contained by a root LaunchDaemon
+(`/Library/LaunchDaemons/net.kolu.ci.kill-mediaanalysisd.plist`, pkill every
+300 s; delete it after the next console login makes the per-user
+`launchctl disable` stick). The healed-host lane time, **3m28s**, matches the
+original report's clean-host numbers scaled to today's 440 scenarios.
+
+One pre-existing bug was caught and fixed during this pass (juspay/kolu#1261).
+**Provenance correction**: the cap clamp bug did *not* originate in #1259 as
+this section earlier claimed — `git log -S 'par=cap'` shows it shipped in
+**#1223 (2026-06-07)**, where the literal `par=8` was refactored to a
+per-platform cap and `par=cap` (missing `$`) was written instead of `par=$cap`.
+#1259's rewrite faithfully preserved the typo. Consequence: from Jun 7 to Jun
+10, `CUCUMBER_PARALLEL` was the literal string `"cap"` on every CI host whose
+computed worker count exceeded its cap — i.e. all of them, both platforms —
+and `cucumber.js` `parseInt`→`NaN` silently *dropped* the `parallel` option:
+**the whole suite ran serial while green**. The baseline lane log confirms it
+(run `06f4d12`: `33m10s wall ≈ 33m07s executing-steps` — the serial
+signature), as does the linux lane (`7m35s ≈ 7m33s`; after the fix: 1m29s at
+workers=8). Under load, #1259's free-core formula happened to produce numeric
+(≤ cap) counts, which is why the 9–13 min sick-host runs were genuinely
+parallel. The recipe now fails loud on any non-numeric worker count.
