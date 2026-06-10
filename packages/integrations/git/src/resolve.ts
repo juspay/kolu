@@ -58,11 +58,19 @@ async function resolveRemoteUrl(
   try {
     const raw = (await git.raw(["remote", "get-url", "origin"])).trim();
     return raw ? stripRemoteCredentials(raw) : null;
-  } catch (err) {
-    log?.debug(
-      { err: err instanceof Error ? err.message : String(err) },
-      "git: remote get-url failed (no origin remote or git error)",
-    );
+  } catch (e) {
+    // `catch (e)`, not `catch (err)` — the sibling `resolveGitInfo` catch does
+    // the same, and `err` is the Result constructor imported from ./errors.ts.
+    const message = e instanceof Error ? e.message : String(e);
+    // "no origin remote" is the expected case — log at debug. Any other git
+    // failure (a broken repo, a hung subprocess) still degrades gracefully to
+    // the default-adapter dispatch, so it's a warn, not an error, but it
+    // shouldn't hide silently as if there were simply no remote.
+    if (/no such remote|no.*remote|origin/i.test(message)) {
+      log?.debug({ err: message }, "git: no origin remote");
+    } else {
+      log?.warn({ err: message }, "git: remote get-url failed");
+    }
     return null;
   }
 }
