@@ -58,7 +58,10 @@ police summary. No PR comment can reference a local-only commit.
 ## Run the steps in order
 
 `--tracks codex,lens,simplify,police` selects which steps run (default all four),
-in the listed order. Run each to completion, then move to the next.
+in the listed order. Run each to completion, then move to the next. Preflight
+already ran `git fetch origin` and resolved the base, so pass `MB` straight into
+each step and **skip the per-skill step-1 fetch / base resolution** — don't redo
+it once per step.
 
 1. **codex** — follow `/codex-debate` (Skill tool). `repoPath` = the live
    worktree, `base` = `MB`, **`--no-comment`** (so it doesn't advertise its
@@ -109,8 +112,8 @@ in the listed order. Run each to completion, then move to the next.
    the default ref. **Apply** the fixes it surfaces, committing each
    `fix(police): <title>` with the finding in the message (stage only the files
    changed). Its elegance pass re-running `/simplify` over an already-simplified
-   tree (step 3) is harmless — `/simplify` is idempotent on settled code and
-   simply reports no changes — so let it run rather than ask code-police to skip a
+   tree (step 3) is harmless — on a settled tree `/simplify` typically reports no
+   changes — so let it run rather than ask code-police to skip a
    pass its contract has no flag for.
 
 ## Push, then comment
@@ -136,11 +139,9 @@ First settle whether there is anything to push: `git log --oneline $START..HEAD`
 **Never merge** — pushing updates the open PR; the human reviews the commits and
 merges when satisfied.
 
-When you do post, send the codex body, the lens body (`gh pr comment -F`,
-verbatim), and the police summary below. This is the invariant from "Run the
-steps": a comment that names a commit SHA is posted only once that SHA is on the
-remote — which holds in both the "pushed" and the "nothing new to push" cases
-above.
+When you do post, post **one comment per track that ran** — skip any track
+`--tracks` excluded, since it has no captured body: the codex body and the lens
+body verbatim (`gh pr comment -F`), and the police summary below.
 
 ## Report
 
