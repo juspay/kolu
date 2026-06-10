@@ -44,6 +44,12 @@ import {
 export { composeSurfaceContracts };
 import type { Cell, Collection, Event, Stream } from "./index";
 
+// `projectSurface` and its derive helpers are server-side (they import
+// `implementSurface` from here), so they live in `./project` and are imported
+// from the dedicated `@kolu/surface/project` subpath — the canonical import for
+// adapter authors. They are intentionally NOT re-exported here: `./project`
+// imports `./server`, so re-exporting it back would form an import cycle.
+
 // ── Persistence + pub/sub interfaces ───────────────────────────────────
 
 /** Persistence interface for a Cell or Collection's storage backend. */
