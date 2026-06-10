@@ -46,13 +46,14 @@ import { type BespokeTool, fail, ok, type ToolResult } from "./tools";
  *  concrete client is `ContractRouterClient<typeof surface.contract>` (what
  *  `directLink` / the wire links return) — `.surface.<key>.<verb>(...)`.
  *
- *  Declared locally (not imported) because `@orpc/contract` is not a direct
- *  dependency of this sibling package, and `projectSurface`'s public
- *  `SurfaceClientOf<S>` export isn't available yet. INTEGRATOR NOTE: when
- *  `@kolu/surface` exports `SurfaceClientOf<S>`, swap this alias for it. The
- *  structural shape below is intentionally permissive so a concrete
- *  `ContractRouterClient` assigns to it without a cast. */
-export type SurfaceClientOf<_S extends SurfaceSpec> = {
+ *  Declared locally rather than reusing `@kolu/surface`'s `SurfaceClientLike`
+ *  because dispatch string-indexes then *calls* the leaves
+ *  (`client.surface[key].get(...)`), which `SurfaceClientLike`'s `unknown`
+ *  leaves forbid; and re-materializing the precise `SurfaceClientOf<S>` here
+ *  overflows TS's union budget (the TS2590 dodge — cf. compose.test.ts:70-73).
+ *  Hence a callable-leaved structural shape: permissive enough that a concrete
+ *  `ContractRouterClient` assigns without a cast, yet callable at the leaf. */
+export type SurfaceClientCallable = {
   // biome-ignore lint/suspicious/noExplicitAny: the per-key call shape is the consumer's typed client; opaque here.
   surface: Record<string, Record<string, (...args: any[]) => any>>;
 };
@@ -62,9 +63,9 @@ export type SurfaceClientOf<_S extends SurfaceSpec> = {
  *  `{ client, dispose }` (the bridge case — `unixSocketLink` opens a socket it
  *  owns, so `dispose()` must close it). The adapter normalizes both, disposes
  *  every connection it opens on teardown, and re-dials after a drop. */
-export type ClientOrConnection<S extends SurfaceSpec> =
-  | SurfaceClientOf<S>
-  | { client: SurfaceClientOf<S>; dispose: () => void };
+export type ClientOrConnection<_S extends SurfaceSpec> =
+  | SurfaceClientCallable
+  | { client: SurfaceClientCallable; dispose: () => void };
 
 export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
   surface: Surface<S>;
@@ -110,7 +111,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // bare-client (in-process `directLink`) case gets a no-op disposer; the
   // `{ client, dispose }` (bridge) case keeps its socket-closing disposer.
   const dial = async (): Promise<{
-    client: SurfaceClientOf<S>;
+    client: SurfaceClientCallable;
     dispose: () => void;
   }> => {
     const result = await opts.client();
@@ -122,7 +123,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     ) {
       return result;
     }
-    return { client: result as SurfaceClientOf<S>, dispose: () => {} };
+    return { client: result as SurfaceClientCallable, dispose: () => {} };
   };
 
   // ── A single shared connection for reads + bespoke tools ───────────────
@@ -132,9 +133,11 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // bridge case's factory may open a socket each time). On a read/tool
   // failure (which a transport drop manifests as) we reset it so the NEXT
   // call re-dials a fresh connection rather than reusing a dead socket.
-  let sharedConn: { client: SurfaceClientOf<S>; dispose: () => void } | null =
-    null;
-  const getClient = async (): Promise<SurfaceClientOf<S>> => {
+  let sharedConn: {
+    client: SurfaceClientCallable;
+    dispose: () => void;
+  } | null = null;
+  const getClient = async (): Promise<SurfaceClientCallable> => {
     if (sharedConn === null) sharedConn = await dial();
     return sharedConn.client;
   };
@@ -159,7 +162,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // hook can close the socket it opened — without this the bridge case leaks a
   // socket on every detach.
   const pusherDisposers = new WeakMap<object, () => void>();
-  const pusher = new ResourcePusher<SurfaceClientOf<S>>({
+  const pusher = new ResourcePusher<SurfaceClientCallable>({
     notify: (uri) => {
       void server.sendResourceUpdated({ uri });
     },
@@ -425,7 +428,7 @@ interface ResolvedCall {
  *  `.get({ key })`, where `key` is the URI's `<id>` segment decoded through the
  *  collection's key schema (so a `z.number()` key addresses item `42`, not
  *  `"42"`). */
-function resolveCall<Client extends SurfaceClientOf<SurfaceSpec>>(
+function resolveCall<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,
@@ -486,7 +489,7 @@ function decodeKey(keySchema: ZodType, id: string): unknown {
 
 /** Open the streaming source for a subscribed URI (the pusher's `StreamFor`).
  *  Returns `undefined` for a URI that doesn't resolve so the pusher drops it. */
-function streamForUri<Client extends SurfaceClientOf<SurfaceSpec>>(
+function streamForUri<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,
@@ -512,7 +515,7 @@ interface Snapshot {
  *  an event reads as an immediate explicit `null` — its live value is the
  *  `notifications/resources/updated` stream, delivered via `resources/subscribe`,
  *  not a readable snapshot. */
-async function readSnapshot<Client extends SurfaceClientOf<SurfaceSpec>>(
+async function readSnapshot<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,

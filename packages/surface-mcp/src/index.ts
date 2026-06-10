@@ -21,7 +21,6 @@ export {
 export { toInputSchema } from "./jsonschema";
 export {
   type ServeSurfaceAsMcpOptions,
-  type SurfaceClientOf,
   serveSurfaceAsMcp,
 } from "./server";
 export type { BespokeTool, ToolResult } from "./tools";

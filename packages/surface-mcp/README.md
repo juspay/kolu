@@ -82,7 +82,7 @@ The cleanest way to decide *what an agent may touch* is to expose a **curated se
 - `serveSurfaceAsMcp(opts) → Promise<{ server, close }>` — `opts: { surface, client, expose, tools?, serverInfo?, transport? }`. `transport` defaults to a `StdioServerTransport`; inject an in-memory transport half for tests.
 - `toInputSchema(schema?) → JSON Schema` — `z.toJSONSchema` (draft 2020-12, `io:"input"`, `unrepresentable:"any"`) plus a `$ref`-dereference pass and top-level-object enforcement, so the emitted schema works across MCP clients that don't follow `$ref`.
 - `resolveExpose(spec, expose) → { resources, resourceTemplates, tools }` — the default-deny resolver (exported for tooling/tests).
-- types: `ExposeMap`, `BespokeTool`, `ToolResult`, `ServeSurfaceAsMcpOptions`, `SurfaceClientOf`.
+- types: `ExposeMap`, `BespokeTool`, `ToolResult`, `ServeSurfaceAsMcpOptions`.
 
 ## Design
 
