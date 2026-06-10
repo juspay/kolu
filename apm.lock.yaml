@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-10T13:04:03.732194+00:00'
+generated_at: '2026-06-10T16:52:17.938081+00:00'
 apm_version: 0.18.0
 dependencies:
 - repo_url: anthropics/skills
@@ -22,14 +22,14 @@ dependencies:
   content_hash: sha256:51308bd8cc8b6ae24781a77b67a7c8140bdea5d793e35427e7b8fcbeb0662074
 - repo_url: juspay/odu
   host: github.com
-  resolved_commit: aa0af7cf389682acbd8cf007db6dd50f14aa4ce4
+  resolved_commit: 7fa40f32b42d9e85d0ef07ace009dc0f6744d36d
   package_type: apm_package
   deployed_files:
   - .agents/skills/ci
   - .agents/skills/odu-mcp
   - .claude/skills/ci
   - .claude/skills/odu-mcp
-  content_hash: sha256:9b4b9b0d4bc73f5e0466659353742a6d8b6d8ddf2d62d4a81e146df0afc69ec2
+  content_hash: sha256:4b3dbfd892aa13e1da2383bd3c242fabb44e983684fce62ba3243c686ac8f4ba
 - repo_url: juspay/project-unknown
   host: github.com
   resolved_commit: 27c4973ae3837eaa54b0439faa5346a3320ac379

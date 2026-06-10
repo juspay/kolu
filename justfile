@@ -157,8 +157,12 @@ test: install
     free=$(( cores - ${load:-0} ))
     par=$(( free / 3 ))
     if (( par < 4 )); then par=4; fi
-    if (( par > cap )); then par=cap; fi
+    if (( par > cap )); then par=$cap; fi
     par="${CUCUMBER_PARALLEL:-$par}"
+    # Fail loud on a non-numeric worker count: cucumber.js drops a NaN
+    # `parallel` silently and runs the whole suite SERIAL — a ~5x slowdown
+    # that looks green (this exact bug shipped as the literal string "cap").
+    case "$par" in *[!0-9]*|'') echo "e2e: invalid worker count '$par'" >&2; exit 1;; esac
     echo "e2e: workers=$par (cores=$cores load=$load cap=$cap)"
     # No `pnpm install` here: the `install` dep (and, in CI, the ci::install
     # node) already installed the whole workspace, packages/tests included. A
