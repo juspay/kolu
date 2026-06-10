@@ -11,29 +11,8 @@
 export { detectForge, parseRemoteHost } from "./detect.ts";
 export type { ForgeKind, PrGitContext, PrProvider } from "./provider.ts";
 export { type PrWatcher, subscribePr } from "./subscribe.ts";
-export type {
-  CheckRun,
-  CheckStatus,
-  GhUnavailableCode,
-  PrInfo,
-  PrResult,
-  PrState,
-  PrUnavailableSource,
-} from "./schemas.ts";
-export {
-  CheckRunSchema,
-  CheckStatusSchema,
-  GhUnavailableCodeSchema,
-  GhUnavailableSchema,
-  PrInfoSchema,
-  PrResultSchema,
-  PrStateSchema,
-  PrUnavailableSourceSchema,
-  prLabel,
-  prResultEqual,
-  prUnavailableReason,
-  prUnavailableSource,
-  prValue,
-  reasonForGhCode,
-  reasonForSource,
-} from "./schemas.ts";
+// The wire vocabulary is the whole point of ./schemas.ts — re-export it
+// wholesale rather than hand-maintaining a list that drifts every time a
+// schema or helper is added. (./detect, ./provider, ./subscribe stay
+// explicit: they're the node-side surface, not at drift risk.)
+export * from "./schemas.ts";
