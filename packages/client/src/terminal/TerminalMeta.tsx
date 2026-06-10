@@ -12,7 +12,7 @@
  *  The mobile pull-handle has its own one-row layout — see
  *  `TerminalMetaCompact`. */
 
-import { prUnavailableSource, prValue } from "kolu-github/schemas";
+import { prUnavailableSource, prValue } from "anyforge/schemas";
 import { type Component, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
 import { agentBucket } from "../canvas/dockModel";

@@ -7,7 +7,7 @@
  *
  *  Provider DAG:
  *
- *    cwd:<id>          ─►  git watcher           ─►  github PR watcher
+ *    cwd:<id>          ─►  git watcher           ─►  PR watcher
  *                                                    (lives on m.pr)
  *    title:<id>        ─►  process observer      (lives on m.foreground)
  *    title/cwd/cmd     ─►  agent detector ×3     (lives on m.agent)
@@ -18,7 +18,7 @@
  *  activity-feed notifications (`trackRecentRepo` / `trackRecentAgent`)
  *  are optional so non-parent hosts can opt out.
  *
- *  Note on `git` channel: the GitHub PR provider chains off the
+ *  Note on `git` channel: the PR provider chains off the
  *  `git` channel that the git provider publishes — so the channel
  *  has to be provided by the host (the agent creates a per-terminal
  *  in-memory channel for it).
@@ -45,11 +45,17 @@ import type {
   AgentWatcher,
 } from "anyagent";
 import { agentInfoEqual, parseAgentCommand } from "anyagent";
+import {
+  detectForge,
+  type ForgeKind,
+  type PrProvider,
+  subscribePr,
+} from "anyforge";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
-import { subscribeGitHubPr } from "kolu-github";
+import { githubPrProvider } from "kolu-github";
 import type {
   AgentInfo,
   LiveTerminalFields,
@@ -245,35 +251,56 @@ function startGitProvider(
   };
 }
 
-// ── GitHub PR watcher ─────────────────────────────────────────────────
+// ── PR watcher ────────────────────────────────────────────────────────
 
-function startGitHubPrProvider(
+/** Forge-adapter registry: `detectForge` picks the kind, this map picks
+ *  the adapter. The Forgejo entry lands in kolu#1240 phase 1; until then
+ *  a detected-but-unregistered kind falls back to the github adapter —
+ *  gh refuses non-GitHub remotes with a silent `absent` (see
+ *  `classifyGhError`), which is exactly the pre-registry behavior. */
+const prProviders = new Map<ForgeKind, PrProvider>([
+  ["github", githubPrProvider],
+]);
+
+function startPrProvider(
   record: ProviderRecord,
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
 ): () => void {
-  const plog = log.child({ provider: "github-pr", terminal: terminalId });
+  const plog = log.child({ provider: "pr", terminal: terminalId });
   plog.debug("started");
-  const watcher = subscribeGitHubPr((pr) => {
-    hooks.updateServerLiveMetadata(record, (m) => {
-      m.pr = pr;
-    });
-    plog.debug(
-      pr.kind === "ok"
-        ? {
-            pr: pr.value.number,
-            title: pr.value.title,
-            state: pr.value.state,
-            checks: pr.value.checks,
-          }
-        : { pr: pr.kind },
-      "pr info updated",
-    );
-  }, plog);
+  const watcher = subscribePr(
+    (git) => prProviders.get(detectForge(git.remoteUrl)) ?? githubPrProvider,
+    (pr) => {
+      hooks.updateServerLiveMetadata(record, (m) => {
+        m.pr = pr;
+      });
+      plog.debug(
+        pr.kind === "ok"
+          ? {
+              pr: pr.value.number,
+              title: pr.value.title,
+              state: pr.value.state,
+              checks: pr.value.checks,
+            }
+          : { pr: pr.kind },
+        "pr info updated",
+      );
+    },
+    plog,
+  );
   const cleanup = channels.git.consume({
     onEvent: (git) =>
-      watcher.setGit(git?.repoRoot ?? null, git?.branch ?? null),
+      watcher.setGit(
+        git
+          ? {
+              repoRoot: git.repoRoot,
+              branch: git.branch,
+              remoteUrl: git.remoteUrl,
+            }
+          : null,
+      ),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
   return () => {
@@ -729,12 +756,7 @@ export function startProviders(
     hooks,
   );
   const stopGit = startGitProvider(record, terminalId, channels, hooks);
-  const stopGitHubPr = startGitHubPrProvider(
-    record,
-    terminalId,
-    channels,
-    hooks,
-  );
+  const stopPr = startPrProvider(record, terminalId, channels, hooks);
   const stopClaude = startAgentProvider(
     claudeCodeProvider,
     record,
@@ -760,7 +782,7 @@ export function startProviders(
   return () => {
     stopAgentCommand();
     stopGit();
-    stopGitHubPr();
+    stopPr();
     stopClaude();
     stopCodex();
     stopOpenCode();

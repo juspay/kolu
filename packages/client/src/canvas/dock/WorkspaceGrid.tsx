@@ -14,7 +14,7 @@
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
-import { prValue } from "kolu-github/schemas";
+import { prValue } from "anyforge/schemas";
 import {
   type Component,
   createEffect,

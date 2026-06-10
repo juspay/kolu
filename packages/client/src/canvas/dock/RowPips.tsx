@@ -44,7 +44,7 @@
  *  noun for the file). */
 
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import { type GitHubPrInfo, prValue } from "kolu-github/schemas";
+import { type PrInfo, prValue } from "anyforge/schemas";
 import { type Component, createMemo, Match, Show, Switch } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
@@ -76,7 +76,7 @@ export function createDockRowData(
  *  layout (typically a flex container alongside the subline text).
  *  Renders nothing when there's no PR. */
 export const PrPip: Component<{ meta: TerminalMetadata }> = (props) => {
-  const pr = (): GitHubPrInfo | null => prValue(props.meta.pr);
+  const pr = (): PrInfo | null => prValue(props.meta.pr);
   return (
     <Show when={pr()}>
       {(p) => (

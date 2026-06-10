@@ -13,7 +13,7 @@
  *
  * Raw oRPC procedure I/O schemas (`TerminalCreateInputSchema`,
  * `ServerInfoSchema`, …) live in `./contract` next to the contract literal
- * that consumes them. External integration schemas (kolu-git, kolu-github,
+ * that consumes them. External integration schemas (kolu-git, anyforge,
  * kolu-claude-code, …) re-export from `./integrations`.
  *
  * The surface produces the `surface.*` portion of the contract. Raw oRPC
@@ -45,7 +45,7 @@ import {
   GitStatusInputSchema,
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
-import { PrResultSchema } from "kolu-github/schemas";
+import { PrResultSchema } from "anyforge/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
 import { z } from "zod";
 

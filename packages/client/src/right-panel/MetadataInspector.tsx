@@ -2,7 +2,7 @@
  *  Pure rendering: receives metadata, renders sections. */
 
 import type { TerminalMetadata } from "kolu-common/surface";
-import { prUnavailableSource, prValue } from "kolu-github/schemas";
+import { prUnavailableSource, prValue } from "anyforge/schemas";
 import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import ChecksIndicator from "../terminal/ChecksIndicator";

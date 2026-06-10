@@ -3,7 +3,7 @@
  *  Lives in its own module so `kolu-common` (and any client code) can import
  *  the schema without pulling the package root, which transitively evaluates
  *  `@anthropic-ai/claude-agent-sdk` and its `node:crypto` / `node:events`
- *  imports. Mirrors the `kolu-github/schemas` precedent. See juspay/kolu#682.
+ *  imports. Mirrors the `anyforge/schemas` precedent. See juspay/kolu#682.
  *
  *  Anything exported here MUST stay free of `node:*` imports, SDK imports,
  *  and filesystem access — zod and `anyagent`'s schema re-exports only. */

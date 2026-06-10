@@ -76,6 +76,7 @@ export function migrateLegacyTerminal_1_18_0(
         worktreePath: kept.cwd,
         isWorktree: false,
         mainRepoRoot: kept.cwd,
+        remoteUrl: null,
       },
     };
   }

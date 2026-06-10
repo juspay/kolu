@@ -34,7 +34,7 @@ import type {
   TerminalClientMetadata,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { prUnavailableReason, prValue } from "kolu-github/schemas";
+import { prUnavailableReason, prValue } from "anyforge/schemas";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";

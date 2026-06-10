@@ -349,6 +349,7 @@ describe("gitInfoEqual", () => {
     branch: "main",
     isWorktree: false,
     mainRepoRoot: "/home/user/repo",
+    remoteUrl: null,
   };
 
   it("returns true for identical references", () => {
@@ -373,6 +374,7 @@ describe("gitInfoEqual", () => {
     { field: "repoRoot", value: "/other" },
     { field: "branch", value: "develop" },
     { field: "worktreePath", value: "/other" },
+    { field: "remoteUrl", value: "https://github.com/other/repo.git" },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(gitInfoEqual(info, { ...info, [field]: value })).toBe(false);
   });

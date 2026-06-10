@@ -15,7 +15,7 @@ import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
-import { prValue } from "kolu-github/schemas";
+import { prValue } from "anyforge/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";

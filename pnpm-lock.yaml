@@ -179,15 +179,15 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
+      anyforge:
+        specifier: workspace:*
+        version: link:../integrations/anyforge
       kolu-common:
         specifier: workspace:*
         version: link:../common
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
-      kolu-github:
-        specifier: workspace:*
-        version: link:../integrations/github
       tailwindcss:
         specifier: ^4.1.0
         version: 4.2.2
@@ -221,6 +221,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
+      anyforge:
+        specifier: workspace:*
+        version: link:../integrations/anyforge
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -230,9 +233,6 @@ importers:
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
-      kolu-github:
-        specifier: workspace:*
-        version: link:../integrations/github
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
@@ -273,6 +273,28 @@ importers:
       string-argv:
         specifier: ^0.3.2
         version: 0.3.2
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/integrations/anyforge:
+    dependencies:
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -379,15 +401,15 @@ importers:
 
   packages/integrations/github:
     dependencies:
+      anyforge:
+        specifier: workspace:*
+        version: link:../anyforge
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -611,6 +633,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
+      anyforge:
+        specifier: workspace:*
+        version: link:../integrations/anyforge
       cleye:
         specifier: ^2.3.0
         version: 2.3.0

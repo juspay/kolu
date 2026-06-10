@@ -24,6 +24,24 @@ export function hasGitDir(cwd: string): boolean {
   }
 }
 
+/** Best-effort `origin` URL. Returns null when the repo has no `origin`
+ *  remote or the command fails — forge detection downstream treats null
+ *  as "dispatch to the default adapter" and stays quiet. */
+async function resolveRemoteUrl(
+  git: ReturnType<typeof simpleGit>,
+  log?: Logger,
+): Promise<string | null> {
+  try {
+    return (await git.raw(["remote", "get-url", "origin"])).trim() || null;
+  } catch (err) {
+    log?.debug(
+      { err: err instanceof Error ? err.message : String(err) },
+      "git: remote get-url failed (no origin remote or git error)",
+    );
+    return null;
+  }
+}
+
 /** Resolve git context for a directory. Returns an error result if not in a
  *  git repo or if the git command fails. */
 export async function resolveGitInfo(
@@ -72,6 +90,7 @@ export async function resolveGitInfo(
         branch,
         isWorktree: false,
         mainRepoRoot: repoRoot,
+        remoteUrl: await resolveRemoteUrl(git, log),
       });
     }
     const repoRoot = (await git.revparse(["--show-toplevel"])).trim();
@@ -98,6 +117,7 @@ export async function resolveGitInfo(
       branch,
       isWorktree,
       mainRepoRoot,
+      remoteUrl: await resolveRemoteUrl(git, log),
     });
   } catch (e) {
     // Log so unexpected failures (permission errors, missing git binary)
@@ -120,7 +140,10 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
   return (
     a.repoRoot === b.repoRoot &&
     a.branch === b.branch &&
-    a.worktreePath === b.worktreePath
+    a.worktreePath === b.worktreePath &&
+    // A remote change re-triggers downstream consumers (the PR watcher
+    // dispatches per resolve on the remote's forge).
+    a.remoteUrl === b.remoteUrl
   );
 }
 
