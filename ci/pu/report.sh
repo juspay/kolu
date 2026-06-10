@@ -2,11 +2,14 @@
 # Post a CI-metrics comment to a PR: which pool box ran the linux lane, the
 # per-recipe + lane-wall timings, and the current pool status.
 #
-# Sources, all written by a normal `ci/pu/run.sh` invocation:
-#   .ci/pu-run.env          — PU_BOX / PU_SHA / PU_START / PU_END / PU_EXIT (sidecar)
+# Sources:
+#   .ci/pu-lease.env        — PU_BOX / PU_EPHEMERAL / PU_SHA (sidecar written by
+#                             ci/pu/lease.sh when it leases the box for the run)
 #   .ci/<sha7>/timings.jsonl — odu's per-node timing sidecar (one JSON line per
 #                             node: {node, recipe, platform, status, durationMs,
-#                             exitCode}); preferred source for per-recipe timing
+#                             exitCode}); source for per-recipe timing AND the
+#                             lane verdict (the run no longer goes through a
+#                             wrapper whose exit code we could read)
 #   .ci/pc.log              — legacy justci process-compose log; per-node
 #                             Started/Exited timestamps. Read only if odu's
 #                             sidecar is absent (so an old run still reports).
@@ -32,10 +35,10 @@ done
 POOL_SIZE="${KOLU_CI_POOL:-8}"
 POOL_PREFIX="${KOLU_CI_POOL_PREFIX:-kolu-ci-}"
 LOCK="${KOLU_CI_LOCK:-/tmp/kolu-ci.lease}"
-ENV_FILE="${KOLU_CI_RUN_ENV:-.ci/pu-run.env}"
+ENV_FILE="${KOLU_CI_LEASE_ENV:-.ci/pu-lease.env}"
 PCLOG="${KOLU_CI_PCLOG:-.ci/pc.log}"
 
-PU_BOX=""; PU_SHA=""; PU_START=""; PU_END=""; PU_EXIT=""; PU_EPHEMERAL=""
+PU_BOX=""; PU_SHA=""; PU_EPHEMERAL=""
 # shellcheck disable=SC1090
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 box="${box_override:-$PU_BOX}"
@@ -127,11 +130,26 @@ pool_status() {
   rm -rf "$tmp"
 }
 
+# Lane verdict from odu's per-node sidecar: the run is owned by the MCP server
+# now, not a wrapper whose exit code we could read, so PASS iff every node on the
+# lane finished exit 0. No rows (no timing yet) ⇒ unknown.
+lane_verdict() {
+  local plat="$1" node s e code seen=0 bad=0
+  while IFS=$'\t' read -r node s e code; do
+    [ -n "$node" ] || continue
+    seen=1; [ "${code:-1}" = 0 ] || bad=1
+  done < <(recipe_rows "$plat")
+  [ "$seen" = 0 ] && { echo unknown; return; }
+  [ "$bad" = 0 ] && echo pass || echo fail
+}
+
 # ── Build the comment ──
 loc="$(pu list 2>/dev/null | awk -F'|' -v b="$box" '{gsub(/^[ \t]+|[ \t]+$/,"",$2)} $2==b {gsub(/ /,"",$3); print $3; exit}')"
-[ "${PU_EXIT:-1}" = 0 ] && verdict="**exit 0** ✓" || verdict="**exit ${PU_EXIT:-?}** ✗"
-wrapper_wall=""; [ -n "$PU_START" ] && [ -n "$PU_END" ] && wrapper_wall="$(fmt_dur $((PU_END - PU_START)))"
-
+case "$(lane_verdict x86_64-linux)" in
+  pass) verdict="**passed** ✓" ;;
+  fail) verdict="**failed** ✗" ;;
+  *)    verdict="_verdict unknown (no per-node timing)_" ;;
+esac
 lane_md="$(lane_table x86_64-linux 3>/tmp/.lanewall.$$)"; lane_wall="$(cat /tmp/.lanewall.$$ 2>/dev/null)"; rm -f /tmp/.lanewall.$$
 
 {
@@ -146,7 +164,6 @@ lane_md="$(lane_table x86_64-linux 3>/tmp/.lanewall.$$)"; lane_wall="$(cat /tmp/
   echo "The **x86_64-linux** lane ran on $host_desc — commit \`${PU_SHA:-?}\`, $verdict"
   echo
   printf -- "- **Lane wall** (pipeline): **%s**\n" "$([ -n "$lane_wall" ] && fmt_dur "$lane_wall" || echo '?')"
-  [ -n "$wrapper_wall" ] && printf -- "- **Wrapper wall** (incl. lease + nix-run startup): %s\n" "$wrapper_wall"
   echo
   echo "$lane_md"
   echo
