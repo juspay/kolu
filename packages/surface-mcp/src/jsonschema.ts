@@ -155,8 +155,9 @@ function dereference(doc: JsonSchema): JsonSchema {
   return walk(doc, new Set()) ?? emptyObjectSchema();
 }
 
-/** Index every `$defs`/`definitions` entry by its JSON-pointer ref string
- *  (`#/$defs/Inner`), walking nested pools too. */
+/** Index every `$defs`/`definitions` entry at the document root by its
+ *  JSON-pointer ref string (`#/$defs/Inner`). zod 4 emits `$defs` only at
+ *  the root, so a single top-level pass is sufficient. */
 function collectDefs(doc: JsonSchema): Map<string, JsonSchema> {
   const out = new Map<string, JsonSchema>();
   const add = (poolKey: "$defs" | "definitions", node: JsonSchema): void => {

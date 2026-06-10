@@ -120,18 +120,8 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // procedures whose `<ns>_<verb>` collapse to one name, e.g. `a.b_c` / `a_b.c`,
   // or `a.b` exposed twice), proc-vs-bespoke, and bespoke-vs-bespoke — each
   // candidate tagged by its origin so the error names both colliding sources.
-  const toolSources: { name: string; source: string }[] = [
-    ...resolved.tools.map((t) => ({
-      name: t.name,
-      source: `procedure ${t.ns}.${t.verb}`,
-    })),
-    ...Object.keys(bespoke).map((name) => ({
-      name,
-      source: `bespoke ${name}`,
-    })),
-  ];
   const sourceByToolName = new Map<string, string>();
-  for (const { name, source } of toolSources) {
+  const assertUniqueToolName = (name: string, source: string): void => {
     const prior = sourceByToolName.get(name);
     if (prior !== undefined) {
       throw new Error(
@@ -139,7 +129,11 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       );
     }
     sourceByToolName.set(name, source);
-  }
+  };
+  for (const t of resolved.tools)
+    assertUniqueToolName(t.name, `procedure ${t.ns}.${t.verb}`);
+  for (const name of Object.keys(bespoke))
+    assertUniqueToolName(name, `bespoke ${name}`);
 
   const server = new Server(opts.serverInfo ?? DEFAULT_SERVER_INFO, {
     capabilities: { tools: {}, resources: { subscribe: true } },
@@ -218,7 +212,12 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   const pusherDisposers = new WeakMap<object, () => void>();
   const pusher = new ResourcePusher<SurfaceClientCallable>({
     notify: (uri) => {
-      void server.sendResourceUpdated({ uri });
+      server.sendResourceUpdated({ uri }).catch((err) => {
+        // Transport may already be closed (e.g. client disconnected between the
+        // delta arriving and the notification send). Swallow silently — the
+        // client is gone and can't receive the update anyway.
+        console.error("surface-mcp: sendResourceUpdated failed", err);
+      });
     },
     client: async () => {
       const conn = await dial();
@@ -498,19 +497,16 @@ function resolveCall<Client extends SurfaceClientCallable>(
 }
 
 /** Decode a collection item URI's string `<id>` segment into the collection's
- *  declared key type. The wire encoding is a single rule chosen by the key
- *  schema's type, not by trial-and-error: a **string-typed** key (`z.string()`,
- *  a string enum) decodes the segment verbatim; every **non-string** key
- *  decodes via `JSON.parse(id)` (so `"42"` → `42`, `"true"` → `true`). Either
- *  way the result is validated through `keySchema`, and a value that fails
- *  validation (or non-JSON text for a JSON key) returns `undefined`, so the
- *  caller treats it as an unaddressable item rather than calling `.get` with a
- *  wrong-typed key. */
+ *  declared key type. Always tries the segment verbatim first — this covers
+ *  `z.string()`, `z.literal("foo")`, `z.enum(["a","b"])`, and any other
+ *  string-accepting schema. If the verbatim parse fails, falls back to
+ *  `JSON.parse(id)` and re-validates — this covers numeric (`z.number()`) and
+ *  boolean keys whose URI encoding is their JSON form (`"42"` → `42`). A value
+ *  that fails both paths returns `undefined` so the caller treats it as an
+ *  unaddressable item rather than calling `.get` with a wrong-typed key. */
 function decodeKey(keySchema: ZodType, id: string): unknown {
-  if (isStringKey(keySchema)) {
-    const decoded = keySchema.safeParse(id);
-    return decoded.success ? decoded.data : undefined;
-  }
+  const direct = keySchema.safeParse(id);
+  if (direct.success) return direct.data;
   let parsed: unknown;
   try {
     parsed = JSON.parse(id);
@@ -519,13 +515,6 @@ function decodeKey(keySchema: ZodType, id: string): unknown {
   }
   const decoded = keySchema.safeParse(parsed);
   return decoded.success ? decoded.data : undefined;
-}
-
-/** Whether a key schema's type is string — i.e. it accepts a string but not a
- *  number. Drives the one canonical `<id>` wire encoding in `decodeKey`: a
- *  string key is addressed verbatim, every other key via its JSON form. */
-function isStringKey(keySchema: ZodType): boolean {
-  return keySchema.safeParse("").success && !keySchema.safeParse(0).success;
 }
 
 /** Open the streaming source for a subscribed URI (the pusher's `StreamFor`).

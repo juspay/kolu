@@ -246,8 +246,6 @@ export function deriveCell<F, T>(
     ((err: unknown) => {
       console.error("deriveCell: upstream subscription failed", err);
     });
-  const isAbort = (err: unknown): boolean =>
-    isAbortReason(err, controller.signal);
   return {
     // `inMemoryCell` satisfies `CellStore<T>` directly (its `get`/`set`),
     // so hand its store straight through — no rename adapter.
@@ -272,7 +270,7 @@ export function deriveCell<F, T>(
             cell.set(map(frame));
           }
         } catch (err) {
-          if (isAbort(err)) return;
+          if (isAbortReason(err, controller.signal)) return;
           onError(err);
         }
       })();
