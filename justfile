@@ -94,26 +94,71 @@ test: install
     # (silent EMFILE — no crash, just refused connections). Hard limit is
     # unlimited; this is free insurance on every platform.
     ulimit -n 65536 2>/dev/null || true
-    # Worker count scales with the host unless CUCUMBER_PARALLEL is set
-    # explicitly: ~1 worker per 3 cores, clamped to [4,cap]. The cap is 6 on
-    # darwin, 8 elsewhere. PAR=8 on the 24-core darwin host (rasam) maximizes
-    # throughput but its higher concurrent load pressures the slow-hydration
-    # tail — under load a handful of interaction waits (per-terminal Code-tab
-    # history enablement, content settle) intermittently miss their POLL budget
-    # and a scenario loses all its retries, which is fatal to a *consecutive*-
-    # green requirement. PAR=6 trades ~part of the speed win for markedly fewer
-    # load-correlated races (the report's PAR=6 hardened runs were 0/3
-    # catastrophic). Linux's watch/render stack is reliable, so it keeps 8.
-    # Past the cap the slowest-scenario tail dominates anyway (PAR=12 measured
-    # *slower* than PAR=8 on a 24-core host). See docs/ci-e2e-macos-ralph-report.md.
+    # Worker-count cap (the count itself is computed below, after the suite
+    # lock): 6 on darwin, 8 elsewhere. PAR=8 on the 24-core darwin host (rasam)
+    # maximizes throughput but its higher concurrent load pressures the
+    # slow-hydration tail — under load a handful of interaction waits
+    # (per-terminal Code-tab history enablement, content settle) intermittently
+    # miss their POLL budget and a scenario loses all its retries, which is
+    # fatal to a *consecutive*-green requirement. PAR=6 trades part of the
+    # speed win for markedly fewer load-correlated races (the report's PAR=6
+    # hardened runs were 0/3 catastrophic). Linux's watch/render stack is
+    # reliable, so it keeps 8. Past the cap the slowest-scenario tail dominates
+    # anyway (PAR=12 measured *slower* than PAR=8 on a 24-core host). See
+    # docs/ci-e2e-macos-ralph-report.md.
     cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
     cap=8; [ "$(uname)" = Darwin ] && cap=6
-    par=$(( cores / 3 ))
+    KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
+    cd packages/tests
+    # Serialize the cucumber phase across CI runs sharing this host. odu fans
+    # each PR's pipeline out independently, so several PRs' e2e lanes land on
+    # rasam concurrently (observed: 3 suites = 18 servers + 18 Chromiums on
+    # ~7 free cores; every lane took 41-60 min instead of one finishing in
+    # minutes). The koluBin build above stays outside the lock — Nix store
+    # locking already dedups concurrent builds. mkdir is the portable atomic
+    # primitive (no flock(1) on darwin); a dead owner pid means a crashed run,
+    # so the lock is stolen rather than waited on. After max-wait we proceed
+    # unlocked — degraded mode is exactly today's behavior, never a deadlock.
+    # KOLU_E2E_LOCK=0 opts out (e.g. deliberate side-by-side local runs).
+    lock=/tmp/kolu-e2e-suite.lock
+    if [ "${KOLU_E2E_LOCK:-1}" != 0 ]; then
+        deadline=$(( $(date +%s) + 3600 ))
+        until mkdir "$lock" 2>/dev/null; do
+            owner="$(cat "$lock/pid" 2>/dev/null || true)"
+            if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+                echo "e2e-lock: stealing lock from dead pid $owner"
+                rm -rf "$lock"
+                continue
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "e2e-lock: waited 60m on pid ${owner:-?}; proceeding unlocked"
+                lock=""
+                break
+            fi
+            echo "e2e-lock: another suite holds $lock (pid ${owner:-?}); waiting..."
+            sleep 15
+        done
+        if [ -n "$lock" ]; then
+            echo "$$" > "$lock/pid"
+            trap 'rm -rf "$lock"' EXIT
+        fi
+    fi
+    # Budget workers from *free* cores, not hardware cores — sampled AFTER the
+    # lock, so a queued run sizes itself from the load left once the previous
+    # suite is done, not from the load that suite was generating. The darwin CI
+    # host (rasam) is shared with vira's frequent multi-hour GHC builds (~16
+    # cores), so cores/3 sized for the hardware overcommits the leftover ~2x and the
+    # suite thrashes (33+ min vs ~3 min idle — see the 2026-06 follow-up in
+    # docs/ci-e2e-macos-ralph-report.md). Subtracting the 1-min load average is
+    # a no-op on an idle host ((24-~0)/3 still hits the cap) and degrades toward
+    # the floor only under real external load. Floor 4 = the setting CI ran
+    # stably on for months, never lower.
+    load="$(uptime | sed 's/.*load average[s]*: *//' | awk -F'[, ]' '{print int($1)}')"
+    free=$(( cores - ${load:-0} ))
+    par=$(( free / 3 ))
     if (( par < 4 )); then par=4; fi
     if (( par > cap )); then par=cap; fi
     par="${CUCUMBER_PARALLEL:-$par}"
-    KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
-    cd packages/tests
     # No `pnpm install` here: the `install` dep (and, in CI, the ci::install
     # node) already installed the whole workspace, packages/tests included. A
     # second `pnpm install` re-links the shared workspace `node_modules/.bin`,

@@ -306,3 +306,64 @@ trades part of the earlier PAR=8 throughput win for consecutive-green
 stability; the 10/10 streak ran while an unrelated `vira` service was pinning
 ~6 cores on rasam, so the suite stays green even under heavy external load (at
 the cost of wall-clock — runs were ~23–28 min each under that contention).
+
+---
+
+## Follow-up (2026-06-10): the 40–60 min lane — host degradation + cross-run pile-up
+
+By June 2026 every `ci::e2e@aarch64-darwin` status on recent PRs took **41–60
+minutes** (pending→success across PRs #1246–#1256), while the linux e2e lane
+ran the same 440 scenarios in ~8 min. Decomposition from the odu per-recipe log
+(`.ci/<sha>/aarch64-darwin/ci::e2e.log`, run `06f4d12`): `koluBin` build and
+install were trivial; **the cucumber phase itself ran 33m10s** — the suite is
+the cost, exactly as the original report found, but now ~10× its clean-host
+number. Two compounding causes, neither in the suite:
+
+### 1. rasam is degraded (host pathology)
+
+Inspection of the host (83 days uptime) found:
+
+| Process | Steady state | Impact |
+| --- | --- | --- |
+| `fseventsd` (root) | **~100% CPU, 64 GB RSS, even at idle** | a full core burned 24/7; half the 128 GB RAM held by a wedged daemon; and FSEvents is precisely the channel whose dropped events are the darwin flake class — an overloaded fseventsd makes the `CUCUMBER_RETRY` tail worse |
+| `mediaanalysisd-access` (nix-infra) | ~100% CPU for ~60 days of accumulated CPU; 4.9 GB RSS | runaway Photos/Syndication-library analysis loop on a CI bot account; killed + agent `launchctl disable`d during this investigation (it respawned idle at 0%) |
+| `mds_stores` (Spotlight) | up to ~86% CPU during builds | indexing nix-store/build churn |
+| `vira` (Juspay CI, same host) | frequent multi-hour GHC builds, ~16 cores each (`cores = 0` in nix.conf) | the dominant *intermittent* contention; legitimate co-tenant |
+
+**Admin runbook for rasam** (needs root; `nix-infra` has no sudo — only the
+mediaanalysisd item could be self-served):
+
+1. **Reboot the host** (or at minimum restart `fseventsd`): clears the 64 GB
+   fseventsd leak and its pegged core. Likely also shrinks the fs-event-drop
+   flake tail that forced `CUCUMBER_RETRY=2` and the PAR 8→6 cap.
+2. `sudo mdutil -a -i off` (or add `/nix` + the odu workspace parent to
+   Spotlight privacy): a CI box gains nothing from Spotlight.
+3. Keep `com.apple.mediaanalysisd` disabled for the `nix-infra` GUI session
+   (`launchctl disable gui/502/com.apple.mediaanalysisd` — already done); the
+   Photos/Syndication libraries under `~/Pictures` / `~/Library/Photos` are
+   TCC-protected and could not be moved over ssh.
+4. Consider capping vira's per-build cores (`cores = 12` in nix.conf or vira
+   config) — policy call for the euler team sharing the box.
+
+### 2. Concurrent PR pipelines pile onto one mac
+
+odu fans each PR's pipeline out independently; rasam is a single shared lane
+host. The status history shows up to **three e2e suites running concurrently**
+(PRs #1246/#1247/#1248 at ~16:00, #1249/#1250 at ~19:00) — 18 servers + 18
+Chromium instances on a host that vira + the pathologies above had already
+reduced to a handful of free cores. Every overlapped lane took 41–60 min.
+
+Two `justfile` changes land in the `test` recipe to absorb this structurally:
+
+- **Cross-run suite mutex**: the cucumber phase takes a host-level lock
+  (`/tmp/kolu-e2e-suite.lock`, mkdir-atomic, dead-pid steal, 60-min max-wait
+  then proceed-unlocked). Suites now queue instead of thrashing; the `koluBin`
+  nix build stays outside the lock (store locking already dedups it).
+  `KOLU_E2E_LOCK=0` opts out.
+- **Load-aware worker count**: `PAR = clamp((cores − loadavg1) / 3, 4, cap)`,
+  sampled *after* acquiring the lock. Idle hosts are unaffected (rasam still
+  resolves 6, laptops 4); under a concurrent vira GHC build the suite no longer
+  schedules 6 workers onto ~7 free cores — it degrades toward PAR=4, the
+  setting CI ran stably on for months.
+
+Neither change touches coverage (same 440 scenarios) or app behaviour.
