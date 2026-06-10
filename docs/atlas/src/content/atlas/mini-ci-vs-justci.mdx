@@ -148,7 +148,7 @@ Shipped in <PrLink pr={3} repo="juspay/odu" /> (through the full codex + lens + 
 // .mcp.json (proposed) — Claude Code; Codex, opencode & Gemini CLI take the same shape
 { "mcpServers": { "odu": {
   "type": "stdio", "command": "nix",
-  "args": ["run", "github:juspay/odu", "--", "mcp"] } } }
+  "args": ["run", ".#odu", "--", "mcp"] } } }
 ```
 
 <Terminal title="claude — CI over the odu MCP server" lines={[

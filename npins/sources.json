@@ -35,9 +35,9 @@
       },
       "branch": "agent-face-mcp",
       "submodules": false,
-      "revision": "2997b5b8b707d33d919cb8e971e41c8e1b54f557",
-      "url": "https://github.com/juspay/odu/archive/2997b5b8b707d33d919cb8e971e41c8e1b54f557.tar.gz",
-      "hash": "sha256-ID0MOsVYFJOGHXZQvUKSa9Xe9rriOa6ntMvUC4eEkso="
+      "revision": "30341310213649dd21bc8df715c98541a6776c36",
+      "url": "https://github.com/juspay/odu/archive/30341310213649dd21bc8df715c98541a6776c36.tar.gz",
+      "hash": "sha256-QjX6U3Wvm0UTMH9v7NiA5zseeF0AzZKLsoZ0UHPSZlI="
     }
   },
   "version": 7
