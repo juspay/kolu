@@ -13,6 +13,7 @@
  * actual tty — see `attach.test.ts`.
  */
 import { StringDecoder } from "node:string_decoder";
+import { SURFACE_STDIO_TRANSPORT_CLOSED } from "@kolu/surface/client";
 import { createTerminalResponseStripper } from "@kolu/terminal-protocol";
 import type { PtyTuiClient } from "./connect.ts";
 import { createEscapeScanner } from "./escape.ts";
@@ -66,7 +67,7 @@ function describeError(err: unknown): string {
   // socket death can surface) get the actionable copy; anything else prints
   // as-is.
   if (
-    errorCode(err) === "SURFACE_STDIO_TRANSPORT_CLOSED" ||
+    errorCode(err) === SURFACE_STDIO_TRANSPORT_CLOSED ||
     /transport is closed|ECONNRESET|EPIPE|socket/i.test(message)
   ) {
     return `kolu-server went away mid-attach (${message}) — re-run \`kolu-tui attach\` once it's back.`;
@@ -160,8 +161,9 @@ export async function runAttach(
     return { kind: "detached" };
   };
 
-  const onStdin = (chunk: Buffer | string): void => {
-    const raw = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8");
+  // `AttachTty.input` carries Buffer chunks by contract (no encoding set —
+  // the interface doc says so, and the byte machines below depend on it).
+  const onStdin = (chunk: Buffer): void => {
     // Reply strip — the passthrough makes the user's REAL terminal answer the
     // device queries riding in the snapshot/deltas (DA1, DSR, XTVERSION…), but
     // the headless mirror already answered them server-side. Forwarding the
@@ -172,9 +174,7 @@ export async function runAttach(
     // (boundary-aware, state across chunks) rather than the whole-chunk
     // predicate. Same response grammars, same client-suppressed ⇒
     // server-answered invariant.
-    const bytes = stripper.push(raw);
-    if (bytes.length === 0) return;
-    for (const ev of scanner.feed(bytes)) {
+    for (const ev of scanner.feed(stripper.push(chunk))) {
       if (ev.kind === "forward") {
         const data = decoder.write(ev.data);
         if (data !== "")

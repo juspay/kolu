@@ -195,13 +195,17 @@ export function createTerminalResponseStripper(): TerminalResponseStripper {
 
   // The isolated sequence is complete — decide its fate, then reset.
   const finishSequence = (): void => {
-    const bytes = Buffer.from(seq);
+    // latin1 is byte-exact for the all-ASCII response grammars; build the
+    // string straight from the byte values (no intermediate Buffer, and no
+    // fromCharCode spread — CSI sequences have no length cap, and a spread
+    // that large would blow the stack).
+    let text = "";
+    for (const b of seq) text += String.fromCharCode(b);
+    if (!isTerminalQueryResponse(text)) {
+      for (const b of seq) out.push(b);
+    }
     seq = [];
     pending = { kind: "none" };
-    // latin1 is byte-exact for the all-ASCII response grammars.
-    if (!isTerminalQueryResponse(bytes.toString("latin1"))) {
-      for (const b of bytes) out.push(b);
-    }
   };
 
   // A string sequence (OSC / DCS) that has outrun any legitimate reply without

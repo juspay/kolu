@@ -74,7 +74,8 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   // (not `requireEntry`'s opaque internal error). kolu-tui's attach re-attach
   // loop leans on this shape — NOT_FOUND reads as "the PTY is gone" (vs a
   // dropped stream) and falls through to the exit tombstone for the real code.
-  // The three handlers below compose this rather than each re-deriving it.
+  // Handlers below compose this rather than each re-deriving it (`exit` alone
+  // opts out — see its comment).
   const requirePty = (id: PtyId): void => {
     if (!host.has(id)) {
       throw new ORPCError("NOT_FOUND", { message: `no PTY with id ${id}` });
@@ -97,6 +98,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       cwd: {
         source: async function* (input, signal) {
+          requirePty(input.id as PtyId);
           for await (const cwd of host.subscribeCwd(input.id, signal)) {
             yield { cwd };
           }
@@ -104,6 +106,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       title: {
         source: async function* (input, signal) {
+          requirePty(input.id as PtyId);
           for await (const title of host.subscribeTitle(input.id, signal)) {
             yield { title };
           }
@@ -111,6 +114,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       commandRun: {
         source: async function* (input, signal) {
+          requirePty(input.id as PtyId);
           for await (const command of host.subscribeCommandRun(
             input.id,
             signal,
@@ -124,6 +128,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // snapshot is harmless: the consumer's reconcile is idempotent).
       foreground: {
         source: async function* (input, signal) {
+          requirePty(input.id as PtyId);
           const sub = host.subscribeForeground(input.id, signal);
           yield {
             process: host.getProcess(input.id) ?? "",
@@ -134,7 +139,9 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
       // Natural exit — yields the exit code once, then ends. The signal aborts
       // the host-side waiter on teardown (a kill aborts this before the kill
-      // RPC, so an intentional kill never yields here).
+      // RPC, so an intentional kill never yields here). Deliberately NOT
+      // guarded by `requirePty`: dead ids are this stream's legitimate input —
+      // kolu-tui fetches the exit tombstone AFTER the PTY is gone.
       exit: {
         source: async function* (input, signal) {
           try {

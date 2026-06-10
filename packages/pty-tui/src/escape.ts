@@ -48,6 +48,15 @@ export function isValidEscapeChar(s: string): boolean {
   return /^[\x20-\x7e]$/.test(s);
 }
 
+/** One step of the incremental marker matcher: the next match position after
+ *  seeing byte `b` at position `pos` of `marker`. A failed match can still be
+ *  the START of a fresh marker (e.g. the ESC after "\x1b\x1b["), so byte 0 is
+ *  re-checked rather than skipped. */
+const advanceMarker = (pos: number, marker: Buffer, b: number): number => {
+  if (b === marker[pos]) return pos + 1;
+  return b === marker[0] ? 1 : 0;
+};
+
 /** `escapeChar` MUST already be a single printable ASCII char — validate it at
  *  the CLI boundary with `isValidEscapeChar` (main.ts does). The byte machine
  *  assumes `escByte = escapeChar.charCodeAt(0)` is one byte. */
@@ -82,10 +91,7 @@ export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
       const forward = (b: number): void => {
         out.push(b);
         atLineStart = b === CR || b === LF;
-        startPos = b === PASTE_START[startPos] ? startPos + 1 : 0;
-        // A failed match can still be the START of a fresh marker (e.g. the
-        // ESC after "\x1b\x1b["); re-check byte 0 so the matcher never skips.
-        if (startPos === 0 && b === PASTE_START[0]) startPos = 1;
+        startPos = advanceMarker(startPos, PASTE_START, b);
         if (startPos === PASTE_START.length) {
           inPaste = true;
           startPos = 0;
@@ -95,8 +101,7 @@ export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
       for (const b of chunk) {
         if (inPaste) {
           out.push(b);
-          endPos = b === PASTE_END[endPos] ? endPos + 1 : 0;
-          if (endPos === 0 && b === PASTE_END[0]) endPos = 1;
+          endPos = advanceMarker(endPos, PASTE_END, b);
           if (endPos === PASTE_END.length) {
             inPaste = false;
             endPos = 0;
