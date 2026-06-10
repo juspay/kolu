@@ -5,6 +5,9 @@ const blog = defineCollection({
   loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/blog" }),
   schema: z.object({
     title: z.string(),
+    // An optional deck: one plain line under the title that decrypts an
+    // evocative headline into what the reader will actually learn.
+    subtitle: z.string().optional(),
     description: z.string(),
     pubDate: z.coerce.date(),
     updatedDate: z.coerce.date().optional(),

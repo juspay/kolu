@@ -165,9 +165,10 @@ export function subscribeGitInfo(
   }
 
   function install(mode: WatcherMode): () => void {
-    return mode === "head"
-      ? watchGitHead(currentCwd, handleWatcherEvent, log)
-      : watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
+    if (mode === "cwd") {
+      return watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
+    }
+    return watchGitHead(currentCwd, handleWatcherEvent, log);
   }
 
   function ensureMode(mode: WatcherMode): void {

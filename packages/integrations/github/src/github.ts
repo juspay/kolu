@@ -1,14 +1,10 @@
-/** Pure gh-CLI helpers — no I/O, no node-only APIs. The server's
- *  `meta/github.ts` adapter wraps these with process spawning and channel
- *  publisher wiring. */
+/** Pure gh-CLI helpers — no I/O, no node-only APIs. `resolve.ts` wraps
+ *  these with the `gh pr view` spawn; the wire shapes they produce live in
+ *  `anyforge/schemas`. */
 
+import type { CheckRun, PrInfo, PrResult } from "anyforge/schemas";
 import { match, P } from "ts-pattern";
-import type {
-  GitHubCheck,
-  GitHubPrInfo,
-  PrResult,
-  PrUnavailableSource,
-} from "./schemas.ts";
+import type { GhUnavailableCode, GhUnavailableSource } from "./schemas.ts";
 
 /**
  * Derive combined check status from GitHub's statusCheckRollup entries.
@@ -64,7 +60,7 @@ function classifyCheck(check: RollupEntry): CheckOutcome {
 
 export function deriveCheckStatus(
   rollup: RollupEntry[] | undefined,
-): GitHubPrInfo["checks"] {
+): PrInfo["checks"] {
   if (!rollup || rollup.length === 0) return null;
   // "fail" is terminal — short-circuit; "pending" is sticky until something fails.
   let worst: CheckOutcome = "pass";
@@ -83,9 +79,7 @@ export function deriveCheckStatus(
  *  Name preference: `CheckRun.name` for Actions/Apps; `StatusContext.context`
  *  for REST commit statuses; `?` as a last-resort fallback so the array
  *  shape stays uniform even if gh returns an entry missing both. */
-export function extractChecks(
-  rollup: RollupEntry[] | undefined,
-): GitHubCheck[] {
+export function extractChecks(rollup: RollupEntry[] | undefined): CheckRun[] {
   if (!rollup) return [];
   return rollup.map((c) => ({
     name:
@@ -111,7 +105,7 @@ export function extractChecks(
  *  fall through to `unknown` and the UI loses the actionable recovery copy.
  *  The parametrized table tests in `github.test.ts` pin the current strings;
  *  if gh bumps a major and they drift, those tests are the tripwire. */
-export function classifyGhError(err: unknown): PrResult {
+export function classifyGhError(err: unknown): PrResult<GhUnavailableSource> {
   const e = err as {
     code?: string | number;
     killed?: boolean;
@@ -119,8 +113,8 @@ export function classifyGhError(err: unknown): PrResult {
     stderr?: string;
   };
   const ghUnavailable = (
-    code: Extract<PrUnavailableSource, { provider: "gh" }>["code"],
-  ): PrResult => ({
+    code: GhUnavailableCode,
+  ): PrResult<GhUnavailableSource> => ({
     kind: "unavailable",
     source: { provider: "gh", code },
   });
@@ -132,8 +126,8 @@ export function classifyGhError(err: unknown): PrResult {
   const stderr = (e.stderr ?? "").toLowerCase();
   // Situations where a PR simply can't exist — same silent UI outcome as
   // "no PR on this branch", not a problem to warn about:
-  //  - a non-GitHub remote (Forgejo, GitLab, …): gh refuses before any API
-  //    call. Match the "known GitHub host" refusal specifically, NOT the
+  //  - a non-GitHub remote (another forge, GitLab, …): gh refuses before
+  //    any API call. Match the "known GitHub host" refusal specifically, NOT the
   //    bare "none of the git remotes" prefix — gh's remoteResolver emits a
   //    second message with that same prefix ("…correspond to the GH_HOST
   //    environment variable…") for a misconfigured GH_HOST that matches no
@@ -143,8 +137,10 @@ export function classifyGhError(err: unknown): PrResult {
   //    remote the user hasn't run `gh auth login --hostname <ghe>` for —
   //    gh's known-host set is its authenticated hosts + the default host +
   //    github.com — where the old not-authenticated classification was
-  //    correct. Indistinguishable on stderr; phase 0b's remote-URL-based
-  //    detectForge restores that distinction.
+  //    correct. Indistinguishable on stderr, and a host can't be told apart
+  //    from any other unknown host without configuration, so the gap stays
+  //    until per-host config lands (see the anyforge Atlas note's open
+  //    questions).
   //  - gh's literal "no pull requests found" for the current branch;
   //  - a repo with no remote at all.
   // This block sits before the auth check because the non-GitHub-remote
@@ -166,46 +162,4 @@ export function classifyGhError(err: unknown): PrResult {
     return ghUnavailable("not-authenticated");
   }
   return ghUnavailable("unknown");
-}
-
-/** Compare two PR resolution states for equality. Reads gh-shaped fields
- *  on `ok.value` — lives with the gh schemas rather than alongside
- *  provider-neutral `PrResult` scaffolding. Generalize when a second
- *  provider forces `ok.value` to widen. */
-export function prResultEqual(a: PrResult, b: PrResult): boolean {
-  if (a === b) return true;
-  if (a.kind !== b.kind) return false;
-  if (a.kind === "ok" && b.kind === "ok") {
-    return (
-      a.value.number === b.value.number &&
-      a.value.title === b.value.title &&
-      a.value.url === b.value.url &&
-      a.value.state === b.value.state &&
-      a.value.checks === b.value.checks &&
-      checkRunsEqual(a.value.checkRuns, b.value.checkRuns)
-    );
-  }
-  if (a.kind === "unavailable" && b.kind === "unavailable") {
-    // Compare the tagged source: provider + code. Both are the typed
-    // discriminators; the display reason derives from them via
-    // `reasonForSource` and doesn't need its own comparison.
-    return (
-      a.source.provider === b.source.provider && a.source.code === b.source.code
-    );
-  }
-  // "pending" and "absent" have no payload — kind equality is enough.
-  return true;
-}
-
-/** Shallow per-element equality for the per-check breakdown. Same length
- *  + same `(name, outcome)` in the same order. Same order is fine
- *  because `extractChecks` preserves the order gh returns — re-fetches
- *  with no real change produce the same sequence, so a `===`-style
- *  identity check survives ordinary polling without false positives. */
-function checkRunsEqual(a: GitHubCheck[], b: GitHubCheck[]): boolean {
-  if (a === b) return true;
-  if (a.length !== b.length) return false;
-  return a.every(
-    (ai, i) => ai.name === b[i]?.name && ai.outcome === b[i]?.outcome,
-  );
 }

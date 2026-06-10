@@ -28,13 +28,14 @@
  * a terminal's metadata becomes visible".
  */
 
-import type {
-  LiveTerminalFields,
-  ServerPersistedTerminalFields,
-  TerminalClientMetadata,
-  TerminalMetadata,
+import { prValue } from "anyforge/schemas";
+import {
+  type LiveTerminalFields,
+  prUnavailableReason,
+  type ServerPersistedTerminalFields,
+  type TerminalClientMetadata,
+  type TerminalMetadata,
 } from "kolu-common/surface";
-import { prUnavailableReason, prValue } from "kolu-github/schemas";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";

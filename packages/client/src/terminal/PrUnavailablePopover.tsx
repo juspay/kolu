@@ -5,11 +5,9 @@
  *  recovery UX doesn't need to fit a shared mold. Anchored positioning
  *  comes from `useAnchoredPopover`. */
 
-import type {
-  GhUnavailableCode,
-  PrUnavailableSource,
-} from "kolu-github/schemas";
-import { reasonForSource } from "kolu-github/schemas";
+import type { GhUnavailableCode } from "kolu-github/schemas";
+import type { PrUnavailableSource } from "kolu-common/surface";
+import { reasonForSource } from "kolu-common/surface";
 import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";

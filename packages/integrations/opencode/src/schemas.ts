@@ -2,7 +2,7 @@
  *
  *  Lives in its own module so `kolu-common` (and any client code) can import
  *  the schema without pulling the package root, which imports `node:sqlite`
- *  via `DatabaseSync`. Mirrors the `kolu-github/schemas` precedent. See
+ *  via `DatabaseSync`. Mirrors the `anyforge/schemas` precedent. See
  *  juspay/kolu#682.
  *
  *  Anything exported here MUST stay free of `node:*` imports and filesystem

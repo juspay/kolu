@@ -4,7 +4,7 @@
 
 import Dialog from "@corvu/dialog";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import { prValue } from "kolu-github/schemas";
+import { prValue } from "anyforge/schemas";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { prTooltip } from "./terminal/prTooltip";

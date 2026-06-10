@@ -1,35 +1,9 @@
-/** kolu-github — GitHub PR resolution schemas and pure helpers.
+/** kolu-github — the gh adapter for anyforge's `PrProvider` contract.
  *
- *  Leaf package: depends only on zod + ts-pattern. The server's
- *  `meta/github.ts` wraps these with process spawning (via `KOLU_GH_BIN`)
- *  and the channel publisher. See top comment in `schemas.ts` for the
- *  neutral-vs-gh-specific layout rationale. */
+ *  Spawns `gh pr view` (via `KOLU_GH_BIN`), classifies its failures, and
+ *  derives the check rollup. The forge-neutral wire schemas, poll loop,
+ *  and detection live in `anyforge`; this package never sees its sibling
+ *  adapters. */
 
-export { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
-export {
-  type GitHubPrWatcher,
-  resolveGitHubPr,
-  subscribeGitHubPr,
-} from "./resolve.ts";
-export type {
-  GhUnavailableCode,
-  GitHubCheckStatus,
-  GitHubPrInfo,
-  GitHubPrState,
-  PrResult,
-  PrUnavailableSource,
-} from "./schemas.ts";
-export {
-  GhUnavailableCodeSchema,
-  GhUnavailableSchema,
-  GitHubCheckStatusSchema,
-  GitHubPrInfoSchema,
-  GitHubPrStateSchema,
-  PrResultSchema,
-  PrUnavailableSourceSchema,
-  prUnavailableReason,
-  prUnavailableSource,
-  prValue,
-  reasonForGhCode,
-  reasonForSource,
-} from "./schemas.ts";
+export { classifyGhError, deriveCheckStatus, extractChecks } from "./github.ts";
+export { githubPrProvider, resolveGitHubPr } from "./resolve.ts";

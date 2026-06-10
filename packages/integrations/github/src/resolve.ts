@@ -1,23 +1,19 @@
-/** Runtime resolver — spawns `gh pr view`, classifies failures, owns the
- *  branch-change + polling loop. Node-only (uses `node:child_process`);
- *  browser-bound callers should import only from `./schemas.ts` via the
- *  `kolu-common/pr` subpath, which re-exports schemas + display helpers but
- *  not this module. */
+/** Runtime resolver — spawns `gh pr view` and classifies failures.
+ *  Node-only (uses `node:child_process`); browser-bound callers import the
+ *  wire schemas from `anyforge/schemas` instead. The generic branch-change
+ *  + polling loop lives in anyforge's `subscribePr`; this module is just
+ *  the gh adapter it dispatches to. */
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import type { PrGitContext, PrProvider, PrResult } from "anyforge";
+import { PrStateSchema } from "anyforge/schemas";
 import type { Logger } from "kolu-shared";
-import {
-  classifyGhError,
-  deriveCheckStatus,
-  extractChecks,
-  prResultEqual,
-} from "./github.ts";
-import { GitHubPrStateSchema, type PrResult } from "./schemas.ts";
+import { classifyGhError, deriveCheckStatus, extractChecks } from "./github.ts";
+import type { GhUnavailableSource } from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
 
-const POLL_INTERVAL_MS = 30_000;
 const GH_TIMEOUT_MS = 5_000;
 
 /** Lazy lookup for the pinned `gh` binary path. Reads `KOLU_GH_BIN` set by
@@ -52,20 +48,21 @@ interface GhPrViewResult {
  *  Uses `gh pr view` which resolves via git remote tracking — it finds the
  *  PR opened from this repo (or fork) for the current branch, unlike
  *  `gh pr list --head <name>` which matches by branch name alone and picks
- *  up unrelated fork PRs.
+ *  up unrelated fork PRs. (That is also why only `git.repoRoot` is read
+ *  from the context: gh derives branch + remote from the repo itself.)
  *
  *  Logs failures at the appropriate level when a logger is passed:
  *  absent→debug (expected), unknown→error (actual bug), other→warn
  *  (degraded-but-recoverable). */
 export async function resolveGitHubPr(
-  repoRoot: string,
+  git: PrGitContext,
   log?: Logger,
-): Promise<PrResult> {
+): Promise<PrResult<GhUnavailableSource>> {
   try {
     const { stdout } = await execFileAsync(
       getGhBin(),
       ["pr", "view", "--json", "number,title,url,state,statusCheckRollup"],
-      { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
+      { cwd: git.repoRoot, timeout: GH_TIMEOUT_MS },
     );
     const data = JSON.parse(stdout) as GhPrViewResult;
     return {
@@ -74,7 +71,7 @@ export async function resolveGitHubPr(
         number: data.number,
         title: data.title,
         url: data.url,
-        state: GitHubPrStateSchema.parse(data.state.toLowerCase()),
+        state: PrStateSchema.parse(data.state.toLowerCase()),
         checks: deriveCheckStatus(data.statusCheckRollup),
         checkRuns: extractChecks(data.statusCheckRollup),
       },
@@ -110,87 +107,11 @@ function logGhResolveFailure(
   );
 }
 
-/** Watcher handle returned by `subscribeGitHubPr`. */
-export interface GitHubPrWatcher {
-  /** Feed the latest git state. Repo+branch dedup happens internally; a
-   *  real change triggers a synchronous `{ kind: "pending" }` emit followed
-   *  by an async resolve that emits the result. Pass `null`s when the
-   *  terminal leaves a repo. */
-  setGit: (repoRoot: string | null, branch: string | null) => void;
-  /** Cancel the poll timer and stop accepting updates. */
-  stop: () => void;
-}
-
-/** Subscribe to GitHub PR changes for a terminal.
- *
- *  Mirrors `kolu-git`'s `subscribeGitInfo` shape: the caller wires the
- *  watcher to its own git source (channel subscription, signal, whatever)
- *  via `setGit`, and receives resolved `PrResult` values through `onChange`.
- *
- *  Owns: branch-change dedup (via `prResultEqual`), pending emission on
- *  branch change (so stale PR info doesn't linger while `gh pr view` is in
- *  flight), and a 30s polling loop that re-resolves on the last-seen
- *  repo/branch (PRs can be created/updated externally).
- *
- *  Does not own: the git source, metadata publishing, terminal lifecycle —
- *  those stay with the caller. */
-export function subscribeGitHubPr(
-  onChange: (pr: PrResult) => void,
-  log?: Logger,
-): GitHubPrWatcher {
-  let lastBranch: string | null = null;
-  let lastRepoRoot: string | null = null;
-  let lastPr: PrResult = { kind: "pending" };
-  let stopped = false;
-
-  function emit(pr: PrResult): void {
-    if (stopped || prResultEqual(pr, lastPr)) return;
-    lastPr = pr;
-    // `onChange` is the caller's callback (a metadata write that can throw).
-    // Guard it here — the single funnel every emission path passes through —
-    // so a throwing consumer degrades this terminal's PR metadata instead of
-    // escaping: synchronously out of `setGit` into the git channel's consume
-    // loop, or as an unhandled rejection out of the floated `fetchAndEmit`.
-    try {
-      onChange(pr);
-    } catch (err) {
-      log?.error({ err }, "github pr watcher: emit failed");
-    }
-  }
-
-  async function fetchAndEmit(repoRoot: string): Promise<void> {
-    const pr = await resolveGitHubPr(repoRoot, log);
-    emit(pr);
-  }
-
-  function setGit(repoRoot: string | null, branch: string | null): void {
-    if (branch === lastBranch && repoRoot === lastRepoRoot) return;
-    log?.debug(
-      { from: lastBranch, to: branch },
-      "branch changed, re-resolving",
-    );
-    lastBranch = branch;
-    lastRepoRoot = repoRoot;
-    // Emit pending so stale PR info doesn't linger while resolve is in
-    // flight. If we already last-emitted pending, dedup inside `emit`
-    // makes this a no-op.
-    emit({ kind: "pending" });
-    if (branch && repoRoot) void fetchAndEmit(repoRoot);
-  }
-
-  const pollTimer = setInterval(() => {
-    if (lastBranch && lastRepoRoot) {
-      log?.debug({ branch: lastBranch }, "poll tick");
-      void fetchAndEmit(lastRepoRoot);
-    }
-  }, POLL_INTERVAL_MS);
-
-  return {
-    setGit,
-    stop: () => {
-      stopped = true;
-      clearInterval(pollTimer);
-      log?.debug({ branch: lastBranch }, "stopped");
-    },
-  };
-}
+/** The gh adapter — the `PrProvider` the host injects into `subscribePr`.
+ *  Typed at its concrete `GhUnavailableSource` so `subscribePr` infers
+ *  `S = GhUnavailableSource` and its `PrResult<GhUnavailableSource>` lands
+ *  in the app's closed `PrResult` without a cast (gh is the union's member). */
+export const githubPrProvider: PrProvider<GhUnavailableSource> = {
+  kind: "github",
+  resolve: resolveGitHubPr,
+};

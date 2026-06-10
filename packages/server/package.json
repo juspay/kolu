@@ -24,6 +24,7 @@
     "@orpc/experimental-publisher": "^1.13.13",
     "@orpc/server": "^1.13.13",
     "anyagent": "workspace:*",
+    "anyforge": "workspace:*",
     "cleye": "^2.3.0",
     "conf": "^15.1.0",
     "hono": "^4.12.21",

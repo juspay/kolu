@@ -45,6 +45,14 @@ const showToc = tocHeadings.length >= 4;
         {post.data.title}
       </h1>
 
+      {
+        post.data.subtitle && (
+          <p class="mt-5 text-[1.15rem] md:text-[1.3rem] leading-snug text-ink-dim">
+            {post.data.subtitle}
+          </p>
+        )
+      }
+
       <div class="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2 mono text-[0.72rem] text-ink-muted tracking-widest">
         <time datetime={post.data.pubDate.toISOString()}>
           {
