@@ -48,6 +48,7 @@ import { agentInfoEqual, parseAgentCommand } from "anyagent";
 import {
   detectForge,
   type ForgeKind,
+  type PrGitContext,
   type PrProvider,
   subscribePr,
 } from "anyforge";
@@ -262,6 +263,15 @@ const prProviders = new Map<ForgeKind, PrProvider>([
   ["github", githubPrProvider],
 ]);
 
+/** Project a `GitInfo` onto the forge-relevant subset the PR watcher needs.
+ *  Names the `{repoRoot, branch, remoteUrl}` "forge-relevant subset" as one
+ *  declared thing — the same fields anyforge's `gitContextEqual` compares and
+ *  `gitInfoEqual`'s remoteUrl arm guards — instead of an unenforced convention
+ *  spread across the inline projection. */
+function prGitContextFromGitInfo(git: GitInfo): PrGitContext {
+  return { repoRoot: git.repoRoot, branch: git.branch, remoteUrl: git.remoteUrl };
+}
+
 function startPrProvider(
   record: ProviderRecord,
   terminalId: TerminalId,
@@ -292,15 +302,7 @@ function startPrProvider(
   );
   const cleanup = channels.git.consume({
     onEvent: (git) =>
-      watcher.setGit(
-        git
-          ? {
-              repoRoot: git.repoRoot,
-              branch: git.branch,
-              remoteUrl: git.remoteUrl,
-            }
-          : null,
-      ),
+      watcher.setGit(git ? prGitContextFromGitInfo(git) : null),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
   return () => {
