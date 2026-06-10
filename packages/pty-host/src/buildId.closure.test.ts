@@ -24,6 +24,13 @@ import { describe, expect, it } from "vitest";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const ENTRY = resolve(SRC, "index.ts");
+// The second hashed root: @kolu/terminal-protocol carries wire/behaviour the
+// pty-host serves (the device-query forward/drop policy, the suppression
+// grammars), so default.nix hashes it into the staleKey alongside this
+// package — and the walk below follows the edge instead of allowing it as a
+// stable external.
+const PROTOCOL_SRC = resolve(SRC, "../../terminal-protocol/src");
+const PROTOCOL_ENTRY = resolve(PROTOCOL_SRC, "index.ts");
 
 // Bare specifiers the closure is allowed to reach. The staleKey hashes only
 // packages/pty-host/src, so wire/behaviour code reached through an UNLISTED
@@ -68,6 +75,7 @@ describe("@kolu/pty-host closure (the staleKey's hashed set)", () => {
       reached.add(file);
       for (const spec of importsOf(file)) {
         if (spec.startsWith(".")) stack.push(resolveRelative(file, spec));
+        else if (spec === "@kolu/terminal-protocol") stack.push(PROTOCOL_ENTRY);
         else externals.add(spec);
       }
     }
@@ -81,12 +89,14 @@ describe("@kolu/pty-host closure (the staleKey's hashed set)", () => {
       )}. If one carries wire/behaviour shape it must live inside packages/pty-host/src (hashed by the staleKey); if it is a stable leaf dep, add it to ALLOWED_EXTERNAL.`,
     ).toEqual([]);
 
-    // (b) The in-package set reached == what nix hashes (src/*.ts minus tests).
-    // This mirrors default.nix's ptyHostSrc fileFilter so the hashed set can
-    // never silently drift from the closure this test asserts.
-    const hashed = readdirSync(SRC)
-      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-      .map((f) => resolve(SRC, f));
+    // (b) The reached set == what nix hashes (both roots' src/*.ts minus
+    // tests). This mirrors default.nix's ptyHostSrc fileFilter so the hashed
+    // set can never silently drift from the closure this test asserts.
+    const nonTest = (dir: string): string[] =>
+      readdirSync(dir)
+        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+        .map((f) => resolve(dir, f));
+    const hashed = [...nonTest(SRC), ...nonTest(PROTOCOL_SRC)];
     const rel = (xs: Iterable<string>): string[] =>
       [...xs].map((f) => relative(SRC, f)).sort();
     expect(rel(reached)).toEqual(rel(hashed));

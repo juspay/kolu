@@ -87,12 +87,20 @@ let
   # contract's reachable closure by packages/pty-host/src/buildId.closure.test.ts
   # — keep the fileFilter and that test in lockstep.
   ptyHostSrc = pkgs.lib.fileset.toSource {
-    root = ./packages/pty-host;
+    root = ./packages;
     fileset = pkgs.lib.fileset.unions [
       (pkgs.lib.fileset.fileFilter
         (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name)
         ./packages/pty-host/src)
       ./packages/pty-host/package.json
+      # @kolu/terminal-protocol is wire/behaviour the pty-host serves (the
+      # device-query forward/drop policy + the suppression grammars), reached
+      # from the runtime closure — so it is hashed too, or a protocol change
+      # would escape the staleKey.
+      (pkgs.lib.fileset.fileFilter
+        (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name)
+        ./packages/terminal-protocol/src)
+      ./packages/terminal-protocol/package.json
     ];
   };
 

@@ -19,6 +19,11 @@
  * line-start, partial paste marker) survives chunk boundaries.
  */
 
+import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+} from "@kolu/terminal-protocol";
+
 export type EscapeEvent =
   /** Bytes to forward to the PTY, in order relative to the other events. */
   | { kind: "forward"; data: Buffer }
@@ -34,8 +39,8 @@ export interface EscapeScanner {
 
 const CR = 0x0d;
 const LF = 0x0a;
-const PASTE_START = Buffer.from("\x1b[200~", "latin1");
-const PASTE_END = Buffer.from("\x1b[201~", "latin1");
+const PASTE_START = Buffer.from(BRACKETED_PASTE_START, "latin1");
+const PASTE_END = Buffer.from(BRACKETED_PASTE_END, "latin1");
 
 /** `--escape` accepts one printable ASCII char (multi-byte or control chars
  *  would break the byte-level machine / steal chords the inner program owns). */

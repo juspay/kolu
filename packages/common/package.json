@@ -12,7 +12,6 @@
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",
     "./terminalKey": "./src/terminalKey.ts",
-    "./terminalResponseFilter": "./src/terminalResponseFilter.ts",
     "./transcript": "./src/transcript.ts",
     "./test-hooks": "./src/test-hooks.ts",
     "./upload": "./src/upload.ts",

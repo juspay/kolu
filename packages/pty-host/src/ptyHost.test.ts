@@ -1,4 +1,9 @@
 import { createRequire } from "node:module";
+import {
+  ANSWERED_DEVICE_QUERIES,
+  isTerminalQueryResponse,
+  SILENT_DEVICE_QUERIES,
+} from "@kolu/terminal-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createPtyHost,
@@ -337,7 +342,7 @@ describe("createPtyHost", () => {
 /**
  * The device-query contract — the executable form of the invariant that was
  * previously prose-only on both sides ("client-suppressed ⇒ server-answered",
- * `kolu-common/terminalResponseFilter.ts` ⇄ the answerer/forwarder here).
+ * `@kolu/terminal-protocol` (responseFilter) ⇄ the answerer/forwarder here).
  *
  * Every query class the client filter suppresses is in exactly one of two
  * deliberate states, and these tests pin the full table so drift on either
@@ -354,9 +359,6 @@ describe("createPtyHost", () => {
  *      timeout fallbacks; consistent silence beats per-client divergence.
  */
 describe("device-query contract — suppressed ⇄ answered pairing", () => {
-  const { isTerminalQueryResponse } =
-    require("kolu-common/terminalResponseFilter") as typeof import("kolu-common/terminalResponseFilter");
-
   function freshHeadless(): InstanceType<typeof Terminal> {
     return new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
   }
@@ -374,15 +376,9 @@ describe("device-query contract — suppressed ⇄ answered pairing", () => {
 
   it("every reply the headless natively emits is a shape the client filter suppresses", async () => {
     const term = freshHeadless();
-    const answered: Array<[string, string]> = [
-      ["DA1", "\x1b[c"],
-      ["DA2", "\x1b[>c"],
-      ["DSR", "\x1b[5n"],
-      ["CPR", "\x1b[6n"],
-      ["DECRQM bracketed-paste", "\x1b[?2004$p"],
-      ["DECRQSS SGR", "\x1bP$qm\x1b\\"],
-    ];
-    for (const [name, query] of answered) {
+    // The matrix is DATA in @kolu/terminal-protocol — this test executes it
+    // against a real headless so the policy and implementation can't drift.
+    for (const { name, query } of ANSWERED_DEVICE_QUERIES) {
       const replies = await repliesTo(term, query);
       expect(replies.length, `${name}: headless must answer`).toBeGreaterThan(
         0,
@@ -417,14 +413,7 @@ describe("device-query contract — suppressed ⇄ answered pairing", () => {
     // upgrade starts answering any of these, this pin fails → re-audit the
     // forwarder's `ESC ]` drop and the filter comments together.
     const term = freshHeadless();
-    const silent: Array<[string, string]> = [
-      ["OSC 10 fg", "\x1b]10;?\x07"],
-      ["OSC 11 bg", "\x1b]11;?\x07"],
-      ["OSC 4 palette", "\x1b]4;1;?\x07"],
-      ["win size px (14t)", "\x1b[14t"],
-      ["win size chars (18t)", "\x1b[18t"],
-    ];
-    for (const [name, query] of silent) {
+    for (const { name, query } of SILENT_DEVICE_QUERIES) {
       const replies = await repliesTo(term, query);
       expect(replies, `${name}: expected uniform silence`).toEqual([]);
     }

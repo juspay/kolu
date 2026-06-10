@@ -12,7 +12,10 @@
  * actual tty — see `attach.test.ts`.
  */
 import { StringDecoder } from "node:string_decoder";
-import { createTerminalResponseStripper } from "kolu-common/terminalResponseFilter";
+import {
+  createTerminalResponseStripper,
+  SNAPSHOT_TTY_RESET,
+} from "@kolu/terminal-protocol";
 import type { PtyTuiClient } from "./connect.ts";
 import { createEscapeScanner } from "./escape.ts";
 
@@ -41,26 +44,10 @@ export type AttachOutcome =
   /** Transport/contract failure — `message` is ready to print. */
   | { kind: "error"; message: string };
 
-/** Undo every terminal mode the snapshot/deltas may have switched on locally —
- *  the serialized state replays alt-buffer, mouse tracking, bracketed paste,
- *  app cursor/keypad modes onto the user's REAL terminal, so restore is much
- *  more than `setRawMode(false)`. One fixed reset, idempotent, safe to fire on
- *  every exit path (detach, PTY exit, signals, crash).
- *
- *  SOURCE OF TRUTH: this list is the reciprocal of the mode vocabulary
- *  `@xterm/addon-serialize` (0.14.x, pinned in `@kolu/pty-host`) can emit in
- *  a snapshot (`_serializeModes`). An xterm/serialize upgrade that starts
- *  serializing new modes (kitty keyboard, sixel scrolling, …) must extend
- *  this reset — audit it on every bump. */
-export const TTY_RESET =
-  "\x1b[?1049l" + // leave the alt screen (back to the user's shell buffer)
-  "\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l" + // mouse reporting off
-  "\x1b[?1004l" + // focus reporting off
-  "\x1b[?2004l" + // bracketed paste off
-  "\x1b[?1l\x1b>" + // normal cursor keys + numeric keypad
-  "\x1b[?7h" + // autowrap back on
-  "\x1b[0m" + // SGR reset
-  "\x1b[?25h"; // cursor visible
+/** The deterministic restore (see `SNAPSHOT_TTY_RESET` in
+ *  `@kolu/terminal-protocol` for the mode list and its source of truth).
+ *  Re-exported so the CLI's restore wiring (`main.ts`) has one import. */
+export const TTY_RESET = SNAPSHOT_TTY_RESET;
 
 export function helpText(escapeChar: string): string {
   const e = escapeChar;

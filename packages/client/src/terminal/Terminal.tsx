@@ -54,7 +54,7 @@ import ScrollToBottom from "./ScrollToBottom";
 import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
-import { isTerminalQueryResponse } from "kolu-common/terminalResponseFilter";
+import { isTerminalQueryResponse } from "@kolu/terminal-protocol";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
@@ -746,7 +746,7 @@ const Terminal: Component<{
           // Filter terminal query responses from onData before sending to PTY.
           // The server's headless xterm already answers these; duplicates arriving
           // late over the network get printed as visible garbage. See
-          // kolu-common/terminalResponseFilter for the exact response classes suppressed.
+          // @kolu/terminal-protocol (responseFilter) for the exact classes suppressed.
           term.onData((data: string) => {
             if (isTerminalQueryResponse(data)) return;
             // Fold any sticky Ctrl/Alt armed on the mobile key bar into this

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createTerminalResponseStripper,
   isTerminalQueryResponse,
-} from "./terminalResponseFilter";
+} from "./responseFilter.ts";
 
 const ESC = "\x1b";
 const ST = `${ESC}\\`;

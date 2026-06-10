@@ -12,9 +12,9 @@
   "dependencies": {
     "@kolu/pty-host": "workspace:*",
     "@kolu/surface": "workspace:*",
+    "@kolu/terminal-protocol": "workspace:*",
     "cleye": "^2.3.0",
-    "columnify": "^1.6.0",
-    "kolu-common": "workspace:*"
+    "columnify": "^1.6.0"
   },
   "devDependencies": {
     "@types/columnify": "^1.5.4",
