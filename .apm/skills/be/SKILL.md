@@ -52,15 +52,17 @@ Run **`/be-review`** (Skill tool) — it runs four reviewers **serially**, each 
 sole editor while it runs: `/codex-debate` (its per-round commits are the debate),
 then `/lens-debate` applying the agreed fixes, then `/simplify`, then code-police.
 Each step reads a clean tree (the previous step has committed) and applies its own
-fixes directly — no snapshot, no apply pass. The debate skills leave their own PR
-comments.
+fixes directly — no snapshot, no apply pass. be-review pushes once at the end and
+*then* posts the PR comments (codex, lens, and a code-police summary), so no
+comment advertises a local-only commit.
 
 - Pass `base` and the change **`rationale`** (so the lenses don't flag deliberate
   decisions). Preflight is a non-empty diff and (since codex runs) `codex login
   status`.
 - Codex's rounds commit `fix(…)`; lens-debate commits its agreed fixes; simplify
-  and code-police commit `refactor:` / `fix(police):`. Confirm the codex and lens
-  PR comments landed.
+  and code-police commit `refactor:` / `fix(police):`. Confirm the post-push PR
+  comments landed: codex, lens, and — when the police track ran — the code-police
+  summary.
 - On an **unresolved** lens finding, adjudicate it yourself before moving on.
 
 ## 5. Ship — CI and evidence in parallel

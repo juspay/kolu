@@ -21,14 +21,22 @@ applies its own fixes directly:
 3. **`/simplify`** — the self-applying reuse / simplification / efficiency pass
    over the changed code. Now that nothing runs concurrently, it runs as itself
    (it could not against the old read-only snapshot).
-4. **code-police** — the rule-checklist and fact-check passes, applying their
-   fixes.
+4. **code-police** — its rule-checklist, fact-check, and elegance passes, applying
+   their fixes (the elegance pass re-runs `/simplify`, harmless after step 3).
 
 Each step runs to completion before the next begins. Wall-clock is
 `codex + lens + simplify + police` — slower than the old parallel form, but with
 no snapshot, no change-request handoff, and no separate apply pass: every step is
-its own editor and commits its own work. The debate skills post their own PR
-comments as they finish; be-review adds a police summary and a final report.
+its own editor and commits its own work.
+
+**PR comments come after the push, never before.** Each step commits locally but
+be-review pushes only once, after all selected steps finish. A comment that names
+a commit SHA must never be posted while that SHA is local-only — if a later step
+failed or the run were interrupted, the PR would advertise commits that were
+never pushed. So the debate skills run with their self-commenting **suppressed**
+(`--no-comment`); be-review captures the comment body each returns, pushes once at
+the end, and only then posts the codex comment, the lens comment, and its own
+police summary. No PR comment can reference a local-only commit.
 
 ## Preflight
 
@@ -53,9 +61,11 @@ comments as they finish; be-review adds a police summary and a final report.
 in the listed order. Run each to completion, then move to the next.
 
 1. **codex** — follow `/codex-debate` (Skill tool). `repoPath` = the live
-   worktree, `base` = `MB`. Its step-2 `Workflow` runs in the background; **wait
-   for it to finish** before starting the lens step. It commits its rounds and
-   posts its own PR comment.
+   worktree, `base` = `MB`, **`--no-comment`** (so it doesn't advertise its
+   local-only round commits before be-review pushes). Its step-2 `Workflow` runs
+   in the background; **wait for it to finish** before starting the lens step. It
+   commits its rounds and **returns** its rendered comment body — hold onto it to
+   post after the final push.
 
    **Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
    either in `consensus` or in `reviewer-error` — the latter meaning codex never
@@ -67,9 +77,11 @@ in the listed order. Run each to completion, then move to the next.
    consensus comment) and move on to the lens step.
 
 2. **lens** — follow `/lens-debate` (Skill tool). `repoPath` = the live worktree,
-   `base` = `MB`, **apply mode** (the default — do *not* pass `--no-apply`), and
-   thread the `rationale` through. It applies the agreed fixes as commits and
-   posts its own PR comment. Wait for its `Workflow` to finish.
+   `base` = `MB`, **apply mode** (the default — do *not* pass `--no-apply`),
+   **`--no-comment`** (same reason as codex — defer the comment until after the
+   push), and thread the `rationale` through. It applies the agreed fixes as
+   commits and **returns** its rendered comment body for be-review to post after
+   the push. Wait for its `Workflow` to finish.
 
    `/lens-debate` returns a `status` of `clean`, `consensus`, `unresolved`, or
    `merge-base-error`:
@@ -87,13 +99,20 @@ in the listed order. Run each to completion, then move to the next.
    changed (`refactor: simplify <area>`, staging only the files it touched). If it
    changed nothing, note that and move on.
 
-4. **police** — invoke `/code-police` (Skill tool), scoped to the change vs `MB`.
-   Run its rule-checklist and fact-check passes and **apply** the fixes it
-   surfaces, committing each `fix(police): <title>` with the finding in the
-   message (stage only the files changed). Skip its self-applying simplify pass —
-   step 3 already covered that ground.
+4. **police** — invoke `/code-police` (Skill tool). It runs all three of its
+   passes — rule checklist, fact-check, and the elegance pass (which itself
+   re-invokes `/simplify`). Its embedded pass prompts diff against
+   `origin/HEAD...HEAD` by default, which is *wrong* whenever `--base` isn't the
+   repo default: before invoking, **tell the police passes to scope to `MB`** —
+   pass the merge-base explicitly so every pass runs `git diff <MB>...HEAD`, not
+   the default ref. **Apply** the fixes it surfaces, committing each
+   `fix(police): <title>` with the finding in the message (stage only the files
+   changed). Its elegance pass re-running `/simplify` over an already-simplified
+   tree (step 3) is harmless — `/simplify` is idempotent on settled code and
+   simply reports no changes — so let it run rather than ask code-police to skip a
+   pass its contract has no flag for.
 
-## Push the fixes
+## Push, then comment
 
 After all selected steps run, **if anything was committed** (`git log --oneline
 $START..HEAD` is non-empty — `$START` was captured in Preflight) **and a PR
@@ -102,20 +121,27 @@ exists for this branch** (`gh pr view --json number -q .number`), **push**:
 for the human). **Never merge** — pushing updates the open PR; the human reviews
 the commits and merges when satisfied.
 
+**Only after the push succeeds**, post the deferred PR comments — the codex body
+and the lens body you held from steps 1–2 (`gh pr comment -F`, verbatim), plus the
+police summary below. This ordering is the invariant from "Run the steps": a
+comment that names a commit SHA is posted only once that SHA is on the remote. If
+there is **no PR**, there is nothing to comment on either — skip the comments too;
+the commits and their findings live in chat and the local log for the human.
+
 ## Report
 
 Summarize in chat — reporting **only the selected tracks**, and naming any track
 `--tracks` **skipped** so the absence is explicit, not silent:
 
 - **codex** — consensus / reviewer-error (note how many attempts if retried); its
-  PR comment landed.
+  PR comment landed (posted after the push, per "Push, then comment").
 - **lens** — status (**consensus** + fixes applied, or **unresolved** + how many
   findings still need human adjudication and how you adjudicated each, or
-  `merge-base-error`); its PR comment landed.
+  `merge-base-error`); its PR comment landed (posted after the push).
 - **simplify** — whether it changed anything and what it committed.
-- **police** — findings and how each was actioned (post a
-  `## [👮 Code-police](https://agency.srid.ca/)` comment summarizing them, since
-  code-police doesn't self-comment).
+- **police** — findings and how each was actioned; the
+  `## [👮 Code-police](https://agency.srid.ca/)` summary comment landed (posted
+  after the push, alongside the codex and lens comments).
 - whether the fixes were pushed;
 - `git log --oneline <base>..HEAD` + `git diff --stat <base>` so the combined
   result is visible.
