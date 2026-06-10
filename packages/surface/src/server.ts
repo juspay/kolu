@@ -750,8 +750,15 @@ export function publisherChannel<T>(
 
 /** Iterate `source` and yield each item, ending cleanly if the iterator
  *  rejects with the signal's abort reason. Adds one microtask of delay
- *  per yield (see `publisherChannel`'s comment for why that matters). */
-async function* iterateUntilAborted<T>(
+ *  per yield (see `publisherChannel`'s comment for why that matters).
+ *
+ *  Exported as the single home of the abort-time iterator-teardown
+ *  contract: a downstream pull rejected with `signal.reason` on shutdown
+ *  is end-of-life noise, swallowed here so it never bubbles as an
+ *  unhandled rejection. `projectSurface`'s `mapUpstream` composes on top
+ *  of this so the per-frame swallow has exactly one definition; a fix to
+ *  the abort contract (the kind `kill.feature` pins) lands in one place. */
+export async function* iterateUntilAborted<T>(
   source: AsyncIterable<T>,
   signal: AbortSignal | undefined,
 ): AsyncGenerator<T> {

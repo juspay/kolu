@@ -46,6 +46,7 @@ import {
   type ImplementSurfaceDeps,
   implementSurface,
   inMemoryCell,
+  iterateUntilAborted,
   type StreamHandlerDeps,
 } from "./server";
 
@@ -108,17 +109,23 @@ export type UpstreamSource<I, F> = (
   opts: { signal?: AbortSignal },
 ) => Promise<AsyncIterable<F>>;
 
-/** Iterate an upstream async-iterable and yield each frame, ending cleanly if
- *  the iterator rejects with the abort signal's reason. The downstream
- *  (`streamHandlers` / `eventHandlers`) drives this generator; when it returns
- *  early (abort), `for await … of` calls the upstream iterator's `return()`,
- *  tearing down A's subscription. A's publisher may also reject the pending
- *  pull with `signal.reason` on shutdown — that's expected end-of-life noise,
- *  swallowed here so it never bubbles as an unhandled rejection.
+/** Iterate an upstream async-iterable and yield each mapped frame, ending
+ *  cleanly if the iterator rejects with the abort signal's reason. The
+ *  downstream (`streamHandlers` / `eventHandlers`) drives this generator; when
+ *  it returns early (abort), `for await … of` calls the upstream iterator's
+ *  `return()`, tearing down A's subscription.
  *
- *  Same contract as `server.ts`' private `iterateUntilAborted`; duplicated
- *  (not exported and reused) so the projection layer owns its teardown story
- *  and a future change to the server-internal helper can't silently alter it. */
+ *  The per-frame abort-time swallow lives in exactly one place: the server's
+ *  `iterateUntilAborted`, which we compose on top of. A's publisher may reject
+ *  a pending pull with `signal.reason` on shutdown — that's expected
+ *  end-of-life noise, and `iterateUntilAborted` ends cleanly on it rather than
+ *  letting it bubble as an unhandled rejection. Forking that contract here
+ *  would mean a fix to the abort behaviour (the kind `kill.feature` pins) has
+ *  to be applied twice.
+ *
+ *  Only the *pre-iteration* `upstream()` rejection is handled locally: A's
+ *  iterable is obtained before there's an iterator for `iterateUntilAborted`
+ *  to drive, so an abort-shaped rejection at that point is swallowed here. */
 async function* mapUpstream<I, F, T>(
   upstream: UpstreamSource<I, F>,
   input: I,
@@ -132,11 +139,8 @@ async function* mapUpstream<I, F, T>(
     if (signal?.aborted && err === signal.reason) return;
     throw err;
   }
-  try {
-    for await (const frame of iterable) yield map(frame);
-  } catch (err) {
-    if (signal?.aborted && err === signal.reason) return;
-    throw err;
+  for await (const frame of iterateUntilAborted(iterable, signal)) {
+    yield map(frame);
   }
 }
 
@@ -255,12 +259,20 @@ export function deriveCell<F, T>(
       // after the cell ctx is wired, handing us its setter — every mapped
       // frame flows through the surface's equals/onWrite/store.set/bus.publish
       // path (we do NOT touch `store` directly, or the wire side wouldn't see
-      // the publish). Abort-time upstream rejections are swallowed; any other
-      // failure is routed to `onError` rather than rethrown into the void.
+      // the publish). The per-frame abort-time swallow lives in the shared
+      // `iterateUntilAborted`; this catch handles only the pre-iteration
+      // `upstream()` rejection (abort-shaped → swallow, else → `onError`) and
+      // any non-abort iteration failure, routed to `onError` rather than
+      // rethrown into the void.
       void (async () => {
         try {
           const iterable = await upstream({ signal: controller.signal });
-          for await (const frame of iterable) cell.set(map(frame));
+          for await (const frame of iterateUntilAborted(
+            iterable,
+            controller.signal,
+          )) {
+            cell.set(map(frame));
+          }
         } catch (err) {
           if (isAbort(err)) return;
           onError(err);
