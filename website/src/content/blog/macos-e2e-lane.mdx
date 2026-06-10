@@ -1,5 +1,5 @@
 ---
-title: "Green, and Wrong by 14x"
+title: "Making Kolu's macOS e2e CI lane 14x faster"
 description: "Kolu's macOS e2e lane took 49 minutes; now it takes three and a half. In between: a Mac with a 64 GB fseventsd leak, three test suites trampling each other, and a one-character bash typo that ran 440 scenarios on a single worker — while every check stayed green."
 pubDate: 2026-06-10
 author: "Sridhar Ratnakumar"
@@ -38,7 +38,7 @@ What follows is what the investigation actually found, in the order it found it.
 
 Same 440 scenarios at every point on that chart. No test was deleted, no timeout trimmed, no coverage moved.
 
-## Reading the lane before touching the suite
+## First, decompose the lane time
 
 Kolu's CI runner, [odu](https://github.com/juspay/odu), posts a [commit status](https://docs.github.com/en/rest/commits/statuses) per `recipe@platform` and keeps a per-recipe log. That gives you two free instruments: status timestamps for lane wall-clock across PRs, and the log to decompose a single lane. The decomposition of a typical 37-minute lane was lopsided:
 
@@ -50,7 +50,7 @@ Kolu's CI runner, [odu](https://github.com/juspay/odu), posts a [commit status](
 
 The suite was the whole cost — but the *same suite* finished in ~8 minutes on the Linux lane. So nothing was wrong with the tests. Something was wrong with where they ran, and with how many of them ran at once. It turned out to be both, plus a third thing nobody suspected.
 
-## Cause 1: the host was sick
+## Cause 1: runaway macOS daemons on the CI host
 
 First instinct on any slow shared box: profile the *host*, not the workload. `ps aux | sort -k3 -rn | head` on rasam, 83 days of uptime:
 
@@ -83,7 +83,7 @@ Three Apple daemons and one legitimate neighbor:
 
 The lesson generalizes: **long uptimes are a liability on macOS CI hosts.** None of this shows up in your test profiler, because none of it is your code.
 
-## Cause 2: our own runs were trampling each other
+## Cause 2: concurrent PR pipelines on one shared Mac
 
 odu fans each PR's pipeline out independently, and rasam is a single shared lane host. Pull the e2e status timestamps for one afternoon's PRs and the problem draws itself:
 
@@ -107,7 +107,7 @@ odu fans each PR's pipeline out independently, and rasam is a single shared lane
 
 Each suite spawns its workers' Kolu servers and Chromium instances; three at once is dozens of processes contending for whatever cores fseventsd, Spotlight, and a GHC build had left over. Every overlapped lane took 41–60 minutes. The fix isn't to make the suites politer — it's to stop them overlapping at all.
 
-### A mutex and a load-aware worker count
+### Fix: a host-level mutex and a load-aware worker count
 
 <PR id={1259} /> made two changes to the `just test` recipe, both in plain bash:
 
@@ -143,7 +143,7 @@ The worker count stopped pretending the host was ours: `(cores − loadavg1) / 3
 
 Lanes dropped from 41–60 minutes to 9–13. Good. Not the headline.
 
-## Cause 3: the suite had been serial for three days
+## Cause 3: a bash typo ran the whole suite on one worker
 
 While validating <PR id={1259} /> I added a one-line log of the resolved worker count, on a whim. The next run printed this:
 
@@ -169,7 +169,7 @@ const parallel = parseInt(process.env.CUCUMBER_PARALLEL || "1", 10);  // "cap" �
 
 `NaN > 1` is `false`, the `parallel` option vanishes, and **440 scenarios run on one worker — green, every time**. On every host whose computed count exceeded its cap. Which was every CI host we have, on both platforms, since June 7.
 
-### The signature that gives serialism away
+### How to detect a silently-serial test run
 
 You don't need a log line to catch this class of bug. Cucumber prints two durations at the end of a run, and their ratio is a worker count:
 
@@ -197,7 +197,7 @@ Every "slow but green" lane in the baseline had the left-hand signature sitting 
 
 <PR id={1261} /> is the fix: one `$`, plus a guard that refuses any non-numeric worker count out loud — `e2e: invalid worker count` and a hard exit — so the next config value that degrades parallelism does it as a red build instead of a quiet one. The Linux lane went from 7m35s to **1m29s** on the same commit.
 
-## Healing the host needed sudo, and sudo has walls
+## Fixing the host: what sudo can and cannot do on macOS
 
 <Prompt>I merged your PR, and rasam sudo password is ████████████</Prompt>
 
@@ -213,7 +213,7 @@ The containment for that last one is a five-line root [LaunchDaemon](https://dev
 
 And one move we deliberately did **not** make: reboot. [FileVault](https://support.apple.com/guide/mac-help/protect-data-on-your-mac-with-filevault-mh11785/mac) is on with no auto-login, so a remote reboot parks the machine at the pre-boot unlock screen — no ssh, no CI host, until someone with physical or Screen-Sharing access types a password. Check `fdesetup status` *before* you need to know this.
 
-## The scoreboard
+## Results
 
 | Stage | darwin e2e lane | what changed |
 | --- | --- | --- |
