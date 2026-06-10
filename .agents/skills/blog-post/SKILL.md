@@ -50,7 +50,10 @@ not just the obviously visual ones.
    teaser the reader can't decode until they've finished. Let the `description`
    tease the concrete hook (the 64 GB leak, the one-character typo). This is a
    deliberate shift from the older evocative-title posts toward titles that tell
-   the reader up front what they'll learn — apply it to every new post.
+   the reader up front what they'll learn — apply it to every new post. When a
+   title stays deliberately evocative ("The spacetime of code"), give it an
+   optional `subtitle` in the frontmatter — one plain line that decrypts the
+   metaphor into what the reader will learn; it renders as a deck under the title.
 
 4. **Wire it into the site.** Posts live in `website/src/content/blog/` under a
    short, stable slug (the filename is the URL). Use the site's components for
