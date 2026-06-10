@@ -275,11 +275,7 @@ export function createTerminalResponseStripper(): TerminalResponseStripper {
       // held — forward it now so the inner program's Escape-vs-Alt timeout sees
       // it on time (see the doc comment). A partial sequence whose introducer
       // IS known stays buffered for the next chunk.
-      if (pending.kind === "esc") {
-        for (const b of seq) out.push(b);
-        seq = [];
-        pending = { kind: "none" };
-      }
+      if (pending.kind === "esc") failOpenSequence();
       return Buffer.from(out);
     },
   };
