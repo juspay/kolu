@@ -183,29 +183,31 @@ export function prResultEqual(a: PrResult, b: PrResult): boolean {
   // compile error here — without it, a new variant would fall through to
   // always-equal and the dedup gate would swallow every update to it
   // invisibly.
-  return match(a)
-    .with({ kind: "ok" }, (a) => {
-      const bv = (b as Extract<PrResult, { kind: "ok" }>).value;
-      return (
-        a.value.number === bv.number &&
-        a.value.title === bv.title &&
-        a.value.url === bv.url &&
-        a.value.state === bv.state &&
-        a.value.checks === bv.checks &&
-        checkRunsEqual(a.value.checkRuns, bv.checkRuns)
-      );
-    })
-    .with({ kind: "unavailable" }, (a) => {
-      // Compare the tagged source: provider + code. Both are the typed
-      // discriminators; the display reason derives from them via
-      // `reasonForSource` and doesn't need its own comparison.
-      const bs = (b as Extract<PrResult, { kind: "unavailable" }>).source;
-      return a.source.provider === bs.provider && a.source.code === bs.code;
-    })
-    // "pending" and "absent" have no payload — kind equality (already checked)
-    // is enough.
-    .with({ kind: P.union("pending", "absent") }, () => true)
-    .exhaustive();
+  return (
+    match(a)
+      .with({ kind: "ok" }, (a) => {
+        const bv = (b as Extract<PrResult, { kind: "ok" }>).value;
+        return (
+          a.value.number === bv.number &&
+          a.value.title === bv.title &&
+          a.value.url === bv.url &&
+          a.value.state === bv.state &&
+          a.value.checks === bv.checks &&
+          checkRunsEqual(a.value.checkRuns, bv.checkRuns)
+        );
+      })
+      .with({ kind: "unavailable" }, (a) => {
+        // Compare the tagged source: provider + code. Both are the typed
+        // discriminators; the display reason derives from them via
+        // `reasonForSource` and doesn't need its own comparison.
+        const bs = (b as Extract<PrResult, { kind: "unavailable" }>).source;
+        return a.source.provider === bs.provider && a.source.code === bs.code;
+      })
+      // "pending" and "absent" have no payload — kind equality (already checked)
+      // is enough.
+      .with({ kind: P.union("pending", "absent") }, () => true)
+      .exhaustive()
+  );
 }
 
 /** Shallow per-element equality for the per-check breakdown. Same length

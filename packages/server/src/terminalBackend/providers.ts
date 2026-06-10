@@ -269,7 +269,11 @@ const prProviders = new Map<ForgeKind, PrProvider>([
  *  `gitInfoEqual`'s remoteUrl arm guards — instead of an unenforced convention
  *  spread across the inline projection. */
 function prGitContextFromGitInfo(git: GitInfo): PrGitContext {
-  return { repoRoot: git.repoRoot, branch: git.branch, remoteUrl: git.remoteUrl };
+  return {
+    repoRoot: git.repoRoot,
+    branch: git.branch,
+    remoteUrl: git.remoteUrl,
+  };
 }
 
 function startPrProvider(
@@ -301,8 +305,7 @@ function startPrProvider(
     plog,
   );
   const cleanup = channels.git.consume({
-    onEvent: (git) =>
-      watcher.setGit(git ? prGitContextFromGitInfo(git) : null),
+    onEvent: (git) => watcher.setGit(git ? prGitContextFromGitInfo(git) : null),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
   return () => {
