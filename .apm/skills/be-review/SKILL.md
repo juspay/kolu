@@ -88,10 +88,11 @@ in the listed order. Run each to completion, then move to the next.
    - `clean` / `consensus` — the lenses agreed per-finding and applied the fixes.
    - `unresolved` — the debate hit its round backstop with findings still
      contested. `/be` §4 requires you to **adjudicate every unresolved lens
-     finding yourself before moving on**: surface them (in the report and, since
-     the lens skill self-comments, as a follow-up note on the PR), decide drop or
-     apply for each, and apply the survivors before continuing. Never report
-     "lens consensus" for an `unresolved` run.
+     finding yourself before moving on**: surface them in the report, decide drop
+     or apply for each, and apply the survivors before continuing. Fold your
+     adjudication into the deferred lens comment you post after the push (the lens
+     skill ran `--no-comment`, so there is no self-posted comment to follow up
+     on). Never report "lens consensus" for an `unresolved` run.
    - `merge-base-error` — the scope couldn't be trusted; report it and move on.
 
 3. **simplify** — invoke `/simplify` (Skill tool), scoped to the change vs `MB`.
@@ -114,19 +115,32 @@ in the listed order. Run each to completion, then move to the next.
 
 ## Push, then comment
 
-After all selected steps run, **if anything was committed** (`git log --oneline
-$START..HEAD` is non-empty — `$START` was captured in Preflight) **and a PR
-exists for this branch** (`gh pr view --json number -q .number`), **push**:
-`git push`. No PR → nothing to push to, so skip (the local commits are still there
-for the human). **Never merge** — pushing updates the open PR; the human reviews
-the commits and merges when satisfied.
+First settle whether there is anything to push: `git log --oneline $START..HEAD`
+(`$START` was captured in Preflight). Then:
 
-**Only after the push succeeds**, post the deferred PR comments — the codex body
-and the lens body you held from steps 1–2 (`gh pr comment -F`, verbatim), plus the
-police summary below. This ordering is the invariant from "Run the steps": a
-comment that names a commit SHA is posted only once that SHA is on the remote. If
-there is **no PR**, there is nothing to comment on either — skip the comments too;
-the commits and their findings live in chat and the local log for the human.
+- **New commits exist** and **a PR exists for this branch**
+  (`gh pr view --json number -q .number`) → **`git push`**. **Only after the push
+  succeeds** do you post the deferred comments — the codex and lens bodies from
+  steps 1–2 are now safe to publish because the SHAs they name are on the remote.
+- **No new commits** (every step was clean or applied nothing) but **a PR
+  exists** → there is nothing to push, and HEAD is already remote-visible, so
+  post the deferred comments **immediately**. The local-only-SHA invariant is
+  about never advertising an *unpushed* commit; with no new commit there is no
+  such risk.
+- **No PR** → there is nothing to push to and nothing to comment on. Skip both;
+  the local commits (if any) and their findings live in chat and the local log
+  for the human.
+- **A required push fails** → do **not** post the comments (the SHAs are still
+  local-only); report the push failure instead.
+
+**Never merge** — pushing updates the open PR; the human reviews the commits and
+merges when satisfied.
+
+When you do post, send the codex body, the lens body (`gh pr comment -F`,
+verbatim), and the police summary below. This is the invariant from "Run the
+steps": a comment that names a commit SHA is posted only once that SHA is on the
+remote — which holds in both the "pushed" and the "nothing new to push" cases
+above.
 
 ## Report
 
