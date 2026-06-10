@@ -68,12 +68,12 @@ A small node CLI in its own package, `packages/pty-tui`, that dials the unix soc
 | Subcommand | Surface call | Behaviour |
 | --- | --- | --- |
 | `kolu-tui list` | `terminal.list()` | One-shot — print each live PTY's id · pid · idle · cmd · cwd (`cmd` = the OSC title or the foreground command), with the full entry under `--json`. The pty-host's inventory. _Shipped: the entry was enriched with `title` + `foregroundProcess` (contract 2.1) so this is one round-trip, not per-row tap fetches._ |
-| `kolu-tui attach <id>` | `terminalAttach.get({id})` (stream) + `terminal.write` / `terminal.resize` | Put the local tty in raw mode. First yield is the **scrollback snapshot** → paint to stdout; deltas stream after. Forward stdin via `write`; `SIGWINCH` → `resize({id, cols, rows})`. A line-start `~.` escape detaches — the CLI exits, kolu-server keeps the PTY. |
+| `kolu-tui attach <id>` | `terminalAttach.get({id})` (stream) + `terminal.write` / `terminal.resize` + `exit.get({id})` | Put the local tty in raw mode. First yield is the **scrollback snapshot** → paint to stdout; deltas stream after. Forward stdin via `write`; `SIGWINCH` → `resize({id, cols, rows})`. A line-start `~.` escape detaches — the CLI exits, kolu-server keeps the PTY. When the deltas end, the `exit` stream discriminates "PTY died" (report the real code, quit with it) from "stream dropped" (re-attach; the fresh snapshot repaints). _The full client-side loop — reply filter, deterministic restore, sizing — is specced under Phase 2 below._ |
 | `kolu-tui spawn [-- cmd]` | `terminal.spawn({id: uuid, …})` then attach | Mint a UUID client-side, spawn, immediately attach. `--print-id` prints the id and does _not_ attach (for scripting). |
 | `kolu-tui snapshot <id>` | `terminal.getScreenText({id})` | One-shot, non-interactive: dump the current scrollback as **plain rendered text** (not the `terminalAttach` first frame — that's serialized VT screen state for late attach, which would replay control sequences and defeat `grep`) + a trailer line to stderr, then exit. The scriptable primitive the [headless test](#headless-test) asserts on. |
 | `kolu-tui kill <id>` | `terminal.kill({id})` | Out-of-band termination — exercises the order-safe kill path (abort the exit tap _then_ kill) from a non-browser client. |
 
-The taps (`subscribeCwd` / `subscribeTitle` / `subscribeForeground` / `exitPromise`) feed the status line — a second, non-browser consumer of the raw VT taps, proving those are transport-clean too. `--json` makes `list` machine-readable; `--pty-host-socket <path>` points at a non-default server.
+Of the taps, attach consumes `exit` — stream-end discrimination plus the real exit code, which tombstones server-side so it's retrievable even after the deltas end. The metadata taps (`cwd` / `title` / `foreground`) feed **no persistent status line**: that early sketch contradicted the raw-passthrough decision and was dropped (see the Phase 2 decisions below); they stay on the contract for a later richer UX. `--json` makes `list` machine-readable; `--pty-host-socket <path>` points at a non-default server.
 
 <Callout kind="note" title="Contract reality check">
 The subcommand → surface mapping is shorthand; these are the exact shapes the _current_ `ptyHostSurface` exposes (verified against `@kolu/pty-host` after A1 <PrLink pr={1055} /> and the link-family unification <PrLink pr={1059} />). **Phase 1 (<PrLink pr={1084} />) resolved the socket and list-metadata items**; the spawn-command and tap-naming items remain for Phases 2–3.
@@ -90,7 +90,7 @@ The subcommand → surface mapping is shorthand; these are the exact shapes the 
 | --- | --- | --- |
 | **Home** | a tiny separate `packages/pty-tui` | An independent CLI package, not a `bin` folded into `@kolu/pty-host` — keeps the pty-host package focused on the contract + primitive, and keeps the CLI's own deps (raw-tty handling, arg parsing) out of the closure the A2 staleKey hashes. |
 | **Render fidelity** | raw VT passthrough | Write the pty-host's bytes straight to stdout; do _not_ re-render through a second `@xterm/headless` mirror. Simplest and truest, and it avoids a second rendering path drifting from the server's. _Recorded as a design-decision comment at the passthrough site._ |
-| **Detach / escape** | ssh-style line-start `~` escape — **never `Ctrl+B`** | A passthrough multiplexer must not steal any control char the inner tools need — `Ctrl+B` and `Ctrl+J` are reserved by Claude Code (`input/prohibitedKeybinds.ts`). The escape is the unambiguous ssh model: `~` recognised _only_ immediately after a newline. `~.` detach · `~k` kill · `~~` literal tilde · `~?` help; configurable via `--escape`. A literal `~` mid-line passes through untouched, so _every_ inner-app chord reaches the program unmodified. |
+| **Detach / escape** | ssh-style line-start `~` escape — **never `Ctrl+B`** | A passthrough multiplexer must not steal any control char the inner tools need — `Ctrl+B` and `Ctrl+J` are reserved by Claude Code (`input/prohibitedKeybinds.ts`). The escape is the unambiguous ssh model: `~` recognised _only_ immediately after a newline. `~.` detach · `~~` literal tilde · `~?` help; configurable via `--escape` (a single character). `~k` kill ships with Phase 3's `kill`, not Phase 2. A literal `~` mid-line passes through untouched, so _every_ inner-app chord reaches the program unmodified. |
 
 ## Phasing — three beta increments, all in-process
 
@@ -100,7 +100,7 @@ Phases 1–3 build kolu-tui on the in-process server — each leaves Kolu workin
 | --- | --- | --- | --- |
 | **0 · surface example** <Pill variant="ok">shipped</Pill> <PrLink pr={1073} /> | A minimal CI-runner TUI over oRPC stdio in `@kolu/surface`'s examples — the 3rd example, after the worker demo + the remote-process-monitor (→ [drishti](https://github.com/srid/drishti)). | None — separate from kolu-server. | A standalone example; proves the pattern and becomes kolu-tui's reference skeleton. |
 | **1 · `list`** <Pill variant="ok">shipped</Pill> <PrLink pr={1084} /> | kolu-server serves its in-process pty-host router over a unix socket (`@kolu/surface`'s `serveOverUnixSocket`); new `@kolu/pty-tui` with `list` + read-only `snapshot`. `list` carries full metadata from the enriched `terminal.list` (contract 2.1). | +1 local socket listener on the existing router (`servePtyHostOverUnixSocket`). Web path byte-identical. | A beta CLI that _lists_ and _snapshots_ your live terminals — `nix run …#kolu-tui`. |
-| **2 · `attach`** <Pill variant="todo">next</Pill> | Raw-tty passthrough, snapshot-then-delta, stdin→`write`, `SIGWINCH`→`resize`, the `~`-escape detach. | None beyond Phase 1. | Drive a terminal from the CLI; detach and re-attach while the server runs. |
+| **2 · `attach`** <Pill variant="ok">shipped</Pill> <PrLink pr={1255} /> | Raw-tty passthrough, snapshot-then-delta, stdin→`write`, `SIGWINCH`→`resize`, the `~`-escape detach — plus the device-query reply filter and the deterministic terminal restore the loop needs (specced below). | None beyond Phase 1, except the planned nicety: `terminalAttach` on a bad id is a clean `NOT_FOUND` (error shape only, no contract bump). | Drive a terminal from the CLI; detach and re-attach while the server runs. |
 | **3 · `spawn` / `kill`** <Pill variant="todo">later</Pill> | `spawn` (+ `--print-id`), `kill`, `list --json`. | None. | Create and kill PTYs from the CLI — a usable raw multiplexer (beta). The richer `tmux`-replacement UX grows from here, as its own work. |
 
 Phase 1 alone is the smallest honest first ship of _kolu-tui_ — a one-shot RPC, no raw-tty mode, the "hello world" that proves `serveOverUnixSocket` + `unixSocketLink` + the contract round-trip, at near-zero risk.
@@ -128,6 +128,44 @@ It's a clean structural twin of kolu-tui: a long-lived runner owns the DAG + eac
 
 Remote mode ships the runner the drishti way: a prebuilt `mini-ci-runner` nix closure is `nix copy`'d to the host, realised, then run as `ssh host mini-ci-runner --stdio` with the TUI attached over **stdio-over-ssh** via `@kolu/surface-nix-host`'s `getHostSession({ host, binary, resolveDrvPath })` (which owns ref-count, reconnect, watchdog, and a `copying → connecting → connected` state cell). `localhost` skips the `nix copy` and runs the realised binary directly — the _same_ `HostSession`, only the transport differs.
 
+### Phase 2 — the attach loop <Pill variant="ok">shipped</Pill> <PrLink pr={1255} />
+
+Recon verdict before implementation, borne out by the ship: **no contract bump, no server change** — `terminalAttach` / `write` / `resize` / `exit` all exist at contract 2.1 (and the web path already consumes the same `host.attach` as just another subscriber on the per-PTY broadcast channel, so a CLI attach violates no exclusivity). Attach is a pure consumer; no drishti-mirror PR. The whole phase is ~300–400 LOC in `packages/pty-tui` plus tests. _One delivery note: the reply filter first shipped as a move of the browser's `terminalResponseFilter` into `kolu-common`; a blocking structural review then promoted the whole protocol policy — grammars + stripper, the headless forward/drop rule, the answered/silent device-query matrix, paste delimiters, and the snapshot-reciprocal TTY reset — into a dedicated zero-dep leaf, **`@kolu/terminal-protocol`**, that the browser, the pty-host, and kolu-tui all import. The pty-host's staleKey hashes it (a protocol change is observable daemon behaviour), and its device-query matrix is executed as contract tests against a real headless._
+
+<D2
+  caption="The attach loop, client-side only. Stdin bytes run through the escape machine and the reply filter before terminal.write; the attach stream pumps to stdout through the existing backpressure helper; every exit path funnels through one restore."
+  code={`direction: down
+tty: "your terminal — raw mode"
+cli: "kolu-tui attach — packages/pty-tui" {
+  esc: "escape machine — bytes · line-start ~ · paste-aware"
+  filter: "reply filter — drop the tty's auto-answers (DA1/DSR/XTVERSION...)"
+  pump: "delta pump — writeOut backpressure"
+  restore: "restore — ONE path for detach · PTY exit · signals · crash"
+  esc -> filter
+}
+server: "kolu-server pty-host — unchanged"
+tty -> cli.esc: "stdin bytes"
+cli.filter -> server: "terminal.write (+ resize on SIGWINCH)"
+server -> cli.pump: "terminalAttach: snapshot, then deltas"
+cli.pump -> tty: "stdout"
+cli.restore -> tty: "setRawMode(false) + reset string"
+`}
+/>
+
+The sequence: connect → version gate (both shipped in Phase 1) → **resize-then-attach** → raw mode → one-shot `↻ snapshot restored…` notice → paint snapshot → pump until detach or stream end. Five decisions carry the design weight (echoed as code comments at their sites, per this note's convention):
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| **Device-query replies** | filter the tty's auto-answers out of the stdin→`write` path | The snapshot/deltas carry queries (DA1 · DSR/CPR · XTVERSION …) that the user's _real_ terminal auto-answers on stdin — but the headless mirror already answered them server-side, so forwarding the duplicate reply corrupts the inner program's stdin (the yazi-class bug). Mirror the browser path's suppression predicates, preserving the client-suppressed ⇒ server-answered invariant. |
+| **Terminal restore** | one deterministic reset on _every_ exit path | The snapshot replays modes onto the local terminal — alt-buffer (`?1049h`), mouse tracking, bracketed paste (`?2004h`), app cursor keys. Detach, PTY exit, SIGTERM/SIGHUP, and crash all run `setRawMode(false)` **+ a fixed reset string** (alt-buffer off, mouse off, paste-wrap off, cursor visible). Restore is much more than un-raw-ing stdin. |
+| **Sizing** | resize-then-attach; last-resize-wins across clients | The snapshot serializes at the server-side grid (the browser's last size, or the 80×24 default); resizing _first_ renders it at the local dimensions. The contract has no size-change tap, so a concurrently-attached browser tile may show wrap artifacts until its own next resize — accepted and documented; a size tap would be contract 2.2, out of Phase 2 scope. |
+| **Status lines** | one-shot notices only — **no persistent footer** | A live taps-fed footer needs scroll-region ownership, which violates the raw-passthrough render-fidelity decision above (the earlier sketch self-contradicted). One line before the paint (`↻ snapshot restored…`), one after restore on detach; the CLI owns zero pixels while attached. |
+| **Stream end & retry** | discriminate via the `exit` stream; never auto-retry | The deltas iterator ends identically on PTY exit, server-side abort, and the silent slow-consumer drop (bounded 10k queue). On end, ask `exit`: code present → report it, quit with it; PTY still live → re-attach, and the fresh snapshot repaints — exactly the right recovery for the drop case. Stream auto-retry would replay the snapshot mid-session, so attach opts out; if the server itself goes away the CLI restores the tty and prints an honest one-liner — manual re-dial is the only reconnect. |
+
+The escape machine's fine print: it runs on **bytes**, decoding via `string_decoder` only at the `write` boundary so multibyte characters split across stdin chunks survive; session start counts as line-start (ssh behaviour); recognition is suspended inside bracketed-paste brackets so a pasted `\n~.` cannot detach; in raw mode `Ctrl+C` arrives as byte `0x03` and is _forwarded_ like everything else — only external SIGTERM/SIGHUP trigger the restore-and-exit path.
+
+**Testing.** The escape machine, reply filter, and reset emission are pure functions — unit-tested with no tty (the `render.test.ts` pattern). The loop itself is factored over read/write streams plus a tty-ish interface and integration-tested against the real-socket harness (the `serveOverSocket.test.ts` pattern: in-process pty-host + `unixSocketLink` on a temp socket). The home-manager VM test keeps its `list` smoke — attach is infeasible headless.
+
 ## The user flow
 
 The interactive loop a user walks, then the same loop scripted as a headless test. The running example: a PTY `3f9a…c21` in `~/code/kolu` that becomes a Claude Code session.
@@ -154,14 +192,14 @@ kolu-tui: no pty-host socket at /run/user/1000/kolu/pty-host.sock (ECONNREFUSED)
   "● 3 live PTYs (in kolu-server, in-process) · pty-host pid 9981",
 ]} />
 
-**Birth → work → detach → re-attach** (Phase 2). `spawn` mints a PTY and attaches; the raw VT taps drive the status line live as the foreground process and title change; a line-start `~.` detaches (the server keeps the PTY); re-attach repaints the full scrollback snapshot instantly because the first yield of the attach stream _is_ the snapshot.
+**Birth → work → detach → re-attach** (Phase 2). `spawn` mints a PTY and attaches; everything passes through raw — the CLI owns no pixels while attached; a line-start `~.` detaches (the server keeps the PTY); re-attach repaints the full scrollback snapshot instantly because the first yield of the attach stream _is_ the snapshot, serialized at the local tty's dimensions thanks to resize-then-attach.
 
 <Terminal title="kolu-tui · re-attached 3f9a…c21 · claude: implement pty-tui" lines={[
   "↻ snapshot restored — 1,284 lines · PTY pid 12843 unchanged",
   "⏺ Bash(git status)",
   "  ⎿ On branch master — working tree clean",
   "> █",
-  "● live (reattached by id) · server up throughout · PTY pid unchanged",
+  "~.  — detached · 3f9a…c21 stays live in kolu-server · re-attach anytime",
 ]} />
 
 _This is client-side detach — distinct from server survival. If kolu-server itself restarts, the in-process PTY dies; that persistence is the separate daemon plan._

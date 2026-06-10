@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
+    "@kolu/terminal-protocol": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",
     "@xterm/addon-serialize": "^0.14.0",

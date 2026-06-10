@@ -14,7 +14,12 @@ export default defineConfig({
   site: "https://kolu.dev",
   trailingSlash: "ignore",
   server: { port: DEV_PORT, host: "127.0.0.1" },
-  integrations: [mdx(), sitemap()],
+  integrations: [
+    mdx(),
+    // /tui is deliberately unlisted (shared by URL only): keep it out of the
+    // sitemap so it stays unadvertised — the page itself also carries noindex.
+    sitemap({ filter: (page) => !new URL(page).pathname.startsWith("/tui") }),
+  ],
   vite: {
     plugins: [tailwindcss()],
   },

@@ -1,24 +1,29 @@
 /**
  * kolu-tui — a terminal-side client for kolu-server's in-process pty-host
- * (R-4 Phase 1: `list` + `snapshot`). It dials the server's unix socket via
- * `unixSocketLink` and speaks `ptyHostSurface` directly — the *raw* client (the
- * browser is the *rich* one over the full kolu contract). See
- * `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`.
+ * (R-4 Phases 1–2: `list` + `snapshot` + `attach`). It dials the server's
+ * unix socket via `unixSocketLink` and speaks `ptyHostSurface` directly — the
+ * *raw* client (the browser is the *rich* one over the full kolu contract).
+ * See `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`.
  *
  *   kolu-tui list [--json]     list your live terminals (id · pid · idle · cwd)
  *   kolu-tui snapshot <id>     print a terminal's current scrollback, then exit
+ *   kolu-tui attach <id>       take over a terminal from the shell; `~.` detaches
  *
- * Read-only by design this phase — `attach` / `spawn` / `kill` are later
- * phases. The CLI comes and goes; kolu-server keeps owning the PTYs.
+ * `spawn` / `kill` are later phases. The CLI comes and goes; kolu-server
+ * keeps owning the PTYs.
  */
+import { writeSync } from "node:fs";
 import { homedir } from "node:os";
 import {
   getPtyHostSocketPath,
   PTY_HOST_CONTRACT_VERSION,
 } from "@kolu/pty-host";
 import { isContractVersionCompatible } from "@kolu/surface/define";
+import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
 import { cli, command } from "cleye";
+import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
+import { isValidEscapeChar } from "./escape.ts";
 import { formatList, formatListJson } from "./render.ts";
 
 // Shared on both subcommands (cleye doesn't inherit a parent flag into a
@@ -36,7 +41,7 @@ const argv = cli({
   version: PTY_HOST_CONTRACT_VERSION,
   help: {
     description:
-      "A terminal-side client for kolu-server's pty-host (beta). Connects to a running kolu-server over a local unix socket — start the server first (e.g. `nix run github:juspay/kolu`); the socket appears once it boots. Read-only this phase: attach / spawn / kill land later.",
+      "A terminal-side client for kolu-server's pty-host (beta). Connects to a running kolu-server over a local unix socket — start the server first (e.g. `nix run github:juspay/kolu`); the socket appears once it boots. spawn / kill land later.",
   },
   commands: [
     command({
@@ -56,6 +61,23 @@ const argv = cli({
       parameters: ["<id>"],
       help: { description: "Print a terminal's current rendered scrollback." },
       flags: { ...socketFlag },
+    }),
+    command({
+      name: "attach",
+      parameters: ["<id>"],
+      help: {
+        description:
+          "Take over a terminal: raw passthrough until a line-start `~.` detaches (kolu-server keeps the terminal). `~?` lists the escapes.",
+      },
+      flags: {
+        ...socketFlag,
+        escape: {
+          type: String,
+          description:
+            "the line-start escape character (a single printable ASCII char)",
+          default: "~",
+        },
+      },
     }),
   ],
 });
@@ -108,6 +130,99 @@ async function cmdSnapshot(conn: Connection, id: string): Promise<void> {
   process.stderr.write(`— ${id} · ${lines} line${lines === 1 ? "" : "s"}\n`);
 }
 
+async function cmdAttach(
+  conn: Connection,
+  id: string,
+  escapeChar: string,
+): Promise<never> {
+  if (!isValidEscapeChar(escapeChar)) {
+    fail(
+      `--escape must be a single printable ASCII character, got ${JSON.stringify(escapeChar)}`,
+    );
+  }
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    fail(
+      "attach needs an interactive terminal (stdin/stdout is not a tty) — for scripting, use `kolu-tui snapshot`.",
+    );
+  }
+
+  // ONE restore for every exit path — detach, PTY exit, signals, crash. The
+  // snapshot/deltas replay terminal modes (alt-buffer, mouse tracking,
+  // bracketed paste, app cursor keys) onto the real terminal, so leaving
+  // without this resets nothing and wrecks the user's shell. Synchronous
+  // (`writeSync`) and idempotent so it is safe from a process 'exit' handler,
+  // where async writes never flush.
+  let restored = false;
+  const restore = (): void => {
+    if (restored) return;
+    restored = true;
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+    try {
+      writeSync(process.stdout.fd, TTY_RESET);
+    } catch {
+      // A dead stdout (terminal already gone, e.g. SIGHUP) has nothing left
+      // to restore.
+    }
+  };
+  process.on("exit", restore);
+  // In raw mode Ctrl+C arrives as byte 0x03 and is FORWARDED to the inner
+  // program (the local tty generates no SIGINT) — these handlers only catch
+  // *external* signals (kill, a closing terminal). Restore, then leave with
+  // the conventional 128+n code; kolu-server keeps the PTY either way.
+  for (const [sig, n] of [
+    ["SIGINT", 2],
+    ["SIGTERM", 15],
+    ["SIGHUP", 1],
+  ] as const) {
+    process.on(sig, () => {
+      restore();
+      process.exit(128 + n);
+    });
+  }
+
+  const tty: AttachTty = {
+    input: process.stdin,
+    write: writeOut,
+    size: () => ({
+      cols: process.stdout.columns || 80,
+      rows: process.stdout.rows || 24,
+    }),
+    onResize: (cb) => {
+      process.stdout.on("resize", cb);
+      return () => process.stdout.off("resize", cb);
+    },
+    setRawMode: (on) => process.stdin.setRawMode(on),
+  };
+
+  const outcome = await runAttach(conn.client, id, {
+    escape: escapeChar,
+    tty,
+  });
+  restore();
+  switch (outcome.kind) {
+    case "detached":
+      process.stderr.write(`— detached · ${id} stays live in kolu-server\n`);
+      process.exit(0);
+      break;
+    case "exited":
+      process.stderr.write(`— ${id} exited (code ${outcome.exitCode})\n`);
+      // Mirror the child where possible; anything unrepresentable (negative /
+      // >255 — node clamps modulo 256) degrades to the generic failure 1.
+      process.exit(
+        outcome.exitCode >= 0 && outcome.exitCode <= 255 ? outcome.exitCode : 1,
+      );
+      break;
+    case "not-found":
+      fail(`no terminal ${id} — \`kolu-tui list\` shows the live ones.`);
+      break;
+    case "error":
+      fail(outcome.message);
+  }
+  // Unreachable (every branch exits) — but TS needs the function to end.
+  process.exit(1);
+}
+
 /** Confirm the running server speaks a wire-compatible pty-host contract before
  *  we invoke any command — a newer kolu-tui against an older/different server
  *  would otherwise fail deep inside oRPC with an opaque schema/procedure error
@@ -148,8 +263,15 @@ async function main(): Promise<void> {
 
   try {
     await assertCompatible(conn);
+    // Closed dispatch: every command is named, and the final else fails loud
+    // — so a Phase 3 addition (spawn) that forgets a branch here cannot
+    // silently fall through into another command's handler. (cleye already
+    // exits on commands not in its registry; this guards OUR omissions.)
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
-    else await cmdSnapshot(conn, argv._.id);
+    else if (argv.command === "snapshot") await cmdSnapshot(conn, argv._.id);
+    else if (argv.command === "attach")
+      await cmdAttach(conn, argv._.id, argv.flags.escape);
+    else fail("unhandled command — add a dispatch branch for it");
   } finally {
     conn.dispose();
   }

@@ -18,6 +18,7 @@
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
+    "@kolu/terminal-protocol": "workspace:*",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
     "@orpc/experimental-pino": "^1.13.13",
