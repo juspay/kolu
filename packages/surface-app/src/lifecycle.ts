@@ -14,6 +14,7 @@ import {
   deadTransportError,
   SURFACE_TRANSPORT_RETIRED,
 } from "@kolu/surface/client";
+import { cacheBustedShellUrl } from "./index";
 
 /** Permanently retire a transport the server rejected as stale (a tab bound to a
  *  previous process). The app's reload affordance is now the only way forward, so
@@ -95,9 +96,16 @@ export function registerServiceWorker(
   return navigator.serviceWorker.register(path);
 }
 
-/** Apply the latest build: a plain reload. With a fetch-less SW (or none) and a
- *  `no-store` shell, this always fetches the current `index.html` — and thus the
- *  current bundle. */
+/** Apply the latest build by navigating to a cache-busting URL. A plain
+ *  `location.reload()` issues a *normal* reload, which a browser still satisfies
+ *  from a heuristically-fresh *poisoned* `/` entry (cached in a pre-`no-store`
+ *  era) WITHOUT revalidating — so the stale bundle, and the update prompt, return
+ *  on every reload: an infinite loop (see `docs/cache-bug.md`). Navigating to
+ *  `/?v=<token>` is a key that entry can't satisfy → the network → the `no-store`
+ *  shell → the current bundle, and it inoculates the tab (a `no-store` document is
+ *  never written to the cache, so subsequent reloads stay fresh). A unique token
+ *  (`Date.now()`) guarantees the key differs even if the same stale state
+ *  re-prompts. `location.replace` (not `assign`) keeps the bust out of history. */
 export function reloadForUpdate(): void {
-  location.reload();
+  location.replace(cacheBustedShellUrl(location.href, String(Date.now())));
 }

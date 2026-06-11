@@ -482,3 +482,41 @@ Triage unchanged: *normal reload stale, hard reload fresh* still means a cached 
 `(ServiceWorker)`; `navigator.serviceWorker.getRegistration()`). If you see kolu's
 notification worker, check it has no `fetch` handler before suspecting it — a
 fetch-less worker is not a suspect.
+
+## The tail that `no-store` couldn't reach: a *poisoned* shell still loops the prompt
+
+> Found on `zest` (macOS/launchd) long after the SW was killed. The server was
+> provably clean — `GET /` → `no-store`, referencing the current bundle; `/sw.js`
+> fetch-less; no proxy. Yet the chrome bar showed `CLIENT <old> · ≠ srv` and the
+> **"App updated → Reload"** card reappeared on every click — an infinite loop.
+
+**Why `no-store` is necessary but not sufficient.** The shell directive stops a
+browser from *newly* caching `/`. It does nothing for a browser that **already**
+cached `/` in a pre-`no-store` era: that entry carries a 1970 `Last-Modified` (the
+nix-store epoch), so heuristic freshness ≈ `(now − 1970) × 10%` ≈ years. On a
+**normal** reload the browser serves that entry **without revalidating** — the
+current `no-store` response never reaches it. So `reloadForUpdate()`'s plain
+`location.reload()` re-serves the stale shell → stale bundle → `stale()` true →
+the prompt returns → click Reload → same. A hard reload shows fresh *once* but
+does **not evict** the heuristic entry, so the very next normal reload (and the
+app's own `location.reload()`) is stale again. Telling the user to force-reload
+therefore does not fix the loop — and in an installed PWA there is no force-reload
+gesture at all.
+
+**The fix — a cache-busting navigation.** `reloadForUpdate()` now navigates to
+`/?v=<token>` (`cacheBustedShellUrl` in `index.ts`; a unique `Date.now()` token)
+instead of reloading in place. A query string is a *different cache key* the
+poisoned bare-`/` entry can't satisfy, so the browser must hit the network → the
+`no-store` shell → the current bundle. And because that response is `no-store`, it
+is never written to the cache — so the navigation both **escapes the loop now** and
+**inoculates the tab** (every subsequent reload of `/?v=…` stays fresh). The token's
+*value* is irrelevant to correctness; its only job is to differ from the poisoned
+key. Verified on the box: `GET /?v=676a483` → `no-store` + the current bundle.
+`location.replace` (not `assign`) keeps the bust out of history.
+
+**Learning:** `no-store` prevents *future* poisoning; it cannot heal a browser
+already holding a heuristically-fresh shell entry. A returning client converges to
+the deployed build only if the reload affordance itself uses a key the poison can't
+match. (Distinct from the launchd crash-loop variant — a server restarting under
+`KeepAlive` flaps `status` to `"restarted"`, which renders the *same* "App updated"
+card with no stale asset involved; see juspay/kolu#1275.)

@@ -66,6 +66,28 @@ export function cacheControlFor(
   return null;
 }
 
+/** The query param a cache-busting reload appends to escape a *poisoned* shell
+ *  cache entry. `SHELL_CACHE_CONTROL` (above) stops NEW poisoning, but a browser
+ *  that cached `/` in a pre-`no-store` era keeps serving that stale entry on a
+ *  normal reload (years of heuristic freshness) WITHOUT revalidating — so a plain
+ *  `location.reload()` can never reach the `no-store` shell and the update prompt
+ *  loops forever (see `docs/cache-bug.md`). The value is irrelevant to
+ *  correctness: its only job is to make the URL a key the poisoned bare-`/` entry
+ *  can't satisfy. */
+export const CACHE_BUST_PARAM = "v";
+
+/** `href` with `CACHE_BUST_PARAM` set to `token` — the navigation target that
+ *  forces a poisoned browser past its stale `/` entry to the network (→ the
+ *  `no-store` shell → the current bundle). `set` (not `append`) so a tab that
+ *  busts repeatedly keeps a single param. Pure, so the navigation decision is
+ *  unit-tested without a DOM; `reloadForUpdate` supplies a fresh token and applies
+ *  the result with `location.replace`. */
+export function cacheBustedShellUrl(href: string, token: string): string {
+  const url = new URL(href);
+  url.searchParams.set(CACHE_BUST_PARAM, token);
+  return url.href;
+}
+
 /** A clean, comparable git ref: a real SHA — not `dev`, not a `-dirty` tree.
  *  Staleness is only claimed between two clean refs, so a dev/dirty build on
  *  either side never false-positives. */
