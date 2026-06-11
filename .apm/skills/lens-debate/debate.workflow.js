@@ -444,13 +444,19 @@ function advanceGate(lens, id, cur) {
   }
   gate[lens][id] = { disposition: base, owed: true }
 }
+// The still-active finding ids a lens currently owes a citation on — fed into
+// that lens's next-round brief so it can pay the debt (or hold and stay open).
+const owedActive = (lens) =>
+  Object.entries(gate[lens])
+    .filter(([id, g]) => g.owed && activeIds.includes(id))
+    .map(([id]) => id)
 
 for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   rounds = r
   const activeFindings = combined.filter((f) => activeIds.includes(f.id))
   const settledList = Object.entries(settled).map(([id, s]) => ({ id, disposition: s.disposition }))
 
-  const lowyRes = await agent(debateBrief('lowy', 'hickey', activeFindings, hickeyPrev, settledList, r, Object.entries(gate.lowy).filter(([id, g]) => g.owed && activeIds.includes(id)).map(([id]) => id)), {
+  const lowyRes = await agent(debateBrief('lowy', 'hickey', activeFindings, hickeyPrev, settledList, r, owedActive('lowy')), {
     label: `lowy:round${r}`,
     phase: 'Debate',
     model,
@@ -458,7 +464,7 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   })
   const lowyPos = posMap(lowyRes)
 
-  const hickeyRes = await agent(debateBrief('hickey', 'lowy', activeFindings, lowyPos, settledList, r, Object.entries(gate.hickey).filter(([id, g]) => g.owed && activeIds.includes(id)).map(([id]) => id)), {
+  const hickeyRes = await agent(debateBrief('hickey', 'lowy', activeFindings, lowyPos, settledList, r, owedActive('hickey')), {
     label: `hickey:round${r}`,
     phase: 'Debate',
     model,
