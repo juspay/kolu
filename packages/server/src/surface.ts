@@ -77,20 +77,30 @@ import { currentBuildId } from "@kolu/pty-host";
 const localBackend = getTerminalBackendFor({ kind: "local" });
 
 /**
- * Compute the `buildInfo` cell value: the app version, the deployed server's
- * EXPECTED pty-host staleKey (its own `KOLU_PTY_HOST_BUILD_ID`, via
- * `currentBuildId()`), and the surviving daemon's LIVE identity read fresh over
- * the socket. All three land as a patch over the library-seeded `{ commit }`.
+ * Compute the `buildInfo` cell value: the app version, the surviving daemon's
+ * LIVE identity read fresh over the socket, and the daemon's CURRENCY verdict.
+ * All land as a patch over the library-seeded `{ commit }`.
  *
- * The rail derives currency by comparing the daemon's relayed `ptyHost.staleKey`
- * against `ptyHostExpectedStaleKey` — equal ⇒ current, different ⇒ a restart
- * would load new pty-host code. This is a LIVE read so a republish after a
- * `daemonHandle.restart()` reflects the fresh daemon (`republishBuildInfo`); a
- * frozen boot-time snapshot would keep showing `⬆ update pending` after a
- * successful restart.
+ * Currency is the domain concept, decided HERE where both inputs are in hand:
+ * the daemon's relayed `staleKey` and the deployed server's own expected one
+ * (its `KOLU_PTY_HOST_BUILD_ID`, via `currentBuildId()`). Equal ⇒ `current`,
+ * different ⇒ `outdated` (a restart would load new pty-host code), either absent
+ * ⇒ `unknown` (no daemon read, or off-nix where the staleKeys are ""). The rail
+ * renders the verdict rather than re-deriving the comparison, and the raw
+ * expected staleKey need not cross the wire. This is a LIVE read so a republish
+ * after a `daemonHandle.restart()` reflects the fresh daemon
+ * (`republishBuildInfo`); a frozen boot-time snapshot would keep showing
+ * `⬆ update pending` after a successful restart.
  */
 async function buildInfoValue(): Promise<Partial<KoluBuildInfo>> {
   const identity = await readPtyHostIdentity();
+  const expected = currentBuildId();
+  const ptyHostCurrency: KoluBuildInfo["ptyHostCurrency"] =
+    !identity?.staleKey || !expected
+      ? "unknown"
+      : identity.staleKey === expected
+        ? "current"
+        : "outdated";
   // `ptyHost` is ALWAYS present as a key — set to the live identity, or
   // explicitly `undefined` when the read fails. This matters on the republish
   // path (`republishBuildInfo`): a failed restart leaves the daemon degraded
@@ -103,7 +113,7 @@ async function buildInfoValue(): Promise<Partial<KoluBuildInfo>> {
   // change vs. the prior `ptyHost`-bearing value.)
   return {
     version: serverVersion,
-    ptyHostExpectedStaleKey: currentBuildId(),
+    ptyHostCurrency,
     ptyHost: identity ?? undefined,
   };
 }

@@ -41,15 +41,10 @@ function shortId(id: string | null | undefined): string {
   return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
 }
 
-/** The daemon's currency, derived at the read site from the relayed identity:
- *  `current` when its closure `staleKey` equals the deployed server's expected
- *  one (a restart would load the SAME pty-host code), `outdated` when a
- *  surviving daemon's closure differs (a restart would pick up new code),
- *  `unknown` when the link is down or staleness can't be derived (off-nix, where
- *  the staleKeys are empty). Keyed on the closure hash, NOT the commit: a
- *  server-/client-only deploy bumps `commit` while the pty-host closure is
- *  byte-identical, and comparing commits would re-prompt for a pointless daemon
- *  restart — the over-prompting the staleKey exists to prevent. */
+/** The daemon's currency, as a state to render. The verdict itself is decided
+ *  server-side (`buildInfoValue` in surface.ts, where both staleKeys are in
+ *  hand) and rides the `ptyHostCurrency` field; the rail only overlays the
+ *  client-only WS guard: a down link can't claim currency, so `unknown`. */
 type PtyState = "current" | "outdated" | "unknown";
 
 const ptyDot: Record<PtyState, string> = {
@@ -66,15 +61,10 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const stale = clientStale;
 
   const ptyState = (): PtyState => {
+    // A down link can't vouch for currency — overlay `unknown` over whatever the
+    // last server verdict was (client-only WS state the server can't know).
     if (props.status !== "open") return "unknown";
-    const i = pwa.server();
-    const daemonKey = i?.ptyHost?.staleKey;
-    const expected = i?.ptyHostExpectedStaleKey;
-    // Need both the daemon's relayed staleKey AND the deployed server's expected
-    // one to claim currency. Either absent (link not yet reported, or off-nix
-    // where the nix-baked staleKeys are "") ⇒ unknown, never a false outdated.
-    if (!daemonKey || !expected) return "unknown";
-    return daemonKey === expected ? "current" : "outdated";
+    return pwa.server()?.ptyHostCurrency ?? "unknown";
   };
 
   return (

@@ -586,17 +586,18 @@ export function applyPreferencesPatch(
 //
 // In phase B the daemon SURVIVES a server restart, so the column can diverge:
 // the daemon's relayed `staleKey` (the hash of the pty-host source closure it's
-// actually running) may differ from `ptyHostExpectedStaleKey` (the staleKey of
-// the build the deployed SERVER ships — its own `KOLU_PTY_HOST_BUILD_ID`). The
-// rail derives "update pending" from `staleKey !== expected`, NOT from a commit
-// comparison: a server/client-only deploy bumps `commit` while the pty-host
-// closure is byte-identical, and keying currency on the commit would re-prompt
-// for a pointless daemon restart (the over-prompting the staleKey exists to
-// prevent).
+// actually running) may differ from the staleKey of the build the deployed
+// SERVER ships (its own `KOLU_PTY_HOST_BUILD_ID`). The server owns that verdict
+// and emits it as `ptyHostCurrency`, NOT a commit comparison: a server/client-
+// only deploy bumps `commit` while the pty-host closure is byte-identical, and
+// keying currency on the commit would re-prompt for a pointless daemon restart
+// (the over-prompting the staleKey exists to prevent).
 export const PtyHostIdentitySchema = z.object({
   staleKey: z.string(),
   navigableCommit: z.string(),
 });
+
+export const PtyHostCurrencySchema = z.enum(["current", "outdated", "unknown"]);
 
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
@@ -605,12 +606,13 @@ export interface KoluBuildInfo extends BuildInfo {
    *  even in dev. */
   version?: string;
   ptyHost?: z.infer<typeof PtyHostIdentitySchema>;
-  /** The staleKey of the pty-host closure the DEPLOYED server ships (its own
-   *  `KOLU_PTY_HOST_BUILD_ID`). The rail compares it against the surviving
-   *  daemon's relayed `ptyHost.staleKey` to derive currency — equal ⇒ current,
-   *  different ⇒ a restart would load new pty-host code (`⬆ update pending`).
-   *  Empty off-nix, where staleness can't be derived (the rail shows neither). */
-  ptyHostExpectedStaleKey?: string;
+  /** The surviving daemon's currency, decided server-side where both the live
+   *  daemon's relayed `ptyHost.staleKey` and the deployed server's own expected
+   *  staleKey (`currentBuildId()`) are in hand: `current` when they match (a
+   *  restart would load the SAME pty-host code), `outdated` when they differ (a
+   *  restart picks up new code — `⬆ update pending`), `unknown` when either is
+   *  absent (no daemon read, or off-nix where the nix-baked staleKeys are ""). */
+  ptyHostCurrency?: z.infer<typeof PtyHostCurrencySchema>;
 }
 
 export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
@@ -618,7 +620,7 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
     commit: z.string(),
     version: z.string().optional(),
     ptyHost: PtyHostIdentitySchema.optional(),
-    ptyHostExpectedStaleKey: z.string().optional(),
+    ptyHostCurrency: PtyHostCurrencySchema.optional(),
   }),
   default: { commit: "" },
 });
