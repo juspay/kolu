@@ -48,6 +48,7 @@ let
       ./packages/memorable-names
       ./packages/terminal-protocol
       ./packages/pty-host
+      ./packages/pty-host-daemon
       ./packages/pty-tui
       ./packages/server
       ./packages/client
