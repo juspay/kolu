@@ -105,15 +105,16 @@ export function createScrollLock(
   visibility: () => string = defaultVisibility,
 ) {
   const [isLocked, setIsLocked] = createSignal(false);
-  const [hasNewOutput, setHasNewOutput] = createSignal(false);
   const [lastEvent, setLastEvent] = createSignal<ScrollLockEvent | null>(null);
 
   /** Data buffered while scroll-locked — flushed on unlock. The reactive
    *  source for the buffer; `pendingChunks` is derived from its length, so
    *  there is exactly one write surface (`setPending`) and no parallel count
-   *  to keep in sync. */
+   *  to keep in sync. `hasNewOutput` is in turn a boolean projection of that
+   *  same count — derived, not a separate signal to clear at every flush. */
   const [pending, setPending] = createSignal<string[]>([]);
   const pendingChunks = () => pending().length;
+  const hasNewOutput = () => pendingChunks() > 0;
 
   /** Terminal reference, set on attach. */
   let termRef: Terminal | null = null;
@@ -202,7 +203,6 @@ export function createScrollLock(
   function reset() {
     flush();
     setIsLocked(false);
-    setHasNewOutput(false);
     lockedWhileHidden = false;
   }
 
@@ -234,7 +234,6 @@ export function createScrollLock(
         // below re-entered here) — flush anything held and release.
         if (isLocked()) flush();
         setIsLocked(false);
-        setHasNewOutput(false);
         lockedWhileHidden = false;
         return;
       }
@@ -278,7 +277,6 @@ export function createScrollLock(
       term.write(data);
       return;
     }
-    setHasNewOutput(true);
     setPending((buffered) => [...buffered, data]);
   }
 
@@ -290,7 +288,6 @@ export function createScrollLock(
     flush();
     term.scrollToBottom();
     setIsLocked(false);
-    setHasNewOutput(false);
     lockedWhileHidden = false;
   }
 
