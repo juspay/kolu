@@ -1,6 +1,3 @@
-// MUST stay first: promote --pty-host-socket into KOLU_PTY_HOST_SOCKET before
-// ptyHost.ts (top-level await) resolves the daemon socket at import time.
-import "./daemon/socketEnv.ts";
 import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";

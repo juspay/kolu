@@ -92,9 +92,17 @@ describe("@kolu/pty-host closure (the staleKey's hashed set)", () => {
     // (b) The reached set == what nix hashes (both roots' src/*.ts minus
     // tests). This mirrors default.nix's ptyHostSrc fileFilter so the hashed
     // set can never silently drift from the closure this test asserts.
+    // daemonMain.ts is the daemon PROCESS ENTRY (top-level main()): it lives in
+    // this package but is glue, not wire/behaviour — deliberately outside the
+    // staleKey and unreachable from index.ts. The nix fileFilter excludes it;
+    // mirror that here so reached == hashed stays an equality.
+    const EXCLUDE = new Set(["daemonMain.ts"]);
     const nonTest = (dir: string): string[] =>
       readdirSync(dir)
-        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+        .filter(
+          (f) =>
+            f.endsWith(".ts") && !f.endsWith(".test.ts") && !EXCLUDE.has(f),
+        )
         .map((f) => resolve(dir, f));
     const hashed = [...nonTest(SRC), ...nonTest(PROTOCOL_SRC)];
     const rel = (xs: Iterable<string>): string[] =>

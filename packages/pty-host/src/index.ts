@@ -89,3 +89,8 @@ export {
 // (kolu-server, daemon) and connected to (kolu-tui) — one resolver all share so
 // the default paths can never drift between them.
 export { getPtyHostPidPath, getPtyHostSocketPath } from "./socketPath.ts";
+// The daemon process entry's absolute path — fed to the runtime for the dev/test
+// re-exec spawn path (@kolu/pty-host-daemon's spawn.ts). Exported as a path, not
+// imported as a module: daemonMain.ts has a top-level `main()`, so importing it
+// would RUN the daemon. The package's index must stay side-effect-free.
+export { ptyHostDaemonEntry } from "./daemonEntry.ts";

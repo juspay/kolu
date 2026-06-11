@@ -165,6 +165,53 @@ B ships the first two rail states (`≡ current`, `⬆ update pending`) and the 
 Now that the socket-serving glue exists, evaluate what should move into <code>@kolu/surface</code> itself vs stay package-local — the stdio-serve glue, the version/build-id handshake pattern, contract-compat helpers any surface-over-stdio consumer would want. A deliberate post-B evaluation in the original plan; its first instalment shipped on the kolu-tui Phase 1 PR <PrLink pr={1084} />: the unix-socket transport pair (<code>serveOverUnixSocket</code> + <code>unixSocketLink</code>), the <code>getRuntimeSocketPath</code> rendezvous helper, <code>serveOverStdio</code>'s settled never-rejecting end result, and the generic <code>isContractVersionCompatible</code> handshake predicate all moved into <code>@kolu/surface</code> (mirror: <a href="https://github.com/srid/drishti/pull/57">drishti#57</a>). What remains for the post-B pass: a standard <code>system.version</code>/build-id handshake fragment, plus whatever Phase B's daemon glue turns out to want.
 </Callout>
 
+## Packaging — the `@kolu/pty-host-daemon` cut <PrLink pr={1275} />
+
+B landed the daemon as glue under `packages/server/src/daemon/`. The **same PR** then extracts that glue into its own package — not to shrink the diff (never a valid criterion) but because the surviving-daemon lifecycle is a concern distinct from the terminal/session/UI domain the server owns, and because the **per-pty-host model** [remote-terminals](remote-terminals.html) is converging on (a pty-host is a session — local or, later, remote over ssh — owning many terminals) makes the local daemon one of **two siblings**, not a one-off.
+
+The cut is the output of a `/lowy` + `/hickey` pass (after an initial Claude⇄codex answer-debate). The lenses forced the load-bearing correction: the machinery the *remote* agent reuses is `runPtyHostDaemon` — **already in `@kolu/pty-host`** — not the local supervisor, so the local launch+supervise stays a local provider and the remote is a parallel sibling, never a consumer of it.
+
+<D2
+  caption="Four homes by concern. @kolu/pty-host is the runnable pty-host both providers execute. @kolu/pty-host-daemon (LOCAL) and surface-nix-host (REMOTE) are sibling providers — each owns launch + survival + reconnect for its host — joined at the server's one TerminalBackend seam. The server is left domain-only."
+  code={`direction: down
+ptyhost: "@kolu/pty-host — a runnable pty-host (shared by both providers)" {
+  e: "contract · serve · socketPath · pid-gate writer · daemonMain entry"
+}
+local: "@kolu/pty-host-daemon — LOCAL surviving-daemon provider (NEW)" {
+  e: "daemonHandle · waitForPidGone · spawn (systemd-run / detached) · env · socketEnv"
+}
+remote: "surface-nix-host — REMOTE surviving-daemon provider (the sibling)" {
+  e: "ssh reach · provision / realise · bridge + reconnect"
+}
+server: "packages/server — domain only" {
+  seam: "TerminalBackend seam — getTerminalBackendFor(location)"
+  e: "adoptSurvivors · reattach · buildInfo · IdentityRail"
+}
+server.seam -> local: "location = local"
+server.seam -> remote: "location = remote"
+local -> ptyhost: "spawns + supervises a process running it"
+remote -> ptyhost: "provisions + runs it over ssh"
+`}
+/>
+
+| Concern | Home |
+| --- | --- |
+| A runnable pty-host — contract, serve loop, socket rendezvous, pid-gate **writer**, and the `daemonMain` process entry | `@kolu/pty-host` — the entry folds in beside the behaviour it wraps, so the remote agent *runs* it without importing any supervisor |
+| The LOCAL surviving-daemon lifecycle, end-to-end — launch-to-survive (`spawn` via `systemd-run`/detached), pid-gate **reader** + `waitForPidGone`, the reconnecting client, `restart`, the contract-skew guard | `@kolu/pty-host-daemon` (**new**) |
+| The REMOTE surviving-daemon lifecycle — ssh reach, provision/realise, bridge + reconnect | `surface-nix-host` (the sibling; already exists) |
+| Terminal/session/UI domain — surviving-PTY adoption, boot reattach, `buildInfo`/currency, the rail | `packages/server` (domain only) |
+
+**Why `spawn` lives *in* the provider, not injected.** The lenses' first instinct was to inject the OS-launch so the supervisor stayed launch-free; the call went the other way, and it's the cleaner one. `systemd-run --user` is not generic "launch" — it is the cgroup-escape that **is** the survival (a plain detached child dies on cgroup-v2, the #1031 Linux failure). So "launch-to-survive" and "supervise/reconnect" are **one concern — the local surviving-daemon lifecycle — owned end-to-end**, with the platform split (systemd vs macOS-detached) an internal detail. The package stays local-only *by use*: the remote agent imports `@kolu/pty-host` for the entry and gets its survival from `surface-nix-host`, so it never pulls in systemd code. `@kolu/pty-host-daemon` and `surface-nix-host` are then the two implementations behind one receptacle — "a surviving pty-host on *this* host" vs "…on a *remote* host".
+
+**The unifying interface is named, not built.** `DaemonHandle` exposes local-only `pid()`/`restart()`; the remote sibling wants reachability/reprovision — a different shape. A `PtyHostProvider` receptacle now would abstract from one example; the join point already exists one level up at the `TerminalBackend` seam, so the interface is lifted at **R-2**, when the second concretion is in hand.
+
+**Details that hold the cut honest:**
+
+- `daemonMain` moves *into* `@kolu/pty-host` but stays **outside the staleKey closure** — it is hashed-but-unreachable from `index.ts` (top-level `main()`), so it's excluded from both the nix `ptyHostSrc` fileset and the `buildId.closure.test.ts` hashed set, in lockstep. Its glue role (and "deliberately outside the hash" status) is unchanged by the move; only its directory changed. The dev/test spawn path resolves the entry through a tiny `ptyHostDaemonEntry` path export rather than a sibling `import.meta.url`.
+- `socketEnv`'s import-order side effect becomes an explicit `promotePtyHostDaemonFlags(argv, env)` call at the top of `ptyHost.ts` — promotion co-located with its consumer, retiring the "MUST stay first" import in `index.ts`.
+- The reconnecting **Proxy** in `daemonHandle` is **kept** — the restart unit test captures `handle.client` *before* a restart and `ptyHost.ts` exports a module-level `ptyHostClient`, so the stable reference across a daemon swap is load-bearing, not dead code.
+- The pid-gate **stays** split by lifecycle role — primitive in `kolu-shared`, writer/acquire with `runPtyHostDaemon` in `@kolu/pty-host`, reader/survivor-lookup with the supervisor — and `socketPath.ts` **stays** in `@kolu/pty-host` (`kolu-tui` imports it as a pure client).
+
 ## The #1034 postmortem — production failure and hard constraints
 
 The first R4c-UI build (<PrLink pr={1034} />) shipped the build-mismatch "update pending" nudge + a *Restart local PTY daemon* command. On production (Linux/systemd, 2026-05-30) the nudge fired correctly on a deploy; clicking restart then **destroyed a live 20-terminal session and could not bring the daemon back**. From the journal: `killAll` drained all 20 terminals first; the old daemon (13.5h old, 25G RAM on a thrashing box) took ~2min to exit; the respawn timed out at 30s; the user was left with zero terminals, a dead daemon handle, and an **empty canvas indistinguishable from "you have no terminals."** No second daemon ever ran — the failure was the respawn losing the race against the slow old-daemon exit.

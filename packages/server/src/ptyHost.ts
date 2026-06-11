@@ -14,9 +14,18 @@
  * the backend uses it.
  */
 import { getPtyHostPidPath, getPtyHostSocketPath } from "@kolu/pty-host";
-import { ensureDaemon } from "./daemon/daemonHandle.ts";
-import { spawnDaemonProcess } from "./daemon/spawn.ts";
+import {
+  ensureDaemon,
+  promotePtyHostDaemonFlags,
+  spawnDaemonProcess,
+} from "@kolu/pty-host-daemon";
 import { log } from "./log.ts";
+
+// Promote --pty-host-socket / --allow-nix-shell-with-env-whitelist into the env
+// BEFORE the reads below: this module resolves (and may spawn) the daemon at
+// import time, before index.ts parses argv with cleye. An explicit call at the
+// real read site, not the old must-be-first side-effect import in index.ts.
+promotePtyHostDaemonFlags(process.argv, process.env);
 
 const socketOverride = process.env.KOLU_PTY_HOST_SOCKET;
 const socketPath = getPtyHostSocketPath(socketOverride);

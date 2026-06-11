@@ -28,7 +28,7 @@ import { spawn, type StdioOptions } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { ptyHostDaemonEntry } from "@kolu/pty-host";
 import type { Logger } from "kolu-shared";
 import { DAEMON_ENV_KEYS } from "./env.ts";
 
@@ -44,7 +44,7 @@ export interface SpawnDaemonOpts {
 function resolveDaemonCommand(): { cmd: string; args: string[] } {
   const bin = process.env.KOLU_DAEMON_BIN;
   if (bin) return { cmd: bin, args: [] };
-  const entry = fileURLToPath(new URL("./daemonMain.ts", import.meta.url));
+  const entry = ptyHostDaemonEntry;
   return { cmd: process.execPath, args: [...process.execArgv, entry] };
 }
 

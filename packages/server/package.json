@@ -15,6 +15,7 @@
     "@hono/node-ws": "^1.1.0",
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/pty-host": "workspace:*",
+    "@kolu/pty-host-daemon": "workspace:*",
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",

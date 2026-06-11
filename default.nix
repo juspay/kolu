@@ -92,7 +92,13 @@ let
     root = ./packages;
     fileset = pkgs.lib.fileset.unions [
       (pkgs.lib.fileset.fileFilter
-        (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name)
+        # daemonMain.ts is the daemon PROCESS ENTRY (top-level main()), not
+        # wire/behaviour — it lives here so its path resolves and it shares the
+        # tsx build closure, but it is deliberately outside the staleKey and is
+        # NOT reachable from index.ts. Excluded here so the hashed set stays
+        # equal to the closure asserted in buildId.closure.test.ts (lockstep).
+        (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name
+          && f.name != "daemonMain.ts")
         ./packages/pty-host/src)
       ./packages/pty-host/package.json
       # @kolu/terminal-protocol is wire/behaviour the pty-host serves (the
@@ -208,7 +214,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu-daemon \
-      --add-flags "${koluStamped}/packages/server/src/daemon/daemonMain.ts" \
+      --add-flags "${koluStamped}/packages/pty-host/src/daemonMain.ts" \
       --set KOLU_COMMIT_HASH "${commitHash}" \
       --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git ]}

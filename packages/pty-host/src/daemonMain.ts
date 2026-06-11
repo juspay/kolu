@@ -2,16 +2,31 @@
  * `kolu-daemon` — the pty-host daemon process entry.
  *
  * Thin glue, deliberately OUTSIDE the staleKey's hashed closure: the daemon's
- * behaviour is `runPtyHostDaemon` in `@kolu/pty-host` (hashed); this file only
- * wires it to the process — reads the socket override, runs the serve loop, and
- * turns signals into a clean shutdown. It is the binary the server spawns
- * (detached / `systemd-run`); it keeps running because the socket listener
- * holds the event loop open.
+ * behaviour is `runPtyHostDaemon` (hashed, this package); this file only wires
+ * it to the process — reads the socket override, runs the serve loop, and turns
+ * signals into a clean shutdown. It is the binary the server spawns (detached /
+ * `systemd-run`); it keeps running because the socket listener holds the event
+ * loop open.
+ *
+ * It lives in this package (so `daemonEntry.ts` can resolve its path and so it
+ * shares the build closure under `tsx`), but it has a top-level `main()`, so
+ * `index.ts` must NOT import it — and it is EXCLUDED from the staleKey's hashed
+ * set (default.nix's `ptyHostSrc` fileFilter + `buildId.closure.test.ts` skip
+ * it, kept in lockstep). The reachable-from-index closure stays equal to the
+ * hashed set; this process-entry is glue, not wire/behaviour.
  */
-import { runPtyHostDaemon } from "@kolu/pty-host";
 import { configureNixShellEnv } from "kolu-pty";
-import pkg from "../../package.json" with { type: "json" };
-import { log } from "../log.ts";
+import pino from "pino";
+import pkg from "../package.json" with { type: "json" };
+import { runPtyHostDaemon } from "./daemon.ts";
+
+// JSON logging straight to stdout — the daemon's stdout/stderr are redirected to
+// a log file next to its socket (the spawn path in @kolu/pty-host-daemon). No
+// pino-pretty: the daemon is a background process, not an interactive shell.
+const log = pino({
+  level: process.env.LOG_LEVEL ?? "info",
+  base: { pid: process.pid },
+});
 
 async function main(): Promise<void> {
   // The daemon owns shell-env preparation (cleanEnv runs here), so it must
