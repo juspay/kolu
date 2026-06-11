@@ -8,12 +8,15 @@ author: "Sridhar Ratnakumar"
 
 import Tip from "../../components/Tip.astro";
 import PR from "../../components/PR.astro";
+import Repo from "../../components/Repo.astro";
+
+<Repo slug="juspay/odu" prominent />
 
 In the [last post](/blog/orpc-over-ssh) I argued that [`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface) over ssh makes a new class of app cheap: install-free, ephemeral, typed, and reactive — the source of truth lives on another machine and the plumbing is identical to running locally. [drishti](https://github.com/srid/drishti), htop for a whole fleet with nothing installed on the remotes, was the flagship. This post is about the second app in that class, and it's one I use every day: **odu**, the thing that runs [Kolu](https://github.com/juspay/kolu)'s own CI.
 
 odu (Tamil ஓடு — *run*) is a CI runner. You tag one [`just`](https://just.systems) recipe as your pipeline, point odu at a couple of machines, and it runs the recipe's dependency DAG across all of them, posts a GitHub commit status per node, and gives you back a verdict. That part is unremarkable; every team has a tool that does it. What's different is the shape: odu doesn't hand you a batch job and a directory of logs. It **holds the run as live, typed state you attach to** — and because that state is a `@kolu/surface`, the same run is a terminal dashboard for me and an [MCP](https://modelcontextprotocol.io/) server for my coding agent, off one definition. It's local CI built for both of the things that read CI now: humans, and the agents working alongside them.
 
-<figure style="margin:1.75rem 0;">
+<figure style="width:min(94vw,1080px);margin:1.75rem 0;margin-left:50%;transform:translateX(-50%);">
   <video autoplay muted loop playsinline preload="metadata" poster="/blog/odu-attach.webp" style="width:100%;border-radius:0.6rem;border:1px solid var(--color-rule);display:block;">
     <source src="/blog/odu-attach.webm" type="video/webm" />
     <source src="/blog/odu-attach.mp4" type="video/mp4" />
@@ -127,7 +130,7 @@ The pipeline snapshot and the per-node logs aren't tools, they're **subscribable
 
 Wiring it up is one stdio entry — `nix run github:juspay/odu -- mcp` — and repos that manage agent config with [APM](https://github.com/microsoft/apm) get it injected automatically just by depending on odu.
 
-<figure style="margin:1.75rem auto;max-width:560px;">
+<figure style="width:min(92vw,720px);margin:1.75rem 0;margin-left:50%;transform:translateX(-50%);">
   <video controls muted playsinline loop preload="metadata" poster="/blog/odu-mcp.webp" style="width:100%;border-radius:0.6rem;border:1px solid var(--color-rule);display:block;">
     <source src="/blog/odu-mcp.webm" type="video/webm" />
     <source src="/blog/odu-mcp.mp4" type="video/mp4" />
