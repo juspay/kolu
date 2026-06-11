@@ -28,10 +28,10 @@ export function getPtyHostSocketPath(override?: string): string {
 
 /** The pid-file path for the single-instance daemon gate — the socket's
  *  sibling, resolved the same way so the daemon (which acquires it) and the
- *  server (which reads it to find a survivor) agree. Derived from the socket
- *  override when given, so `--pty-host-socket /run/foo.sock` pairs with
+ *  server (which reads it to find a survivor) agree. Derived from the resolved
+ *  socket path in one rule, so `--pty-host-socket /run/foo.sock` pairs with
  *  `/run/foo.pid` and a second instance stays fully isolated. */
 export function getPtyHostPidPath(override?: string): string {
-  if (override) return `${override.replace(/\.sock$/, "")}.pid`;
-  return getRuntimeSocketPath({ app: "kolu", file: "pty-host.pid" });
+  const socket = getPtyHostSocketPath(override);
+  return `${socket.replace(/\.sock$/, "")}.pid`;
 }
