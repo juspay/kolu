@@ -30,6 +30,22 @@ Which database do you prefer?
 
 Enter to select · ↑/↓ to navigate · Esc to cancel`;
 
+/** AskUserQuestion — the single-select footer *with the `n to add notes` segment*
+ *  (claude-code v2.1.173 added it, captured live). The notes segment lands
+ *  between `to navigate` and `Esc to cancel`, so a marker that required those two
+ *  to be adjacent stops firing — the regression this fixture guards. */
+const ASK_USER_QUESTION_WITH_NOTES = ` ☐ Decomposition
+
+Which package decomposition is cleanest?
+
+❯ 1. Entry with behaviour
+  2. Supervisor owns the entry
+  3. Batteries-included supervisor
+
+  Notes: press n to add notes
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel`;
+
 /** AskUserQuestion — the multi-select (tabbed form) variant, captured live. Its
  *  nav hint is `Tab/Arrow keys to navigate`, not `↑/↓ to navigate`, so a marker
  *  keyed on the arrow glyphs alone would miss it; the trailing
@@ -153,6 +169,10 @@ describe("screenHasClaudePrompt — AskUserQuestion", () => {
 
   it("detects the multi-select 'Tab/Arrow keys to navigate' footer", () => {
     expect(screenHasClaudePrompt(ASK_USER_QUESTION_MULTISELECT)).toBe(true);
+  });
+
+  it("detects the footer with the 'n to add notes' segment (v2.1.173)", () => {
+    expect(screenHasClaudePrompt(ASK_USER_QUESTION_WITH_NOTES)).toBe(true);
   });
 });
 

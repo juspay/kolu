@@ -19,7 +19,7 @@
  *  `ClaudeCodeInfo` import is type-only (erased), so this stays as pure as
  *  `schemas.ts`.
  *
- *  ## Signature — framework-rendered markers (claude-code v2.1.162, captured live)
+ *  ## Signature — framework-rendered markers (claude-code v2.1.162–v2.1.173, captured live)
  *  See `PROMPT_MARKERS` for the verbatim list and per-marker rationale. In short,
  *  three awaiting-user prompts are recognized, each by chrome no idle menu or
  *  ordinary output carries: `AskUserQuestion` (its `… to navigate · Esc to cancel`
@@ -63,14 +63,18 @@ export const TAIL_REGION_LINES = 40;
  *  v2.1.162) — not model-supplied option text — anchored on a phrase no idle
  *  menu or ordinary output carries. Any one present in the screen tail is proof.
  *
- *   1. **AskUserQuestion** — its footer's trailing `… to navigate · Esc to
- *      cancel`. Keying on the trailing structure (not the nav-hint glyphs) covers
- *      both shapes — single-select renders `↑/↓ to navigate`, the multi-select
- *      tabbed form renders `Tab/Arrow keys to navigate`. The `· Esc to cancel`
- *      suffix keeps it off prose ("…arrow keys to navigate the file tree") and
- *      the look-alikes that also end in "Esc to cancel" but not via "to navigate"
- *      (`/model` → "session only · Esc to cancel"; trust → "Enter to confirm ·
- *      Esc to cancel"; `/fork` list → "↑/↓ to select · Enter to view").
+ *   1. **AskUserQuestion** — its footer pairing `… to navigate … · Esc to
+ *      cancel` on one line. Keying on the co-occurrence (not the nav-hint glyphs)
+ *      covers both shapes — single-select renders `↑/↓ to navigate`, the
+ *      multi-select tabbed form renders `Tab/Arrow keys to navigate` — and
+ *      tolerates a middle segment between the two halves: v2.1.173 inserted
+ *      `· n to add notes` there, so the regex spans `to navigate` … `· Esc to
+ *      cancel` rather than requiring them adjacent. The match stays on a single
+ *      line (no `s` flag), and the `· Esc to cancel` suffix keeps it off prose
+ *      ("…arrow keys to navigate the file tree") and the look-alikes that end in
+ *      "Esc to cancel" but never carry "to navigate" on that line (`/model` →
+ *      "session only · Esc to cancel"; trust → "Enter to confirm · Esc to
+ *      cancel"; `/fork` list → "↑/↓ to select · Enter to view").
  *   2. **Edit-family permission gate** (Write / Edit / NotebookEdit) — the
  *      "Do you want to create/edit X?" approval, whose footer is
  *      `Esc to cancel · Tab to amend`. Anchored on the *whole footer* (both
@@ -89,7 +93,7 @@ export const TAIL_REGION_LINES = 40;
  *  Permission gates fire while the tool call is on disk, so the session reads as
  *  `tool_use` (already pollable) — only the marker is new, not the state gate. */
 const PROMPT_MARKERS: readonly RegExp[] = [
-  /to navigate\s*·?\s*Esc to cancel/, // AskUserQuestion (single + multi-select)
+  /to navigate\b.*·\s*Esc to cancel/, // AskUserQuestion (single + multi-select; tolerates a middle footer segment, e.g. `· n to add notes`)
   /Esc to cancel\s*·?\s*Tab to amend/, // Write/Edit/NotebookEdit gate footer
   /^\s*\d+\.\s*Yes, and don.t ask again for\b/m, // Bash/WebFetch/etc. gate option
 ];
