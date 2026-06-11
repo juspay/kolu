@@ -23,6 +23,7 @@ import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
+import { useDaemonRestart } from "../useDaemonRestart";
 import { bootLabel, formatUptime, useNow } from "./uptime";
 
 /** WebSocket transport status → the `srv` liveness dot. */
@@ -60,6 +61,9 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // commit; `stale` is the shared client-staleness derivation.
   const pwa = useSurfaceApp<KoluBuildInfo>();
   const stale = clientStale;
+  // The `⬆ update pending` badge is a live restart affordance — clicking it
+  // opens the (shared, destructive-action) confirmation before cycling the daemon.
+  const { requestRestart } = useDaemonRestart();
 
   // One app-owned clock ticks both uptimes together. `srv` resets every
   // restart; `pty` survives one — so `pty up 3h` beside `srv up 2m` is the
@@ -148,10 +152,15 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         </Tip>
       </Show>
       <Show when={ptyState() === "outdated"}>
-        <Tip label="A surviving daemon is a build behind — restart it to pick up the deployed pty-host.">
-          <span class="ml-1 self-center rounded-full border border-warning/50 px-1.5 text-[9px] leading-4 text-warning">
+        <Tip label="A surviving daemon is a build behind — click to restart it and pick up the deployed pty-host.">
+          <button
+            type="button"
+            data-testid="rail-update-pending"
+            onClick={() => requestRestart()}
+            class="ml-1 self-center rounded-full border border-warning/50 px-1.5 text-[9px] leading-4 text-warning cursor-pointer hover:bg-warning/10 transition-colors"
+          >
             ⬆ update pending
-          </span>
+          </button>
         </Tip>
       </Show>
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />

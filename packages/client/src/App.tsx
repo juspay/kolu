@@ -24,6 +24,7 @@ import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
+import DaemonUpdateConfirm from "./DaemonUpdateConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
@@ -342,7 +343,7 @@ const App: Component = () => {
       localStorage.clear();
       location.reload();
     },
-    handleRestartPtyHost: daemonRestart.restartPtyHost,
+    handleRestartPtyHost: daemonRestart.requestRestart,
     handleExportSession: () => exportSession(serverSavedSession()),
     handleImportSession: () =>
       void importSession().then(
@@ -539,6 +540,11 @@ const App: Component = () => {
           setCloseConfirmTarget(null);
           if (target) void worktree.handleKillWorktree(target.id);
         }}
+      />
+      <DaemonUpdateConfirm
+        open={daemonRestart.confirmOpen()}
+        onCancel={daemonRestart.cancelRestart}
+        onConfirm={daemonRestart.confirmRestart}
       />
       {/* Desktop chrome — docked top bar carrying identity and global
        *  controls. The workspace switcher retired in favor of the
