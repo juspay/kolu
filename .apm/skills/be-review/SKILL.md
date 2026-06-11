@@ -1,7 +1,7 @@
 ---
 name: be-review
-description: Run /be's review gauntlet SERIALLY — /codex-debate, then /lens-debate (lowy ⇄ hickey), then /simplify, then code-police, each editing and committing on the live branch in turn. Use from /be §4, or when the user asks to "run the review gauntlet". Requires Claude Code's Skill tool.
-argument-hint: "[--base <branch>] [--rationale <note>] [--tracks codex,lens,simplify,police]"
+description: Run /be's review gauntlet SERIALLY — /lens-debate (lowy ⇄ hickey), then /codex-debate, then /simplify, then code-police, each editing and committing on the live branch in turn. Use from /be §4, or when the user asks to "run the review gauntlet". Requires Claude Code's Skill tool.
+argument-hint: "[--base <branch>] [--rationale <note>] [--tracks lens,codex,simplify,police]"
 ---
 
 # Review gauntlet (serial)
@@ -13,11 +13,21 @@ that impossible without any snapshot machinery — when a step starts, the previ
 step has already committed, so every reviewer reads a clean, settled tree and
 applies its own fixes directly:
 
-1. **`/codex-debate`** — codex (`xhigh`) ⇄ claude author, debating to consensus.
-   Its author rounds edit and each round auto-commits `fix(…)` on the branch.
-2. **`/lens-debate`** — lowy + hickey debate boundaries/simplicity to consensus,
-   then **apply** the agreed fixes (each its own commit). Pass the change
-   **`rationale`** so the lenses don't flag deliberate decisions.
+1. **`/lens-debate`** — lowy + hickey review independently, debate contested
+   findings to consensus, then **apply** the agreed fixes (each its own commit).
+   The change **`rationale`** is threaded into the lenses' *cross-examination*
+   (adjudication), never their independent reviews — pre-loading reviewers with
+   author intent measurably suppresses findings (the #1109 curation-bias lesson;
+   see the `review-orchestration` Atlas note). A deliberate decision gets
+   dispositioned on the record, not silently unflagged.
+2. **`/codex-debate`** — codex (`xhigh` round 1, `high` after) ⇄ claude author,
+   debating to consensus. Its author rounds edit and each round auto-commits
+   `fix(…)` on the branch. Running codex **after** the lens step is deliberate:
+   the lens step's structural rewrites are the largest commits any reviewer
+   produces in this gauntlet, and codex's cross-family review is the only step
+   that can check them — the "each step sees the commits the previous step
+   added" property (Preflight) only covers those rewrites if the cross-model
+   reviewer runs second.
 3. **`/simplify`** — the self-applying reuse / simplification / efficiency pass
    over the changed code. Now that nothing runs concurrently, it runs as itself
    (it could not against the old read-only snapshot).
@@ -25,7 +35,7 @@ applies its own fixes directly:
    their fixes (the elegance pass re-runs `/simplify`, harmless after step 3).
 
 Each step runs to completion before the next begins. Wall-clock is
-`codex + lens + simplify + police` — slower than the old parallel form, but with
+`lens + codex + simplify + police` — slower than the old parallel form, but with
 no snapshot, no change-request handoff, and no separate apply pass: every step is
 its own editor and commits its own work.
 
@@ -57,36 +67,20 @@ police summary. No PR comment can reference a local-only commit.
 
 ## Run the steps in order
 
-`--tracks codex,lens,simplify,police` selects which steps run (default all four),
+`--tracks lens,codex,simplify,police` selects which steps run (default all four),
 in the listed order. Run each to completion, then move to the next. Preflight
 already ran `git fetch origin` and resolved the base, so pass `MB` straight into
 each step and **skip the per-skill step-1 fetch / base resolution** — don't redo
 it once per step.
 
-1. **codex** — follow `/codex-debate` (Skill tool). `repoPath` = the live
-   worktree, `base` = `MB`, **`--no-comment`** (so it doesn't advertise its
-   local-only round commits before be-review pushes). Its step-2 `Workflow` runs
-   in the background; **wait for it to finish** before starting the lens step. It
-   commits its rounds and **returns** its rendered comment body — hold onto it to
-   post after the final push. (On persistent `reviewer-error` there is **no
-   body to post** — per `/codex-debate`, an unresolved reviewer error is not a
-   consensus to report; skip the codex comment in that case.)
-
-   **Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
-   either in `consensus` or in `reviewer-error` — the latter meaning codex never
-   produced a structured verdict even after `codex-review.sh`'s built-in
-   per-`codex exec` retries. That is an *infrastructure hiccup, not a debate
-   outcome*: re-launch it immediately with the same args. Stop the moment an
-   attempt reaches `consensus`. Only if **all 3** come back `reviewer-error` do
-   you give up on codex — report the persistent reviewer-error honestly (no false
-   consensus comment) and move on to the lens step.
-
-2. **lens** — follow `/lens-debate` (Skill tool). `repoPath` = the live worktree,
+1. **lens** — follow `/lens-debate` (Skill tool). `repoPath` = the live worktree,
    `base` = `MB`, **apply mode** (the default — do *not* pass `--no-apply`),
-   **`--no-comment`** (same reason as codex — defer the comment until after the
-   push), and thread the `rationale` through. It applies the agreed fixes as
-   commits and **returns** its rendered comment body for be-review to post after
-   the push. Wait for its `Workflow` to finish.
+   **`--no-comment`** (so it doesn't advertise its local-only fix commits before
+   be-review pushes), and thread the `rationale` through — the lens workflow
+   feeds it to the *debate* (adjudication) rounds only, never the independent
+   reviews. It applies the agreed fixes as commits and **returns** its rendered
+   comment body for be-review to post after the push. Wait for its `Workflow` to
+   finish before starting the codex step.
 
    `/lens-debate` returns a `status` of `clean`, `consensus`, `unresolved`, or
    `merge-base-error`:
@@ -99,6 +93,43 @@ it once per step.
      skill ran `--no-comment`, so there is no self-posted comment to follow up
      on). Never report "lens consensus" for an `unresolved` run.
    - `merge-base-error` — the scope couldn't be trusted; report it and move on.
+
+2. **codex** — follow `/codex-debate` (Skill tool). `repoPath` = the live
+   worktree, `base` = `MB`, **`--no-comment`** (same reason as lens — defer the
+   comment until after the push). Its step-2 `Workflow` runs in the background;
+   **wait for it to finish** before starting the simplify step. It commits its
+   rounds and **returns** its rendered comment body — hold onto it to post after
+   the final push. Do **not** tell codex which of the commits in its diff came
+   from the lens step — it reviews the whole change cold, lens rewrites
+   included; that cold cross-family pass over the structural rewrites is the
+   point of this ordering. (On persistent `reviewer-error` there is **no body to
+   post** — per `/codex-debate`, an unresolved reviewer error is not a consensus
+   to report; skip the codex comment in that case.)
+
+   `/codex-debate` ends in `consensus`, `unresolved`, or `reviewer-error`:
+   - `consensus` — every finding resolved; the round commits are on the branch.
+   - `unresolved` — the debate hit its round backstop with findings still open.
+     Adjudicate every still-open finding yourself before moving on — same duty
+     as an unresolved lens finding: decide fix or drop for each, apply the
+     survivors (commit each fix), and fold your adjudication into the deferred
+     codex comment. Never report "codex consensus" for an `unresolved` run.
+   - `reviewer-error` — see the retry rule below.
+
+   **Retry codex on `reviewer-error` (up to 3 attempts).** `reviewer-error`
+   means codex never produced a structured verdict even after
+   `codex-review.sh`'s built-in per-`codex exec` retries. That is an
+   *infrastructure hiccup, not a debate outcome*: re-launch it immediately with
+   the same args. Stop the moment an attempt reaches `consensus` (or
+   `unresolved` — that is a real debate outcome, not an infra failure). Only if
+   **all 3** come back `reviewer-error` do you give up on codex. Then
+   **substitute, don't just skip**: run one fresh-context same-family
+   correctness review of the diff vs `MB` (an `Agent` sub-agent with a
+   cold prompt — the diff scope and "review for correctness; cite file:line",
+   nothing about who wrote what), apply/commit what it finds that you accept,
+   and record the codex track as **degraded — substituted** so the report and
+   badge say so honestly. A fresh-context same-family pass is strictly weaker
+   than cross-family review but strictly better than nothing; a flaky codex
+   must never silently mean *less* review.
 
 3. **simplify** — invoke `/simplify` (Skill tool), scoped to the change vs `MB`.
    It applies its fixes to the working tree. When it finishes, **commit** what it
@@ -125,7 +156,7 @@ First settle whether there is anything to push: `git log --oneline $START..HEAD`
 
 - **New commits exist** and **a PR exists for this branch**
   (`gh pr view --json number -q .number`) → **`git push`**. **Only after the push
-  succeeds** do you post the deferred comments — the codex and lens bodies from
+  succeeds** do you post the deferred comments — the lens and codex bodies from
   steps 1–2 are now safe to publish because the SHAs they name are on the remote.
 - **No new commits** (every step was clean or applied nothing) but **a PR
   exists** → there is nothing to push, and HEAD is already remote-visible, so
@@ -144,7 +175,7 @@ merges when satisfied.
 When you do post, post **one comment per track that produced a body** — skip any
 track `--tracks` excluded, and skip a track that ran but yielded no postable
 comment (codex on persistent `reviewer-error`, lens on `merge-base-error`): the
-codex body and the lens body verbatim (`gh pr comment -F`), and the police
+lens body and the codex body verbatim (`gh pr comment -F`), and the police
 summary (the `## [👮 Code-police](https://agency.srid.ca/)` comment described in
 Report).
 
@@ -153,13 +184,16 @@ Report).
 Summarize in chat — reporting **only the selected tracks**, and naming any track
 `--tracks` **skipped** so the absence is explicit, not silent:
 
-- **codex** — consensus / reviewer-error (note how many attempts if retried); on
-  consensus its PR comment landed (posted after the push, per "Push, then
-  comment") — on persistent reviewer-error there is no comment to post.
 - **lens** — status (**consensus** + fixes applied, or **unresolved** + how many
   findings still need human adjudication and how you adjudicated each, or
   `merge-base-error`); its PR comment landed (posted after the push) — except on
   `merge-base-error`, which has no comment body to post.
+- **codex** — consensus / unresolved (+ how you adjudicated each still-open
+  finding) / reviewer-error (note how many attempts if retried, and whether the
+  fresh-context substitute review ran — report that as **degraded —
+  substituted**, never as a codex consensus); on consensus or unresolved its PR
+  comment landed (posted after the push, per "Push, then comment") — on
+  persistent reviewer-error there is no codex comment to post.
 - **simplify** — whether it changed anything and what it committed.
 - **police** — findings and how each was actioned; the
   `## [👮 Code-police](https://agency.srid.ca/)` summary comment landed (posted
