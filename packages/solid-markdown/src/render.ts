@@ -206,34 +206,34 @@ function splitFrontMatter(markdown: string): {
 } {
   const m = FRONT_MATTER_RE.exec(markdown);
   if (!m) return { yaml: null, body: markdown };
+  // `null` means *no* front-matter (no match); a matched-but-empty block
+  // (`---\n---`) leaves the optional body group `undefined`, which coalesces to
+  // the empty string — present, but with no metadata. `renderFrontMatterTable`
+  // treats `""` like a non-mapping and renders no table, so the empty block
+  // still vanishes cleanly.
   return { yaml: m[1] ?? "", body: markdown.slice(m[0].length) };
-}
-
-/** Compact-JSON a structured value, tolerating the unserializable. A valid YAML
- *  alias can build a cyclic structure (`a: &a [*a]`), which `JSON.stringify`
- *  rejects with a `TypeError`; rather than let that escape and crash the
- *  preview, fall back to a neutral placeholder so the row — and the document —
- *  still render. */
-function safeJsonStringify(value: object): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return "[unserializable]";
-  }
 }
 
 /** Render one front-matter value into a table cell's text. Scalars print as
  *  their string form; a list of scalars joins with commas (the common `tags:`
  *  case); anything deeper (a nested mapping, or a list holding one) falls back
- *  to compact JSON so the structure stays legible without nested tables. The
- *  result is plain text — the caller escapes it. */
+ *  to compact JSON so the structure stays legible without nested tables. A valid
+ *  YAML alias can build a cyclic structure (`a: &a [*a]`), which
+ *  `JSON.stringify` rejects with a `TypeError` — degrade to a neutral
+ *  placeholder so the row still renders. The result is plain text — the caller
+ *  escapes it. */
 function formatFrontMatterValue(value: unknown): string {
-  const scalar = (v: unknown): string =>
-    v == null
-      ? ""
-      : typeof v === "object"
-        ? safeJsonStringify(v as object)
-        : String(v);
+  const scalar = (v: unknown): string => {
+    if (v == null) return "";
+    if (typeof v === "object") {
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return "[unserializable]";
+      }
+    }
+    return String(v);
+  };
   return Array.isArray(value) ? value.map(scalar).join(", ") : scalar(value);
 }
 
@@ -307,8 +307,11 @@ export function renderMarkdownToRawHtml(
   if (opts.inline) return inst.parseInline(markdown) as string;
   // Block parse: split front-matter off the body (so it never renders as a
   // spurious `<hr>` + Setext heading), parse the body, and normalize alerts.
-  // The metadata renders as a table for the document preview and is dropped for
-  // the compact intent slot — both document-level concerns absent inline.
+  // The split runs for *every* block parse — the body must be stripped whether
+  // or not the metadata is shown, or the compact intent slot would render the
+  // `---` block as an hr + heading. The `frontMatter` option gates only whether
+  // that stripped metadata comes back as a table (document) or is dropped
+  // (compact); both are document-level concerns absent inline.
   const { yaml, body } = splitFrontMatter(markdown);
   const table =
     (opts.frontMatter ?? true) && yaml !== null
