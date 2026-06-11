@@ -28,6 +28,7 @@ import { Marked } from "marked";
 import markedAlert from "marked-alert";
 import markedFootnote from "marked-footnote";
 import { gfmHeadingId } from "marked-gfm-heading-id";
+import { parse as parseYaml } from "yaml";
 
 export type RenderOptions = {
   /** Inline-only parse: no block wrapper, for single-line annotation slots. */
@@ -45,6 +46,15 @@ export type RenderOptions = {
    *  also have to drop the *same* tags when markdown legitimately produces
    *  them), so the boundary is enforced here, at the token level. Defaults on. */
   rawHtml?: boolean;
+  /** Render a leading YAML front-matter block as a metadata table at the top of
+   *  the document (true) or strip it entirely (false). Only the full document
+   *  preview surfaces metadata, GitHub-faithfully; the compact intent slot
+   *  drops it, since a chat row that happens to open with `---` is not a
+   *  document. Inert for the inline parse (no block layout). Also inert unless
+   *  the sanitize pass runs in richHtml/document scope, since the metadata table
+   *  tags live only in the document allowlist — same coupling as rawHtml.
+   *  Defaults on. */
+  frontMatter?: boolean;
 };
 
 // The fixed GFM extension stack — constant across every instance. These are
@@ -178,15 +188,99 @@ function buildMarked(breaks: boolean, rawHtml: boolean): Marked {
 }
 
 /** The leading YAML front-matter block (`---` … `---`) at the very start of a
- *  document — a `---` fence line, any body, a closing `---` fence line, and its
- *  line ending. */
-const FRONT_MATTER_RE = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
+ *  document: a `---` fence line, the captured YAML body, a closing `---` fence
+ *  line, and its line ending. The body-plus-newline is optional, so the empty
+ *  block `---\n---\n` matches too (captured body `""`) rather than slipping
+ *  through as normal markdown. Only matches a block at the very start. */
+const FRONT_MATTER_RE =
+  /^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
 
-/** Strip a leading YAML front-matter block (`---` … `---`) so document
- *  metadata doesn't render as a spurious top-of-page `<hr>` + Setext heading.
- *  Only matches a block at the very start of the document. */
-function stripFrontMatter(markdown: string): string {
-  return markdown.replace(FRONT_MATTER_RE, "");
+/** Split a leading YAML front-matter block off the document. `yaml` is the raw
+ *  YAML body (null when there is no front-matter); `body` is the markdown that
+ *  follows. Separating the two lets the caller either render the metadata as a
+ *  table or drop it, while the body always parses as plain markdown — never as a
+ *  spurious top-of-page `<hr>` + Setext heading. */
+function splitFrontMatter(markdown: string): {
+  yaml: string | null;
+  body: string;
+} {
+  const m = FRONT_MATTER_RE.exec(markdown);
+  if (!m) return { yaml: null, body: markdown };
+  // `null` means *no* front-matter (no match); a matched-but-empty block
+  // (`---\n---`) leaves the optional body group `undefined`, which coalesces to
+  // the empty string — present, but with no metadata. `renderFrontMatterTable`
+  // treats `""` like a non-mapping and renders no table, so the empty block
+  // still vanishes cleanly.
+  return { yaml: m[1] ?? "", body: markdown.slice(m[0].length) };
+}
+
+/** Render one front-matter value into a table cell's text. Scalars print as
+ *  their string form; a list of scalars joins with commas (the common `tags:`
+ *  case); anything deeper (a nested mapping, or a list holding one) falls back
+ *  to compact JSON so the structure stays legible without nested tables. A valid
+ *  YAML alias can build a cyclic structure (`a: &a [*a]`), which
+ *  `JSON.stringify` rejects with a `TypeError` — degrade to a neutral
+ *  placeholder so the row still renders. The result is plain text — the caller
+ *  escapes it. */
+function formatFrontMatterValue(value: unknown): string {
+  const scalar = (v: unknown): string => {
+    if (v == null) return "";
+    if (typeof v === "object") {
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return "[unserializable]";
+      }
+    }
+    return String(v);
+  };
+  return Array.isArray(value) ? value.map(scalar).join(", ") : scalar(value);
+}
+
+/** Render a parsed front-matter mapping as a metadata table — the keys in a
+ *  header column, their values beside them, GitHub-faithfully. The table is
+ *  marked with `data-md-frontmatter` so the stylesheet can give it its own muted
+ *  treatment; its text flows through the same sanitizer as the body, so the
+ *  values are escaped downstream. */
+function renderFrontMatterTable(entries: [string, unknown][]): string {
+  const rows = entries
+    .map(
+      ([key, value]) =>
+        `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(
+          formatFrontMatterValue(value),
+        )}</td></tr>`,
+    )
+    .join("");
+  return `<table data-md-frontmatter><tbody>${rows}</tbody></table>\n`;
+}
+
+/** Show a front-matter block we can't tabulate as its verbatim source, in a YAML
+ *  code block — so malformed (or non-mapping) metadata stays *visible and
+ *  fixable* rather than silently dropped, and never misrenders as a stray `<hr>`
+ *  + Setext heading. Tagged `data-lang="yaml"` so the code-block pass highlights
+ *  it, and run through the same sanitizer as the body, so the text is escaped. */
+function renderRawFrontMatter(yaml: string): string {
+  return `<pre><code data-lang="yaml">${escapeHtml(yaml)}</code></pre>\n`;
+}
+
+/** Render a leading YAML front-matter block. A non-empty top-level mapping
+ *  becomes a metadata table; an empty block renders nothing; anything else —
+ *  malformed YAML, or a valid scalar/list that isn't a key/value mapping — is
+ *  shown raw rather than dropped. A broken `---` block must never blow up the
+ *  preview, vanish a user's metadata, or render as a half-parsed table. */
+function renderFrontMatter(yaml: string): string {
+  if (yaml.trim() === "") return "";
+  let data: unknown;
+  try {
+    data = parseYaml(yaml);
+  } catch {
+    return renderRawFrontMatter(yaml);
+  }
+  if (data != null && typeof data === "object" && !Array.isArray(data)) {
+    const entries = Object.entries(data as Record<string, unknown>);
+    if (entries.length > 0) return renderFrontMatterTable(entries);
+  }
+  return renderRawFrontMatter(yaml);
 }
 
 /** Rewrite `marked-alert`'s class-based markup into an allowlist-safe
@@ -227,7 +321,15 @@ export function renderMarkdownToRawHtml(
   // Our config is fully synchronous (no async extensions), so both calls
   // return a string; the union with Promise only arises under `{ async: true }`.
   if (opts.inline) return inst.parseInline(markdown) as string;
-  // Block parse: strip front-matter first, then normalize alert markup. Both
-  // are document-level concerns that never apply to the inline slot.
-  return rewriteAlerts(inst.parse(stripFrontMatter(markdown)) as string);
+  // Block parse: split front-matter off the body (so it never renders as a
+  // spurious `<hr>` + Setext heading), parse the body, and normalize alerts.
+  // The split runs for *every* block parse — the body must be stripped whether
+  // or not the metadata is shown, or the compact intent slot would render the
+  // `---` block as an hr + heading. The `frontMatter` option gates only whether
+  // that stripped metadata comes back as a table (document) or is dropped
+  // (compact); both are document-level concerns absent inline.
+  const { yaml, body } = splitFrontMatter(markdown);
+  const meta =
+    (opts.frontMatter ?? true) && yaml !== null ? renderFrontMatter(yaml) : "";
+  return meta + rewriteAlerts(inst.parse(body) as string);
 }

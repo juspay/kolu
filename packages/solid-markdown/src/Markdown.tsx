@@ -193,6 +193,10 @@ export const Markdown: Component<{
         // Only the document preview admits a README's raw HTML; the compact/
         // inline intent slots (user/agent strings) escape it to literal text.
         rawHtml: isDocument(),
+        // Likewise, only the document preview surfaces YAML front-matter as a
+        // metadata table; the compact intent slot drops it (a chat row that
+        // opens with `---` is not a document).
+        frontMatter: isDocument(),
       }),
       {
         links: links(),

@@ -18,8 +18,12 @@ breaks, hard/soft line breaks (the document preview folds a single newline to a
 space, GitHub-faithfully; chat/dock keep message-style breaks).
 
 GitHub extensions: **footnotes**, **`> [!NOTE]`/`[!WARNING]`/… alerts**, a
-leading **YAML front-matter** block is stripped, **fenced-code syntax
-highlighting** (Shiki, dual github-light/dark theme) with a **copy button**.
+leading **YAML front-matter** block renders as a **metadata table** in the
+document preview (keys in a header column, values beside them — GitHub-faithful;
+front-matter that can't be tabulated — malformed YAML, or a non-mapping block —
+is shown raw as a YAML code block rather than dropped), and is dropped in the
+compact intent slot. **Fenced-code syntax highlighting** (Shiki,
+dual github-light/dark theme) with a **copy button**.
 
 Inline HTML (sanitized): `<details>`/`<summary>`, `<kbd>`, `<sub>`/`<sup>`,
 `<mark>`, `<p align>` wrappers, definition lists (`<dl>`), `<figure>`/

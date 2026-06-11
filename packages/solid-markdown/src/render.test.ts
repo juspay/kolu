@@ -201,12 +201,81 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).not.toContain("[!WARNING]");
   });
 
-  it("strips a leading YAML front-matter block", () => {
+  it("renders a leading YAML front-matter block as a metadata table", () => {
     const out = html("---\ntitle: Hello\nauthor: Jane\n---\n\n# Real Heading");
+    // The metadata renders as a marked table at the top, not an hr + Setext
+    // heading, and the body still parses as plain markdown below it.
+    expect(out).toContain("<table data-md-frontmatter>");
+    expect(out).toContain("<th>title</th><td>Hello</td>");
+    expect(out).toContain("<th>author</th><td>Jane</td>");
     expect(out).toContain('<h1 id="real-heading">Real Heading</h1>');
-    // The metadata must not render as an hr + Setext heading.
-    expect(out).not.toContain("title: Hello");
     expect(out).not.toContain("<hr>");
+  });
+
+  it("joins a list value with commas (the `tags:` case)", () => {
+    const out = html("---\ntags:\n  - solid\n  - markdown\n---\n\nbody");
+    expect(out).toContain("<th>tags</th><td>solid, markdown</td>");
+  });
+
+  it("escapes front-matter keys and values", () => {
+    const out = html('---\nname: "<script>"\n---\n\nbody');
+    expect(out).toContain("<td>&lt;script&gt;</td>");
+    expect(out).not.toContain("<script>");
+  });
+
+  it("renders malformed front-matter raw instead of dropping it", () => {
+    // Unparseable YAML (an unterminated flow sequence) can't become a table —
+    // but it must stay *visible and fixable* as a raw YAML code block, never
+    // silently dropped, and never misrendered as a half-parsed table or hr.
+    const out = html("---\ntags: [a, b\n---\n\n# Body");
+    expect(out).not.toContain("data-md-frontmatter");
+    expect(out).toContain('<code data-lang="yaml">');
+    expect(out).toContain("tags: [a, b");
+    expect(out).toContain('<h1 id="body">Body</h1>');
+  });
+
+  it("renders a non-mapping front-matter block raw, not as a table", () => {
+    // Valid YAML that isn't a key/value mapping (here a bare scalar) has no
+    // rows to tabulate — show it raw rather than dropping the user's content.
+    const out = html("---\njust a bare string\n---\n\n# Body");
+    expect(out).not.toContain("data-md-frontmatter");
+    expect(out).toContain('<code data-lang="yaml">');
+    expect(out).toContain("just a bare string");
+    expect(out).toContain('<h1 id="body">Body</h1>');
+  });
+
+  it("drops front-matter when `frontMatter` is off (the compact slot)", () => {
+    const out = renderMarkdownToRawHtml(
+      "---\ntitle: Hello\n---\n\n# Real Heading",
+      { frontMatter: false },
+    );
+    expect(out).not.toContain("data-md-frontmatter");
+    expect(out).not.toContain("title");
+    expect(out).toContain('<h1 id="real-heading">Real Heading</h1>');
+  });
+
+  it("only treats a `---` block at the very start as front-matter", () => {
+    const out = html("# Heading\n\n---\ntitle: Hello\n---\n");
+    expect(out).not.toContain("data-md-frontmatter");
+  });
+
+  it("survives a cyclic YAML alias instead of crashing the preview", () => {
+    // `&a [*a]` is valid YAML but builds a self-referential array, which
+    // `JSON.stringify` rejects — formatting must degrade, not throw, and the
+    // document body must still render.
+    const out = html("---\na: &a [*a]\n---\n\n# Body");
+    expect(out).toContain('<h1 id="body">Body</h1>');
+    expect(out).toContain("data-md-frontmatter");
+  });
+
+  it("makes an empty front-matter block disappear cleanly", () => {
+    // The shortest form, `---\n---`, has no body and no top-level mapping — it
+    // must vanish (no table, no spurious hr) rather than fall through as
+    // markdown.
+    const out = html("---\n---\n# Body");
+    expect(out).not.toContain("data-md-frontmatter");
+    expect(out).not.toContain("<hr>");
+    expect(out).toContain('<h1 id="body">Body</h1>');
   });
 });
 

@@ -341,6 +341,51 @@
   background: var(--md-box-faint);
 }
 
+/* ── Front-matter ────────────────────────────────────────────── */
+/* A leading YAML `---` block renders as a metadata table (renderFrontMatter-
+ * Table stamps `data-md-frontmatter`). It is *metadata*, not document body, so
+ * it reads quieter than a GFM table: no cell grid, a single hairline frame, a
+ * faint key column, and dimmed text — a header card that sits above the prose
+ * rather than competing with it. */
+.kolu-md table[data-md-frontmatter] {
+  /* Override the generic `display:block` reading-table layout: metadata is a
+   * fixed two-column grid that should fill the column, not scroll. */
+  display: table;
+  width: 100%;
+  margin-bottom: var(--md-gap);
+  border: 1px solid var(--md-border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 0.85em;
+  color: var(--md-muted);
+}
+.kolu-md table[data-md-frontmatter] th,
+.kolu-md table[data-md-frontmatter] td {
+  padding: 0.3em 0.75em;
+  border: 0;
+  border-top: 1px solid var(--md-border);
+  text-align: left;
+  vertical-align: top;
+}
+.kolu-md table[data-md-frontmatter] tr:first-child th,
+.kolu-md table[data-md-frontmatter] tr:first-child td {
+  border-top: 0;
+}
+.kolu-md table[data-md-frontmatter] th {
+  width: 1%;
+  white-space: nowrap;
+  font-weight: 600;
+  background: var(--md-box-faint);
+}
+.kolu-md table[data-md-frontmatter] td {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* Reset the striping the generic table rule paints onto even rows. */
+.kolu-md table[data-md-frontmatter] tbody tr:nth-child(even) {
+  background: transparent;
+}
+
 /* ── Rule ────────────────────────────────────────────────────── */
 .kolu-md hr {
   height: 1px;
