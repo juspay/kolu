@@ -23,5 +23,7 @@ packages/client/public/fonts
 .codex-debate/
 # /lens-debate skill: per-worktree scratch (commit-message files)
 .lens-debate/
+# /be-review skill: per-worktree findings ledger + deferred comment bodies
+.be-review/
 # /dev-server skill: per-worktree scratch (remembered dev-server ports)
 .dev-server/

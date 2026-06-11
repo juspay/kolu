@@ -44,9 +44,60 @@ be-review pushes only once, after all selected steps finish. A comment that name
 a commit SHA must never be posted while that SHA is local-only — if a later step
 failed or the run were interrupted, the PR would advertise commits that were
 never pushed. So the debate skills run with their self-commenting **suppressed**
-(`--no-comment`); be-review captures the comment body each returns, pushes once at
-the end, and only then posts the codex comment, the lens comment, and its own
-police summary. No PR comment can reference a local-only commit.
+(`--no-comment`); be-review **writes each returned comment body to the ledger
+dir the moment the track completes** (`.be-review/comment-<track>.md` — never
+held only in conversation memory), pushes once at the end, and only then posts
+the lens comment, the codex comment, and its own police summary **from those
+files**. No PR comment can reference a local-only commit, and an interrupted
+run never loses an already-earned comment body.
+
+## The findings ledger
+
+The gauntlet's write-ahead record: `.be-review/ledger.json` (gitignored,
+per-worktree — sibling of the debate skills' scratch dirs). It exists so that a
+crash, interrupt, or context loss anywhere in a multi-track, possibly hour-long
+run resumes by *content* instead of re-running reviewers against a tree that
+already contains their fixes — and so the final comments and report are rendered
+from recorded data, not from conversation memory.
+
+Shape:
+
+```jsonc
+{
+  "base": "<MB sha>", "start": "<START sha>", "pr": <number|null>,
+  "tracks": {
+    "lens":     { "state": "complete", "status": "consensus", "rounds": 2,
+                  "head": "<HEAD sha after the track>", "commentFile": "comment-lens.md",
+                  "findings": [ { "id": "lens:lowy-1", "title": "…", "location": "file:line",
+                                  "disposition": "fix|drop|unresolved-adjudicated:fix|…",
+                                  "commit": "<sha|null>", "duplicateOf": null } ] },
+    "codex":    { "state": "complete", "status": "consensus|unresolved|degraded-substituted", … },
+    "simplify": { "state": "complete", "changed": true,  "head": "…" },
+    "police":   { "state": "complete", "findings": […], "head": "…" }
+  }
+}
+```
+
+**Write-ahead discipline.** Initialize it in Preflight (base, start, pr, empty
+tracks). Update it (Write tool, full rewrite is fine — it's small) at every
+boundary: when a track completes (its `state`, `status`, post-track `head`,
+findings, comment file), and after every adjudication action you take on
+unresolved findings. The findings come straight from each track's structured
+return (`settled`/`unresolved` from lens, `finalVerdict.findings`/`unresolved`
+from codex, your own list for police); prefix ids with the track
+(`lens:lowy-1`, `codex:F2`, `police:P1`) so they stay unique across tracks.
+
+**Cross-track dedup.** When recording a later track's finding that targets the
+same location and substance as an earlier ledger entry, set `duplicateOf` to
+the earlier id instead of treating it as new — and if it's already fixed
+(`commit` set), say so in your adjudication rather than re-fixing.
+
+**Resume.** If Preflight finds an existing `.be-review/ledger.json` whose
+`base` equals this run's `MB` **and** whose `start` is an ancestor of HEAD,
+this is an interrupted run: keep the ledger, skip every track with
+`state: "complete"` (their commits are already on the branch), and continue
+from the first incomplete track. A ledger with a different `base` is stale —
+overwrite it and start fresh.
 
 ## Preflight
 
@@ -64,6 +115,11 @@ police summary. No PR comment can reference a local-only commit.
 - **codex login** (unless `--tracks` excludes it): `codex login status`. If not
   logged in, tell the user to run `codex login` (suggest the `!` prefix) and
   continue with the remaining steps.
+- **Ledger init/resume.** `mkdir -p .be-review`, then check for an existing
+  `.be-review/ledger.json` per the resume rule (The findings ledger): same
+  `base` + `start` an ancestor of HEAD → resume, skipping completed tracks;
+  otherwise write a fresh ledger (`base: MB`, `start: START`, `pr`, empty
+  `tracks`).
 
 ## Run the steps in order
 
@@ -72,6 +128,12 @@ in the listed order. Run each to completion, then move to the next. Preflight
 already ran `git fetch origin` and resolved the base, so pass `MB` straight into
 each step and **skip the per-skill step-1 fetch / base resolution** — don't redo
 it once per step.
+
+**After each track**: write its returned comment body (if any) to
+`.be-review/comment-<track>.md`, then update the ledger (state, status,
+post-track `head` via `git rev-parse HEAD`, findings with track-prefixed ids,
+cross-track `duplicateOf` marks) before starting the next track. The ledger is
+the record the final comments and report render from.
 
 1. **lens** — follow `/lens-debate` (Skill tool). `repoPath` = the live worktree,
    `base` = `MB`, **apply mode** (the default — do *not* pass `--no-apply`),
@@ -175,14 +237,31 @@ merges when satisfied.
 When you do post, post **one comment per track that produced a body** — skip any
 track `--tracks` excluded, and skip a track that ran but yielded no postable
 comment (codex on persistent `reviewer-error`, lens on `merge-base-error`): the
-lens body and the codex body verbatim (`gh pr comment -F`), and the police
+lens body and the codex body verbatim from their saved files
+(`gh pr comment -F .be-review/comment-<track>.md`), and the police
 summary (the `## [👮 Code-police](https://agency.srid.ca/)` comment described in
 Report).
 
+**Then post the gauntlet badge** — one final single-paragraph comment rendered
+from the ledger, so the review depth this PR actually received is on the record
+(three regimes must never ship under indistinguishable comment sets):
+
+```
+**⛩️ Review gauntlet** (lens → codex → simplify → police · base `<MB sha12>`):
+lens <status>(<rounds>r, N fixed) · codex <status|degraded — substituted>(<rounds>r)
+· simplify <changed|clean> · police <N fixed|clean>[ · skipped: <excluded tracks>]
+```
+
+Use the ledger's per-track `status` verbatim — `unresolved` tracks read
+`unresolved → adjudicated`, a substituted codex reads `degraded — substituted`.
+Skip this comment only when no PR exists.
+
 ## Report
 
-Summarize in chat — reporting **only the selected tracks**, and naming any track
-`--tracks` **skipped** so the absence is explicit, not silent:
+Summarize in chat — rendering from the ledger, reporting **only the selected
+tracks**, and naming any track `--tracks` **skipped** so the absence is
+explicit, not silent. Lead with the same gauntlet-badge line the PR comment
+carries:
 
 - **lens** — status (**consensus** + fixes applied, or **unresolved** + how many
   findings still need human adjudication and how you adjudicated each, or
