@@ -1,6 +1,6 @@
 export const meta = {
   name: 'codex-debate',
-  description: 'Run a codex<->claude review debate on the current diff until they reach consensus (no round cap, no deadlock exit)',
+  description: 'Run a codex<->claude review debate on the current diff until they reach consensus within a tight round backstop — unresolved is surfaced honestly, never papered over',
   phases: [
     { title: 'Debate', detail: 'codex reviews -> claude responds, round after round' },
   ],
@@ -96,9 +96,13 @@ const FINDING = {
     status: { type: 'string', enum: ['open', 'resolved'] },
     // codex's cited reason when it resolves a finding by ACCEPTING the author's
     // dispute (no code change) — "" otherwise. Required in the codex-side
-    // schema (codex-verdict.schema.json keeps every property required, so codex
-    // always emits it); optional here so the runner relay also accepts the
-    // lib's synthesized error verdict, which predates the field.
+    // schema (codex-verdict.schema.json must keep every declared property in
+    // `required` for strict structured outputs, so codex always emits it);
+    // optional here so the relay tolerates shape drift between the two
+    // mirrored schemas or a codex build that doesn't strictly enforce
+    // --output-schema. (The lib's synthesized error verdict is unaffected
+    // either way — it carries `findings: []`, so the per-item rules are
+    // vacuous for it.)
     concession: { type: 'string' },
   },
   required: ['id', 'severity', 'location', 'issue', 'suggestion', 'status'],
@@ -149,8 +153,9 @@ const CLAUDE_RESPONSE_SCHEMA = {
   required: ['summary', 'actions', 'filesChanged', 'done'],
 }
 
-// Consensus = no finding left open, any severity. The loop runs until codex
-// resolves every one (CLAUDE fixed it, or codex conceded a dispute). No cap.
+// Consensus = no finding left open, any severity — codex resolved every one
+// (CLAUDE fixed it, or codex conceded a dispute, citing why). Findings still
+// open at the round backstop end the debate as `unresolved` instead.
 function openFindings(verdict) {
   return (verdict.findings || []).filter((f) => f.status !== 'resolved')
 }
@@ -467,7 +472,7 @@ for (let round = 1; round <= maxRounds; round++) {
   // error verdict carrying reviewerError:true. There are no findings to route to
   // Claude, and retrying a broken reviewer just spins forever, so abort the
   // debate and surface the failure. This is deliberately separate from the
-  // "no deadlock exit" rule, which only governs substantive disagreement.
+  // `unresolved` backstop exit, which only governs substantive disagreement.
   if (verdict.reviewerError) {
     status = 'reviewer-error'
     log(`Round ${round}: reviewer error — aborting debate. ${verdict.summary}`)
@@ -495,6 +500,18 @@ for (let round = 1; round <= maxRounds; round++) {
     break
   }
 
+  // Final-round guard: findings still open at the backstop end the debate
+  // HERE, before the author turn. Pre-cap, every author turn was verified by
+  // the next codex round; an author turn on the last round would fix-and-commit
+  // edits nobody ever reviews, and the `unresolved` worklist would then list
+  // findings the author had just addressed. Exiting before the turn keeps
+  // `unresolved` = codex's actual open findings, each a genuine disagreement.
+  if (round === maxRounds) {
+    status = 'unresolved'
+    log(`Round backstop (${maxRounds}) hit with ${open.length} finding(s) still open — ending as unresolved for human adjudication (no author turn this round).`)
+    break
+  }
+
   // Claude responds: fixes what it agrees with (editing the tree), disputes the
   // rest. It reads the per-round section files (written at the end of each round
   // below) for its cross-round memory. `lastClaude` is kept only to feed codex's
@@ -519,15 +536,6 @@ for (let round = 1; round <= maxRounds; round++) {
   // history. Terminal rounds break above before reaching here, so they're
   // sectioned just after the loop.
   await writeSection(entry)
-}
-
-// Backstop exhausted with findings still open → `unresolved`, the honest
-// terminal state. The still-open findings ride the return value so the caller
-// (/be-review) can adjudicate each one instead of trusting a manufactured
-// consensus or re-running the debate.
-if (status === 'consensus' && finalVerdict && openFindings(finalVerdict).length > 0) {
-  status = 'unresolved'
-  log(`Round backstop (${maxRounds}) hit with ${openFindings(finalVerdict).length} finding(s) still open — ending as unresolved for human adjudication.`)
 }
 
 const filesChanged = Array.from(

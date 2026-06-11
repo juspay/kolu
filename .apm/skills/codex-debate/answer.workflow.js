@@ -364,8 +364,15 @@ let finalAnswer = null
 // On a confirmation turn, each side judges the SAME synthesized candidate STRING.
 // Carried across iterations so a rejected confirmation feeds the candidate + the
 // objector's complaints back into the next ordinary cross-check round.
+// A pending confirmation earns its single turn even when bothAgree fires on the
+// final in-budget round: the candidate was just synthesized (a real Opus call)
+// from a genuine both-sides agreement, and discarding it unconfirmed would
+// destroy the very convergence the cap exists to protect. The extension is
+// bounded to ONE turn — an approval breaks with finalAnswer; a rejection nulls
+// pendingCandidate, so the next iteration's condition fails and the run ends
+// `unresolved` (the objections are on record in the transcript).
 let pendingCandidate = null
-for (let round = 1; round <= maxRounds; round++) {
+for (let round = 1; round <= maxRounds || pendingCandidate !== null; round++) {
   const confirming = pendingCandidate !== null
   const prevClaude = claudeAns
   const prevCodex = codexAns
@@ -386,7 +393,7 @@ for (let round = 1; round <= maxRounds; round++) {
   // codex infrastructure failure — terminal. The runner could not get an answer
   // out of codex (broken/unavailable CLI), so it synthesized reviewerError:true.
   // Retrying a dead reviewer just spins, so abort and surface the failure. This is
-  // deliberately separate from the "no deadlock exit" rule for real disagreement.
+  // deliberately separate from the `unresolved` backstop exit for real disagreement.
   if (codex && codex.reviewerError) {
     status = 'reviewer-error'
     log(`Round ${round}: codex error — aborting. ${codex.answer}`)
