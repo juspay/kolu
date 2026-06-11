@@ -237,25 +237,12 @@ function formatFrontMatterValue(value: unknown): string {
   return Array.isArray(value) ? value.map(scalar).join(", ") : scalar(value);
 }
 
-/** Render a leading YAML front-matter block as a metadata table — the keys in a
- *  header column, their values beside them, GitHub-faithfully. Returns "" (so
- *  the block simply vanishes) when the YAML is malformed, empty, or not a
- *  top-level mapping: a broken `---` block should never blow up the preview or
- *  render as a half-parsed table. The table is marked with `data-md-frontmatter`
- *  so the stylesheet can give it its own muted treatment; its text flows through
- *  the same sanitizer as the body, so the values are escaped downstream. */
-function renderFrontMatterTable(yaml: string): string {
-  let data: unknown;
-  try {
-    data = parseYaml(yaml);
-  } catch {
-    return "";
-  }
-  if (data == null || typeof data !== "object" || Array.isArray(data)) {
-    return "";
-  }
-  const entries = Object.entries(data as Record<string, unknown>);
-  if (entries.length === 0) return "";
+/** Render a parsed front-matter mapping as a metadata table — the keys in a
+ *  header column, their values beside them, GitHub-faithfully. The table is
+ *  marked with `data-md-frontmatter` so the stylesheet can give it its own muted
+ *  treatment; its text flows through the same sanitizer as the body, so the
+ *  values are escaped downstream. */
+function renderFrontMatterTable(entries: [string, unknown][]): string {
   const rows = entries
     .map(
       ([key, value]) =>
@@ -265,6 +252,35 @@ function renderFrontMatterTable(yaml: string): string {
     )
     .join("");
   return `<table data-md-frontmatter><tbody>${rows}</tbody></table>\n`;
+}
+
+/** Show a front-matter block we can't tabulate as its verbatim source, in a YAML
+ *  code block — so malformed (or non-mapping) metadata stays *visible and
+ *  fixable* rather than silently dropped, and never misrenders as a stray `<hr>`
+ *  + Setext heading. Tagged `data-lang="yaml"` so the code-block pass highlights
+ *  it, and run through the same sanitizer as the body, so the text is escaped. */
+function renderRawFrontMatter(yaml: string): string {
+  return `<pre><code data-lang="yaml">${escapeHtml(yaml)}</code></pre>\n`;
+}
+
+/** Render a leading YAML front-matter block. A non-empty top-level mapping
+ *  becomes a metadata table; an empty block renders nothing; anything else —
+ *  malformed YAML, or a valid scalar/list that isn't a key/value mapping — is
+ *  shown raw rather than dropped. A broken `---` block must never blow up the
+ *  preview, vanish a user's metadata, or render as a half-parsed table. */
+function renderFrontMatter(yaml: string): string {
+  if (yaml.trim() === "") return "";
+  let data: unknown;
+  try {
+    data = parseYaml(yaml);
+  } catch {
+    return renderRawFrontMatter(yaml);
+  }
+  if (data != null && typeof data === "object" && !Array.isArray(data)) {
+    const entries = Object.entries(data as Record<string, unknown>);
+    if (entries.length > 0) return renderFrontMatterTable(entries);
+  }
+  return renderRawFrontMatter(yaml);
 }
 
 /** Rewrite `marked-alert`'s class-based markup into an allowlist-safe
@@ -313,9 +329,7 @@ export function renderMarkdownToRawHtml(
   // that stripped metadata comes back as a table (document) or is dropped
   // (compact); both are document-level concerns absent inline.
   const { yaml, body } = splitFrontMatter(markdown);
-  const table =
-    (opts.frontMatter ?? true) && yaml !== null
-      ? renderFrontMatterTable(yaml)
-      : "";
-  return table + rewriteAlerts(inst.parse(body) as string);
+  const meta =
+    (opts.frontMatter ?? true) && yaml !== null ? renderFrontMatter(yaml) : "";
+  return meta + rewriteAlerts(inst.parse(body) as string);
 }

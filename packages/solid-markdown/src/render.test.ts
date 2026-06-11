@@ -223,11 +223,24 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).not.toContain("<script>");
   });
 
-  it("drops a malformed front-matter block instead of rendering a table", () => {
-    // Unparseable YAML (an unterminated flow sequence) must not blow up the
-    // preview or render a half-parsed table — it simply vanishes.
+  it("renders malformed front-matter raw instead of dropping it", () => {
+    // Unparseable YAML (an unterminated flow sequence) can't become a table —
+    // but it must stay *visible and fixable* as a raw YAML code block, never
+    // silently dropped, and never misrendered as a half-parsed table or hr.
     const out = html("---\ntags: [a, b\n---\n\n# Body");
     expect(out).not.toContain("data-md-frontmatter");
+    expect(out).toContain('<code data-lang="yaml">');
+    expect(out).toContain("tags: [a, b");
+    expect(out).toContain('<h1 id="body">Body</h1>');
+  });
+
+  it("renders a non-mapping front-matter block raw, not as a table", () => {
+    // Valid YAML that isn't a key/value mapping (here a bare scalar) has no
+    // rows to tabulate — show it raw rather than dropping the user's content.
+    const out = html("---\njust a bare string\n---\n\n# Body");
+    expect(out).not.toContain("data-md-frontmatter");
+    expect(out).toContain('<code data-lang="yaml">');
+    expect(out).toContain("just a bare string");
     expect(out).toContain('<h1 id="body">Body</h1>');
   });
 
