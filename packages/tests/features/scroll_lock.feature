@@ -73,13 +73,17 @@ Feature: Scroll lock
     Then the terminal should be scrolled to the bottom
     And the scroll-to-bottom button should not be visible
 
-  Scenario: Returning to the tab releases a scroll-locked terminal
-    # #1272: a lock left engaged while the tab was backgrounded must not
+  Scenario: Returning to the tab releases a lock engaged while hidden
+    # #1272: a lock that engaged while the tab was backgrounded must not
     # present as "terminal frozen until keypress" when the user comes back —
     # tab return flushes and rejoins the bottom, mirroring the existing
-    # "switching back to a terminal auto-scrolls to bottom" semantics.
+    # "switching back to a terminal auto-scrolls to bottom" semantics. (A lock
+    # the user made with the tab in front is preserved — covered by unit tests,
+    # since Playwright can't hold a real foreground scroll across a synthetic
+    # visibility flip.)
     When I generate 100 lines of output
     And I prepare a output trigger
+    And the browser tab is backgrounded
     And I scroll the terminal up
     And I fire the output trigger
     And the browser tab becomes visible again

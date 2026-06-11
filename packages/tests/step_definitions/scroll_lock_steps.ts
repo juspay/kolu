@@ -121,14 +121,43 @@ When(
   },
 );
 
+When("the browser tab is backgrounded", async function (this: KoluWorld) {
+  // Playwright can't truly background a headless tab, so override the Page
+  // Visibility API in-page: subsequent reads of document.visibilityState /
+  // document.hidden report "hidden" until restored. A scroll-lock that
+  // engages now is therefore recorded as having engaged while hidden — the
+  // exact precondition handleTabVisible releases on return (#1272).
+  // Method-shorthand getters (not `get: () =>`): the tsx/esbuild `keepNames`
+  // transform wraps property-assigned arrows with a `__name()` helper that
+  // isn't defined in the page, but leaves intrinsically-named accessors alone.
+  await this.page.evaluate(() => {
+    const win = window as unknown as { __koluHidden?: boolean };
+    win.__koluHidden = true;
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get() {
+        return win.__koluHidden === true;
+      },
+    });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get() {
+        return win.__koluHidden ? "hidden" : "visible";
+      },
+    });
+  });
+  await this.waitForFrame();
+});
+
 When("the browser tab becomes visible again", async function (this: KoluWorld) {
-  // Playwright can't actually background a headless tab, so exercise the
-  // visibilitychange wiring directly: the document is already visible, and
-  // dispatching the event runs the same return-to-tab handler a real
-  // background→foreground transition fires.
-  await this.page.evaluate(() =>
-    document.dispatchEvent(new Event("visibilitychange")),
-  );
+  // Flip the override back to visible, then fire visibilitychange — this runs
+  // the same return-to-tab handler (refitOnTabVisible → scrollLock.handleTabVisible)
+  // a real background→foreground transition fires. The handler's own
+  // `!document.hidden` guard needs the flip to land first.
+  await this.page.evaluate(() => {
+    (window as unknown as { __koluHidden?: boolean }).__koluHidden = false;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
   await this.waitForFrame();
 });
 

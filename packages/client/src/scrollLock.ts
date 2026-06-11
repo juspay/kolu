@@ -148,13 +148,20 @@ export function createScrollLock(
     intentSource = source;
   }
 
-  /** Arm intent and keep it armed until `releaseUserScrollIntent`, for
-   *  gestures that scroll repeatedly while a pointer is held (scrollbar drag,
-   *  selection auto-scroll). The time window doesn't fit those — the press is
-   *  one event but the scroll ticks keep coming. */
+  /** Keep intent armed for as long as a pointer is held, for gestures that
+   *  scroll repeatedly while the button is down (scrollbar drag, selection
+   *  auto-scroll). The time window doesn't fit those — the press is one event
+   *  but the scroll ticks keep coming.
+   *
+   *  Deliberately does NOT also arm the time window: those gestures emit their
+   *  `onScroll` ticks *during* the hold (xterm scrolls on `pointermove` /
+   *  the selection interval, both bounded by `pointerup`), never after release,
+   *  so `heldSource` alone covers them. Arming the window here too would leave
+   *  a 500 ms "pointer" tail after every press — including a plain click, which
+   *  scrolls nothing — and a spurious scroll landing in that tail would latch
+   *  the very freeze this gating exists to prevent (#1272). */
   function holdUserScrollIntent(source: ScrollIntentSource): void {
     heldSource = source;
-    armUserScrollIntent(source);
   }
 
   function releaseUserScrollIntent(): void {

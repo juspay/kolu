@@ -206,14 +206,20 @@ describe("createScrollLock — held pointer intent (#1272)", () => {
     t.dispose();
   });
 
-  it("still honors the time window after release for the trailing press", () => {
-    // A pointerup arrives, but the gesture's final onScroll lands a beat
-    // later — within the window, it should still count as user intent.
+  it("leaves no intent tail once the pointer is released", async () => {
+    // A held gesture emits its onScroll ticks WHILE the button is down (xterm
+    // scrolls on pointermove / the selection interval), never after pointerup
+    // — so release must clear intent completely. A lingering tail would let a
+    // plain click (which scrolls nothing) latch a spurious scroll landing just
+    // after it — the #1272 freeze this gating prevents.
     const t = setup();
     t.lock.holdUserScrollIntent("pointer");
     t.lock.releaseUserScrollIntent();
-    t.scrollUp(10); // same instant — inside the window
-    expect(t.lock.isLocked()).toBe(true);
+    t.scrollUp(10); // unarmed scroll right after release
+    expect(t.lock.isLocked()).toBe(false);
+    expect(t.lock.lastEvent()?.kind).toBe("suppressed");
+    await Promise.resolve();
+    expect(t.buf.viewportY).toBe(t.buf.baseY);
     t.dispose();
   });
 });
