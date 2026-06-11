@@ -186,8 +186,11 @@ function buildMarked(breaks: boolean, rawHtml: boolean): Marked {
 
 /** The leading YAML front-matter block (`---` … `---`) at the very start of a
  *  document: a `---` fence line, the captured YAML body, a closing `---` fence
- *  line, and its line ending. Only matches a block at the very start. */
-const FRONT_MATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+ *  line, and its line ending. The body-plus-newline is optional, so the empty
+ *  block `---\n---\n` matches too (captured body `""`) rather than slipping
+ *  through as normal markdown. Only matches a block at the very start. */
+const FRONT_MATTER_RE =
+  /^---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
 
 /** Split a leading YAML front-matter block off the document. `yaml` is the raw
  *  YAML body (null when there is no front-matter); `body` is the markdown that
@@ -203,6 +206,19 @@ function splitFrontMatter(markdown: string): {
   return { yaml: m[1] ?? "", body: markdown.slice(m[0].length) };
 }
 
+/** Compact-JSON a structured value, tolerating the unserializable. A valid YAML
+ *  alias can build a cyclic structure (`a: &a [*a]`), which `JSON.stringify`
+ *  rejects with a `TypeError`; rather than let that escape and crash the
+ *  preview, fall back to a neutral placeholder so the row — and the document —
+ *  still render. */
+function safeJsonStringify(value: object): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "[unserializable]";
+  }
+}
+
 /** Render one front-matter value into a table cell's text. Scalars print as
  *  their string form; a list of scalars joins with commas (the common `tags:`
  *  case); anything deeper (a nested mapping, or a list holding one) falls back
@@ -216,12 +232,12 @@ function formatFrontMatterValue(value: unknown): string {
         item == null
           ? ""
           : typeof item === "object"
-            ? JSON.stringify(item)
+            ? safeJsonStringify(item)
             : String(item),
       )
       .join(", ");
   }
-  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "object") return safeJsonStringify(value);
   return String(value);
 }
 

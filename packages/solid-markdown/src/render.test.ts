@@ -245,6 +245,25 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     const out = html("# Heading\n\n---\ntitle: Hello\n---\n");
     expect(out).not.toContain("data-md-frontmatter");
   });
+
+  it("survives a cyclic YAML alias instead of crashing the preview", () => {
+    // `&a [*a]` is valid YAML but builds a self-referential array, which
+    // `JSON.stringify` rejects — formatting must degrade, not throw, and the
+    // document body must still render.
+    const out = html("---\na: &a [*a]\n---\n\n# Body");
+    expect(out).toContain('<h1 id="body">Body</h1>');
+    expect(out).toContain("data-md-frontmatter");
+  });
+
+  it("makes an empty front-matter block disappear cleanly", () => {
+    // The shortest form, `---\n---`, has no body and no top-level mapping — it
+    // must vanish (no table, no spurious hr) rather than fall through as
+    // markdown.
+    const out = html("---\n---\n# Body");
+    expect(out).not.toContain("data-md-frontmatter");
+    expect(out).not.toContain("<hr>");
+    expect(out).toContain('<h1 id="body">Body</h1>');
+  });
 });
 
 describe("wikilinks", () => {
