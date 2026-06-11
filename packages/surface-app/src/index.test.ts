@@ -10,6 +10,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ASSET_MISS_CACHE_CONTROL,
+  CACHE_BUST_PARAM,
+  cacheBustedShellUrl,
   cacheControlFor,
   clientIsStale,
   isCleanRef,
@@ -68,6 +70,27 @@ describe("cacheControlFor", () => {
     // The Vite default prefix is no longer special under an override.
     expect(cacheControlFor("/assets/x-hash.js", paths)).toBeNull();
     expect(cacheControlFor("/app.html", paths)).toBe("no-store");
+  });
+});
+
+describe("cacheBustedShellUrl", () => {
+  it("appends the cache-bust param to a bare shell URL (the key the poisoned `/` entry can't satisfy)", () => {
+    const url = cacheBustedShellUrl("https://zest:7692/", "t1");
+    expect(url).toBe(`https://zest:7692/?${CACHE_BUST_PARAM}=t1`);
+    // The whole point: the busted key is NOT the poisoned bare-`/` key.
+    expect(url).not.toBe("https://zest:7692/");
+  });
+
+  it("replaces an existing token so repeated busts keep a single param (no unbounded growth)", () => {
+    expect(
+      cacheBustedShellUrl(`https://zest:7692/?${CACHE_BUST_PARAM}=old`, "new"),
+    ).toBe(`https://zest:7692/?${CACHE_BUST_PARAM}=new`);
+  });
+
+  it("preserves the path and any unrelated query params", () => {
+    expect(cacheBustedShellUrl("https://zest:7692/app?theme=dark", "t2")).toBe(
+      `https://zest:7692/app?theme=dark&${CACHE_BUST_PARAM}=t2`,
+    );
   });
 });
 
