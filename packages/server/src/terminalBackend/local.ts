@@ -23,11 +23,7 @@
  * local) shelling out to `kolu-git` directly.
  */
 
-import type {
-  ForegroundSample,
-  PtyHostClient,
-  PtyHostIdentity,
-} from "@kolu/pty-host";
+import type { ForegroundSample, PtyHostIdentity } from "@kolu/pty-host";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   TerminalId,
@@ -172,15 +168,7 @@ class PtyHostTerminalProxy implements TerminalHandle {
   private resolveReady!: () => void;
   private rejectReady!: (err: unknown) => void;
 
-  /** The pty-host client is injected so the proxy is decoupled from how it's
-   *  built (in-process today, socket-served later) — but it's a stable
-   *  reference, not a thunk: a transport swap re-points the module-level client
-   *  (or its internal connection re-dials), so a daemon reconnect is invisible
-   *  here and the proxy never needs to re-resolve per verb. */
-  constructor(
-    private readonly id: TerminalId,
-    private readonly client: PtyHostClient,
-  ) {
+  constructor(private readonly id: TerminalId) {
     this.ready = new Promise<void>((resolve, reject) => {
       this.resolveReady = resolve;
       this.rejectReady = reject;
@@ -203,21 +191,21 @@ class PtyHostTerminalProxy implements TerminalHandle {
 
   write(data: string): void {
     void this.ready
-      .then(() => this.client.surface.terminal.write({ id: this.id, data }))
+      .then(() => ptyHostClient.surface.terminal.write({ id: this.id, data }))
       .catch((err) => log.error({ terminal: this.id, err }, "pty-host write"));
   }
 
   resize(cols: number, rows: number): void {
     void this.ready
       .then(() =>
-        this.client.surface.terminal.resize({ id: this.id, cols, rows }),
+        ptyHostClient.surface.terminal.resize({ id: this.id, cols, rows }),
       )
       .catch((err) => log.error({ terminal: this.id, err }, "pty-host resize"));
   }
 
   async getScreenState(): Promise<string> {
     await this.ready;
-    const { data } = await this.client.surface.terminal.getScreenState({
+    const { data } = await ptyHostClient.surface.terminal.getScreenState({
       id: this.id,
     });
     return data;
@@ -229,7 +217,7 @@ class PtyHostTerminalProxy implements TerminalHandle {
     tailLines?: number,
   ): Promise<string> {
     await this.ready;
-    const { text } = await this.client.surface.terminal.getScreenText({
+    const { text } = await ptyHostClient.surface.terminal.getScreenText({
       id: this.id,
       startLine,
       endLine,
@@ -369,7 +357,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // spawnPty` sync-shadow contract. The pty-host resolves the authoritative
     // cwd / pid on the async tail below; the provider DAG starts there too.
     const cwd = opts.cwd || process.env.HOME || "/";
-    const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
+    const proxy = new PtyHostTerminalProxy(id);
     const meta: TerminalMetadata = { ...createMetadata(cwd) };
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
