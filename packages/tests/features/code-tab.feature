@@ -842,6 +842,29 @@ Feature: Code tab (review + browse)
     # resolves repo images" scenario below.
     And the markdown preview should render a "img[src*='/api/terminals/']" element
 
+  # A leading YAML `---` front-matter block renders as a metadata table at the
+  # top of the document (GitHub-faithful), not as a spurious `<hr>` + Setext
+  # heading and not silently dropped (#1279). Keys land in a header column,
+  # scalar values beside them, and a scalar list joins with commas. The body
+  # below still parses as ordinary markdown.
+  Scenario: Markdown preview renders YAML front-matter as a metadata table
+    When I run "rm -rf /tmp/kolu-md-fm && git init /tmp/kolu-md-fm && cd /tmp/kolu-md-fm"
+    And I run "printf '---\ntitle: Release Notes\nauthor: Jane Roe\ntags:\n  - markdown\n  - preview\n---\n\n# Body Heading\n\nReal body text.\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "table[data-md-frontmatter]" element
+    And the markdown preview should contain "Release Notes"
+    And the markdown preview should contain "Jane Roe"
+    # The scalar list joins with commas, and the body renders as a real heading —
+    # while the `---` fences never degrade to a thematic break.
+    And the markdown preview should contain "markdown, preview"
+    And the markdown preview should render a "h1" element
+    And the markdown preview should contain "Body Heading"
+    And the markdown preview should not render a "hr" element
+
   Scenario: Markdown preview strips script-capable HTML and links
     When I run "rm -rf /tmp/kolu-md-xss && git init /tmp/kolu-md-xss && cd /tmp/kolu-md-xss"
     And I run "printf '# Safe Render\n\nintro paragraph here\n\n<script>window.__xss=1</script>\n\n[evil link](javascript:window.__xss=2)\n' > README.md"
