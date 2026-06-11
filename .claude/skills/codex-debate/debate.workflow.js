@@ -153,11 +153,58 @@ const CLAUDE_RESPONSE_SCHEMA = {
   required: ['summary', 'actions', 'filesChanged', 'done'],
 }
 
+// ---------------------------------------------------------------------------
+// Cited-concession gate (the Claude/author side).
+// ---------------------------------------------------------------------------
+// The codex side is gated by SCHEMA: codex-verdict.schema.json requires a
+// `concession` whenever codex resolves a finding by ACCEPTING a dispute, so a
+// codex capitulation can't pass strict --output-schema without a cited reason.
+// The author side has no such process boundary — `concessionReason` is optional
+// here — so this is the matching MECHANICAL gate for it, the analogue of
+// lens-debate's isUncitedFlip/advanceGate. `claudeAccepted[id]` is the author's
+// last ACCEPTED disposition for a finding, advanced only on first-seen, a hold,
+// or a CITED flip; an uncited flip from `disputed` to `fixed`/`partial` is the
+// measured-harmful capitulation pattern and does NOT advance it. Flips are
+// measured against the accepted disposition (not merely the prior round) so
+// holding a capitulated position for a round never launders it.
+const claudeAccepted = {}
+function authorUncitedCapitulation(prev, action) {
+  if (prev !== 'disputed') return false // only disputed→concede can capitulate
+  if (!action || action.disposition === 'disputed') return false // a hold isn't a flip
+  return !(action.concessionReason || '').trim() // a cited flip is legitimate
+}
+function advanceAuthorGate(action) {
+  if (!action || !action.findingId) return
+  const id = action.findingId
+  const prev = claudeAccepted[id]
+  // Advance on first-seen, a hold, or a CITED flip. An uncited flip vs. the
+  // accepted disposition does NOT advance — the finding stays at its accepted
+  // (disputed) position so the gate keeps catching it next round too.
+  if (prev === undefined || action.disposition === prev || (action.concessionReason || '').trim()) {
+    claudeAccepted[id] = action.disposition
+  }
+}
+
 // Consensus = no finding left open, any severity — codex resolved every one
 // (CLAUDE fixed it, or codex conceded a dispute, citing why). Findings still
 // open at the round backstop end the debate as `unresolved` instead.
-function openFindings(verdict) {
-  return (verdict.findings || []).filter((f) => f.status !== 'resolved')
+//
+// `priorActions` is the author's dispositions from the round codex just
+// reviewed (its rebuttal). A finding codex marks `resolved` off an UNCITED
+// author capitulation (disputed→fixed/partial with no `concessionReason`) is
+// held OPEN here regardless of codex's status: an agreement reached by
+// capitulation isn't consensus, so the debate continues (or ends `unresolved`)
+// rather than shipping a flip nobody can justify. This makes the SKILL's
+// "consensus can't be manufactured by capitulation" claim MECHANICAL, not just
+// prompt-asked, matching lens-debate.
+function openFindings(verdict, priorActions) {
+  const priorById = {}
+  for (const a of priorActions || []) if (a && a.findingId) priorById[a.findingId] = a
+  return (verdict.findings || []).filter((f) => {
+    if (f.status !== 'resolved') return true
+    const action = priorById[f.id]
+    return action ? authorUncitedCapitulation(claudeAccepted[f.id], action) : false
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -166,17 +213,23 @@ function openFindings(verdict) {
 async function codexReviews(round, rebuttalJson) {
   const verdictPath = `${workDir}/verdict-${round}.json`
   const rebuttalPath = `${workDir}/rebuttal.json`
+  // Every path/value the shell sees is single-quoted via shq() — a worktree or
+  // skill path with spaces or shell metacharacters (or a hostile base/effort
+  // value) must not break or re-target what this mechanical runner executes.
+  // Answer mode quotes the same pattern; this mirrors it.
+  const reviewCmd = (rebuttalArg) =>
+    `cd ${shq(repoPath)} && bash ${shq(`${skillDir}/scripts/codex-review.sh`)} ${shq(base)} ${rebuttalArg} ${shq(verdictPath)} ${shq(effortFor(round))}`
   const rebuttalStep = rebuttalJson
     ? `1. Using the Write tool (NOT a shell heredoc — the content has special characters), create the file \`${rebuttalPath}\` with exactly this content:
 
 ${rebuttalJson}
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath} ${effortFor(round)}\``
+   \`${reviewCmd(shq(rebuttalPath))}\``
     : `1. (No prior rebuttal this round.)
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath} ${effortFor(round)}\``
+   \`${reviewCmd('-')}\``
 
   const prompt = `You are a MECHANICAL RUNNER for one round of an automated code-review debate. Do exactly the steps below and nothing else. Do NOT review the code yourself, do NOT edit any repository files, do NOT add commentary.
 
@@ -410,6 +463,11 @@ const transcript = []
 let status = 'consensus'
 let finalVerdict = null
 let lastClaude = null
+// The gate-aware open set from the last round evaluated — the unresolved
+// worklist returned to the caller (so a finding the gate held open off an
+// uncited author capitulation is on the worklist, not silently dropped because
+// codex's raw `status` said `resolved`).
+let lastOpen = []
 
 // ---------------------------------------------------------------------------
 // The loop — runs to consensus within the round backstop.
@@ -485,7 +543,19 @@ for (let round = 1; round <= maxRounds; round++) {
     break
   }
 
-  const open = openFindings(verdict)
+  // Evaluate codex's verdict against the author's PRIOR-round dispositions (the
+  // rebuttal codex just reviewed) BEFORE advancing the gate with them, so the
+  // gate still holds the author's accepted (pre-flip) position when it judges
+  // this round's resolutions. A finding codex resolved off an uncited author
+  // capitulation is kept open here. Then advance the gate so a hold next round
+  // can't launder the same flip.
+  const open = openFindings(verdict, lastClaude && lastClaude.actions)
+  lastOpen = open
+  for (const a of (lastClaude && lastClaude.actions) || []) advanceAuthorGate(a)
+  const capitulated = open.filter((f) => f.status === 'resolved')
+  if (capitulated.length) {
+    log(`Round ${round}: held ${capitulated.length} finding(s) open — codex resolved them off an UNCITED author capitulation (no concessionReason on a disputed→fixed flip).`)
+  }
   log(`Round ${round}: codex approved=${verdict.approved}, findings open=${open.length}`)
 
   // Consensus requires BOTH no open finding AND codex's explicit approval. An
@@ -568,7 +638,7 @@ return {
   finalVerdict,
   // The still-open findings on an `unresolved` exit — the caller's adjudication
   // worklist. Empty on consensus and on reviewer-error (no trustworthy verdict).
-  unresolved: status === 'unresolved' ? openFindings(finalVerdict) : [],
+  unresolved: status === 'unresolved' ? lastOpen : [],
   filesChanged,
   transcript,
   comment: renderLedger(transcript, { status, rounds: transcript.length, base, reasoningEffort: REASONING_EFFORT_LABEL }),

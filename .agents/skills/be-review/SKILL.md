@@ -55,10 +55,24 @@ run never loses an already-earned comment body.
 
 The gauntlet's write-ahead record: `.be-review/ledger.json` (gitignored,
 per-worktree — sibling of the debate skills' scratch dirs). It exists so that a
-crash, interrupt, or context loss anywhere in a multi-track, possibly hour-long
-run resumes by *content* instead of re-running reviewers against a tree that
-already contains their fixes — and so the final comments and report are rendered
-from recorded data, not from conversation memory.
+crash, interrupt, or context loss in a multi-track, possibly hour-long run
+resumes at the **track boundary** — skipping every track already marked
+`complete` instead of re-running it — and so the final comments and report are
+rendered from recorded data, not from conversation memory.
+
+**The resume granularity is the track, not the commit.** The child workflows
+(lens, codex) commit *internally*, round by round, and the ledger records a
+track only once it returns (its `state`, `status`, post-track `head`, findings).
+So an interruption *mid-track* — after a child landed one of its round commits
+but before the track returned — leaves that track not `complete`, and resume
+**re-runs it from the top**. That is deliberately tolerable, not a hole: a
+re-run track reviews a tree that already carries its own earlier commits, which
+is the gauntlet's normal mode anyway (every step reviews the previous steps'
+commits — see Preflight), so the worst case is *redundant* review work on an
+incomplete track, never review *skipped* against unledgered fixes. What the
+ledger guarantees is that a **completed** track is never re-run and never
+re-reviews from conversation memory; it does not promise commit-level resume
+inside a track, and must not be read as if it did.
 
 Shape:
 
@@ -117,6 +131,12 @@ zero review.
   SHA) so each reviews the change against the identical fork point. Note that each
   step sees the *commits the previous step added* as part of the diff — that is
   intended: a later reviewer reviews the earlier reviewer's fixes too.
+  **`START` is the push baseline, and on a resume it must be the ledger's
+  original `start`, not this resume-time HEAD** — see the warning in "Ledger
+  init/resume" and "Push, then comment". A resume-time `git rev-parse HEAD` would
+  already include any review commits a crashed run had landed, making
+  `$START..HEAD` falsely empty and tricking the push step into "nothing to push,
+  post now" — advertising local-only SHAs, the one thing this gauntlet forbids.
 - **codex login** (unless `--tracks` excludes it): `codex login status`. If not
   logged in, tell the user to run `codex login` (suggest the `!` prefix) and
   continue with the remaining steps.
@@ -124,7 +144,11 @@ zero review.
   `.be-review/ledger.json` per the resume rule (The findings ledger): same
   `base` + `start` an ancestor of HEAD → resume, skipping completed tracks;
   otherwise write a fresh ledger (`base: MB`, `start: START`, `pr`, empty
-  `tracks`).
+  `tracks`). **On resume, adopt the ledger's `start` as `START` for the rest of
+  this run** (overwrite the resume-time value you captured above) — the push
+  baseline must be the fork point the *original* run measured from, or a run that
+  crashed after landing commits but before pushing would see an empty
+  `$START..HEAD` and skip the push while still posting the deferred comments.
 
 ## Run the steps in order
 
@@ -218,18 +242,26 @@ the record the final comments and report render from.
 
 ## Push, then comment
 
-First settle whether there is anything to push: `git log --oneline $START..HEAD`
-(`$START` was captured in Preflight). Then:
+First settle whether there is anything to push. The decision that gates the
+comments is **"is HEAD already on the remote?"**, answered against the remote
+itself, not only against `$START` — `git fetch origin` then
+`git rev-parse @{upstream}` (or `gh pr view --json headRefName` + the remote SHA)
+and compare to `git rev-parse HEAD`. (`$START` — the ledger's *original* fork
+point on a resume, never the resume-time HEAD — tells you whether this run
+*produced* commits; the remote comparison tells you whether HEAD is *published*.
+On a crash-after-commit-before-push resume the two disagree, and only the remote
+check keeps the local-only-SHA invariant.) Then:
 
-- **New commits exist** and **a PR exists for this branch**
+- **HEAD is ahead of the remote** (this run produced commits, or a prior crashed
+  run landed them) and **a PR exists for this branch**
   (`gh pr view --json number -q .number`) → **`git push`**. **Only after the push
   succeeds** do you post the deferred comments — the lens and codex bodies from
   steps 1–2 are now safe to publish because the SHAs they name are on the remote.
-- **No new commits** (every step was clean or applied nothing) but **a PR
-  exists** → there is nothing to push, and HEAD is already remote-visible, so
-  post the deferred comments **immediately**. The local-only-SHA invariant is
-  about never advertising an *unpushed* commit; with no new commit there is no
-  such risk.
+- **HEAD already matches the remote** (every step was clean/applied nothing, or a
+  prior run already pushed) and **a PR exists** → there is nothing to push and
+  HEAD is genuinely remote-visible, so post the deferred comments
+  **immediately**. The local-only-SHA invariant is about never advertising an
+  *unpushed* commit; with HEAD on the remote there is no such risk.
 - **No PR** → there is nothing to push to and nothing to comment on. Skip both;
   the local commits (if any) and their findings live in chat and the local log
   for the human.

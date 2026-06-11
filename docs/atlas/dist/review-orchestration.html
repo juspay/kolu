@@ -210,10 +210,14 @@ knob was <em>agreement modulation</em> — controlling how easily agents concede
 <li>A <a href="https://arxiv.org/pdf/2511.07784">controlled study of MAD in logical reasoning</a>
 found debate adds value <strong>only when agents initially disagree</strong>; when
 initial answers are similar, extra rounds add cost, not signal.</li>
-<li>A follow-up to Du et al. (<a href="https://arxiv.org/html/2410.12853v1">Diversity of Thought</a>)
-reports that simply <strong>aggregating three models’ independent answers without
-debate (69%) beat letting them debate (66%)</strong> — secondhand numbers,
-directionally consistent with everything else.</li>
+<li><a href="https://arxiv.org/abs/2508.17536">“Debate or Vote”</a> decomposes MAD into its
+parts and finds <strong>majority voting is the main contributor</strong> — most of the gain
+comes from <em>aggregating</em> independent agents (the pre-debate ensemble), not from
+the debate rounds themselves. (Note that <a href="https://arxiv.org/html/2410.12853v1">Diversity of
+Thought</a> is <em>not</em> counter-evidence here:
+it shows debate <strong>helps</strong> — a diverse medium-capacity set reaches 91% on GSM-8K
+vs. 82% for three copies of one model — but its point is that the leverage is
+<em>model diversity within</em> debate, which is the same Claude+codex premise below.)</li>
 <li><a href="https://arxiv.org/abs/2309.13007">ReConcile</a> — a round-table of
 <em>heterogeneous</em> models with confidence-weighted voting, up to +11.4% over
 baselines — <strong>explicitly attributes its gains to model diversity, not the
@@ -522,9 +526,13 @@ sharper point: even <em>converging</em> debates go increasingly wrong after roun
 exit — quitting without agreement <em>and pretending otherwise</em> is what
 defeats the purpose; surfacing genuine disagreement to the human is the
 correct output of a debate that didn’t converge.</li>
-<li><strong>Evidence-gated concessions.</strong> Add a required <code>concessionReason</code> (with a
-code citation) to both sides’ schemas whenever a disposition flips across
-rounds. Smit et al. found agreement modulation is the highest-leverage MAD
+<li><strong>Evidence-gated concessions.</strong> Require a cited reason whenever a disposition
+flips across rounds — and <em>enforce</em> it, don’t just ask. codex’s side is gated
+at the schema level (<code>concession</code> is <code>required</code> in its <code>--output-schema</code>); the
+author side is gated by the workflow, which holds any finding codex resolved
+off an uncited Claude flip (<code>disputed</code> → <code>fixed</code>/<code>partial</code> with no
+<code>concessionReason</code>) OPEN, so it ends <code>unresolved</code> rather than counting as
+consensus. Smit et al. found agreement modulation is the highest-leverage MAD
 knob, and the conformity literature shows ungated flips are predominantly
 harmful. A side that cannot cite <em>why</em> it changed its mind hasn’t been
 convinced; it has capitulated to end the loop.</li>

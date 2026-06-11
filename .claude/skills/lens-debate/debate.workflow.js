@@ -403,43 +403,46 @@ const history = []
 let status = 'unresolved'
 let rounds = 0
 
-// Cited-concession gate state. `baseline[lens][id]` is the lens's last
-// ACCEPTED disposition for the finding — its first stated position, advanced
-// only by a hold or by a CITED flip. Flips are measured against this baseline,
+// Cited-concession gate state. `gate[lens][id]` is one per-(lens, finding)
+// record `{disposition, owed}` (absent = never seen): `disposition` is the
+// lens's last ACCEPTED disposition for the finding — its first stated position,
+// advanced only by a hold or by a CITED flip — and `owed` is whether a citation
+// is currently outstanding against it. The two live in one record so they can
+// only be read/written as a unit: the invariant "owed iff the last flip vs the
+// accepted disposition was uncited" is mechanical, not a remembered rule across
+// two parallel structures. Flips are measured against the accepted disposition,
 // not merely the previous round, so holding a capitulated position for a round
 // never launders it: the finding stays contested until the lens either cites
-// what convinced it (`concessionReason`) or reverts to its baseline. `owed`
-// tracks the findings where a citation is outstanding, and is surfaced into
-// that lens's next-round brief so the lens knows the debt (a gate the debater
-// can't see is a gate it can't satisfy).
-const baseline = { lowy: {}, hickey: {} }
-const owed = { lowy: new Set(), hickey: new Set() }
+// what convinced it (`concessionReason`) or reverts. The `owed` flag is
+// surfaced into that lens's next-round brief so the lens knows the debt (a gate
+// the debater can't see is a gate it can't satisfy).
+const gate = { lowy: {}, hickey: {} }
 // Pure predicate: returns true when `cur` is an UNCITED flip vs `base` (the
 // lens's last accepted disposition). Reads nothing mutable and mutates
-// nothing — the baseline/owed transition lives in advanceGate.
+// nothing — the gate transition lives in advanceGate.
 function isUncitedFlip(base, cur) {
   if (!cur) return false
   if (base === undefined || cur.disposition === base) return false
   if ((cur.concessionReason || '').trim()) return false
   return true
 }
-// Explicit state transition for the cited-concession gate: advances the
-// lens's baseline on first-seen or on a hold/revert/cited flip, and adds or
-// clears the owed mark accordingly. Called unconditionally each round.
+// Explicit state transition for the cited-concession gate: writes the whole
+// `{disposition, owed}` record, advancing the accepted disposition on first-seen
+// or on a hold/revert/cited flip, and setting `owed` accordingly. Called
+// unconditionally each round.
 function advanceGate(lens, id, cur) {
   if (!cur) return
-  const base = baseline[lens][id]
+  const g = gate[lens][id]
+  const base = g?.disposition
   if (base === undefined || cur.disposition === base) {
-    if (base === undefined) baseline[lens][id] = cur.disposition
-    owed[lens].delete(id)
+    gate[lens][id] = { disposition: base === undefined ? cur.disposition : base, owed: false }
     return
   }
   if ((cur.concessionReason || '').trim()) {
-    baseline[lens][id] = cur.disposition
-    owed[lens].delete(id)
+    gate[lens][id] = { disposition: cur.disposition, owed: false }
     return
   }
-  owed[lens].add(id)
+  gate[lens][id] = { disposition: base, owed: true }
 }
 
 for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
@@ -447,7 +450,7 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   const activeFindings = combined.filter((f) => activeIds.includes(f.id))
   const settledList = Object.entries(settled).map(([id, s]) => ({ id, disposition: s.disposition }))
 
-  const lowyRes = await agent(debateBrief('lowy', 'hickey', activeFindings, hickeyPrev, settledList, r, [...owed.lowy].filter((id) => activeIds.includes(id))), {
+  const lowyRes = await agent(debateBrief('lowy', 'hickey', activeFindings, hickeyPrev, settledList, r, Object.entries(gate.lowy).filter(([id, g]) => g.owed && activeIds.includes(id)).map(([id]) => id)), {
     label: `lowy:round${r}`,
     phase: 'Debate',
     model,
@@ -455,7 +458,7 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   })
   const lowyPos = posMap(lowyRes)
 
-  const hickeyRes = await agent(debateBrief('hickey', 'lowy', activeFindings, lowyPos, settledList, r, [...owed.hickey].filter((id) => activeIds.includes(id))), {
+  const hickeyRes = await agent(debateBrief('hickey', 'lowy', activeFindings, lowyPos, settledList, r, Object.entries(gate.hickey).filter(([id, g]) => g.owed && activeIds.includes(id)).map(([id]) => id)), {
     label: `hickey:round${r}`,
     phase: 'Debate',
     model,
@@ -464,7 +467,7 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   const hickeyPos = posMap(hickeyRes)
 
   // Cited-concession gate (see isUncitedFlip/advanceGate above). A lens that flips its
-  // baseline disposition without citing what convinced it is the measured
+  // accepted disposition without citing what convinced it is the measured
   // harmful pattern — conformity flips are predominantly wrong, and an
   // agreement reached through one cannot be trusted (see the
   // review-orchestration Atlas note). An uncited flip does NOT settle the
@@ -484,10 +487,10 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
     // consensus, and Apply must never run on a `plan: undefined` (it would fall
     // back to a vague placeholder and commit an arbitrary edit as "agreed").
     const lowyHasPlan = !!(l && typeof l.plan === 'string' && l.plan.trim())
-    const lUncited = isUncitedFlip(baseline.lowy[id], l)
-    const hUncited = isUncitedFlip(baseline.hickey[id], h)
+    const lUncited = isUncitedFlip(gate.lowy[id]?.disposition, l)
+    const hUncited = isUncitedFlip(gate.hickey[id]?.disposition, h)
     const uncited = lUncited || hUncited
-    // Advance each lens's baseline/owed state unconditionally — the booleans
+    // Advance each lens's gate record unconditionally — the booleans
     // above are computed without side effects, so there is no hidden mutation
     // to protect against short-circuiting.
     advanceGate('lowy', id, l)

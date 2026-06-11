@@ -70,9 +70,14 @@ debate that didn't converge, and strictly better than more rounds of two models
 wearing each other down (debate gains saturate by round 2 and extra rounds
 amplify wrong consensus; see the `review-orchestration` Atlas note — kolu#1222
 is the in-house runaway the backstop prevents). Concessions are **cited** on
-both sides: a side that flips a prior-round position must state what convinced
-it (codex's per-finding `concession`, Claude's per-action `concessionReason`),
-so consensus can't be manufactured by capitulation. You stay out of the
+both sides, and the citation is **mechanically enforced**, not merely asked for:
+codex's per-finding `concession` is `required` in its `--output-schema` (a
+schema-level gate on the reviewer side), and the workflow runs the matching gate
+on the author side — a finding codex marks `resolved` off an **uncited** Claude
+flip (`disputed` → `fixed`/`partial` with no `concessionReason`) is held OPEN
+regardless of codex's status, so it can't count toward consensus and ends
+`unresolved` if the citation never arrives. Consensus therefore can't be
+manufactured by capitulation. You stay out of the
 middle: each round lands as its own commit whose
 message carries the debate context (codex's findings + Claude's dispositions) so
 the PR history reads as the debate, and the summary is **posted to the PR** as a
@@ -465,8 +470,11 @@ returns:
   for a human. That is not a "deadlock surrender": pretending to agree is what
   defeats a debate, and the literature (and kolu#1222) shows extra rounds buy
   bias amplification, not truth. A side that flips a prior-round position must
-  cite what convinced it (`concession` / `concessionReason`), so consensus
-  can't be manufactured by capitulation.
+  cite what convinced it (`concession` / `concessionReason`) — enforced
+  mechanically, not just requested: codex's `concession` is schema-`required`,
+  and the workflow holds any finding codex resolved off an uncited Claude flip
+  OPEN (so it ends `unresolved`, never silent consensus). Consensus can't be
+  manufactured by capitulation.
 
 ## Files
 
