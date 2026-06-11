@@ -214,9 +214,14 @@ function advanceAuthorGate(action) {
   if (!action || !action.findingId) return
   const id = action.findingId
   const accepted = gate[id]?.disposition
-  if (accepted === undefined || action.disposition === accepted) {
-    // First-seen or a hold: adopt/keep the accepted disposition, no debt.
-    gate[id] = { disposition: accepted === undefined ? action.disposition : accepted, owed: false }
+  if (accepted === undefined) {
+    // First-seen: record the initial position as accepted, no debt.
+    gate[id] = { disposition: action.disposition, owed: false }
+    return
+  }
+  if (action.disposition === accepted) {
+    // Hold: re-affirm the accepted disposition, clear any lingering owed flag.
+    gate[id] = { disposition: accepted, owed: false }
     return
   }
   if (authorUncitedFlip(action, accepted)) {
@@ -653,8 +658,13 @@ for (let round = 1; round <= maxRounds; round++) {
   // rest. It reads the per-round section files (written at the end of each round
   // below) for its cross-round memory. `lastClaude` is kept only to feed codex's
   // rebuttal next round (see codexReviews) — it is no longer the author's memory.
+  // Filter to only OPEN findings — mirrors lens-debate's owedActive(lens) pattern.
+  // Gate entries for already-resolved findings are never cleared (the gate is
+  // append-only), so an unfiltered scan would surface stale owed debt on findings
+  // codex already closed, polluting the author prompt with irrelevant citations.
+  const openIds = new Set(open.map((f) => f.id))
   const owedIds = Object.entries(gate)
-    .filter(([, g]) => g.owed)
+    .filter(([id, g]) => g.owed && openIds.has(id))
     .map(([id]) => id)
   const response = await claudeResponds(round, verdict, owedIds)
   entry.claude = response
