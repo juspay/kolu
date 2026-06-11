@@ -2,8 +2,8 @@
 title: "@kolu/surface-mcp — every surface an MCP server, honestly scoped"
 description: A generic adapter that re-exposes any @kolu/surface spec to an MCP host. The 1:1 primitive→tool map is the demo; the real package is the subscribe/teardown lifecycle, the zod→JSON-Schema bridge, and the tool-selection/authz gate. Grounded in odu's hand-built mcp face — the validated, and partial, prior art.
 kind: feature
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 updated: 2026-06-10
 parents: [mini-ci-vs-justci, electricity]
 ---
@@ -16,6 +16,8 @@ import D2 from "../../components/D2.astro";
 import Terminal from "../../components/Terminal.astro";
 
 *Plan of record for <Issue n={982} label="@kolu/surface: expose any stdio-served surface as an MCP server" />. The issue's framing — "the framework is one adapter away from *every Kolu surface is also an MCP server*" — is true and worth building. This note **right-scopes** it: *smaller* where the issue over-reached (buy zod 4's native converter, lean on the already-shipped `serveOverStdio`) and *bigger* where it under-reached (a new core `projectSurface` primitive so curation graduates too — all in one PR) — grounded in odu's hand-built face, which already taught us where every seam is.* <Pill variant="new">grounded in odu's shipped mcp face</Pill>
+
+<p>Status: <Pill variant="done">implemented</Pill> · shipped in <PrLink pr={1270} /> — `projectSurface` on the <code>@kolu/surface/project</code> subpath + the new <code>@kolu/surface-mcp</code> package, with a composition proof. odu's migration onto it follows in a paired PR.</p>
 
 <Callout kind="accent">
 The 1:1 map — every cell a resource, every procedure a tool — is a **morning's work and the partly-*wrong* 80%**. The agent-useful tools aren't procedures; the dangerous procedure must not be a tool; and the real engineering is the subscribe/unsubscribe teardown, the zod→JSON-Schema bridge, and the stdout-is-the-protocol discipline. Lead `@kolu/surface-mcp` with the **lifecycle spine + the selection/authz gate**; the auto-map is the demo, not the product.
@@ -137,7 +139,9 @@ import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
 import { z } from "zod";
 
 await serveSurfaceAsMcp({
-  link: () => unixSocketLink({ socketPath: ".ci/odu.sock" }), // BRIDGE the live coordinator
+  // BRIDGE the live coordinator — `unixSocketLink` returns `{ client, dispose }`,
+  // an owned connection the adapter closes on teardown / re-dials after a drop.
+  client: () => unixSocketLink({ socketPath: ".ci/odu.sock" }),
   surface: oduAgentSurface,
   // 1:1 surface primitives → resources & tools (default-deny allowlist)
   expose: {
