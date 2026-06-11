@@ -181,6 +181,10 @@ const DOCUMENT_ATTR = [
   // markup into (class itself stays forbidden).
   "data-md-alert",
   "data-md-alert-title",
+  // The marker the renderer stamps on a YAML front-matter table so the
+  // stylesheet can give it its own muted, borderless treatment (`class` is
+  // forbidden, so this data attribute carries the hook).
+  "data-md-frontmatter",
   // The fence language the renderer stamps on `<code>` so the code-block pass
   // can syntax-highlight it (`class` is forbidden, so this carries it).
   "data-lang",

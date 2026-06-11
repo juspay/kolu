@@ -201,12 +201,49 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).not.toContain("[!WARNING]");
   });
 
-  it("strips a leading YAML front-matter block", () => {
+  it("renders a leading YAML front-matter block as a metadata table", () => {
     const out = html("---\ntitle: Hello\nauthor: Jane\n---\n\n# Real Heading");
+    // The metadata renders as a marked table at the top, not an hr + Setext
+    // heading, and the body still parses as plain markdown below it.
+    expect(out).toContain("<table data-md-frontmatter>");
+    expect(out).toContain("<th>title</th><td>Hello</td>");
+    expect(out).toContain("<th>author</th><td>Jane</td>");
     expect(out).toContain('<h1 id="real-heading">Real Heading</h1>');
-    // The metadata must not render as an hr + Setext heading.
-    expect(out).not.toContain("title: Hello");
     expect(out).not.toContain("<hr>");
+  });
+
+  it("joins a list value with commas (the `tags:` case)", () => {
+    const out = html("---\ntags:\n  - solid\n  - markdown\n---\n\nbody");
+    expect(out).toContain("<th>tags</th><td>solid, markdown</td>");
+  });
+
+  it("escapes front-matter keys and values", () => {
+    const out = html('---\nname: "<script>"\n---\n\nbody');
+    expect(out).toContain("<td>&lt;script&gt;</td>");
+    expect(out).not.toContain("<script>");
+  });
+
+  it("drops a malformed front-matter block instead of rendering a table", () => {
+    // Unparseable YAML (an unterminated flow sequence) must not blow up the
+    // preview or render a half-parsed table — it simply vanishes.
+    const out = html("---\ntags: [a, b\n---\n\n# Body");
+    expect(out).not.toContain("data-md-frontmatter");
+    expect(out).toContain('<h1 id="body">Body</h1>');
+  });
+
+  it("drops front-matter when `frontMatter` is off (the compact slot)", () => {
+    const out = renderMarkdownToRawHtml(
+      "---\ntitle: Hello\n---\n\n# Real Heading",
+      { frontMatter: false },
+    );
+    expect(out).not.toContain("data-md-frontmatter");
+    expect(out).not.toContain("title");
+    expect(out).toContain('<h1 id="real-heading">Real Heading</h1>');
+  });
+
+  it("only treats a `---` block at the very start as front-matter", () => {
+    const out = html("# Heading\n\n---\ntitle: Hello\n---\n");
+    expect(out).not.toContain("data-md-frontmatter");
   });
 });
 
