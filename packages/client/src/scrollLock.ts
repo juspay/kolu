@@ -17,13 +17,17 @@
  *
  *   - An off-bottom scroll engages the lock only within a short window after
  *     a real scroll input (wheel / touch / scroll keys / search jump), which
- *     call sites report via `armUserScrollIntent`.
+ *     call sites report via `armUserScrollIntent`. Pointer-held gestures
+ *     (scrollbar drag, selection auto-scroll) scroll for as long as the button
+ *     is down, past that window, so they `holdUserScrollIntent` from press to
+ *     release instead.
  *   - An off-bottom scroll with NO recent intent is suppressed: the viewport
  *     snaps back to the bottom and output keeps flowing.
- *   - Returning to the tab releases an engaged lock (`handleTabVisible`),
- *     mirroring the existing "switching back to a terminal auto-scrolls to
- *     bottom" semantics — a lock left behind while the tab was hidden must
- *     not present as a frozen terminal.
+ *   - Returning to the tab releases a lock that ENGAGED WHILE THE TAB WAS
+ *     HIDDEN (`handleTabVisible`) — a background latch must not present as a
+ *     frozen terminal. A lock the user made with the tab in front is preserved:
+ *     scrolling up to read, glancing at another browser tab, and coming back
+ *     keeps both the position and the buffered output.
  *
  * Every transition is recorded (with a stack) in a small ring so the
  * Diagnostic Info dialog can show what engaged a lock in the wild.
@@ -53,8 +57,16 @@ const EVENT_RING_CAP = 20;
 const WARN_THROTTLE_MS = 5_000;
 
 /** A scroll input the user actually made, as reported by the call site that
- *  observed it (Terminal.tsx wheel/key/touch wiring, SearchBar navigation). */
-export type ScrollIntentSource = "wheel" | "touch" | "keyboard" | "search";
+ *  observed it (Terminal.tsx wheel/key/touch/pointer wiring, SearchBar
+ *  navigation). `pointer` covers scrollbar drag and selection auto-scroll —
+ *  both run off a held pointer, so it stays armed until the pointer lifts
+ *  rather than expiring on the time window (see `holdUserScrollIntent`). */
+export type ScrollIntentSource =
+  | "wheel"
+  | "touch"
+  | "keyboard"
+  | "search"
+  | "pointer";
 
 /** One scroll-lock transition, with enough context to identify the emitter
  *  after the fact (#1272 instrumentation). */
@@ -75,12 +87,23 @@ export interface ScrollLockEvent {
   stack: string | undefined;
 }
 
+/** Current document visibility, as a small testable seam (the unit suite runs
+ *  in a Node environment with no `document`). Production reads the real DOM. */
+function defaultVisibility(): string {
+  return typeof document === "undefined" ? "unknown" : document.visibilityState;
+}
+
 /**
  * Reactive scroll-lock primitive for an xterm.js terminal.
  *
  * @param enabled — accessor; when false, scroll-lock is disabled entirely
+ * @param visibility — current document visibility ("visible" | "hidden" | …);
+ *   injectable for tests, defaults to the live `document.visibilityState`
  */
-export function createScrollLock(enabled: Accessor<boolean | undefined>) {
+export function createScrollLock(
+  enabled: Accessor<boolean | undefined>,
+  visibility: () => string = defaultVisibility,
+) {
   const [isLocked, setIsLocked] = createSignal(false);
   const [hasNewOutput, setHasNewOutput] = createSignal(false);
   const [pendingChunks, setPendingChunks] = createSignal(0);
@@ -94,6 +117,15 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
 
   let intentAt = Number.NEGATIVE_INFINITY;
   let intentSource: ScrollIntentSource | null = null;
+  /** While a pointer (or other discrete gesture) is held, intent stays armed
+   *  regardless of the time window — selection auto-scroll and scrollbar
+   *  dragging emit `onScroll` ticks for as long as the button is down, well
+   *  past `SCROLL_INTENT_WINDOW_MS` after the initial press. */
+  let heldSource: ScrollIntentSource | null = null;
+  /** True if the engaged lock was created while the document was hidden — the
+   *  signature of a background/accidental latch that `handleTabVisible` should
+   *  clear. A lock the user made with the tab in front is left alone. */
+  let lockedWhileHidden = false;
   const eventRing: ScrollLockEvent[] = [];
   let lastWarnAt = Number.NEGATIVE_INFINITY;
 
@@ -105,7 +137,21 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
     intentSource = source;
   }
 
+  /** Arm intent and keep it armed until `releaseUserScrollIntent`, for
+   *  gestures that scroll repeatedly while a pointer is held (scrollbar drag,
+   *  selection auto-scroll). The time window doesn't fit those — the press is
+   *  one event but the scroll ticks keep coming. */
+  function holdUserScrollIntent(source: ScrollIntentSource): void {
+    heldSource = source;
+    armUserScrollIntent(source);
+  }
+
+  function releaseUserScrollIntent(): void {
+    heldSource = null;
+  }
+
   function recentIntent(): ScrollIntentSource | null {
+    if (heldSource !== null) return heldSource;
     return Date.now() - intentAt <= SCROLL_INTENT_WINDOW_MS
       ? intentSource
       : null;
@@ -124,8 +170,7 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
       baseY: buf.baseY,
       viewportY: buf.viewportY,
       bufferType: buf.type,
-      visibility:
-        typeof document === "undefined" ? "unknown" : document.visibilityState,
+      visibility: visibility(),
       hasFocus: typeof document === "undefined" ? null : document.hasFocus(),
       stack: new Error("scroll-lock transition").stack,
     };
@@ -155,6 +200,7 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
     flush();
     setIsLocked(false);
     setHasNewOutput(false);
+    lockedWhileHidden = false;
   }
 
   // Clear scroll lock when the setting is toggled off
@@ -186,6 +232,7 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
         if (isLocked()) flush();
         setIsLocked(false);
         setHasNewOutput(false);
+        lockedWhileHidden = false;
         return;
       }
       // Already locked: the user is moving through scrollback — no new
@@ -208,6 +255,7 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
         return;
       }
       recordEvent("locked", source, term);
+      lockedWhileHidden = visibility() === "hidden";
       setIsLocked(true);
     });
     onCleanup(() => {
@@ -242,16 +290,22 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
     term.scrollToBottom();
     setIsLocked(false);
     setHasNewOutput(false);
+    lockedWhileHidden = false;
   }
 
   /**
-   * The tab just became visible again. A lock that was engaged while the
-   * user was away must not greet them as a frozen terminal — flush and
+   * The tab just became visible again. A lock that *engaged while the tab was
+   * hidden* must not greet the returning user as a frozen terminal — flush and
    * rejoin the bottom, the same semantics the existing visible-transition
    * effect applies when switching back to a terminal.
+   *
+   * A lock the user made with the tab in front (`lockedWhileHidden === false`)
+   * is left alone: scrolling up to read output, glancing at another browser
+   * tab, and returning must NOT lose the position or flush buffered output
+   * (#1272). Only a background/accidental latch is cleared here.
    */
   function handleTabVisible(): void {
-    if (!isLocked() || !termRef) return;
+    if (!isLocked() || !termRef || !lockedWhileHidden) return;
     recordEvent("unlatched", null, termRef);
     scrollToBottom(termRef);
   }
@@ -268,6 +322,8 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
     lastEvent,
     events,
     armUserScrollIntent,
+    holdUserScrollIntent,
+    releaseUserScrollIntent,
     handleTabVisible,
     reset,
     attachToTerminal,

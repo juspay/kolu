@@ -57,18 +57,28 @@ function makeMockTerm() {
   };
 }
 
-/** Build a lock attached to a fresh mock terminal inside a Solid root. */
+/** Build a lock attached to a fresh mock terminal inside a Solid root. The
+ *  Node test environment has no `document`, so visibility is injected and
+ *  mutable via the returned `setVisibility`. */
 function setup(enabled: () => boolean | undefined = () => true) {
   const mock = makeMockTerm();
+  let visibility = "visible";
   let lock!: ReturnType<typeof createScrollLock>;
   const dispose = createRoot((d) => {
-    lock = createScrollLock(enabled);
+    lock = createScrollLock(enabled, () => visibility);
     lock.attachToTerminal(mock.term);
     return d;
   });
   // Give the buffer some scrollback to scroll into.
   mock.emitOutputAtBottom(100);
-  return { ...mock, lock, dispose };
+  return {
+    ...mock,
+    lock,
+    dispose,
+    setVisibility(v: "visible" | "hidden") {
+      visibility = v;
+    },
+  };
 }
 
 beforeEach(() => {
@@ -157,8 +167,8 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
     t.dispose();
   });
 
-  it("treats touch, keyboard, and search intents like wheel", () => {
-    for (const source of ["touch", "keyboard", "search"] as const) {
+  it("treats touch, keyboard, search, and pointer intents like wheel", () => {
+    for (const source of ["touch", "keyboard", "search", "pointer"] as const) {
       const t = setup();
       t.lock.armUserScrollIntent(source);
       t.scrollUp(10);
@@ -169,18 +179,78 @@ describe("createScrollLock — user-intent latch (#1272)", () => {
   });
 });
 
-describe("createScrollLock — tab-return unlatch (#1272)", () => {
-  it("flushes and rejoins the bottom when the tab becomes visible while locked", () => {
+describe("createScrollLock — held pointer intent (#1272)", () => {
+  it("stays armed past the time window while a pointer is held", () => {
+    // Scrollbar drag / selection auto-scroll emit onScroll ticks for as long
+    // as the button is down — long past SCROLL_INTENT_WINDOW_MS after press.
     const t = setup();
+    t.lock.holdUserScrollIntent("pointer");
+    // First tick well after the window would have expired.
+    vi.setSystemTime(10_000 + SCROLL_INTENT_WINDOW_MS + 1000);
+    t.scrollUp(5);
+    expect(t.lock.isLocked()).toBe(true);
+    expect(t.lock.lastEvent()?.source).toBe("pointer");
+    t.dispose();
+  });
+
+  it("expires normally once the pointer is released", async () => {
+    const t = setup();
+    t.lock.holdUserScrollIntent("pointer");
+    t.lock.releaseUserScrollIntent();
+    vi.setSystemTime(10_000 + SCROLL_INTENT_WINDOW_MS + 1);
+    t.scrollUp(10);
+    expect(t.lock.isLocked()).toBe(false);
+    expect(t.lock.lastEvent()?.kind).toBe("suppressed");
+    await Promise.resolve();
+    expect(t.buf.viewportY).toBe(t.buf.baseY);
+    t.dispose();
+  });
+
+  it("still honors the time window after release for the trailing press", () => {
+    // A pointerup arrives, but the gesture's final onScroll lands a beat
+    // later — within the window, it should still count as user intent.
+    const t = setup();
+    t.lock.holdUserScrollIntent("pointer");
+    t.lock.releaseUserScrollIntent();
+    t.scrollUp(10); // same instant — inside the window
+    expect(t.lock.isLocked()).toBe(true);
+    t.dispose();
+  });
+});
+
+describe("createScrollLock — tab-return unlatch (#1272)", () => {
+  it("flushes and rejoins the bottom when a lock engaged while hidden returns", () => {
+    const t = setup();
+    // Latch while the tab is in the background — the accidental/background
+    // class that must not present as a frozen terminal on return.
+    t.setVisibility("hidden");
     t.lock.armUserScrollIntent("wheel");
     t.scrollUp(10);
     t.lock.writeData(t.term, "missed");
 
+    t.setVisibility("visible");
     t.lock.handleTabVisible();
     expect(t.lock.isLocked()).toBe(false);
     expect(t.written).toEqual(["missed"]);
     expect(t.buf.viewportY).toBe(t.buf.baseY);
     expect(t.lock.lastEvent()?.kind).toBe("unlatched");
+    t.dispose();
+  });
+
+  it("preserves a lock the user made with the tab in front", () => {
+    // Scroll up to read output (visible), glance at another browser tab, come
+    // back — the position and buffered output must survive (#1272).
+    const t = setup();
+    t.lock.armUserScrollIntent("wheel");
+    t.scrollUp(10); // visibility defaults to "visible"
+    t.lock.writeData(t.term, "held");
+    expect(t.lock.isLocked()).toBe(true);
+
+    t.lock.handleTabVisible();
+    expect(t.lock.isLocked()).toBe(true);
+    expect(t.written).toEqual([]); // not flushed
+    expect(t.lock.pendingChunks()).toBe(1);
+    expect(t.buf.viewportY).toBe(t.buf.baseY - 10); // position kept
     t.dispose();
   });
 

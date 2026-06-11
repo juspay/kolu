@@ -667,23 +667,58 @@ const Terminal: Component<{
             { capture: true, passive: true },
           );
 
+          // Pointer-driven scrolls that never fire `wheel`: dragging xterm's
+          // visible scrollbar (a `pointerdown` on `.xterm-scrollbar`, then a
+          // global pointermove monitor) and selection auto-scroll (a primary
+          // `mousedown` on the screen, then an interval that scrolls the
+          // viewport while the button stays down). Both emit `onScroll` only
+          // while the pointer is held — well past the time window — so we HOLD
+          // intent from press to release rather than arm-and-expire (#1272).
+          // Capture phase: xterm's own handlers sit deeper and fire onScroll
+          // synchronously, so the intent must be armed before they run.
+          makeEventListener(
+            containerRef,
+            "pointerdown",
+            (e: PointerEvent) => {
+              // Primary button only — secondary/middle don't drag-scroll.
+              if (e.button === 0) scrollLock.holdUserScrollIntent("pointer");
+            },
+            { capture: true, passive: true },
+          );
+          // Release on the document: a scrollbar/selection drag routinely ends
+          // with the pointer outside the terminal, so a container-scoped
+          // pointerup would miss it and leave intent stuck open.
+          makeEventListener(
+            document,
+            "pointerup",
+            () => scrollLock.releaseUserScrollIntent(),
+            { capture: true, passive: true },
+          );
+          makeEventListener(
+            document,
+            "pointercancel",
+            () => scrollLock.releaseUserScrollIntent(),
+            { capture: true, passive: true },
+          );
+
           if (shouldUseWebgl()) loadWebgl();
 
           // xterm.js has attachCustomKeyEventHandler for intercepting keys.
           // Return false to prevent xterm from handling the key.
           term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-            // xterm scrolls the viewport for these chords (scrollPages /
-            // scrollToTop / scrollToBottom) — the resulting synchronous
-            // onScroll must read as user intent, or the scroll-lock latch
-            // suppresses it (#1272). Observation only; the key still falls
+            // Shift+PageUp / Shift+PageDown are the ONLY chords this xterm
+            // build turns into a viewport scroll (KeyboardResultType.PAGE_UP /
+            // PAGE_DOWN → scrollLines). Shift+Home/End emit escape SEQUENCES,
+            // not scrolls — arming on them would leave a stale intent that an
+            // unrelated programmatic off-bottom scroll could latch onto within
+            // the window (#1272). So arm only on the keys that actually scroll;
+            // the resulting synchronous onScroll must read as user intent or
+            // the latch suppresses it. Observation only; the key still falls
             // through to xterm below.
             if (
               e.type === "keydown" &&
               e.shiftKey &&
-              (e.key === "PageUp" ||
-                e.key === "PageDown" ||
-                e.key === "Home" ||
-                e.key === "End")
+              (e.key === "PageUp" || e.key === "PageDown")
             ) {
               scrollLock.armUserScrollIntent("keyboard");
             }
