@@ -414,24 +414,32 @@ let rounds = 0
 // can't see is a gate it can't satisfy).
 const baseline = { lowy: {}, hickey: {} }
 const owed = { lowy: new Set(), hickey: new Set() }
-// Returns true when the lens's current position is an UNCITED flip vs its
-// baseline (blocking settlement this round); advances the baseline and clears
-// any owed mark on a hold, revert, or cited flip.
-function uncitedFlip(lens, id, cur) {
+// Pure predicate: returns true when `cur` is an UNCITED flip vs `base` (the
+// lens's last accepted disposition). Reads nothing mutable and mutates
+// nothing — the baseline/owed transition lives in advanceGate.
+function isUncitedFlip(base, cur) {
   if (!cur) return false
+  if (base === undefined || cur.disposition === base) return false
+  if ((cur.concessionReason || '').trim()) return false
+  return true
+}
+// Explicit state transition for the cited-concession gate: advances the
+// lens's baseline on first-seen or on a hold/revert/cited flip, and adds or
+// clears the owed mark accordingly. Called unconditionally each round.
+function advanceGate(lens, id, cur) {
+  if (!cur) return
   const base = baseline[lens][id]
   if (base === undefined || cur.disposition === base) {
     if (base === undefined) baseline[lens][id] = cur.disposition
     owed[lens].delete(id)
-    return false
+    return
   }
   if ((cur.concessionReason || '').trim()) {
     baseline[lens][id] = cur.disposition
     owed[lens].delete(id)
-    return false
+    return
   }
   owed[lens].add(id)
-  return true
 }
 
 for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
@@ -455,7 +463,7 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   })
   const hickeyPos = posMap(hickeyRes)
 
-  // Cited-concession gate (see uncitedFlip above). A lens that flips its
+  // Cited-concession gate (see isUncitedFlip/advanceGate above). A lens that flips its
   // baseline disposition without citing what convinced it is the measured
   // harmful pattern — conformity flips are predominantly wrong, and an
   // agreement reached through one cannot be trusted (see the
@@ -476,11 +484,14 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
     // consensus, and Apply must never run on a `plan: undefined` (it would fall
     // back to a vague placeholder and commit an arbitrary edit as "agreed").
     const lowyHasPlan = !!(l && typeof l.plan === 'string' && l.plan.trim())
-    // Evaluate BOTH gates unconditionally (no short-circuit) so each lens's
-    // baseline/owed state advances every round regardless of the other's.
-    const lUncited = uncitedFlip('lowy', id, l)
-    const hUncited = uncitedFlip('hickey', id, h)
+    const lUncited = isUncitedFlip(baseline.lowy[id], l)
+    const hUncited = isUncitedFlip(baseline.hickey[id], h)
     const uncited = lUncited || hUncited
+    // Advance each lens's baseline/owed state unconditionally — the booleans
+    // above are computed without side effects, so there is no hidden mutation
+    // to protect against short-circuiting.
+    advanceGate('lowy', id, l)
+    advanceGate('hickey', id, h)
     const agreed = !!(
       l &&
       h &&
