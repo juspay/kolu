@@ -73,8 +73,11 @@ export function cacheControlFor(
  *  `location.reload()` can never reach the `no-store` shell and the update prompt
  *  loops forever (see `docs/cache-bug.md`). The value is irrelevant to
  *  correctness: its only job is to make the URL a key the poisoned bare-`/` entry
- *  can't satisfy. */
-export const CACHE_BUST_PARAM = "v";
+ *  can't satisfy. Namespaced (not a bare `v`) so it can't silently overwrite a
+ *  consumer's own route state — `@kolu/surface-app` is shared (kolu, drishti),
+ *  and a bare `?v=` already carries meaning elsewhere in kolu (preview cache
+ *  keys), so the surface-app cache-bust param is given a collision-proof name. */
+export const CACHE_BUST_PARAM = "__surface_app_fresh";
 
 /** `href` with `CACHE_BUST_PARAM` set to `token` — the navigation target that
  *  forces a poisoned browser past its stale `/` entry to the network (→ the

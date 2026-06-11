@@ -9,9 +9,11 @@
  * - `updateReady()` — a fresh client build is ready; show the reload prompt.
  *   The skew-OR-restart rule (`"restarted"` status OR `stale()`) lives in
  *   surface-app's model beside the `reload()` it gates, so this consumer just
- *   reads the predicate. kolu has no service worker, so the reload is a plain
- *   `location.reload()` (surface-app's `reload()`) landing on the `no-store`
- *   shell → the current bundle.
+ *   reads the predicate. kolu has no service worker, and surface-app's
+ *   `reload()` is a cache-busting navigation (to `/?<bust>=…`, not a plain
+ *   `location.reload()`) — it reaches the `no-store` shell → the current bundle
+ *   even on a browser holding a poisoned `/` cache entry (see
+ *   surface-app's `reloadForUpdate`).
  *
  * The Reload button lives inside the card so the action is where the user's
  * eye already is, not tucked into a corner toast.

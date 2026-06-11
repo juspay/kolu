@@ -4,7 +4,8 @@
  * Framework-free (no JSX, no SolidJS): just the browser-side actions an app
  * runs at root setup, before any component mounts — retire a legacy service
  * worker, register the notification worker, or land the deployed build with a
- * plain reload. The `/solid` entrypoint re-exports them so `<SurfaceAppProvider>`
+ * cache-busting navigation (`reloadForUpdate`, below — not a plain reload; see
+ * its doc). The `/solid` entrypoint re-exports them so `<SurfaceAppProvider>`
  * consumers reach them from one import; this subpath is the obvious home when
  * there's no component in scope (kolu calls `registerServiceWorker()` in
  * `index.tsx` at boot).

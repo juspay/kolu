@@ -504,19 +504,36 @@ therefore does not fix the loop — and in an installed PWA there is no force-re
 gesture at all.
 
 **The fix — a cache-busting navigation.** `reloadForUpdate()` now navigates to
-`/?v=<token>` (`cacheBustedShellUrl` in `index.ts`; a unique `Date.now()` token)
-instead of reloading in place. A query string is a *different cache key* the
-poisoned bare-`/` entry can't satisfy, so the browser must hit the network → the
-`no-store` shell → the current bundle. And because that response is `no-store`, it
-is never written to the cache — so the navigation both **escapes the loop now** and
-**inoculates the tab** (every subsequent reload of `/?v=…` stays fresh). The token's
-*value* is irrelevant to correctness; its only job is to differ from the poisoned
-key. Verified on the box: `GET /?v=676a483` → `no-store` + the current bundle.
-`location.replace` (not `assign`) keeps the bust out of history.
+`/?<bust>=<token>` (`cacheBustedShellUrl` in `index.ts`, with the namespaced
+`CACHE_BUST_PARAM` and a unique `Date.now()` token) instead of reloading in place.
+A query string is a *different cache key* the poisoned bare-`/` entry can't
+satisfy, so the browser must hit the network → the `no-store` shell → the current
+bundle. And because that response is `no-store`, it is never written to the cache —
+so the navigation both **escapes the loop now** and **inoculates the tab** (every
+subsequent reload of `/?<bust>=…` stays fresh). The token's *value* is irrelevant
+to correctness; its only job is to differ from the poisoned key. Verified on the
+box with the original bare-`v` prototype: `GET /?v=676a483` → `no-store` + the
+current bundle. `location.replace` (not `assign`) keeps the bust out of history.
+
+**What this fix does *not* reach — the pre-fix client.** The new affordance only
+runs once a browser is *already executing a bundle that contains it*. A browser
+still trapped on a **pre-fix** cached shell runs the *old* `reloadForUpdate()`
+(`location.reload()`) and cannot pull this new code through a normal reload — and
+the poisoned bare-`/` entry it holds is still available to satisfy any future
+bare-`/` launch. Such a client needs a **one-time manual remediation** to land a
+build with the new affordance: a single hard/force-reload, or — in an installed
+PWA where there is no force-reload gesture — clearing the app's site data (or
+reinstalling). After it loads *this* build once, the in-app Reload self-heals from
+then on. The fix is therefore *forward-looking*: it stops the loop for every client
+on this release onward; it is not a remote cure for clients already stuck on an
+older one.
 
 **Learning:** `no-store` prevents *future* poisoning; it cannot heal a browser
-already holding a heuristically-fresh shell entry. A returning client converges to
-the deployed build only if the reload affordance itself uses a key the poison can't
-match. (Distinct from the launchd crash-loop variant — a server restarting under
+already holding a heuristically-fresh shell entry — and neither can a code fix that
+only ships *inside* the build that browser can't reach. A returning client converges
+to the deployed build only if the reload affordance it is *already running* uses a
+key the poison can't match; a client stuck on the pre-fix affordance needs one
+manual reload to cross over. (Distinct from the launchd crash-loop variant — a
+server restarting under
 `KeepAlive` flaps `status` to `"restarted"`, which renders the *same* "App updated"
 card with no stale asset involved; see juspay/kolu#1275.)
