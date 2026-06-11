@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { prResultEqual } from "./schemas.ts";
+import { foldCheckOutcomes, prResultEqual } from "./schemas.ts";
 import type { PrInfo, PrResult } from "./schemas.ts";
+
+describe("foldCheckOutcomes", () => {
+  it("returns null for an empty list (no checks configured)", () => {
+    expect(foldCheckOutcomes([])).toBeNull();
+  });
+
+  it("is pass only when every check passed", () => {
+    expect(foldCheckOutcomes(["pass", "pass"])).toBe("pass");
+  });
+
+  it("is fail when any check failed (fail is terminal)", () => {
+    expect(foldCheckOutcomes(["pass", "fail", "pending"])).toBe("fail");
+  });
+
+  it("is pending when something is pending and nothing failed (sticky)", () => {
+    expect(foldCheckOutcomes(["pass", "pending", "pass"])).toBe("pending");
+  });
+});
 
 describe("prResultEqual", () => {
   const pr: PrInfo = {

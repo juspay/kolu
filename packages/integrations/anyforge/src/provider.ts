@@ -15,6 +15,11 @@ import type { PrResult, PrUnavailableSourceBase } from "./schemas.ts";
 export type PrGitContext = {
   repoRoot: string;
   branch: string;
+  /** The repo's `origin` remote URL (credentials stripped), or null when the
+   *  repo has no remote. Carried so an upstream dispatcher can pick the forge
+   *  adapter from the host; the gh adapter ignores it (gh derives the remote
+   *  from the repo itself). */
+  remoteUrl: string | null;
 };
 
 export interface PrProvider<

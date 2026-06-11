@@ -28,6 +28,7 @@ function ctx(overrides: Partial<PrGitContext> = {}): PrGitContext {
   return {
     repoRoot: "/repo",
     branch: "feature",
+    remoteUrl: null,
     ...overrides,
   };
 }

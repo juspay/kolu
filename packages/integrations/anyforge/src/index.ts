@@ -7,6 +7,8 @@
  *  `PrProvider` against these shapes and never import each other; `anyagent`
  *  is the same move for agents. The leaf enumerates no forge. */
 
+export { parseRemoteHost } from "./detect.ts";
+export { logPrResolveFailure } from "./log-helper.ts";
 export type { PrGitContext, PrProvider } from "./provider.ts";
 export { type PrWatcher, subscribePr } from "./subscribe.ts";
 // The wire vocabulary is the whole point of ./schemas.ts — re-export it

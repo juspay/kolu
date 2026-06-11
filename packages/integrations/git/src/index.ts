@@ -14,6 +14,8 @@ export {
   gitDiffOutputEqual,
   gitStatusOutputEqual,
 } from "./equals.ts";
+// Config watcher (refcounted shared singleton — remote-URL changes)
+export { watchGitConfig } from "./config-watcher.ts";
 // Error types
 export { err, type GitError, type GitResult, ok } from "./errors.ts";
 // HEAD watcher (refcounted shared singleton)

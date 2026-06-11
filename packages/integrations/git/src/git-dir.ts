@@ -46,3 +46,11 @@ function revParseDir(cwd: string, flag: string): string | null {
 export function resolveGitDir(cwd: string): string | null {
   return revParseDir(cwd, "--git-dir");
 }
+
+/** Shared (common) git dir (`--git-common-dir`). For a linked worktree this
+ *  is the MAIN repo's `.git` — where the shared `config` (and thus the
+ *  `origin` remote) lives, unlike the per-worktree `--git-dir`. The right
+ *  target for watching remote-URL changes across all of a repo's worktrees. */
+export function resolveGitCommonDir(cwd: string): string | null {
+  return revParseDir(cwd, "--git-common-dir");
+}

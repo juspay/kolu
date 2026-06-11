@@ -76,6 +76,9 @@ export function migrateLegacyTerminal_1_18_0(
         worktreePath: kept.cwd,
         isWorktree: false,
         mainRepoRoot: kept.cwd,
+        // A restored session carries no remote URL — the live git watcher
+        // re-resolves it on the next resolve.
+        remoteUrl: null,
       },
     };
   }
