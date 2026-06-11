@@ -42,7 +42,7 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
-import { snapshotSession } from "./terminals.ts";
+import { reattachSurvivingTerminals, snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({
@@ -96,6 +96,10 @@ const PWA_BACKGROUND_COLOR = "#0c0c0e";
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
+// Eager reattach-by-id: adopt the surviving daemon's PTYs as live terminals
+// BEFORE the server listens, so a restart shows the same shells automatically
+// (no restore card). A cold start (no survivors) is a no-op.
+await reattachSurvivingTerminals();
 if (argv.flags.verbose) log.level = "debug";
 
 const app = new Hono();

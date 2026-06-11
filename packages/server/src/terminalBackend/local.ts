@@ -26,6 +26,8 @@
 import type { ForegroundSample, PtyHostIdentity } from "@kolu/pty-host";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
+  SavedSession,
+  SavedTerminal,
   TerminalId,
   TerminalInfo,
   TerminalMetadata,
@@ -382,6 +384,58 @@ class LocalTerminalBackend implements TerminalBackend {
     return entry.info;
   }
 
+  /**
+   * Eager reattach-by-id at boot: register every PTY the surviving daemon owns
+   * as a LIVE terminal — adopting it (no respawn), seeded with its persisted
+   * metadata from `saved` (matched by id) — so a server restart shows the same
+   * shells automatically, with NO restore card. Reuses the normal `spawnPty`
+   * adopt path (`resolveOrSpawn` finds the survivor), so the provider DAG
+   * re-wires and the client re-attaches for the snapshot.
+   *
+   * Saved-session order is preserved (dock/canvas stay put); PTYs the daemon
+   * owns that the saved session doesn't know about (spawned after the last
+   * autosave) are adopted too, never dropped. Returns the adopted ids. A cold
+   * start (no survivors) returns `[]` — the saved-session restore card then
+   * handles re-spawn, as before.
+   */
+  async adoptSurvivors(saved: SavedSession | null): Promise<TerminalId[]> {
+    const survivors = await survivingPtys();
+    if (survivors.size === 0) return [];
+
+    const survivingIds = new Set(survivors.keys());
+    const savedById = new Map<TerminalId, SavedTerminal>(
+      (saved?.terminals ?? []).map((t) => [t.id as TerminalId, t]),
+    );
+    const ordered: TerminalId[] = [
+      ...(saved?.terminals ?? [])
+        .map((t) => t.id as TerminalId)
+        .filter((id) => survivingIds.has(id)),
+      ...[...survivingIds].filter((id) => !savedById.has(id)),
+    ];
+
+    // Diagnostics: the full reattach picture, greppable as "reattach:".
+    const fromSaved = ordered.filter((id) => savedById.has(id)).length;
+    const orphanedSaved = (saved?.terminals ?? []).filter(
+      (t) => !survivingIds.has(t.id as TerminalId),
+    ).length;
+    log.info(
+      {
+        daemonPtys: survivors.size,
+        adopting: ordered.length,
+        fromSaved,
+        extraNotInSaved: ordered.length - fromSaved,
+        orphanedSaved,
+      },
+      "reattach: adopting surviving daemon PTYs at boot (eager — no restore card)",
+    );
+
+    for (const id of ordered) {
+      const meta = savedById.get(id);
+      this.spawnPty(id, { cwd: meta?.cwd, initialMetadata: meta });
+    }
+    return ordered;
+  }
+
   /** Adopt a surviving daemon PTY (reattach-by-id) if one exists for this id,
    *  else spawn fresh. Adoption skips the spawn RPC — the PTY already runs from
    *  a previous server; we just wire the provider DAG and the client
@@ -684,4 +738,8 @@ class LocalTerminalBackend implements TerminalBackend {
   }
 }
 
-export const localTerminalBackend: TerminalBackend = new LocalTerminalBackend();
+// Concrete type (not annotated `: TerminalBackend`) so the boot-time eager
+// reattach (`terminals.ts`) can reach `adoptSurvivors` — a local-only lifecycle
+// detail that stays OFF the shared `TerminalBackend` contract. The class still
+// `implements TerminalBackend`, so conformance is enforced there.
+export const localTerminalBackend = new LocalTerminalBackend();

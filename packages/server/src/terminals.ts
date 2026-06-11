@@ -33,9 +33,12 @@ import type {
 // biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { updateClientMetadata } from "./terminalBackend/metadata.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+import { localTerminalBackend } from "./terminalBackend/local.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
+import { log } from "./log.ts";
+import { getSavedSession } from "./session.ts";
 
 // R-1: a single local backend. R-2 will route by `location.kind` per
 // call site via `getTerminalBackendForCreate` — this const goes away then.
@@ -208,6 +211,39 @@ let activeTerminalId: TerminalId | null = null;
 export function setActiveTerminalId(id: TerminalId | null): void {
   activeTerminalId = id;
   if (id !== null) terminalsDirtyChannel.publish({});
+}
+
+/**
+ * Eager reattach-by-id at server boot: adopt the surviving daemon's PTYs as
+ * live terminals and restore the active one, so a server restart reconnects to
+ * the same shells automatically — NO restore card. A cold start (no daemon
+ * survivors) is a no-op: the saved-session restore card then handles re-spawn,
+ * as before.
+ *
+ * Called once from `index.ts` BEFORE the HTTP/WS server starts listening, so a
+ * client never sees the empty-then-populated flash (and so can't race the
+ * restore card against the adopt).
+ */
+export async function reattachSurvivingTerminals(): Promise<void> {
+  const saved = getSavedSession();
+  const adopted = await localTerminalBackend.adoptSurvivors(saved);
+  if (adopted.length === 0) {
+    log.info(
+      { savedTerminals: saved?.terminals.length ?? 0 },
+      "reattach: no surviving daemon PTYs at boot — cold start (saved session restores via the card, if any)",
+    );
+    return;
+  }
+  if (
+    saved?.activeTerminalId &&
+    adopted.includes(saved.activeTerminalId as TerminalId)
+  ) {
+    setActiveTerminalId(saved.activeTerminalId as TerminalId);
+  }
+  log.info(
+    { adopted: adopted.length, active: saved?.activeTerminalId ?? null },
+    "reattach: surviving terminals reattached at boot — canvas restored, no restore card",
+  );
 }
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */
