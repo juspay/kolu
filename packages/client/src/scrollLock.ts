@@ -220,6 +220,57 @@ export function createScrollLock(
     ),
   );
 
+  /** Pure verdict for an off-/at-bottom scroll — the latch decision in
+   *  isolation, readable without the xterm re-entrancy workaround, the
+   *  instrumentation, or the visibility capture in scope:
+   *   - `flush-release` — back at the bottom; drop the lock and flush.
+   *   - `stay-locked`    — already locked, moving through scrollback.
+   *   - `suppress`       — off-bottom with no user input behind it (#1272).
+   *   - `engage`         — off-bottom on a real user scroll; latch.
+   */
+  function classify(
+    atBottom: boolean,
+    locked: boolean,
+    source: ScrollIntentSource | null,
+  ): "flush-release" | "stay-locked" | "suppress" | "engage" {
+    if (atBottom) return "flush-release";
+    if (locked) return "stay-locked";
+    return source === null ? "suppress" : "engage";
+  }
+
+  /** Back at the bottom (user scrolled down, or our own snap-back re-entered
+   *  here) — flush anything held and release. */
+  function flushAndRelease(): void {
+    if (isLocked()) flush();
+    setIsLocked(false);
+    lockedWhileHidden = false;
+  }
+
+  /** Latch the lock on a real user scroll, capturing whether it engaged while
+   *  the tab was hidden (the signature `handleTabVisible` clears). */
+  function engage(source: ScrollIntentSource, term: Terminal): void {
+    recordEvent("locked", source, term);
+    lockedWhileHidden = visibility() === "hidden";
+    setIsLocked(true);
+  }
+
+  /** Off-bottom with no user input behind it — not the user's scroll. Snap
+   *  back and keep output flowing instead of freezing the terminal (#1272).
+   *  Owns the forensic record, the suppression warn-throttle (via
+   *  recordEvent), and the deferred-snap re-entrancy workaround: the snap-back
+   *  is deferred OUT of xterm's scroll dispatch, because the Viewport guards
+   *  against re-entrant scrolls and a synchronous scrollToBottom() here is
+   *  silently dropped (observed against the shipped @xterm/xterm
+   *  6.1.0-beta.225). A microtask later the dispatch has unwound. Re-check the
+   *  lock in case a real user scroll latched in between — never yank an
+   *  engaged lock. */
+  function suppressAndSnap(term: Terminal): void {
+    recordEvent("suppressed", null, term);
+    queueMicrotask(() => {
+      if (termRef === term && !isLocked()) term.scrollToBottom();
+    });
+  }
+
   /** Wire the onScroll handler and self-register cleanup on the caller's
    *  reactive owner. Must be called synchronously within a reactive scope
    *  (e.g. inside `onMount`, or within a `runWithOwner` restoring the
@@ -232,36 +283,24 @@ export function createScrollLock(
       if (enabled() === false) return;
       const buf = term.buffer.active;
       const atBottom = buf.baseY <= buf.viewportY;
-      if (atBottom) {
-        // Back at the bottom (user scrolled down, or our own snap-back
-        // below re-entered here) — flush anything held and release.
-        if (isLocked()) flush();
-        setIsLocked(false);
-        lockedWhileHidden = false;
-        return;
-      }
-      // Already locked: the user is moving through scrollback — no new
-      // transition to record, the lock simply stays engaged.
-      if (isLocked()) return;
       const source = recentIntent();
-      if (source === null) {
-        // Off-bottom with no user input behind it — not the user's scroll.
-        // Snap back and keep output flowing instead of freezing the
-        // terminal (#1272). The snap-back is deferred OUT of xterm's scroll
-        // dispatch: the Viewport guards against re-entrant scrolls, so a
-        // synchronous scrollToBottom() here is silently dropped (observed
-        // against the shipped @xterm/xterm 6.1.0-beta.225). A microtask
-        // later the dispatch has unwound. Re-check the lock in case a real
-        // user scroll latched in between — never yank an engaged lock.
-        recordEvent("suppressed", null, term);
-        queueMicrotask(() => {
-          if (termRef === term && !isLocked()) term.scrollToBottom();
-        });
-        return;
+      switch (classify(atBottom, isLocked(), source)) {
+        case "flush-release":
+          flushAndRelease();
+          return;
+        case "stay-locked":
+          // The user is moving through scrollback — no new transition to
+          // record, the lock simply stays engaged.
+          return;
+        case "suppress":
+          suppressAndSnap(term);
+          return;
+        case "engage":
+          // `source` is non-null on this branch by construction of `classify`;
+          // the guard narrows it for the type checker without a cast.
+          if (source !== null) engage(source, term);
+          return;
       }
-      recordEvent("locked", source, term);
-      lockedWhileHidden = visibility() === "hidden";
-      setIsLocked(true);
     });
     onCleanup(() => {
       scrollDisposable.dispose();
