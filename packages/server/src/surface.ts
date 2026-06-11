@@ -91,10 +91,20 @@ const localBackend = getTerminalBackendFor({ kind: "local" });
  */
 async function buildInfoValue(): Promise<Partial<KoluBuildInfo>> {
   const identity = await readPtyHostIdentity();
+  // `ptyHost` is ALWAYS present as a key — set to the live identity, or
+  // explicitly `undefined` when the read fails. This matters on the republish
+  // path (`republishBuildInfo`): a failed restart leaves the daemon degraded
+  // and the read empty, and the republish MERGES this patch over the current
+  // cell. Omitting the key would let the spread preserve the OLD daemon's
+  // identity (the rail keeps lying `current`/`outdated`); carrying
+  // `ptyHost: undefined` overwrites it to absent so the column honestly drops
+  // to `—`. (`JSON.stringify` drops the undefined key, so the cell's value
+  // arrives over the wire as absent, and the `equals` dedup still sees a
+  // change vs. the prior `ptyHost`-bearing value.)
   return {
     version: serverVersion,
     ptyHostExpectedStaleKey: currentBuildId(),
-    ...(identity ? { ptyHost: identity } : {}),
+    ptyHost: identity ?? undefined,
   };
 }
 
@@ -372,10 +382,13 @@ setSurfaceCtx(surfaceCtxBuilt.kolu);
 const buildInfoCell = surfaceCtxBuilt.surfaceApp.cells.buildInfo;
 
 /** Re-read the live pty-host daemon's identity and republish the `buildInfo`
- *  cell. Called by the restart path (`router.ts`) after a successful
- *  `daemonHandle.restart()`, so the `srv · pty` rail reflects the fresh daemon
- *  instead of the pre-restart snapshot. Merges over the current cell value so
- *  the `commit` axis the library owns is preserved. */
+ *  cell. Called by the restart path (`router.ts`) after `daemonHandle.restart()`
+ *  — success OR failure — so the `srv · pty` rail reflects the post-restart
+ *  daemon instead of the pre-restart snapshot. Merges over the current cell so
+ *  the library-owned `commit` axis is preserved, but the patch ALWAYS carries a
+ *  `ptyHost` key (the live identity, or `undefined` on a failed read), so a
+ *  degraded daemon OVERWRITES the stale identity to absent — the column honestly
+ *  drops to `—` rather than the spread silently preserving the old one. */
 export async function republishBuildInfo(): Promise<void> {
   const patch = await buildInfoValue();
   buildInfoCell.set({ ...buildInfoCell.get(), ...patch });

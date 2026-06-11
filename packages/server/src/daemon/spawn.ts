@@ -25,7 +25,7 @@
  * the same way so `--pty-host-socket` doesn't silently spawn on the default.
  */
 import { spawn, type StdioOptions } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,19 +85,24 @@ function openDaemonLog(socketPath: string): number {
   return openSync(join(dir, "pty-host-daemon.log"), "a", 0o600);
 }
 
-/** The transient unit name, made unique PER SOCKET so two systemd-backed kolu
- *  instances (distinct sockets) never collide on one unit, and so a respawn that
- *  races the old unit's `--collect` teardown lands a fresh generation rather
- *  than failing on a name still loaded. The pid gate stays the logical singleton
- *  guard for each socket; the unit name just has to be collision-free. The
- *  suffix is a stable short hash of the socket path (systemd unit names allow
- *  `[A-Za-z0-9:_.\-]`, which hex satisfies). */
+/** The transient unit name, unique PER SOCKET *and* PER SPAWN. The socket hash
+ *  keeps two systemd-backed kolu instances (distinct sockets) from colliding;
+ *  the per-spawn `randomBytes` generation tag keeps a SAME-socket restart from
+ *  reusing a name whose old transient unit hasn't finished `--collect` teardown
+ *  yet. The process exiting (what `waitForPidGone` observes) and systemd GC'ing
+ *  the unit OBJECT are distinct events, so a respawn can fire while the old unit
+ *  name is still loaded — `systemd-run --unit=<same>` then fails with "unit
+ *  already exists" and the restart spuriously degrades. A fresh generation tag
+ *  sidesteps that window entirely; the pid gate stays the logical singleton
+ *  guard, so a per-spawn unit name costs nothing. (systemd unit names allow
+ *  `[A-Za-z0-9:_.\-]`, which hex satisfies.) */
 function daemonUnitName(socketPath: string): string {
-  const suffix = createHash("sha256")
+  const socketTag = createHash("sha256")
     .update(socketPath)
     .digest("hex")
     .slice(0, 12);
-  return `kolu-pty-host-${suffix}`;
+  const generationTag = randomBytes(4).toString("hex");
+  return `kolu-pty-host-${socketTag}-${generationTag}`;
 }
 
 /** Launch the daemon. Returns once spawned; the daemon binds the socket on its
@@ -117,7 +122,7 @@ export async function spawnDaemonProcess(opts: SpawnDaemonOpts): Promise<void> {
         "systemd-run",
         [
           "--user",
-          "--collect", // GC the unit when it exits, so the name is reusable
+          "--collect", // GC each generation's unit object once it exits
           "--quiet",
           `--unit=${daemonUnitName(opts.socketPath)}`,
           // The unit runs in the user manager's clean env, NOT this server's, so
