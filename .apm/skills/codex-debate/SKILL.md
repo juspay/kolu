@@ -1,14 +1,16 @@
 ---
 name: codex-debate
-description: 'Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two explicit subcommands. `review` (also the bare/back-compat default) — codex (reviewer) critiques the current diff and a Claude subagent (author) fixes/disputes, looping until they agree. `answer` — Claude and codex each answer a freeform prompt in parallel, then cross-check until they agree, and a unified answer is returned. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".'
-argument-hint: "review [<pr-number>] [--base <branch>] [--no-commit] [--no-comment]  |  answer \"<prompt>\""
+description: 'Run an automated codex⇄Claude debate to consensus within a tight round backstop — disagreement that survives the backstop is surfaced honestly as `unresolved`, never papered over. Two explicit subcommands. `review` (also the bare/back-compat default) — codex (reviewer) critiques the current diff and a Claude subagent (author) fixes/disputes, looping until they agree or the backstop hits. `answer` — Claude and codex each answer a freeform prompt in parallel, then cross-check until they agree, and a unified answer is returned. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex", or passes a question to "have Claude and codex debate/answer it".'
+argument-hint: "review [<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-comment]  |  answer \"<prompt>\""
 ---
 
 # Codex ⇄ Claude debate
 
 This skill runs an automated debate between **codex** and **Claude** that loops to
-consensus with no round cap and no deadlock exit. It has **two modes**, selected by
-an **explicit leading subcommand** — never by guessing from the argument's shape:
+consensus within a **tight round backstop** — disagreement that survives the
+backstop ends as `unresolved`, surfaced honestly for a human, never papered over
+as agreement. It has **two modes**, selected by an **explicit leading
+subcommand** — never by guessing from the argument's shape:
 
 - **`review`** — codex reviews the current diff, a Claude author fixes/disputes,
   round after round until they agree, and the trail is **committed + posted to the
@@ -31,8 +33,8 @@ Look at the **first whitespace-delimited token** of `$ARGUMENTS`:
 - **`answer`** → **answer mode**. The prompt is everything after the `answer`
   token. Jump to [Answer mode](#answer-mode); the review-mode steps do not apply.
 - **`review`** → **review mode**. The remaining args are the review grammar
-  (`[<pr-number>] [--base …] [--no-commit] [--no-comment]`). Continue with
-  [Review mode](#review-mode).
+  (`[<pr-number>] [--base …] [--max-rounds <n>] [--no-commit] [--no-comment]`).
+  Continue with [Review mode](#review-mode).
 - **No args, OR the first token is a number (a PR number) or a `--flag`** →
   **review mode** (the backward-compatible bare alias for the original
   `/codex-debate [<pr>] [flags]`, so existing callers like `/be-review` keep
@@ -52,14 +54,25 @@ codex/opencode runtimes the skill is inert.
 Automate the back-and-forth you'd otherwise courier by hand: **codex** (the
 reviewer) critiques the current change, a **Claude subagent** (the author)
 fixes what it agrees with and disputes what it doesn't, codex re-reviews, and so
-on — round after round, **until they reach consensus**. codex reviews from a
-**warm session**: round 1 cold-starts the reviewer, and every later round
+on — round after round, **until they reach consensus or the round backstop
+(default 3) hits**. codex reviews from a
+**warm session**: round 1 cold-starts the reviewer (at `xhigh` reasoning effort;
+follow-up rounds drop to `high` — they only close out findings already on the
+table), and every later round
 *resumes that same codex session* (`codex exec resume`), so codex carries its own
 prior review and reasoning forward instead of reconstructing it from the diff +
 rebuttal each round — when Claude disputes a finding, codex argues from its
-original rationale. There is no round cap and
-no "deadlock" surrender: a debate that quits without agreement defeats the
-purpose, so the two sides keep arguing until one concedes. You stay out of the
+original rationale. The backstop is **not** a "deadlock surrender": quitting
+without agreement *and pretending otherwise* is what defeats a debate. A run
+that hits the backstop ends as **`unresolved`** with the still-open findings
+attached — genuine disagreement surfaced to a human is the correct output of a
+debate that didn't converge, and strictly better than more rounds of two models
+wearing each other down (debate gains saturate by round 2 and extra rounds
+amplify wrong consensus; see the `review-orchestration` Atlas note — kolu#1222
+is the in-house runaway the backstop prevents). Concessions are **cited** on
+both sides: a side that flips a prior-round position must state what convinced
+it (codex's per-finding `concession`, Claude's per-action `concessionReason`),
+so consensus can't be manufactured by capitulation. You stay out of the
 middle: each round lands as its own commit whose
 message carries the debate context (codex's findings + Claude's dispositions) so
 the PR history reads as the debate, and the summary is **posted to the PR** as a
@@ -86,8 +99,9 @@ codex/opencode runtimes the skill is inert.
 ## Arguments
 
 A leading `review` subcommand token, if present, is consumed by mode detection;
-what remains is `[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]` (the
-bare alias passes the whole argument string through unchanged). Parse:
+what remains is `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit]
+[--no-comment]` (the bare alias passes the whole argument string through
+unchanged). Parse:
 
 - **`<pr-number>`** (optional): a PR to debate. If given, `gh pr checkout <n>`
   first and default the base to that PR's base branch. If omitted, debate the
@@ -100,6 +114,10 @@ bare alias passes the whole argument string through unchanged). Parse:
   first so the ref is current. The workflow then resolves this to the **merge-base**
   of `base` and HEAD and diffs against that, so commits `base` gained since the
   branch forked aren't reviewed as part of this change.
+- **`--max-rounds <n>`**: the round backstop. Default **3** — deliberately tight
+  (gains saturate by round 2; what's still open at the backstop is a real
+  judgment call that goes to a human as `unresolved`, not to more rounds).
+  Raise it only with a specific reason to expect late convergence.
 - **`--no-commit`**: don't commit per round — leave all agreed changes
   uncommitted in the working tree for you to commit yourself. Default is to
   **commit each round** (see below).
@@ -132,6 +150,7 @@ Workflow({
   args: {
     repoPath: "<worktree root>",        // also the per-worktree scratch dir root
     base: "<base branch>",
+    maxRounds: <n, default 3>,
     commit: <false only if --no-commit>,
     skillDir: ".claude/skills/codex-debate"
   }
@@ -151,8 +170,10 @@ different worktrees never collide** and the scratch never shows up in the diff
 codex reviews. It returns:
 
 ```
-{ status: "consensus" | "reviewer-error",
-  rounds, base, finalVerdict, filesChanged, transcript,
+{ status: "consensus" | "unresolved" | "reviewer-error",
+  rounds, base, finalVerdict,
+  unresolved,  // still-open findings on an `unresolved` exit (empty otherwise) — the adjudication worklist
+  filesChanged, transcript,
   comment }    // the deterministically rendered PR comment body — post it VERBATIM (step 3)
 ```
 
@@ -168,11 +189,13 @@ nothing weak ever retypes a large blob. codex is *not* a reader — it keeps its
 warm session, so re-feeding it the sections would just duplicate its context.
 
 - **consensus** — every finding codex raised is resolved (any severity — Claude
-  fixed it or codex conceded the dispute). This is the *only* way the debate ends
-  *normally*: it keeps running rounds until codex and Claude agree on every point,
-  with no round cap and no deadlock exit. (The harness's own
-  per-workflow agent backstop is the sole hard ceiling; if you ever need to stop
-  a debate by hand, interrupt it via `/workflows` or `TaskStop`.)
+  fixed it or codex conceded the dispute, citing why). The normal terminus.
+- **unresolved** — the round backstop (default 3) was hit with findings still
+  open. A *real debate outcome*, surfaced honestly: the still-open findings ride
+  the `unresolved` field for a human (or the calling `/be-review`) to
+  adjudicate. Never report it as consensus — and never treat it as a failure to
+  hide: the per-round commits and the comment record exactly where the two
+  sides genuinely disagree.
 - **reviewer-error** — the one *abnormal* terminus: codex itself failed to
   produce a verdict (broken/unavailable CLI), so the workflow synthesized an
   error verdict and aborted rather than spin forever on a dead reviewer. This is
@@ -194,16 +217,24 @@ so the user sees codex was broken/unavailable, and tell them to fix codex (e.g.
 `## Codex ⇄ Claude debate` PR comment for this path — there is no agreement to
 report. Skip the rest of this section.
 
+If `status === "unresolved"`, the backstop was hit with findings still open —
+a real outcome, not an error. Surface the `unresolved` findings plainly so the
+human (or the calling `/be-review`) can adjudicate each one: decide fix or drop,
+apply the survivors. Then continue with the reporting below — the comment's
+`⚠️ unresolved` badge and per-round sections are exactly the trail the
+adjudicator needs, so it **is** posted (unlike reviewer-error, there is a
+genuine debate to report).
+
 Otherwise (`status === "consensus"`) report in chat (do **not** push or merge —
 the per-round commits sit on the local branch for the human to review):
 
 - The outcome — **consensus** — and how many rounds it took to get there.
-- **The reviewer's reasoning effort** — sourced from the workflow's single
-  `REASONING_EFFORT` constant (`xhigh` today), which is passed down to
-  `codex-review.sh`'s `-c model_reasoning_effort` and into the comment header, so
-  the published value and the config codex actually ran at share one home. Read
-  it off the header rather than asserting it independently. State it so the depth
-  of the review is on the record.
+- **The reviewer's reasoning effort** — sourced from the workflow's effort
+  constants (tiered: `xhigh` round 1, `high` thereafter), which are passed down
+  per round to `codex-review.sh`'s `-c model_reasoning_effort` and rendered into
+  the comment header, so the published value and the config codex actually ran
+  at share one home. Read it off the header rather than asserting it
+  independently. State it so the depth of the review is on the record.
 - `git log --oneline <base>..HEAD` (the per-round debate commits) and
   `git diff --stat <base>` so the user sees what the debate changed.
 - A compact per-round summary — read it straight from the section files
@@ -250,8 +281,11 @@ diff/log`, read files, grep) to ground its answer, but neither edits anything �
 codex stays under `--sandbox read-only` (kernel-enforced), and the Claude peer is
 instructed not to write. Consensus is **schema-detected in code**: each side emits
 a structured answer with an `agreesWithOther` boolean and an `objections` list, and
-the loop ends only when **both** sides report no remaining disagreement. There is
-**no round cap and no deadlock exit** — same as review mode.
+the loop ends only when **both** sides report no remaining disagreement — within a
+round backstop (default 6, counting the confirmation turns), past which the run
+ends `unresolved` and is reported as such, never as an agreed answer. Moving to
+agreement after disagreeing requires a non-empty `changedMind` citing what
+convinced the side — same cited-concession rule as review mode.
 
 ## Steps
 
@@ -276,6 +310,7 @@ Workflow({
   args: {
     repoPath: "<worktree root>",   // also the per-worktree scratch dir root
     prompt: "<the user's freeform prompt, verbatim>",
+    maxRounds: <n, default 6>,
     skillDir: ".claude/skills/codex-debate"
   }
 })
@@ -291,14 +326,17 @@ per-worktree `<repoPath>/.codex-debate/`, so parallel debates never collide. It
 returns:
 
 ```
-{ status: "consensus" | "reviewer-error" | "agent-error" | "synthesis-error" | "no-prompt",
+{ status: "consensus" | "unresolved" | "reviewer-error" | "agent-error" | "synthesis-error" | "no-prompt",
   rounds, prompt, finalAnswer, transcriptPath, reasoningEffort, codexError }
 ```
 
-- **consensus** — the only normal terminus: both sides agreed and then both
+- **consensus** — the normal terminus: both sides agreed and then both
   **approved the synthesized candidate** (see the convergence note), and
   `finalAnswer` is that approved unified answer. `transcriptPath` points at the saved
   Markdown transcript (`.codex-debate/answer-<slug>.md`).
+- **unresolved** — the round backstop was hit without a both-sides-approved
+  candidate. Not an agreed answer: present both sides' final positions (from the
+  transcript) and where they still differ, so the user adjudicates.
 - **reviewer-error** — codex itself failed to produce an answer (broken/unavailable
   CLI) after retries; `codexError` carries the failure detail. Infrastructure
   failure, not a debate outcome.
@@ -318,10 +356,15 @@ returns:
   `.codex-debate/answer-section-*.md` files to show a compact per-round summary
   (each side's answer, what changed, remaining objections). This mode makes **no
   outward-facing writes** — no PR comment, no commits — it just answers.
-- If `status !== "consensus"`: report it as a **failure**, not an answer. Surface
-  `codexError` (for `reviewer-error`) or the workflow log so the user sees what
-  broke, and tell them how to fix it (e.g. `codex login`) and re-run. Do **not**
-  present a half-debate as if it were an agreed answer.
+- If `status === "unresolved"`: present it as a **genuine disagreement**, not an
+  answer and not an infrastructure failure — show each side's final answer and
+  the remaining objections (read the saved transcript) so the user can judge
+  for themselves. Do **not** synthesize your own merge of the two; the debate
+  already proved they don't agree.
+- Any other non-consensus `status`: report it as a **failure**, not an answer.
+  Surface `codexError` (for `reviewer-error`) or the workflow log so the user
+  sees what broke, and tell them how to fix it (e.g. `codex login`) and re-run.
+  Do **not** present a half-debate as if it were an agreed answer.
 
 ## Answer-mode safety & notes
 
@@ -358,7 +401,9 @@ returns:
   swap is possible; if both approve, that candidate is the converged answer — already
   signed off by both debaters (which is also why `finalAnswer` is never unapproved
   synthesized text). If either objects, the candidate is dropped and the cross-check
-  loop resumes with the objections folded in. No round cap, no deadlock exit.
+  loop resumes with the objections folded in — all within the round backstop
+  (default 6); exhausting it ends `unresolved`, reported as disagreement, never
+  as an answer.
 - **Chat + saved transcript, no outward writes.** The unified answer is presented
   in chat and the full transcript is saved to the gitignored
   `.codex-debate/answer-<slug>.md`. Unlike review mode, answer mode never commits
@@ -409,12 +454,14 @@ returns:
   workflow's deterministically rendered `comment` (header + per-round sections) —
   is posted as a PR comment (outward-facing write) unless `--no-comment` is passed
   — the point is to leave the review trail on the PR.
-- **Runs to consensus — no cap, no deadlock exit.** The loop ends only when codex
-  and Claude agree; it does not bail out at a round cap or declare a "deadlock," because
-  a debate that quits without agreement is pointless. The two sides keep arguing
-  until one concedes. The harness's own per-workflow agent backstop is the sole
-  hard ceiling; interrupt via `/workflows` or `TaskStop` if you ever need to stop
-  one by hand.
+- **Runs to consensus within a tight backstop; concessions must be cited.** The
+  loop ends when codex and Claude agree — or at `--max-rounds` (default 3),
+  which ends the debate as `unresolved` with the still-open findings surfaced
+  for a human. That is not a "deadlock surrender": pretending to agree is what
+  defeats a debate, and the literature (and kolu#1222) shows extra rounds buy
+  bias amplification, not truth. A side that flips a prior-round position must
+  cite what convinced it (`concession` / `concessionReason`), so consensus
+  can't be manufactured by capitulation.
 
 ## Files
 

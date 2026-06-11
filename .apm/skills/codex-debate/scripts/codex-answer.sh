@@ -140,6 +140,10 @@ Cross-check CLAUDE's answer against your own. Then:
   - Where CLAUDE is wrong or has a gap, keep your position and record it under
     objections with a specific, evidence-backed reason (cite file:line for repo
     questions).
+  - Concessions must be cited: if you move to agreement after disagreeing,
+    changedMind must state the specific evidence or argument that convinced you.
+    Agreeing just to end the debate is forbidden — an unconvinced agreement is
+    worse than surfacing the disagreement.
 EOF
 )"
 fi
