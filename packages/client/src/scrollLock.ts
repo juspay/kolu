@@ -105,7 +105,6 @@ export function createScrollLock(
   visibility: () => string = defaultVisibility,
 ) {
   const [isLocked, setIsLocked] = createSignal(false);
-  const [lastEvent, setLastEvent] = createSignal<ScrollLockEvent | null>(null);
 
   /** Data buffered while scroll-locked — flushed on unlock. The reactive
    *  source for the buffer; `pendingChunks` is derived from its length, so
@@ -130,7 +129,10 @@ export function createScrollLock(
    *  signature of a background/accidental latch that `handleTabVisible` should
    *  clear. A lock the user made with the tab in front is left alone. */
   let lockedWhileHidden = false;
-  const eventRing: ScrollLockEvent[] = [];
+  /** Reactive source of truth for the transition history. `lastEvent` (live
+   *  row) and `events()` (JSON dump) are both derived from it — one ring, two
+   *  read patterns, no hand-synced head signal. */
+  const [eventRing, setEventRing] = createSignal<ScrollLockEvent[]>([]);
   let lastWarnAt = Number.NEGATIVE_INFINITY;
 
   /** Report a scroll input the user just made. Call BEFORE the input
@@ -178,9 +180,10 @@ export function createScrollLock(
       hasFocus: typeof document === "undefined" ? null : document.hasFocus(),
       stack: new Error("scroll-lock transition").stack,
     };
-    eventRing.push(event);
-    if (eventRing.length > EVENT_RING_CAP) eventRing.shift();
-    setLastEvent(event);
+    setEventRing((ring) => {
+      const next = [...ring, event];
+      return next.length > EVENT_RING_CAP ? next.slice(-EVENT_RING_CAP) : next;
+    });
     if (kind === "suppressed" && event.at - lastWarnAt >= WARN_THROTTLE_MS) {
       lastWarnAt = event.at;
       console.warn(
@@ -308,10 +311,12 @@ export function createScrollLock(
     scrollToBottom(termRef);
   }
 
+  /** Most recent transition (the live diagnostics row), or null if none yet —
+   *  the tail of the one ring. */
+  const lastEvent = (): ScrollLockEvent | null => eventRing().at(-1) ?? null;
+
   /** Forensic trail for the Diagnostic Info JSON dump (newest last). */
-  function events(): ScrollLockEvent[] {
-    return [...eventRing];
-  }
+  const events = (): ScrollLockEvent[] => eventRing();
 
   return {
     isLocked,
