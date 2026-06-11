@@ -91,17 +91,71 @@ Verify holds: mutating any pty-host source flips the staleKey; a server/client-o
 
 ### B — the daemon, complete and safe <Pill variant="todo">next · the one-way door</Pill>
 
-The foundation is in master, so B is: **the topology decouple + reattach-by-id + the composed recovery mechanism (incl. the #1034 fix) + activating the rail's dormant honest-state branches** — one hazard-coupled unit:
+The foundation is in master, so B is one hazard-coupled unit: **the topology decouple, reattach-by-id, the composed #1034-proof recovery, and lighting up A2's dormant honest-state branches.** The user payoff is the headline — _local terminals survive a kolu-server deploy_ (the tmux/zmx replacement, <Issue n={671} />) — and the one genuinely new thing a user *sees* is honest state when a deploy leaves the daemon a build behind, or when it dies: never again the empty-canvas lie.
 
-- **Topology** — swap the in-memory link for a unix socket (`serveOverStdio`); the serving body is reused unchanged because A1 already put it in its final home. Relocate `koluRoot`/`koluShellDir` → `kolu-shared` (the daemon computes its own root). The `kolu --stdio` daemon in its own cgroup; the single-instance pid-gate (`O_EXCL`, held-until-death); the dev-flag exec-arg filter.
-- **Reattach-by-id** — server mints the UUID == daemon PTY id; on boot, list + join the saved session, no-spawn re-register; the decoupled DAG runs fresh against the surviving taps.
-- **Currency** — a read-site `staleKey !== currentBuildId()` derivation, never a stored boolean.
-- **The recovery mechanism** — one `killAndUnwatch` and one composed restart (`captureSession → drainTerminals → respawn` with the `waitForPidGone` lock-release barrier + load-aware timeouts `→ finalize`), shared by the forced and user paths. Snapshot-before-kill + `setSavedSession` winning the autosave-cancel race, so a failed respawn leaves a restorable session, never a void. (Both axes of the #1034 loss condition are closed — the <Issue n={1041} /> preference storm that contended with the autosave was fixed in <PrLink pr={1050} />.)
-- **The daemon-state surface** — the `DaemonStatus` cell (state enum only) + a one-shot `buildInfo` RPC; the update-pending nudge, the degraded canvas, the restart dialog, and the divergence of A2's rail (`pty` flipping amber/red). No re-layout — B fills in branches A2 left dormant.
+**The seam — one swap, the consumer untouched.** Today `packages/server/src/ptyHost.ts` exports `ptyHostClient = directLink(router)` — the no-wire in-process client — and the server *also* serves that same router over a unix socket for kolu-tui (<PrLink pr={1084} />). B inverts ownership: the **daemon** process owns `servePtyHostOverUnixSocket`, and the server becomes just another `unixSocketLink(getPtyHostSocketPath())` client of it — the exact role kolu-tui already plays. Both return the same `PtyHostClient` type, so `terminalBackend/local.ts` and the whole provider DAG below it compile unchanged; A1 moved the serving body to its final home for precisely this. `koluRoot`/`koluShellDir` (today computed in the server from its own `serverProcessId`) relocate to a shared module the daemon computes for itself. The daemon runs as `kolu --stdio` in its own cgroup (`systemd-run --user` on Linux, detached on macOS — spike-verified, see the design note below), single-instance-gated by a held-until-death pid file (`O_EXCL` + liveness probe), with the dev-flag exec-arg filter.
 
-**Why one unit:** every bullet after Topology is hazard-coupled to it — shipping the door without the canvas, the forced-restart, the recovery mechanism, or the chip reintroduces exactly the postmortem's failures. **Cutover/rollback:** deploying B onto an in-process prod is clean (the first boot just spawns a daemon); rolling B *back* orphans the surviving daemon — the same manual `systemctl --user stop kolu-pty-host.service` reap, mirrored.
+**Reattach-by-id.** The server already mints each PTY's UUID and passes it as `terminal.spawn({ id })`, so id ownership is unchanged; B adds the boot path — list the daemon's surviving PTYs, join the saved session by id with no respawn, and let the freshly-restarted provider DAG re-detect against the surviving taps. Metadata is briefly cold (a re-detection pass), never stale — the honest cost the survivor-is-pty-host-only split already accepted.
 
-**Verify in three stages:** (0) the cgroup-survival + socket-reattach spike re-proven on current master (run 2026-05-31 on a pu box, kernel 6.12/cgroup-v2: a `systemd-run --user --unit=` survivor and its child PTY outlived a `systemctl --user restart` of the parent; a fresh client reattached with in-memory state intact — passed); (1) test-first — `daemon-reattach.feature` and `daemon-update.feature` written red before topology lands; (2) **the acceptance signal is the second deploy, not the first** — survival/reattach/restart-race are first exercised only when B redeploys over a live B daemon with running agents.
+**The composed recovery — #1034 made impossible.** The sequence is shared verbatim by the two destructive paths (a user-clicked restart and a forced restart when a deploy finds the daemon a build behind), so neither can be written kill-then-pray.
+
+<D2
+  caption="The composed restart, shared verbatim by the user-clicked and forced (stale-daemon) paths. Snapshot-and-save precede every kill; the waitForPidGone barrier (bold) is the step whose absence caused #1034 — the respawn raced the slow old-daemon exit. A failed respawn lands on an honest DegradedCanvas with the session intact, never a void."
+  code={`direction: down
+trigger: "restart trigger — user click, or forced on a stale-daemon deploy"
+capture: "captureSession — snapshot each terminal's restorable state"
+save: "setSavedSession — write + win the autosave-cancel race"
+drain: "drainTerminals — killAndUnwatch each (abort exit-tap, then kill)"
+barrier: "waitForPidGone — block on the old daemon's real exit, load-aware ceiling" {
+  style.bold: true
+}
+respawn: "respawn — pid-gate now free, the new daemon binds the socket"
+finalize: "finalize — reattach-by-id, or DegradedCanvas with the session intact"
+trigger -> capture -> save -> drain -> barrier -> respawn -> finalize
+`}
+/>
+
+It builds on primitives already live in master — the autosave throttle and `setSavedSession` (which cancels pending autosave) in `session.ts`, and the abort-first `killAll` in `terminalBackend/local.ts` — and adds only the missing #1034 pieces: an order-safe `killAndUnwatch(id)` wrapper, the `waitForPidGone` barrier (the step whose absence lost the #1034 session — the respawn raced the slow old-daemon exit), and load-aware timeouts sized for a thrashing prod box, not an idle dev one. Snapshot-and-save *before* any kill means a failed respawn leaves a restorable session, never a void. (The <Issue n={1041} /> preference storm that once contended with the autosave is already fixed — coalesced writes, <PrLink pr={1050} />.)
+
+**The honest-state surface.** No re-layout: A2 shipped the `srv · pty` rail in its final two-column shape with the `pty` column and the `≡ in-process` tag **commented out** in `IdentityRail.tsx`; B uncomments them and feeds the `pty` column a real `DaemonStatus` cell (a state enum — the only new wire surface) plus the read-site `staleKey !== currentBuildId()` currency derivation (the client compares the daemon's relayed `staleKey` against its own synchronously-available build id on every render — no poll, no stored boolean). The same three states drive a `DegradedCanvas` — distinct from the normal empty canvas, gated on the existing `lifecycle().kind === "restarted"` seam — and the restart dialog:
+
+export const RAIL = [
+  { note: "today — server and daemon are one process", srv: "a1b2c3d", pty: "a1b2c3d", dot: "#27c93f", ring: true, tag: "≡ in-process", tagC: "#5fd07a" },
+  { note: "after a deploy — the daemon outlives the restart, a build behind", srv: "e4f5a6b", pty: "a1b2c3d", dot: "#e3a008", ring: false, tag: "⬆ update pending", tagC: "#e3a008" },
+  { note: "the daemon died — honest, not an empty canvas", srv: "e4f5a6b", pty: "—", dot: "#e5484d", ring: false, tag: "daemon dead · restart", tagC: "#f0686c" },
+];
+
+export const HonestStateProto = () => (
+  <div style="margin:1.3rem 0;max-width:34rem;display:flex;flex-direction:column;gap:.55rem">
+    {RAIL.map((r) => (
+      <div style="display:flex;flex-direction:column;gap:.22rem">
+        <div style="display:flex;align-items:center;gap:.5rem;padding:.5rem .8rem;background:#0e1116;border:1px solid #232a33;border-radius:8px;font:.74rem/1 ui-monospace,SFMono-Regular,monospace">
+          <span style="color:#6b788a">srv</span>
+          <span style="width:8px;height:8px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+          <span style="color:#9aa7b8">{r.srv}</span>
+          <span style="color:#3a434f;padding:0 .15rem">·</span>
+          <span style="color:#6b788a">pty</span>
+          <span style={`width:8px;height:8px;border-radius:50%;display:inline-block;background:${r.dot}${r.ring ? `;box-shadow:0 0 0 2px ${r.dot}44` : ""}`}></span>
+          <span style="color:#9aa7b8">{r.pty}</span>
+          <span style={`margin-left:auto;color:${r.tagC};font-weight:600`}>{r.tag}</span>
+        </div>
+        <div style="color:#9a8f78;font:.68rem/1.2 ui-sans-serif,system-ui;padding-left:.2rem">{r.note}</div>
+      </div>
+    ))}
+    <div style="margin-top:.45rem;background:#0e1116;border:1px solid #232a33;border-radius:10px;padding:1.3rem 1.2rem;text-align:center">
+      <div style="font-size:1.3rem;margin-bottom:.45rem">⚠️</div>
+      <div style="color:#e8edf3;font:600 .9rem/1.3 ui-sans-serif,system-ui;margin-bottom:.35rem">PTY daemon isn't responding</div>
+      <div style="color:#8b97a8;font:.77rem/1.45 ui-sans-serif,system-ui;margin-bottom:.9rem">Your <b style="color:#c9d4e0">6 terminals</b> are safe — the session is snapshotted and will restore. The canvas says so, instead of the empty-canvas lie.</div>
+      <span style="display:inline-block;background:#1f6feb;color:#fff;font:600 .75rem/1 ui-sans-serif,system-ui;padding:.5rem .9rem;border-radius:7px">Restart PTY daemon</span>
+    </div>
+  </div>
+);
+
+<HonestStateProto />
+
+**Why one unit:** every element after the topology swap is hazard-coupled to it — shipping the door without the canvas, the forced restart, the recovery sequence, or the divergence chip reintroduces exactly the postmortem's failures, which is the drift #1034 paid for. **Cutover/rollback:** deploying B onto an in-process prod is clean (the first boot just spawns a daemon); rolling B *back* orphans the surviving daemon — the same manual `systemctl --user stop kolu-pty-host.service` reap, mirrored.
+
+**Verify in three stages:** (0) the cgroup-survival + socket-reattach spike re-proven on current master (run 2026-05-31 on a pu box, kernel 6.12/cgroup-v2: a `systemd-run --user --unit=` survivor and its child PTY outlived a `systemctl --user restart` of the parent; a fresh client reattached with in-memory state intact — passed); (1) test-first — `daemon-reattach.feature` and `daemon-update.feature` written red before topology lands; (2) **the acceptance signal is the second deploy, not the first** — survival, reattach, and the restart race are first exercised only when B redeploys over a live B daemon with running agents, so CI green is necessary but not sufficient; the real gate is a staged prod redeploy.
 
 <Callout kind="note" title="Open follow-up — surface ↔ pty-host upstreaming">
 Now that the socket-serving glue exists, evaluate what should move into <code>@kolu/surface</code> itself vs stay package-local — the stdio-serve glue, the version/build-id handshake pattern, contract-compat helpers any surface-over-stdio consumer would want. A deliberate post-B evaluation in the original plan; its first instalment shipped on the kolu-tui Phase 1 PR <PrLink pr={1084} />: the unix-socket transport pair (<code>serveOverUnixSocket</code> + <code>unixSocketLink</code>), the <code>getRuntimeSocketPath</code> rendezvous helper, <code>serveOverStdio</code>'s settled never-rejecting end result, and the generic <code>isContractVersionCompatible</code> handshake predicate all moved into <code>@kolu/surface</code> (mirror: <a href="https://github.com/srid/drishti/pull/57">drishti#57</a>). What remains for the post-B pass: a standard <code>system.version</code>/build-id handshake fragment, plus whatever Phase B's daemon glue turns out to want.
