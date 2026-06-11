@@ -50,7 +50,10 @@ export type RenderOptions = {
    *  the document (true) or strip it entirely (false). Only the full document
    *  preview surfaces metadata, GitHub-faithfully; the compact intent slot
    *  drops it, since a chat row that happens to open with `---` is not a
-   *  document. Inert for the inline parse (no block layout). Defaults on. */
+   *  document. Inert for the inline parse (no block layout). Also inert unless
+   *  the sanitize pass runs in richHtml/document scope, since the metadata table
+   *  tags live only in the document allowlist — same coupling as rawHtml.
+   *  Defaults on. */
   frontMatter?: boolean;
 };
 
