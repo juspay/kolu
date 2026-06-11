@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 #
 # codex-review.sh — the canonical, deterministic codex invocation for the
-# codex<->claude review debate. Runs the codex CLI as a READ-ONLY reviewer of
-# the current working-tree state against a base branch, constrained to
-# codex-verdict.schema.json, and writes the JSON verdict to <out-json>.
+# codex<->claude review debate (the `review` mode of /codex-debate). Runs the
+# codex CLI as a READ-ONLY reviewer of the current working-tree state against a
+# base branch, constrained to codex-verdict.schema.json, and writes the JSON
+# verdict to <out-json>.
+#
+# This script owns only what is SPECIFIC to reviewing a diff: arg parsing, the
+# warm/cold review prompt text, the verdict schema + session file, and the
+# verdict-shaped error fallback. The shared codex-driving core (read-only exec/
+# resume, retry/backoff, thread-id capture, session persistence) lives in
+# codex-exec-lib.sh.
 #
 # Usage:
 #   codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort]
@@ -17,24 +24,16 @@
 #                    value has one home. Defaults to "xhigh" for standalone runs.
 #
 # Notes:
-#   * codex runs under `--sandbox read-only`, which enforces read-only at the
-#     execution boundary (the kernel sandbox blocks file writes and other
-#     state-mutating syscalls), NOT merely by prompt text. codex reviews
-#     arbitrary diffs and could be prompt-injected by file contents, so the
-#     read-only promise must be enforced, not advertised. codex auto-falls-back
-#     to its bundled bubblewrap when the system one is absent, so this works in
-#     containers; `--sandbox read-only` permits read-only command execution
-#     (git diff/status, reading files) but denies writes. `codex exec` is already
-#     non-interactive (approval policy "never"), so a command the sandbox blocks
-#     is denied outright rather than escalating to a prompt that would wedge the
-#     headless loop.
+#   * codex runs under `--sandbox read-only` (see codex-exec-lib.sh), which enforces
+#     read-only at the kernel boundary (file writes and other state-mutating
+#     syscalls denied), NOT merely by prompt text. codex reviews arbitrary diffs and
+#     could be prompt-injected by file contents, so the read-only promise must be
+#     enforced, not advertised.
 #   * Always emits a schema-valid verdict on stdout, even if codex errors — a
 #     synthesized error verdict (approved:false) so the loop never wedges.
-#   * WARM SESSION: round 1 cold-starts codex and records its session id under the
-#     scratch dir; every later round resumes that same session (`codex exec
-#     resume <id>`) so codex retains its OWN prior review + reasoning across rounds
-#     instead of reconstructing it from the diff + rebuttal each time. If the id
-#     was never captured, a later round cleanly falls back to a cold start.
+#   * WARM SESSION: round 1 cold-starts codex and records its session id; every later
+#     round resumes that same session (`codex exec resume <id>`) so codex retains its
+#     OWN prior review + reasoning across rounds.
 set -uo pipefail
 
 base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort]}"
@@ -46,21 +45,12 @@ effort="${4:-xhigh}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 schema="$here/codex-verdict.schema.json"
-log="$out.log"
-
-# The out path lives under a per-worktree scratch dir (e.g. .codex-debate/);
-# make sure it exists before codex tries to write the verdict there.
-mkdir -p "$(dirname "$out")"
+# shellcheck source=codex-exec-lib.sh
+source "$here/codex-exec-lib.sh"
 
 # Pull CLAUDE's previous response, if any. Built as a plain string and injected
 # below via a simple variable reference so any special characters in the JSON
-# (backticks, $, ...) stay literal — heredoc expansion results are not re-scanned.
-# Never let a stale verdict from a previous run survive: if the current codex
-# invocation fails to write one, the empty-check below must catch it and
-# synthesize an error verdict (otherwise a leftover /tmp file reads as a fresh
-# pass — a false consensus).
-rm -f "$out" "$log"
-
+# (backticks, $, ...) stay literal (heredoc expansion results are not re-scanned).
 rebuttal=""
 if [ "$rebuttal_file" != "-" ]; then
   if [ -s "$rebuttal_file" ]; then
@@ -89,28 +79,26 @@ $rebuttal
 "
 fi
 
-# WARM SESSION. codex keeps its OWN review + reasoning across rounds by resuming
-# the same codex session instead of cold-starting `codex exec` each round. The
-# session id (codex's thread_id) is persisted in the scratch dir after round 1
-# and reused on every follow-up round, so when CLAUDE disputes a finding codex
-# re-engages with its original rationale rather than reconstructing it from the
-# diff + rebuttal alone.
-#
-#   * Round 1 (rebuttal_file == "-"): fresh `codex exec`; capture thread_id below.
-#   * Later rounds: `codex exec resume <id>` with just the follow-up (rebuttal +
-#     close-out), relying on codex's retained context.
-#   * Fallback: if no id was captured (round-1 capture failed), a later round
-#     cold-starts with the FULL prompt + rebuttal_block — same as before warm
-#     sessions existed — so a missing id degrades gracefully, never wedges.
+# WARM SESSION. Round 1 (rebuttal_file == "-") cold-starts and resets any stale id;
+# later rounds resume codex's own review session. Resolve the id first so the prompt
+# below can lean on codex's retained context when warm.
 session_id_file="$(dirname "$out")/codex-session.id"
-resume_id=""
-if [ "$rebuttal_file" = "-" ]; then
-  # Round 1 of a fresh debate: start a NEW session and drop any session id left
-  # behind by a previous debate in this worktree, so we never resume a stale one.
-  rm -f "$session_id_file"
-elif [ -s "$session_id_file" ]; then
-  resume_id="$(cat "$session_id_file")"
-fi
+[ "$rebuttal_file" = "-" ] && is_round1=1 || is_round1=
+resume_id="$(codex_resolve_session "$session_id_file" "$is_round1")"
+
+# Synthesize codex-review's error verdict shape when codex produces nothing after
+# every attempt (called by codex_exec_round). reviewerError:true is the signal the
+# workflow aborts the debate on.
+synthesize_error_verdict() {
+  local out="$1" tail_log="$2" attempts="$3"
+  jq -n --arg log "$tail_log" --arg attempts "$attempts" '{
+    approved: false,
+    summary: ("codex produced no verdict this round after " + $attempts + " attempt(s). Tail of log: " + $log),
+    findings: [],
+    responseToRebuttal: "",
+    reviewerError: true
+  }' >"$out"
+}
 
 # Two prompts: a lean follow-up for the WARM (resume) path that leans on codex's
 # retained context, and the full review prompt for the COLD path (round 1, or the
@@ -189,110 +177,6 @@ EOF
 )"
 fi
 
-# One codex invocation: warm-resume when we have a session id (carries codex's own
-# prior review), else a cold start. `--json` is added so the run emits a
-# `thread.started` event carrying codex's thread_id, which we capture below to
-# resume next round; it does NOT change the verdict, which `--output-schema`/`-o`
-# still write to "$out". `resume` has no `--sandbox` flag, so read-only is enforced
-# there via `-c sandbox_mode` — the same kernel-enforced policy, set through config
-# instead of the flag.
-run_codex() {
-  if [ -n "$resume_id" ]; then
-    codex exec resume \
-      -c sandbox_mode="read-only" \
-      -c model_reasoning_effort="$effort" \
-      --json \
-      --output-schema "$schema" \
-      -o "$out" \
-      "$resume_id" "$prompt"
-  else
-    codex exec \
-      --sandbox read-only \
-      -c model_reasoning_effort="$effort" \
-      --json \
-      --output-schema "$schema" \
-      -o "$out" \
-      "$prompt"
-  fi
-}
-
-# model_reasoning_effort is scoped to the debate here (via -c, from the $effort
-# the workflow passes down — default "xhigh") rather than relying on the user's
-# global ~/.codex/config.toml — review is the one place we always want codex
-# thinking at full depth, regardless of their default.
-#
-# RETRY/BACKOFF. codex's CLI fails transiently often enough to matter (API
-# hiccups, a spurious internal error) and writes no verdict — which would
-# otherwise degrade the whole track to reviewer-error on a single bad roll.
-# Retry the invocation with linear backoff, accepting the first attempt that
-# writes a non-empty verdict to "$out". Tunable via env: CODEX_REVIEW_RETRIES
-# (total attempts, default 3), CODEX_REVIEW_BACKOFF (base seconds, default 5 —
-# attempt n waits n*base). Only after every attempt fails empty do we synthesize
-# the reviewerError verdict below.
-attempts="${CODEX_REVIEW_RETRIES:-3}"
-backoff="${CODEX_REVIEW_BACKOFF:-5}"
-# Validate both as positive integers. Left unchecked, a non-numeric value makes
-# the arithmetic `[ "$n" -ge "$attempts" ]` test error every iteration, so the
-# loop would spin forever instead of giving up and synthesizing the reviewerError
-# verdict. Fall back to the documented defaults (and clamp attempts to >=1) loudly
-# rather than wedge the headless debate on a typo'd override.
-if ! [[ "$attempts" =~ ^[0-9]+$ ]] || [ "$attempts" -lt 1 ]; then
-  echo "WARNING: CODEX_REVIEW_RETRIES='$attempts' is not a positive integer; using 3." >&2
-  attempts=3
-fi
-if ! [[ "$backoff" =~ ^[0-9]+$ ]]; then
-  echo "WARNING: CODEX_REVIEW_BACKOFF='$backoff' is not a non-negative integer; using 5." >&2
-  backoff=5
-fi
-n=1
-: >"$log"  # start each round fresh; attempts below APPEND so no failure's diagnostics are lost
-while :; do
-  rm -f "$out"
-  # Append (not truncate): when every attempt fails, the synthesized reviewerError
-  # verdict's tail_log must reflect ALL attempts' diagnostics — surfacing the exact
-  # transient failures this retry loop exists to weather — not just the final one.
-  echo "=== attempt $n/$attempts ===" >>"$log"
-  if ! run_codex </dev/null >>"$log" 2>&1; then
-    echo "codex exec exited non-zero (attempt $n/$attempts; see $log)" >&2
-  fi
-  # Success the moment codex writes a verdict: the kernel sandbox + --output-schema
-  # make a non-empty "$out" a real, schema-valid verdict, not a partial.
-  [ -s "$out" ] && break
-  # Out of attempts — fall through to the synthesized reviewerError verdict.
-  [ "$n" -ge "$attempts" ] && break
-  wait_s=$(( backoff * n ))
-  echo "codex produced no verdict (attempt $n/$attempts); retrying in ${wait_s}s..." >&2
-  n=$(( n + 1 ))
-  sleep "$wait_s"
-done
-
-if [ -s "$out" ]; then
-  # Persist codex's session id so NEXT round can resume this same warm session
-  # (carrying codex's own prior review + reasoning). The successful attempt's
-  # `thread.started` is the last one appended to the log; on a resume round it
-  # echoes the same id, so overwriting is a harmless refresh. Failure to capture
-  # an id just means next round cold-starts via the fallback above — not fatal.
-  sid="$(grep -o '"thread_id":"[^"]*"' "$log" | tail -1 | cut -d'"' -f4)"
-  if [ -n "$sid" ]; then
-    printf '%s\n' "$sid" >"$session_id_file"
-  fi
-fi
-
-if [ ! -s "$out" ]; then
-  # codex produced no verdict — synthesize a schema-valid error verdict so the
-  # debate loop can surface the failure instead of hanging. The reviewerError
-  # flag is the machine-detectable signal the workflow uses to abort with a
-  # terminal failure: a broken/unavailable codex is INFRASTRUCTURE failure, not
-  # substantive disagreement, so it must NOT be routed to Claude (there are no
-  # findings to act on) and must NOT spin the loop forever.
-  tail_log="$(tail -c 2000 "$log" 2>/dev/null || true)"
-  jq -n --arg log "$tail_log" --arg attempts "$attempts" '{
-    approved: false,
-    summary: ("codex produced no verdict this round after " + $attempts + " attempt(s). Tail of log: " + $log),
-    findings: [],
-    responseToRebuttal: "",
-    reviewerError: true
-  }' >"$out"
-fi
-
-cat "$out"
+# Drive codex for this round (retry/backoff, thread capture, error fallback) — the
+# shared core does the work; this script supplied the prompt, schema, and shapes.
+codex_exec_round "$schema" "$out" "$session_id_file" "$effort" "$resume_id" "$prompt"

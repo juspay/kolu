@@ -55,6 +55,9 @@ const SearchBar: Component<{
   searchAddon: SearchAddon;
   open: boolean;
   onClose: () => void;
+  /** Fired right before a find call moves the viewport to a match — lets
+   *  the owner register the jump as user scroll intent (#1272). */
+  onNavigate?: () => void;
 }> = (props) => {
   let inputRef!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
@@ -91,17 +94,22 @@ const SearchBar: Component<{
 
   function findNext() {
     const q = query();
-    if (q) props.searchAddon.findNext(q, SEARCH_OPTIONS);
+    if (!q) return;
+    props.onNavigate?.();
+    props.searchAddon.findNext(q, SEARCH_OPTIONS);
   }
 
   function findPrevious() {
     const q = query();
-    if (q) props.searchAddon.findPrevious(q, SEARCH_OPTIONS);
+    if (!q) return;
+    props.onNavigate?.();
+    props.searchAddon.findPrevious(q, SEARCH_OPTIONS);
   }
 
   function handleInput(value: string) {
     setQuery(value);
     if (value) {
+      props.onNavigate?.();
       props.searchAddon.findNext(value, SEARCH_OPTIONS);
     } else {
       props.searchAddon.clearDecorations();
