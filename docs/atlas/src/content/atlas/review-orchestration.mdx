@@ -1,6 +1,6 @@
 ---
 title: Review orchestration — kill-rounds beat debates
-description: An 18-agent research pass over the multi-agent-review literature, kolu's debate skills, and agency's /do reviewer concludes that independent generation plus one cold cross-model kill-round beats debate-to-consensus — with a concrete /do redesign and recommended changes to /be-review, /codex-debate, and /lens-debate.
+description: An 18-agent research pass over the multi-agent-review literature and kolu's debate skills, proposing the next /be-review — lens before codex, a shared findings ledger, capped evidence-gated debates, cold cross-family verification of unanimous findings, and a kill-round quick tier.
 kind: analysis
 status: proposed
 maturity: seedling
@@ -14,85 +14,88 @@ import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 import D2 from "../../components/D2.astro";
 
-*How should hickey/lowy structural review be orchestrated, now that we have
-Dynamic Workflows for determinism and codex for a second model family? This
-note is the answer to that question, researched for
-[agency](https://github.com/srid/agency)'s `/do` (which kolu consumes via
-`srid/agency#master` in <Cite file="apm.yml" lines="24" />) and read back
-against kolu's own review stack — `/be-review`, `/codex-debate`
-(<PrLink pr={1269} /> answer mode included), and `/lens-debate`.*
-<Pill variant="new">18-agent workflow + adversarial critique</Pill>
+*How should `/be`'s review gauntlet be orchestrated, now that it has two
+Workflow-backed debates (`/codex-debate`, `/lens-debate`), a second model
+family on tap, and <PrLink pr={1269} />'s answer mode shipping the symmetric
+contract? This note answers that question from evidence and proposes the next
+`/be-review`. The research was commissioned against the sibling problem —
+agency's `/do` reviewer, which kolu consumes via `srid/agency#master`
+(<Cite file="apm.yml" lines="24" />) — but the ingredients are identical (two
+Claude lenses plus codex over a live diff), and the conclusions are about
+orchestration shape, not the host skill. The upstream `/do` redesign is out of
+scope here; this note reads the same results back onto `/be` and
+`/be-review`.* <Pill variant="new">18-agent workflow + adversarial critique</Pill>
 
 *Method: a Claude Code dynamic workflow ran 4 parallel evidence gatherers
-(kolu's debate internals, agency's documented failure history, Workflow-tool
-capabilities, the academic/practitioner literature), then 3 independent
-designers from different angles, 9 adversarial critics (cost, quality,
-portability — three per design), and 2 judges with opposing priorities
-(merged-code quality vs. pragmatic adoption). Roughly 1.1M subagent tokens.
-Both judges independently ranked the same design first.*
+(kolu's debate internals, agency's documented reviewer failure history,
+Workflow-tool capabilities, the academic/practitioner literature), then 3
+independent designers from different angles, 9 adversarial critics (cost,
+quality, portability — three per design), and 2 judges with opposing
+priorities (merged-code quality vs. pragmatic adoption). Roughly 1.1M
+subagent tokens. Both judges independently ranked the same design first.*
 
 ## TL;DR
 
 <Callout kind="accent" title="Verdict">
-**Don't debate to consensus; verify with a cold kill-round.** The measured
-payoff of multi-model review comes from **model diversity, not from the
-debating** — and rounds past the first measurably *degrade* outcomes
-(sycophantic convergence, bias amplification, unanimous-wrong consensus).
-The best-evidenced shape for review is: **independent parallel generation →
-merge with stable finding ids → ONE cold cross-model verification round on
-claims-only packets → an evidence gate that computes dispositions → serial
-apply → one bounded re-review.** Agreement between models is *not* evidence;
-only code citations and execution are. For kolu specifically: `/be-review`
-should run **lens before codex** (so the cross-model debate reviews the
-structural rewrites), thread `--rationale` into **adjudication, not
-generation**, and both debate skills should **cap rounds and gate concessions
-on cited evidence** — <Issue n={1222} /> is the in-house preview of what the
-literature predicts.
+**Spend debate where disagreement is; spend verification where agreement
+is.** The measured payoff of multi-model review comes from **model diversity,
+not from the debating** — and rounds past the first measurably *degrade*
+outcomes (sycophantic convergence, bias amplification, unanimous-wrong
+consensus). For `/be-review` that means five changes: **(1) run lens before
+codex**, so the cross-family debate reviews the lens's structural rewrites —
+today nothing cross-model ever does; **(2) share one findings ledger across
+all four tracks** (stable ids, cross-track dedup, crash-resume, deterministic
+comments); **(3) cap both debates and gate concessions on cited evidence** —
+<Issue n={1222} /> is the in-house preview of what the literature predicts;
+**(4) verify lens unanimity with one cold codex kill-round** — agreement
+between two same-family lenses is the correlated, low-signal kind and
+currently applies with zero adversarial check; **(5) thread `rationale` into
+adjudication, not generation** — pre-loading reviewers with author intent is
+the measured 3–4× finding-suppression channel, and the curation bias
+`/lens-debate`'s own #1109 trial discovered independently.
 </Callout>
 
-The proposed pipeline (for agency's `/do`; the kolu recommendations in the
-last section are derived from the same evidence):
+The proposed gauntlet:
 
 <D2
-  caption="The do-review pipeline. Solid path = the deterministic default. Dashed path = degradation when codex is absent or fails mid-run: the legacy hickey-lowy cross-validation prose re-arms, so a flaky codex never yields LESS cross-checking than no codex. No loops exist anywhere in the graph."
+  caption="The proposed /be-review. Reordered: lens runs first so the codex debate reviews the structural rewrites (the serial each-step-reviews-the-previous-fixes property finally points the right way). Inside the lens step, agreement gates DEBATE (nothing to argue) but never VERIFICATION (one cold codex check); only contested findings enter capped cross-examination. All four tracks read and extend one write-ahead findings ledger, and the final comments render from it deterministically after the single push."
   code={`
 direction: down
 
-diff: "diff captured once (merge-base patch file, shell redirect - never through a model)"
+pr: "draft PR exists (/be section 3); preflight resolves merge-base MB once"
 
-gen: "independent generation (parallel, fresh forks, redacted brief)" {
-  hickey: "hickey lens (Claude, schema-constrained findings)"
-  lowy: "lowy lens (Claude, schema-constrained findings)"
+lens: "lens step (/lens-debate v2)" {
+  gen: "independent generation: lowy and hickey in parallel - cold, no rationale"
+  split: "settled-findings lock partitions: unanimous vs contested"
+  verify: "unanimous fixes: ONE cold codex check (claims-only packet)"
+  debate: "contested findings: capped cross-exam (3-4 rounds, cited concessions, rationale enters HERE)"
+  apply: "apply surviving fixes - one commit each"
+  gen -> split
+  split -> verify: "agreed"
+  split -> debate: "contested"
+  verify -> apply
+  debate -> apply
 }
 
-merge: "merge + stable ids (H1.., L1..) + exact-location dedup - computed in code"
+codex: "codex step (/codex-debate v2): cross-family review debate over the diff INCLUDING the lens rewrites - round backstop 3, evidence-gated concessions, xhigh round 1 then high"
 
-kill: "codex kill-round: ONE cold codex exec on a claims-only packet"
+simplify: "simplify (unchanged)"
 
-gate: "evidence gate: citations verified against the tree; dispositions computed, not negotiated"
+police: "code-police (unchanged)"
 
-legacy: "legacy hickey-lowy cross-validation (prose, runs on every non-codex tier)"
+ledger: "shared findings ledger (WAL): stable ids, cross-track dedup, per-commit shas, mode badges"
 
-apply: "serial applier: one refactor(lens) commit per finding; WAL ledger records each sha"
+post: "push once, then post per-track comments rendered FROM the ledger"
 
-rereview: "bounded re-review: one pass over the refactor-commit diff, confirm/regress only, NO loop"
-
-render: "deterministic render: PR table from the ledger - never retyped by a model"
-
-diff -> gen.hickey
-diff -> gen.lowy
-gen -> merge
-merge -> kill: "confirm / refute / amend / duplicate per finding"
-kill -> gate
-merge -> legacy: "codex absent or reviewerError" {
-  style.stroke-dash: 4
-}
-legacy -> apply: {
-  style.stroke-dash: 4
-}
-gate -> apply
-apply -> rereview
-rereview -> render
+pr -> lens
+lens -> codex: "REORDERED - codex now reviews the structural rewrites"
+codex -> simplify
+simplify -> police
+lens -> ledger
+codex -> ledger
+simplify -> ledger
+police -> ledger
+ledger -> post
 `}
 />
 
@@ -101,7 +104,7 @@ rereview -> render
 | Does Claude ⇄ codex debate improve review? | The *second model family* improves it; the *debating* mostly doesn't | ReConcile attributes gains to diversity, not protocol; independent aggregation beat debate in a Du-et-al follow-up |
 | How many rounds are worth it? | One cold cross-check round; gains saturate at two; three is harmful | Unanimous-wrong consensus grows monotonically with rounds (~24% of disputed items by round 3) |
 | What kills false positives? | Cold, claims-only adversarial verification with mandatory code citations | Refute-or-Promote killed 79–83% of candidate findings as false positives pre-disclosure |
-| Is hickey ⇄ lowy cross-validation worth keeping? | Yes — it has the only empirically validated catch in the stack; transform it behind evidence, don't delete it | agency#198 caught a real cross-lens bug; the codex replacement is an unproven bet for structural claims |
+| Is the lens cross-examination worth keeping? | Yes — cross-lens checking has the only empirically validated catch in the stack; keep it for *contested* findings | agency#198 caught a real cross-lens bug; `/lens-debate`'s #1109 trial validated independent-then-debate |
 | Biggest cheap lever? | Redaction: never show reviewers the author's self-assessment or the proposer's reasoning | Author framing cut findings 3–4× in a controlled bug-planting study |
 
 ## What the evidence says
@@ -168,7 +171,7 @@ argument (<Cite file=".apm/skills/lens-debate/SKILL.md" />) is about
 *termination* — disinterested lenses with no authorship stake do converge.
 The literature's complaint is about *correctness*: they converge, and a
 measured fraction of the time they converge **wrong**, at a rate that grows
-with rounds. Termination and truth are different properties; the round cap
+with rounds. Termination and truth are different properties; a round cap
 defends the second, not the first.
 
 ### For review, the best-evidenced shape is a cold kill-round, not a conversation
@@ -206,11 +209,11 @@ confident self-assessment to the reviewer **cut findings 3–4×** (9.4 →
 2.4–4.0 per review) and halved critical-severity tags. Redaction discipline
 mattered more than which vendor reviewed.
 
-kolu independently discovered the same effect: `/lens-debate`'s own #1109
-trial found that feeding hickey a *pre-curated* lowy finding to rebut
-produced a *drop* verdict, while independent parallel review made hickey
-raise the same issue on its own and flip the verdict to *fix* — "curation
-biases the outcome; independent-then-debate does not"
+kolu independently discovered the same effect: `/lens-debate`'s #1109 trial
+found that feeding hickey a *pre-curated* lowy finding to rebut produced a
+*drop* verdict, while independent parallel review made hickey raise the same
+issue on its own and flip the verdict to *fix* — "curation biases the
+outcome; independent-then-debate does not"
 (<Cite file=".apm/skills/lens-debate/SKILL.md" />). The literature and the
 in-house experiment agree. The design consequence: redact the **author's
 self-assessment and confidence language** from generation prompts, and
@@ -229,7 +232,7 @@ measures whether frontier models produce *different structural* findings**
 hickey/lowy's may *homogenize* outputs across model families, shrinking the
 diversity you're paying for while inflating false confidence when both
 families "agree". The honest position: codex running the hickey lens is an
-unproven bet, codex *verifying* hickey-lens claims is the evidenced role.
+unproven bet; codex *verifying* hickey-lens claims is the evidenced role.
 This is testable cheaply — run the kill-round retrospectively over ~10 past
 merged PRs and count verified refutes/amends/duplicates before building
 anything permanent on the generation side.
@@ -237,10 +240,14 @@ anything permanent on the generation side.
 ## The design tournament
 
 Three designers worked from the same four evidence briefs under different
-angles; nine adversarial critics attacked each design through one lens each
+angles — minimal-change incrementalist, workflow-maximalist, debate-centric —
+each producing a complete orchestration design for the same ingredients
+`/be-review` orchestrates: two Claude lenses plus codex over a live diff.
+Nine adversarial critics attacked each design through one lens each
 (cost/latency/maintenance, review quality, portability/failure-modes); two
 judges scored the dossier with opposing priority orderings. Both judges
-picked the same winner.
+picked the same winner. The tournament ran against the upstream `/do`
+reviewer, but every verdict below is about the orchestration shape itself.
 
 ### Why debate-centric lost (3–3.5/10)
 
@@ -250,11 +257,12 @@ central mechanism failed both judges' first criterion:
 
 - Its **corroboration gate auto-applied precisely the findings most likely to
   be correlated false positives** (same diff, same lens catalog, two model
-  families sharing the prompt) with *less* scrutiny than today, while
-  "unanimity is a low-signal event" says agreement must never reduce scrutiny.
-- Its **contested→No-op disposition reinstalled Defer through the back door**,
-  with the incentive gradient pointing exactly opposite to the
-  hard-won flip-to-Fix rule (three generations of prompt patching in agency:
+  families sharing the prompt) with *less* scrutiny than the status quo,
+  while "unanimity is a low-signal event" says agreement must never reduce
+  scrutiny.
+- Its **contested→No-op disposition reinstalled Defer through the back
+  door**, with the incentive gradient pointing exactly opposite to the
+  hard-won flip-to-Fix rule (three generations of prompt patching upstream:
   <Issue n={55} repo="srid/agency" /> → <Issue n={159} repo="srid/agency" />
   → <Issue n={160} repo="srid/agency" />): refute-then-stall costs two cheap
   calls; confirming obligates an apply+commit+verify chain.
@@ -266,198 +274,178 @@ central mechanism failed both judges' first criterion:
 
 ### Why workflow-maximalist lost (4.5/10)
 
-The most complete mechanization toolkit (schema'd no-Defer, role separation
-in code, the only design confronting the re-review hole) — but as specced:
+The most complete mechanization toolkit (schema'd dispositions, role
+separation in code, the only design confronting the re-review hole head-on) —
+but as specced:
 
-- ~19–22 agents and 3–5 codex execs per run, on the step that agency's
-  timing data (<Issue n={128} repo="srid/agency" />) already shows is the
-  slowest in 8/20 runs;
+- ~19–22 agents and 3–5 codex execs per run, on what is already among the
+  slowest review steps in measured timing data
+  (<Issue n={128} repo="srid/agency" />);
 - a **round-1 gate that hard-failed the whole step on a single codex flake**,
   directly contradicting its own soft-degradation story;
 - a stability loop that licenses lens ping-pong and manufactures convergence
   via gag-order prompts;
 - a ~10-artifact maintenance surface across three languages with the findings
-  schema duplicated — the exact mirror-edit failure mode it cited from kolu's
-  own codex-debate history, shipped twice.
+  schema duplicated — the mirror-edit failure mode kolu's own codex-debate
+  history warns about, shipped twice.
 
 ### Why ledger + kill-round won (7/10, both judges)
 
 The winning design structures the *data* instead of rebuilding the
-orchestration: a findings ledger every tier writes, one cold codex
-kill-round replacing the weakest phase, and a thin straight-line workflow
-wrapping exactly that sequence for Claude Code users.
+orchestration: a findings ledger every stage writes, one cold cross-model
+kill-round replacing the weakest cross-check, debates confined to where
+disagreement actually is.
 
 - **The codex bet is bounded**: codex acts only on refute/amend/duplicate
-  verdicts; confirms change nothing versus today; codex absence degrades to
-  today's baseline verbatim. Worst case approximates the status quo.
-- **Cost explosion is structurally impossible**: no loops anywhere; fixed
-  agent count (5–6 vs. the maximalist's ~20); the zero-findings path is
-  *cheaper* than today.
-- **Three independently-landable increments** — a solo maintainer can ship
-  the proven part before betting on the rest.
+  verdicts; confirms change nothing versus the status quo; codex absence
+  degrades to the existing baseline verbatim. Worst case approximates today.
+- **Cost explosion is structurally impossible**: no uncapped loops anywhere;
+  fixed agent count; the zero-findings path is *cheaper* than today.
+- **Independently-landable increments** — the proven parts ship before the
+  bets.
 - Its critiques found genuine criticals — but every one converged on a
   point-fix (write-ahead ledger, symmetric evidence gate, resequencing)
   rather than an indictment of the architecture.
 
-## The /do proposal
+## The proposed /be-review
 
-What lands in agency (and therefore in kolu's installed `/do` via APM), in
-recommended shipping order. Full pipeline as in the diagram above; the parts
-worth spelling out:
+What `/be-review` (<Cite file=".apm/skills/be-review/SKILL.md" />) should
+become. The gauntlet's two best properties are untouched: the **serial
+sole-editor contract** (each step reads a settled tree — collisions stay
+impossible) and the **deferred-comments contract** (push once, then post; no
+comment ever advertises a local-only commit).
 
-### The findings ledger is the spine
+### Reorder: lens before codex
 
-One gitignored `.do/findings.json`, written as a **write-ahead log**: stamped
-with merge-base sha + run id, persisted at every phase boundary and after
-*each* applied commit, with machine-readable provenance trailers (finding id,
-lens, disposition) on every `refactor(hickey|lowy)` commit. Every consumer —
-the PR-table renderer, the fallback path, `--from polish` re-entry — validates
-the stamp and refuses stale state. This converts a crashed or interrupted run
-from a wedge into a resume-by-content, and it makes the no-Defer rule
-**structural**: the disposition field is a schema enum of
-`fix-in-this-pr | no-op` — the rule that took three generations of prose
-patching moves into a type that validation retries enforce.
+Today's order is codex → lens → simplify → police, and the SKILL itself
+documents the property that makes this order wrong: *"each step sees the
+commits the previous step added… a later reviewer reviews the earlier
+reviewer's fixes too."* That free re-review pass is currently pointed away
+from the riskiest commits in the run. `/lens-debate` applies *structural
+rewrites* — decomposition changes, boundary moves, the largest diffs any
+reviewer produces — and in today's order nothing cross-model ever reviews
+them: only `/simplify` and `/code-police` follow, and neither is a
+cross-family correctness reviewer. Flipping to **lens → codex → simplify →
+police** makes the codex debate cover the lens's applied refactors, closing
+the unreviewed-refactor-commits hole using machinery `/be-review` already
+has. The serial-editor argument is order-independent; only the coverage
+changes. (Corollary: the codex debate's round-1 packet should *not* be told
+which commits came from the lens step — cold review of the whole diff, per
+the redaction evidence.)
 
-### The codex kill-round
+### One findings ledger across all four tracks
 
-ONE cold `codex exec` per run (not per finding, not per round), reusing
-kolu's `codex-exec-lib.sh` plumbing nearly verbatim (retry/backoff,
-synthesized schema-valid error verdict, `--sandbox read-only`, the
-MECHANICAL RUNNER agent pattern) while **dropping all multi-round
-machinery** — no warm sessions, no resume, no rebuttal files. Effort `high`,
-not `xhigh`: agency#97 shows `high` is the threshold where codex reviews find
-real issues; <Issue n={1222} /> shows `xhigh`-every-round is the cost
-runaway. The packet contains the diff plus each finding's full claim text and
-citations, **redacting the implementer's self-assessment and the lens
-reviewer's chain of reasoning** (the two evidenced correlated-error
-channels). Codex returns one verdict per finding — `confirm`, `refute` (must
-cite file:line), `amend` (the remedy as written creates a problem — this is
-where the cross-lens question now lives), or `duplicate` (cross-lens
-semantic dedup, for free).
+Four tracks currently post four comments and nothing dedups across them —
+codex and lens can flag the same construct, and police's elegance pass
+re-fixes what simplify settled. A run-scoped **write-ahead ledger**
+(`.be-review/findings.json`, gitignored, the `.codex-debate/` scratch-dir
+pattern generalized) fixes this and two other problems at once:
 
-### The evidence gate computes dispositions; nobody negotiates
+- **Stable finding ids** (`L1…`, `C1…`, `P1…`) assigned in code, with
+  exact-location cross-track dedup — a later track references an existing
+  finding instead of re-raising it as a new row.
+- **Crash-resume.** The ledger is stamped with the merge-base sha and run id,
+  persisted after every track and after *each* applied commit (sha recorded
+  with the finding, plus machine-readable provenance trailers on the commits
+  themselves). An interrupted gauntlet — today a 4-track, possibly
+  hour-long run with no written non-clean-exit contract — resumes by
+  content instead of re-running tracks against a tree that already contains
+  their fixes.
+- **Deterministic comments.** The post-push comments render *from the
+  ledger* (the `renderLedger` pattern `debate.workflow.js` already uses
+  in-process) instead of each track's body being held in main context across
+  the entire gauntlet and retyped at the end.
+- **Mode badges.** The comment header states the regime the run actually got
+  — full gauntlet / quick tier / codex-degraded — so review-depth variance is
+  visible on the PR instead of three indistinguishable regimes shipping under
+  identical comment formats.
 
-- Verified refute (citation checked against the tree by a read-only
-  verifier) → No-op with the evidence recorded.
-- Unverified refute → the fix ships, table row marked **contested** with
-  codex's objection verbatim — the human adjudicates at PR review, which is
-  where `/do` already places the human. Contested findings are
-  **apply-and-flag, never No-op**: a No-op-and-record disposition would be a
-  schema-blessed Defer.
-- The gate is **symmetric**: fix-bound findings need code-anchored citations
-  too; confirm-without-evidence renders as such, never as verification.
-- **Monotone degradation ladder**: codex absent *or failing mid-run* re-arms
-  the legacy hickey⇄lowy cross-validation prose. A flaky codex can never
-  produce less cross-checking than no codex. The PR comment header carries a
-  mode badge (cross-family / single-family / codex-degraded) so review-depth
-  variance is visible per PR.
+### Tier the gauntlet: kill-round by default, debate where contested
 
-### One bounded post-apply re-review
+The full gauntlet runs two debates at Opus/xhigh per PR. The evidence-shaped
+cheap tier (`--quick`, and worth considering as the default for routine
+changes): independent lens generation (parallel, exactly as `/lens-debate`
+already does) → merge with stable ids → **one cold codex verification of the
+merged findings** — a claims-only packet; codex returns
+`confirm / refute / amend / duplicate` per finding, refutes requiring a
+file:line citation that a read-only check verifies against the tree → apply
+the survivors → simplify → police. Fixed agent count, one codex exec, zero
+debate rounds. The dispositions are computed by the gate, not negotiated:
 
-The biggest correctness hole in today's `/do`: the `refactor(*)` commits are
-never reviewed by anyone. The fix is **one** pass scoped to the
-refactor-commit diff, verdicts confirm/regress only, regressions fixed once
-then frozen as flagged table rows — **no loop**. This closes the hole without
-importing the <Issue n={1222} /> machinery. (kolu's `/be-review` has a
-related structural answer for free — see below.)
+- verified refute → dropped, evidence recorded in the ledger;
+- unverified refute → the fix ships, row marked **contested** with codex's
+  objection verbatim — apply-and-flag, never silently dropped (a
+  drop-on-assertion disposition would be Defer wearing a schema);
+- `amend` → the remedy text is replaced before apply — this verdict is where
+  "would applying this fix create a problem under the other lens?" lives in
+  the quick tier;
+- `duplicate` → cross-lens dedup for free.
 
-### Cross-validation: keep, transformed, in two stages
+The full debating gauntlet remains for flagship changes — and the ledger
+makes the escalation signal mechanical: a quick-tier run that comes back with
+contested rows is the run that earns the debate.
 
-The existing hickey⇄lowy cross-validation is the **only cross-check in the
-whole option space with an empirically validated catch**
-(<Issue n={198} repo="srid/agency" />). So: keep it on every tier now,
-upgraded to run over ledger finding-ids (which mechanically kills its worst
-defect — cross-validators re-emitting first-pass findings as new rows). Only
-after a retrospective A/B shows the codex kill-round achieves a meaningful
-verified kill/amend rate on *structural* claims does the cross-lens question
-fold into the kill-round's `amend` verdict. The 79–83% kill rate in the
-literature comes from refutable bug-claims; nobody has measured the transfer
-to structural-taste claims. Don't trade the proven check for the bet before
-the bet pays out. And when the question does move, it must move **with the
-lens methodology loaded** — a generic verifier holding neither SKILL.md
-cannot run the complecting catalog or the documented hickey/lowy
-conflict-resolution pattern, which is the part that did the work in #198.
+### Honest, substituted degradation
+
+Today, three `reviewer-error` attempts mean "give up on codex… move on" — the
+run silently loses its only cross-family check, with one report line.
+Degradation should be **monotone and visible**: on persistent reviewer-error,
+substitute a fresh-context same-family correctness pass (fresh-session still
+beats same-session per Cross-Context Review — strictly better than nothing),
+and badge the final comments with the degraded mode. A flaky codex should
+never yield less review than an absent one, and the human reading the PR
+should be able to tell which regime ran.
+
+### Rationale into adjudication, not generation
+
+`/be` §4 passes the change `rationale` "so the lenses don't flag deliberate
+decisions" (<Cite file=".apm/skills/be/SKILL.md" />), and `/be-review`
+threads it into `/lens-debate`. But author intent and confidence shared with
+reviewers is the measured 3–4× finding-suppression channel, and pre-loading
+reviewers is exactly the curation bias the #1109 trial proved changes
+verdicts. The deliberate-decision context belongs at the *disposition* step:
+let the lenses flag the deliberate decision cold, then let the rationale
+justify a disposition during cross-examination — visibly, in the debate
+trail, instead of invisibly, as a finding that was never born. Same data,
+one phase later, on the record.
+
+### What changes in /be itself
+
+- **§4**: invoke the reordered gauntlet; pass `rationale` with the new
+  meaning (adjudication-phase context). The unresolved-lens-finding
+  adjudication duty is unchanged — it just arrives better-labelled, from the
+  ledger's contested rows.
+- **§0 interview**: no new question by default. Tier selection
+  (quick vs. full) should be automatic — diff size, task kind from the
+  existing interview, presence of structural rewrites — with the interview
+  asking only when genuinely ambiguous, consistent with §0's don't-pad rule.
+- **§5/Done**: the gauntlet outcome line gains the mode badge (which tier
+  ran, whether codex degraded), so the final report states the review depth
+  actually delivered.
 
 ### Shipping order
 
-1. **Ledger + deterministic table renderer + id'd cross-validation** — pure
-   portability, no codex, no Workflow tool; fixes documented failures on
-   every harness.
-2. **The retrospective A/B** — a throwaway script over ~10 past merged `/do`
-   PRs, *before* any codex infrastructure lands.
-3. **`codex-crosscheck.sh`** (vendored kolu lib) — if and as the A/B
-   justifies it; plain bash, benefits every tier.
-4. **`review.workflow.js`** — last, gated on a smoke test and a non-silent
-   tier-fallback signal. (~200 lines vs. `debate.workflow.js`'s 512 — no
-   round loop, no warm sessions, no synthesis machinery.)
+1. **Reorder the tracks + reroute the rationale** — prose-only edits to
+   `be-review/SKILL.md` and `be/SKILL.md` §4; immediate coverage win, zero
+   new machinery.
+2. **The ledger** — scratch-dir WAL + deterministic comment rendering;
+   benefits every later step and gives the gauntlet crash-resume.
+3. **Caps + concession schemas** in the two debate workflows (below) — small
+   `workflow.js` and schema edits.
+4. **The quick tier + unanimity kill-round** — one new
+   `codex-crosscheck`-style script on the existing `codex-exec-lib.sh`
+   plumbing, gated on a retrospective A/B over ~10 past merged kolu PRs
+   (count verified refutes/amends/duplicates) so the codex-verdict bet is
+   measured before it's trusted.
 
-Cost at tier 1 with findings present: 5–6 agents, ~5–9 min — roughly today's
-wall clock, with the two cross-validation forks replaced by one codex call
-billed to the codex subscription, and reviewer prose no longer burning main
-context.
+## The constituent skills
 
-## What kolu should change
-
-kolu's review stack is ahead of the field in three ways the evidence
-endorses: **structured JSON consensus detected in code** (not vibes),
+The gauntlet redesign needs two upgrades in the debate skills it composes.
+kolu's stack is ahead of the field in three ways the evidence endorses —
+**structured JSON consensus detected in code** (not vibes),
 **kernel-enforced read-only codex sandboxes**, and `/lens-debate`'s
-**independent-then-debate** discipline (the #1109 lesson, independently
-replicating the published anchoring results). The recommendations below keep
-all of that and adjust the parts the evidence contradicts.
-
-### /be-review: reorder the gauntlet, fix the rationale channel, add a cheap tier
-
-The serial gauntlet (<Cite file=".apm/skills/be-review/SKILL.md" />) has a
-property the research values highly and agency's `/do` lacks entirely: *"each
-step sees the commits the previous step added… a later reviewer reviews the
-earlier reviewer's fixes too."* That is a free re-review pass. But it is
-currently pointed the wrong way:
-
-1. **Run `lens` before `codex`** (today: codex → lens → simplify → police).
-   `/lens-debate` applies *structural rewrites* — the largest, riskiest
-   commits in the gauntlet — and in today's order nothing cross-model ever
-   reviews them: only `/simplify` and `/code-police` follow, and neither is a
-   correctness reviewer. Flipping to **lens → codex → simplify → police**
-   makes the cross-family correctness debate cover the lens's applied
-   refactors, closing the same unreviewed-refactor-commits hole that is the
-   biggest defect in agency's `/do` — using machinery `/be-review` already
-   has. The serial-editor collision argument is order-independent; only the
-   coverage changes.
-2. **Thread `--rationale` into adjudication, not generation.** Today the
-   rationale is passed to the lenses "so the lenses don't flag deliberate
-   decisions" — but author intent and confidence shared with reviewers is the
-   measured 3–4× finding-suppression channel, and pre-loading reviewers is
-   exactly the curation bias `/lens-debate`'s own #1109 trial proved changes
-   verdicts. The deliberate-decision context belongs at the *disposition*
-   step: let the lenses flag the deliberate decision cold, then let the
-   rationale justify a `wont-fix` disposition during cross-examination —
-   visibly, in the debate trail, instead of invisibly, as a finding that was
-   never born.
-3. **Add a `--quick` tier (and consider making it the default).** The full
-   gauntlet runs two uncapped/high-backstop debates at xhigh/Opus per PR. The
-   evidence-shaped cheap tier: independent lens generation (parallel, as
-   `/lens-debate` already does) → merge with stable ids → **one cold codex
-   verification of the merged findings** (claims-only packet,
-   confirm/refute/amend/duplicate) → evidence gate → serial apply. Fixed
-   agent count, one codex exec, no rounds. Reserve the full debating gauntlet
-   for flagship changes where the marginal value of cross-examination is
-   worth the marginal cost — and the marginal value is highest exactly when
-   the cheap tier's verdicts come back *contested*, which the ledger makes
-   visible.
-4. **Make codex degradation honest and substituted.** Today, three
-   `reviewer-error` attempts mean "give up on codex… move on" — the run
-   silently loses its only cross-family check. Borrow the monotone-ladder
-   rule: on persistent reviewer-error, substitute a fresh-context same-family
-   correctness pass (fresh-session still beats same-session per
-   Cross-Context Review), and badge the final comments with the degraded
-   mode so review-depth variance is visible on the PR rather than absent.
-5. **Share one findings ledger across tracks.** Four tracks post four
-   comments and nothing dedups across them — codex and lens can flag the same
-   construct, and police's elegance pass re-fixes what simplify settled.
-   A run-scoped ledger with stable ids (the `.codex-debate/` scratch-dir
-   pattern generalized), each track reading and extending it, would cut
-   double-fixing, give `/be-review` crash-resume for free, and let the final
-   comments render deterministically instead of being retyped per track.
+**independent-then-debate** discipline, which independently replicated the
+published anchoring results. Everything below keeps those.
 
 ### /codex-debate: cap the review loop, gate concessions on evidence
 
@@ -479,30 +467,43 @@ currently pointed the wrong way:
   convinced; it has capitulated to end the loop.
 - **Tier the reasoning effort.** xhigh on round 1, high thereafter — the
   <Issue n={1222} /> fix list already proposed this; agency#97 establishes
-  `high` as the find-real-issues threshold.
+  `high` as the find-real-issues threshold for codex reviews.
 - Answer mode (<PrLink pr={1269} />) shares the loop-to-agreement contract
   and should get the same two guards (backstop + concession reasons); its
   parallel-swap confirmation phase is sound and unaffected.
 
 ### /lens-debate: verify unanimity, tighten the backstop
 
-- **Unanimity is the unguarded path.** Findings both lenses agree on
+- **Unanimity is the unguarded path.** Findings both lenses agree on in
   round 1 lock as settled and get applied with *zero* adversarial check —
-  yet hickey and lowy share training family, prompt style, and literally
+  yet hickey and lowy share a model family, a prompt style, and literally
   cross-reference each other's catalogs, so their agreement is the
   correlated, low-signal kind. Route agreed `fix` findings through the same
   single cold codex claims-only check before apply. Agreement should gate
-  *debate* (skip it — the lenses have nothing to argue), never *verification*.
-- **Debate only on disagreement** is already the implicit structure
-  (settled-findings lock); make it explicit and pair it with a tighter
+  *debate* (skip it — the lenses have nothing to argue), never
+  *verification*.
+- **Debate only on disagreement** is already the implicit structure (the
+  settled-findings lock); make it explicit and pair it with a tighter
   backstop — `--max-rounds` default 3–4 rather than 12. The contested set is
   monotonically non-increasing, so almost all convergence happens in the
   first rounds; what's left at round 4 is a genuine judgment call that
-  `unresolved` + human adjudication (which `/be-review` §2 already
-  implements) handles better than rounds 5–12 of bias amplification.
+  `unresolved` + human adjudication (which `/be-review` already implements)
+  handles better than rounds 5–12 of bias amplification.
+- **Concession reasons here too** — same schema addition as
+  `/codex-debate`: a lens that flips a disposition across rounds must cite
+  the code that convinced it.
 - **Keep** independent parallel generation, the settled-findings lock,
   sequential reveal, and the electricity probe — all four survive contact
   with the literature, and the first is independently validated by it.
+- The cross-lens question itself — "does applying this fix create a problem
+  under the other lens?" — has the only empirically validated catch in the
+  whole adversarial stack (<Issue n={198} repo="srid/agency" /> upstream).
+  The redesign *keeps* it: in the full tier it lives in the cross-exam
+  rounds as today; in the quick tier it lives in the kill-round's `amend`
+  verdict. It must always run with the lens methodology loaded — a generic
+  verifier holding neither SKILL.md cannot run the complecting catalog or
+  the documented hickey/lowy conflict-resolution pattern, which is the part
+  that did the work.
 
 <Callout kind="warn" title="The one-sentence version">
 Spend the debate budget where disagreement is (contested findings, capped
