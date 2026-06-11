@@ -16,16 +16,23 @@
 # backoff, thread-id capture, session persistence) lives in codex-exec-lib.sh.
 #
 # Usage:
-#   codex-answer.sh <prompt-file> <crosscheck-file|-> <out-json> [reasoning-effort]
+#   codex-answer.sh <prompt-file> <crosscheck-file|-> <out-json> [reasoning-effort] [confirm]
 #
 #   <prompt-file>     path to a file holding the user's prompt/question
 #   <crosscheck-file> path to a file holding CLAUDE's latest answer (JSON) for
 #                     codex to cross-check, or "-" on the first round (codex
-#                     hasn't seen CLAUDE's answer yet — it answers independently)
+#                     hasn't seen CLAUDE's answer yet — it answers independently).
+#                     On a CONFIRM turn this file instead holds the synthesized
+#                     unified CANDIDATE answer codex is asked to approve verbatim.
 #   <out-json>        path the JSON answer is written to (also echoed to stdout)
 #   <reasoning-effort> codex model_reasoning_effort for this run; the answer
 #                     workflow passes its REASONING_EFFORT constant here so the
 #                     value has one home. Defaults to "xhigh" for standalone runs.
+#   [confirm]         the literal token "confirm" selects the CONFIRM prompt shape:
+#                     codex judges ONE shared synthesized candidate (held in the
+#                     crosscheck-file) and approves it VERBATIM or objects — it does
+#                     NOT rewrite its own answer. Mirrors the workflow's
+#                     claudeConfirms turn so both peers plug into one confirm contract.
 #
 # Notes:
 #   * codex runs under `--sandbox read-only` (see codex-exec-lib.sh), which enforces
@@ -38,12 +45,18 @@
 #     session so codex retains its OWN prior answer + reasoning across rounds.
 set -uo pipefail
 
-prompt_file="${1:?usage: codex-answer.sh <prompt-file> <crosscheck-file|-> <out-json> [reasoning-effort]}"
+prompt_file="${1:?usage: codex-answer.sh <prompt-file> <crosscheck-file|-> <out-json> [reasoning-effort] [confirm]}"
 crosscheck_file="${2:?missing crosscheck-file (use - for none)}"
 out="${3:?missing out-json path}"
 # The answer workflow owns this value (its REASONING_EFFORT constant) and passes
 # it down; "xhigh" is only the default for a standalone invocation of this script.
 effort="${4:-xhigh}"
+# CONFIRM mode: the 5th arg is the literal "confirm" when codex is judging ONE
+# synthesized candidate (held in crosscheck_file) rather than cross-checking
+# CLAUDE's separate answer. This swaps in the confirm prompt shape below — a
+# verbatim/approve-or-object contract symmetric to the workflow's claudeConfirms.
+is_confirm=
+[ "${5:-}" = "confirm" ] && is_confirm=1
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 schema="$here/codex-answer.schema.json"
@@ -124,7 +137,13 @@ EOF
 )"
 fi
 
-# Three prompt shapes, chosen by (resume id × cross-check):
+# Prompt shapes, chosen by (confirm × resume id × cross-check):
+#   * CONFIRM           (confirm token): codex judges ONE synthesized candidate
+#     (in $crosscheck) and approves it VERBATIM or objects — it does NOT rewrite its
+#     own answer. One contract symmetric to the workflow's claudeConfirms turn, so
+#     both peers plug into the same approve-a-fixed-candidate interface. Takes
+#     precedence over warm/cold below (the session is warm here, but the activity is
+#     approval, not cross-check).
 #   * WARM follow-up   (resume id + cross-check): lean prompt leaning on codex's
 #     retained answer.
 #   * COLD follow-up   (no resume id + cross-check): the full answer prompt PLUS the
@@ -134,7 +153,35 @@ fi
 # Unquoted heredocs: only $prompt_text, $crosscheck, and $crosscheck_block expand;
 # their expansions are inserted literally (heredoc results aren't re-scanned), so
 # special chars stay inert.
-if [ -n "$resume_id" ] && [ -n "$is_crosscheck" ]; then
+if [ -n "$is_confirm" ]; then
+  prompt="$(cat <<EOF
+You are CODEX. You and another assistant ("CLAUDE") were each asked the SAME
+question, debated, and AGREED. A unified candidate answer has been synthesized from
+your two agreed answers. Your ONLY job now is to APPROVE it or object — do NOT
+rewrite it, do NOT produce a new answer of your own.
+
+You may inspect this repository to verify (READ-ONLY — read files, run git
+diff/log/grep; do NOT modify, create, or delete anything, and run no git write
+command: add/commit/push/stash/checkout). Cite file:line for repo claims.
+
+The original question was:
+$prompt_text
+
+The candidate unified answer to approve is:
+$crosscheck
+
+Return the JSON schema:
+  - answer: echo the candidate VERBATIM (you are approving it, not rewriting it).
+  - keyPoints: the core claims the candidate rests on.
+  - objections: anything the candidate gets wrong, drops, or overstates relative to
+    what you agreed — empty if you approve it as-is. Be specific (file:line for repo
+    claims).
+  - changedMind: empty (you are confirming, not revising).
+  - agreesWithOther: true ONLY if you approve the candidate as a correct, complete
+    unified answer with NO objection left.
+EOF
+)"
+elif [ -n "$resume_id" ] && [ -n "$is_crosscheck" ]; then
   prompt="$(cat <<EOF
 You are CODEX, continuing the SAME answer session you started earlier — you still
 have your own previous answer and reasoning in context. You and another assistant

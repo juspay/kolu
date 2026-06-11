@@ -172,25 +172,35 @@ Return the schema:
 // shells out to the script, and relays codex's JSON answer verbatim — it does NOT
 // answer the question itself. The user's prompt and CLAUDE's latest answer carry
 // arbitrary characters, so they're written with the Write tool, never a heredoc.
-// On a confirmation turn (`confirm`), the cross-check input is the SINGLE shared
-// candidate, and the runner relays codex's approval/objections to it.
-async function codexAnswers(round, other) {
+// On a CONFIRM turn (`confirming`), `other` is the SINGLE shared synthesized
+// candidate STRING; the runner writes it to the cross-check file and passes the
+// script's `confirm` token so codex plugs into the same verbatim/approve-or-object
+// contract as the workflow's claudeConfirms turn (NOT the ordinary cross-check
+// contract, which would tell codex to UPDATE its own answer instead of approving).
+async function codexAnswers(round, other, confirming) {
   const answerPath = `${workDir}/answer-codex-${round}.json`
   const promptPath = `${workDir}/answer-prompt.txt`
   const crossPath = `${workDir}/answer-crosscheck.json`
   // The cross-check argument to the script: `-` on round 1 (codex answers
-  // independently), else the file holding CLAUDE's latest answer.
+  // independently), else the file holding either CLAUDE's latest answer (ordinary
+  // cross-check) or the synthesized candidate to approve (confirm turn).
   const crossArg = round === 1 ? '-' : crossPath
+  // On a confirm turn the cross-check file holds the candidate VERBATIM (a plain
+  // string); on an ordinary cross-check it holds CLAUDE's answer JSON.
+  const crossContent = confirming ? other : JSON.stringify(other, null, 2)
   const crossStep =
     round === 1
       ? `2. (No cross-check this round — codex answers independently.)`
       : `2. Using the Write tool (NOT a shell heredoc — the content has special characters), create \`${crossPath}\` with EXACTLY this content (overwriting any existing file):
 
-${JSON.stringify(other, null, 2)}`
+${crossContent}`
+  // Pass the script's `confirm` token on a confirm turn so it selects the
+  // approve-the-candidate prompt shape rather than the cross-check shape.
+  const confirmArg = confirming ? ` ${shq('confirm')}` : ''
   // Every path below is spliced into a shell command the runner agent executes, so
   // POSIX-quote each one (worktrees or skill dirs with spaces/metacharacters would
   // otherwise break the command or misdirect it). The Write-tool file CONTENTS
-  // (${prompt}, ${JSON.stringify(other)}) are not shell-parsed and stay verbatim.
+  // (${prompt}, ${crossContent}) are not shell-parsed and stay verbatim.
   const runnerPrompt = `You are a MECHANICAL RUNNER for one round of an automated answer-debate. Do exactly the steps below and nothing else. Do NOT answer the question yourself, do NOT edit repository files, do NOT add commentary.
 
 1. Ensure the scratch dir exists: \`mkdir -p ${shq(workDir)}\`. Using the Write tool (NOT a heredoc), create \`${promptPath}\` with EXACTLY this content (overwriting any existing file):
@@ -200,14 +210,14 @@ ${prompt}
 ${crossStep}
 
 3. Run (cd into the repo root so the script's internal \`git\` targets THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${shq(repoPath)} && bash ${shq(`${skillDir}/scripts/codex-answer.sh`)} ${shq(promptPath)} ${crossArg === '-' ? '-' : shq(crossArg)} ${shq(answerPath)} ${shq(REASONING_EFFORT)}\`
+   \`cd ${shq(repoPath)} && bash ${shq(`${skillDir}/scripts/codex-answer.sh`)} ${shq(promptPath)} ${crossArg === '-' ? '-' : shq(crossArg)} ${shq(answerPath)} ${shq(REASONING_EFFORT)}${confirmArg}\`
 
    This shells out to the codex CLI as a read-only peer; it can take 1-3 minutes. It prints a JSON answer as its final stdout and also writes it to \`${answerPath}\`.
 
 4. Read \`${answerPath}\` and return its exact contents as your structured output. Copy the values faithfully; do not paraphrase or "improve" them.`
   return agent(runnerPrompt, {
-    label: `codex:round${round}`,
-    phase: round === 1 ? 'Answer' : 'Reconcile',
+    label: confirming ? `codex:confirm${round}` : `codex:round${round}`,
+    phase: confirming ? 'Synthesis' : round === 1 ? 'Answer' : 'Reconcile',
     model: copyModel, // must relay codex's answer JSON faithfully
     schema: ANSWER_SCHEMA,
   })
@@ -344,24 +354,26 @@ Return the unified answer in \`answer\`.`,
 // either objects, its objections fold back into the cross-check loop and we continue.
 // ---------------------------------------------------------------------------
 let finalAnswer = null
-// On a confirmation turn, each side's "other" input is the synthesized candidate
-// (wrapped in the answer shape so the existing cross-check machinery accepts it).
+// On a confirmation turn, each side judges the SAME synthesized candidate STRING.
 // Carried across iterations so a rejected confirmation feeds the candidate + the
 // objector's complaints back into the next ordinary cross-check round.
 let pendingCandidate = null
 for (let round = 1; ; round++) {
   const confirming = pendingCandidate !== null
-  const candidateAns = confirming
-    ? { answer: pendingCandidate, keyPoints: [], agreesWithOther: true, objections: [], changedMind: '' }
-    : null
   const prevClaude = claudeAns
   const prevCodex = codexAns
+  // On a confirm turn BOTH sides run their dedicated approve-a-fixed-candidate
+  // interface (claudeConfirms / codexAnswers(..., confirming)), so both plug into
+  // one verbatim/approve-or-object contract instead of the ordinary cross-check.
   const [claude, codex] = await parallel([
     () =>
       confirming
         ? claudeConfirms(round, pendingCandidate)
         : claudeAnswers(round, round === 1 ? null : prevCodex, prevClaude),
-    () => codexAnswers(round, round === 1 ? null : confirming ? candidateAns : prevClaude),
+    () =>
+      confirming
+        ? codexAnswers(round, pendingCandidate, true)
+        : codexAnswers(round, round === 1 ? null : prevClaude, false),
   ])
 
   // codex infrastructure failure — terminal. The runner could not get an answer
