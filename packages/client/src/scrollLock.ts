@@ -106,11 +106,14 @@ export function createScrollLock(
 ) {
   const [isLocked, setIsLocked] = createSignal(false);
   const [hasNewOutput, setHasNewOutput] = createSignal(false);
-  const [pendingChunks, setPendingChunks] = createSignal(0);
   const [lastEvent, setLastEvent] = createSignal<ScrollLockEvent | null>(null);
 
-  /** Data buffered while scroll-locked — flushed on unlock. */
-  const pendingData: string[] = [];
+  /** Data buffered while scroll-locked — flushed on unlock. The reactive
+   *  source for the buffer; `pendingChunks` is derived from its length, so
+   *  there is exactly one write surface (`setPending`) and no parallel count
+   *  to keep in sync. */
+  const [pending, setPending] = createSignal<string[]>([]);
+  const pendingChunks = () => pending().length;
 
   /** Terminal reference, set on attach. */
   let termRef: Terminal | null = null;
@@ -188,10 +191,10 @@ export function createScrollLock(
 
   /** Flush all buffered data to the terminal. */
   function flush(): void {
-    if (pendingData.length === 0 || !termRef) return;
-    const data = pendingData.join("");
-    pendingData.length = 0;
-    setPendingChunks(0);
+    const buffered = pending();
+    if (buffered.length === 0 || !termRef) return;
+    const data = buffered.join("");
+    setPending([]);
     termRef.write(data);
   }
 
@@ -261,8 +264,7 @@ export function createScrollLock(
     onCleanup(() => {
       scrollDisposable.dispose();
       termRef = null;
-      pendingData.length = 0;
-      setPendingChunks(0);
+      setPending([]);
     });
   }
 
@@ -277,8 +279,7 @@ export function createScrollLock(
       return;
     }
     setHasNewOutput(true);
-    pendingData.push(data);
-    setPendingChunks(pendingData.length);
+    setPending((buffered) => [...buffered, data]);
   }
 
   /**
