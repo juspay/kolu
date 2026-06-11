@@ -44,6 +44,7 @@ import { openInCodeTab } from "../right-panel/openInCodeTab";
 import type { LineRef } from "../ui/lineRef";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
+import { wireScrollIntent } from "../scrollLockWiring";
 import { isTouch } from "../useMobile";
 import { client, preferences } from "../wire";
 import {
@@ -655,51 +656,12 @@ const Terminal: Component<{
 
           scrollLock.attachToTerminal(term);
 
-          // Wheel input arms the scroll-lock latch (#1272). Capture phase is
-          // load-bearing: xterm's own wheel handler sits deeper in the DOM,
-          // so a bubble listener here would run AFTER it — and it fires
-          // onScroll synchronously, which must already see the intent.
-          // Passive: we only observe; xterm owns the scrolling.
-          makeEventListener(
-            containerRef,
-            "wheel",
-            () => scrollLock.armUserScrollIntent("wheel"),
-            { capture: true, passive: true },
-          );
-
-          // Pointer-driven scrolls that never fire `wheel`: dragging xterm's
-          // visible scrollbar (a `pointerdown` on `.xterm-scrollbar`, then a
-          // global pointermove monitor) and selection auto-scroll (a primary
-          // `mousedown` on the screen, then an interval that scrolls the
-          // viewport while the button stays down). Both emit `onScroll` only
-          // while the pointer is held — well past the time window — so we HOLD
-          // intent from press to release rather than arm-and-expire (#1272).
-          // Capture phase: xterm's own handlers sit deeper and fire onScroll
-          // synchronously, so the intent must be armed before they run.
-          makeEventListener(
-            containerRef,
-            "pointerdown",
-            (e: PointerEvent) => {
-              // Primary button only — secondary/middle don't drag-scroll.
-              if (e.button === 0) scrollLock.holdUserScrollIntent("pointer");
-            },
-            { capture: true, passive: true },
-          );
-          // Release on the document: a scrollbar/selection drag routinely ends
-          // with the pointer outside the terminal, so a container-scoped
-          // pointerup would miss it and leave intent stuck open.
-          makeEventListener(
-            document,
-            "pointerup",
-            () => scrollLock.releaseUserScrollIntent(),
-            { capture: true, passive: true },
-          );
-          makeEventListener(
-            document,
-            "pointercancel",
-            () => scrollLock.releaseUserScrollIntent(),
-            { capture: true, passive: true },
-          );
+          // Wheel + pointer-held scroll inputs arm the scroll-lock latch
+          // (#1272). Their source strings and capture/hold/release rules live
+          // in scrollLockWiring (DOM-adjacent), keeping the state machine
+          // DOM-free. The keyboard, touch, and SearchBar arms stay at their
+          // call sites below because they interleave with non-scroll logic.
+          wireScrollIntent(containerRef, scrollLock);
 
           if (shouldUseWebgl()) loadWebgl();
 
