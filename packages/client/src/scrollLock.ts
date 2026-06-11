@@ -104,7 +104,16 @@ export function createScrollLock(
   enabled: Accessor<boolean | undefined>,
   visibility: () => string = defaultVisibility,
 ) {
-  const [isLocked, setIsLocked] = createSignal(false);
+  /** Single source of truth for the lock and its origin. Non-null means
+   *  locked; `hiddenAtEngage` carries whether the lock was created while the
+   *  document was hidden (the signature `handleTabVisible` clears). Clearing
+   *  the lock is one assignment (`setLockState(null)`) that necessarily drops
+   *  the hidden-origin with it — no parallel flag to reset in lockstep. */
+  const [lockState, setLockState] = createSignal<{
+    source: ScrollIntentSource;
+    hiddenAtEngage: boolean;
+  } | null>(null);
+  const isLocked = () => lockState() !== null;
 
   /** Data buffered while scroll-locked — flushed on unlock. The reactive
    *  source for the buffer; `pendingChunks` is derived from its length, so
@@ -125,10 +134,6 @@ export function createScrollLock(
    *  dragging emit `onScroll` ticks for as long as the button is down, well
    *  past `SCROLL_INTENT_WINDOW_MS` after the initial press. */
   let heldSource: ScrollIntentSource | null = null;
-  /** True if the engaged lock was created while the document was hidden — the
-   *  signature of a background/accidental latch that `handleTabVisible` should
-   *  clear. A lock the user made with the tab in front is left alone. */
-  let lockedWhileHidden = false;
   /** Reactive source of truth for the transition history. `lastEvent` (live
    *  row) and `events()` (JSON dump) are both derived from it — one ring, two
    *  read patterns, no hand-synced head signal. */
@@ -205,8 +210,7 @@ export function createScrollLock(
   /** Clear all scroll-lock state, flushing any buffered data first. */
   function reset() {
     flush();
-    setIsLocked(false);
-    lockedWhileHidden = false;
+    setLockState(null);
   }
 
   // Clear scroll lock when the setting is toggled off
@@ -242,16 +246,14 @@ export function createScrollLock(
    *  here) — flush anything held and release. */
   function flushAndRelease(): void {
     if (isLocked()) flush();
-    setIsLocked(false);
-    lockedWhileHidden = false;
+    setLockState(null);
   }
 
   /** Latch the lock on a real user scroll, capturing whether it engaged while
    *  the tab was hidden (the signature `handleTabVisible` clears). */
   function engage(source: ScrollIntentSource, term: Terminal): void {
     recordEvent("locked", source, term);
-    lockedWhileHidden = visibility() === "hidden";
-    setIsLocked(true);
+    setLockState({ source, hiddenAtEngage: visibility() === "hidden" });
   }
 
   /** Off-bottom with no user input behind it — not the user's scroll. Snap
@@ -329,8 +331,7 @@ export function createScrollLock(
   function scrollToBottom(term: Terminal): void {
     flush();
     term.scrollToBottom();
-    setIsLocked(false);
-    lockedWhileHidden = false;
+    setLockState(null);
   }
 
   /**
@@ -339,13 +340,13 @@ export function createScrollLock(
    * rejoin the bottom, the same semantics the existing visible-transition
    * effect applies when switching back to a terminal.
    *
-   * A lock the user made with the tab in front (`lockedWhileHidden === false`)
+   * A lock the user made with the tab in front (`hiddenAtEngage === false`)
    * is left alone: scrolling up to read output, glancing at another browser
    * tab, and returning must NOT lose the position or flush buffered output
    * (#1272). Only a background/accidental latch is cleared here.
    */
   function handleTabVisible(): void {
-    if (!isLocked() || !termRef || !lockedWhileHidden) return;
+    if (!termRef || !lockState()?.hiddenAtEngage) return;
     recordEvent("unlatched", null, termRef);
     scrollToBottom(termRef);
   }
