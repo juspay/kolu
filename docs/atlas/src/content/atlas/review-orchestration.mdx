@@ -2,8 +2,8 @@
 title: Review orchestration — kill-rounds beat debates
 description: An 18-agent research pass over the multi-agent-review literature and kolu's debate skills, proposing the next /be-review — lens before codex, a shared findings ledger, capped evidence-gated debates, cold cross-family verification of unanimous findings, and a kill-round quick tier.
 kind: analysis
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 updated: 2026-06-11
 ---
 
@@ -35,6 +35,16 @@ priorities (merged-code quality vs. pragmatic adoption). Roughly 1.1M
 subagent tokens. Both judges independently ranked the same design first.*
 
 ## TL;DR
+
+<Callout kind="warn" title="Implementation status">
+Shipped in <PrLink pr={1277} /> (the same PR as this note): the gauntlet
+reorder + rationale rerouting, the write-ahead findings ledger + gauntlet
+badge, and the round backstops + cited concessions + tiered codex effort in
+both debate skills. **Deliberately not shipped**: the `--quick` kill-round
+tier and the unanimity cross-family check — both remain gated on the
+retrospective A/B over past merged PRs (see Shipping order), per this note's
+own evidence discipline.
+</Callout>
 
 <Callout kind="accent" title="Verdict">
 **Spend debate where disagreement is; spend verification where agreement
@@ -166,8 +176,9 @@ This is the part that cuts directly against "no round cap, no deadlock exit":
   answers are precisely where deliberation converged wrong most often. The
   lens debates operate exactly there.
 
-Worth stating carefully: `/lens-debate`'s "why deadlock is not possible"
-argument (<Cite file=".apm/skills/lens-debate/SKILL.md" />) is about
+Worth stating carefully: `/lens-debate`'s convergence argument (the section
+now titled "Why convergence, not deadlock, is the expected outcome",
+<Cite file=".apm/skills/lens-debate/SKILL.md" />) is about
 *termination* — disinterested lenses with no authorship stake do converge.
 The literature's complaint is about *correctness*: they converge, and a
 measured fraction of the time they converge **wrong**, at a rate that grows
@@ -338,10 +349,11 @@ the redaction evidence.)
 Four tracks currently post four comments and nothing dedups across them —
 codex and lens can flag the same construct, and police's elegance pass
 re-fixes what simplify settled. A run-scoped **write-ahead ledger**
-(`.be-review/findings.json`, gitignored, the `.codex-debate/` scratch-dir
+(`.be-review/ledger.json`, gitignored, the `.codex-debate/` scratch-dir
 pattern generalized) fixes this and two other problems at once:
 
-- **Stable finding ids** (`L1…`, `C1…`, `P1…`) assigned in code, with
+- **Stable finding ids** (track-prefixed: `lens:lowy-1`, `codex:F2`,
+  `police:P1` — recorded per the SKILL's ledger rules), with
   exact-location cross-track dedup — a later track references an existing
   finding instead of re-raising it as a new row.
 - **Crash-resume.** The ledger is stamped with the merge-base sha and run id,
