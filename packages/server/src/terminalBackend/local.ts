@@ -431,7 +431,16 @@ class LocalTerminalBackend implements TerminalBackend {
 
     for (const id of ordered) {
       const meta = savedById.get(id);
-      this.spawnPty(id, { cwd: meta?.cwd, initialMetadata: meta });
+      // `parentId` is a spawnPty *option*, NOT part of initialMetadata — without
+      // it a split/sub-terminal is re-registered as a top-level terminal
+      // (promoted out of its parent). The normal client-restore path passes it;
+      // the eager path must too. Saved order puts the parent before its child,
+      // so the relationship resolves as both land.
+      this.spawnPty(id, {
+        cwd: meta?.cwd,
+        parentId: meta?.parentId,
+        initialMetadata: meta,
+      });
     }
     return ordered;
   }
