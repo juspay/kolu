@@ -243,7 +243,34 @@ function renderSide(name, ans) {
   return lines.join('\n')
 }
 
+// A confirm round is not a normal answer round: both sides judged ONE shared
+// synthesized candidate (approve-or-object), so rendering each side's `answer`
+// would misleadingly show two texts for a round whose whole point was that both
+// judged the IDENTICAL one. Show the candidate ONCE, then each side's verdict
+// (agrees + objections) against it.
+function renderConfirmVerdict(name, ans) {
+  if (!ans) return `**${name}** — _(no turn this round)_`
+  return [
+    `**${name}** — approved: \`${!!ans.agreesWithOther}\``,
+    'Objections to the candidate:',
+    renderObjections(ans.objections),
+  ].join('\n')
+}
+
 function roundSection(entry) {
+  if (entry.confirming) {
+    return [
+      `### Round ${entry.round} — confirmation`,
+      '',
+      'Both sides judged this single synthesized candidate (approve or object):',
+      '',
+      entry.candidate,
+      '',
+      renderConfirmVerdict('claude', entry.claude),
+      '',
+      renderConfirmVerdict('codex', entry.codex),
+    ].join('\n')
+  }
   return [
     `### Round ${entry.round}`,
     '',
@@ -397,7 +424,12 @@ for (let round = 1; ; round++) {
 
   claudeAns = claude
   codexAns = codex
-  const entry = { round, claude, codex }
+  // On a confirm round both sides judged the ONE shared candidate; tag the entry
+  // (with the candidate itself) so the transcript renders it as an approve/object
+  // verdict on a single text rather than as two separate answer rounds.
+  const entry = confirming
+    ? { round, claude, codex, confirming: true, candidate: pendingCandidate }
+    : { round, claude, codex }
   transcript.push(entry)
   await writeSection(entry)
 
