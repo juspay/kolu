@@ -69,8 +69,10 @@ function classifyCheck(check: RollupEntry): CheckStatus {
 export function deriveCheckStatus(
   rollup: RollupEntry[] | undefined,
 ): PrInfo["checks"] {
-  if (!rollup) return null;
-  return foldCheckOutcomes(rollup.map(classifyCheck));
+  // Pure mapping: the absent-or-empty → null decision lives entirely in
+  // `foldCheckOutcomes` (an absent rollup classifies to `[]`, which it folds
+  // to null), so the 'no checks configured → null' rule stays in one place.
+  return foldCheckOutcomes(rollup?.map(classifyCheck) ?? []);
 }
 
 /** Per-check breakdown of the rollup — the same entries `deriveCheckStatus`
