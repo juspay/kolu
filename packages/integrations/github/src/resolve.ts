@@ -87,8 +87,16 @@ export async function resolveGitHubPr(
 /** The gh adapter — the `PrProvider` the host injects into `subscribePr`.
  *  Typed at its concrete `GhUnavailableSource` so `subscribePr` infers
  *  `S = GhUnavailableSource` and its `PrResult<GhUnavailableSource>` lands
- *  in the app's closed `PrResult` without a cast (gh is the union's member). */
-export const githubPrProvider: PrProvider<GhUnavailableSource> = {
-  kind: "github",
+ *  in the app's closed `PrResult` without a cast (gh is the union's member).
+ *
+ *  Annotated with `satisfies` (not `:`) so `kind` keeps its `"github"`
+ *  literal type rather than widening to `PrProvider.kind: string`: the
+ *  dispatcher in kolu-server derives its `ForgeKind` from this very value,
+ *  so the registry key it dispatches on is forced to equal the adapter's own
+ *  `kind` — they cannot drift. The closed-union failure tag (`provider: "gh"`,
+ *  see `GhUnavailableSchema`) is the wire-persisted spelling of the same forge
+ *  and is intentionally distinct from this in-process `kind`. */
+export const githubPrProvider = {
+  kind: "github" as const,
   resolve: resolveGitHubPr,
-};
+} satisfies PrProvider<GhUnavailableSource>;

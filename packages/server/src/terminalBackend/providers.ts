@@ -252,8 +252,13 @@ function startGitProvider(
 
 /** The forges kolu can resolve a PR from. One today; a second forge adds an
  *  arm here plus an entry in `PR_REGISTRY` and a host match in `pickForgeKind`
- *  — nothing else in the watcher path changes. */
-type ForgeKind = "github";
+ *  — nothing else in the watcher path changes.
+ *
+ *  Derived from the adapter's own `kind` literal (not a hand-written
+ *  `"github"`) so the registry key and the adapter agree by construction: a
+ *  phase-1 forge that adds an adapter must add the matching `PR_REGISTRY` key
+ *  or the `Record<ForgeKind, …>` below stops type-checking. */
+type ForgeKind = (typeof githubPrProvider)["kind"];
 
 /** Forge adapter per kind. Typed at the closed `PrUnavailableSource` union:
  *  each adapter's concrete source is a member, so a `PrProvider<GhUnavailable…>`

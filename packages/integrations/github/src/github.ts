@@ -5,7 +5,11 @@
 import type { CheckRun, CheckStatus, PrInfo, PrResult } from "anyforge/schemas";
 import { foldCheckOutcomes } from "anyforge/schemas";
 import { match, P } from "ts-pattern";
-import type { GhUnavailableCode, GhUnavailableSource } from "./schemas.ts";
+import {
+  GH_PROVIDER,
+  type GhUnavailableCode,
+  type GhUnavailableSource,
+} from "./schemas.ts";
 
 /**
  * Derive combined check status from GitHub's statusCheckRollup entries.
@@ -113,7 +117,7 @@ export function classifyGhError(err: unknown): PrResult<GhUnavailableSource> {
     code: GhUnavailableCode,
   ): PrResult<GhUnavailableSource> => ({
     kind: "unavailable",
-    source: { provider: "gh", code },
+    source: { provider: GH_PROVIDER, code },
   });
   if (e.code === "ENOENT") return ghUnavailable("not-installed");
   // execFile sets killed=true when the timeout fires and sends SIGTERM.
