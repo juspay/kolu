@@ -25,12 +25,10 @@ const workDir = `${repoPath}/.codex-debate`
 
 // Model tiers. The claude-answer round does real reasoning (answering, then
 // cross-checking codex) → `model` (Opus). The final synthesis is also user-facing
-// prose, so it runs on `model` too. The codex RUNNER must relay codex's answer
-// JSON faithfully (a verbatim copy, not a paraphrase — the weakest tier corrupts
-// it silently) → `copyModel` (Sonnet). The file writers/assemblers are mechanical
-// → `mechModel` (Haiku). Defaults match a direct invocation.
+// prose, so it runs on `model` too. The codex RUNNER and the transcript writer must
+// relay text faithfully (a verbatim copy, not a paraphrase — the weakest tier
+// corrupts it silently) → `copyModel` (Sonnet). Defaults match a direct invocation.
 const model = a.model || 'opus'
-const mechModel = a.mechModel || 'haiku'
 const copyModel = a.copyModel || 'sonnet'
 
 // The reasoning effort codex runs at, scoped to the debate. This JS constant is
@@ -296,33 +294,7 @@ function renderTranscript(transcript, meta, finalAnswer) {
   return parts.join('\n\n')
 }
 
-// Zero-pad the round so the section glob sorts in round order for the assembly.
-const sectionFile = (round) => `${workDir}/answer-section-${String(round).padStart(3, '0')}.md`
-
-// Write ONE round's section to its own small file (Haiku-safe — just this round).
-async function writeSection(entry) {
-  const text = roundSection(entry)
-  const path = sectionFile(entry.round)
-  const p = `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
-
-1. Ensure the scratch dir exists: \`mkdir -p ${shq(workDir)}\`.
-2. Using the Write tool, create \`${path}\` with EXACTLY this content, overwriting any existing file:
-
-${text}`
-  return agent(p, { label: `section:round${entry.round}`, phase: 'Reconcile', model: mechModel })
-}
-
-// ---------------------------------------------------------------------------
-// Set up scratch — clear any stale per-round sections from a PRIOR debate in this
-// worktree so they don't leak into the assembled transcript. Scoped to the
-// answer-section files; the review mode's section-NNN.md and the verdict/answer
-// JSONs keep their own lifecycle.
-// ---------------------------------------------------------------------------
 phase('Answer')
-await agent(
-  `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`mkdir -p -- ${shq(workDir)} && rm -f -- ${shq(workDir)}/answer-section-*.md\`. Do not edit any other file. Do not run git.`,
-  { label: 'sections:reset', phase: 'Answer', model: mechModel },
-)
 
 const transcript = []
 let status = 'consensus'
@@ -431,7 +403,6 @@ for (let round = 1; ; round++) {
     ? { round, claude, codex, confirming: true, candidate: pendingCandidate }
     : { round, claude, codex }
   transcript.push(entry)
-  await writeSection(entry)
 
   // CONFIRMATION phase: both sides judged the SAME synthesized candidate. If both
   // approve it (agreesWithOther:true + no objections), that candidate is the agreed,
