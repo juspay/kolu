@@ -28,6 +28,7 @@ function ctx(overrides: Partial<PrGitContext> = {}): PrGitContext {
   return {
     repoRoot: "/repo",
     branch: "feature",
+    remoteUrl: null,
     ...overrides,
   };
 }
@@ -257,6 +258,98 @@ describe("subscribePr", () => {
       // pending state, so the consumer legitimately sees nothing at all — the
       // load-bearing assertion is that no PR landed.)
       expect(seen.some((p) => p.kind === "ok")).toBe(false);
+    } finally {
+      watcher.stop();
+    }
+  });
+
+  it("re-resolves and re-emits pending on a remoteUrl-only change", async () => {
+    // A `git remote set-url` changes only `remoteUrl` (same repoRoot/branch).
+    // An upstream dispatcher routes to a forge by the remote's host, so this
+    // must NOT dedup — it has to re-resolve, and emit pending in the meantime
+    // so a stale forge's PR doesn't linger while the new resolve is in flight.
+    const seenCtx: PrGitContext[] = [];
+    const seen: PrResult[] = [];
+    const provider: PrProvider = {
+      kind: "github",
+      resolve: async (g) => {
+        seenCtx.push(g);
+        return { kind: "absent" };
+      },
+    };
+    const watcher = subscribePr(provider, (pr) => seen.push(pr));
+
+    try {
+      watcher.setGit(ctx({ remoteUrl: "https://github.com/owner/repo.git" }));
+      await settle();
+      const before = seenCtx.length;
+      watcher.setGit(ctx({ remoteUrl: "https://codeberg.org/owner/repo.git" }));
+      await settle();
+
+      // A fresh resolve happened with the new remote.
+      expect(seenCtx.length).toBe(before + 1);
+      expect(seenCtx.at(-1)?.remoteUrl).toBe(
+        "https://codeberg.org/owner/repo.git",
+      );
+      // Pending was re-emitted on the change (before the resolve landed).
+      expect(seen.some((p) => p.kind === "pending")).toBe(true);
+    } finally {
+      watcher.stop();
+    }
+  });
+
+  it("drops a stale in-flight resolve when the remote changes mid-flight", async () => {
+    // A resolve against remote A is slow; while it's pending the remote is
+    // switched to B and B resolves first. A's late result must NOT overwrite
+    // B's — the stale-result guard gates on the full context, remoteUrl
+    // included.
+    const deferred = new Map<string, (pr: PrResult) => void>();
+    const provider: PrProvider = {
+      kind: "github",
+      resolve: (g) =>
+        new Promise<PrResult>((resolve) => {
+          deferred.set(g.remoteUrl ?? "", resolve);
+        }),
+    };
+    const seen: PrResult[] = [];
+    const watcher = subscribePr(provider, (pr) => seen.push(pr));
+    const remoteA = "https://github.com/owner/repo.git";
+    const remoteB = "https://codeberg.org/owner/repo.git";
+
+    try {
+      watcher.setGit(ctx({ remoteUrl: remoteA })); // floats resolve(A)
+      watcher.setGit(ctx({ remoteUrl: remoteB })); // floats resolve(B)
+      await settle();
+
+      const prB: PrResult = {
+        kind: "ok",
+        value: {
+          number: 2,
+          title: "B",
+          url: "u",
+          state: "open",
+          checks: null,
+          checkRuns: [],
+        },
+      };
+      deferred.get(remoteB)?.({ ...prB });
+      await settle();
+      deferred.get(remoteA)?.({
+        kind: "ok",
+        value: {
+          number: 1,
+          title: "A",
+          url: "u",
+          state: "open",
+          checks: null,
+          checkRuns: [],
+        },
+      });
+      await settle();
+
+      const last = seen.at(-1);
+      expect(last?.kind).toBe("ok");
+      if (last?.kind === "ok") expect(last.value.number).toBe(2);
     } finally {
       watcher.stop();
     }

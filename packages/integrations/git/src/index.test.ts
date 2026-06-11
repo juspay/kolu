@@ -25,6 +25,10 @@ import {
   it,
 } from "vitest";
 import {
+  _resetSharedConfigWatchers,
+  _sharedConfigWatcherCount,
+} from "./config-watcher.ts";
+import {
   _resetSharedCwdGitWatchers,
   _sharedCwdGitWatcherCount,
 } from "./cwd-git-watcher.ts";
@@ -42,6 +46,7 @@ import {
   resolveGitInfo,
   resolveUnder,
   subscribeGitInfo,
+  watchGitConfig,
   watchGitHead,
   worktreeCreate,
 } from "./index.ts";
@@ -349,6 +354,7 @@ describe("gitInfoEqual", () => {
     branch: "main",
     isWorktree: false,
     mainRepoRoot: "/home/user/repo",
+    remoteUrl: null,
   };
 
   it("returns true for identical references", () => {
@@ -373,6 +379,9 @@ describe("gitInfoEqual", () => {
     { field: "repoRoot", value: "/other" },
     { field: "branch", value: "develop" },
     { field: "worktreePath", value: "/other" },
+    // remoteUrl is compared so a `git remote set-url` re-triggers the
+    // downstream forge dispatch.
+    { field: "remoteUrl", value: "https://github.com/o/r.git" },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(gitInfoEqual(info, { ...info, [field]: value })).toBe(false);
   });
@@ -890,6 +899,149 @@ describe("watchGitHead", () => {
   );
 });
 
+// --- watchGitConfig: refcounted shared `.git/config` watcher ---
+
+describe("watchGitConfig", () => {
+  let tmpDir: string;
+
+  /** Create a git repo with one commit so `git worktree add` works. */
+  async function initRepo(name: string) {
+    const dir = path.join(tmpDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(dir, "file.txt"), "hello");
+    await git.add(".");
+    await git.commit("initial");
+    return { dir, git };
+  }
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-config-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    // Same module-scope leak break as the `watchGitHead` describe (#955).
+    _resetSharedConfigWatchers();
+  });
+
+  afterEach(() => {
+    expect(_sharedConfigWatcherCount()).toBe(0);
+  });
+
+  it("returns a no-op for non-git directories", () => {
+    const dir = path.join(tmpDir, "no-git");
+    fs.mkdirSync(dir, { recursive: true });
+    const stop = watchGitConfig(dir, () => {});
+    expect(_sharedConfigWatcherCount()).toBe(0);
+    stop(); // must not throw
+  });
+
+  it("refcount goes 0→1→0 across subscribe/unsubscribe", async () => {
+    const { dir } = await initRepo("config-refcount");
+    expect(_sharedConfigWatcherCount()).toBe(0);
+    const stop = watchGitConfig(dir, () => {});
+    expect(_sharedConfigWatcherCount()).toBe(1);
+    stop();
+    expect(_sharedConfigWatcherCount()).toBe(0);
+  });
+
+  it("worktrees of the same repo collapse to one config handle", async () => {
+    // `config` lives in the COMMON git dir, so every worktree resolves to
+    // the same `--git-common-dir` and dedupes to a single OS handle —
+    // unlike HEAD, which is per-worktree.
+    const { dir, git } = await initRepo("config-shared-repo");
+    const worktreeDir = path.join(tmpDir, "config-shared-worktree");
+    await git.raw(["worktree", "add", "-b", "feature", worktreeDir]);
+
+    const stopMain = watchGitConfig(dir, () => {});
+    const stopWorktree = watchGitConfig(worktreeDir, () => {});
+    expect(_sharedConfigWatcherCount()).toBe(1);
+    stopMain();
+    expect(_sharedConfigWatcherCount()).toBe(1);
+    stopWorktree();
+    expect(_sharedConfigWatcherCount()).toBe(0);
+  });
+});
+
+// --- subscribeGitInfo's in-repo branch installs BOTH HEAD and config ---
+
+describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo dual watcher", () => {
+  let tmpDir: string;
+
+  async function initRepo(name: string) {
+    const dir = path.join(tmpDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(dir, "file.txt"), "hello");
+    await git.add(".");
+    await git.commit("initial");
+    return { dir, git };
+  }
+
+  async function waitFor(
+    predicate: () => boolean,
+    timeout = 2000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (predicate()) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error(
+      `waitFor: predicate did not become true within ${timeout}ms`,
+    );
+  }
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-dual-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    _resetSharedHeadWatchers();
+    _resetSharedConfigWatchers();
+  });
+
+  afterEach(() => {
+    expect(_sharedHeadWatcherCount()).toBe(0);
+    expect(_sharedConfigWatcherCount()).toBe(0);
+  });
+
+  // The in-repo branch of `subscribeGitInfo` installs HEAD (branch identity)
+  // and config (remote URL) together, and retires both on stop — so a
+  // `git remote set-url` can re-resolve `remoteUrl` without a branch switch.
+  it("in-repo subscribe installs HEAD + config, stop retires both", async () => {
+    const { dir } = await initRepo("dual-in-repo");
+
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(dir, (info) => {
+      updates.push(info);
+    });
+
+    // Synchronous install in head mode brings up both shared watchers.
+    expect(_sharedHeadWatcherCount()).toBe(1);
+    expect(_sharedConfigWatcherCount()).toBe(1);
+
+    await waitFor(() => updates.length >= 1);
+
+    sub.stop();
+
+    expect(_sharedHeadWatcherCount()).toBe(0);
+    expect(_sharedConfigWatcherCount()).toBe(0);
+  });
+});
+
 // --- subscribeGitInfo: watcher lifecycle invariants (#748 regression) ---
 
 describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
@@ -935,11 +1087,13 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     // See companion comment in the `watchGitHead` describe — module-scope
     // registry reset breaks the leak-cascade (#955).
     _resetSharedHeadWatchers();
+    _resetSharedConfigWatchers();
     _resetSharedCwdGitWatchers();
   });
 
   afterEach(() => {
     expect(_sharedHeadWatcherCount()).toBe(0);
+    expect(_sharedConfigWatcherCount()).toBe(0);
     expect(_sharedCwdGitWatcherCount()).toBe(0);
   });
 

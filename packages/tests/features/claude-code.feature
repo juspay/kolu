@@ -130,6 +130,18 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "awaiting_user"
     And there should be no page errors
 
+  Scenario: A v2.1.173 AskUserQuestion footer (with the notes hint) still promotes to awaiting
+    # claude-code v2.1.173 inserted a `· n to add notes` segment into the footer,
+    # between `to navigate` and `Esc to cancel`. The old marker required those two
+    # adjacent, so the prompt silently stopped promoting and the dock looked idle
+    # with a question on screen. kolu now keys on the footer's `·` separators and
+    # tolerates the intervening segment — the awaiting promotion fires again.
+    When a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When the terminal renders a Claude AskUserQuestion prompt with a notes hint
+    Then the tile chrome should show an agent indicator with state "awaiting_user"
+    And there should be no page errors
+
   Scenario: A tool-permission prompt on screen promotes tool_use to awaiting (screen scrape, #905)
     # A permission gate (Write/Edit/Bash/WebFetch approval) is on screen while the
     # tool call sits on disk, so the session reads as `tool_use`. kolu recognizes

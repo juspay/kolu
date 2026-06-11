@@ -42,7 +42,15 @@ function gitContextEqual(
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.repoRoot === b.repoRoot && a.branch === b.branch;
+  // `remoteUrl` is part of the resolve context: an upstream dispatcher routes
+  // to a forge by the remote's host, so a remote-only change (`git remote
+  // set-url`) must re-resolve and re-dispatch. Omitting it here would leave a
+  // stale forge selection stuck until a branch/repo switch.
+  return (
+    a.repoRoot === b.repoRoot &&
+    a.branch === b.branch &&
+    a.remoteUrl === b.remoteUrl
+  );
 }
 
 /** Subscribe to PR changes for a terminal. `provider` is the single
