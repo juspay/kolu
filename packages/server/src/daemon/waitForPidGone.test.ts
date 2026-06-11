@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  pidIsAlive,
-  type WaitForPidGoneResult,
-  waitForPidGone,
-} from "./waitForPidGone.ts";
+import { type WaitForPidGoneResult, waitForPidGone } from "./waitForPidGone.ts";
 
 /** An `isAlive` that reports "alive" for the first `n` probes, then "gone". */
 function aliveForProbes(n: number): {
@@ -81,17 +77,6 @@ describe("waitForPidGone", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  describe("pidIsAlive", () => {
-    it("reports the current process as alive", () => {
-      expect(pidIsAlive(process.pid)).toBe(true);
-    });
-
-    it("reports a certainly-dead pid as gone (ESRCH)", () => {
-      // PID_MAX is 2^22 on Linux; this pid cannot exist.
-      expect(pidIsAlive(0x7fffffff)).toBe(false);
-    });
   });
 
   afterEach(() => {

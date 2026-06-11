@@ -22,8 +22,10 @@
  * swap ≫ 30s), never an idle dev one (hard constraint #3 of the postmortem).
  */
 
+import { pidIsAlive } from "kolu-shared";
+
 /** A process-liveness probe. Injectable so the barrier is unit-testable without
- *  spawning real processes; the default uses `kill(pid, 0)`. */
+ *  spawning real processes; the default uses `kill(pid, 0)` (`pidIsAlive`). */
 export type IsAlive = (pid: number) => boolean;
 
 export interface WaitForPidGoneOptions {
@@ -39,22 +41,6 @@ export interface WaitForPidGoneOptions {
 }
 
 export type WaitForPidGoneResult = "gone" | "timeout";
-
-/** The default `kill(pid, 0)` liveness probe — see the module comment for the
- *  errno classification. Exported so callers that only need a one-shot check
- *  (e.g. a pid-file staleness probe) share the exact same semantics. */
-export function pidIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ESRCH") return false; // no such process — gone
-    // EPERM (exists, not ours) and anything unexpected: assume alive, so we
-    // never respawn over a process that might still hold the lock.
-    return true;
-  }
-}
 
 const realSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));

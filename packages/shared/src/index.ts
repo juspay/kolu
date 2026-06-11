@@ -6,4 +6,11 @@
  *  WAL subscriptions). The agent-specific contracts live in `anyagent`. */
 
 export type { Logger } from "./log.ts";
+export {
+  type AcquirePidGateResult,
+  acquirePidGate,
+  type PidGate,
+  pidIsAlive,
+  readPidGate,
+} from "./pid.ts";
 export { readTailLines, type TailReadConfig } from "./tail-lines.ts";
