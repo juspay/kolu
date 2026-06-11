@@ -138,7 +138,7 @@ export interface CommandDeps extends ActionContext {
   // Debug
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
-  /** Restart the surviving pty-host daemon to adopt a freshly-deployed build. */
+  /** Restart the kolu daemon to adopt a freshly-deployed build. */
   handleRestartPtyHost: () => void;
   /** Download the saved session as JSON (diagnostic backup). */
   handleExportSession: () => void;
@@ -432,7 +432,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         },
         {
           kind: "action",
-          name: "Restart pty-host daemon",
+          name: "Restart kolu daemon",
           description: "Adopt a freshly-deployed build (session is preserved)",
           onSelect: () => deps.handleRestartPtyHost(),
         },

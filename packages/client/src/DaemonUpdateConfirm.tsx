@@ -1,4 +1,4 @@
-/** Confirmation for restarting the surviving pty-host daemon.
+/** Confirmation for restarting the kolu daemon (the surviving terminal host).
  *
  *  The restart is destructive — it ends every running shell and agent — so
  *  both entry points (the rail's `⬆ update pending` badge and the command
@@ -33,14 +33,14 @@ const DaemonUpdateConfirm: Component<{
         data-testid="daemon-update-confirm"
       >
         <Dialog.Label class="font-semibold text-fg">
-          Restart the pty-host daemon?
+          Restart the kolu daemon?
         </Dialog.Label>
 
         <div class="space-y-2 text-fg-2">
           <p>
-            Your terminals survived recent deploys, so this daemon is still
-            running the pty-host code it started with — and a newer build is now
-            deployed. Restart to adopt it (pty-host fixes and features).{" "}
+            Your terminals survived recent deploys, so the kolu daemon is still
+            running the code it shipped with — and a newer build is now
+            deployed. Restart to adopt it.{" "}
             <b class="text-fg-2">It's optional</b> — the current daemon keeps
             working until you do.
           </p>

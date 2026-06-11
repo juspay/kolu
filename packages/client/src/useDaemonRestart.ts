@@ -1,6 +1,6 @@
 /** Daemon-restart workflow — singleton module.
  *
- *  Owns the multi-step "restart the surviving pty-host daemon" action that
+ *  Owns the multi-step "restart the kolu daemon" action that
  *  the rail's `⬆ update pending` badge and the command palette both trigger.
  *  Because the restart is **destructive** (it ends every running shell and
  *  agent — they re-spawn from the saved session as fresh shells), both entry
@@ -13,7 +13,7 @@
  *  shell (per solidjs.md) and just wires `requestRestart` into the command
  *  deps; commands.tsx stays declarative.
  *
- *  Restart the surviving pty-host daemon to pick up a freshly-deployed build.
+ *  Restart the kolu daemon to pick up a freshly-deployed build.
  *  The server snapshots + re-saves the session around the restart, so a reload
  *  restores cleanly; a failure leaves the saved session intact (recoverable),
  *  never an empty canvas.
@@ -33,18 +33,21 @@ const [confirmOpen, setConfirmOpen] = createSignal(false);
 
 export function useDaemonRestart() {
   function restartPtyHost() {
-    const toastId = toast.loading("Restarting the pty-host daemon…");
+    const toastId = toast.loading("Restarting the kolu daemon…");
     const failed = (detail: string) =>
-      toast.error(`Daemon restart failed — your session is saved. ${detail}`, {
-        id: toastId,
-        duration: Number.POSITIVE_INFINITY,
-        action: { label: "Try again", onClick: () => restartPtyHost() },
-      });
+      toast.error(
+        `kolu daemon restart failed — your session is saved. ${detail}`,
+        {
+          id: toastId,
+          duration: Number.POSITIVE_INFINITY,
+          action: { label: "Try again", onClick: () => restartPtyHost() },
+        },
+      );
     void client.server
       .restartPtyHost()
       .then((res) => {
         if (res.ok) {
-          toast.success("pty-host daemon restarted — reloading", {
+          toast.success("kolu daemon restarted — reloading", {
             id: toastId,
           });
           location.reload();

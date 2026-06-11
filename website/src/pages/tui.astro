@@ -79,8 +79,9 @@ const escapes = [
       <code class="mono text-ink">nix run github:juspay/kolu</code> starts and
       your browser points at — over a local unix socket, and drives the very
       same terminals the browser shows: list them, dump their scrollback, or
-      attach and type. The CLI comes and goes; the server keeps owning the
-      terminals.
+      attach and type. The CLI comes and goes; the{" "}
+      <span class="text-ink">kolu daemon</span> keeps owning the terminals (more
+      below).
     </p>
     <p class="mono text-ink-faint text-sm leading-relaxed mt-7">
       // start the server first, then:{" "}
@@ -88,6 +89,33 @@ const escapes = [
       <br />
       <span class="text-ink-faint">
         the home-manager module installs it next to the server automatically.
+      </span>
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">the kolu daemon</p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+      Your terminals don't live in kolu-server or in kolu-tui — they live in the{" "}
+      <span class="text-ink">kolu daemon</span>, a background process that owns
+      the PTYs (your shells and agents) and the headless screen mirror. The
+      browser (through kolu-server) and kolu-tui are both just <em>clients</em>{" "}
+      of it, attached over the same local socket.
+    </p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mt-4">
+      That's why restarting kolu-server — every deploy —{" "}
+      <span class="text-ink">no longer kills your terminals</span>: the daemon
+      keeps running in its own cgroup, and the fresh server reconnects to the
+      live PTYs by id, scrollback and running agents intact. Detach kolu-tui,
+      redeploy, re-attach — you're back on the same shell.
+    </p>
+    <p class="mono text-ink-faint text-sm leading-relaxed mt-5">
+      // the identity rail names all three:{" "}
+      <code class="text-ink">SRV ● … · DAEMON ● … · CLIENT ● …</code>
+      <br />
+      <span class="text-ink-faint">
+        when the daemon is a build behind a deploy it says so — and one click
+        restarts it.
       </span>
     </p>
   </section>
@@ -142,17 +170,14 @@ const escapes = [
         <code class="mono text-ink">$XDG_RUNTIME_DIR/kolu/pty-host.sock</code>{" "}
         (falling back to{" "}
         <code class="mono text-ink">/tmp/kolu-$UID/pty-host.sock</code>) and
-        appears when kolu-server boots. Point at a non-default server with{" "}
+        appears when the daemon binds it. Point at a non-default server with{" "}
         <code class="mono text-ink">--pty-host-socket &lt;path&gt;</code> —
         same flag on the server.
       </li>
       <li>
         Detach is <span class="text-ink">client-side</span>: the CLI can come
-        and go while the server holds the terminal. And since the pty-host
-        daemon landed, restarting kolu-server{" "}
-        <span class="text-ink">keeps its terminals too</span> — they live in a
-        surviving daemon the restarted server reconnects to, by id, with
-        scrollback intact.
+        and go while the kolu daemon holds the terminal — restart kolu-server in
+        between and you re-attach to the same live shell.
       </li>
       <li>
         When the program inside exits, kolu-tui exits with the same code.

@@ -1,13 +1,13 @@
 /** IdentityRail — the consolidated "which kolu am I running" chrome readout
- *  (R-4 A2 + B). A `srv · pty · client` rail: `srv` is the server you're
- *  connected to (its commit + the WebSocket liveness dot), `pty` is the
- *  surviving pty-host daemon serving your terminals (its commit + the
- *  closure-hash build, from surface-app's `buildInfo` cell's `ptyHost` axis),
+ *  (R-4 A2 + B). A `srv · daemon · client` rail: `srv` is the server you're
+ *  connected to (its commit + the WebSocket liveness dot), `daemon` is the
+ *  kolu daemon — the surviving process that hosts your terminals (its commit +
+ *  the closure-hash build, from surface-app's `buildInfo` cell's `ptyHost` axis),
  *  and `client` is the commit this browser's JS was built from.
  *
- *  A2 built the rail in its final two-column shape while the pty-host was
+ *  A2 built the rail in its final two-column shape while the daemon was
  *  in-process (the columns always coincided — the acceptance signal). Phase B
- *  gives `pty` a separate, surviving process, so the columns can now DIVERGE: a
+ *  gives `daemon` a separate, surviving process, so the columns can now DIVERGE: a
  *  deploy restarts the server but the old daemon lives on, a build behind, until
  *  it's restarted. The rail makes that honest — `≡ current` when the daemon is
  *  the deployed build, `⬆ update pending` when it's older — with no re-layout,
@@ -66,8 +66,8 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const { requestRestart } = useDaemonRestart();
 
   // One app-owned clock ticks both uptimes together. `srv` resets every
-  // restart; `pty` survives one — so `pty up 3h` beside `srv up 2m` is the
-  // honest, glanceable proof the daemon outlived the server.
+  // restart; the `daemon` survives one — so `daemon up 3h` beside `srv up 2m`
+  // is the honest, glanceable proof the daemon outlived the server.
   const now = useNow();
   const srvUptime = () => formatUptime(pwa.server()?.srvStartedAt, now());
   const ptyUptime = () => formatUptime(pwa.server()?.ptyStartedAt, now());
@@ -115,8 +115,8 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           own transport/reachability dot, separate from the build-currency dot
           below. */}
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
-        <span class="text-[9px] uppercase tracking-wide text-fg-3">pty</span>
-        <Tip label="Terminal-host daemon (survives a server restart)">
+        <span class="text-[9px] uppercase tracking-wide text-fg-3">daemon</span>
+        <Tip label="The kolu daemon — hosts your terminals, survives a server restart">
           <span
             data-pty-state={ptyState()}
             class={`inline-block h-[7px] w-[7px] rounded-full ${ptyDot[ptyState()]}`}
@@ -137,7 +137,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         <Show when={ptyUptime()}>
           {(label) => (
             <Tip
-              label={`Daemon up since ${bootLabel(pwa.server()?.ptyStartedAt) ?? "—"} — survives a server restart`}
+              label={`kolu daemon up since ${bootLabel(pwa.server()?.ptyStartedAt) ?? "—"} — survives a server restart`}
             >
               <span class="tabular-nums text-[10px] text-fg-3">{label()}</span>
             </Tip>
@@ -152,7 +152,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         </Tip>
       </Show>
       <Show when={ptyState() === "outdated"}>
-        <Tip label="A surviving daemon is a build behind — click to restart it and pick up the deployed pty-host.">
+        <Tip label="The kolu daemon is a build behind — click to restart it and pick up the deployed build.">
           <button
             type="button"
             data-testid="rail-update-pending"
