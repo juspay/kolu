@@ -5,7 +5,7 @@ kind: feature
 status: implemented
 maturity: budding
 parents: [second-brain, video-evidence]
-updated: 2026-06-07
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -157,7 +157,7 @@ The manifest is served `standalone` with 192/512 icons, assembled by
 `...extra` passthrough accepts the missing fields — so enriching it is just
 passing **`description`** and a **maskable** 512px icon (logo inside the safe
 zone on the brand background) at the call site
-(<Cite file="packages/server/src/index.ts" lines="223" />). *No* `screenshots`:
+(<Cite file="packages/server/src/index.ts" lines="254" />). *No* `screenshots`:
 they only prettify the install card (install works without them) and committed
 product shots go stale as the UI moves — not worth the maintenance. Validate via
 **DevTools → Application → Manifest** — Lighthouse's PWA audit is deprecated.
@@ -292,8 +292,7 @@ in one scroll. The sections keep their skill-ladder shape and stable anchors:
 Every in-app card and empty-state hint **deep-links to the matching anchor** on
 the home page — <Cite file="packages/client/src/WelcomeMoments.tsx" /> points
 `GUIDE_URL` at `https://kolu.dev` and links `#remote` etc. directly. This page
-stays the single source of truth, kept in sync with in-app copy and the README
-(per <Cite file=".claude/rules/workflow.md" />).
+stays the single source of truth, kept in sync with in-app copy and the README.
 
 <Callout kind="good" title="The Tailscale walkthrough (the one to get exactly right)">
 1. Install Tailscale on the dev box **and** the phone/laptop; sign both into the **same account**.<br/>
@@ -448,7 +447,7 @@ declarative display properties.
 | In-app welcome | <Cite file="packages/client/src/WelcomeMoments.tsx" /> | The 3 moments + the `@kolu/solid-pwa-install` card; `GUIDE_URL` → `kolu.dev` deep-links |
 | Re-open command | <Cite file="packages/client/src/input/actions.ts" />, <Cite file="packages/client/src/commands.tsx" /> | "Tutorial" action + palette entry — re-summons the welcome as an overlay |
 | Discoverability tip | <Cite file="packages/client/src/settings/tips.ts" />, <Cite file="packages/client/src/settings/useTips.ts" /> | Tip pointing at "Tutorial"; drop the PWA tip on an insecure origin. **No** `welcomeSeen` |
-| Manifest call-site | <Cite file="packages/server/src/index.ts" lines="223" /> | Pass `description` + maskable icon into `installPwaManifest` |
+| Manifest call-site | <Cite file="packages/server/src/index.ts" lines="254" /> | Pass `description` + maskable icon into `installPwaManifest` |
 | Home page | <Cite file="website/src/pages/index.astro" /> | The folded-in skill-ladder guide + the hero demo embed |
 | Recording | <Cite file="packages/tests/screencast/recordings" /> | `hero-demo.recording.ts` + shared `helpers.ts` |
 

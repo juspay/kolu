@@ -5,7 +5,7 @@ kind: feature
 status: implemented
 maturity: seedling
 parents: [electricity]
-updated: 2026-06-05
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -72,7 +72,7 @@ browser, and today it is complected across five files:
 | Smeared across | Owns (a browser organ) |
 | --- | --- |
 | `right-panel/openInCodeTab.ts` <Cite file="packages/client/src/right-panel/openInCodeTab.ts" lines="78-85" /> | The **address bar** — the single "navigate to this location" front door. |
-| `right-panel/CodeTab.tsx` <Cite file="packages/client/src/right-panel/CodeTab.tsx" lines="408-430" /> | `handleSelect` — the **navigation controller** (apply a location to the view). |
+| `right-panel/CodeTab.tsx` <Cite file="packages/client/src/right-panel/CodeTab.tsx" lines="515-542" /> | `handleSelect` — the **navigation controller** (apply a location to the view). |
 | `right-panel/markdownImageSrc.ts` → now `solid-browser/src/relativePath.ts` <Cite file="packages/solid-browser/src/relativePath.ts" /> | **Relative-link resolution** (GitHub rules) — agnostic URI math. |
 | `right-panel/iframePreviewNav.ts` → now `solid-browser/src/previewPath.ts` <Cite file="packages/solid-browser/src/previewPath.ts" /> | **In-frame link interception** — map an iframe `pathname` back to a location. |
 | `right-panel/BrowseIframeRenderer.tsx` <Cite file="packages/client/src/right-panel/BrowseIframeRenderer.tsx" lines="56-64" /> | **In-iframe link observation** — a navigation edge *out* of rendered HTML (the iframe *drawing* is already `@kolu/solid-fileview`'s). |
@@ -205,7 +205,7 @@ not yet proven electricity" — drishti is cited there as the *proof* `@kolu/sur
 was real, not its point. Until a second app actually plugs a different `resolve`
 into `@kolu/solid-browser`, this is an **extraction with a credible graduation
 path**, not a closed case. The honest framing is "the Code tab is a browser; here
-is the seam that lets it leave." **Update (phase 2):** [`example/docsite`](https://github.com/juspay/kolu/tree/md-back-link/packages/solid-browser/example/docsite)
+is the seam that lets it leave." **Update (phase 2):** [`example/docsite`](https://github.com/juspay/kolu/tree/master/packages/solid-browser/example/docsite)
 is now a standalone second host reusing `createBrowser` — in-repo proof of reuse,
 exactly the bar `@kolu/surface`'s own examples clear. A different *application*
 injecting its own `resolve` remains the closing argument.
@@ -246,11 +246,11 @@ originating discussion):
 - **Unified history, one stack.** Because `targetMode` lives *inside* the
   location, back/forward cross `browse`/`local`/`branch` naturally — exactly
   browser behavior. The per-mode `selectedFileByMode`
-  <Cite file="packages/client/src/right-panel/useRightPanel.ts" lines="209-210" />
+  <Cite file="packages/client/src/right-panel/useRightPanel.ts" lines="326-344" />
   becomes a *derived view* of "current location filtered to this mode," not the
   source of truth.
 - **Tree clicks count as navigation.** `handleSelect`
-  <Cite file="packages/client/src/right-panel/CodeTab.tsx" lines="408-430" />
+  <Cite file="packages/client/src/right-panel/CodeTab.tsx" lines="515-542" />
   routes through `navigate()`, so back returns to the previously-viewed file no
   matter how you reached the current one.
 - **Restore where you *were*, not just what.** A faithful entry is
@@ -271,7 +271,7 @@ originating discussion):
 
 | Package | Contents |
 | --- | --- |
-| `packages/solid-browser` <Pill variant="ok">phases 1 + 2</Pill> | Shipped: `relativePath.ts` + `previewPath.ts` (phase 1) and `createBrowser.ts` — the generic reactive **history** controller (phase 2) — with 42 unit tests + a standalone [`example/docsite`](https://github.com/juspay/kolu/tree/md-back-link/packages/solid-browser/example/docsite) second host. deps: `@kolu/url-shape` (the DOM-free `hasOwnScheme` leaf) + `solid-js` (`createBrowser`'s reactive stack). `<Browser>` composing `<FileView>` stays **deferred** (see the phase-2 as-built callout). Zero kolu imports; builds + tests standalone. |
+| `packages/solid-browser` <Pill variant="ok">phases 1 + 2</Pill> | Shipped: `relativePath.ts` + `previewPath.ts` (phase 1) and `createBrowser.ts` — the generic reactive **history** controller (phase 2) — with 42 unit tests + a standalone [`example/docsite`](https://github.com/juspay/kolu/tree/master/packages/solid-browser/example/docsite) second host. deps: `@kolu/url-shape` (the DOM-free `hasOwnScheme` leaf) + `solid-js` (`createBrowser`'s reactive stack). `<Browser>` composing `<FileView>` stays **deferred** (see the phase-2 as-built callout). Zero kolu imports; builds + tests standalone. |
 
 **kolu — the consumer, now just git + chrome:**
 
@@ -317,7 +317,7 @@ a rendering one.)*
 | --- | --- | --- |
 | **1 · Extract the primitives** <Pill variant="ok">shipped</Pill> <PrLink pr={1191} /> | `@kolu/solid-browser` = `relativePath` + `previewPath` over the `@kolu/url-shape` leaf. kolu re-consumes: `markdownImageSrc` delegates resolution, `BrowseIframeRenderer` binds the `previewPathCodec`, `BrowseFileDispatcher` imports `resolveLinkHref`. **Behavior-preserving** — the two nav paths stay distinct. | Low — pure-move + delegation, unit- + e2e-covered. |
 | **2 · The browser proper + back/forward** <Pill variant="ok">shipped</Pill> <PrLink pr={1191} /> | `createBrowser<L>()` — the generic reactive **history** controller (`navigate`/`back`/`forward`/`current`/`canBack`/`canForward`; forward-truncation; idempotent on same entry). kolu wires it into `useRightPanel`/`CodeTab`: every selection is **recorded**, ◀ ▶ buttons + scoped `Alt+←/→` re-apply, cheap-v1 re-highlight rides the front door. **As-built deltas** (callout below): history is *additive* over `selectedFileByMode` (still the render truth), mode-chips don't record, `<Browser>`/`gitResolver`/unified `navigate` deferred. | Medium — live-surface refactor; the audit + the #818 regression suite guard the selection invariants. |
-| **3 · Prove ③** <Pill variant="warn">in-repo demo landed</Pill> | [`example/docsite`](https://github.com/juspay/kolu/tree/md-back-link/packages/solid-browser/example/docsite) — a standalone doc browser over its own `{ slug }` location — reuses `createBrowser` unchanged (built + tested in CI). In-repo proof of reuse, exactly the bar `@kolu/surface`'s examples clear; a *different application* injecting its own `resolve` (drishti, an artifact viewer) is still the closing argument. | Low — pure-logic reuse. |
+| **3 · Prove ③** <Pill variant="warn">in-repo demo landed</Pill> | [`example/docsite`](https://github.com/juspay/kolu/tree/master/packages/solid-browser/example/docsite) — a standalone doc browser over its own `{ slug }` location — reuses `createBrowser` unchanged (built + tested in CI). In-repo proof of reuse, exactly the bar `@kolu/surface`'s examples clear; a *different application* injecting its own `resolve` (drishti, an artifact viewer) is still the closing argument. | Low — pure-logic reuse. |
 
 <Callout kind="note" title="As-built: phase 2 — the substance is the history controller, not a <Browser> shell">
 The adversarial audit (run before writing a line) reshaped phase 2 around what the

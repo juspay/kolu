@@ -2,10 +2,10 @@
 title: kolu Release Runbook
 description: Cut a release with `/release X.Y.Z` — tag master, promote the Unreleased changelog entry, GitHub release. The changelog is a website content collection the agent appends to per PR; kolu.dev renders it Unreleased-and-all.
 kind: reference
-status: proposed
+status: implemented
 maturity: seedling
 parents: [second-brain]
-updated: 2026-06-06
+updated: 2026-06-10
 ---
 
 import Cite from "../../components/Cite.astro";
@@ -77,4 +77,4 @@ Phases 1–3 are read-only; nothing is written before the go/no-go.
 
 ---
 
-*Status: `proposed`. Surface + rail stamp + `/release` skill landed in <PrLink pr={1208} />. First run: `/release 1.0.0`.*
+*Status: `implemented`. Surface + rail stamp + `/release` skill landed in <PrLink pr={1208} />. First run done: `/release 1.0.0` cut v1.0.0 on 2026-06-08 (tag `v1.0.0`, GitHub release, `kolu.dev/changelog`).*

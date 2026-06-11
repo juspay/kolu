@@ -12,6 +12,7 @@
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
     "./loopback": "./src/loopback.ts",
+    "./project": "./src/project.ts",
     "./server": "./src/server.ts",
     "./solid": "./src/solid/index.ts",
     "./links/websocket": "./src/links/websocket.ts",

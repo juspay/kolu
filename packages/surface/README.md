@@ -613,6 +613,44 @@ clients.kolu.cells.X.use(...)     // e.g. re-export `app = clients.kolu`, `surfa
 
 A cell whose value arrives **asynchronously at boot** (e.g. a build-identity axis resolved over a link *after* construction) declares an optional **`connect?(cell)`** in its impl deps; the runtime fires it once after wiring to republish the late value through the cell's normal `equals → onWrite → store.set → bus.publish` path — so the app never hand-writes a seed-then-`ctx.cells.X.set` dance.
 
+## Projection (a server that's a client)
+
+The links above move a surface *across* a boundary. `projectSurface` is orthogonal: it derives a **new** surface B whose handlers are implemented by *consuming* an existing surface A through a live client. B is "a server that's a client" — its cells, streams, and events are projections of A's, mapped on the fly. One source of truth (A), N projected faces (B…): a foreign protocol's surface (an MCP server), a public read-only mirror, a narrowed view for a less-trusted peer.
+
+`projectSurface` lives at the **`@kolu/surface/project` subpath** — not the browser-safe root, because it imports the server layer (`implementSurface`, `inMemoryCell`) to wire B's handlers.
+
+The canonical pattern: A is already implemented (`implementSurface` → `{ router }`); B's projection holds an in-process client of A, maps each frame with the `derive*` helpers, then is itself implemented and reached over a `directLink`.
+
+```ts
+import { projectSurface, surfaceClientRef, deriveCell, deriveStream } from "@kolu/surface/project";
+import { directLink } from "@kolu/surface/links/direct";
+
+// B is declared (not computed from A) — its spec plus a `deps` factory that,
+// given a live A-client, returns B's server impl deps. The derive helpers do
+// the mapping inside `deps`, each preserving its primitive's wire contract.
+const projected = projectSurface(appSurface, {
+  spec: { cells: { mirror: { /* … */ } }, streams: { view: { /* … */ } } },
+  deps: (a) => ({
+    channel: inMemoryChannelByName(),
+    cells:   { mirror: deriveCell((o) => a.surface.x.get(undefined, o), map, 0) },
+    streams: { view:   deriveStream((i, o) => a.surface.s.get(i, o), map) },
+  }),
+});
+
+// A is already implemented elsewhere → build an in-process client of it,
+// wire B against that client, and reach B over a direct link.
+const aClient = surfaceClientRef(appSurface, aRouter);
+const { router, ctx } = projected.implement(aClient);
+const bClient = directLink<typeof projected.surface.contract>(router);
+```
+
+- **`surfaceClientRef(A, router)`** — a surface-typed wrapper over `directLink` that gives B's handlers a live, in-process client of sibling surface A.
+- **`deriveCell` / `deriveStream` / `deriveEvent`** — map an upstream A primitive into the matching slot of B's `implementSurface` deps. `deriveCell` tracks A's snapshot-then-deltas and republishes the mapped value through B's cell; `deriveStream` preserves snapshot-then-deltas frame-by-frame; `deriveEvent` is the same wiring typed as an event (no snapshot obligation). Teardown is handled for you: B's abort signal threads into A's call and an abort-time upstream rejection is swallowed, so aborting a B subscription tears down the matching A subscription with no leak.
+
+### See also: `@kolu/surface-mcp`
+
+The sibling package [`@kolu/surface-mcp`](../surface-mcp) re-exposes any surface as an **MCP server** — point it at a live-surface client and a default-deny `expose` allowlist (each cell/stream/event a resource, each procedure a tool) plus optional bespoke `tools`, and `serveSurfaceAsMcp` builds the MCP server: the subscribe/teardown lifecycle, the zod→JSON-Schema bridge, and the resource/tool wiring are the package's. It's built on `projectSurface` for the curation step — shape a narrowed, observer-safe surface in surface-land, then expose *that*. See the package for full docs.
+
 ## API reference
 
 ### Descriptors (`@kolu/surface`)
@@ -674,6 +712,28 @@ interface Channel<T> {
   subscribe(signal?): AsyncIterable<T>
   consume({ onEvent, onError }): () => void  // subscribe + dispatch + auto-cleanup
 }
+```
+
+### Projection (`@kolu/surface/project`)
+
+Derive a surface B from a live client of surface A — a server that's a client (imports the server layer, so it's *not* on the browser-safe root). See [Projection](#projection-a-server-thats-a-client) above.
+
+```ts
+projectSurface(sourceSurface, { spec, deps }): {
+  surface: Surface<B>;                  // B's contract + descriptors — the contract side
+  implement: (aClient) => { router, ctx };  // wires B against a live A-client (feeds deps(aClient) to implementSurface)
+}
+  // deps: (aClient) => ImplementSurfaceDeps<B> — reach for the derive* helpers inside it
+
+surfaceClientRef(sourceSurface, router): SurfaceClientOf<S>
+  // an in-process, surface-typed client of a sibling surface from its served router
+  // (a thin wrapper over directLink) — what B's handlers consume
+
+deriveCell(upstream, map, initial): DerivedCellDeps<T> & { dispose }   // → cells.<key>
+deriveStream(upstream, map): StreamHandlerDeps<I, T>                   // → streams.<key>
+deriveEvent(upstream, map): EventHandlerDeps<I, T>                     // → events.<key>
+// upstream is a client streaming call ((input, { signal }) => Promise<AsyncIterable<F>>);
+// each helper threads B's abort into A's call and swallows the abort-time upstream rejection.
 ```
 
 ### Stdio transport (`@kolu/surface/links/stdio`, `@kolu/surface/loopback`, `@kolu/surface/peer-server`)

@@ -1,10 +1,10 @@
 ---
 title: A CI runner you attach to — graduating mini-ci beyond justci
-description: Every local CI tool runs your pipeline as a batch process and leaves you log files. mini-ci inverts that — the runner is a small live server that owns the pipeline as state, and your terminal and your coding agent attach to it over plain ssh. What that buys, what it costs — and Phase 1 — shipped in PR #1252 — which replaced justci in the kolu repo itself with the new package odu (Tamil for "run").
+description: 'Every local CI tool runs your pipeline as a batch process and leaves you log files. mini-ci inverts that — the runner is a small live server that owns the pipeline as state, and your terminal and your coding agent attach to it over plain ssh. What that buys, what it costs — and Phase 1 — shipped in PR #1252 — which replaced justci in the kolu repo itself with the new package odu (Tamil for "run").'
 kind: feature
 status: implemented
 maturity: seedling
-updated: 2026-06-09
+updated: 2026-06-10
 parents: [surface-app, electricity]
 ---
 
@@ -142,10 +142,10 @@ The plan to outgrow that is to **rebuild it on [OpenTUI](https://opentui.com/)**
 
 ### The agent face — MCP <Pill variant="ok">shipped</Pill>
 
-Shipped in <PrLink pr={3} repo="juspay/odu" /> (through the full codex + lens + police gauntlet, odu-on-odu CI green) and consumed here — kolu pins odu and re-exposes it as `nix run .#odu -- mcp`, with the `.mcp.json` entry deployed by apm. Because the runner already serves its surface over a byte pipe, an **MCP server is just another serve target**: `odu mcp` is *in-band* — like `odu status` / `logs` / `attach`, it dials the `.ci/odu.sock` the coordinator already serves and re-exposes that surface as MCP tools (a thin adapter over the official MCP TypeScript SDK, no second protocol). This hand-built face is the validated — and deliberately partial — prior art for the *generic* [@kolu/surface-mcp](./surface-mcp.html) package (<Issue n={982} />), which would extract the surface→MCP **lifecycle spine** (the subscribe/teardown dance, the zod→JSON-Schema bridge) for any surface, leaving each consumer its own tool-selection and guards. It **predetermines no host**: *which* boxes run the lanes is the coordinator's job — a linux box leased from the warm `kolu-ci-*` pool, a macos host from `hosts.json` — exactly as for the CLI, so the `.mcp.json` below is identical on every machine. Claude Code, Codex, opencode, or Gemini CLI then drive your CI with structured calls instead of scraping terminal output. Declare it over stdio — the transport everything else already rides:
+Shipped in <PrLink pr={3} repo="juspay/odu" /> (through the full codex + lens + police gauntlet, odu-on-odu CI green) and consumed here — kolu pins odu and re-exposes it as `nix run .#odu -- mcp`, with the `.mcp.json` entry deployed by apm. As of <PrLink pr={1271} /> the MCP face is the *only* way kolu's own CI is driven — the `ci/pu/run.sh` wrapper is gone, and the warm-pool lease became a standalone primitive (`ci/pu/lease.sh acquire/release/status`) an agent holds across tool calls. Because the runner already serves its surface over a byte pipe, an **MCP server is just another serve target**: `odu mcp` is *in-band* — like `odu status` / `logs` / `attach`, it dials the `.ci/odu.sock` the coordinator already serves and re-exposes that surface as MCP tools (a thin adapter over the official MCP TypeScript SDK, no second protocol). This hand-built face is the validated — and deliberately partial — prior art for the *generic* [@kolu/surface-mcp](./surface-mcp.html) package (<Issue n={982} />), which would extract the surface→MCP **lifecycle spine** (the subscribe/teardown dance, the zod→JSON-Schema bridge) for any surface, leaving each consumer its own tool-selection and guards. It **predetermines no host**: *which* boxes run the lanes is the coordinator's job — a linux box leased from the warm `kolu-ci-*` pool, a macos host from `hosts.json` — exactly as for the CLI, so the `.mcp.json` below is identical on every machine. Claude Code, Codex, opencode, or Gemini CLI then drive your CI with structured calls instead of scraping terminal output. Declare it over stdio — the transport everything else already rides:
 
 ```jsonc
-// .mcp.json (proposed) — Claude Code; Codex, opencode & Gemini CLI take the same shape
+// .mcp.json — Claude Code; Codex, opencode & Gemini CLI take the same shape (kolu's committed entry wraps this via the odu-mcp skill's bin/serve)
 { "mcpServers": { "odu": {
   "type": "stdio", "command": "nix",
   "args": ["run", "github:juspay/odu", "--", "mcp"] } } }
@@ -153,7 +153,7 @@ Shipped in <PrLink pr={3} repo="juspay/odu" /> (through the full codex + lens + 
 
 <Terminal title="claude — CI over the odu MCP server" lines={[
   `$ claude    # odu declared in .mcp.json — stdio, in-band`,
-  `# /mcp → odu · 4 tools: get_nodes tail_log rerun_node wait_for_settle`,
+  `# /mcp → odu · 5 tools: run get_nodes tail_log rerun_node wait_for_settle`,
   ` `,
   `user: kolu CI went red on linux — find the broken node, show why, rerun it.`,
   ` `,
@@ -175,10 +175,11 @@ Shipped in <PrLink pr={3} repo="juspay/odu" /> (through the full codex + lens + 
   `assistant: Green ✓ — monitor passed in 4.1s. The wire.ts fix cleared it.`,
 ]} />
 
-**The tools are the surface, one-to-one** — four MCP tools, three of them straight projections of the three primitives plus one blocking wait:
+**The tools are the surface, one-to-one** — five MCP tools: three straight projections of the three primitives, one blocking wait, plus `run` — the entry point that spawns the pipeline coordinator:
 
 | MCP tool | Surface call | What it returns |
 | --- | --- | --- |
+| `run()` | spawns the pipeline coordinator | Starts a pipeline run — since <PrLink pr={1271} />, the canonical way to start a kolu CI run. |
 | `get_nodes()` | `surface.nodes.get({})` — Cell | Every node's status / exit / duration in one structured snapshot. |
 | `tail_log({ id })` | `surface.nodeLog.get({ id })` — Stream | One node's buffered output so far — even a node that finished before the agent attached. |
 | `rerun_node({ id })` | `surface.node.rerun({ id })` — Procedure | The only mutation: reset a node + its transitive dependents and reschedule on the live DAG. |
@@ -192,7 +193,7 @@ Shipped in <PrLink pr={3} repo="juspay/odu" /> (through the full codex + lens + 
 
 ### A browser face — the surface allows it, a CLI doesn't need it <Pill variant="todo">latent</Pill>
 
-The same surface would drive a browser PWA without a new line of protocol — the `useCell` / `useStream` hooks are Solid, and kolu already ships [surface-app](../surface-app.html) for exactly this. It would also answer the multi-platform question by fanning N platform runners *in* to one dashboard, where justci fans *out* one ssh + one log file + one status context per (recipe × platform) pair:
+The same surface would drive a browser PWA without a new line of protocol — the `useCell` / `useStream` hooks are Solid, and kolu already ships [surface-app](./surface-app.html) for exactly this. It would also answer the multi-platform question by fanning N platform runners *in* to one dashboard, where justci fans *out* one ssh + one log file + one status context per (recipe × platform) pair:
 
 <Dashboard />
 
@@ -281,7 +282,7 @@ The scope is set by what justci actually does for kolu today: the `[metadata("ci
 | Runs the **`just` DAG** — the `[metadata("ci")]` root's reachable subgraph | A `just → PipelineSpec` translator (today the pipeline is hand-written JSON), plus offline inspection as built: `dump` (the resolved pipeline as JSON — there is no process-compose YAML to dump) and `graph` (Mermaid). |
 | **Strict by default** — dirty-tree refusal, HEAD pinned via `git worktree`, logs at `.ci/<sha>/<plat>/<recipe>.log` | The same hygiene *and the same on-disk per-SHA log layout* — so a runner death never loses the verdict trail, matching justci's durability where it matters. |
 | **Gates PRs** — commit-status per `recipe@platform` + `protect` (branch-protection PATCH) | **As built:** status posting on terminal transitions diffed off the fan-in `nodes` Cell, byte-compatible with justci's contexts/descriptions (verified against live API data) plus one new state — infrastructure death posts `error`/`Errored`, so a dropped lane fails loudly instead of wedging. `odu protect` exists; the planned required-checks *flip* proved vacuous: the contexts are byte-identical, and PR #1252's own checks satisfied the existing protection list. |
-| **Multi-platform lanes** — `hosts.json` (a macos host; linux leased from the `kolu-ci-*` warm pool via `flock`) | Fan the DAG out per platform over one `HostSession` each, reusing the existing `ci/pu/run.sh` lease unchanged. |
+| **Multi-platform lanes** — `hosts.json` (a macos host; linux leased from the `kolu-ci-*` warm pool via `flock`) | Fan the DAG out per platform over one `HostSession` each, reusing the warm-pool lease (then `ci/pu/run.sh`, since split into the standalone `ci/pu/lease.sh` by <PrLink pr={1271} />). |
 | **The CLI the `/ci` skill documents** — `run` (+ `recipe@platform` selectors, `--no-strict` / `--no-post` / `--platform` / `--host`), `status` / `logs` / `attach`, the verdict summary | **As built:** `status`/`logs`/`attach` are *in-band* — they dial `.ci/odu.sock`, where the coordinator serves the **same typed surface** every other face speaks (the contrast with `.ci/pc.sock` was never the socket file; it was justci's *separately-versioned, separately-shaped* baked client). Idle attach — a runner you can reach with no run live — moved to Phase 2 with the long-lived-runner question. justci's `--tui` is absorbed by `odu attach` (renamed from `monitor` in <PrLink pr={7} repo="juspay/odu" label="juspay/odu#7" />); the run output itself dropped justci-UX mimicry for a colour lane-matrix with a log-tail footer, heartbeats when piped, and OSC-8 commit links — and `attach` now renders that **same matrix** (one shared renderer, <PrLink pr={9} repo="juspay/odu" label="juspay/odu#9" />), not a separate table. The `/ci` skill and `.agency/do.md` were rewritten against it. |
 
 **Exit criterion:** kolu's branch protection is satisfied by contexts this tool posted; `nix run github:juspay/justci` appears nowhere in the repo; the `/ci` skill and `.agency/do.md` describe the new tool.
@@ -294,7 +295,7 @@ On the watch-and-drive half — **yes, outright, and it does more there than jus
 
 ## Shipping it — graduation, name, roadmap
 
-The delivery path is proven, not hypothetical. remote-process-monitor — another example app in the kolu repo — graduated into the standalone [srid/drishti](https://github.com/srid/drishti) by consuming the same packages this runner is built on (`@kolu/surface`, `surface-nix-host`, and later `surface-app` via <PrLink pr={47} repo="srid/drishti" label="freshness by composition" />), pinned via `npins` and hydrated by `cp -rL`. mini-ci's own README already names the path: *"mini-ci could graduate to its own repo the way remote-process-monitor became drishti."* The license is determined by composition — `surface-app` (needed for the PWA) is AGPL-3.0-or-later, which is already mini-ci's license — and the [electricity](../electricity.html) bar (domain-agnostic / hides hard volatility / has a second consumer) is already cleared by the underlying packages, with drishti as the proof. What graduates is the *product*, riding infrastructure that already graduated; reusable concerns grown in the new repo (strict hygiene, the trigger model, run identity) flow back to harden the libraries.
+The delivery path is proven, not hypothetical. remote-process-monitor — another example app in the kolu repo — graduated into the standalone [srid/drishti](https://github.com/srid/drishti) by consuming the same packages this runner is built on (`@kolu/surface`, `surface-nix-host`, and later `surface-app` via <PrLink pr={47} repo="srid/drishti" label="freshness by composition" />), pinned via `npins` and hydrated by `cp -rL`. mini-ci's own README already names the path: *"mini-ci could graduate to its own repo the way remote-process-monitor became drishti."* The license is determined by composition — `surface-app` (needed for the PWA) is AGPL-3.0-or-later, which is already mini-ci's license — and the [electricity](./electricity.html) bar (domain-agnostic / hides hard volatility / has a second consumer) is already cleared by the underlying packages, with drishti as the proof. What graduates is the *product*, riding infrastructure that already graduated; reusable concerns grown in the new repo (strict hygiene, the trigger model, run identity) flow back to harden the libraries.
 
 **Named: `odu`** <Pill variant="ok">decided</Pill> — Tamil ஓடு, the verb **"run"**: three letters, vowel-ending, an imperative you can type. It joins kolu (கொலு) and drishti (दृष्टि) in the one-word product line, and it is the package name from day one — **Phase 1 lands in `packages/odu`**, and the standalone repo inherits the name at graduation.
 

@@ -4,7 +4,7 @@ description: A library for the class of @kolu/surface app that is really a deskt
 kind: reference
 maturity: evergreen
 status: implemented
-updated: 2026-06-06
+updated: 2026-06-10
 parents: electricity
 ---
 
@@ -29,7 +29,7 @@ A self-hosted, always-connected app must guarantee that a **returning client con
 This is not a library for "any web app that can be installed." It's for a specific, recognizable shape — the one kolu and drishti share:
 
 - **You run the server.** Your machine, your homelab, your tailnet — not a CDN, not multi-tenant SaaS. Identity is per named host (`kolu@host`, drishti's per-host tabs).
-- **Always-connected.** The live WebSocket _is_ the app; there is no meaningful offline mode. This is why there's no service worker — not as an opinion, but by nature.
+- **Always-connected.** The live WebSocket _is_ the app; there is no meaningful offline mode. This is why there's no caching service worker — not as an opinion, but by nature.
 - **Desktop-class.** Installed, long-lived, feels native — an app window, not a browser tab you re-find.
 - **You're usually the deployer.** You redeploy your own server often, so a long-lived installed client going stale against a just-deployed server is the _defining_ pain — the four-times-relitigated bug (<PrLink pr={696} />, <PrLink pr={1125} />, <PrLink pr={1135} />, <PrLink pr={1149} />).
 
@@ -55,7 +55,7 @@ For this class, **build-skew, connection status, and server identity are one que
 1. **One mutable entry point; everything else immutable.** The shell (`index.html`) is the _only_ never-cached resource (`Cache-Control: no-store`); every content-hashed asset is `immutable`; a missing `/assets/*` hash **404**s rather than falling through to the shell. The one document that names the bundle is always re-fetched, so staleness is _structurally impossible_. (`immutable` presumes content-hashed names; unhashed shell assets stay `no-cache`.)
 2. **Build identity is first-class and single-sourced.** Client and server stamp the _same_ commit; the server exposes it. Bundler-agnostic: server reads `SURFACE_APP_COMMIT` from env, the client constant `__SURFACE_APP_COMMIT__` is injected by the app's bundler define (the `surfaceApp()` Vite plugin or `buildSurfaceClient` for Bun). The env-var _name_ and the flake-rev resolution are single-sourced for nix consumers in `nix/commit-stamp.nix` (kept equal to `resolveCommit`'s `DEFAULT_COMMIT_ENV_VAR`), so a nix-built client and the server wrapper stamp from the same var — no hardcoded literal downstream.
 3. **Skew is visible and recoverable, on every form factor.** When client ≠ server, a _durable_ indicator shows and a reload that lands fresh is one tap away — desktop rail _and_ mobile.
-4. **A service worker is an opt-in you own end-to-end — or, for this class, none.** A SW intercepts navigations _in front of_ the network, so the cache contract (#1) can't reach it; gate on `window.isSecureContext`, never `location.protocol === "https:"`. An always-connected app has no offline mode, so surface-app ships none and actively retires any it finds.
+4. **A service worker is an opt-in you own end-to-end — or, for this class, none.** A SW intercepts navigations _in front of_ the network, so the cache contract (#1) can't reach it; gate on `window.isSecureContext`, never `location.protocol === "https:"`. An always-connected app has no offline mode, so surface-app ships no caching worker and actively retires any it finds; the one opt-in is a fetch-less notification worker (`installFreshStatic({ serviceWorker: "notify" })` + `registerServiceWorker()`, <PrLink pr={1216} />) that registers no fetch handler, so the cache contract (#1) never sees it — kolu opts in for OS notifications.
 5. **The client always knows its relationship to the server it's bound to.** Which host, which build, and the live status (connected / reconnecting / server-restarted / stale-build) are first-class — surfaced as a _model_ the app renders. This is the invariant that makes surface-app an _app shell_, not just a cache policy.
 
 The old triage rule (_normal reload stale, hard reload fresh → a cached shell or a service worker; confirm in the browser, not by reasoning about the origin_) is a debugging heuristic, not an encoded invariant — it lives in the library's README review checklist.
@@ -64,9 +64,9 @@ The old triage rule (_normal reload stale, hard reload fresh → a cached shell 
 
 1. **Fresh delivery** — cache policy (no-store shell · immutable hashed assets · no-cache `sw.js` · 404 asset-miss) + static-serve + SPA fallback.
 2. **Server & build identity** — which host + which build the client is bound to; per-host name/theme; the `buildInfo` cell (extensible interface).
-3. **Connection & update lifecycle** — surface-app _derives_ the lifecycle (`connecting → connected → disconnected → reconnected / restarted`, + `stale-build`) from the WebSocket transport's open/close plus a server-identity probe (`processId` tells a transient drop from a restart) — lifting kolu's generic `rpc.ts` wholesale, so **kolu deletes its lifecycle layer and drishti gets the WS indicator for free**. The app passes the `ws` handle and renders its own chrome (the header dot, the dim overlay) from `useSurfaceApp().status()` — no hand-wired connection state. (Commit (skew) and processId (restart) stay distinct axes — `buildInfo` is commit-only; the restart probe is its own.)
-4. **Desktop install & feel** — the manifest as _app-window identity_ (per-host name/theme/icons) and an attention model that fans out to App Badging (installed Chromium, Win/macOS) → document title (`setAttention(n)`, best-effort, degrades per browser). The install-prompt affordance and a canvas favicon are documented future affordances — not yet in the shipped `SurfaceAppModel`. (Badging needs a trusted secure context; the core works without — see below.)
-5. **No-offline service-worker stance** — retire legacy workers (`retireServiceWorker()` + self-destructing `sw.js`); never ship one.
+3. **Connection & update lifecycle** — surface-app _derives_ the lifecycle (`connecting → connected → disconnected → reconnected / restarted`, + `stale-build`) from the WebSocket transport's open/close plus a server-identity probe (`processId` tells a transient drop from a restart) — lifting kolu's generic `rpc.ts` wholesale, so **kolu deletes its lifecycle layer and drishti gets the WS indicator for free**. The app passes the `ws` handle and renders its own chrome (the header dot, the dim overlay) from `useSurfaceApp().status()` — no hand-wired connection state. (Commit (skew) and processId (restart) stay distinct axes — `buildInfo` is commit-only; the restart probe is its own.) Since <PrLink pr={1231} /> the server also gates the WS handshake by processId (`rejectStaleProcess` / `STALE_PROCESS_CLOSE_CODE`), so a stale tab is told to reload instead of storm-reconnecting.
+4. **Desktop install & feel** — the manifest as _app-window identity_ (per-host name/theme/icons) and an attention model that fans out to App Badging (installed Chromium, Win/macOS) → document title (`setAttention(n)`, best-effort, degrades per browser). Install state now ships in the model — `isInstalled` / `canInstallPwa` on `SurfaceAppModel` (<PrLink pr={1199} />); the one-click prompt UI lives in `@kolu/solid-pwa-install`. A canvas favicon remains a documented future affordance. (Badging needs a trusted secure context; the core works without — see below.)
+5. **Service-worker stance** — never ship a _caching_ worker; retire legacy ones (`retireServiceWorker()` + self-destructing `sw.js`, the default), or opt into the fetch-less notification worker (`serviceWorker: "notify"` + `registerServiceWorker()`, <PrLink pr={1216} />) for OS notifications.
 6. **Commit propagation** — one resolver (`SURFACE_APP_COMMIT` env → `git rev-parse --short HEAD` → `"dev"`) feeding a Vite plugin (client define + its type declaration) and the server cell. No app ever writes a sha literal.
 
 ### Secure context for the desktop layer (HTTPS)
@@ -86,13 +86,13 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 | **Caddy `tls internal`** | ✓ where the CA is installed | per device | ✓ | multi-service LAN |
 | **self-signed (`@kolu/dev-tls`)** | ✗ — warns (click-through) | per device, every time | at startup | localhost dev only |
 
-**Decisions:** (1) surface-app does _not_ provide TLS — cert acquisition is a different volatility (deployment/infra), so it stays out. surface-app feature-detects `isSecureContext` and, when the desktop layer is unavailable, surfaces an _actionable hint_ (not a hard block — the core still works): "reachable, but install/badge need HTTPS — try `tailscale serve`." (2) kolu's existing self-signed generator (`server/src/tls.ts`, the `selfsigned` package) is to be extracted into a tiny optional `@kolu/dev-tls` for the localhost/dev escape hatch only — a deferred follow-up. (3) The trusted recipes are documented, not implemented. This also closes the saga loop: a real cert via `tailscale serve` gives a genuine secure context — removing any reason for the Chrome insecure-origin flag that orphaned the service worker in the first place.
+**Decisions:** (1) surface-app does _not_ provide TLS — cert acquisition is a different volatility (deployment/infra), so it stays out. surface-app feature-detects `isSecureContext` and, when the desktop layer is unavailable, surfaces an _actionable hint_ (not a hard block — the core still works): "reachable, but install/badge need HTTPS — try `tailscale serve`." (2) kolu's existing self-signed generator (`packages/server/src/tls.ts`, the `selfsigned` package) is to be extracted into a tiny optional `@kolu/dev-tls` for the localhost/dev escape hatch only — a deferred follow-up. (3) The trusted recipes are documented, not implemented. This also closes the saga loop: a real cert via `tailscale serve` gives a genuine secure context — removing any reason for the Chrome insecure-origin flag that orphaned the service worker in the first place.
 
 ### The pieces
 
 | Piece | The question it answers | Entrypoint | Inv. |
 | --- | --- | --- | --- |
-| `installSurfaceApp` · `installFreshStatic` · `installPwaManifest` | "Serve the SPA fresh, the manifest, AND `/sw.js` (retirement) — one composed call." | <Pill variant="new">/server</Pill> | #1,2,4 |
+| `installSurfaceApp` · `installFreshStatic` · `installPwaManifest` | "Serve the SPA fresh, the manifest, AND `/sw.js` (retirement, or the opt-in fetch-less notification worker via `serviceWorker: "notify"`) — one composed call." | <Pill variant="new">/server</Pill> | #1,2,4 |
 | `buildInfoServer()` · `surfaceAppServer()` | "The buildInfo cell's server impl (+ the `identity.info` probe impl) — the deps bundle for the surface-app sibling entry in `implementSurfaces`; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
 | `surfaceAppSurface` · `surfaceAppSurfaceWith` | "surface-app's complete standalone surface (buildInfo cell + `identity.info` probe) — served as a sibling via `implementSurfaces` / `surfaceClients` / `composeSurfaceContracts`." | <Pill variant="dx">/surface</Pill> | #2,5 |
 | `buildInfo` · `defineBuildInfo` | "The buildInfo cell definition — composed into the surface-app surface; extensible." | <Pill variant="dx">/surface</Pill> | #2,5 |
@@ -412,7 +412,7 @@ A pure refactor in behavior — no on-screen change, no new user-facing surface 
 
 ### Why no offline / no service worker
 
-For this class it's **definitional**, not an opinion — but the rationale ships so the next engineer doesn't re-add one:
+For this class a _caching_ worker is **definitionally** wrong, not an opinion — and the rationale ships so the next engineer doesn't re-add one. The sanctioned exception is the fetch-less notification worker (<PrLink pr={1216} />): it registers no fetch handler, so the interception downside below can't reach it; the lifecycle liability still applies, which is why surface-app owns the worker end-to-end (it self-destructs any caches it finds).
 
 - **No offline to gain.** A surface app needs its live WebSocket — no wire, no app.
 - **No speed to gain.** Hashed assets are already `immutable`-cached; a precache just adds a stale-prone layer.
@@ -435,7 +435,7 @@ For this class it's **definitional**, not an opinion — but the rationale ships
 
 1. **Build `@kolu/surface-app`** (`packages/surface-app` in the kolu monorepo) — `/server`, `/surface`, `/solid` (behaviour + headless `useSurfaceApp()`), `/lifecycle`, `/vite`, `utils/`, commit-stamp helper, and the desktop-feel affordances behind the secure-context gate. Rewired kolu, extending build identity for pty-host. Shipped the README (no-SW rationale + triage checklist + UI-wiring snippets). Registered in the [electricities tracker](./electricity.html). <Pill variant="done">done</Pill> — kolu <PrLink pr={1154} />.
 2. **Adopt in drishti** (separate PRs, drishti repo) — first a small PR for content-hashed `Bun.build` output; then port drishti onto the library (default identity, same UX). <Pill variant="done">done</Pill> — [srid/drishti#47](https://github.com/srid/drishti/pull/47).
-3. **Extract `@kolu/dev-tls`** — pull kolu's self-signed generator (`server/src/tls.ts`) into a tiny optional package for the localhost/dev escape hatch; document the trusted recipes (`tailscale serve` / mkcert / Caddy). surface-app itself only feature-detects the secure context and hints. <Pill variant="run">deferred</Pill>
+3. **Extract `@kolu/dev-tls`** — pull kolu's self-signed generator (`packages/server/src/tls.ts`) into a tiny optional package for the localhost/dev escape hatch; document the trusted recipes (`tailscale serve` / mkcert / Caddy). surface-app itself only feature-detects the secure context and hints. <Pill variant="run">deferred</Pill>
 4. **Blog post** — sibling to [surface-framework](https://kolu.dev/blog/surface-framework/), seeded by [cache-bug.md](../../cache-bug.md). <Pill variant="run">deferred</Pill>
 5. **Compose surfaces as siblings in `@kolu/surface`** — `implementSurfaces` / `surfaceClients` serve a keyed map of standalone surfaces over one transport, so surface-app is *just a sibling surface* and `composeSurfaces` / `implementSurfaceApp` / the dup-key throw / the app-visible `connect` all dissolve — with **no change to `SurfaceSpec`**. A thin plural layer on surface core (paired drishti adoption to follow). Plan of record: [Composing surfaces](#composing-surfaces--multiple-surfaces-one-transport). <Pill variant="done">implemented</Pill> — kolu <PrLink pr={1201} /> · [kolu#1197](https://github.com/juspay/kolu/issues/1197).
 

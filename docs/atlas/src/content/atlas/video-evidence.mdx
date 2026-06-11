@@ -3,7 +3,7 @@ title: Video evidence for PRs
 description: Screencast capture + a shared Pages player — the substrate the evidence skill and per-release demos build on. Capture now rides the existing Cucumber harness.
 kind: reference
 maturity: evergreen
-updated: 2026-06-02
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -14,8 +14,8 @@ Let `/do` attach *video* to a PR — not just screenshots — for changes about
 motion (animations, transitions, multi-step interactions). The **delivery** layer
 (GIF inline + a shared GitHub-Pages player, hosted on each project's
 `evidence-assets` release) already shipped — see *History* below. The question
-this page answers: **where to drive capture from**. For kolu, reuse the e2e
-Cucumber harness rather than a hand-rolled script.
+this page answered: **where to drive capture from**. For kolu: the e2e Cucumber
+harness, not a hand-rolled script — shipped in <PrLink pr={1099} />.
 
 ## Capture source — reuse the Cucumber harness
 
@@ -59,17 +59,17 @@ change (kolu's case), explicit-attach of one scenario is the right model.
 | cucumber-jvm + Serenity BDD | auto screenshot-*per-step* | "living documentation" HTML |
 | Playwright Trace Viewer | `context.tracing.start/stop` → `trace.zip` | open in trace.playwright.dev; link from PR |
 
-### The kolu wiring
+### The kolu wiring — shipped in <PrLink pr={1099} />
 
-**1** — env-gate `recordVideo` on the existing context (it is a *context* option, verified — not a `launch()` option):
+**1** — `recordVideo` is env-gated on the existing context (it is a *context* option, verified — not a `launch()` option):
 
 ```ts
 // support/hooks.ts — inside newScenarioPage(), extending the existing newContext call
 const context = await browser.newContext({
   viewport, baseURL, ignoreHTTPSErrors: true,
   permissions: ["clipboard-write", "clipboard-read"],
-  ...(process.env.KOLU_EVIDENCE
-    ? { recordVideo: { dir: videoDir, size: { width: 1366, height: 768 } } }
+  ...(rawVideoDir // set only under KOLU_EVIDENCE
+    ? { recordVideo: { dir: rawVideoDir, size: EVIDENCE_VIEWPORT } } // 1280×720
     : {}),                                     // normal runs pay nothing
 });
 ```
@@ -108,7 +108,7 @@ with its motion suppressed.
 - **Don't base64-inline a `.webm` into `report.html`** (bloat) — externalize, or skip the report and upload the clip (what the delivery layer already does).
 - Comparison nits: `@wdio/video-reporter` (scoped) doesn't exist — it's the unscoped `wdio-video-reporter`; `playwright-video` is abandoned-in-practice. Neither affects kolu.
 
-### Recommended design
+### The design — shipped as written in <PrLink pr={1099} />
 
 1. Env-gate `recordVideo` (+ optional `slowMo`, + skip the animations-off init) in `support/hooks.ts` under `KOLU_EVIDENCE`.
 2. Pick (or author) a scenario reusing existing steps and select it by `--name` — no hand-driven clicks, no feature-file edit.
@@ -121,15 +121,18 @@ rather than replacing it.
 
 ## History — what shipped
 
-The **delivery + embedding layer is solved and durable**; only the capture
-*source* is still evolving (above).
+The **delivery + embedding layer is solved and durable**, and the capture
+*source* now rides the Cucumber harness (<PrLink pr={1099} />) — the design
+above is the shipped design.
 
 | PR | What it shipped |
 | --- | --- |
 | [nix-chrome-devtools-mcp#2](https://github.com/juspay/nix-chrome-devtools-mcp/pull/2) | Screencast capability: the launcher runs `nix shell …#ffmpeg` and passes `--experimentalScreencast=true`, exposing the MCP's `screencast_start/stop`. No host install. |
 | <PrLink pr={1033} /> | The original "video evidence" feature: MCP-screencast capture + the embedding solution + the 3-repo split + the `.agency/do.md` video procedure + this plan. |
-| <PrLink pr={1037} /> | Moved capture *off-machine*: PR evidence runs on an ephemeral `pu` box via a bespoke Playwright `capture.mjs`; extracted the reusable `pu` + `evidence` skills. *This is the capture path the harness-reuse work above replaces.* |
+| <PrLink pr={1037} /> | Moved capture *off-machine*: PR evidence runs on an ephemeral `pu` box via a bespoke Playwright `capture.mjs`; extracted the reusable `pu` + `evidence` skills. *This is the capture path <PrLink pr={1099} /> replaced.* |
 | <PrLink pr={1080} /> | Let Codex load the `pu` + `evidence` skills. |
+| <PrLink pr={1099} /> | Capture moved onto the Cucumber harness: env-gated `KOLU_EVIDENCE` `recordVideo` in `support/hooks.ts`, scenario selected by `--name`, retiring `capture.mjs` for kolu. |
+| <PrLink pr={1213} /> | Built on that path for the kolu.dev demo: `KOLU_X11CAP`, a separate marketing-grade x11grab screencast mode (`screencast/engine.ts`). |
 
 ### The durable constraint: GitHub video embedding
 
@@ -158,6 +161,4 @@ gh release upload evidence-assets clip.gif clip.mp4 --clobber          # this pr
 
 ## Follow-up
 
-- **Wire env-gated `recordVideo` into `packages/tests/support/hooks.ts`** and move PR-evidence capture onto the Cucumber harness (record a scenario by `--name`), retiring the bespoke `capture.mjs` for kolu.
-- [nix-chrome-devtools-mcp#2](https://github.com/juspay/nix-chrome-devtools-mcp/pull/2) has merged — if `apm.yml` still pins `#screencast`, drop the ref and re-run `just ai::apm-update`.
 - Picking up a new MCP launcher requires a Claude restart (the MCP server is spawned at session start).

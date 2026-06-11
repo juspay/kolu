@@ -3,7 +3,7 @@ title: Phantom running_background — Claude shows "running" forever
 description: Why the spinner survives a Claude restart — an orphaned background-launch marker has no completion, so the waiting→running_background promotion never decays. Diagnosis + fix.
 kind: bug
 maturity: budding
-updated: 2026-06-01
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -103,7 +103,7 @@ state for dynamic workflows", `c1e8613b · 2026-05-28`), the same commit that ad
 `running_background`, `outstandingBackgroundTasks`, and the launch-marker regexes.
 
 - **The backgrounded-Bash/Agent promotion was deliberate.** #1015: "The Bash/Agent coverage was added after dog-fooding caught a session busy-waiting on backgrounded CI still reading as `waiting`." So the "narrow the trigger" fix below is a genuine product regression, not a free simplification.
-- **#1015 predicted this exact bug class and filed [#1017](https://github.com/juspay/kolu/issues/1017) — still OPEN.** "An *abandoned* session with a stale trailing entry reads as `running` (needs an mtime/liveness heuristic)." Our bug is the background-task manifestation of #1017.
+- **#1015 predicted this exact bug class and filed [#1017](https://github.com/juspay/kolu/issues/1017) — since closed by <PrLink pr={1115} />.** "An *abandoned* session with a stale trailing entry reads as `running` (needs an mtime/liveness heuristic)." Our bug is the background-task manifestation of #1017.
 
 <Callout kind="accent" title="The twist that makes this its own issue">
 #1017's open questions carve out one explicit exception: *"a backgrounded task
