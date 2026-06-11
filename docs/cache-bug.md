@@ -519,21 +519,34 @@ current bundle. `location.replace` (not `assign`) keeps the bust out of history.
 runs once a browser is *already executing a bundle that contains it*. A browser
 still trapped on a **pre-fix** cached shell runs the *old* `reloadForUpdate()`
 (`location.reload()`) and cannot pull this new code through a normal reload — and
-the poisoned bare-`/` entry it holds is still available to satisfy any future
-bare-`/` launch. Such a client needs a **one-time manual remediation** to land a
-build with the new affordance: a single hard/force-reload, or — in an installed
-PWA where there is no force-reload gesture — clearing the app's site data (or
-reinstalling). After it loads *this* build once, the in-app Reload self-heals from
-then on. The fix is therefore *forward-looking*: it stops the loop for every client
-on this release onward; it is not a remote cure for clients already stuck on an
-older one.
+the poisoned bare-`/` entry it holds survives *every* remediation short of
+evicting it, so it is still available to satisfy any future bare-`/` launch.
+
+To remediate such a client, distinguish **crossing over once** from a **durable
+cure**:
+
+- A **force/hard-reload** revalidates *this one navigation* and lands the new
+  build in the running tab — but it does **not** evict the poisoned entry (see
+  the freshness analysis above), so it is only a *one-load crossover*. A later
+  bare-`/` launch can still be served the poisoned shell and run the pre-fix
+  `location.reload()` again. (And an installed PWA has no force-reload gesture at
+  all.)
+- For a **durable** fix, use a key the poison can't match or remove the poison
+  outright: open a **cache-busted URL** (`/?__surface_app_fresh=<any-token>`, the
+  same key `reloadForUpdate` now uses — every subsequent reload of that URL stays
+  fresh), or **clear the app's site data** (reinstall the PWA), which evicts the
+  poisoned entry so even future bare-`/` launches are clean.
+
+The fix is therefore *forward-looking*: it stops the loop for every client on this
+release onward; it is not a remote cure for clients already stuck on an older one.
 
 **Learning:** `no-store` prevents *future* poisoning; it cannot heal a browser
 already holding a heuristically-fresh shell entry — and neither can a code fix that
 only ships *inside* the build that browser can't reach. A returning client converges
 to the deployed build only if the reload affordance it is *already running* uses a
-key the poison can't match; a client stuck on the pre-fix affordance needs one
-manual reload to cross over. (Distinct from the launchd crash-loop variant — a
+key the poison can't match; a client stuck on the pre-fix affordance crosses over
+with one cache-busted load, but only clearing site data evicts the poisoned entry
+so future bare-`/` launches stay clean too. (Distinct from the launchd crash-loop variant — a
 server restarting under
 `KeepAlive` flaps `status` to `"restarted"`, which renders the *same* "App updated"
 card with no stale asset involved; see juspay/kolu#1275.)

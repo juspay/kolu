@@ -102,7 +102,7 @@ export function registerServiceWorker(
  *  from a heuristically-fresh *poisoned* `/` entry (cached in a pre-`no-store`
  *  era) WITHOUT revalidating — so the stale bundle, and the update prompt, return
  *  on every reload: an infinite loop (see `docs/cache-bug.md`). Navigating to
- *  `/?v=<token>` is a key that entry can't satisfy → the network → the `no-store`
+ *  `/?<CACHE_BUST_PARAM>=<token>` is a key that entry can't satisfy → the network → the `no-store`
  *  shell → the current bundle, and it inoculates the tab (a `no-store` document is
  *  never written to the cache, so subsequent reloads stay fresh). A unique token
  *  (`Date.now()`) guarantees the key differs even if the same stale state
