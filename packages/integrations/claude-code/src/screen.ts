@@ -22,8 +22,9 @@
  *  ## Signature — framework-rendered markers (claude-code v2.1.162–v2.1.173, captured live)
  *  See `PROMPT_MARKERS` for the verbatim list and per-marker rationale. In short,
  *  three awaiting-user prompts are recognized, each by chrome no idle menu or
- *  ordinary output carries: `AskUserQuestion` (its `… to navigate · Esc to cancel`
- *  footer, covering both the single-select and multi-select tabbed shapes), the
+ *  ordinary output carries: `AskUserQuestion` (its `… to navigate … · Esc to cancel`
+ *  footer (tolerating an intervening segment such as v2.1.173's `· n to add
+ *  notes`), covering both the single-select and multi-select tabbed shapes), the
  *  edit-family permission gate (Write/Edit/NotebookEdit — its full
  *  `Esc to cancel · Tab to amend` footer), and the other permission gates
  *  (Bash/WebFetch/… — their numbered `<n>. Yes, and don't ask again for <x>`
