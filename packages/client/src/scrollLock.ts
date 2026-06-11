@@ -256,21 +256,27 @@ export function createScrollLock(
     setLockState({ source, hiddenAtEngage: visibility() === "hidden" });
   }
 
-  /** Off-bottom with no user input behind it — not the user's scroll. Snap
-   *  back and keep output flowing instead of freezing the terminal (#1272).
-   *  Owns the forensic record, the suppression warn-throttle (via
-   *  recordEvent), and the deferred-snap re-entrancy workaround: the snap-back
-   *  is deferred OUT of xterm's scroll dispatch, because the Viewport guards
+  /** The deferred-snap re-entrancy workaround in one home: the snap-back is
+   *  deferred OUT of xterm's scroll dispatch, because the Viewport guards
    *  against re-entrant scrolls and a synchronous scrollToBottom() here is
    *  silently dropped (observed against the shipped @xterm/xterm
-   *  6.1.0-beta.225). A microtask later the dispatch has unwound. Re-check the
-   *  lock in case a real user scroll latched in between — never yank an
-   *  engaged lock. */
-  function suppressAndSnap(term: Terminal): void {
-    recordEvent("suppressed", null, term);
+   *  6.1.0-beta.225). A microtask later the dispatch has unwound. The guard
+   *  re-checks state at drain time: skip if `term` is no longer the attached
+   *  terminal (onCleanup ran in between) or a real user scroll latched the
+   *  lock since — never yank an engaged lock. */
+  function scheduleSnapBack(term: Terminal): void {
     queueMicrotask(() => {
       if (termRef === term && !isLocked()) term.scrollToBottom();
     });
+  }
+
+  /** Off-bottom with no user input behind it — not the user's scroll. Snap
+   *  back and keep output flowing instead of freezing the terminal (#1272).
+   *  Owns the forensic record and the suppression warn-throttle (via
+   *  recordEvent); defers the snap itself to `scheduleSnapBack`. */
+  function suppressAndSnap(term: Terminal): void {
+    recordEvent("suppressed", null, term);
+    scheduleSnapBack(term);
   }
 
   /** Wire the onScroll handler and self-register cleanup on the caller's
