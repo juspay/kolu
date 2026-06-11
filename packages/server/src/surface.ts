@@ -58,7 +58,12 @@ import {
   gitStatusOutputEqual,
 } from "kolu-git";
 import { isBinaryPreviewable } from "kolu-common/preview";
-import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
+import {
+  serverCommit,
+  serverProcessId,
+  serverStartedAt,
+  serverVersion,
+} from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
@@ -71,7 +76,7 @@ import {
   terminalNotFound,
 } from "./terminal-registry.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
-import { readPtyHostIdentity } from "./terminalBackend/local.ts";
+import { readPtyHostInfo } from "./terminalBackend/local.ts";
 import { currentBuildId } from "@kolu/pty-host";
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
@@ -93,7 +98,7 @@ const localBackend = getTerminalBackendFor({ kind: "local" });
  * `⬆ update pending` after a successful restart.
  */
 async function buildInfoValue(): Promise<Partial<KoluBuildInfo>> {
-  const identity = await readPtyHostIdentity();
+  const { identity, startedAt: ptyStartedAt } = await readPtyHostInfo();
   const expected = currentBuildId();
   const ptyHostCurrency: KoluBuildInfo["ptyHostCurrency"] =
     !identity?.staleKey || !expected
@@ -111,10 +116,17 @@ async function buildInfoValue(): Promise<Partial<KoluBuildInfo>> {
   // to `—`. (`JSON.stringify` drops the undefined key, so the cell's value
   // arrives over the wire as absent, and the `equals` dedup still sees a
   // change vs. the prior `ptyHost`-bearing value.)
+  // `ptyStartedAt` is set explicitly (to the live value or `undefined`) for the
+  // same republish-merge reason as `ptyHost`: a failed restart leaves the read
+  // empty, and carrying `undefined` overwrites a stale daemon's uptime to absent
+  // rather than letting the spread preserve it. `srvStartedAt` is this process's
+  // own constant boot time.
   return {
     version: serverVersion,
     ptyHostCurrency,
     ptyHost: identity,
+    srvStartedAt: serverStartedAt,
+    ptyStartedAt,
   };
 }
 

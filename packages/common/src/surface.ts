@@ -613,6 +613,15 @@ export interface KoluBuildInfo extends BuildInfo {
    *  restart picks up new code — `⬆ update pending`), `unknown` when either is
    *  absent (no daemon read, or off-nix where the nix-baked staleKeys are ""). */
   ptyHostCurrency?: z.infer<typeof PtyHostCurrencySchema>;
+  /** Epoch-millis this server process booted — drives the rail's `srv`
+   *  uptime. Resets on every server restart. */
+  srvStartedAt?: number;
+  /** Epoch-millis the surviving daemon booted (its `system.version().startedAt`,
+   *  read live) — drives the rail's `pty` uptime. Survives a server restart,
+   *  so `ptyStartedAt < srvStartedAt` is the honest signal that the daemon
+   *  outlived the server. Absent when the daemon read fails (column shows no
+   *  uptime). */
+  ptyStartedAt?: number;
 }
 
 export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
@@ -621,6 +630,8 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
     version: z.string().optional(),
     ptyHost: PtyHostIdentitySchema.optional(),
     ptyHostCurrency: PtyHostCurrencySchema.optional(),
+    srvStartedAt: z.number().optional(),
+    ptyStartedAt: z.number().optional(),
   }),
   default: { commit: "" },
 });

@@ -124,26 +124,31 @@ const localGit: TerminalBackendGit = {
   },
 };
 
-/** Read the surviving daemon's self-declared identity (its own commit + closure
- *  staleKey) through the contract. Surfaced on the `buildInfo` cell for the
+/** Read the surviving daemon's live self-report — its identity (own commit +
+ *  closure staleKey) and its boot time (`startedAt`, for the rail's `pty`
+ *  uptime) — through the contract. Surfaced on the `buildInfo` cell for the
  *  ChromeBar's `srv · pty` rail.
  *
  *  This is a LIVE read, not a frozen boot-time promise: the daemon survives a
- *  server restart and can be restarted under a live server, so its identity
- *  changes across a `daemonHandle.restart()`. The buildInfo republish path
- *  (`surface.ts`) calls this again after a restart so the rail reflects the
- *  fresh daemon — a stale snapshot would keep showing `⬆ update pending` after a
- *  successful restart. A failed `version()` resolves `undefined` (the rail's
- *  column shows `—`), never rejecting the caller — `ptyHost` is optional. */
-export async function readPtyHostIdentity(): Promise<
-  PtyHostIdentity | undefined
-> {
+ *  server restart and can be restarted under a live server, so both its identity
+ *  and `startedAt` change across a `daemonHandle.restart()`. The buildInfo
+ *  republish path (`surface.ts`) calls this again after a restart so the rail
+ *  reflects the fresh daemon — a stale snapshot would keep showing
+ *  `⬆ update pending` (and the old uptime) after a successful restart. A failed
+ *  `version()` resolves both fields `undefined` (the rail's column shows `—` and
+ *  no uptime), never rejecting the caller — both are optional. */
+export async function readPtyHostInfo(): Promise<{
+  identity: PtyHostIdentity | undefined;
+  startedAt: number | undefined;
+}> {
   try {
-    const { identity } = await ptyHostClient.surface.system.version({});
-    return identity;
+    const { identity, startedAt } = await ptyHostClient.surface.system.version(
+      {},
+    );
+    return { identity, startedAt };
   } catch (err) {
     log.warn({ err }, "pty-host version() failed; identity unavailable");
-    return undefined;
+    return { identity: undefined, startedAt: undefined };
   }
 }
 

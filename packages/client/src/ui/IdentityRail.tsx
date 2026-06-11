@@ -23,6 +23,7 @@ import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
+import { bootLabel, formatUptime, useNow } from "./uptime";
 
 /** WebSocket transport status → the `srv` liveness dot. */
 const srvDot: Record<WsStatus, string> = {
@@ -60,6 +61,13 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const pwa = useSurfaceApp<KoluBuildInfo>();
   const stale = clientStale;
 
+  // One app-owned clock ticks both uptimes together. `srv` resets every
+  // restart; `pty` survives one — so `pty up 3h` beside `srv up 2m` is the
+  // honest, glanceable proof the daemon outlived the server.
+  const now = useNow();
+  const srvUptime = () => formatUptime(pwa.server()?.srvStartedAt, now());
+  const ptyUptime = () => formatUptime(pwa.server()?.ptyStartedAt, now());
+
   const ptyState = (): PtyState => {
     // A down link can't vouch for currency — overlay `unknown` over whatever the
     // last server verdict was (client-only WS state the server can't know).
@@ -85,6 +93,15 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           )}
         </Show>
         <Commit sha={pwa.server()?.commit} />
+        <Show when={srvUptime()}>
+          {(label) => (
+            <Tip
+              label={`Server up since ${bootLabel(pwa.server()?.srvStartedAt) ?? "—"} — resets on every restart`}
+            >
+              <span class="tabular-nums text-[10px] text-fg-3">{label()}</span>
+            </Tip>
+          )}
+        </Show>
       </span>
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
@@ -104,6 +121,15 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
               <span class="cursor-help border-b border-dotted border-fg-3/50 text-[10px] text-fg-3">
                 {shortId(key())}
               </span>
+            </Tip>
+          )}
+        </Show>
+        <Show when={ptyUptime()}>
+          {(label) => (
+            <Tip
+              label={`Daemon up since ${bootLabel(pwa.server()?.ptyStartedAt) ?? "—"} — survives a server restart`}
+            >
+              <span class="tabular-nums text-[10px] text-fg-3">{label()}</span>
             </Tip>
           )}
         </Show>
