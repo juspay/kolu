@@ -138,6 +138,8 @@ export interface CommandDeps extends ActionContext {
   // Debug
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
+  /** Restart the surviving pty-host daemon to adopt a freshly-deployed build. */
+  handleRestartPtyHost: () => void;
   /** Download the saved session as JSON (diagnostic backup). */
   handleExportSession: () => void;
   /** Pick a session JSON file and restore it on top of the current canvas. */
@@ -427,6 +429,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           kind: "action",
           name: "Clear localStorage",
           onSelect: () => deps.handleClearLocalStorage(),
+        },
+        {
+          kind: "action",
+          name: "Restart pty-host daemon",
+          description: "Adopt a freshly-deployed build (session is preserved)",
+          onSelect: () => deps.handleRestartPtyHost(),
         },
         {
           kind: "action",

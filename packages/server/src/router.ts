@@ -35,6 +35,8 @@ import {
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
+import { daemonHandle } from "./ptyHost.ts";
+import { setSavedSession } from "./session.ts";
 import {
   createTerminal,
   killAllTerminals,
@@ -46,6 +48,7 @@ import {
   setTerminalIntent,
   setTerminalParent,
   setTerminalTheme,
+  snapshotSession,
 } from "./terminals.ts";
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
@@ -79,6 +82,23 @@ export const appRouter = t.router({
     info: t.server.info.handler(async () => ({
       identity: pwaIdentityForHostname(serverHostname),
     })),
+    // The composed, #1034-proof recovery: snapshot the session BEFORE any kill,
+    // drain, then re-save with setSavedSession so it WINS the autosave-cancel
+    // race the drain schedules — a failed respawn leaves a restorable session,
+    // never an empty canvas. The daemon-process restart itself (kill →
+    // waitForPidGone → respawn → reconnect) is DaemonHandle.restart(), shared
+    // with the reconnecting-client path.
+    restartPtyHost: t.server.restartPtyHost.handler(async () => {
+      const snapshot = snapshotSession();
+      await killAllTerminals();
+      setSavedSession(
+        snapshot.terminals.length > 0
+          ? { ...snapshot, savedAt: Date.now() }
+          : null,
+      );
+      const verdict = await daemonHandle.restart();
+      return { ok: verdict === "ok" };
+    }),
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>

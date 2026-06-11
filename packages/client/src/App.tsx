@@ -20,7 +20,7 @@ import {
   on,
   Show,
 } from "solid-js";
-import { Toaster } from "solid-sonner";
+import { Toaster, toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
@@ -201,6 +201,35 @@ const App: Component = () => {
     void exportSessionAsHtml(id);
   }
 
+  /** Restart the surviving pty-host daemon to pick up a freshly-deployed build
+   *  (the rail's `⬆ update pending`). The server snapshots + re-saves the
+   *  session around the restart, so a reload restores cleanly; a failure leaves
+   *  the saved session intact (recoverable), never an empty canvas. */
+  function handleRestartPtyHost() {
+    const toastId = toast.loading("Restarting the pty-host daemon…");
+    void client.server
+      .restartPtyHost()
+      .then((res) => {
+        if (res.ok) {
+          toast.success("pty-host daemon restarted — reloading", {
+            id: toastId,
+          });
+          location.reload();
+        } else {
+          toast.error(
+            "Daemon restart failed — your session is saved; reload to recover.",
+            { id: toastId, duration: Number.POSITIVE_INFINITY },
+          );
+        }
+      })
+      .catch((err: Error) =>
+        toast.error(
+          `Daemon restart failed: ${err.message} — your session is saved.`,
+          { id: toastId, duration: Number.POSITIVE_INFINITY },
+        ),
+      );
+  }
+
   function handleScreenshotTerminal(id?: TerminalId) {
     const targetId = id ?? store.activeId();
     if (targetId === null) return;
@@ -337,6 +366,7 @@ const App: Component = () => {
       localStorage.clear();
       location.reload();
     },
+    handleRestartPtyHost,
     handleExportSession: () => exportSession(serverSavedSession()),
     handleImportSession: () =>
       void importSession().then(

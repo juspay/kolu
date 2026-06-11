@@ -145,6 +145,11 @@ export const contract = oc.router({
   ...composeSurfaceContracts(surfaces),
   server: {
     info: oc.output(ServerInfoSchema),
+    /** Restart the pty-host daemon to pick up a freshly-deployed build (the
+     *  rail's `⬆ update pending`). Recoverable by construction: the session is
+     *  snapshotted before any kill and re-saved after the drain, so a failed
+     *  respawn leaves a restorable session, never an empty canvas. */
+    restartPtyHost: oc.output(z.object({ ok: z.boolean() })),
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),
