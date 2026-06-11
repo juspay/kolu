@@ -20,7 +20,7 @@ import {
   on,
   Show,
 } from "solid-js";
-import { Toaster, toast } from "solid-sonner";
+import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
@@ -68,6 +68,7 @@ import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminals } from "./terminal/useTerminals";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
+import { useDaemonRestart } from "./useDaemonRestart";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
@@ -201,37 +202,9 @@ const App: Component = () => {
     void exportSessionAsHtml(id);
   }
 
-  /** Restart the surviving pty-host daemon to pick up a freshly-deployed build
-   *  (the rail's `⬆ update pending`). The server snapshots + re-saves the
-   *  session around the restart, so a reload restores cleanly; a failure leaves
-   *  the saved session intact (recoverable), never an empty canvas.
-   *
-   *  On failure the recovery is a RETRY, not a reload: the daemon lives
-   *  server-side, so the degraded handle persists across a browser reload — only
-   *  another `restartPtyHost` (which re-reads the pid gate and re-attempts the
-   *  respawn) can bring it back. The error toast offers that retry directly. */
-  function handleRestartPtyHost() {
-    const toastId = toast.loading("Restarting the pty-host daemon…");
-    const failed = (detail: string) =>
-      toast.error(`Daemon restart failed — your session is saved. ${detail}`, {
-        id: toastId,
-        duration: Number.POSITIVE_INFINITY,
-        action: { label: "Try again", onClick: () => handleRestartPtyHost() },
-      });
-    void client.server
-      .restartPtyHost()
-      .then((res) => {
-        if (res.ok) {
-          toast.success("pty-host daemon restarted — reloading", {
-            id: toastId,
-          });
-          location.reload();
-        } else {
-          failed("The daemon didn't come back up; retry to try again.");
-        }
-      })
-      .catch((err: Error) => failed(err.message));
-  }
+  // Daemon-restart workflow lives in its own singleton (per solidjs.md) so
+  // App.tsx stays a thin layout shell; commands.tsx just calls this handler.
+  const daemonRestart = useDaemonRestart();
 
   function handleScreenshotTerminal(id?: TerminalId) {
     const targetId = id ?? store.activeId();
@@ -369,7 +342,7 @@ const App: Component = () => {
       localStorage.clear();
       location.reload();
     },
-    handleRestartPtyHost,
+    handleRestartPtyHost: daemonRestart.restartPtyHost,
     handleExportSession: () => exportSession(serverSavedSession()),
     handleImportSession: () =>
       void importSession().then(
