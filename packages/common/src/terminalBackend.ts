@@ -84,6 +84,14 @@ export interface PtySpawnOpts {
   cwd?: string;
   parentId?: string;
   initialMetadata?: InitialTerminalMetadata;
+  /** Server-persisted agent command to seed onto an ADOPTED terminal
+   *  (eager reattach). Carried separately from `initialMetadata` because
+   *  `lastAgentCommand` is server-owned, not part of the client seed —
+   *  without it an adopted, already-running agent loses its resume command
+   *  (the agent-command tracker only captures on a *new* preexec mark,
+   *  which an adopted agent never re-emits), so a later cold-start restore
+   *  can only offer a bare shell. Client spawns leave it unset. */
+  lastAgentCommand?: string;
 }
 
 /** Control surface for one running terminal. Read/write on the PTY and

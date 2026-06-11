@@ -17,6 +17,7 @@ import {
   setSurfaceCtx,
 } from "../surfaceCtx.ts";
 import {
+  createSpawnMetadata,
   updateClientMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
@@ -150,5 +151,42 @@ describe("metadata publish routing", () => {
       // @ts-expect-error — `lastActivityAt` is persisted, not live.
       m.lastActivityAt = 0;
     });
+  });
+});
+
+describe("createSpawnMetadata", () => {
+  it("carries the server-owned lastAgentCommand onto an adopted terminal", () => {
+    // The eager-reattach regression: a surviving terminal running `claude`
+    // is adopted, and its resume command MUST survive onto the live meta so
+    // the next snapshot persists it. Before the fix the adopt path seeded
+    // only the client subset, dropping lastAgentCommand — so after one
+    // adopt+save cycle the saved session lost it and a later cold-start
+    // restore could only offer a bare shell.
+    const meta = createSpawnMetadata("/Users/srid/code/nixos-config", {
+      lastAgentCommand: "claude --dangerously-skip-permissions",
+    });
+    expect(meta.lastAgentCommand).toBe("claude --dangerously-skip-permissions");
+  });
+
+  it("seeds parentId + the client-persisted subset from initialMetadata", () => {
+    const meta = createSpawnMetadata("/repo", {
+      parentId: "parent-123",
+      initialMetadata: {
+        themeName: "dracula",
+        lastActivityAt: 1_700_000_000_000,
+      },
+    });
+    expect(meta.parentId).toBe("parent-123");
+    expect(meta.themeName).toBe("dracula");
+    expect(meta.lastActivityAt).toBe(1_700_000_000_000);
+  });
+
+  it("leaves lastAgentCommand unset for a fresh (non-agent) spawn", () => {
+    const meta = createSpawnMetadata("/repo", {});
+    expect(meta.lastAgentCommand).toBeUndefined();
+    expect(meta.cwd).toBe("/repo");
+    expect(meta.git).toBeNull();
+    // `git` is never seeded — a live provider re-derives it (self-heals).
+    expect(meta.lastActivityAt).toBe(0);
   });
 });

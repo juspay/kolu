@@ -30,7 +30,6 @@ import type {
   SavedTerminal,
   TerminalId,
   TerminalInfo,
-  TerminalMetadata,
 } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
@@ -69,7 +68,7 @@ import {
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { unwrapGit } from "../unwrapGit.ts";
 import {
-  createMetadata,
+  createSpawnMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
@@ -360,16 +359,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // cwd / pid on the async tail below; the provider DAG starts there too.
     const cwd = opts.cwd || process.env.HOME || "/";
     const proxy = new PtyHostTerminalProxy(id);
-    const meta: TerminalMetadata = { ...createMetadata(cwd) };
-    if (opts.parentId) meta.parentId = opts.parentId;
-    const initial = opts.initialMetadata;
-    if (initial?.themeName) meta.themeName = initial.themeName;
-    if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
-    if (initial?.subPanel) meta.subPanel = initial.subPanel;
-    if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
-    if (initial?.intent) meta.intent = initial.intent;
-    if (initial?.lastActivityAt !== undefined)
-      meta.lastActivityAt = initial.lastActivityAt;
+    const meta = createSpawnMetadata(cwd, opts);
 
     const entry: TerminalProcess = {
       info: { id, pid: 0 },
@@ -431,14 +421,18 @@ class LocalTerminalBackend implements TerminalBackend {
 
     for (const id of ordered) {
       const meta = savedById.get(id);
-      // `parentId` is a spawnPty *option*, NOT part of initialMetadata — without
-      // it a split/sub-terminal is re-registered as a top-level terminal
-      // (promoted out of its parent). The normal client-restore path passes it;
-      // the eager path must too. Saved order puts the parent before its child,
-      // so the relationship resolves as both land.
+      // `parentId` and `lastAgentCommand` are spawnPty *options*, NOT part of
+      // initialMetadata — both are server-owned and would otherwise be dropped
+      // on adopt. Without `parentId` a split is promoted to top-level; without
+      // `lastAgentCommand` an adopted agent loses its resume command, so a later
+      // cold-start restore offers only a bare shell. The normal client-restore
+      // path replays the agent itself; the eager adopt path has no replay, so it
+      // must carry the command forward. Saved order puts the parent before its
+      // child, so the relationship resolves as both land.
       this.spawnPty(id, {
         cwd: meta?.cwd,
         parentId: meta?.parentId,
+        lastAgentCommand: meta?.lastAgentCommand,
         initialMetadata: meta,
       });
     }

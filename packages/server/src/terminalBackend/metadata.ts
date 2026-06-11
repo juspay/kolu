@@ -29,6 +29,7 @@
  */
 
 import { prValue } from "anyforge/schemas";
+import type { PtySpawnOpts } from "kolu-common/terminalBackend";
 import {
   type LiveTerminalFields,
   prUnavailableReason,
@@ -54,6 +55,36 @@ export function createMetadata(cwd: string): TerminalMetadata {
     foreground: null,
     lastActivityAt: 0,
   };
+}
+
+/** Build a (re)spawned terminal's initial metadata from its spawn seed:
+ *  the `createMetadata` base plus the persisted fields carried at spawn.
+ *
+ *  The eager-reattach (adopt) path passes the surviving terminal's saved
+ *  metadata here — crucially the **server-persisted** `lastAgentCommand`.
+ *  Without carrying it an adopted agent's resume command is lost: the
+ *  agent-command tracker only captures on a *new* preexec mark, which an
+ *  already-running (adopted) agent never re-emits, so the next autosave
+ *  persists a session with no command to resume and a later cold-start
+ *  restore offers only a bare shell. `lastActivityAt` is carried for the
+ *  same restore-truth reason; `git` is intentionally NOT seeded — a live
+ *  provider re-derives it, so it self-heals. */
+export function createSpawnMetadata(
+  cwd: string,
+  opts: Pick<PtySpawnOpts, "parentId" | "lastAgentCommand" | "initialMetadata">,
+): TerminalMetadata {
+  const meta = createMetadata(cwd);
+  if (opts.parentId) meta.parentId = opts.parentId;
+  if (opts.lastAgentCommand) meta.lastAgentCommand = opts.lastAgentCommand;
+  const initial = opts.initialMetadata;
+  if (initial?.themeName) meta.themeName = initial.themeName;
+  if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
+  if (initial?.subPanel) meta.subPanel = initial.subPanel;
+  if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
+  if (initial?.intent) meta.intent = initial.intent;
+  if (initial?.lastActivityAt !== undefined)
+    meta.lastActivityAt = initial.lastActivityAt;
+  return meta;
 }
 
 /** Log + emit the current metadata snapshot to the surface collection.
