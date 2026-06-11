@@ -195,6 +195,25 @@ let
       sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' {} +
   '';
 
+  # The pty-host daemon binary (R-4 Phase B): the surviving process kolu-server
+  # spawns to own its PTYs across a restart. Same built workspace closure as
+  # `kolu` (so @kolu/pty-host resolves identically) under tsx, entry =
+  # daemonMain.ts. Carries its OWN build identity so a daemon that outlives a
+  # deploy reports the build it was spawned from — the staleKey divergence the
+  # rail shows. Headless: no client dist.
+  koluDaemonBin = pkgs.runCommand "kolu-daemon-bin"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "kolu-daemon";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu-daemon \
+      --add-flags "${koluStamped}/packages/server/src/daemon/daemonMain.ts" \
+      --set KOLU_COMMIT_HASH "${commitHash}" \
+      --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git ]}
+  '';
+
   # Base wrapper: tsx + env vars + PATH. Does NOT set KOLU_STATE_DIR —
   # callers must provide it (state.ts crashes with a clear error if missing).
   # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
@@ -218,6 +237,7 @@ let
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --set KOLU_COMMIT_HASH "${commitHash}" \
       --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
+      --set KOLU_DAEMON_BIN "${koluDaemonBin}/bin/kolu-daemon" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"

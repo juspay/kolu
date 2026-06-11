@@ -9,10 +9,15 @@
  * holds the event loop open.
  */
 import { runPtyHostDaemon } from "@kolu/pty-host";
+import { configureNixShellEnv } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
 import { log } from "../log.ts";
 
 async function main(): Promise<void> {
+  // The daemon owns shell-env preparation (cleanEnv runs here), so it must
+  // apply the SAME nix-shell filter the server does, or the devshell env leaks
+  // into terminals. The whitelist rides KOLU_NIX_ENV_WHITELIST (see socketEnv).
+  configureNixShellEnv(process.env.KOLU_NIX_ENV_WHITELIST);
   const socketPath = process.env.KOLU_PTY_HOST_SOCKET || undefined;
   const result = await runPtyHostDaemon({
     socketPath,

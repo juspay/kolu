@@ -1,33 +1,36 @@
 /**
- * The single in-process pty-host for this kolu-server process.
+ * The server's link to the pty-host daemon (R-4 Phase B).
  *
- * `servePtyHost`'s router is the transport-agnostic seam: this module builds
- * the host once and exposes both views of it —
- *   - `ptyHostClient` — the identity-link (`directLink`, no wire) client the
- *     `LocalTerminalBackend` (the web path) consumes;
- *   - `ptyHostServedRouter` — the same host's contract-wrapped router, which
- *     `index.ts` serves over a unix socket so `kolu-tui` (the raw CLI client)
- *     can reach the same PTYs.
+ * The PTYs no longer live in-process: they belong to a SURVIVING daemon process.
+ * This module connects to it over the unix socket at boot — reattaching to a
+ * daemon a previous server left running, or spawning a fresh one — and exposes
+ * the reconnecting client `LocalTerminalBackend` consumes. So a server restart
+ * (a deploy) reconnects to the same PTYs: local terminals survive. `kolu-tui`
+ * connects to the same socket; the daemon serves them both.
  *
- * One PTY host, two transports, byte-identical handlers. Instantiating here
- * (rather than inside `local.ts`) keeps it a single shared instance — both
- * `local.ts` and the socket listener import from this one module, so the
- * pty-host can never be accidentally created twice.
+ * Top-level await: the client must be live before any consumer touches it, and
+ * `local.ts` reads it at module load (`ptyHostIdentity`). ESM makes importers
+ * wait for this resolution, so `ptyHostClient` is always connected by the time
+ * the backend uses it.
  */
-import { createInProcessPtyHost } from "@kolu/pty-host";
-import pkg from "../package.json" with { type: "json" };
-import { koluShellDir } from "./koluRoot.ts";
+import { getPtyHostPidPath, getPtyHostSocketPath } from "@kolu/pty-host";
+import { ensureDaemon } from "./daemon/daemonHandle.ts";
+import { spawnDaemonProcess } from "./daemon/spawn.ts";
 import { log } from "./log.ts";
 
-const ptyHost = createInProcessPtyHost({
+const socketOverride = process.env.KOLU_PTY_HOST_SOCKET;
+const socketPath = getPtyHostSocketPath(socketOverride);
+const pidPath = getPtyHostPidPath(socketOverride);
+
+/** The handle on the surviving daemon — its reconnecting client, honest
+ *  liveness, and the daemon-process restart. One per server (single daemon). */
+export const daemonHandle = await ensureDaemon({
+  socketPath,
+  pidPath,
   log,
-  shellDir: koluShellDir,
-  version: pkg.version,
+  spawnDaemon: () => spawnDaemonProcess({ socketPath, log }),
 });
 
-/** The contract-wrapped router — served over the unix socket in `index.ts`
- *  for kolu-tui (and, later, a standalone daemon). */
-export const ptyHostServedRouter = ptyHost.servedRouter;
-
-/** The in-process (no-wire) client the LocalTerminalBackend consumes. */
-export const ptyHostClient = ptyHost.client;
+/** The reconnecting pty-host client the LocalTerminalBackend consumes — stable
+ *  across a daemon restart. */
+export const ptyHostClient = daemonHandle.client;

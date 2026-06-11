@@ -142,6 +142,11 @@ process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
  *  `testBaseDir` means the whole run's scratch space cleans up together. */
 const koluStateDir = mkSubDir("state");
 
+/** Per-worker runtime dir → the pty-host daemon's socket + pid-gate live under
+ *  `$XDG_RUNTIME_DIR/kolu/`, so each parallel worker spawns its OWN isolated
+ *  daemon instead of colliding on one shared socket (R-4 Phase B). */
+const koluRuntimeDir = mkSubDir("runtime");
+
 /** PR-evidence capture (set `KOLU_EVIDENCE=1`): record a Playwright video per
  *  scenario and save it, scenario-named, under `reports/videos/` for the /do
  *  evidence flow to transcode + upload (the same GIF/Pages-player delivery the
@@ -550,6 +555,8 @@ BeforeAll(async () => {
             // Route server state to an ephemeral $TMPDIR path so test runs
             // never touch ~/.config and the dir can be wiped in AfterAll.
             KOLU_STATE_DIR: koluStateDir,
+            // Isolate the pty-host daemon (socket + pid-gate) per worker.
+            XDG_RUNTIME_DIR: koluRuntimeDir,
             // The agent-dir overrides, derived once above: temp dirs normally,
             // all-undefined under X11CAP so the `...process.env` spread can't
             // re-introduce an inherited value and the server watches the real

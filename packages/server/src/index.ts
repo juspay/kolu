@@ -1,11 +1,10 @@
+// MUST stay first: promote --pty-host-socket into KOLU_PTY_HOST_SOCKET before
+// ptyHost.ts (top-level await) resolves the daemon socket at import time.
+import "./daemon/socketEnv.ts";
 import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
-import {
-  getPtyHostSocketPath,
-  servePtyHostOverUnixSocket,
-} from "@kolu/pty-host";
 import { createDirServer } from "@kolu/serve-dir";
 import {
   gateStaleSocket,
@@ -35,7 +34,10 @@ import {
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
-import { ptyHostServedRouter } from "./ptyHost.ts";
+// Importing ptyHost.ts boots the daemon connection (top-level await); the
+// LocalTerminalBackend consumes its client. No served-router export anymore —
+// the daemon owns the socket now, not the server.
+import { daemonHandle } from "./ptyHost.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
@@ -394,14 +396,9 @@ server.on("upgrade", (req, socket, head) => {
   }
 });
 
-// --- pty-host unix socket (kolu-tui, R-4 Phase 1) ---
-// One additive listener serving the SAME in-process pty-host router the web
-// path uses (./ptyHost.ts), so `kolu-tui` can list/snapshot the live PTYs from
-// the shell. Independent of the HTTP/WS server; its socket lives outside
-// koluRoot, so it gets its own exit-time cleanup.
-const ptyHostSocketListener = await servePtyHostOverUnixSocket({
-  socketPath: getPtyHostSocketPath(argv.flags.ptyHostSocket),
-  router: ptyHostServedRouter,
-  log,
-});
-process.on("exit", () => ptyHostSocketListener.close());
+// --- pty-host daemon (R-4 Phase B) ---
+// The daemon owns the unix socket now (kolu-tui and this server are both its
+// clients), so there is no server-side listener to start. On exit we only drop
+// our CONNECTION — the daemon keeps running, which is the whole point: local
+// terminals survive a server restart.
+process.on("exit", () => daemonHandle.dispose());
