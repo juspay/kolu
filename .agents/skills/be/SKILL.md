@@ -1,6 +1,6 @@
 ---
 name: be
-description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a serial AI review gauntlet (codex debate → lens debate (lowy ⇄ hickey) → simplify → code-police, each editing the branch in turn) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
+description: Modern, interactive alternative to `/do` — clarify intent up front, then take a task end-to-end with a serial AI review gauntlet (lens debate (lowy ⇄ hickey) → codex debate → simplify → code-police, each editing the branch in turn) → CI → evidence. ONLY invoke when the user explicitly types `/be` or `$be`; never auto-select from a natural-language request.
 argument-hint: "<issue-url | prompt>"
 ---
 
@@ -49,19 +49,19 @@ Run **check** and **fmt**, then commit (conventional message) and push the featu
 ## 4. Review gauntlet
 
 Run **`/be-review`** (Skill tool) — it runs four reviewers **serially**, each the
-sole editor while it runs: `/codex-debate` (its per-round commits are the debate),
-then `/lens-debate` applying the agreed fixes, then `/simplify`, then code-police.
-Each step reads a clean tree (the previous step has committed) and applies its own
-fixes directly — no snapshot, no apply pass. be-review pushes once at the end and
-*then* posts the PR comments (codex, lens, and a code-police summary), so no
-comment advertises a local-only commit.
+sole editor while it runs: `/lens-debate` applying the agreed fixes, then
+`/codex-debate` (its per-round commits are the debate), then `/simplify`, then
+code-police. Each step reads a clean tree (the previous step has committed) and
+applies its own fixes directly — no snapshot, no apply pass. be-review pushes once
+at the end and *then* posts the PR comments (lens, codex, and a code-police
+summary), so no comment advertises a local-only commit.
 
 - Pass `base` and the change **`rationale`** (so the lenses don't flag deliberate
   decisions). Preflight is a non-empty diff and (since codex runs) `codex login
   status`.
-- Codex's rounds commit `fix(…)`; lens-debate commits its agreed fixes; simplify
+- Lens-debate commits its agreed fixes; codex's rounds commit `fix(…)`; simplify
   and code-police commit `refactor:` / `fix(police):`. Confirm the post-push PR
-  comments landed: codex, lens, and — when the police track ran — the code-police
+  comments landed: lens, codex, and — when the police track ran — the code-police
   summary.
 - On an **unresolved** lens finding, adjudicate it yourself before moving on.
 
@@ -86,6 +86,6 @@ green before capturing.
 
 ## Done
 
-Report the PR URL, the gauntlet outcome (codex consensus or reviewer-error, lens-debate consensus + fixes applied, police findings actioned), and CI status. Never merge — the human reviews the commits and merges when satisfied.
+Report the PR URL, the gauntlet outcome (lens-debate consensus + fixes applied, codex consensus or reviewer-error, police findings actioned), and CI status. Never merge — the human reviews the commits and merges when satisfied.
 
 ARGUMENTS: $ARGUMENTS
