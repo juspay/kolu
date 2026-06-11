@@ -148,8 +148,11 @@ const escapes = [
       </li>
       <li>
         Detach is <span class="text-ink">client-side</span>: the CLI can come
-        and go while the server holds the terminal. Restarting kolu-server
-        itself still ends its terminals — that persistence is later work.
+        and go while the server holds the terminal. And since the pty-host
+        daemon landed, restarting kolu-server{" "}
+        <span class="text-ink">keeps its terminals too</span> — they live in a
+        surviving daemon the restarted server reconnects to, by id, with
+        scrollback intact.
       </li>
       <li>
         When the program inside exits, kolu-tui exits with the same code.

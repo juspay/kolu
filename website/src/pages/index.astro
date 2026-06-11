@@ -730,7 +730,10 @@ const tunnels = [
         <dt>Sessions</dt>
         <dd>
           Layout, themes, and maximized posture persist across reloads via
-          localStorage, so you land back exactly where you left off. The
+          localStorage, so you land back exactly where you left off — and the
+          terminals themselves, the running shells and agents, survive a
+          kolu-server restart: an upgrade or crash reconnects to the same live
+          processes by id, scrollback intact, no tmux needed. The
           activity-window filter hides stale rows without killing them.
         </dd>
       </div>
