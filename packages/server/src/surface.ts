@@ -114,7 +114,7 @@ async function buildInfoValue(): Promise<Partial<KoluBuildInfo>> {
   return {
     version: serverVersion,
     ptyHostCurrency,
-    ptyHost: identity ?? undefined,
+    ptyHost: identity,
   };
 }
 
