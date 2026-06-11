@@ -24,10 +24,14 @@ const configWatcher = createDirFilenameWatcher({
 
 export const watchGitConfig = configWatcher.watch;
 
-/** Test-only inspector — number of distinct gitDirs with active shared
- *  watchers. Mirrors `_sharedHeadWatcherCount`. */
+/** Test-only inspector — number of distinct common git dirs with active
+ *  shared watchers. Used by index.test.ts to assert the singleton invariant
+ *  (and that a repo's worktrees collapse to one handle) without spying on
+ *  `fs.watch`. */
 export const _sharedConfigWatcherCount = configWatcher._watcherCount;
 
 /** Test-only teardown — close every active config-watcher and clear the
- *  singleton's registry. Mirrors `_resetSharedHeadWatchers`. */
+ *  singleton's registry. Production code must never call this; it exists so
+ *  vitest `beforeEach` can break the module-scope leak that turns one
+ *  timed-out test into a whole-file `afterEach` cascade (#955). */
 export const _resetSharedConfigWatchers = configWatcher._reset;
