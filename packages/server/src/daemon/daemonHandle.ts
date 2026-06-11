@@ -31,7 +31,10 @@ import { type IsAlive, waitForPidGone } from "./waitForPidGone.ts";
 
 type Conn = UnixSocketConnection<typeof ptyHostSurface.contract>;
 
-/** Honest daemon liveness, surfaced to the rail / DegradedCanvas. */
+/** The restart flow's own observable state (connected/restarting/degraded),
+ *  asserted by the handle's unit tests. No UI consumes it yet — the rail derives
+ *  its currency from staleKey, and the DegradedCanvas consumer is an
+ *  acknowledged follow-up. */
 export type DaemonState = "connected" | "restarting" | "degraded";
 
 export interface DaemonHandle {
@@ -44,8 +47,8 @@ export interface DaemonHandle {
   /** The daemon-process half of the composed restart: kill the old daemon,
    *  wait for its real exit (the lock-release barrier), spawn a fresh one, and
    *  reconnect. Returns `"failed"` (and leaves `state()==="degraded"`) if the
-   *  old daemon won't die or the new one won't come up — the orchestration
-   *  layer then keeps the saved session and shows the DegradedCanvas. */
+   *  old daemon won't die or the new one won't come up — on `"failed"` the
+   *  orchestration layer keeps the saved session and shows the DegradedCanvas. */
   restart(): Promise<"ok" | "failed">;
   /** Drop the connection (server shutdown). Does NOT stop the daemon — that is
    *  the point: it survives. */
