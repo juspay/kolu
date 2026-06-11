@@ -287,6 +287,12 @@ ${message}
 // ---------------------------------------------------------------------------
 // The shared ledger — rendered from the transcript, deterministically
 // ---------------------------------------------------------------------------
+// The cited-concession trailer, rendered identically for both sides of the debate:
+// codex's per-finding `concession` and the author's per-action `concessionReason`
+// are distinct events (they cross the codex `--output-schema` process boundary) but
+// project to the same " — conceded: …" suffix, so the projection lives in one place.
+const concededSuffix = (reason) => ((reason || '').trim() ? ` — conceded: ${reason.trim()}` : '')
+
 // One codex finding as a Markdown bullet. The single projection of a finding's
 // fields, shared by the ledger section and the round commit message. `plain` drops
 // the ledger chrome (backticks + the `status` field) for the commit message, which
@@ -294,7 +300,7 @@ ${message}
 function findingBullet(f, { plain = false } = {}) {
   // A non-empty `concession` means codex resolved this finding by ACCEPTING the
   // author's dispute — the cited reason is part of the trail, in both chromes.
-  const conceded = (f.concession || '').trim() ? ` — conceded: ${f.concession.trim()}` : ''
+  const conceded = concededSuffix(f.concession)
   return plain
     ? `- [${f.id} · ${f.severity}] ${f.issue} (${f.location})${conceded}`
     : `- \`${f.id}\` · ${f.severity} · ${f.status} — ${f.issue} (${f.location})${conceded}`
@@ -306,7 +312,7 @@ function findingBullet(f, { plain = false } = {}) {
 function actionBullet(a, { plain = false } = {}) {
   // A non-empty `concessionReason` marks a cited cross-round flip (the author
   // stopped disputing for a stated reason) — part of the trail, in both chromes.
-  const conceded = (a.concessionReason || '').trim() ? ` — conceded: ${a.concessionReason.trim()}` : ''
+  const conceded = concededSuffix(a.concessionReason)
   return plain
     ? `- ${a.findingId} ${a.disposition}: ${a.detail}${conceded}`
     : `- \`${a.findingId}\` **${a.disposition}** — ${a.detail}${conceded}`
