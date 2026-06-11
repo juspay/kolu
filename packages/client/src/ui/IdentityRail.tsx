@@ -1,31 +1,20 @@
 /** IdentityRail — the consolidated "which kolu am I running" chrome readout
- *  (R-4 A2). Replaces the standalone WebSocket dot with a two-column
- *  `srv · pty` rail: `srv` is the server you're connected to (its commit + the
- *  WebSocket liveness dot), `pty` is the pty-host serving your terminals (its
- *  commit + the closure-hash build, sourced from surface-app's `buildInfo`
- *  cell's `ptyHost` axis — pushed by the server once the in-process pty-host
- *  reports its identity at boot).
+ *  (R-4 A2 + B). A `srv · pty · client` rail: `srv` is the server you're
+ *  connected to (its commit + the WebSocket liveness dot), `pty` is the
+ *  surviving pty-host daemon serving your terminals (its commit + the
+ *  closure-hash build, from surface-app's `buildInfo` cell's `ptyHost` axis),
+ *  and `client` is the commit this browser's JS was built from.
  *
- *  In A2 the pty-host is in-process, so the two columns coincide — an
- *  `≡ in-process` tag links them, and the match is the acceptance signal that
- *  the identity plumbing works end to end. Phase B gives `pty` a separate
- *  surviving process; only then can its column diverge (outdated / dead). Those
- *  branches are intentionally absent here — nothing can diverge from itself —
- *  and land with B's read-site `staleKey !== currentBuildId()` derivation, with
- *  no re-layout.
+ *  A2 built the rail in its final two-column shape while the pty-host was
+ *  in-process (the columns always coincided — the acceptance signal). Phase B
+ *  gives `pty` a separate, surviving process, so the columns can now DIVERGE: a
+ *  deploy restarts the server but the old daemon lives on, a build behind, until
+ *  it's restarted. The rail makes that honest — `≡ current` when the daemon is
+ *  the deployed build, `⬆ update pending` when it's older — with no re-layout,
+ *  exactly as A2 designed.
  *
- *  The rail renders `srv` and `client`: the `pty` column and `≡ in-process`
- *  tag are commented out below (a no-op duplicate of `srv` while the pty-host
- *  is in-process) and a follow-up PR uncomments them once the pty-host lands as
- *  a separate, divergeable process.
- *
- *  The `client` column is the commit this browser's JS was built from
- *  (`useSurfaceApp().clientCommit`, baked in at build time as
- *  `__SURFACE_APP_COMMIT__`). Surfacing it next to `srv`
- *  makes a stale client — an old bundle served from browser cache against a
- *  freshly deployed server — visible at a glance: when both refs are clean and
- *  disagree the column flags `≠ srv` (a mismatch; the two hashes prove
- *  difference, not which is newer). */
+ *  `client` flags a stale browser bundle (old JS from cache against a freshly
+ *  deployed server) with `≠ srv` when both refs are clean and disagree. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { KoluBuildInfo } from "kolu-common/surface";
@@ -42,56 +31,41 @@ const srvDot: Record<WsStatus, string> = {
   closed: "bg-danger",
 };
 
-// --- pty column (remote-terminals, Phase B) -------------------------------
-// The `srv · pty` rail collapses to `srv`-only until the pty-host is a real
-// surviving process whose commit can diverge from the server's. The pty
-// column, its divider, and the `≡ in-process` coincidence tag — plus the
-// helpers they need — are kept here verbatim so a future PR can uncomment.
-//
-// /** Short-form a build id for display: a nix store hash's leading 7 chars, or
-//  *  a path basename capped at 12. The full id lives in the tooltip. */
-// function shortId(id: string | null | undefined): string {
-//   if (!id) return "—";
-//   const hash = /^([a-z0-9]{7})/.exec(id);
-//   if (hash) return hash[1] as string;
-//   const tail = id.split("/").pop() ?? id;
-//   return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
-// }
-//
-// /** pty-host liveness dot in A2: mirrors the WebSocket status but with a
-//  *  different "closed" value — grey ("unknown") rather than red, because with
-//  *  the link down we can't claim pty state. Phase B replaces "closed" with a
-//  *  real daemon-state derivation (connected | outdated | dead). */
-// const ptyDot: Record<WsStatus, string> = {
-//   open: "bg-ok",
-//   connecting: "bg-warning animate-pulse",
-//   closed: "bg-fg-3/50", // link down → pty state unknown, not dead
-// };
-// --------------------------------------------------------------------------
+/** Short-form a build id for display: a nix store hash's leading 7 chars, or
+ *  a path basename capped at 12. The full id lives in the tooltip. */
+function shortId(id: string | null | undefined): string {
+  if (!id) return "—";
+  const hash = /^([a-z0-9]{7})/.exec(id);
+  if (hash) return hash[1] as string;
+  const tail = id.split("/").pop() ?? id;
+  return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
+}
+
+/** The daemon's currency, derived at the read site from the relayed identity:
+ *  `current` when its commit equals the server's (the daemon is the deployed
+ *  build), `outdated` when a surviving daemon is a build behind, `unknown` when
+ *  the link is down (we can't claim pty state). */
+type PtyState = "current" | "outdated" | "unknown";
+
+const ptyDot: Record<PtyState, string> = {
+  current: "bg-ok",
+  outdated: "bg-warning",
+  unknown: "bg-fg-3/50", // link down → pty state unknown, not dead
+};
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
-  // The server's build identity (commit + the in-process pty-host column) rides
-  // surface-app's `buildInfo` cell, surfaced by the headless model — the same
-  // value `stale` is derived from. `clientCommit` is this bundle's baked commit.
+  // The server's build identity (its commit + the daemon's relayed identity)
+  // rides surface-app's `buildInfo` cell. `clientCommit` is this bundle's baked
+  // commit; `stale` is the shared client-staleness derivation.
   const pwa = useSurfaceApp<KoluBuildInfo>();
-  // srv and pty coincide when connected and the relayed pty commit equals the
-  // server's own — the A2 acceptance signal that the plumbing agrees. A plain
-  // function (single consumer, per solidjs.md); still reactive inside <Show>.
-  // Restore alongside the pty column below.
-  // const coincident = () => {
-  //   const i = pwa.server();
-  //   return (
-  //     props.status === "open" &&
-  //     !!i?.ptyHost &&
-  //     i.commit === i.ptyHost.navigableCommit
-  //   );
-  // };
-
-  // A genuinely outdated client — old bundle against a freshly deployed server.
-  // Shared with the mobile chrome via `StaleBadge`; the derivation is now
-  // surface-app's headless model (`useSurfaceApp().stale()`), so desktop and
-  // mobile flag the same thing the same way.
   const stale = clientStale;
+
+  const ptyState = (): PtyState => {
+    if (props.status !== "open") return "unknown";
+    const i = pwa.server();
+    if (!i?.ptyHost) return "unknown";
+    return i.commit === i.ptyHost.navigableCommit ? "current" : "outdated";
+  };
 
   return (
     <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
@@ -114,26 +88,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       </span>
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
-        <span class="text-[9px] uppercase tracking-wide text-fg-3">client</span>
-        <Tip label="This browser's JS build (baked in at build time)">
-          <Commit sha={pwa.clientCommit} />
-        </Tip>
-        <Show when={stale()}>
-          <Tip label="This client build doesn't match the server — reload to pick up the server's version.">
-            <StaleBadge />
-          </Tip>
-        </Show>
-      </span>
-      {/* pty column + `≡ in-process` tag — hidden until the pty-host is a
-          separate process (remote-terminals Phase B). Uncomment with the
-          helpers and `Show` import above.
-
-      <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
-      <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
         <span class="text-[9px] uppercase tracking-wide text-fg-3">pty</span>
-        <Tip label="Terminal host (in-process)">
+        <Tip label="Terminal-host daemon (survives a server restart)">
           <span
-            class={`inline-block h-[7px] w-[7px] rounded-full ${ptyDot[props.status]}`}
+            data-pty-state={ptyState()}
+            class={`inline-block h-[7px] w-[7px] rounded-full ${ptyDot[ptyState()]}`}
           />
         </Tip>
         <Commit sha={pwa.server()?.ptyHost?.navigableCommit} />
@@ -149,14 +108,32 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           )}
         </Show>
       </span>
-      <Show when={coincident()}>
-        <Tip label="srv and pty are the same process in A2">
+      <Show when={ptyState() === "current"}>
+        <Tip label="The daemon is running the deployed build.">
           <span class="ml-1 self-center rounded-full border border-accent/40 px-1.5 text-[9px] leading-4 text-accent">
-            ≡ in-process
+            ≡ current
           </span>
         </Tip>
       </Show>
-      */}
+      <Show when={ptyState() === "outdated"}>
+        <Tip label="A surviving daemon is a build behind — restart it to pick up the deployed pty-host.">
+          <span class="ml-1 self-center rounded-full border border-warning/50 px-1.5 text-[9px] leading-4 text-warning">
+            ⬆ update pending
+          </span>
+        </Tip>
+      </Show>
+      <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
+      <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
+        <span class="text-[9px] uppercase tracking-wide text-fg-3">client</span>
+        <Tip label="This browser's JS build (baked in at build time)">
+          <Commit sha={pwa.clientCommit} />
+        </Tip>
+        <Show when={stale()}>
+          <Tip label="This client build doesn't match the server — reload to pick up the server's version.">
+            <StaleBadge />
+          </Tip>
+        </Show>
+      </span>
     </div>
   );
 };
