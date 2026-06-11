@@ -228,20 +228,13 @@ function safeJsonStringify(value: object): string {
  *  to compact JSON so the structure stays legible without nested tables. The
  *  result is plain text — the caller escapes it. */
 function formatFrontMatterValue(value: unknown): string {
-  if (value == null) return "";
-  if (Array.isArray(value)) {
-    return value
-      .map((item) =>
-        item == null
-          ? ""
-          : typeof item === "object"
-            ? safeJsonStringify(item)
-            : String(item),
-      )
-      .join(", ");
-  }
-  if (typeof value === "object") return safeJsonStringify(value);
-  return String(value);
+  const scalar = (v: unknown): string =>
+    v == null
+      ? ""
+      : typeof v === "object"
+        ? safeJsonStringify(v as object)
+        : String(v);
+  return Array.isArray(value) ? value.map(scalar).join(", ") : scalar(value);
 }
 
 /** Render a leading YAML front-matter block as a metadata table — the keys in a
