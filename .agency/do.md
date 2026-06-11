@@ -22,7 +22,9 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 **Push before CI.** odu's remote lanes `git fetch` the pinned HEAD SHA from origin (no git-bundle transport) — an unpushed commit cannot run on the pool box or rasam. The `/do` flow pushes before the CI step anyway; keep it that way.
 
-**Darwin build host: `rasam`, not `sincereintent`.** The `aarch64-darwin` lane runs on **`rasam`** (Apple Silicon `T6020`, 24 cores, 128 GB, macOS 15.5) — the hosts entry (`$ODU_HOSTS` → `~/.config/odu/hosts.json` → fallback `~/.config/justci/hosts.json`) is `"aarch64-darwin": "nix-infra@rasam.tail12b27.ts.net"`. (The old `sincereintent` box is retired for kolu CI; if you see it in stale docs or an old hosts file, switch it to `rasam`.)
+**Every CI run covers both platforms — `x86_64-linux` *and* `aarch64-darwin`.** kolu builds on both; a linux-only run is not CI, it leaves the macOS lane's required checks unposted. Pin both lanes explicitly in `mcp__odu__run` (see the flow below) rather than relying on a machine-local hosts file — that way a run is two-platform by construction on any machine, not just one where `~/.config/odu/hosts.json` happens to list the darwin host.
+
+**Darwin build host: `rasam`, not `sincereintent`.** The `aarch64-darwin` lane runs on **`rasam`** (Apple Silicon `T6020`, 24 cores, 128 GB, macOS 15.5), pinned in the run as `aarch64-darwin=nix-infra@rasam.tail12b27.ts.net` (the same value a `~/.config/odu/hosts.json` / `$ODU_HOSTS` entry would carry, but passed on the command so it doesn't depend on local config). (The old `sincereintent` box is retired for kolu CI; if you see it in stale docs or an old hosts file, switch it to `rasam`.)
 
 **Linux build host: a leased pool box per run.** The linux lane runs on one of a **fixed pool of long-lived warm Incus boxes** — `kolu-ci-1 .. kolu-ci-8` — *leased* for the run's duration, never created or destroyed on the hot path. Since the MCP owns the run, the lease can no longer wrap it; [`ci/pu/lease.sh`](../ci/pu/lease.sh) holds the box as a **separate background process** and you pass its box pin to `mcp__odu__run`. The four-step flow:
 
@@ -34,9 +36,14 @@ pr=$(gh pr view --json number --jq .number)
 #    saturated → cold-ephemeral → hosts.json fallback), then blocks holding it.
 ci/pu/lease.sh acquire "$pr"            # ← run this in the background
 
-# 2) Read the pin and start the run THROUGH the MCP, pinning the linux lane.
+# 2) Read the linux pin and start the run THROUGH the MCP. Pin BOTH lanes and
+#    request BOTH platforms, so every CI run covers linux *and* macOS — never
+#    silently linux-only because a machine-local hosts.json lacks the darwin
+#    entry: the leased linux box, plus rasam for the aarch64-darwin lane.
 host=$(. .ci/pu-lease.env; echo "$PU_LEASE_HOST")
-#    mcp__odu__run  hosts=["$host"]     (omit hosts entirely when $host is empty)
+#    mcp__odu__run  platforms=["x86_64-linux", "aarch64-darwin"]
+#                   hosts=["$host", "aarch64-darwin=nix-infra@rasam.tail12b27.ts.net"]
+#                   (if $host is empty — pool saturated — drop it but KEEP the rasam pin)
 #    mcp__odu__wait_for_settle          (then tail_log / rerun_node as needed)
 
 # 3) Release the box (frees the flock; or just stop the backgrounded task).
@@ -46,7 +53,7 @@ ci/pu/lease.sh release
 ci/pu/report.sh "$pr"
 ```
 
-The lease auto-releases even on a hard crash: stop the backgrounded `acquire` (or end the session) and its open fd dies → the box's `flock` frees within seconds (a `read -t TTL` half-open backstop and a `MAX_HOLD` leak backstop cover the rest). An empty `PU_LEASE_HOST` means the pool was saturated/unreachable and `lease.sh` either took a cold ephemeral box (recorded in `.ci/pu-lease.env`) or left it to `hosts.json` — either way call `mcp__odu__run` with **no** `hosts` pin.
+The lease auto-releases even on a hard crash: stop the backgrounded `acquire` (or end the session) and its open fd dies → the box's `flock` frees within seconds (a `read -t TTL` half-open backstop and a `MAX_HOLD` leak backstop cover the rest). An empty `PU_LEASE_HOST` means the pool was saturated/unreachable and `lease.sh` either took a cold ephemeral box (recorded in `.ci/pu-lease.env`) or left it to `hosts.json` — in that case drop the `$host` pin but **keep the rasam `aarch64-darwin` pin** so the macOS lane still runs.
 
 [`ci/pu/report.sh`](../ci/pu/report.sh) reads the sidecar `ci/pu/lease.sh` leaves in `.ci/pu-lease.env` (leased box, commit) plus odu's per-node timing sidecar (`.ci/<sha7>/timings.jsonl`, durations straight from odu's state cell — and the lane verdict, since there's no wrapper exit to read; it falls back to a legacy justci `.ci/pc.log` only when that's absent), and posts a metrics comment so every run records *which* pool box served it, how long each recipe took, and the live pool status. Run it once the lane finishes (it's cheap; safe to skip if `pu` is unavailable).
 
