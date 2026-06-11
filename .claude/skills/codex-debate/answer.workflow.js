@@ -368,12 +368,20 @@ let finalAnswer = null
 // final in-budget round: the candidate was just synthesized (a real Opus call)
 // from a genuine both-sides agreement, and discarding it unconfirmed would
 // destroy the very convergence the cap exists to protect. The extension is
-// bounded to ONE turn — an approval breaks with finalAnswer; a rejection nulls
-// pendingCandidate, so the next iteration's condition fails and the run ends
-// `unresolved` (the objections are on record in the transcript).
+// bounded to ONE turn by `confirmationTurnsLeft`: synthesis grants exactly one
+// (=1), the confirming iteration spends it (decrement at the top), an approval
+// breaks with finalAnswer, and a rejection leaves it at 0 so the loop condition
+// fails and the run ends `unresolved` (objections are on record in the transcript).
 let pendingCandidate = null
-for (let round = 1; round <= maxRounds || pendingCandidate !== null; round++) {
+// The "exactly one extra iteration past maxRounds" bound lives here in the data,
+// not implied by the body's null-on-reject discipline. The OR clause below grants
+// the loop one more turn while a synthesized candidate is owed a confirmation.
+let confirmationTurnsLeft = 0
+for (let round = 1; round <= maxRounds || confirmationTurnsLeft > 0; round++) {
   const confirming = pendingCandidate !== null
+  // Spend the granted confirmation turn as soon as we enter it, so the bound is
+  // consumed from the data rather than reconstructed by tracing the body.
+  if (confirming) confirmationTurnsLeft--
   const prevClaude = claudeAns
   const prevCodex = codexAns
   // On a confirm turn BOTH sides run their dedicated approve-a-fixed-candidate
@@ -450,6 +458,7 @@ for (let round = 1; round <= maxRounds || pendingCandidate !== null; round++) {
       log('Synthesis produced no candidate — both sides agreed but the merge failed; reporting synthesis-error.')
       break
     }
+    confirmationTurnsLeft = 1
     log(`Round ${round}: both sides agree — synthesized a candidate; confirming it next round.`)
     phase('Reconcile')
   } else {
