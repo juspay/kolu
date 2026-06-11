@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { migrateLegacyTerminal_1_18_0 } from "./state.ts";
+import {
+  backfillRemoteUrl_1_25_0,
+  migrateLegacyTerminal_1_18_0,
+} from "./state.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
 // reads it at module load.
@@ -103,5 +106,60 @@ describe("migrateLegacyTerminal_1_18_0", () => {
       canvasLayout: { x: 10, y: 20, w: 300, h: 200 },
       lastAgentCommand: "claude --model sonnet",
     });
+  });
+});
+
+describe("backfillRemoteUrl_1_25_0", () => {
+  it("backfills remoteUrl: null on an already-migrated git record missing the field", () => {
+    // The common shape: a session saved between the 1.18 migration and 1.25
+    // carries a populated `git` with no `remoteUrl`.
+    const migrated = backfillRemoteUrl_1_25_0({
+      id: "term-1",
+      cwd: "/home/alice/app",
+      git: {
+        repoRoot: "/home/alice/app",
+        repoName: "app",
+        worktreePath: "/home/alice/app",
+        branch: "main",
+        isWorktree: false,
+        mainRepoRoot: "/home/alice/app",
+      },
+    });
+    expect(migrated).toEqual({
+      id: "term-1",
+      cwd: "/home/alice/app",
+      git: {
+        repoRoot: "/home/alice/app",
+        repoName: "app",
+        worktreePath: "/home/alice/app",
+        branch: "main",
+        isWorktree: false,
+        mainRepoRoot: "/home/alice/app",
+        remoteUrl: null,
+      },
+    });
+  });
+
+  it("is idempotent — a git record that already has remoteUrl passes through", () => {
+    const git = {
+      repoRoot: "/r",
+      repoName: "r",
+      worktreePath: "/r",
+      branch: "main",
+      isWorktree: false,
+      mainRepoRoot: "/r",
+      remoteUrl: "https://github.com/owner/r.git",
+    };
+    const migrated = backfillRemoteUrl_1_25_0({ id: "t", cwd: "/r", git });
+    expect(migrated).toEqual({ id: "t", cwd: "/r", git });
+  });
+
+  it("leaves a null git untouched", () => {
+    const migrated = backfillRemoteUrl_1_25_0({
+      id: "t",
+      cwd: "/tmp",
+      git: null,
+    });
+    expect(migrated).toEqual({ id: "t", cwd: "/tmp", git: null });
   });
 });
