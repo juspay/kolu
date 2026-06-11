@@ -92,6 +92,56 @@ When(
   },
 );
 
+When(
+  "the terminal viewport is scrolled up programmatically",
+  async function (this: KoluWorld) {
+    // Drive xterm's scroll API directly — no wheel/touch/key event reaches
+    // the page, so this models the #1272 bug class: a viewport scroll the
+    // user never initiated.
+    await this.page.evaluate(() => {
+      const container = document.querySelector<HTMLDivElement>(
+        "[data-visible][data-terminal-id]",
+      );
+      const term = container?.__xterm;
+      if (!term) throw new Error("xterm not found on active terminal");
+      term.scrollLines(-10);
+    });
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I fire the output trigger expecting live output",
+  async function (this: KoluWorld) {
+    // Same FIFO injection as "I fire the output trigger", but asserting the
+    // un-buffered path: the lines must land in the client xterm buffer.
+    const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
+    await writeFile(scrollFifo(this), `${lines.join("\n")}\n`);
+    await waitForBufferContains(this.page, "triggered-10");
+  },
+);
+
+When("the browser tab becomes visible again", async function (this: KoluWorld) {
+  // Playwright can't actually background a headless tab, so exercise the
+  // visibilitychange wiring directly: the document is already visible, and
+  // dispatching the event runs the same return-to-tab handler a real
+  // background→foreground transition fires.
+  await this.page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  );
+  await this.waitForFrame();
+});
+
+Then(
+  "the terminal buffer should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    // Client-side xterm buffer assertion — proves held output actually
+    // flushed into xterm (the misleadingly-similar "the terminal should
+    // contain" step asserts post-refresh terminal COUNTS, not content).
+    await waitForBufferContains(this.page, expected);
+  },
+);
+
 /** Read the first visible row from the xterm buffer at the current viewport position. */
 function readFirstVisibleLine(world: KoluWorld) {
   return world.page.evaluate(() => {

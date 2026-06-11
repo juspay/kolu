@@ -60,3 +60,29 @@ Feature: Scroll lock
     And I scroll the terminal up
     And I generate 10 more lines of output
     Then the scroll-to-bottom button should not be visible
+
+  Scenario: Programmatic viewport scroll does not freeze output
+    # #1272: xterm can fire a scroll event no user initiated (touch-bridge
+    # artifacts, alt-buffer exit re-emission, smooth-scroll ticks delivered
+    # late). Such a scroll must not engage the lock — the viewport self-heals
+    # to the bottom and output keeps painting instead of buffering forever.
+    When I generate 100 lines of output
+    And I prepare a output trigger
+    And the terminal viewport is scrolled up programmatically
+    And I fire the output trigger expecting live output
+    Then the terminal should be scrolled to the bottom
+    And the scroll-to-bottom button should not be visible
+
+  Scenario: Returning to the tab releases a scroll-locked terminal
+    # #1272: a lock left engaged while the tab was backgrounded must not
+    # present as "terminal frozen until keypress" when the user comes back —
+    # tab return flushes and rejoins the bottom, mirroring the existing
+    # "switching back to a terminal auto-scrolls to bottom" semantics.
+    When I generate 100 lines of output
+    And I prepare a output trigger
+    And I scroll the terminal up
+    And I fire the output trigger
+    And the browser tab becomes visible again
+    Then the terminal should be scrolled to the bottom
+    And the terminal buffer should contain "triggered-10"
+    And the scroll-to-bottom button should not be visible

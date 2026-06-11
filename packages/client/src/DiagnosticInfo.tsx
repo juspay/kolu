@@ -110,6 +110,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           scrollback: bufferLen !== null ? bufferLen - d.rows : null,
           atlas: refs?.probes.webglAtlas() ?? null,
           bufferBytes: refs?.probes.bufferBytes() ?? null,
+          scrollLock: d.scrollLock,
+          // Full transition ring for the JSON dump — the live row above only
+          // shows the latest one (#1272 field diagnosis).
+          scrollLockEvents: refs?.probes.scrollLockEvents() ?? [],
         };
       }),
       webgl,
@@ -250,6 +254,32 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                         <span class="text-[10px] text-fg-3/70">active</span>
                       </Show>
                     </div>
+                    <Show when={d.scrollLock.locked || d.scrollLock.lastEvent}>
+                      <div class="pl-[9ch] text-[10px] tabular-nums">
+                        <span
+                          class={
+                            d.scrollLock.locked
+                              ? "text-danger font-semibold"
+                              : "text-fg-3/60"
+                          }
+                        >
+                          lock:{" "}
+                          {d.scrollLock.locked
+                            ? `engaged · ${d.scrollLock.pendingChunks} chunks held`
+                            : "released"}
+                        </span>
+                        <Show when={d.scrollLock.lastEvent}>
+                          {(ev) => (
+                            <span class="text-fg-3/60">
+                              {" "}
+                              · last: {ev().kind}
+                              {ev().source ? `/${ev().source}` : ""} at{" "}
+                              {new Date(ev().at).toISOString().slice(11, 23)}
+                            </span>
+                          )}
+                        </Show>
+                      </div>
+                    </Show>
                     <Show when={d.scrollback !== null}>
                       <div class="pl-[9ch] text-[10px] text-fg-3/60 tabular-nums">
                         scrollback: {d.scrollback}

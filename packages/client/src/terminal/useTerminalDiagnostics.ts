@@ -17,14 +17,25 @@ import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createRoot } from "solid-js";
 import { createStore, produce } from "solid-js/store";
+import type { ScrollLockEvent } from "../scrollLock";
 
 export type Renderer = "webgl" | "dom";
+
+/** Live scroll-lock state per terminal — whether output is currently being
+ *  held instead of painted, how much, and the transition that engaged it
+ *  (#1272 field diagnosis). */
+export interface ScrollLockDiagnostics {
+  locked: boolean;
+  pendingChunks: number;
+  lastEvent: ScrollLockEvent | null;
+}
 
 export interface TerminalDiagnostics {
   id: TerminalId;
   cols: number;
   rows: number;
   renderer: Renderer;
+  scrollLock: ScrollLockDiagnostics;
 }
 
 const [store, setStore] = createStore<Record<TerminalId, TerminalDiagnostics>>(
@@ -39,13 +50,30 @@ const [store, setStore] = createStore<Record<TerminalId, TerminalDiagnostics>>(
  *  Returns a cleanup function to call from `onCleanup`. */
 export function registerDiagnostics(
   id: TerminalId,
-  { xterm, renderer }: { xterm: XTerm; renderer: Accessor<Renderer> },
+  {
+    xterm,
+    renderer,
+    scrollLock,
+  }: {
+    xterm: XTerm;
+    renderer: Accessor<Renderer>;
+    scrollLock: {
+      locked: Accessor<boolean>;
+      pendingChunks: Accessor<number>;
+      lastEvent: Accessor<ScrollLockEvent | null>;
+    };
+  },
 ): () => void {
   setStore(id, {
     id,
     cols: xterm.cols,
     rows: xterm.rows,
     renderer: renderer(),
+    scrollLock: {
+      locked: scrollLock.locked(),
+      pendingChunks: scrollLock.pendingChunks(),
+      lastEvent: scrollLock.lastEvent(),
+    },
   });
 
   const resizeDisposable = xterm.onResize(({ cols, rows }) => {
@@ -59,6 +87,13 @@ export function registerDiagnostics(
   const disposeRoot = createRoot((dispose) => {
     createEffect(() => {
       setStore(id, "renderer", renderer());
+    });
+    createEffect(() => {
+      setStore(id, "scrollLock", {
+        locked: scrollLock.locked(),
+        pendingChunks: scrollLock.pendingChunks(),
+        lastEvent: scrollLock.lastEvent(),
+      });
     });
     return dispose;
   });

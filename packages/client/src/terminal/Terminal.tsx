@@ -638,6 +638,7 @@ const Terminal: Component<{
                 return a ? { w: a.width, h: a.height } : null;
               },
               bufferBytes: () => readBufferBytes(term),
+              scrollLockEvents: () => scrollLock.events(),
             },
           });
           // Diagnostics subscribes to hasWebgl via accessor — keeps hasWebgl
@@ -645,15 +646,48 @@ const Terminal: Component<{
           disposeDiagnostics = registerDiagnostics(props.terminalId, {
             xterm: term,
             renderer: () => (hasWebgl() ? "webgl" : "dom"),
+            scrollLock: {
+              locked: scrollLock.isLocked,
+              pendingChunks: scrollLock.pendingChunks,
+              lastEvent: scrollLock.lastEvent,
+            },
           });
 
           scrollLock.attachToTerminal(term);
+
+          // Wheel input arms the scroll-lock latch (#1272). Capture phase is
+          // load-bearing: xterm's own wheel handler sits deeper in the DOM,
+          // so a bubble listener here would run AFTER it — and it fires
+          // onScroll synchronously, which must already see the intent.
+          // Passive: we only observe; xterm owns the scrolling.
+          makeEventListener(
+            containerRef,
+            "wheel",
+            () => scrollLock.armUserScrollIntent("wheel"),
+            { capture: true, passive: true },
+          );
 
           if (shouldUseWebgl()) loadWebgl();
 
           // xterm.js has attachCustomKeyEventHandler for intercepting keys.
           // Return false to prevent xterm from handling the key.
           term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+            // xterm scrolls the viewport for these chords (scrollPages /
+            // scrollToTop / scrollToBottom) — the resulting synchronous
+            // onScroll must read as user intent, or the scroll-lock latch
+            // suppresses it (#1272). Observation only; the key still falls
+            // through to xterm below.
+            if (
+              e.type === "keydown" &&
+              e.shiftKey &&
+              (e.key === "PageUp" ||
+                e.key === "PageDown" ||
+                e.key === "Home" ||
+                e.key === "End")
+            ) {
+              scrollLock.armUserScrollIntent("keyboard");
+            }
+
             // Let Cmd+key pass through to browser (except copy/paste without Shift)
             if (e.metaKey) {
               const key = e.key.toLowerCase();
@@ -770,6 +804,10 @@ const Terminal: Component<{
             () => {
               debouncedFit();
               clearTextureAtlas();
+              // A lock engaged while the tab was hidden must not greet the
+              // returning user as a frozen terminal (#1272) — flush and
+              // rejoin the bottom, like switching back to a terminal does.
+              scrollLock.handleTabVisible();
             },
             () => props.visible,
           );
@@ -824,7 +862,10 @@ const Terminal: Component<{
               (first.clientY - touchAnchorY) / cellHeight,
             );
             if (lines === 0) return;
-            // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N)
+            // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N).
+            // Arm intent FIRST: scrollLines fires onScroll synchronously, and
+            // the scroll-lock latch only engages for user-made scrolls (#1272).
+            scrollLock.armUserScrollIntent("touch");
             terminal.scrollLines(-lines);
             touchAnchorY += lines * cellHeight;
           });
@@ -947,6 +988,10 @@ const Terminal: Component<{
             searchAddon={addon()}
             open={props.searchOpen}
             onClose={() => props.onSearchOpenChange(false)}
+            // A search jump scrolls the viewport to the match — user intent,
+            // so the scroll-lock latch may engage and hold output while the
+            // user inspects it (#1272).
+            onNavigate={() => scrollLock.armUserScrollIntent("search")}
           />
         )}
       </Show>

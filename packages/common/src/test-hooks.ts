@@ -59,6 +59,9 @@ declare global {
   interface KoluXtermProbe {
     cols: number;
     rows: number;
+    /** Programmatic viewport scroll — drives the #1272 repro (a scroll no
+     *  user input produced). */
+    scrollLines(amount: number): void;
     buffer: {
       active: {
         length: number;

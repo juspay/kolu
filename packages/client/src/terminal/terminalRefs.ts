@@ -11,6 +11,7 @@
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
+import type { ScrollLockEvent } from "../scrollLock";
 
 /** Volatile per-terminal probes. Unlike the stable `xterm`/`serialize`
  *  handles above, these accessors may return null even during the terminal's
@@ -27,6 +28,9 @@ export interface TerminalProbes {
    *  that shape has changed under us so callers fall back to "unknown"
    *  instead of crashing. */
   bufferBytes: () => { primary: number; alternate: number } | null;
+  /** Scroll-lock transition ring (newest last) — the #1272 forensic trail,
+   *  dumped wholesale into Diagnostic Info's Copy JSON. */
+  scrollLockEvents: () => ScrollLockEvent[];
 }
 
 export interface TerminalRefs {
