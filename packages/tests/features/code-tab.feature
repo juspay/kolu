@@ -849,7 +849,10 @@ Feature: Code tab (review + browse)
   # below still parses as ordinary markdown.
   Scenario: Markdown preview renders YAML front-matter as a metadata table
     When I run "rm -rf /tmp/kolu-md-fm && git init /tmp/kolu-md-fm && cd /tmp/kolu-md-fm"
-    And I run "printf '---\ntitle: Release Notes\nauthor: Jane Roe\ntags:\n  - markdown\n  - preview\n---\n\n# Body Heading\n\nReal body text.\n' > README.md"
+    # `printf --` ends option parsing so the leading `---` is the format string,
+    # not flags — a bare `printf '---…'` makes bash treat `--` as an invalid
+    # option and write nothing.
+    And I run "printf -- '---\ntitle: Release Notes\nauthor: Jane Roe\ntags:\n  - markdown\n  - preview\n---\n\n# Body Heading\n\nReal body text.\n' > README.md"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
