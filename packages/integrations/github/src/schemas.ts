@@ -45,12 +45,24 @@ export function reasonForGhCode(code: GhUnavailableCode): string {
   return GH_REASONS[code];
 }
 
+/** The wire/persisted provider tag for the gh arm of the closed
+ *  `PrUnavailableSource` union. The single source of this spelling: both the
+ *  schema literal below and the `classifyGhError` failure construction in
+ *  `github.ts` reference it, so the tag a reader must recognize as "the same
+ *  forge" lives in exactly one place rather than two hand-aligned literals.
+ *
+ *  Distinct from the adapter's in-process `PrProvider.kind` ("github", see
+ *  `resolve.ts`): that key drives dispatch/registry lookup, this tag is a
+ *  persisted discriminant matched on the client (`surface.ts`), so the two
+ *  values can't be merged without a wire-format change. */
+export const GH_PROVIDER = "gh";
+
 /** The gh arm of the app's closed `PrUnavailableSource` union: provider tag
  *  `"gh"` plus this adapter's typed code. The discriminated union over all
  *  forge arms composes in the app (kolu-common), the same place
  *  `AgentInfoSchema` composes the per-agent schemas. */
 export const GhUnavailableSchema = z.object({
-  provider: z.literal("gh"),
+  provider: z.literal(GH_PROVIDER),
   code: GhUnavailableCodeSchema,
 });
 export type GhUnavailableSource = z.infer<typeof GhUnavailableSchema>;

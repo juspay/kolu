@@ -55,6 +55,22 @@ export const PrInfoSchema = z.object({
 });
 export type PrInfo = z.infer<typeof PrInfoSchema>;
 
+/** Fold per-check outcomes into one combined status — the rule every forge
+ *  shares: `fail` is terminal (one red gate fails the rollup), `pending` is
+ *  sticky until something fails, `pass` only when every check passed. Returns
+ *  `null` for an empty list (no checks configured). Each adapter maps its
+ *  forge's raw check vocabulary to `CheckStatus` and hands the list here, so
+ *  this combine logic lives once in the leaf rather than once per adapter. */
+export function foldCheckOutcomes(outcomes: CheckStatus[]): PrInfo["checks"] {
+  if (outcomes.length === 0) return null;
+  let worst: CheckStatus = "pass";
+  for (const outcome of outcomes) {
+    if (outcome === "fail") return "fail";
+    if (outcome === "pending") worst = "pending";
+  }
+  return worst;
+}
+
 // --- Generic unavailable source + PrResult ---
 
 /** The generic failure source the kernel knows: a provider tag + its code.

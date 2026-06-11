@@ -8,11 +8,50 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
-import { simpleGit } from "simple-git";
+import { simpleGit, type SimpleGit } from "simple-git";
+import { watchGitConfig } from "./config-watcher.ts";
 import { watchCwdForGitDir } from "./cwd-git-watcher.ts";
 import { err, type GitResult, ok } from "./errors.ts";
 import { watchGitHead } from "./head-watcher.ts";
 import type { GitInfo } from "./schemas.ts";
+
+/** Strip embedded credentials (`https://user:token@host/…` → `https://host/…`)
+ *  before a remote URL is persisted or published. scp-style `git@host:path`
+ *  carries no secret (the `git` user is not a credential) and is returned
+ *  unchanged. */
+function stripRemoteCredentials(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.username || u.password) {
+      u.username = "";
+      u.password = "";
+      return u.toString();
+    }
+    return url;
+  } catch {
+    return url;
+  }
+}
+
+/** Best-effort `origin` remote URL with credentials stripped, or null when
+ *  the repo has no `origin` (or git fails). Never throws — a remote-less repo
+ *  is normal (#1244), so this degrades to null rather than failing the whole
+ *  GitInfo resolve. */
+async function resolveRemoteUrl(
+  git: SimpleGit,
+  log?: Logger,
+): Promise<string | null> {
+  try {
+    const url = (await git.raw(["remote", "get-url", "origin"])).trim();
+    return url ? stripRemoteCredentials(url) : null;
+  } catch (e) {
+    log?.debug(
+      { err: e instanceof Error ? e.message : String(e) },
+      "git: no origin remote",
+    );
+    return null;
+  }
+}
 
 /** Fast check: does a .git entry exist in this directory? (stat, not a git subprocess) */
 export function hasGitDir(cwd: string): boolean {
@@ -72,6 +111,7 @@ export async function resolveGitInfo(
         branch,
         isWorktree: false,
         mainRepoRoot: repoRoot,
+        remoteUrl: await resolveRemoteUrl(git, log),
       });
     }
     const repoRoot = (await git.revparse(["--show-toplevel"])).trim();
@@ -98,6 +138,7 @@ export async function resolveGitInfo(
       branch,
       isWorktree,
       mainRepoRoot,
+      remoteUrl: await resolveRemoteUrl(git, log),
     });
   } catch (e) {
     // Log so unexpected failures (permission errors, missing git binary)
@@ -120,7 +161,8 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
   return (
     a.repoRoot === b.repoRoot &&
     a.branch === b.branch &&
-    a.worktreePath === b.worktreePath
+    a.worktreePath === b.worktreePath &&
+    a.remoteUrl === b.remoteUrl
   );
 }
 
@@ -168,7 +210,16 @@ export function subscribeGitInfo(
     if (mode === "cwd") {
       return watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
     }
-    return watchGitHead(currentCwd, handleWatcherEvent, log);
+    // In-repo: watch HEAD (branch identity) and the shared config (remote URL)
+    // together — a change to either re-resolves GitInfo. Both are refcounted
+    // shared singletons, so this adds no OS handle when another watcher on the
+    // same repo already exists.
+    const stopHead = watchGitHead(currentCwd, handleWatcherEvent, log);
+    const stopConfig = watchGitConfig(currentCwd, handleWatcherEvent, log);
+    return () => {
+      stopHead();
+      stopConfig();
+    };
   }
 
   function ensureMode(mode: WatcherMode): void {

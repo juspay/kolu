@@ -12,6 +12,11 @@ export const GitInfoSchema = z.object({
   branch: z.string(),
   isWorktree: z.boolean(),
   mainRepoRoot: z.string(),
+  /** The `origin` remote URL with credentials stripped, or null when the
+   *  repo has no `origin`. Best-effort (a remote-less repo is normal). Carried
+   *  so a forge dispatcher downstream can pick the PR adapter from the host;
+   *  `.nullable()` not `.optional()` so every producer states it explicitly. */
+  remoteUrl: z.string().nullable(),
 });
 
 // --- Git worktree operations ---

@@ -45,7 +45,8 @@ import type {
   AgentWatcher,
 } from "anyagent";
 import { agentInfoEqual, parseAgentCommand } from "anyagent";
-import { subscribePr } from "anyforge";
+import type { PrProvider } from "anyforge";
+import { parseRemoteHost, subscribePr } from "anyforge";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
 import { subscribeGitInfo } from "kolu-git";
@@ -54,6 +55,7 @@ import { githubPrProvider } from "kolu-github";
 import type {
   AgentInfo,
   LiveTerminalFields,
+  PrUnavailableSource,
   ServerPersistedTerminalFields,
   TerminalId,
   TerminalServerMetadata,
@@ -248,6 +250,49 @@ function startGitProvider(
 
 // ── PR watcher ────────────────────────────────────────────────────────
 
+/** The forges kolu can resolve a PR from. One today; a second forge adds an
+ *  arm here plus an entry in `PR_REGISTRY` and a host match in `detectForge`
+ *  — nothing else in the watcher path changes.
+ *
+ *  Derived from the adapter's own `kind` literal (not a hand-written
+ *  `"github"`) so the registry key and the adapter agree by construction: a
+ *  phase-1 forge that adds an adapter must add the matching `PR_REGISTRY` key
+ *  or the `Record<ForgeKind, …>` below stops type-checking. */
+type ForgeKind = (typeof githubPrProvider)["kind"];
+
+/** Forge adapter per kind. Typed at the closed `PrUnavailableSource` union:
+ *  each adapter's concrete source is a member, so a `PrProvider<GhUnavailable…>`
+ *  assigns covariantly with no cast, and the dispatcher's result lands in the
+ *  metadata `PrResult` directly. */
+const PR_REGISTRY: Record<ForgeKind, PrProvider<PrUnavailableSource>> = {
+  github: githubPrProvider,
+};
+
+/** Map a repo's `origin` remote URL to the forge that resolves its PRs. Every
+ *  host → github today: `gh` handles github.com and GitHub Enterprise, and
+ *  post-#1256 it degrades to a silent `absent` on hosts it doesn't know. A
+ *  second forge adds a host match here (e.g. `parseRemoteHost(remoteUrl) ===
+ *  "codeberg.org"` → forgejo); detection stays sync and pure — no network probe. */
+function detectForge(remoteUrl: string | null): ForgeKind {
+  switch (parseRemoteHost(remoteUrl)) {
+    default:
+      return "github";
+  }
+}
+
+/** A `PrProvider` that routes each resolve to the forge `detectForge` picks
+ *  from the git context's remote. Keeps `subscribePr`'s one-provider contract
+ *  intact while supporting per-resolve forge selection: the remote can change
+ *  mid-session (`git remote set-url`), and consulting the registry on every
+ *  resolve re-routes without tearing the watcher down. With one forge it always
+ *  resolves to `githubPrProvider`, so behavior is identical to injecting it
+ *  directly. */
+const dispatchingPrProvider: PrProvider<PrUnavailableSource> = {
+  kind: "forge-dispatch",
+  resolve: (git, log) =>
+    PR_REGISTRY[detectForge(git.remoteUrl)].resolve(git, log),
+};
+
 function startPrProvider(
   record: ProviderRecord,
   terminalId: TerminalId,
@@ -256,9 +301,10 @@ function startPrProvider(
 ): () => void {
   const plog = log.child({ provider: "pr", terminal: terminalId });
   plog.debug("started");
-  // The gh adapter resolves the PR for every git context this watcher sees.
+  // The dispatcher routes each resolve to the forge picked from the remote;
+  // with one forge today that's always the gh adapter.
   const watcher = subscribePr(
-    githubPrProvider,
+    dispatchingPrProvider,
     (pr) => {
       hooks.updateServerLiveMetadata(record, (m) => {
         m.pr = pr;
@@ -280,7 +326,13 @@ function startPrProvider(
   const cleanup = channels.git.consume({
     onEvent: (git) =>
       watcher.setGit(
-        git ? { repoRoot: git.repoRoot, branch: git.branch } : null,
+        git
+          ? {
+              repoRoot: git.repoRoot,
+              branch: git.branch,
+              remoteUrl: git.remoteUrl,
+            }
+          : null,
       ),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });

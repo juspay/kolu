@@ -2,9 +2,14 @@
  *  these with the `gh pr view` spawn; the wire shapes they produce live in
  *  `anyforge/schemas`. */
 
-import type { CheckRun, PrInfo, PrResult } from "anyforge/schemas";
+import { foldCheckOutcomes } from "anyforge";
+import type { CheckRun, CheckStatus, PrInfo, PrResult } from "anyforge/schemas";
 import { match, P } from "ts-pattern";
-import type { GhUnavailableCode, GhUnavailableSource } from "./schemas.ts";
+import {
+  GH_PROVIDER,
+  type GhUnavailableCode,
+  type GhUnavailableSource,
+} from "./schemas.ts";
 
 /**
  * Derive combined check status from GitHub's statusCheckRollup entries.
@@ -20,8 +25,11 @@ import type { GhUnavailableCode, GhUnavailableSource } from "./schemas.ts";
  *   state: SUCCESS | PENDING | FAILURE | ERROR | EXPECTED
  *
  * See: https://docs.github.com/en/graphql/reference/unions#statuscheckrollupcontext
+ *
+ * This is the gh-specific half — mapping GitHub's raw check vocabulary to the
+ * neutral `CheckStatus`. The combine rule (fail-terminal, pending-sticky) is
+ * forge-shared and lives in anyforge's `foldCheckOutcomes`.
  */
-type CheckOutcome = "fail" | "pending" | "pass";
 
 /** Single rollup entry as `gh pr view --json statusCheckRollup` returns
  *  it. CheckRuns carry `name`; StatusContexts carry `context`. */
@@ -34,7 +42,7 @@ type RollupEntry = {
   context?: string;
 };
 
-function classifyCheck(check: RollupEntry): CheckOutcome {
+function classifyCheck(check: RollupEntry): CheckStatus {
   if (check.__typename === "StatusContext") {
     return match(check.state?.toUpperCase())
       .with(P.union("FAILURE", "ERROR"), () => "fail" as const)
@@ -61,15 +69,10 @@ function classifyCheck(check: RollupEntry): CheckOutcome {
 export function deriveCheckStatus(
   rollup: RollupEntry[] | undefined,
 ): PrInfo["checks"] {
-  if (!rollup || rollup.length === 0) return null;
-  // "fail" is terminal — short-circuit; "pending" is sticky until something fails.
-  let worst: CheckOutcome = "pass";
-  for (const check of rollup) {
-    const outcome = classifyCheck(check);
-    if (outcome === "fail") return "fail";
-    if (outcome === "pending") worst = "pending";
-  }
-  return worst;
+  // Pure mapping: the absent-or-empty → null decision lives entirely in
+  // `foldCheckOutcomes` (an absent rollup classifies to `[]`, which it folds
+  // to null), so the 'no checks configured → null' rule stays in one place.
+  return foldCheckOutcomes(rollup?.map(classifyCheck) ?? []);
 }
 
 /** Per-check breakdown of the rollup — the same entries `deriveCheckStatus`
@@ -116,7 +119,7 @@ export function classifyGhError(err: unknown): PrResult<GhUnavailableSource> {
     code: GhUnavailableCode,
   ): PrResult<GhUnavailableSource> => ({
     kind: "unavailable",
-    source: { provider: "gh", code },
+    source: { provider: GH_PROVIDER, code },
   });
   if (e.code === "ENOENT") return ghUnavailable("not-installed");
   // execFile sets killed=true when the timeout fires and sends SIGTERM.

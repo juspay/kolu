@@ -76,10 +76,36 @@ export function migrateLegacyTerminal_1_18_0(
         worktreePath: kept.cwd,
         isWorktree: false,
         mainRepoRoot: kept.cwd,
+        // A restored session carries no remote URL — the live git watcher
+        // re-resolves it on the next resolve.
+        remoteUrl: null,
       },
     };
   }
   return { ...kept, git: null };
+}
+
+/** Backfill `git.remoteUrl = null` on a restored terminal whose `git` record
+ *  predates the field (#1244). Only the legacy-flat path in
+ *  `migrateLegacyTerminal_1_18_0` stamps `remoteUrl`; sessions saved by any
+ *  version between the 1.18 migration and this one carry a populated `git`
+ *  object with no `remoteUrl`, which the now-required `GitInfoSchema` field
+ *  rejects. Backfill null (the live git watcher re-resolves the real value on
+ *  first restore) so those records validate again. Idempotent: a `git` that
+ *  already has `remoteUrl` — or a null `git` — passes through untouched.
+ *
+ *  Exported so `state.test.ts` can exercise the backfill directly without a
+ *  `Conf` store. */
+export function backfillRemoteUrl_1_25_0(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const git = t.git;
+  if (!git || typeof git !== "object") return t;
+  if ("remoteUrl" in git) return t;
+  return {
+    ...t,
+    git: { ...(git as Record<string, unknown>), remoteUrl: null },
+  };
 }
 
 /** What conf stores to disk — survives server restart. Internal: clients see
@@ -98,7 +124,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.24.0";
+const SCHEMA_VERSION = "1.25.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -455,6 +481,23 @@ export const store = new Conf<PersistedState>({
           codeTabTreeSize: DEFAULT_PREFERENCES.rightPanel.codeTabTreeSize,
         },
       } as Preferences);
+    },
+    // `GitInfo.remoteUrl` added (#1244) and made required on the schema. The
+    // 1.18.0 pass only stamps it on the legacy-flat synthesis path; sessions
+    // saved by any version in between carry a populated `git` with no
+    // `remoteUrl`, which the now-required field rejects. Backfill null on every
+    // restored terminal's `git` (see `backfillRemoteUrl_1_25_0`); the live git
+    // watcher re-resolves the real value on first restore.
+    "1.25.0": (store: Conf<PersistedState>) => {
+      const session = store.get("session");
+      if (!session) return;
+      const terminals = (
+        session.terminals as unknown as Record<string, unknown>[]
+      ).map(backfillRemoteUrl_1_25_0);
+      store.set("session", {
+        ...session,
+        terminals: terminals as typeof session.terminals,
+      });
     },
   },
 });
