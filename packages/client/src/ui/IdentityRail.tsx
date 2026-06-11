@@ -104,6 +104,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         </Show>
       </span>
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
+      {/* FUTURE (multi pty-host): this single `pty` column assumes the sole
+          daemon. When `buildInfo.ptyHost` becomes keyed (multi-host, some
+          remote over SSH — see KoluBuildInfo in common/surface.ts), iterate
+          here into N columns / a collapsed summary, and give a remote host its
+          own transport/reachability dot, separate from the build-currency dot
+          below. */}
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
         <span class="text-[9px] uppercase tracking-wide text-fg-3">pty</span>
         <Tip label="Terminal-host daemon (survives a server restart)">

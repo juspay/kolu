@@ -605,6 +605,13 @@ export interface KoluBuildInfo extends BuildInfo {
    *  the async buildInfo patch resolves it's always present — `pkg.version`,
    *  even in dev. */
   version?: string;
+  // FUTURE (multi pty-host): `ptyHost` / `ptyHostCurrency` / `ptyStartedAt`
+  // describe the *sole* pty host today. Multi-host support (some remote over
+  // SSH) turns this group keyed — `ptyHosts: Record<hostId, { identity,
+  // currency, startedAt, … }>` — with a per-host transport/reachability axis
+  // the single WS-liveness signal doesn't yet model. Migrate the three as one
+  // unit; the rail (`IdentityRail.tsx`) iterates instead of rendering one
+  // `pty` column.
   ptyHost?: z.infer<typeof PtyHostIdentitySchema>;
   /** The surviving daemon's currency, decided server-side where both the live
    *  daemon's relayed `ptyHost.staleKey` and the deployed server's own expected
