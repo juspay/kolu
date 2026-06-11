@@ -96,6 +96,65 @@ describe("ensureDaemon", () => {
     survivor.daemon.close();
   });
 
+  it("restarts a surviving daemon whose pty-host contract is incompatible", async () => {
+    // A survivor is already up — pretend it's an older, contract-skewed build.
+    const survivor = await runPtyHostDaemon({
+      socketPath,
+      pidPath,
+      version: "old",
+      log,
+    });
+    if (survivor.kind !== "serving") throw new Error("survivor failed");
+
+    const proc = fakeDaemonProcess(socketPath, pidPath);
+    let killed = false;
+    handle = await ensureDaemon({
+      socketPath,
+      pidPath,
+      log,
+      spawnDaemon: proc.spawnDaemon,
+      // The survivor's gate pid is the test process (never dies), so kill is
+      // simulated by closing it + flipping injected liveness.
+      killDaemon: () => {
+        survivor.daemon.close();
+        killed = true;
+      },
+      isAlive: () => !killed,
+      checkContract: async () => false, // force a contract skew
+      ...fast,
+    });
+
+    // The skewed survivor was restarted to this build: the respawn fired and the
+    // handle is connected to the fresh, compatible daemon.
+    expect(proc.spawnDaemon).toHaveBeenCalledTimes(1);
+    expect(handle.state()).toBe("connected");
+    expect(
+      (await handle.client.surface.system.version({})).contractVersion,
+    ).toBeDefined();
+    proc.stop();
+  });
+
+  it("does NOT restart a surviving daemon whose contract is compatible", async () => {
+    const survivor = await runPtyHostDaemon({
+      socketPath,
+      pidPath,
+      version: "test",
+      log,
+    });
+    if (survivor.kind !== "serving") throw new Error("survivor failed");
+    const proc = fakeDaemonProcess(socketPath, pidPath);
+    handle = await ensureDaemon({
+      socketPath,
+      pidPath,
+      log,
+      ...proc,
+      checkContract: async () => true, // compatible
+      ...fast,
+    });
+    expect(proc.spawnDaemon).not.toHaveBeenCalled(); // adopted, not restarted
+    survivor.daemon.close();
+  });
+
   it("restart kills the old daemon, waits for exit, respawns, and the stable client follows", async () => {
     const proc = fakeDaemonProcess(socketPath, pidPath);
     handle = await ensureDaemon({ socketPath, pidPath, log, ...proc, ...fast });

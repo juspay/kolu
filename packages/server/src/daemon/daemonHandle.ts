@@ -21,7 +21,8 @@
  * live daemon.
  */
 import type { PtyHostClient } from "@kolu/pty-host";
-import { ptyHostSurface } from "@kolu/pty-host";
+import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "@kolu/pty-host";
+import { isContractVersionCompatible } from "@kolu/surface/define";
 import {
   type UnixSocketConnection,
   unixSocketLink,
@@ -66,6 +67,11 @@ export interface DaemonHandleDeps {
   killDaemon?: (pid: number) => void;
   /** Liveness probe for the wait barrier — injectable for tests. */
   isAlive?: IsAlive;
+  /** Is the connected daemon's pty-host contract compatible with this build?
+   *  Default: read `system.version()` over the socket and compare with
+   *  `isContractVersionCompatible`. Injectable so the skew→restart path is
+   *  unit-testable without a second-build daemon. */
+  checkContract?: () => Promise<boolean>;
   /** How long to wait for the socket to come up after a spawn. */
   connectTimeoutMs?: number;
   /** Load-aware ceiling for the old daemon's exit (a thrashing prod box). */
@@ -165,60 +171,100 @@ export async function ensureDaemon(
   let conn = await connectWithRetry(deps.socketPath, connectTimeoutMs, pollMs);
   let state: DaemonState = "connected";
 
+  /** Is the live daemon's pty-host contract compatible with this build? */
+  const checkContract =
+    deps.checkContract ??
+    (async (): Promise<boolean> => {
+      try {
+        const { contractVersion } = await conn.client.surface.system.version(
+          {},
+        );
+        return isContractVersionCompatible(
+          contractVersion,
+          PTY_HOST_CONTRACT_VERSION,
+        );
+      } catch (err) {
+        // Can't read it → don't force a destructive restart; let the runtime
+        // surface any genuine incompatibility. (A real skew also trips here, but
+        // assuming-compatible is the less-destructive default for an unreadable
+        // version.)
+        deps.log.warn(
+          { err },
+          "could not read surviving daemon's contract version — assuming compatible",
+        );
+        return true;
+      }
+    });
+
+  /** The daemon-process restart (kill → wait → respawn → reconnect), shared by
+   *  the handle's `restart()` and the boot-time contract-skew recovery. */
+  async function doRestart(): Promise<"ok" | "failed"> {
+    state = "restarting";
+    const oldPid = readPidGate(deps.pidPath);
+    // Hold the old connection until a replacement is actually live. If the old
+    // daemon won't die, it's STILL the connection we want — disposing it up
+    // front would strand the handle on a dead reference even though the daemon
+    // is reachable. So dispose only at the point we commit to a swap.
+    if (oldPid !== null) {
+      kill(oldPid);
+      const gone = await waitForPidGone(oldPid, {
+        timeoutMs: pidGoneTimeoutMs,
+        pollMs,
+        isAlive,
+      });
+      if (gone === "timeout") {
+        // The old daemon outlived the kill — refuse to respawn over it. The
+        // existing `conn` still points at that live daemon, so the handle stays
+        // usable (terminals keep working); surface degraded so the UI can offer
+        // a retry, but DON'T tear down a working connection.
+        deps.log.error(
+          { pid: oldPid },
+          "old pty-host daemon did not exit — refusing to respawn over it; keeping the live connection",
+        );
+        state = "degraded";
+        return "failed";
+      }
+    }
+    // The old daemon is gone (or there was none) — now we commit to the swap.
+    conn.dispose();
+    await deps.spawnDaemon();
+    try {
+      conn = await connectWithRetry(deps.socketPath, connectTimeoutMs, pollMs);
+    } catch (err) {
+      // Old daemon dead, new one never came up — no daemon is reachable. This
+      // is the genuinely degraded state: a retried `restart()` re-reads the gate
+      // and tries again (a slow respawn may since have bound the socket), so the
+      // handle is recoverable in place — a browser reload is NOT the recovery
+      // (the server-side handle persists across a reload).
+      deps.log.error({ err }, "respawned pty-host daemon never came up");
+      state = "degraded";
+      return "failed";
+    }
+    state = "connected";
+    deps.log.info({}, "pty-host daemon restarted and reconnected");
+    return "ok";
+  }
+
+  // Contract-skew guard (field report on #1275): a deploy can leave an OLDER
+  // daemon holding the socket. If its pty-host wire contract is incompatible
+  // with this build, adopting it would fail RPCs at runtime. Prefer a controlled
+  // restart — a fresh daemon at our contract (the rare terminal-loss a pty-host
+  // contract change costs; the saved session still restores) — over a crash or
+  // silent RPC failures. Only a SURVIVOR can skew; a daemon we just spawned is
+  // our own build.
+  if (survivor !== null && !(await checkContract())) {
+    deps.log.warn(
+      { contractVersion: PTY_HOST_CONTRACT_VERSION },
+      "surviving pty-host daemon speaks an incompatible contract — restarting it to this build",
+    );
+    await doRestart();
+  }
+
   return {
     client: reconnectingClient(() => conn.client),
     pid: () => readPidGate(deps.pidPath),
     state: () => state,
-    async restart() {
-      state = "restarting";
-      const oldPid = readPidGate(deps.pidPath);
-      // Hold the old connection until a replacement is actually live. If the
-      // old daemon won't die, it's STILL the connection we want — disposing it
-      // up front would strand the handle on a dead reference even though the
-      // daemon is reachable. So dispose only at the point we commit to a swap.
-      if (oldPid !== null) {
-        kill(oldPid);
-        const gone = await waitForPidGone(oldPid, {
-          timeoutMs: pidGoneTimeoutMs,
-          pollMs,
-          isAlive,
-        });
-        if (gone === "timeout") {
-          // The old daemon outlived the kill — refuse to respawn over it. The
-          // existing `conn` still points at that live daemon, so the handle
-          // stays usable (terminals keep working); surface degraded so the UI
-          // can offer a retry, but DON'T tear down a working connection.
-          deps.log.error(
-            { pid: oldPid },
-            "old pty-host daemon did not exit — refusing to respawn over it; keeping the live connection",
-          );
-          state = "degraded";
-          return "failed";
-        }
-      }
-      // The old daemon is gone (or there was none) — now we commit to the swap.
-      conn.dispose();
-      await deps.spawnDaemon();
-      try {
-        conn = await connectWithRetry(
-          deps.socketPath,
-          connectTimeoutMs,
-          pollMs,
-        );
-      } catch (err) {
-        // Old daemon dead, new one never came up — no daemon is reachable. This
-        // is the genuinely degraded state: a retried `restart()` re-reads the
-        // gate and tries again (a slow respawn may since have bound the socket),
-        // so the handle is recoverable in place — a browser reload is NOT the
-        // recovery (the server-side handle persists across a reload).
-        deps.log.error({ err }, "respawned pty-host daemon never came up");
-        state = "degraded";
-        return "failed";
-      }
-      state = "connected";
-      deps.log.info({}, "pty-host daemon restarted and reconnected");
-      return "ok";
-    },
+    restart: doRestart,
     dispose() {
       conn.dispose();
     },
