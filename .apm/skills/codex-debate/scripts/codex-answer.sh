@@ -59,6 +59,13 @@ is_confirm=
 [ "${5:-}" = "confirm" ] && is_confirm=1
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The codex-FACING output schema. Do NOT add a `reviewerError` property to it:
+# codex's `--output-schema` (OpenAI structured outputs) requires every declared
+# property to be in `required` with additionalProperties:false, so an optional
+# `reviewerError` 400s the request. codex never emits reviewerError; the error
+# answer synthesize_error_verdict writes carries it but is validated by the
+# workflow's in-JS ANSWER_SCHEMA, not by this file. (This has been re-added in
+# error twice — review mode's codex-verdict.schema.json omits it for the same reason.)
 schema="$here/codex-answer.schema.json"
 # shellcheck source=codex-exec-lib.sh
 source "$here/codex-exec-lib.sh"

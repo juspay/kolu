@@ -37,10 +37,6 @@
     "changedMind": {
       "type": "string",
       "description": "What you revised this round because the other assistant convinced you, and why. Empty string on round 1 or when nothing changed."
-    },
-    "reviewerError": {
-      "type": "boolean",
-      "description": "Set to true ONLY by the codex-answer.sh runner when codex itself failed to produce an answer after every retry (a synthesized infrastructure-error verdict the workflow aborts on). codex never sets this in a real answer; it is declared here so the script's synthesized error answer validates against this schema under additionalProperties:false."
     }
   },
   "required": [
