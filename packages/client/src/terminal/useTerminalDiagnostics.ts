@@ -38,6 +38,21 @@ export interface TerminalDiagnostics {
   scrollLock: ScrollLockDiagnostics;
 }
 
+/** Project the three live scroll-lock accessors into a flat snapshot. The
+ *  {locked, pendingChunks, lastEvent} shape lives here only, so the initial
+ *  paint and the live effect can never silently diverge. */
+function scrollLockSnapshot(sl: {
+  locked: Accessor<boolean>;
+  pendingChunks: Accessor<number>;
+  lastEvent: Accessor<ScrollLockEvent | null>;
+}): ScrollLockDiagnostics {
+  return {
+    locked: sl.locked(),
+    pendingChunks: sl.pendingChunks(),
+    lastEvent: sl.lastEvent(),
+  };
+}
+
 const [store, setStore] = createStore<Record<TerminalId, TerminalDiagnostics>>(
   {},
 );
@@ -69,11 +84,7 @@ export function registerDiagnostics(
     cols: xterm.cols,
     rows: xterm.rows,
     renderer: renderer(),
-    scrollLock: {
-      locked: scrollLock.locked(),
-      pendingChunks: scrollLock.pendingChunks(),
-      lastEvent: scrollLock.lastEvent(),
-    },
+    scrollLock: scrollLockSnapshot(scrollLock),
   });
 
   const resizeDisposable = xterm.onResize(({ cols, rows }) => {
@@ -89,11 +100,7 @@ export function registerDiagnostics(
       setStore(id, "renderer", renderer());
     });
     createEffect(() => {
-      setStore(id, "scrollLock", {
-        locked: scrollLock.locked(),
-        pendingChunks: scrollLock.pendingChunks(),
-        lastEvent: scrollLock.lastEvent(),
-      });
+      setStore(id, "scrollLock", scrollLockSnapshot(scrollLock));
     });
     return dispose;
   });
