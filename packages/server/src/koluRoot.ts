@@ -1,11 +1,13 @@
 /**
  * Per-server-instance temp root for server-generated files.
  *
- * Kolu writes shell rc files and per-terminal scratch storage (clipboard
- * image pastes, drag-and-drop file drops) under a single root keyed by the
- * server's startup UUID. The shape lives in `koluRootFor` (kolu-shared) so the
- * server and the pty-host daemon compute identical layouts; here we just bind
- * one instance to `serverProcessId`.
+ * The server writes per-terminal scratch storage (clipboard image pastes,
+ * drag-and-drop file drops) under a single root keyed by the server's startup
+ * UUID. The shape lives in `koluRootFor` (kolu-shared) so the server and the
+ * pty-host daemon compute identical layouts; here we just bind one instance to
+ * `serverProcessId`. Shell rc injection moved to the daemon (Phase B), so the
+ * server no longer consumes `shellDir` — `ensure` still creates an empty
+ * `shell/` under the server root, a negligible over-provision.
  */
 import { koluRootFor } from "kolu-shared";
 import { serverProcessId } from "./hostname.ts";
@@ -15,9 +17,6 @@ const root = koluRootFor(serverProcessId);
 /** Per-server-instance root. Everything kolu's server writes to disk for
  *  transient per-terminal use lives under here. */
 export const koluRoot = root.root;
-
-/** Injected bash rc files and zsh ZDOTDIRs, one pair per spawned terminal. */
-export const koluShellDir = root.shellDir;
 
 /** Per-terminal scratch directories where clipboard image pastes and
  *  drag-and-drop file drops land on disk. */
