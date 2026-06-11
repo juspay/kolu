@@ -5,6 +5,7 @@
  *  and the agent integrations (Claude Code transcripts, OpenCode/Codex
  *  WAL subscriptions). The agent-specific contracts live in `anyagent`. */
 
+export { type KoluRoot, koluRootFor } from "./koluRoot.ts";
 export type { Logger } from "./log.ts";
 export {
   type AcquirePidGateResult,

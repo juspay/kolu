@@ -76,7 +76,16 @@ export {
   type PtyHostSocketListener,
   servePtyHostOverUnixSocket,
 } from "./serveOverSocket.ts";
-// The well-known unix-socket path the pty-host is served on (kolu-server) and
-// connected to (kolu-tui) — one resolver both packages share so the default
-// path can never drift between them.
-export { getPtyHostSocketPath } from "./socketPath.ts";
+// The surviving daemon (R-4 Phase B): binds the socket, holds the
+// single-instance gate, serves the contract — so a server restart reattaches
+// to the same PTYs. Daemon behaviour, in the staleKey's hashed closure.
+export {
+  type PtyHostDaemon,
+  type RunPtyHostDaemonOpts,
+  type RunPtyHostDaemonResult,
+  runPtyHostDaemon,
+} from "./daemon.ts";
+// The well-known unix-socket + pid-gate paths the pty-host is served on
+// (kolu-server, daemon) and connected to (kolu-tui) — one resolver all share so
+// the default paths can never drift between them.
+export { getPtyHostPidPath, getPtyHostSocketPath } from "./socketPath.ts";
