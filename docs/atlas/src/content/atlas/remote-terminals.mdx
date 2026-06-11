@@ -1,10 +1,10 @@
 ---
 title: Remote terminals over SSH
-description: The phased implementation plan for kolu#951 — the TerminalBackend seam (R-1), @kolu/surface framework gaps + @kolu/surface-nix-host (R-1.5), the shared provider engine (R-1.6), local PTY daemonization (R-4, in progress), then the ssh transport (R-2) and network-blip resilience (R-3).
+description: The phased implementation plan for kolu#951 — the TerminalBackend seam (R-1), @kolu/surface framework gaps + @kolu/surface-nix-host (R-1.5), the shared provider engine (R-1.6), local PTY daemonization (R-4, done), then the ssh transport (R-2) and network-blip resilience (R-3).
 kind: feature
 status: accepted
 maturity: budding
-updated: 2026-06-10
+updated: 2026-06-11
 ---
 
 import D2 from "../../components/D2.astro";
@@ -13,7 +13,7 @@ import Pill from "../../components/Pill.astro";
 import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 
-**The master plan for <Issue n={951} /> — remote terminals over SSH**, shipped as phases on different volatility axes. R-1 (<PrLink pr={981} />), R-1.5 (<PrLink pr={984} />), and R-1.6 (<PrLink pr={1004} />) are on master. R-4 — local PTY daemonization — was re-sequenced *before* R-2/R-3 (a whole-plan `/lowy` pass showed building the long-lived multi-client PTY primitive once collapses R-2 + R-3 from ~1860 to ~740 LoC combined) and now lives in its own note, [pty-daemon](pty-daemon.html), with A1 + A2 landed and B (the daemon) next. R-2 then adds the ssh transport against the same backend; R-3 adds the version handshake + session-ID persistence.
+**The master plan for <Issue n={951} /> — remote terminals over SSH**, shipped as phases on different volatility axes. R-1 (<PrLink pr={981} />), R-1.5 (<PrLink pr={984} />), and R-1.6 (<PrLink pr={1004} />) are on master. R-4 — local PTY daemonization — was re-sequenced *before* R-2/R-3 (a whole-plan `/lowy` pass showed building the long-lived multi-client PTY primitive once collapses R-2 + R-3 from ~1860 to ~740 LoC combined) and now lives in its own note, [pty-daemon](pty-daemon.html), with A1, A2, and B (the daemon) all landed — R-4 is complete. R-2 then adds the ssh transport against the same backend; R-3 adds the version handshake + session-ID persistence.
 
 _This note is the migrated + heavily compressed `docs/plans/remote-terminals.html` (the 208 KB monolith). Zed v1.5.0 (`3a81f8e9`) was the studied reference; the full file:line citation list lives in git history with the original. Cf. [Ghostex vs. kolu remote-terminals](ghostex-vs-remote-terminals.html) and [herdr vs. kolu](herdr-vs-kolu.html)._
 
@@ -43,7 +43,7 @@ server.remote -> agent.pty: "ssh stdio (stdioLink) · .drv-ship + remote realise
 | **R-1** | Server spine collapses around one `TerminalBackend` interface; the `meta/*.ts` orchestrators dissolve into `LocalTerminalBackend`. | None — byte-identical refactor. | <Pill variant="ok">shipped</Pill> <PrLink pr={981} /> |
 | **R-1.5** | `@kolu/surface` grew the stdio link, loopback link, peer-server, and in-memory channel/cell/publisher; new `@kolu/surface-nix-host` package (ssh + `.drv`-provisioning + lifecycle). Validated by the remote-process-monitor demo — "miniature Kolu". | None directly — framework capability. | <Pill variant="ok">shipped</Pill> <PrLink pr={984} /> |
 | **R-1.6** | The provider DAG (agent detectors ×3, git watcher, PR watcher, command tracker, foreground observer) extracts into `terminalBackend/providers.ts` behind `ProviderHooks` — one engine, two future hosts. | None — byte-identical refactor. | <Pill variant="ok">shipped</Pill> <PrLink pr={1004} /> |
-| **R-4** | Local PTYs move into a surviving daemon; `@kolu/pty-host` published. **Owned by the [pty-daemon](pty-daemon.html) note** — A1 <PrLink pr={1055} />, A2 <PrLink pr={1063} />, and [kolu-tui](pty-daemon-tui.html) Phases 0–2 (<PrLink pr={1073} /> / <PrLink pr={1084} /> / <PrLink pr={1255} />) landed; B next. | Local terminals survive a kolu-server restart — replaces tmux/zmx, closes <Issue n={671} />. | <Pill variant="run">in progress</Pill> |
+| **R-4** | Local PTYs move into a surviving daemon; `@kolu/pty-host` published. **Owned by the [pty-daemon](pty-daemon.html) note** — A1 <PrLink pr={1055} />, A2 <PrLink pr={1063} />, B the daemon <PrLink pr={1275} />, and [kolu-tui](pty-daemon-tui.html) Phases 0–2 (<PrLink pr={1073} /> / <PrLink pr={1084} /> / <PrLink pr={1255} />) all landed. | Local terminals survive a kolu-server restart — replaces tmux/zmx, closes <Issue n={671} />. | <Pill variant="ok">shipped</Pill> |
 | **R-2** | The ssh transport variant + remote-only UI: `.drv`-ship + remote-realise, HostChip on five surfaces, DisconnectedOverlay ssh states, SSH host picker, restore preserves location, paste/upload guard. | Remote terminals work end-to-end — PTY, branch chip, agent badge, PR, Code tab, upload, restore. | <Pill variant="todo">after R-4</Pill> |
 | **R-3** | Persist `remoteSessionId`; retire the `--refresh` hack; close the overflow-recovery loop. The reattach machinery itself ships with R-4. | Remote terminals survive network blips with full scrollback. | <Pill variant="todo">last</Pill> |
 

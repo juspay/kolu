@@ -5,7 +5,7 @@ kind: feature
 status: accepted
 maturity: budding
 parents: [remote-terminals]
-updated: 2026-06-10
+updated: 2026-06-11
 ---
 
 import D2 from "../../components/D2.astro";
@@ -15,7 +15,7 @@ import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 import Commit from "../../components/Commit.astro";
 
-**The R-4 plan of record** — local PTY daemonization + `@kolu/pty-host`. Split out of the parent [remote-terminals](remote-terminals.html) plan on 2026-05-30 so the phases could be redesigned around the production restart failure recorded below; the parent keeps R-1/R-1.5/R-1.6 (shipped) and R-2/R-3 (post-R-4). **Current state: A1 (<PrLink pr={1055} />) and A2 (<PrLink pr={1063} />) have landed; B — the daemon, the one-way door — is all that remains.** Companions: the [`srv · pty` ChromeBar rail](pty-daemon-chrome-bar.html) (A2's deliverable #3, shipped) and [kolu-tui](pty-daemon-tui.html) (a CLI client of the *in-process* pty-host — a separate plan that dovetails with B only later).
+**The R-4 plan of record** — local PTY daemonization + `@kolu/pty-host`. Split out of the parent [remote-terminals](remote-terminals.html) plan on 2026-05-30 so the phases could be redesigned around the production restart failure recorded below; the parent keeps R-1/R-1.5/R-1.6 (shipped) and R-2/R-3 (post-R-4). **Current state: A1 (<PrLink pr={1055} />), A2 (<PrLink pr={1063} />), and B — the daemon, the one-way door (<PrLink pr={1275} />) — have all landed; R-4 is complete.** Companions: the [`srv · pty` ChromeBar rail](pty-daemon-chrome-bar.html) (A2's deliverable #3, shipped) and [kolu-tui](pty-daemon-tui.html) (a CLI client of the *in-process* pty-host — a separate plan that dovetails with B only later).
 
 _This note is the migrated + compressed `docs/plans/remote-terminals.pty-daemon.html`; the original's constraints supersede any conflicting detail in its historical sections, and that ordering is preserved here._
 
@@ -69,7 +69,7 @@ The four production failures stop being review-time vigilance and become a faili
 
 Where the lenses disagreed, the resolutions: provenance is a one-shot `buildInfo` RPC into a signal, not a streaming cell (the health cell carries only `{state}`); recovery is one composed mechanism whose step-values parameterise what-to-preserve (the forced path's `captureSession` returns an empty context); `PtyHostIdentity` is the single emitted value and currency derives from its `staleKey` at the read site; `currentBuildId` is memoised/process-stable in B, with a genuinely runtime-changing key deferred to R-3.
 
-## The three units — A1 · A2 landed, B next
+## The three units — A1 · A2 · B all landed
 
 No feature flags — each unit ships complete to master and leaves Kolu working. The boundary rule is asymmetric: hazard-coupled work must stay together (B is one PR despite its size), but hazard-free work may split however helps review (which is why A1/A2 is a clean cut).
 
@@ -89,7 +89,7 @@ All the identity/hashing, isolated for its own review — low-risk to ship but t
 
 Verify holds: mutating any pty-host source flips the staleKey; a server/client-only change doesn't (no over-prompt). A post-merge prod break (<Issue n={1068} />) surfaced an unrelated migration rule worth keeping: any *required* new field on a persisted+streamed schema needs a migration/default (the fix was `.default(0)`).
 
-### B — the daemon, complete and safe <Pill variant="todo">next · the one-way door</Pill>
+### B — the daemon, complete and safe <Pill variant="ok">shipped</Pill> <PrLink pr={1275} />
 
 The foundation is in master, so B is one hazard-coupled unit: **the topology decouple, reattach-by-id, the composed #1034-proof recovery, and lighting up A2's dormant honest-state branches.** The user payoff is the headline — _local terminals survive a kolu-server deploy_ (the tmux/zmx replacement, <Issue n={671} />) — and the one genuinely new thing a user *sees* is honest state when a deploy leaves the daemon a build behind, or when it dies: never again the empty-canvas lie.
 
@@ -197,4 +197,4 @@ From building + salvaging #1034 — pre-committed rules for the redo: typecheck 
 - **R4c first attempt** <PrLink pr={1031} /> dropped after a macOS prod failure: it daemonized pty-host *plus* the provider DAG, so the survivor served stale detection on every deploy — and staleness keyed on the inert `pkgVersion` constant, so `outdated` was always false and a 20-hour-old daemon was reused forever.
 - The volatility insight (Parnas/Lowy): "no legacy agent" ⊗ "tmux feel" conflict only when the long-lived component's code changes — so the survivor must be the stable thin core, never the volatile providers.
 - **R4c redo** <PrLink pr={1034} /> — the postmortem above; shipped + salvaged, then discarded by the fresh approach.
-- **The fresh-approach redo** (2026-05-30/31): <PrLink pr={1055} /> (A1) landed the in-process foundation and removed every #1034 daemon artifact; <PrLink pr={1059} /> unified the link family; <PrLink pr={1063} /> (A2) landed identity + the closure-hash guard + the rail. **Next: B — the only phase left.**
+- **The fresh-approach redo** (2026-05-30/31): <PrLink pr={1055} /> (A1) landed the in-process foundation and removed every #1034 daemon artifact; <PrLink pr={1059} /> unified the link family; <PrLink pr={1063} /> (A2) landed identity + the closure-hash guard + the rail; <PrLink pr={1275} /> (B) threw the one-way door — the surviving daemon, reattach-by-id, the composed recovery, and the rail's honest divergence. **R-4 is done.**
