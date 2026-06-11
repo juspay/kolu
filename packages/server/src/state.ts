@@ -102,7 +102,10 @@ export function backfillRemoteUrl_1_25_0(
   const git = t.git;
   if (!git || typeof git !== "object") return t;
   if ("remoteUrl" in git) return t;
-  return { ...t, git: { ...(git as Record<string, unknown>), remoteUrl: null } };
+  return {
+    ...t,
+    git: { ...(git as Record<string, unknown>), remoteUrl: null },
+  };
 }
 
 /** What conf stores to disk — survives server restart. Internal: clients see

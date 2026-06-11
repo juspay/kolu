@@ -251,7 +251,7 @@ function startGitProvider(
 // ── PR watcher ────────────────────────────────────────────────────────
 
 /** The forges kolu can resolve a PR from. One today; a second forge adds an
- *  arm here plus an entry in `PR_REGISTRY` and a host match in `pickForgeKind`
+ *  arm here plus an entry in `PR_REGISTRY` and a host match in `detectForge`
  *  — nothing else in the watcher path changes.
  *
  *  Derived from the adapter's own `kind` literal (not a hand-written
@@ -268,17 +268,16 @@ const PR_REGISTRY: Record<ForgeKind, PrProvider<PrUnavailableSource>> = {
   github: githubPrProvider,
 };
 
-/** Map a repo's `origin` host to the forge that resolves its PRs. Every host
- *  → github today: `gh` handles github.com and GitHub Enterprise, and post-#1256
- *  it degrades to a silent `absent` on hosts it doesn't know. A second forge
- *  matches its hosts here (e.g. `codeberg.org` / `$KOLU_FORGEJO_HOSTS` →
- *  forgejo); detection stays sync and pure — no network probe. */
-function pickForgeKind(_host: string | null): ForgeKind {
-  return "github";
-}
-
+/** Map a repo's `origin` remote URL to the forge that resolves its PRs. Every
+ *  host → github today: `gh` handles github.com and GitHub Enterprise, and
+ *  post-#1256 it degrades to a silent `absent` on hosts it doesn't know. A
+ *  second forge adds a host match here (e.g. `parseRemoteHost(remoteUrl) ===
+ *  "codeberg.org"` → forgejo); detection stays sync and pure — no network probe. */
 function detectForge(remoteUrl: string | null): ForgeKind {
-  return pickForgeKind(parseRemoteHost(remoteUrl));
+  switch (parseRemoteHost(remoteUrl)) {
+    default:
+      return "github";
+  }
 }
 
 /** A `PrProvider` that routes each resolve to the forge `detectForge` picks
