@@ -42,9 +42,14 @@ function shortId(id: string | null | undefined): string {
 }
 
 /** The daemon's currency, derived at the read site from the relayed identity:
- *  `current` when its commit equals the server's (the daemon is the deployed
- *  build), `outdated` when a surviving daemon is a build behind, `unknown` when
- *  the link is down (we can't claim pty state). */
+ *  `current` when its closure `staleKey` equals the deployed server's expected
+ *  one (a restart would load the SAME pty-host code), `outdated` when a
+ *  surviving daemon's closure differs (a restart would pick up new code),
+ *  `unknown` when the link is down or staleness can't be derived (off-nix, where
+ *  the staleKeys are empty). Keyed on the closure hash, NOT the commit: a
+ *  server-/client-only deploy bumps `commit` while the pty-host closure is
+ *  byte-identical, and comparing commits would re-prompt for a pointless daemon
+ *  restart — the over-prompting the staleKey exists to prevent. */
 type PtyState = "current" | "outdated" | "unknown";
 
 const ptyDot: Record<PtyState, string> = {
@@ -63,8 +68,13 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const ptyState = (): PtyState => {
     if (props.status !== "open") return "unknown";
     const i = pwa.server();
-    if (!i?.ptyHost) return "unknown";
-    return i.commit === i.ptyHost.navigableCommit ? "current" : "outdated";
+    const daemonKey = i?.ptyHost?.staleKey;
+    const expected = i?.ptyHostExpectedStaleKey;
+    // Need both the daemon's relayed staleKey AND the deployed server's expected
+    // one to claim currency. Either absent (link not yet reported, or off-nix
+    // where the nix-baked staleKeys are "") ⇒ unknown, never a false outdated.
+    if (!daemonKey || !expected) return "unknown";
+    return daemonKey === expected ? "current" : "outdated";
   };
 
   return (

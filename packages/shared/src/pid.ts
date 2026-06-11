@@ -10,6 +10,7 @@
 
 import {
   closeSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -90,40 +91,63 @@ function makeGate(path: string, pid: number): PidGate {
 }
 
 /**
+ * The claim is published ATOMICALLY: the pid is written in full into a private
+ * temp file, which is then `link()`ed into place. `link` fails with `EEXIST`
+ * when the gate already exists (so it is exclusive, like `O_EXCL`), but unlike a
+ * bare `O_EXCL` open the file that appears at `path` is already complete — there
+ * is no empty-then-written window in which a competitor could read a malformed
+ * gate and wrongly reclaim it. The temp name carries our pid so two racing
+ * starters never collide on it.
+ */
+function publishGate(path: string): boolean {
+  const tmp = `${path}.${process.pid}.tmp`;
+  const fd = openSync(tmp, "wx", 0o600); // private; ours alone until linked
+  try {
+    writeSync(fd, `${process.pid}\n`);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    linkSync(tmp, path); // atomic publish; EEXIST ⇒ a competitor won the gate
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    return false;
+  } finally {
+    try {
+      unlinkSync(tmp); // drop our temp link whether or not we won
+    } catch {
+      // Already gone — nothing to clean up.
+    }
+  }
+}
+
+/**
  * Acquire the single-instance gate at `path`.
  *
- * The gate is an `O_EXCL` pid file whose *liveness is the lock*: a competitor
- * that finds the file probes the pid inside — alive ⇒ `held`, gone ⇒ stale, so
- * it reclaims the file and takes over. Deliberately not an `flock`: a `kill -9`
- * daemon leaves a stale file (reclaimable) rather than an flock that outlives
- * the dead holder, which is the failure mode the `O_EXCL`+liveness pairing
- * avoids. The two-attempt loop closes the create⇄reclaim race with a
+ * The gate is a pid file whose *liveness is the lock*: a competitor that finds
+ * the file probes the pid inside — alive ⇒ `held`, gone ⇒ stale, so it reclaims
+ * the file and takes over. Deliberately not an `flock`: a `kill -9` daemon
+ * leaves a stale file (reclaimable) rather than an flock that outlives the dead
+ * holder, which is the failure mode the liveness pairing avoids. Publish is
+ * atomic (`publishGate`: write-temp-then-`link`), so the file is never observed
+ * half-written. The two-attempt loop closes the publish⇄reclaim race with a
  * concurrent starter; a genuine concurrent winner is reported as `held`.
  */
 export function acquirePidGate(path: string): AcquirePidGateResult {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    let fd: number;
-    try {
-      fd = openSync(path, "wx", 0o600); // O_CREAT | O_EXCL | O_WRONLY
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      const owner = readPidGate(path);
-      if (owner !== null) return { kind: "held", byPid: owner };
-      // Stale file (no live owner) — reclaim it and retry the exclusive create.
-      try {
-        unlinkSync(path);
-      } catch {
-        // A racing starter already reclaimed it; the retry will observe theirs.
-      }
-      continue;
+    if (publishGate(path)) {
+      return { kind: "acquired", gate: makeGate(path, process.pid) };
     }
+    // The gate exists. A live owner ⇒ held; a stale one ⇒ reclaim and retry.
+    const owner = readPidGate(path);
+    if (owner !== null) return { kind: "held", byPid: owner };
     try {
-      writeSync(fd, `${process.pid}\n`);
-    } finally {
-      closeSync(fd);
+      unlinkSync(path);
+    } catch {
+      // A racing starter already reclaimed it; the retry will observe theirs.
     }
-    return { kind: "acquired", gate: makeGate(path, process.pid) };
   }
   // Both attempts lost to a concurrent winner that is still holding the gate.
   return { kind: "held", byPid: readPidGate(path) ?? -1 };

@@ -23,7 +23,11 @@
  * local) shelling out to `kolu-git` directly.
  */
 
-import type { ForegroundSample, PtyHostClient } from "@kolu/pty-host";
+import type {
+  ForegroundSample,
+  PtyHostClient,
+  PtyHostIdentity,
+} from "@kolu/pty-host";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   TerminalId,
@@ -123,26 +127,28 @@ const localGit: TerminalBackendGit = {
   },
 };
 
-/** The in-process pty-host's self-declared identity (its own commit + closure
- *  staleKey), fetched once at boot through the contract. Surfaced on
- *  `server.info` for the ChromeBar's `srv · pty` rail.
+/** Read the surviving daemon's self-declared identity (its own commit + closure
+ *  staleKey) through the contract. Surfaced on the `buildInfo` cell for the
+ *  ChromeBar's `srv · pty` rail.
  *
- *  Fires at module load (`router.ts` imports this module eagerly). The
- *  `directLink` call has no wire, so it settles on the next microtask and
- *  `server.info` never actually waits; the `.catch` keeps a failed `version()`
- *  from rejecting the info handler (`ptyHost` is optional on the wire). Phase
- *  B's socket variant should revisit this with a timeout — remote latency is
- *  real then. */
-export const ptyHostIdentity = ptyHostClient.surface.system
-  .version({})
-  .then((v) => v.identity)
-  .catch((err) => {
-    log.warn(
-      { err },
-      "pty-host version() failed at boot; identity unavailable",
-    );
+ *  This is a LIVE read, not a frozen boot-time promise: the daemon survives a
+ *  server restart and can be restarted under a live server, so its identity
+ *  changes across a `daemonHandle.restart()`. The buildInfo republish path
+ *  (`surface.ts`) calls this again after a restart so the rail reflects the
+ *  fresh daemon — a stale snapshot would keep showing `⬆ update pending` after a
+ *  successful restart. A failed `version()` resolves `undefined` (the rail's
+ *  column shows `—`), never rejecting the caller — `ptyHost` is optional. */
+export async function readPtyHostIdentity(): Promise<
+  PtyHostIdentity | undefined
+> {
+  try {
+    const { identity } = await ptyHostClient.surface.system.version({});
+    return identity;
+  } catch (err) {
+    log.warn({ err }, "pty-host version() failed; identity unavailable");
     return undefined;
-  });
+  }
+}
 
 // ── The contract-backed terminal handle ─────────────────────────────────
 

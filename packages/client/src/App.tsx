@@ -204,9 +204,20 @@ const App: Component = () => {
   /** Restart the surviving pty-host daemon to pick up a freshly-deployed build
    *  (the rail's `⬆ update pending`). The server snapshots + re-saves the
    *  session around the restart, so a reload restores cleanly; a failure leaves
-   *  the saved session intact (recoverable), never an empty canvas. */
+   *  the saved session intact (recoverable), never an empty canvas.
+   *
+   *  On failure the recovery is a RETRY, not a reload: the daemon lives
+   *  server-side, so the degraded handle persists across a browser reload — only
+   *  another `restartPtyHost` (which re-reads the pid gate and re-attempts the
+   *  respawn) can bring it back. The error toast offers that retry directly. */
   function handleRestartPtyHost() {
     const toastId = toast.loading("Restarting the pty-host daemon…");
+    const failed = (detail: string) =>
+      toast.error(`Daemon restart failed — your session is saved. ${detail}`, {
+        id: toastId,
+        duration: Number.POSITIVE_INFINITY,
+        action: { label: "Try again", onClick: () => handleRestartPtyHost() },
+      });
     void client.server
       .restartPtyHost()
       .then((res) => {
@@ -216,18 +227,10 @@ const App: Component = () => {
           });
           location.reload();
         } else {
-          toast.error(
-            "Daemon restart failed — your session is saved; reload to recover.",
-            { id: toastId, duration: Number.POSITIVE_INFINITY },
-          );
+          failed("The daemon didn't come back up; retry to try again.");
         }
       })
-      .catch((err: Error) =>
-        toast.error(
-          `Daemon restart failed: ${err.message} — your session is saved.`,
-          { id: toastId, duration: Number.POSITIVE_INFINITY },
-        ),
-      );
+      .catch((err: Error) => failed(err.message));
   }
 
   function handleScreenshotTerminal(id?: TerminalId) {

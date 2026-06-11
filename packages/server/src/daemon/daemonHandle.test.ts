@@ -114,7 +114,7 @@ describe("ensureDaemon", () => {
     ).toBeDefined();
   });
 
-  it("degrades when the old daemon never exits", async () => {
+  it("degrades but keeps the live connection when the old daemon never exits", async () => {
     const proc = fakeDaemonProcess(socketPath, pidPath);
     handle = await ensureDaemon({
       socketPath,
@@ -127,9 +127,16 @@ describe("ensureDaemon", () => {
       ...fast,
       pidGoneTimeoutMs: 60,
     });
+    const client = handle.client;
     const verdict = await handle.restart();
     expect(verdict).toBe("failed");
     expect(handle.state()).toBe("degraded");
+    // The barrier timed out because the OLD daemon is still alive — so its
+    // connection must NOT have been torn down. The handle stays usable
+    // (terminals keep working); the UI surfaces degraded + offers a retry.
+    expect(
+      (await client.surface.system.version({})).contractVersion,
+    ).toBeDefined();
     proc.stop();
   });
 });

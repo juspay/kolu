@@ -169,7 +169,10 @@ export async function ensureDaemon(
     async restart() {
       state = "restarting";
       const oldPid = readPidGate(deps.pidPath);
-      conn.dispose();
+      // Hold the old connection until a replacement is actually live. If the
+      // old daemon won't die, it's STILL the connection we want — disposing it
+      // up front would strand the handle on a dead reference even though the
+      // daemon is reachable. So dispose only at the point we commit to a swap.
       if (oldPid !== null) {
         kill(oldPid);
         const gone = await waitForPidGone(oldPid, {
@@ -178,14 +181,20 @@ export async function ensureDaemon(
           isAlive,
         });
         if (gone === "timeout") {
+          // The old daemon outlived the kill — refuse to respawn over it. The
+          // existing `conn` still points at that live daemon, so the handle
+          // stays usable (terminals keep working); surface degraded so the UI
+          // can offer a retry, but DON'T tear down a working connection.
           deps.log.error(
             { pid: oldPid },
-            "old pty-host daemon did not exit — refusing to respawn over it",
+            "old pty-host daemon did not exit — refusing to respawn over it; keeping the live connection",
           );
           state = "degraded";
           return "failed";
         }
       }
+      // The old daemon is gone (or there was none) — now we commit to the swap.
+      conn.dispose();
       await deps.spawnDaemon();
       try {
         conn = await connectWithRetry(
@@ -194,6 +203,11 @@ export async function ensureDaemon(
           pollMs,
         );
       } catch (err) {
+        // Old daemon dead, new one never came up — no daemon is reachable. This
+        // is the genuinely degraded state: a retried `restart()` re-reads the
+        // gate and tries again (a slow respawn may since have bound the socket),
+        // so the handle is recoverable in place — a browser reload is NOT the
+        // recovery (the server-side handle persists across a reload).
         deps.log.error({ err }, "respawned pty-host daemon never came up");
         state = "degraded";
         return "failed";

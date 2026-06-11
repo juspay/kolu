@@ -71,9 +71,32 @@ import {
   terminalNotFound,
 } from "./terminal-registry.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
-import { ptyHostIdentity } from "./terminalBackend/local.ts";
+import { readPtyHostIdentity } from "./terminalBackend/local.ts";
+import { currentBuildId } from "@kolu/pty-host";
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
+
+/**
+ * Compute the `buildInfo` cell value: the app version, the deployed server's
+ * EXPECTED pty-host staleKey (its own `KOLU_PTY_HOST_BUILD_ID`, via
+ * `currentBuildId()`), and the surviving daemon's LIVE identity read fresh over
+ * the socket. All three land as a patch over the library-seeded `{ commit }`.
+ *
+ * The rail derives currency by comparing the daemon's relayed `ptyHost.staleKey`
+ * against `ptyHostExpectedStaleKey` — equal ⇒ current, different ⇒ a restart
+ * would load new pty-host code. This is a LIVE read so a republish after a
+ * `daemonHandle.restart()` reflects the fresh daemon (`republishBuildInfo`); a
+ * frozen boot-time snapshot would keep showing `⬆ update pending` after a
+ * successful restart.
+ */
+async function buildInfoValue(): Promise<Partial<KoluBuildInfo>> {
+  const identity = await readPtyHostIdentity();
+  return {
+    version: serverVersion,
+    ptyHostExpectedStaleKey: currentBuildId(),
+    ...(identity ? { ptyHost: identity } : {}),
+  };
+}
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -313,17 +336,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // swallows it); the rail's column shows `—`. Per-key deps are typed against
       // the surface's own spec, so this needs no cast.
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
-        buildInfo: async () => {
-          const identity = await ptyHostIdentity;
-          // `version` is the bundled app version (`pkg.version` via
-          // `serverVersion`, always present — even in dev, unlike `commit` which
-          // is env-injected and empty off-nix); `ptyHost` is the boot-time-async
-          // probe. Both land as a patch over the library-seeded `{ commit }`.
-          return {
-            version: serverVersion,
-            ...(identity ? { ptyHost: identity } : {}),
-          };
-        },
+        buildInfo: buildInfoValue,
         commit: serverCommit,
         // surface-app's identity probe (restart axis) —
         // `surface.surfaceApp.identity.info`. Pin it to the existing boot UUID
@@ -348,5 +361,22 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
 export const surfaceRouter = surfaceRouterFragment;
 // Domain modules mutate only kolu's OWN primitives, so register the `kolu`
 // surface's ctx (`implementSurfaces(...).ctx.kolu`). surface-app's buildInfo is
-// driven by the runtime-fired cell `.connect`, not by domain code.
+// SEEDED by the runtime-fired cell `.connect` at boot, but the daemon's identity
+// is not boot-static: a `daemonHandle.restart()` brings up a fresh daemon, so
+// the cell must be re-pushed afterwards or the rail keeps showing the OLD
+// daemon's (now stale) `⬆ update pending`. `republishBuildInfo` re-reads the
+// live daemon identity and pushes it through the SAME cell ctx the boot connect
+// used — server-pushed, so connected clients update without a reload.
 setSurfaceCtx(surfaceCtxBuilt.kolu);
+
+const buildInfoCell = surfaceCtxBuilt.surfaceApp.cells.buildInfo;
+
+/** Re-read the live pty-host daemon's identity and republish the `buildInfo`
+ *  cell. Called by the restart path (`router.ts`) after a successful
+ *  `daemonHandle.restart()`, so the `srv · pty` rail reflects the fresh daemon
+ *  instead of the pre-restart snapshot. Merges over the current cell value so
+ *  the `commit` axis the library owns is preserved. */
+export async function republishBuildInfo(): Promise<void> {
+  const patch = await buildInfoValue();
+  buildInfoCell.set({ ...buildInfoCell.get(), ...patch });
+}

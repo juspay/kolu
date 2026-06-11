@@ -26,7 +26,7 @@ import { match } from "ts-pattern";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
-import { surfaceRouter, t } from "./surface.ts";
+import { republishBuildInfo, surfaceRouter, t } from "./surface.ts";
 import {
   getTerminal,
   terminalNotFound,
@@ -97,6 +97,10 @@ export const appRouter = t.router({
           : null,
       );
       const verdict = await daemonHandle.restart();
+      // Republish the daemon's identity so the rail reflects the fresh build
+      // (and drops `⬆ update pending`) without a reload. On a failed restart the
+      // daemon is degraded; the read resolves the column to `—`, still honest.
+      await republishBuildInfo();
       return { ok: verdict === "ok" };
     }),
   },

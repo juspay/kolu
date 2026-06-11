@@ -15,7 +15,7 @@ import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 import Commit from "../../components/Commit.astro";
 
-**The R-4 plan of record** — local PTY daemonization + `@kolu/pty-host`. Split out of the parent [remote-terminals](remote-terminals.html) plan on 2026-05-30 so the phases could be redesigned around the production restart failure recorded below; the parent keeps R-1/R-1.5/R-1.6 (shipped) and R-2/R-3 (post-R-4). **Current state: A1 (<PrLink pr={1055} />), A2 (<PrLink pr={1063} />), and B — the daemon, the one-way door (<PrLink pr={1275} />) — have all landed; R-4 is complete.** Companions: the [`srv · pty` ChromeBar rail](pty-daemon-chrome-bar.html) (A2's deliverable #3, shipped) and [kolu-tui](pty-daemon-tui.html) (a CLI client of the *in-process* pty-host — a separate plan that dovetails with B only later).
+**The R-4 plan of record** — local PTY daemonization + `@kolu/pty-host`. Split out of the parent [remote-terminals](remote-terminals.html) plan on 2026-05-30 so the phases could be redesigned around the production restart failure recorded below; the parent keeps R-1/R-1.5/R-1.6 (shipped) and R-2/R-3 (post-R-4). **Current state: A1 (<PrLink pr={1055} />), A2 (<PrLink pr={1063} />), and B — the daemon, the one-way door (<PrLink pr={1275} />) — have all landed; R-4's core is complete, with one honest-state follow-up (the unsolicited-daemon-death liveness probe + DegradedCanvas) noted below.** Companions: the [`srv · pty` ChromeBar rail](pty-daemon-chrome-bar.html) (A2's deliverable #3, shipped) and [kolu-tui](pty-daemon-tui.html) (a CLI client of the *in-process* pty-host — a separate plan that dovetails with B only later).
 
 _This note is the migrated + compressed `docs/plans/remote-terminals.pty-daemon.html`; the original's constraints supersede any conflicting detail in its historical sections, and that ordering is preserved here._
 
@@ -100,7 +100,7 @@ The foundation is in master, so B is one hazard-coupled unit: **the topology dec
 **The composed recovery — #1034 made impossible.** The sequence is shared verbatim by the two destructive paths (a user-clicked restart and a forced restart when a deploy finds the daemon a build behind), so neither can be written kill-then-pray.
 
 <D2
-  caption="The composed restart, shared verbatim by the user-clicked and forced (stale-daemon) paths. Snapshot-and-save precede every kill; the waitForPidGone barrier (bold) is the step whose absence caused #1034 — the respawn raced the slow old-daemon exit. A failed respawn lands on an honest DegradedCanvas with the session intact, never a void."
+  caption="The composed restart driving the user-clicked Restart pty-host command. Snapshot-and-save precede every kill; the waitForPidGone barrier (bold) is the step whose absence caused #1034 — the respawn raced the slow old-daemon exit. A failed respawn leaves the daemon degraded server-side with the session intact (never a void); the rail's pty column resolves to — and the failure toast offers a retry."
   code={`direction: down
 trigger: "restart trigger — user click, or forced on a stale-daemon deploy"
 capture: "captureSession — snapshot each terminal's restorable state"
@@ -117,12 +117,12 @@ trigger -> capture -> save -> drain -> barrier -> respawn -> finalize
 
 It builds on primitives already live in master — the autosave throttle and `setSavedSession` (which cancels pending autosave) in `session.ts`, and the abort-first `killAll` in `terminalBackend/local.ts` — and adds only the missing #1034 pieces: an order-safe `killAndUnwatch(id)` wrapper, the `waitForPidGone` barrier (the step whose absence lost the #1034 session — the respawn raced the slow old-daemon exit), and load-aware timeouts sized for a thrashing prod box, not an idle dev one. Snapshot-and-save *before* any kill means a failed respawn leaves a restorable session, never a void. (The <Issue n={1041} /> preference storm that once contended with the autosave is already fixed — coalesced writes, <PrLink pr={1050} />.)
 
-**The honest-state surface.** No re-layout: A2 shipped the `srv · pty` rail in its final two-column shape with the `pty` column and the `≡ in-process` tag **commented out** in `IdentityRail.tsx`; B uncomments them and feeds the `pty` column a real `DaemonStatus` cell (a state enum — the only new wire surface) plus the read-site `staleKey !== currentBuildId()` currency derivation (the client compares the daemon's relayed `staleKey` against its own synchronously-available build id on every render — no poll, no stored boolean). The same three states drive a `DegradedCanvas` — distinct from the normal empty canvas, gated on the existing `lifecycle().kind === "restarted"` seam — and the restart dialog:
+**The honest-state surface.** No re-layout: A2 shipped the `srv · pty` rail in its final two-column shape with the `pty` column and the `≡ in-process` tag **commented out** in `IdentityRail.tsx`; B uncomments them and feeds the `pty` column the read-site currency derivation. The currency key is the closure **staleKey**, not the commit: the server publishes the deployed build's expected staleKey (`ptyHostExpectedStaleKey`, its own `KOLU_PTY_HOST_BUILD_ID`) on the streaming `buildInfo` cell, and the rail compares the surviving daemon's relayed `ptyHost.staleKey` against it on every render — equal ⇒ `≡ current`, different ⇒ `⬆ update pending` (a server-/client-only deploy bumps the commit but not the closure, so it never over-prompts). A user-clicked **Restart pty-host daemon** command drives the composed recovery below; on success the server re-reads the fresh daemon's identity and republishes `buildInfo`, so the rail drops the nudge without a reload. A failed restart leaves the daemon degraded server-side (the column resolves to `—`) with the session saved, and the failure toast offers a retry — a browser reload would NOT recover a server-side handle, so it doesn't claim to.
 
 export const RAIL = [
   { note: "today — server and daemon are one process", srv: "a1b2c3d", pty: "a1b2c3d", dot: "#27c93f", ring: true, tag: "≡ in-process", tagC: "#5fd07a" },
   { note: "after a deploy — the daemon outlives the restart, a build behind", srv: "e4f5a6b", pty: "a1b2c3d", dot: "#e3a008", ring: false, tag: "⬆ update pending", tagC: "#e3a008" },
-  { note: "the daemon died — honest, not an empty canvas", srv: "e4f5a6b", pty: "—", dot: "#e5484d", ring: false, tag: "daemon dead · restart", tagC: "#f0686c" },
+  { note: "follow-up — an unsolicited daemon death surfaced as a dead-state rail + DegradedCanvas (needs a liveness probe; not in B)", srv: "e4f5a6b", pty: "—", dot: "#e5484d", ring: false, tag: "daemon dead · restart", tagC: "#f0686c" },
 ];
 
 export const HonestStateProto = () => (
@@ -152,6 +152,10 @@ export const HonestStateProto = () => (
 );
 
 <HonestStateProto />
+
+<Callout kind="note" title="Follow-up — the dead-daemon state needs a liveness probe">
+B ships the first two rail states (`≡ current`, `⬆ update pending`) and the honest restart path (failure → `—` column + a retry, never an empty-canvas lie on a <em>known</em> failure). The third state — an <strong>unsolicited</strong> daemon death while the server stays up — is NOT in B: detecting it requires a continuous daemon-liveness probe feeding a streaming <code>DaemonStatus</code> cell that the rail and a dedicated <code>DegradedCanvas</code> subscribe to (the one-shot <code>server.info</code> RPC can't push a death). That probe + cell + canvas is the remaining honest-state work; until it lands, an out-of-band daemon death is observed only on the next operation, not surfaced live.
+</Callout>
 
 **Why one unit:** every element after the topology swap is hazard-coupled to it — shipping the door without the canvas, the forced restart, the recovery sequence, or the divergence chip reintroduces exactly the postmortem's failures, which is the drift #1034 paid for. **Cutover/rollback:** deploying B onto an in-process prod is clean (the first boot just spawns a daemon); rolling B *back* orphans the surviving daemon — the same manual `systemctl --user stop kolu-pty-host.service` reap, mirrored.
 

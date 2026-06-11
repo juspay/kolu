@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -85,6 +86,17 @@ describe("pid-gate", () => {
 
   it("readPidGate returns null for an absent gate", () => {
     expect(readPidGate(join(dir, "nope.pid"))).toBeNull();
+  });
+
+  it("publishes the gate atomically — never observed empty/half-written", () => {
+    // The whole point of the link-from-temp publish: once the file exists at
+    // `path` it already holds the full pid, so a concurrent EEXIST-reader can
+    // never see a malformed gate and wrongly reclaim it. The file that lands is
+    // a complete pid, and no `.tmp` sidecar is left behind.
+    const res = acquirePidGate(gatePath);
+    expect(res.kind).toBe("acquired");
+    expect(rawClaimed(gatePath)).toBe(process.pid);
+    expect(existsSync(`${gatePath}.${process.pid}.tmp`)).toBe(false);
   });
 });
 

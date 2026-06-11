@@ -582,8 +582,17 @@ export function applyPreferencesPatch(
 // may predate it. `isStale` stays the library default — the clean-ref-guarded
 // COMMIT comparison — because kolu's staleness signal (`≠ srv`) is purely the
 // client-vs-server commit divergence; the pty-host column is displayed, not a
-// staleness input (the pty-host is in-process in A2, so it can't diverge from
-// the server it lives in).
+// staleness input.
+//
+// In phase B the daemon SURVIVES a server restart, so the column can diverge:
+// the daemon's relayed `staleKey` (the hash of the pty-host source closure it's
+// actually running) may differ from `ptyHostExpectedStaleKey` (the staleKey of
+// the build the deployed SERVER ships — its own `KOLU_PTY_HOST_BUILD_ID`). The
+// rail derives "update pending" from `staleKey !== expected`, NOT from a commit
+// comparison: a server/client-only deploy bumps `commit` while the pty-host
+// closure is byte-identical, and keying currency on the commit would re-prompt
+// for a pointless daemon restart (the over-prompting the staleKey exists to
+// prevent).
 export const PtyHostIdentitySchema = z.object({
   staleKey: z.string(),
   navigableCommit: z.string(),
@@ -596,6 +605,12 @@ export interface KoluBuildInfo extends BuildInfo {
    *  even in dev. */
   version?: string;
   ptyHost?: z.infer<typeof PtyHostIdentitySchema>;
+  /** The staleKey of the pty-host closure the DEPLOYED server ships (its own
+   *  `KOLU_PTY_HOST_BUILD_ID`). The rail compares it against the surviving
+   *  daemon's relayed `ptyHost.staleKey` to derive currency — equal ⇒ current,
+   *  different ⇒ a restart would load new pty-host code (`⬆ update pending`).
+   *  Empty off-nix, where staleness can't be derived (the rail shows neither). */
+  ptyHostExpectedStaleKey?: string;
 }
 
 export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
@@ -603,6 +618,7 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
     commit: z.string(),
     version: z.string().optional(),
     ptyHost: PtyHostIdentitySchema.optional(),
+    ptyHostExpectedStaleKey: z.string().optional(),
   }),
   default: { commit: "" },
 });
