@@ -309,6 +309,42 @@ interface TerminalLifecycle {
   stopProviders: () => void;
 }
 
+/**
+ * PTYs the daemon still owns from a PREVIOUS server process (reattach-by-id).
+ * Listed once, lazily, on the first spawn — which is the saved-session restore
+ * burst at boot. An id present here is ADOPTED rather than spawned fresh, so a
+ * server restart reconnects to the same shells with scrollback intact. Fresh
+ * ids (random UUIDs minted after boot) are never present, so steady-state
+ * spawns are unaffected. The promise is memoised so the concurrent restore
+ * burst shares one `terminal.list`.
+ */
+let survivorsPromise: Promise<
+  Map<TerminalId, { pid: number; cwd: string }>
+> | null = null;
+function survivingPtys(): Promise<
+  Map<TerminalId, { pid: number; cwd: string }>
+> {
+  survivorsPromise ??= (async () => {
+    const survivors = new Map<TerminalId, { pid: number; cwd: string }>();
+    try {
+      const { entries } = await ptyHostClient.surface.terminal.list({});
+      for (const e of entries) {
+        survivors.set(e.id as TerminalId, { pid: e.pid, cwd: e.cwd });
+      }
+    } catch (err) {
+      log.error({ err }, "could not list the daemon's surviving PTYs");
+    }
+    if (survivors.size > 0) {
+      log.info(
+        { count: survivors.size },
+        "daemon has surviving PTYs — restored terminals reattach, not respawn",
+      );
+    }
+    return survivors;
+  })();
+  return survivorsPromise;
+}
+
 // ── Backend implementation ─────────────────────────────────────────────
 
 class LocalTerminalBackend implements TerminalBackend {
@@ -352,6 +388,29 @@ class LocalTerminalBackend implements TerminalBackend {
     return entry.info;
   }
 
+  /** Adopt a surviving daemon PTY (reattach-by-id) if one exists for this id,
+   *  else spawn fresh. Adoption skips the spawn RPC — the PTY already runs from
+   *  a previous server; we just wire the provider DAG and the client
+   *  re-attaches for the snapshot, so a server restart reconnects to the same
+   *  shell with its scrollback. */
+  private async resolveOrSpawn(
+    id: TerminalId,
+    opts: PtySpawnOpts,
+    proxy: PtyHostTerminalProxy,
+    tlog: typeof log,
+  ): Promise<{ pid: number; cwd: string } | null> {
+    const survivors = await survivingPtys();
+    const survivor = survivors.get(id);
+    if (!survivor) return this.spawnViaClient(id, opts, proxy);
+    survivors.delete(id);
+    if (!getTerminal(id)) return null; // killed during the list await
+    tlog.info(
+      { pid: survivor.pid },
+      "reattaching to a surviving daemon PTY (no respawn)",
+    );
+    return { pid: survivor.pid, cwd: survivor.cwd };
+  }
+
   /** The pty-host spawn RPC + the killed-during-spawn race check. Returns the
    *  resolved `{pid, cwd}`, or null if the terminal was killed while the RPC
    *  was in flight (the pty-host-side PTY is then cleaned up here). Throws on
@@ -393,7 +452,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // to kill: just unwind the sync shadow.
     let res: { pid: number; cwd: string } | null;
     try {
-      res = await this.spawnViaClient(id, opts, proxy);
+      res = await this.resolveOrSpawn(id, opts, proxy, tlog);
     } catch (err) {
       tlog.error({ err }, "pty-host terminal.spawn failed");
       proxy.markFailed(err);

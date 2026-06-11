@@ -14,6 +14,19 @@ const log = {
   debug: () => {},
 } as unknown as Logger;
 
+async function until(
+  cond: () => Promise<boolean>,
+  what: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await cond()) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
 describe("runPtyHostDaemon", () => {
   let dir: string;
   let socketPath: string;
@@ -66,6 +79,46 @@ describe("runPtyHostDaemon", () => {
 
     const second = await start();
     expect(second).toEqual({ kind: "already-running", pid: process.pid });
+  });
+
+  it("a PTY survives a client disconnect; a fresh client reattaches by id with scrollback", async () => {
+    const res = await start();
+    if (res.kind !== "serving") throw new Error("expected serving");
+    live.push(res.daemon);
+
+    // Client A — a server that spawns a terminal and runs a marked command.
+    const a = await unixSocketLink<typeof ptyHostSurface.contract>({
+      socketPath,
+    });
+    const { id } = await a.client.surface.terminal.spawn({ cwd: dir });
+    await a.client.surface.terminal.write({
+      id,
+      data: "echo MARK-REATTACH-42\n",
+    });
+    await until(
+      async () =>
+        (await a.client.surface.terminal.getScreenText({ id })).text.includes(
+          "MARK-REATTACH-42",
+        ),
+      "the marker to appear in client A",
+    );
+    // The server goes away (a deploy) — but the daemon (and the PTY) survive.
+    a.dispose();
+
+    // Client B — the freshly-restarted server. The PTY is still there, by id,
+    // with its scrollback intact: this IS what surviving a server restart means.
+    const b = await unixSocketLink<typeof ptyHostSurface.contract>({
+      socketPath,
+    });
+    try {
+      const { entries } = await b.client.surface.terminal.list({});
+      expect(entries.map((e) => e.id)).toContain(id);
+      const { text } = await b.client.surface.terminal.getScreenText({ id });
+      expect(text).toContain("MARK-REATTACH-42");
+      await b.client.surface.terminal.kill({ id });
+    } finally {
+      b.dispose();
+    }
   });
 
   it("close() releases the gate and frees the socket for a fresh daemon", async () => {
