@@ -90,6 +90,6 @@ green before capturing.
 
 ## Done
 
-Report the PR URL, the gauntlet outcome (lens-debate consensus + fixes applied, codex consensus / unresolved-adjudicated / degraded-substituted, police findings actioned — include be-review's gauntlet-mode line so the review depth actually delivered is on the record), and CI status. Never merge — the human reviews the commits and merges when satisfied.
+Report the PR URL, the gauntlet outcome (lens-debate consensus + fixes applied, codex consensus / unresolved-adjudicated / degraded-substituted, police findings actioned — include be-review's gauntlet-badge line so the review depth actually delivered is on the record), and CI status. Never merge — the human reviews the commits and merges when satisfied.
 
 ARGUMENTS: $ARGUMENTS

@@ -65,6 +65,7 @@ Shape:
 ```jsonc
 {
   "base": "<MB sha>", "start": "<START sha>", "pr": <number|null>,
+  "finished": false,   // set true as the LAST act of "Push, then comment" — a finished ledger is never resumed
   "tracks": {
     "lens":     { "state": "complete", "status": "consensus", "rounds": 2,
                   "head": "<HEAD sha after the track>", "commentFile": "comment-lens.md",
@@ -92,12 +93,16 @@ same location and substance as an earlier ledger entry, set `duplicateOf` to
 the earlier id instead of treating it as new — and if it's already fixed
 (`commit` set), say so in your adjudication rather than re-fixing.
 
-**Resume.** If Preflight finds an existing `.be-review/ledger.json` whose
-`base` equals this run's `MB` **and** whose `start` is an ancestor of HEAD,
-this is an interrupted run: keep the ledger, skip every track with
-`state: "complete"` (their commits are already on the branch), and continue
-from the first incomplete track. A ledger with a different `base` is stale —
-overwrite it and start fresh.
+**Resume.** If Preflight finds an existing `.be-review/ledger.json` that is
+**not `finished`**, whose `base` equals this run's `MB`, **and** whose `start`
+is an ancestor of HEAD, this is an interrupted run: keep the ledger, skip every
+track with `state: "complete"` (their commits are already on the branch), and
+continue from the first incomplete track — or, if all tracks are complete,
+straight to "Push, then comment" (the interruption was after the tracks but
+before the push). A ledger that is `finished`, or has a different `base`, is a
+*previous run's* record, not an interruption — overwrite it and start fresh:
+resuming into a finished ledger would skip every track and silently deliver
+zero review.
 
 ## Preflight
 
@@ -165,8 +170,8 @@ the record the final comments and report render from.
    from the lens step — it reviews the whole change cold, lens rewrites
    included; that cold cross-family pass over the structural rewrites is the
    point of this ordering. (On persistent `reviewer-error` there is **no body to
-   post** — per `/codex-debate`, an unresolved reviewer error is not a consensus
-   to report; skip the codex comment in that case.)
+   post** — per `/codex-debate`, a persistent reviewer error is not a debate
+   outcome to report; skip the codex comment in that case.)
 
    `/codex-debate` ends in `consensus`, `unresolved`, or `reviewer-error`:
    - `consensus` — every finding resolved; the round commits are on the branch.
@@ -244,7 +249,8 @@ Report).
 
 **Then post the gauntlet badge** — one final single-paragraph comment rendered
 from the ledger, so the review depth this PR actually received is on the record
-(three regimes must never ship under indistinguishable comment sets):
+(runs of different depth — full, unresolved-adjudicated, degraded-substituted,
+tracks-skipped — must never ship under indistinguishable comment sets):
 
 ```
 **⛩️ Review gauntlet** (lens → codex → simplify → police · base `<MB sha12>`):
@@ -255,6 +261,11 @@ lens <status>(<rounds>r, N fixed) · codex <status|degraded — substituted>(<ro
 Use the ledger's per-track `status` verbatim — `unresolved` tracks read
 `unresolved → adjudicated`, a substituted codex reads `degraded — substituted`.
 Skip this comment only when no PR exists.
+
+**Finally, set `finished: true` in the ledger** (after the comments are posted,
+or after determining there is nothing to push/post). This is what lets the next
+`/be-review` on this branch distinguish a completed run (start fresh) from an
+interrupted one (resume) — see The findings ledger.
 
 ## Report
 
@@ -276,7 +287,7 @@ carries:
 - **simplify** — whether it changed anything and what it committed.
 - **police** — findings and how each was actioned; the
   `## [👮 Code-police](https://agency.srid.ca/)` summary comment landed (posted
-  after the push, alongside the codex and lens comments).
+  after the push, alongside the lens and codex comments).
 - whether the fixes were pushed;
 - `git log --oneline <base>..HEAD` + `git diff --stat <base>` so the combined
   result is visible.

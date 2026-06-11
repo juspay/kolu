@@ -186,7 +186,7 @@ const POSITION_SCHEMA = {
           concessionReason: {
             type: 'string',
             description:
-              'REQUIRED whenever your disposition for this finding differs from YOUR OWN previous round: the specific code (file:line) or opposing argument that changed your mind. An uncited flip does not settle the finding. Omit on round 1 or when holding your position.',
+              'REQUIRED whenever your disposition for this finding differs from your last cited-or-original position: the specific code (file:line) or opposing argument that changed your mind. An uncited flip does not settle the finding — holding the flipped position in later rounds does not launder it; the citation stays owed. Omit on round 1 or when holding your position.',
           },
         },
       },
@@ -220,15 +220,18 @@ function findingLine(f) {
   return `### ${f.id} (raised by ${f.origin}) — ${f.title}\n  at ${f.location}; raiser's disposition: ${f.disposition}\n  problem: ${f.problem}\n  suggestion: ${f.suggestion}`
 }
 
-function debateBrief(lens, opp, activeFindings, oppPos, settledList, roundNum) {
+function debateBrief(lens, opp, activeFindings, oppPos, settledList, roundNum, owedIds) {
   const settledNote = settledList.length
     ? `\nALREADY SETTLED (you both agreed — do NOT relitigate, shown for context only):\n${settledList.map((s) => `- ${s.id}: ${s.disposition}`).join('\n')}\n`
+    : ''
+  const owedNote = owedIds && owedIds.length
+    ? `\nCITATION OWED on: ${owedIds.join(', ')} — in an earlier round you changed your disposition on these WITHOUT citing what convinced you, so they cannot settle. This round either supply \`concessionReason\` (the specific code file:line or the opposing argument that changed your mind) or revert to your original disposition.\n`
     : ''
   const oppBlock = oppPos
     ? `**${opp}'s positions to rebut or concede, point by point:**\n${JSON.stringify(oppPos, null, 2)}\n\nFor each finding you also call \`fix\`, set \`agreesWithPlan\`: true only if you endorse ${opp}'s \`plan\` as-is. If false, your \`plan\` field is the amended plan that must still converge — the finding stays open another round until the plans agree, just like the disposition.`
     : `Round 1 — give your initial disposition on every contested finding below, including ${opp}'s and any from other reviewers.`
   return `You are **${lens}**, cross-examining **${opp}** to reach agreement. First Read \`.claude/skills/${lens}/SKILL.md\` for your framework, then ${DIFF} Ground every call in the source.
-${rationaleBlock}
+${rationaleBlock}${owedNote}
 CONTESTED findings — disposition EVERY one (yours, ${opp}'s, and any from other reviewers):
 ${activeFindings.map(findingLine).join('\n\n')}
 ${settledNote}
@@ -236,7 +239,7 @@ ${oppBlock}
 
 Round ${roundNum}. For EVERY contested finding id above, output a disposition (\`fix\` = worth changing in THIS PR / \`drop\` = leave as-is, observation only), a concrete implementable plan if \`fix\`, and reasoning grounded in the code. **The goal is the correct answer for THIS PR, not winning** — concede explicitly ("conceding: …") when ${opp}'s code-grounded argument is right. A \`fix\` is worth it only if it genuinely improves the PR.
 
-**Concessions must be cited.** If your disposition for a finding differs from YOUR OWN previous round, set \`concessionReason\` to the specific code (file:line) or the opposing argument that changed your mind. A flip without a cited \`concessionReason\` does NOT settle the finding — capitulating to end the debate is worse than leaving it unresolved for a human.`
+**Concessions must be cited.** If your disposition for a finding differs from your last cited-or-original position, set \`concessionReason\` to the specific code (file:line) or the opposing argument that changed your mind. An uncited flip does NOT settle the finding — and holding the flipped position in a later round does not clear the debt (see any CITATION OWED note above). Capitulating to end the debate is worse than leaving the finding unresolved for a human.`
 }
 
 function implementBrief(fix) {
@@ -383,11 +386,12 @@ if (combined.length === 0) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 — debate to consensus. NO deadlock exit: the loop runs until every
-// finding is agreed. Agreed findings LOCK (leave the active set), so the
-// contested set is monotonically non-increasing — the debate can only shrink.
-// Sequential reveal (lowy posts, hickey answers lowy's CURRENT positions) lets
-// the two land together rather than chase each other's stale positions.
+// Phase 2 — debate to per-finding consensus within the round backstop. Agreed
+// findings LOCK (leave the active set), so the contested set is monotonically
+// non-increasing — the debate can only shrink. Whatever is still contested at
+// the backstop ends `unresolved` for a human. Sequential reveal (lowy posts,
+// hickey answers lowy's CURRENT positions) lets the two land together rather
+// than chase each other's stale positions.
 // ---------------------------------------------------------------------------
 phase('Debate')
 
@@ -399,12 +403,43 @@ const history = []
 let status = 'unresolved'
 let rounds = 0
 
+// Cited-concession gate state. `baseline[lens][id]` is the lens's last
+// ACCEPTED disposition for the finding — its first stated position, advanced
+// only by a hold or by a CITED flip. Flips are measured against this baseline,
+// not merely the previous round, so holding a capitulated position for a round
+// never launders it: the finding stays contested until the lens either cites
+// what convinced it (`concessionReason`) or reverts to its baseline. `owed`
+// tracks the findings where a citation is outstanding, and is surfaced into
+// that lens's next-round brief so the lens knows the debt (a gate the debater
+// can't see is a gate it can't satisfy).
+const baseline = { lowy: {}, hickey: {} }
+const owed = { lowy: new Set(), hickey: new Set() }
+// Returns true when the lens's current position is an UNCITED flip vs its
+// baseline (blocking settlement this round); advances the baseline and clears
+// any owed mark on a hold, revert, or cited flip.
+function uncitedFlip(lens, id, cur) {
+  if (!cur) return false
+  const base = baseline[lens][id]
+  if (base === undefined || cur.disposition === base) {
+    if (base === undefined) baseline[lens][id] = cur.disposition
+    owed[lens].delete(id)
+    return false
+  }
+  if ((cur.concessionReason || '').trim()) {
+    baseline[lens][id] = cur.disposition
+    owed[lens].delete(id)
+    return false
+  }
+  owed[lens].add(id)
+  return true
+}
+
 for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   rounds = r
   const activeFindings = combined.filter((f) => activeIds.includes(f.id))
   const settledList = Object.entries(settled).map(([id, s]) => ({ id, disposition: s.disposition }))
 
-  const lowyRes = await agent(debateBrief('lowy', 'hickey', activeFindings, hickeyPrev, settledList, r), {
+  const lowyRes = await agent(debateBrief('lowy', 'hickey', activeFindings, hickeyPrev, settledList, r, [...owed.lowy].filter((id) => activeIds.includes(id))), {
     label: `lowy:round${r}`,
     phase: 'Debate',
     model,
@@ -412,7 +447,7 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   })
   const lowyPos = posMap(lowyRes)
 
-  const hickeyRes = await agent(debateBrief('hickey', 'lowy', activeFindings, lowyPos, settledList, r), {
+  const hickeyRes = await agent(debateBrief('hickey', 'lowy', activeFindings, lowyPos, settledList, r, [...owed.hickey].filter((id) => activeIds.includes(id))), {
     label: `hickey:round${r}`,
     phase: 'Debate',
     model,
@@ -420,18 +455,15 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   })
   const hickeyPos = posMap(hickeyRes)
 
-  // Cited-concession gate. A lens that FLIPS its own prior-round disposition
-  // without citing what convinced it (`concessionReason`) is the measured
+  // Cited-concession gate (see uncitedFlip above). A lens that flips its
+  // baseline disposition without citing what convinced it is the measured
   // harmful pattern — conformity flips are predominantly wrong, and an
   // agreement reached through one cannot be trusted (see the
-  // review-orchestration Atlas note). An uncited flip therefore does NOT
-  // settle the finding this round: it stays contested, and if it never earns a
-  // citation it ends `unresolved` for a human — strictly better than recording
-  // a capitulation as consensus. (lowyPrev/hickeyPrev still hold round r-1
-  // here; they're advanced after the settle pass below.)
-  const flipUncited = (cur, prev) =>
-    !!(cur && prev && cur.disposition !== prev.disposition && !(cur.concessionReason || '').trim())
-
+  // review-orchestration Atlas note). An uncited flip does NOT settle the
+  // finding — this round or any later round it merely holds the uncited
+  // position — and if the citation never arrives the finding ends
+  // `unresolved` for a human, strictly better than recording a capitulation
+  // as consensus.
   const per = []
   for (const id of [...activeIds]) {
     const l = lowyPos[id]
@@ -444,7 +476,11 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
     // consensus, and Apply must never run on a `plan: undefined` (it would fall
     // back to a vague placeholder and commit an arbitrary edit as "agreed").
     const lowyHasPlan = !!(l && typeof l.plan === 'string' && l.plan.trim())
-    const uncited = flipUncited(l, lowyPrev?.[id]) || flipUncited(h, hickeyPrev?.[id])
+    // Evaluate BOTH gates unconditionally (no short-circuit) so each lens's
+    // baseline/owed state advances every round regardless of the other's.
+    const lUncited = uncitedFlip('lowy', id, l)
+    const hUncited = uncitedFlip('hickey', id, h)
+    const uncited = lUncited || hUncited
     const agreed = !!(
       l &&
       h &&

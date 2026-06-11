@@ -45,23 +45,24 @@ The structure was found by trial in #1109, and two parts of it are load-bearing:
   what" (the abstraction-without-grounding failure mode a lens debate is prone
   to). It earned its keep on a live run (#1111).
 
-## Why deadlock is not possible
+## Why convergence, not deadlock, is the expected outcome
 
-Neither this skill nor `/codex-debate` has a deadlock exit — both run until
-consensus, as many rounds as it takes. But the *reason* convergence is safe to
-rely on is even stronger here. In `/codex-debate` the asymmetry is reviewer vs
-**author**: Claude wrote the code and carries an authorship stake, so in
-principle it could dig in and dispute a finding round after round (the loop
-trusts good-faith concession to break the tie, and aborts only on reviewer
-*infrastructure* failure).
+Both this skill and `/codex-debate` run to consensus within a tight round
+backstop; hitting the backstop is reported honestly as `unresolved`, never as a
+deadlock surrender or a manufactured agreement. The *reason* convergence within
+the budget is the expected outcome is stronger here than in `/codex-debate`,
+where the asymmetry is reviewer vs **author**: Claude wrote the code and
+carries an authorship stake, so in principle it could dig in and dispute a
+finding round after round (which is exactly why its backstop exists).
 
 Here both sides are **disinterested third-party lenses** applied to someone
 else's diff. Neither authored the code; neither has anything to defend. Their
 disagreements are not ego conflicts but framework-weighting differences ("is this
 worth fixing in *this* PR?") about a shared question with a knowable answer. Two
 good-faith analysts, each told to argue from the code and concede when the other
-is right, **converge** — there is no fixed position to defend. So there is **no
-deadlock exit**: the debate runs until consensus, as many rounds as it takes.
+is right, **converge** — there is no fixed position to defend. So genuine
+convergence almost always lands well inside the backstop; what doesn't is a
+real judgment call for a human.
 
 Four mechanics make that real rather than hopeful:
 
@@ -201,9 +202,11 @@ collide and the scratch never shows up in the diff the lenses review. It returns
 
 - **consensus** — every finding settled (the normal outcome).
 - **clean** — every lens found nothing worth raising.
-- **unresolved** — the backstop was hit with findings still contested. Rare;
-  needs a human. This is NOT a deadlock — the lenses simply didn't converge in
-  the round budget; raise `--max-rounds` or adjudicate the listed findings.
+- **unresolved** — the backstop was hit with findings still contested (or an
+  uncited flip never earned its citation). A real outcome, not a deadlock:
+  adjudicate the listed findings yourself — re-running with a higher
+  `--max-rounds` is only worth it when you have a specific reason to expect
+  late convergence.
 
 ### 3. Present the result
 

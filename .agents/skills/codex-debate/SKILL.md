@@ -255,8 +255,9 @@ the per-round commits sit on the local branch for the human to review):
   ```
 
   The workflow returns `comment` already rendered — the `## Codex ⇄ Claude debate`
-  header (consensus badge, round count, the **reasoning-effort** note from the
-  workflow's `REASONING_EFFORT` constant) followed by the per-round breakdown of
+  header (outcome badge, round count, the **reasoning-effort** note from the
+  workflow's tiered effort constants, rendered via `REASONING_EFFORT_LABEL`:
+  `xhigh` round 1, `high` thereafter) followed by the per-round breakdown of
   codex's findings and Claude's dispositions
   that the author also read. So the comment is a **deterministic** render of the
   same record the commit messages and the author drew on — not an LLM-improvised
@@ -282,10 +283,14 @@ codex stays under `--sandbox read-only` (kernel-enforced), and the Claude peer i
 instructed not to write. Consensus is **schema-detected in code**: each side emits
 a structured answer with an `agreesWithOther` boolean and an `objections` list, and
 the loop ends only when **both** sides report no remaining disagreement — within a
-round backstop (default 6, counting the confirmation turns), past which the run
-ends `unresolved` and is reported as such, never as an agreed answer. Moving to
-agreement after disagreeing requires a non-empty `changedMind` citing what
-convinced the side — same cited-concession rule as review mode.
+round backstop (default 6, counting the confirmation turns; a candidate
+synthesized on the final in-budget round still gets its one confirmation turn),
+past which the run ends `unresolved` and is reported as such, never as an agreed
+answer. The debaters are additionally *instructed* (prompt-enforced — the loop
+does not check it, since a side can legitimately reach agreement because the
+*other* side moved) that moving to agreement after disagreeing requires a
+non-empty `changedMind` citing what convinced them — the same cited-concession
+discipline as review mode.
 
 ## Steps
 
@@ -310,7 +315,7 @@ Workflow({
   args: {
     repoPath: "<worktree root>",   // also the per-worktree scratch dir root
     prompt: "<the user's freeform prompt, verbatim>",
-    maxRounds: <n, default 6>,
+    maxRounds: 6,                  // the answer-mode backstop — no CLI flag; override here only with reason
     skillDir: ".claude/skills/codex-debate"
   }
 })

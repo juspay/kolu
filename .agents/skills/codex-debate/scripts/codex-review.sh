@@ -20,8 +20,10 @@
 #                    or "-" on the first round (no rebuttal yet)
 #   <out-json>       path the JSON verdict is written to (also echoed to stdout)
 #   <reasoning-effort> codex model_reasoning_effort for this run; the debate
-#                    workflow passes its REASONING_EFFORT constant here so the
-#                    value has one home. Defaults to "xhigh" for standalone runs.
+#                    workflow passes a per-round value here via effortFor()
+#                    (REASONING_EFFORT_R1 "xhigh" round 1, REASONING_EFFORT_LATER
+#                    "high" thereafter) so the values have one home. Defaults to
+#                    "xhigh" for standalone runs.
 #
 # Notes:
 #   * codex runs under `--sandbox read-only` (see codex-exec-lib.sh), which enforces
@@ -39,8 +41,9 @@ set -uo pipefail
 base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort]}"
 rebuttal_file="${2:?missing rebuttal-file (use - for none)}"
 out="${3:?missing out-json path}"
-# The debate workflow owns this value (its REASONING_EFFORT constant) and passes
-# it down; "xhigh" is only the default for a standalone invocation of this script.
+# The debate workflow owns this value (its tiered effort constants, threaded
+# per round via effortFor()) and passes it down; "xhigh" is only the default
+# for a standalone invocation of this script.
 effort="${4:-xhigh}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
