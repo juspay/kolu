@@ -38,12 +38,16 @@ const DaemonUpdateConfirm: Component<{
 
         <div class="space-y-2 text-fg-2">
           <p>
-            The surviving daemon is a build behind. Restarting picks up the
-            deployed pty-host.
+            Your terminals survived recent deploys, so this daemon is still
+            running the pty-host code it started with — and a newer build is now
+            deployed. Restart to adopt it (pty-host fixes and features).{" "}
+            <b class="text-fg-2">It's optional</b> — the current daemon keeps
+            working until you do.
           </p>
           <p class="text-fg-3">
-            This <b class="text-fg-2">ends every running shell and agent.</b>{" "}
-            Your session is snapshotted and restores — same repos, branches and
+            Restarting{" "}
+            <b class="text-fg-2">ends every running shell and agent.</b> Your
+            session is snapshotted and restores — same repos, branches and
             layout — as fresh shells (scrollback resets); agents that support it
             relaunch with their <code class="text-fg-2">--continue</code> flag.
           </p>
