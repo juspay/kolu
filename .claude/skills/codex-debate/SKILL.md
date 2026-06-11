@@ -1,10 +1,53 @@
 ---
 name: codex-debate
-description: Run an automated code-review debate between the codex CLI (reviewer) and a Claude subagent (author) on the current diff, looping until they reach consensus — no round cap, no deadlock exit. Use when the user types `/codex-debate`, or asks to "have codex review this", "run the codex debate", "review this PR with codex", or "argue this with codex until you agree".
-argument-hint: "[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]"
+description: 'Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two explicit subcommands. `review` (also the bare/back-compat default) — codex (reviewer) critiques the current diff and a Claude subagent (author) fixes/disputes, looping until they agree. `answer` — Claude and codex each answer a freeform prompt in parallel, then cross-check until they agree, and a unified answer is returned. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".'
+argument-hint: "review [<pr-number>] [--base <branch>] [--no-commit] [--no-comment]  |  answer \"<prompt>\""
 ---
 
-# Codex ⇄ Claude review debate
+# Codex ⇄ Claude debate
+
+This skill runs an automated debate between **codex** and **Claude** that loops to
+consensus with no round cap and no deadlock exit. It has **two modes**, selected by
+an **explicit leading subcommand** — never by guessing from the argument's shape:
+
+- **`review`** — codex reviews the current diff, a Claude author fixes/disputes,
+  round after round until they agree, and the trail is **committed + posted to the
+  PR** (a mutating, outward-facing mode). This is everything from
+  [Review mode](#review-mode) down.
+- **`answer`** — Claude and codex **each answer a freeform prompt in parallel**,
+  then **cross-check each other** until both agree, and a **unified answer** is
+  returned to you (read-only; plus a saved transcript). See
+  [Answer mode](#answer-mode).
+
+The two modes have **different side-effect contracts** (review mutates + writes to
+the PR; answer is read-only), so the mode is chosen **explicitly**, not inferred
+from whether the argument looks like a PR number or like prose. Inferring a
+mutating action from prose shape is exactly the coupling this design avoids.
+
+## Mode detection (do this first)
+
+Look at the **first whitespace-delimited token** of `$ARGUMENTS`:
+
+- **`answer`** → **answer mode**. The prompt is everything after the `answer`
+  token. Jump to [Answer mode](#answer-mode); the review-mode steps do not apply.
+- **`review`** → **review mode**. The remaining args are the review grammar
+  (`[<pr-number>] [--base …] [--no-commit] [--no-comment]`). Continue with
+  [Review mode](#review-mode).
+- **No args, OR the first token is a number (a PR number) or a `--flag`** →
+  **review mode** (the backward-compatible bare alias for the original
+  `/codex-debate [<pr>] [flags]`, so existing callers like `/be-review` keep
+  working). Continue with [Review mode](#review-mode).
+- **Anything else** (freeform prose with no recognized subcommand) → **ambiguous**.
+  Do **not** guess — ask the user to pick an explicit mode and stop, e.g.: "Did you
+  mean `/codex-debate answer \"<your prompt>\"` (read-only) or `/codex-debate review
+  [<pr>] [flags]` (mutating)?" Only the safe, backward-compatible review grammar
+  auto-routes; prose never silently triggers a mode.
+
+Both modes require Claude Code's **`Workflow` tool** (the engine). Under
+codex/opencode runtimes the skill is inert.
+
+<a id="review-mode"></a>
+# Review mode — Codex ⇄ Claude review debate
 
 Automate the back-and-forth you'd otherwise courier by hand: **codex** (the
 reviewer) critiques the current change, a **Claude subagent** (the author)
@@ -42,7 +85,9 @@ codex/opencode runtimes the skill is inert.
 
 ## Arguments
 
-Parse `[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]`:
+A leading `review` subcommand token, if present, is consumed by mode detection;
+what remains is `[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]` (the
+bare alias passes the whole argument string through unchanged). Parse:
 
 - **`<pr-number>`** (optional): a PR to debate. If given, `gh pr checkout <n>`
   first and default the base to that PR's base branch. If omitted, debate the
@@ -188,7 +233,138 @@ the per-round commits sit on the local branch for the human to review):
   outward-facing write — on by default because the whole point is to leave the
   review trail on the PR; `--no-comment` suppresses it.
 
-## Safety & notes
+<a id="answer-mode"></a>
+# Answer mode — Codex ⇄ Claude answer debate
+
+When the argument is a **freeform prompt** (not a PR number/flags), the skill
+generalizes the same debate machinery from *reviewing a diff* to *answering a
+question*. The shape is **symmetric**, not author⇄reviewer: **Claude and codex are
+two equal peers**. They each answer the prompt **independently and in parallel**,
+then **cross-check each other's answer** round after round — conceding where the
+other is right, holding firm (with evidence) where it isn't — **until both agree**.
+A final pass **synthesizes their two converged answers into one unified reply**,
+which you present to the user along with a saved transcript.
+
+Both peers are **codebase-aware but read-only**: each may read this repo (`git
+diff/log`, read files, grep) to ground its answer, but neither edits anything —
+codex stays under `--sandbox read-only` (kernel-enforced), and the Claude peer is
+instructed not to write. Consensus is **schema-detected in code**: each side emits
+a structured answer with an `agreesWithOther` boolean and an `objections` list, and
+the loop ends only when **both** sides report no remaining disagreement. There is
+**no round cap and no deadlock exit** — same as review mode.
+
+## Steps
+
+### A1. Resolve context
+
+- Determine `repoPath` (the worktree root, normally the cwd).
+- Capture the **prompt**: everything **after the `answer` subcommand token** (strip
+  surrounding quotes). If it's empty, ask the user what they want answered and stop.
+- **Preflight codex**: `codex login status`. If not logged in, stop and tell the
+  user to run `codex login` (suggest the `!` prefix to do it in-session).
+- No `git fetch` / base resolution / `gh pr checkout` here — answer mode doesn't
+  diff a branch.
+
+### A2. Run the answer Workflow
+
+Invoke the **`Workflow` tool** pointing at this skill's committed answer script,
+passing the prompt through `args`:
+
+```
+Workflow({
+  scriptPath: ".claude/skills/codex-debate/answer.workflow.js",
+  args: {
+    repoPath: "<worktree root>",   // also the per-worktree scratch dir root
+    prompt: "<the user's freeform prompt, verbatim>",
+    skillDir: ".claude/skills/codex-debate"
+  }
+})
+```
+
+The workflow runs in the background and notifies you when it completes. It runs an
+**Answer** phase (round 1: `claude:round1` and `codex:round1` in parallel), a
+**Reconcile** phase (rounds 2+: each side cross-checks the other, in parallel,
+round after round), and a **Synthesis** phase that merges the two agreed answers.
+Watch live via `/workflows`. Ephemeral scratch (per-side answers, cross-check
+files, per-round sections, the saved transcript) lives under the gitignored,
+per-worktree `<repoPath>/.codex-debate/`, so parallel debates never collide. It
+returns:
+
+```
+{ status: "consensus" | "reviewer-error" | "agent-error" | "synthesis-error" | "no-prompt",
+  rounds, prompt, finalAnswer, transcriptPath, reasoningEffort, codexError }
+```
+
+- **consensus** — the only normal terminus: both sides agreed and then both
+  **approved the synthesized candidate** (see the convergence note), and
+  `finalAnswer` is that approved unified answer. `transcriptPath` points at the saved
+  Markdown transcript (`.codex-debate/answer-<slug>.md`).
+- **reviewer-error** — codex itself failed to produce an answer (broken/unavailable
+  CLI) after retries; `codexError` carries the failure detail. Infrastructure
+  failure, not a debate outcome.
+- **agent-error** — one side died on a terminal API error after retries.
+- **synthesis-error** — both sides DID agree, but the final synthesis pass produced
+  no answer (the synthesis agent died or returned empty). Not a successful answer —
+  report it as a failure (there is agreement on record, only the merge failed).
+- **no-prompt** — the prompt was empty (shouldn't happen if A1 guarded it).
+
+### A3. Present the result
+
+- If `status === "consensus"`: present **`finalAnswer`** to the user as the answer
+  — this is the unified reply both Claude and codex agreed on. State **how many
+  rounds** it took to converge and that **codex answered at `reasoningEffort`**
+  (read it off the return value). Point the user at the saved transcript
+  (`transcriptPath`) for the full convergence trail; optionally `cat` the
+  `.codex-debate/answer-section-*.md` files to show a compact per-round summary
+  (each side's answer, what changed, remaining objections). This mode makes **no
+  outward-facing writes** — no PR comment, no commits — it just answers.
+- If `status !== "consensus"`: report it as a **failure**, not an answer. Surface
+  `codexError` (for `reviewer-error`) or the workflow log so the user sees what
+  broke, and tell them how to fix it (e.g. `codex login`) and re-run. Do **not**
+  present a half-debate as if it were an agreed answer.
+
+## Answer-mode safety & notes
+
+- **Both peers read-only — but enforced ASYMMETRICALLY.** codex runs under
+  `--sandbox read-only` (kernel-enforced, belt-and-suspenders with the prompt text —
+  it reads arbitrary repo files and could be prompt-injected). The **Claude peer is
+  only prompt-enforced**: the harness's `agent()` exposes no sandbox/tool restriction
+  (the same is true of every Claude reviewer in `/lens-debate` and review mode), so
+  Claude's read-only behaviour rests on instruction, not a kernel guard. A
+  prompt-injected or mistaken Claude agent *could* in principle edit files or run a
+  git write — answer mode does not, and cannot here, harden against that the way it
+  does for codex. If that risk matters for a given prompt, run the debate in a
+  disposable/read-only worktree. Treat the read-only guarantee as **hard for codex,
+  best-effort for Claude.**
+- **Warm codex session.** Round 1 cold-starts `codex exec`; every later round
+  resumes the same session (`codex exec resume`) so codex cross-checks from its own
+  prior answer rather than reconstructing it. The session id lives in the
+  gitignored per-worktree `.codex-debate/` (a distinct `codex-answer-session.id`,
+  so it never collides with review mode's session), degrading gracefully to a cold
+  start if capture ever fails.
+- **Symmetric convergence, schema-detected, candidate-confirmed.** Each side emits
+  `agreesWithOther` + `objections`; a side counts as agreeing only when it sets
+  `agreesWithOther:true` AND leaves no objection, so a stray objection can't be
+  papered over by an over-eager boolean. Because the two run in parallel each round,
+  a single mutually-agreeing round can be a **swap false positive** (Claude adopts
+  codex's prior answer while codex adopts Claude's — both report agreement, but their
+  current outputs are swapped and still differ), and they can keep swapping back and
+  forth, so counting consecutive parallel agreements does **not** prove the current
+  outputs match. The only sound test is to make both sides judge **one shared piece
+  of text**. So when a round shows mutual agreement, the workflow synthesizes a single
+  **candidate** from the two agreed answers and runs a **confirmation phase**: both
+  sides review that *identical* candidate (without rewriting their own answer) and
+  either approve it or object. Approval is on one fixed text both actually saw, so no
+  swap is possible; if both approve, that candidate is the converged answer — already
+  signed off by both debaters (which is also why `finalAnswer` is never unapproved
+  synthesized text). If either objects, the candidate is dropped and the cross-check
+  loop resumes with the objections folded in. No round cap, no deadlock exit.
+- **Chat + saved transcript, no outward writes.** The unified answer is presented
+  in chat and the full transcript is saved to the gitignored
+  `.codex-debate/answer-<slug>.md`. Unlike review mode, answer mode never commits
+  or posts to a PR.
+
+## Safety & notes (review mode)
 
 - **codex runs read-only — enforced, not just asked.** codex is invoked with
   `--sandbox read-only`, so the kernel sandbox blocks file writes and other
@@ -242,10 +418,27 @@ the per-round commits sit on the local branch for the human to review):
 
 ## Files
 
+Shared:
+
+- `scripts/codex-exec-lib.sh` — the sourced core both modes share: the read-only
+  `codex exec`/`resume` invocation, warm-session resolve/persist, retry/backoff,
+  thread-id capture, and the synthesized error-verdict fallback (via a caller hook).
+  The two mode scripts source this and add only their own prompts + verdict shape.
+
+Review mode:
+
 - `debate.workflow.js` — the Workflow script (the loop + consensus logic).
-- `scripts/codex-review.sh` — the canonical, deterministic `codex exec` invocation
-  (cold-starts round 1, `codex exec resume`s the warm session thereafter).
+- `scripts/codex-review.sh` — the review-specific invocation (arg parsing, the
+  review prompts, the verdict schema/session file, the verdict-shaped error).
 - `scripts/codex-verdict.schema.json` — the JSON Schema codex's verdict is constrained to.
+
+Answer mode:
+
+- `answer.workflow.js` — the Workflow script for the symmetric answer-debate
+  (parallel answers → cross-check loop to agreement → synthesis).
+- `scripts/codex-answer.sh` — the answer-specific invocation (arg parsing, the
+  answer prompts, the answer schema/session file, the answer-shaped error).
+- `scripts/codex-answer.schema.json` — the JSON Schema codex's answer is constrained to.
 
 These are generated from `.apm/skills/codex-debate/`; edit the source there and
 run `just ai apm` to regenerate.
