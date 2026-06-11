@@ -44,6 +44,12 @@ import {
 export { composeSurfaceContracts };
 import type { Cell, Collection, Event, Stream } from "./index";
 
+// `projectSurface` and its derive helpers are server-side (they import
+// `implementSurface` from here), so they live in `./project` and are imported
+// from the dedicated `@kolu/surface/project` subpath — the canonical import for
+// adapter authors. They are intentionally NOT re-exported here: `./project`
+// imports `./server`, so re-exporting it back would form an import cycle.
+
 // ── Persistence + pub/sub interfaces ───────────────────────────────────
 
 /** Persistence interface for a Cell or Collection's storage backend. */
@@ -630,15 +636,21 @@ export function inMemoryChannelByName(): <T>(name: string) => Channel<T> {
  *  `publish(v)` is an alias for `set(v)` so the cell still satisfies
  *  the `Channel<T>` interface that `implementSurface` expects when one
  *  is passed as the `channel:` dep — meaning the same cell can serve
- *  in-process observers AND back a framework-managed surface cell. */
-export function inMemoryCell<T>(initial: T): Channel<T> & {
-  current(): T;
-  set(value: T): void;
-} {
+ *  in-process observers AND back a framework-managed surface cell.
+ *
+ *  `get()` is an alias for `current()` so the cell also satisfies the
+ *  `CellStore<T>` interface — one read/write store shape across the whole
+ *  cell path (no rename adapter needed when handing the cell's store into a
+ *  `CellStore`-typed slot). */
+export function inMemoryCell<T>(initial: T): Channel<T> &
+  CellStore<T> & {
+    current(): T;
+  } {
   let value = initial;
   const deltas = inMemoryChannel<T>();
   return {
     current: () => value,
+    get: () => value,
     set: (v) => {
       value = v;
       deltas.publish(v);
@@ -742,17 +754,39 @@ export function publisherChannel<T>(
   };
 }
 
+/** The abort-time swallow contract in one predicate: a rejection is
+ *  end-of-life noise iff `signal` has aborted and the error *is* its abort
+ *  reason (the publisher rejects pending pulls with `signal.reason` on
+ *  shutdown). Exported as the single home of that rule so the iteration
+ *  swallow (`iterateUntilAborted`) and the projection layer's pre-iteration
+ *  `upstream()` / connect-loop swallows (`./project`) all decide "is this
+ *  the expected shutdown rejection?" with one body — a fix to the contract
+ *  (the kind `kill.feature` pins) lands in exactly one place. */
+export function isAbortReason(
+  err: unknown,
+  signal: AbortSignal | undefined,
+): boolean {
+  return signal?.aborted === true && err === signal.reason;
+}
+
 /** Iterate `source` and yield each item, ending cleanly if the iterator
  *  rejects with the signal's abort reason. Adds one microtask of delay
- *  per yield (see `publisherChannel`'s comment for why that matters). */
-async function* iterateUntilAborted<T>(
+ *  per yield (see `publisherChannel`'s comment for why that matters).
+ *
+ *  The single home of the abort-time iterator-teardown contract: a
+ *  downstream pull rejected with `signal.reason` on shutdown is end-of-life
+ *  noise, swallowed here (via `isAbortReason`) so it never bubbles as an
+ *  unhandled rejection. `projectSurface`'s `mapUpstream` composes on top of
+ *  this so the per-frame swallow has exactly one definition; a fix to the
+ *  abort contract (the kind `kill.feature` pins) lands in one place. */
+export async function* iterateUntilAborted<T>(
   source: AsyncIterable<T>,
   signal: AbortSignal | undefined,
 ): AsyncGenerator<T> {
   try {
     for await (const item of source) yield item;
   } catch (err) {
-    if (signal?.aborted && err === signal.reason) return;
+    if (isAbortReason(err, signal)) return;
     throw err;
   }
 }

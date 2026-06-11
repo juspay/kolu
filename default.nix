@@ -32,6 +32,7 @@ let
       ./pnpm-lock.yaml
       ./tsconfig.base.json
       ./packages/surface
+      ./packages/surface-mcp
       ./packages/surface-nix-host
       ./packages/surface-app
       ./packages/solid-pierre
