@@ -527,12 +527,18 @@ exit — quitting without agreement <em>and pretending otherwise</em> is what
 defeats the purpose; surfacing genuine disagreement to the human is the
 correct output of a debate that didn’t converge.</li>
 <li><strong>Evidence-gated concessions.</strong> Require a cited reason whenever a disposition
-flips across rounds — and <em>enforce</em> it, don’t just ask. codex’s side is gated
-at the schema level (<code>concession</code> is <code>required</code> in its <code>--output-schema</code>); the
-author side is gated by the workflow, which holds any finding codex resolved
-off an uncited Claude flip (<code>disputed</code> → <code>fixed</code>/<code>partial</code> with no
-<code>concessionReason</code>) OPEN, so it ends <code>unresolved</code> rather than counting as
-consensus. Smit et al. found agreement modulation is the highest-leverage MAD
+flips across rounds — and <em>enforce</em> it in the workflow, don’t just ask. A
+single persistent per-finding gate holds a finding OPEN while a citation is
+outstanding from <em>either</em> side, so it ends <code>unresolved</code> rather than counting as
+consensus. An uncited author flip (<code>disputed</code> → <code>fixed</code>/<code>partial</code> with no
+<code>concessionReason</code>) owes a debt that survives across rounds — dropping the
+action or holding the flip doesn’t launder it. The reviewer side needs the same
+workflow check, not just the schema: <code>concession</code> being <code>required</code> in codex’s
+<code>--output-schema</code> enforces only that the string is <em>present</em>, not that it’s
+<em>non-empty when codex resolves by accepting a dispute</em> (a cross-field condition
+no JSON Schema can express), so the workflow holds a finding codex marks
+<code>resolved</code> off an author dispute with an empty <code>concession</code> OPEN too. Smit et
+al. found agreement modulation is the highest-leverage MAD
 knob, and the conformity literature shows ungated flips are predominantly
 harmful. A side that cannot cite <em>why</em> it changed its mind hasn’t been
 convinced; it has capitulated to end the loop.</li>

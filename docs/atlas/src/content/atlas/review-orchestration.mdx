@@ -476,12 +476,18 @@ published anchoring results. Everything below keeps those.
   defeats the purpose; surfacing genuine disagreement to the human is the
   correct output of a debate that didn't converge.
 - **Evidence-gated concessions.** Require a cited reason whenever a disposition
-  flips across rounds — and *enforce* it, don't just ask. codex's side is gated
-  at the schema level (`concession` is `required` in its `--output-schema`); the
-  author side is gated by the workflow, which holds any finding codex resolved
-  off an uncited Claude flip (`disputed` → `fixed`/`partial` with no
-  `concessionReason`) OPEN, so it ends `unresolved` rather than counting as
-  consensus. Smit et al. found agreement modulation is the highest-leverage MAD
+  flips across rounds — and *enforce* it in the workflow, don't just ask. A
+  single persistent per-finding gate holds a finding OPEN while a citation is
+  outstanding from *either* side, so it ends `unresolved` rather than counting as
+  consensus. An uncited author flip (`disputed` → `fixed`/`partial` with no
+  `concessionReason`) owes a debt that survives across rounds — dropping the
+  action or holding the flip doesn't launder it. The reviewer side needs the same
+  workflow check, not just the schema: `concession` being `required` in codex's
+  `--output-schema` enforces only that the string is *present*, not that it's
+  *non-empty when codex resolves by accepting a dispute* (a cross-field condition
+  no JSON Schema can express), so the workflow holds a finding codex marks
+  `resolved` off an author dispute with an empty `concession` OPEN too. Smit et
+  al. found agreement modulation is the highest-leverage MAD
   knob, and the conformity literature shows ungated flips are predominantly
   harmful. A side that cannot cite *why* it changed its mind hasn't been
   convinced; it has capitulated to end the loop.

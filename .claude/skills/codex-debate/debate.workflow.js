@@ -154,56 +154,99 @@ const CLAUDE_RESPONSE_SCHEMA = {
 }
 
 // ---------------------------------------------------------------------------
-// Cited-concession gate (the Claude/author side).
+// Cited-concession gate (BOTH sides), as a persistent per-finding owed set.
 // ---------------------------------------------------------------------------
-// The codex side is gated by SCHEMA: codex-verdict.schema.json requires a
-// `concession` whenever codex resolves a finding by ACCEPTING a dispute, so a
-// codex capitulation can't pass strict --output-schema without a cited reason.
-// The author side has no such process boundary — `concessionReason` is optional
-// here — so this is the matching MECHANICAL gate for it, the analogue of
-// lens-debate's isUncitedFlip/advanceGate. `claudeAccepted[id]` is the author's
-// last ACCEPTED disposition for a finding, advanced only on first-seen, a hold,
-// or a CITED flip; an uncited flip from `disputed` to `fixed`/`partial` is the
-// measured-harmful capitulation pattern and does NOT advance it. Flips are
-// measured against the accepted disposition (not merely the prior round) so
-// holding a capitulated position for a round never launders it.
-const claudeAccepted = {}
-function authorUncitedCapitulation(prev, action) {
-  if (prev !== 'disputed') return false // only disputed→concede can capitulate
+// `gate[id]` is one record `{disposition, owed}` (absent = never seen),
+// mirroring lens-debate's `gate[lens][id]`:
+//   - `disposition` is the AUTHOR's last ACCEPTED disposition for the finding —
+//     its first stated position, advanced only by a hold or a CITED flip.
+//   - `owed` is whether a citation is currently OUTSTANDING against the finding,
+//     from EITHER side: an uncited author flip (`disputed` → `fixed`/`partial`
+//     with no `concessionReason`), OR codex resolving an author-disputed finding
+//     with an empty `concession` (an uncited reviewer concession).
+// The two fields live in one record so the invariant "owed iff the last flip vs.
+// the accepted disposition was uncited" is mechanical, not a rule remembered
+// across two parallel structures. Crucially, `owed` is STATE that persists by
+// finding id: once set it stays set across rounds until a later round explicitly
+// clears it (a cited flip, a revert to `disputed`, or codex citing its
+// concession). It is NOT recomputed from the current round's action list, so a
+// held-open capitulation can't be laundered by the action disappearing or by
+// codex continuing to report the finding as `resolved`.
+//
+// Why a unified gate covers BOTH sides: codex-verdict.schema.json makes
+// `concession` a `required` STRING, but `required` only enforces PRESENCE — a
+// codex build can still emit `concession: ""` while resolving a disputed finding
+// and pass strict `--output-schema`. The schema can't express "non-empty WHEN
+// resolving by accepting a dispute" (that's a cross-field semantic condition).
+// So the reviewer side is gated HERE, not by the schema: a `resolved` finding
+// whose accepted author disposition is `disputed` and whose `concession` is
+// empty is an uncited reviewer concession, and the gate holds it open exactly
+// like an uncited author flip.
+const gate = {}
+
+// True when codex resolved a finding by ACCEPTING the author's dispute (the
+// accepted disposition is `disputed`, no code change) but cited no `concession`.
+function reviewerUncitedConcession(f, acceptedDisposition) {
+  if (f.status !== 'resolved') return false
+  if (acceptedDisposition !== 'disputed') return false
+  return !(f.concession || '').trim()
+}
+
+// True when the author flipped `disputed` → `fixed`/`partial` without citing a
+// `concessionReason`. Measured against the ACCEPTED disposition, not merely the
+// prior round, so holding a capitulated position for a round never launders it.
+function authorUncitedFlip(action, acceptedDisposition) {
+  if (acceptedDisposition !== 'disputed') return false // only disputed→concede can capitulate
   if (!action || action.disposition === 'disputed') return false // a hold isn't a flip
   return !(action.concessionReason || '').trim() // a cited flip is legitimate
 }
+
+// Advance the author side of a finding's gate record after a round: set its
+// ACCEPTED disposition, and update `owed`. Called unconditionally per finding
+// the author dispositioned. An uncited author flip sets `owed` and does NOT
+// advance the accepted disposition (so the gate keeps catching it). A CITED flip
+// or a hold advances it and CLEARS `owed` (the author paid the debt or never
+// owed one).
 function advanceAuthorGate(action) {
   if (!action || !action.findingId) return
   const id = action.findingId
-  const prev = claudeAccepted[id]
-  // Advance on first-seen, a hold, or a CITED flip. An uncited flip vs. the
-  // accepted disposition does NOT advance — the finding stays at its accepted
-  // (disputed) position so the gate keeps catching it next round too.
-  if (prev === undefined || action.disposition === prev || (action.concessionReason || '').trim()) {
-    claudeAccepted[id] = action.disposition
+  const g = gate[id]
+  const accepted = g?.disposition
+  if (accepted === undefined || action.disposition === accepted) {
+    // First-seen or a hold: adopt/keep the accepted disposition, no debt.
+    gate[id] = { disposition: accepted === undefined ? action.disposition : accepted, owed: false }
+    return
   }
+  if ((action.concessionReason || '').trim()) {
+    // Cited flip: the author paid the debt; the flipped position is now accepted.
+    gate[id] = { disposition: action.disposition, owed: false }
+    return
+  }
+  // Uncited flip: keep the accepted (disputed) position and OWE a citation.
+  gate[id] = { disposition: accepted, owed: true }
 }
 
 // Consensus = no finding left open, any severity — codex resolved every one
-// (CLAUDE fixed it, or codex conceded a dispute, citing why). Findings still
-// open at the round backstop end the debate as `unresolved` instead.
+// (CLAUDE fixed it, or codex conceded a dispute, citing why) AND no citation is
+// outstanding on either side. Findings still open (or still owing a citation) at
+// the round backstop end the debate as `unresolved` instead.
 //
-// `priorActions` is the author's dispositions from the round codex just
-// reviewed (its rebuttal). A finding codex marks `resolved` off an UNCITED
-// author capitulation (disputed→fixed/partial with no `concessionReason`) is
-// held OPEN here regardless of codex's status: an agreement reached by
-// capitulation isn't consensus, so the debate continues (or ends `unresolved`)
-// rather than shipping a flip nobody can justify. This makes the SKILL's
-// "consensus can't be manufactured by capitulation" claim MECHANICAL, not just
-// prompt-asked, matching lens-debate.
-function openFindings(verdict, priorActions) {
-  const priorById = {}
-  for (const a of priorActions || []) if (a && a.findingId) priorById[a.findingId] = a
+// A finding is held OPEN when it carries an outstanding `owed` debt — from an
+// uncited author flip OR an uncited reviewer concession — regardless of codex's
+// reported `status`. The reviewer-side debt is evaluated against THIS round's
+// verdict (codex may concede uncited at any round) using the author's accepted
+// disposition; the author-side debt is persistent state set in a prior round and
+// only cleared by advanceAuthorGate. Either way, an agreement reached by an
+// uncited capitulation isn't consensus, so the debate continues (or ends
+// `unresolved`) rather than shipping a flip nobody can justify. This makes the
+// SKILL's "consensus can't be manufactured by capitulation" claim MECHANICAL on
+// BOTH sides, not just prompt-asked.
+function openFindings(verdict) {
   return (verdict.findings || []).filter((f) => {
     if (f.status !== 'resolved') return true
-    const action = priorById[f.id]
-    return action ? authorUncitedCapitulation(claudeAccepted[f.id], action) : false
+    const accepted = gate[f.id]?.disposition
+    if (gate[f.id]?.owed) return true // a prior uncited author flip still owes a citation
+    return reviewerUncitedConcession(f, accepted) // codex resolved a dispute with no cited reason
   })
 }
 
@@ -249,7 +292,7 @@ ${rebuttalStep}
   })
 }
 
-async function claudeResponds(round, verdict) {
+async function claudeResponds(round, verdict, owedIds) {
   // WARM AUTHOR. We can't truly resume the Claude author (agent() is one-shot,
   // and Claude isn't headless under Max auth, so there's no session to resume the
   // way `codex exec resume` carries codex's reasoning forward). The achievable
@@ -267,11 +310,23 @@ Build on what you already did; don't re-derive the diff from scratch, and don't 
 
 `
       : ''
+  // Surface any outstanding citation debt so the author can satisfy the gate (a
+  // gate the debater can't see is a gate it can't satisfy — the lens-debate
+  // owedNote analogue). These are findings where, in an earlier round, the author
+  // flipped `disputed` → `fixed`/`partial` WITHOUT citing what convinced it: the
+  // finding cannot settle until the author either supplies `concessionReason` or
+  // reverts to `disputed`, no matter how codex now reports it.
+  const owedBlock =
+    owedIds && owedIds.length
+      ? `CITATION OWED on: ${owedIds.join(', ')} — in an earlier round you stopped disputing these WITHOUT citing what convinced you, so they cannot settle. This round either supply \`concessionReason\` (the specific code file:line or codex argument that changed your mind) or revert that finding's disposition to "disputed". Holding the uncited flip does NOT clear the debt.
+
+`
+      : ''
   const prompt = `You authored the changes on this branch. CODEX reviewed them and returned the verdict below — what do you think? Fix what you agree with, push back (with reasons) on what you don't.
 
 Work in the repo at \`${repoPath}\` — your shell cwd may be a different worktree, so use ABSOLUTE paths under it and \`git -C ${repoPath}\`. See the change with \`git -C ${repoPath} diff ${base}\`.
 
-${priorBlock}CODEX's verdict (JSON):
+${priorBlock}${owedBlock}CODEX's verdict (JSON):
 ${JSON.stringify(verdict, null, 2)}
 
 Address EVERY finding, any severity (don't skip minors/nits):
@@ -543,18 +598,21 @@ for (let round = 1; round <= maxRounds; round++) {
     break
   }
 
-  // Evaluate codex's verdict against the author's PRIOR-round dispositions (the
-  // rebuttal codex just reviewed) BEFORE advancing the gate with them, so the
-  // gate still holds the author's accepted (pre-flip) position when it judges
-  // this round's resolutions. A finding codex resolved off an uncited author
-  // capitulation is kept open here. Then advance the gate so a hold next round
-  // can't launder the same flip.
-  const open = openFindings(verdict, lastClaude && lastClaude.actions)
-  lastOpen = open
+  // Advance the AUTHOR side of the gate with the prior round's dispositions (the
+  // rebuttal codex just reviewed) FIRST, so any uncited author flip is recorded
+  // as a persistent `owed` debt on its finding id. Then evaluate openFindings
+  // against THIS verdict: the author-side debt is now durable state (it survives
+  // even if the author later drops the action or codex keeps marking the finding
+  // resolved), and the reviewer-side check reads the up-to-date accepted
+  // disposition to catch an uncited codex concession this round. Advancing before
+  // evaluating is safe because advanceAuthorGate does NOT clear an uncited flip's
+  // debt — it sets `owed`, which openFindings then honors.
   for (const a of (lastClaude && lastClaude.actions) || []) advanceAuthorGate(a)
+  const open = openFindings(verdict)
+  lastOpen = open
   const capitulated = open.filter((f) => f.status === 'resolved')
   if (capitulated.length) {
-    log(`Round ${round}: held ${capitulated.length} finding(s) open — codex resolved them off an UNCITED author capitulation (no concessionReason on a disputed→fixed flip).`)
+    log(`Round ${round}: held ${capitulated.length} finding(s) open — resolved off an UNCITED capitulation (author flip with no concessionReason, or codex resolving a dispute with an empty concession).`)
   }
   log(`Round ${round}: codex approved=${verdict.approved}, findings open=${open.length}`)
 
@@ -592,7 +650,10 @@ for (let round = 1; round <= maxRounds; round++) {
   // rest. It reads the per-round section files (written at the end of each round
   // below) for its cross-round memory. `lastClaude` is kept only to feed codex's
   // rebuttal next round (see codexReviews) — it is no longer the author's memory.
-  const response = await claudeResponds(round, verdict)
+  const owedIds = Object.entries(gate)
+    .filter(([, g]) => g.owed)
+    .map(([id]) => id)
+  const response = await claudeResponds(round, verdict, owedIds)
   entry.claude = response
   lastClaude = response
   log(
