@@ -510,6 +510,25 @@ When(
 );
 
 When(
+  "the terminal renders a Claude AskUserQuestion prompt with a notes hint",
+  async function (this: KoluWorld) {
+    // claude-code v2.1.173 added a `· n to add notes` segment to the footer,
+    // landing between `to navigate` and `Esc to cancel`. The old marker required
+    // those two adjacent, so the prompt stopped promoting (the dock looked idle).
+    // Paint the real v2.1.173 footer so the screen scrape sees exactly what
+    // Claude paints now — the awaiting promotion must still fire.
+    await paintLinesToTerminal(this.page, [
+      " Which package decomposition is cleanest?",
+      "",
+      "❯ 1. Entry with behaviour",
+      "  2. Supervisor owns the entry",
+      "",
+      " Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel",
+    ]);
+  },
+);
+
+When(
   "the terminal renders a Claude permission prompt",
   async function (this: KoluWorld) {
     // A tool-permission gate (here the edit-family one) is on screen while the
