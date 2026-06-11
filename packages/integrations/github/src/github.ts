@@ -2,8 +2,8 @@
  *  these with the `gh pr view` spawn; the wire shapes they produce live in
  *  `anyforge/schemas`. */
 
+import { foldCheckOutcomes } from "anyforge";
 import type { CheckRun, CheckStatus, PrInfo, PrResult } from "anyforge/schemas";
-import { foldCheckOutcomes } from "anyforge/schemas";
 import { match, P } from "ts-pattern";
 import {
   GH_PROVIDER,
