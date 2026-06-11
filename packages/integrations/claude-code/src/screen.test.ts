@@ -8,7 +8,7 @@ import {
 
 // --- Fixtures (rendered-screen snapshots, VT already resolved) ---
 //
-// Verbatim captures from claude-code v2.1.162 via `tmux capture-pane` — the same
+// Verbatim captures from claude-code v2.1.162–v2.1.173 via `tmux capture-pane` — the same
 // VT-resolved text `getScreenText` returns. The awaiting-user prompts and the
 // idle select-menus that look similar but must NOT promote.
 
