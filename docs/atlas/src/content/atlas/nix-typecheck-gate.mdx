@@ -1,20 +1,22 @@
 ---
 title: nix build ≠ typecheck
-description: A talk-mode diagnosis of #1049 — a green `nix build` exits 0 with broken server types; the fix is a cached `checks.typecheck` flake derivation that closes the local false-confidence gap and deletes a CI node.
+description: 'A talk-mode diagnosis of #1049 — a green `nix build` exits 0 with broken server types; the fix is a cached `checks.typecheck` flake derivation that closes the local false-confidence gap and deletes a CI node.'
 kind: reference
 maturity: evergreen
-status: accepted
-updated: 2026-06-02
+status: implemented
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
 import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
 
 *Talk-mode response · diagnosis confirmed against source · design reviewed (Lowy + Hickey) and revised.*
 
 <Callout kind="accent" title="Verdict — the diagnosis is correct, with one sharpening: CI already catches this">
-The `typecheck` node already runs in the CI DAG (<Cite file="ci/mod.just" lines="34" label="ci/mod.just:34,69-70" />), so a server type error *cannot* reach `master` through CI today. The real, narrower gap is **local false confidence**: a standalone `nix build` exits 0 with broken types (incident #1034), and `nix build` is therefore not the proof people treat it as. The fix the issue asks for — make `nix build` itself a type-proof — is worth doing, and it also lets us *delete* a CI node rather than add one.
+At the time of this diagnosis a standalone `typecheck` node ran in the CI DAG, so a server type error *could not* reach `master` through CI even then; <PrLink pr={1056} /> has since replaced that node with the cached `checks.*.typecheck` flake output realized by the `nix` devour-flake node (<Cite file="ci/mod.just" lines="86-90" />). The real, narrower gap was **local false confidence**: a standalone `nix build` exits 0 with broken types (incident #1034), and `nix build` is therefore not the proof people treat it as. The fix the issue asks for — make `nix build` itself a type-proof — is worth doing, and it also lets us *delete* a CI node rather than add one.
 </Callout>
 
 ## What I verified
@@ -25,7 +27,7 @@ The `typecheck` node already runs in the CI DAG (<Cite file="ci/mod.just" lines=
 | Server ships as `.ts`, run under `tsx` (transpile-only) | <Pill variant="ok">true</Pill> | <Cite file="default.nix" lines="154-155" /> — `tsx … server/src/index.ts` |
 | `typescript` pruned from the production closure | <Pill variant="ok">true</Pill> | <Cite file="default.nix" lines="109" /> — in `installPhase` (after build, before `cp -r . $out`) |
 | No `checkPhase` / `doCheck` on the derivation | <Pill variant="ok">true</Pill> | <Cite file="default.nix" lines="59-126" /> |
-| The real gate is `just check` / CI | <Pill variant="warn">partly</Pill> | CI *does* gate: <Cite file="ci/mod.just" lines="34" /> DAG includes `typecheck` → `pnpm typecheck`. `just check` (<Cite file="justfile" lines="67-68" />) is the local inner loop. |
+| The real gate is `just check` / CI | <Pill variant="warn">partly</Pill> | CI *did* gate: the DAG then included a standalone `typecheck` → `pnpm typecheck` node (deleted by <PrLink pr={1056} /> in favour of the flake check). `just check` (<Cite file="justfile" lines="67-68" />) is the local inner loop. |
 
 So the path that gives false confidence:
 
@@ -59,11 +61,15 @@ The build's `src` fileset (<Cite file="default.nix" lines="15-38" />) is a hand-
 
 <Callout kind="warn" title="Resolution (chosen): give the typecheck derivation its own broad fileset">
 Source it from `./packages` wholesale (plus root `tsconfig.base.json`, `package.json`, `pnpm-workspace.yaml`, lockfile) rather than the narrow shipping allowlist. There is then **no per-package list to drift** — `pnpm -r typecheck` sees exactly the workspace, by construction. This is simpler than the alternative (a second `checks.fileset-completeness` derivation diffing the workspace against the allowlist), and the broader source is *correct* for typecheck anyway: it *should* re-run whenever any typechecked package changes. The build keeps its tight allowlist for cache reasons; the two filesets have opposite goals, so they should differ.
+
+**As built, this was reversed.** <PrLink pr={1056} /> has the typecheck derivation (`nix/pnpm-typecheck.nix`) reuse the build's narrow allowlist `src` + `pnpmDeps`, and holds off the drift trap with an INVARIANT comment on the fileset instead (<Cite file="default.nix" lines="21-26" />): every workspace package with a `typecheck` script must be listed, and `packages/tests` — the one member absent — has no typecheck script, so it is outside the gate's scope either way.
 </Callout>
 
 ### Pin to one platform <Pill variant="warn">cost</Pill>
 
 devour-flake builds `checks.${system}` for all three systems. TypeScript typecheck is platform-independent, so attaching it to all three triples CI cost for identical results. Pin it to one — following the existing precedent <Cite file="nix/home/example/flake.nix" lines="70" /> (`checks.${linuxSystem}.vm-test`) and <Cite file="nix/home/example/flake.nix" lines="114" /> (`checks.${darwinSystem}`).
+
+**As built, this was reversed too.** <PrLink pr={1056} /> runs the type gates on *every* system, deliberately: the build environment (nodejs/pnpm and the platform-resolved deps `pnpmConfigHook` installs) differs per platform, so each platform's `tsc`/`astro check` is its own proof — a darwin-only type error wouldn't surface from a linux-only check (rationale comment in <Cite file="flake.nix" lines="66-72" />).
 
 ## Concrete change (single PR — infra, not user-visible, no phasing)
 
@@ -115,4 +121,6 @@ Leave `just check` (<Cite file="justfile" lines="67-68" />) exactly as-is — it
 
 ---
 
-*Ready to build? Invoke `/do` and this becomes the implementation brief. `do` re-runs Hickey + Lowy on the real diff, so the must-fix (broad fileset) and the cost-fix (single-platform pin) will be re-checked against the actual derivation.*
+<Callout kind="good" title="Shipped">
+<PrLink pr={1056} /> (merged 2026-05-31) implemented this brief and closed <Issue n={1049} />. As built: the derivation lives in `nix/pnpm-typecheck.nix` (shared by the workspace `tsc` gate and the website `astro check` gate), exposed as flake checks and realized by CI's `nix`/devour-flake node; the standalone `ci::typecheck` recipe was deleted as planned, and the `buildPhase` NOTE comment shipped (<Cite file="default.nix" lines="142-146" />). Two decisions changed during implementation — the must-fix (broad fileset) and the cost-fix (single-platform pin) were both reversed when re-checked against the actual derivation; see the as-built notes above.
+</Callout>

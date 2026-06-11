@@ -4,11 +4,12 @@ description: A Hickey/Lowy review of kolu's mobile support — is mobile an enca
 kind: analysis
 maturity: evergreen
 parents: [electricity]
-updated: 2026-06-01
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
 
 An adversarially-verified read of kolu's mobile support through two lenses: Rich
 Hickey's *Simple Made Easy* (is mobile *complected* through the app?) and Juval
@@ -19,6 +20,14 @@ smeared across every consumer?).
 Two outlets are wired to spec — the rest of the app clips bare leads onto the
 mains. Scope ~11 files · 18 signal reads · 5 mobile components. Method: 24 agents
 — map ▸ dual-lens ▸ verify ▸ synthesize; 16 claims re-checked vs source.
+</Callout>
+
+<Callout kind="good" title="Update — the four receptacles shipped">
+<PrLink pr={1088} /> (merged 2026-06-01) implemented all four §⑦ recommendations:
+the breakpoint is unified via the `--breakpoint-sm` theme token, `openInCodeTab`
+calls `rp.reveal()`, feature gates live in `capabilities.ts`, and the
+contenteditable surgery is extracted to `enableSoftKeyboardInput()`. The circuit
+diagram, scorecard, and §⑤/§⑧ below record the pre-#1088 wiring.
 </Callout>
 
 ## ① The analogy — Lowy's receptacle
@@ -99,7 +108,7 @@ One source, two voltages, two clean outlets — then exposed mains:
 
 | Dimension | Grade | Note |
 | --- | --- | --- |
-| Single source of truth | <Pill variant="md">C</Pill> | Each *concept* has one signal — but the breakpoint *value* is defined twice (JS 639px vs Tailwind `sm:` 640px); the comment misclaims they match. |
+| Single source of truth | <Pill variant="md">C</Pill> | Each *concept* has one signal — but the breakpoint *value* was defined twice (JS 639px vs Tailwind `sm:` 640px); the comment misclaimed they match. <Pill variant="done">fixed · #1088</Pill> — the JS query now derives from the `--breakpoint-sm` token. |
 | Encapsulation | <Pill variant="md">C</Pill> | Two receptacles done right; ~18 consumers branch on the raw signal with no posture/capability layer. |
 | Concept separation | <Pill variant="good">B</Pill> | `isMobile` (size) and `isTouch` (modality) are orthogonal; `useViewPosture` refuses to fold mobile in. |
 | CSS vs JS discipline | <Pill variant="bad">D</Pill> | 18 JS signal-reads vs 4 Tailwind classes, 0 custom `@media`. CSS owns almost no structure. |
@@ -151,7 +160,10 @@ JS query `max-width:639px` vs Tailwind `sm:` at `min-width:640px` (v4 default; n
 `useMobile.ts`'s comment claims it *"Matches Tailwind's sm: (640px)"* —
 contradicting its own query. Worse: `ChromeBar`'s `hidden sm:flex` is **dead** at
 that boundary because `App.tsx:507` unmounts the whole `ChromeBar` via `isMobile()`.
-<Pill variant="bad">Verified · real</Pill>
+Fixed in <PrLink pr={1088} /> — `useMobile.ts` now reads Tailwind's
+`--breakpoint-sm` theme token and derives the JS query from it: one rating, no
+desync band, and the comment is accurate.
+<Pill variant="bad">Verified · real</Pill> <Pill variant="done">fixed · #1088</Pill>
 </Callout>
 
 <Callout kind="warn" title="⚡ openInCodeTab forks one intent into two state mutations inline">
@@ -167,7 +179,9 @@ else if (rp.collapsed()) rp.expandPanel();     // desktop mechanism
 "Reveal the code view" is *one* concept; how it becomes visible is the host's job.
 `useRightPanel` already owns both mechanisms as separate volatilities — the
 natural home for a single `rp.reveal()` that resolves posture internally.
-<Pill variant="bad">Verified · real</Pill>
+Shipped in <PrLink pr={1088} /> — `openInCodeTab` now calls `rp.reveal()`, and
+the verb resolves drawer-open vs uncollapse inside `useRightPanel`.
+<Pill variant="bad">Verified · real</Pill> <Pill variant="done">fixed · #1088</Pill>
 </Callout>
 
 <Callout kind="warn" title="⚡ Feature availability is functionally decomposed">
@@ -176,24 +190,36 @@ Tips, canvas commands, and palette gates each independently ask "am I mobile?":
 `App.tsx:194/225`. These are **capability** decisions spread across consumers as
 raw *viewport* checks — and several key off `isMobile` when "spatial canvas is
 unusable" is really a touch/pointer concern (the *wrong axis*). The leak is the
-aggregate pattern, not any one guard. <Pill variant="bad">Verified · aggregate</Pill>
+aggregate pattern, not any one guard. Resolved in <PrLink pr={1088} /> —
+`capabilities.ts` now provides the resolved seam (`supportsSpatialCanvas`,
+`showsAmbientTips`, …) and these consumers plug into it; the remaining raw
+`isMobile` reads in `App.tsx` are the macro layout fork, documented as
+deliberate in the seam's header.
+<Pill variant="bad">Verified · aggregate</Pill> <Pill variant="done">fixed · #1088</Pill>
 </Callout>
 
 <Callout kind="warn" title="⚡ CodeTab samples the viewport at mount — and on the wrong axis">
 Two non-reactive reads at construction: `treeDensity = isMobile() ? "relaxed" : undefined`
-(line 103) and `if (isMobile()) attachPierreTouchScroll(el)` (line 548). The
-density freeze is acceptable; the **touch-scroll gate keying off `isMobile`
-(viewport) instead of `isTouch` (modality)** is a genuine wrong-axis bug — a 640px+
-touch tablet on the desktop split gets no Pierre touch scroll. <Pill variant="bad">Verified · wrong-axis</Pill>
+(line 103) and `if (isMobile()) attachPierreTouchScroll(el)` (line 548). The review
+called the **touch-scroll gate keying off `isMobile` (viewport) instead of `isTouch`
+(modality)** a genuine wrong-axis bug. Re-examined in <PrLink pr={1088} />: density
+is now keyed on `isTouch` (tap-target rationale in `CodeTab.tsx`), while the
+touch-scroll gate deliberately stays on `isMobile` — the workaround targets the
+mobile drawer layout's iOS native scroll, not touch modality (rationale in-code and
+in `capabilities.ts`'s deliberate-raw-read list) — so the wrong-axis verdict is
+retracted. <Pill variant="bad">Verified · wrong-axis</Pill> <Pill variant="done">re-examined · #1088</Pill>
 </Callout>
 
 <Callout kind="warn" title="🩺 Terminal soft-keyboard adaptation leaks as raw shadow-DOM surgery">
 `Terminal.tsx:538-549` branches on `isTouch()` and reaches into xterm's internal
 `.xterm-screen` to set `contenteditable`/`spellcheck`/`caret-color`. This
 volatility *legitimately must surface* (see §6) — but the knowledge "touch needs a
-contenteditable target" is welded into Terminal.tsx's setup path, coupled to
-undocumented xterm internals. The leak is justified; its *form* is the smell.
-<Pill variant="bad">Verified · confirmed</Pill>
+contenteditable target" was welded into Terminal.tsx's setup path, coupled to
+undocumented xterm internals. The leak is justified; its *form* was the smell.
+Extracted in <PrLink pr={1088} /> — the surgery and its `isTouch()` guard now live
+behind `enableSoftKeyboardInput(term)` in `softKeyboardInput.ts`; `Terminal.tsx`
+calls the one verb.
+<Pill variant="bad">Verified · confirmed</Pill> <Pill variant="done">fixed · #1088</Pill>
 </Callout>
 
 ## ⑥ Where the analogy honestly breaks — a phone is not a 110-volt desktop
@@ -232,20 +258,21 @@ The 639/640 desync and the misleading comment both vanish. Then three named seam
 `withKeyboardDismiss` is the existence proof these work: a drawer plugs in by
 passing its setter and never measures the voltage.
 
-## ⑧ What to do — ranked by payoff ÷ effort
+## ⑧ What was done — ranked by payoff ÷ effort
 
-| Action | Why | Effort | Payoff |
-| --- | --- | --- | --- |
-| **Unify the breakpoint** (639px ⟶ one value) | Register `--breakpoint-sm` once + derive the JS query; fix the contradicting comment. Kills the desync band + orphaned `ChromeBar` `sm:`. | <Pill variant="sm">small</Pill> | <Pill variant="hi">high</Pill> |
-| **Add `useRightPanel.reveal()`** | Move the `isMobile` fork out of `openInCodeTab` into one host-owned verb; mirrors `withKeyboardDismiss`. Near-zero blast radius. | <Pill variant="sm">small</Pill> | <Pill variant="hi">high</Pill> |
-| **A resolved capability seam** | Replace scattered `isMobile()` feature checks with one resolved object, each keyed off the right axis. | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> |
-| **`enableSoftKeyboardInput(term)`** | Wrap the contenteditable surgery behind a named seam; re-key `CodeTab` touch-scroll off touch capability. | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> |
-| **Do *not* extract the dock-row / metadata JSX shells** | The volatile logic is already shared; only JSX shells diverge, for documented touch-target reasons two reviewers chose. A forced `BaseRow` would be worse. | <Pill variant="sm">small</Pill> | <Pill variant="md">guard</Pill> |
+| Action | Why | Effort | Payoff | Status |
+| --- | --- | --- | --- | --- |
+| **Unify the breakpoint** (639px ⟶ one value) | Register `--breakpoint-sm` once + derive the JS query; fix the contradicting comment. Kills the desync band + orphaned `ChromeBar` `sm:`. | <Pill variant="sm">small</Pill> | <Pill variant="hi">high</Pill> | <Pill variant="done">shipped · #1088</Pill> |
+| **Add `useRightPanel.reveal()`** | Move the `isMobile` fork out of `openInCodeTab` into one host-owned verb; mirrors `withKeyboardDismiss`. Near-zero blast radius. | <Pill variant="sm">small</Pill> | <Pill variant="hi">high</Pill> | <Pill variant="done">shipped · #1088</Pill> |
+| **A resolved capability seam** | Replace scattered `isMobile()` feature checks with one resolved object, each keyed off the right axis. | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="done">shipped · #1088</Pill> |
+| **`enableSoftKeyboardInput(term)`** | Wrap the contenteditable surgery behind a named seam; re-key `CodeTab` touch-scroll off touch capability. | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="done">shipped · #1088</Pill> |
+| **Do *not* extract the dock-row / metadata JSX shells** | The volatile logic is already shared; only JSX shells diverge, for documented touch-target reasons two reviewers chose. A forced `BaseRow` would be worse. | <Pill variant="sm">small</Pill> | <Pill variant="md">guard</Pill> | <Pill variant="ok">standing</Pill> |
 
-The one-line answer: **mobile is electricity for the macro layout switch and the
-keyboard-dismiss wrapper, and bare mains everywhere else.** The wiring discipline
-is good — two correctly-separated circuits — but neither terminates in enough
-receptacles, and the one threshold is rated at two voltages.
+The one-line answer at review time: **mobile is electricity for the macro layout
+switch and the keyboard-dismiss wrapper, and bare mains everywhere else.** The
+wiring discipline was good — two correctly-separated circuits — but neither
+terminated in enough receptacles, and the one threshold was rated at two
+voltages. <PrLink pr={1088} /> added the missing receptacles and unified the rating.
 
 ---
 

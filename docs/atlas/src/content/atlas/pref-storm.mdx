@@ -4,16 +4,17 @@ description: Debouncing the rightPanel resize feedback loop (#1041) — Corvu's 
 kind: analysis
 maturity: budding
 status: accepted
-updated: 2026-06-01
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
 import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
 
 *Issue #1041 · part of #951 · pre-existing, surfaced by the #1034 daemon-restart postmortem.*
 
-## What's actually happening
+## What was happening
 
 The right-panel splitter and the Code-tab tree splitter are both `@corvu/resizable` **fully controlled** by a `sizes` prop fed from the local-authority `preferences` store. Two facts about Corvu turn that into a write storm:
 
@@ -27,7 +28,7 @@ The right-panel splitter and the Code-tab tree splitter are both `@corvu/resizab
 *`@corvu/resizable/dist/index.js` registerPanel/unregisterPanel · createSize uses a ResizeObserver (size.js:4-30).*
 </Callout>
 
-The handler persists it on every emission, with **no** equality gate and **no** coalescing:
+The handler persisted it on every emission, with **no** equality gate and **no** coalescing:
 
 ```ts
 // App.tsx:604-614  (and CodeTab.tsx:482-483, vertical split)
@@ -74,7 +75,7 @@ If the store lagged the drag, the chrome controls would visibly trail the splitt
 
 ### <Pill variant="ok">1</Pill> Drop Corvu's idempotent re-emits — <Cite file="packages/client/src/right-panel/useRightPanel.ts" label="useRightPanel.ts" />
 
-The size mutators are the adapter for Corvu's re-emit quirk — so they filter it. Skip the write when the value matches the stored value within Corvu's precision (it rounds to 6 decimals). This alone kills the *steady-state* storm: every unchanged re-emit becomes a true no-op (today it still fires an RPC before `reconcile` dedups the store).
+The size mutators are the adapter for Corvu's re-emit quirk — so they filter it. Skip the write when the value matches the stored value within Corvu's precision (it rounds to 6 decimals). This alone kills the *steady-state* storm: every unchanged re-emit becomes a true no-op (before the fix, it fired an RPC on every re-emit before `reconcile` dedup'd the store).
 
 ```diff
  const EPSILON = 1e-6; // Corvu fixToPrecision rounds to PRECISION=6
@@ -87,7 +88,7 @@ The size mutators are the adapter for Corvu's re-emit quirk — so they filter i
 
 *Framed as "filter Corvu's idempotent re-emits," not "reduce server load" — that's why it lives at the adapter and not in the transport layer (per Lowy).*
 
-### <Pill variant="ok">2</Pill> Coalesce the server flush at the local/server seam — <Cite file="packages/client/src/surface/useCell.ts" label="useCell.ts (useCellLocal)" />
+### <Pill variant="ok">2</Pill> Coalesce the server flush at the local/server seam — <Cite file="packages/surface/src/solid/useCell.ts" label="useCell.ts (useCellLocal)" />
 
 A real drag emits dozens of *distinct* values/sec, each passing guard&nbsp;1. Those are the legitimate burst to collapse. The split lives where the local/server boundary already lives — inside `useCellLocal`, the one place that owns "apply locally, then tell the server." Add an opt-in `coalesceMs`; the cell *owner* declares its flush cadence in `wire.ts`:
 
@@ -112,9 +113,9 @@ A real drag emits dozens of *distinct* values/sec, each passing guard&nbsp;1. Th
 
 Mirror the `session` cell's `equals` so any no-op patch that still reaches the server skips the disk write + republish. Honest billing: once the client drops no-ops (1) and coalesces (2), this is belt-and-suspenders — it only catches the rare unchanged-final-value case. One line, established precedent, fine to land; not load-bearing.
 
-### <Pill variant="todo">test</Pill> Regression guard
+### <Pill variant="ok">test</Pill> Regression guard
 
-Unit test asserting bounded patch rate during a resize interaction: a tight loop of *unchanged* values emits zero RPCs (guard 1); a rapid sequence of *changing* values emits ≤1 trailing RPC per window (coalesce 2). Sits next to the `useRightPanel` tests.
+Unit tests assert bounded patch rate during a resize interaction: a tight loop of *unchanged* values emits zero RPCs (guard 1); a rapid sequence of *changing* values emits ≤1 trailing RPC per window (coalesce 2) — `useCellCoalesce.test.ts` plus coalesce assertions in `useRightPanel.test.ts`.
 
 ## Reviewer pass — what changed
 
@@ -152,4 +153,4 @@ The client trailing coalesce does *not* reinvent the server 500ms autosave (diff
 | `server/src/surface.ts` | `equals` on the prefs cell (mirror session) | 3 · optional |
 | `*.test.ts` | bounded-patch-rate regression near useRightPanel tests | test |
 
-*Bug fix, not user-visible feature work — single PR, no phase split. When ready, `/do` this issue.*
+*Bug fix, not user-visible feature work — shipped as a single PR, <PrLink pr={1050} />, merged 2026-05-30; issue #1041 closed.*

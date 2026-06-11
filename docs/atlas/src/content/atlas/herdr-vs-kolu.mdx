@@ -3,18 +3,19 @@ title: herdr vs. kolu — what to adopt
 description: A shipped Rust agent-multiplexer (herdr) makes the same first-party-owns-the-PTYs bet kolu's remote-terminals plan chose — so it's a reference implementation of R-4 Phase B, not a competitor. One handoff-discipline borrow, several validations, two gaps the plans don't cover (native resume; resize arbitration). Claims fact-checked against both codebases.
 kind: analysis
 maturity: budding
-updated: 2026-06-06
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
 import Issue from "../../components/Issue.astro";
 import D2 from "../../components/D2.astro";
+import PrLink from "../../components/PrLink.astro";
 
 *A study of [ogulcancelik/herdr](https://github.com/ogulcancelik/herdr) (cloned @ HEAD) read through kolu's remote-terminals plan (<Issue n={951} /> and the `pty-daemon` / `kolu-tui` / `chrome-bar` docs). Sibling to the* **Ghostex vs. kolu remote-terminals** *analysis. Every load-bearing claim below was fact-checked against both codebases — herdr citations all verified; three kolu-side claims were corrected (noted inline).* <Pill variant="new">13-agent workflow + adversarial critique</Pill>
 
 <Callout kind="warn" title="Headline">
-herdr makes the **same bet kolu chose**: a first-party process owns every PTY, with thin clients attaching over a unix socket. That is the opposite of Ghostex (external mux owns PTY lifetime) — so **herdr sits on kolu's side of that line and is a shipped, battle-tested implementation of exactly the problems R-4 Phase B is about to build**: survival across restart, transactional recovery, lazy snapshot-attach, even live fd handoff. Ghostex told us the seam is *natural*; herdr shows us the *mechanism* for the survivor we already decided to build. Two of kolu's plans — **kolu-tui** and **agents-orchestrate-kolu** — are essentially herdr, already shipped. The highest-value output is two ideas with **no current plan coverage**: native agent-session resume, and multi-client resize arbitration (kolu has no arbiter today — resize is last-write-wins, so two differently-sized web clients already thrash; kolu-tui's fixed grid only makes it sharper).
+herdr makes the **same bet kolu chose**: a first-party process owns every PTY, with thin clients attaching over a unix socket. That is the opposite of Ghostex (external mux owns PTY lifetime) — so **herdr sits on kolu's side of that line and is a shipped, battle-tested implementation of exactly the problems R-4 Phase B is about to build**: survival across restart, transactional recovery, lazy snapshot-attach, even live fd handoff. Ghostex told us the seam is *natural*; herdr shows us the *mechanism* for the survivor we already decided to build. Two of kolu's plans — **kolu-tui** and **agents-orchestrate-kolu** — are essentially herdr, already shipped. The highest-value output is two ideas with **no current plan coverage**: native agent-session resume, and multi-client resize arbitration (kolu has no arbiter today — resize is last-write-wins, so two differently-sized web clients already thrash; kolu-tui attach, now shipped, drives the PTY from its own terminal size and only sharpens the mismatch).
 </Callout>
 
 Both projects are **AGPL-3.0-or-later**, so herdr's open-source code is license-compatible with kolu — porting is permitted under the AGPL's terms, not blocked. The reason most recommendations are *techniques and design* rather than verbatim code is the stack gap (herdr is Rust; kolu is TypeScript/SolidJS), not licensing.
@@ -41,7 +42,7 @@ kolu: "kolu — SolidJS web ADE (R-4: pty-host is the survivor)" {
   ptyhost: "@kolu/pty-host (node-pty + @xterm/headless mirror)"
   server2: "kolu-server — provider DAG, runs fresh"
   surface: "@kolu/surface (oRPC links: ws / stdio / direct)"
-  tui: "kolu-tui (raw client) — planned"
+  tui: "kolu-tui (raw client) — shipped: list / snapshot / attach (spawn/kill = Phase 3, planned)"
   recovery: "Phase B recovery (capture -> drain -> respawn) — planned"
 }
 
@@ -81,7 +82,7 @@ Borrow the **discipline, not the mechanism**: make "who may kill these PTYs" a s
 </Callout>
 
 <Callout kind="good" title="A3 · Snapshot-on-attach — promote to an invariant test">
-<Pill variant="good">medium</Pill> <Pill variant="new">direct</Pill> &nbsp; herdr brings a connecting client current from the *live emulator screen*, never by replaying history (reset baseline → one full frame). *(herdr render_stream.rs:31-36; headless.rs:1639.)* kolu does the same — `attach()` subscribes *before* it serializes, both synchronously, so each chunk lands in exactly one of snapshot/deltas. *(verified: packages/pty-host/src/ptyHost.ts:501-509.)* Add an invariant test (subscribe-during-burst sees no gap/overlap), and cap R-3 migration-only replay at a small bound like herdr's 8KB/pane. **Pair with the keyboard-protocol gap (G3):** confirm `SerializeAddon` round-trips bracketed-paste / kitty-keyboard / alt-screen.
+<Pill variant="good">medium</Pill> <Pill variant="new">direct</Pill> &nbsp; herdr brings a connecting client current from the *live emulator screen*, never by replaying history (reset baseline → one full frame). *(herdr render_stream.rs:31-36; headless.rs:1639.)* kolu does the same — `attach()` subscribes *before* it serializes, both synchronously, so each chunk lands in exactly one of snapshot/deltas. *(verified: packages/pty-host/src/ptyHost.ts:501-509.)* Add an invariant test (subscribe-during-burst sees no gap/overlap), and cap R-3 migration-only replay at a small bound like herdr's 8KB/pane. **The keyboard-protocol question (G3) was answered in <PrLink pr={1255} />:** `@kolu/terminal-protocol`'s `SNAPSHOT_TTY_RESET` is the reciprocal of SerializeAddon 0.14.x's mode vocabulary (alt-screen, mouse, bracketed paste; kitty keyboard is *not* serialized by 0.14.x — audit on every xterm bump).
 </Callout>
 
 <Callout kind="warn" title="A4 · Two-axis honest-state → B's DaemonStatus / DegradedCanvas">
@@ -89,7 +90,7 @@ Borrow the **discipline, not the mechanism**: make "who may kill these PTYs" a s
 </Callout>
 
 <Callout kind="warn" title="A5 · kolu-tui = CLI-is-the-API, over a stable socket path">
-<Pill variant="warn">medium</Pill> <Pill variant="warn">adapt</Pill> &nbsp; herdr's CLI subcommands are tiny 1:1 wrappers that write one typed request; the client-protocol socket path is *derived* from the API socket path (one override configures both) and chmod'd `0600`. *(herdr socket_paths.rs:50-66,:12; ipc.rs:78-82.)* Resolve kolu-tui's open socket-path question the herdr way — a stable discoverable path (not the per-PID dir), XDG-unset fallback, owner-only — so `kolu-tui list` finds the server without its pid and B's daemon retargets with no contract change. kolu's UUID terminal ids *(verified: ptyHost.ts:27,:281 `randomUUID`)* are **strictly better** than herdr's recycled compact ids, so do *not* import herdr's "ids compact, re-read them" warning.
+<Pill variant="warn">medium</Pill> <Pill variant="warn">adapt</Pill> &nbsp; herdr's CLI subcommands are tiny 1:1 wrappers that write one typed request; the client-protocol socket path is *derived* from the API socket path (one override configures both) and chmod'd `0600`. *(herdr socket_paths.rs:50-66,:12; ipc.rs:78-82.)* kolu-tui resolved its socket path the herdr way in Phase 1 (<PrLink pr={1084} />): `getPtyHostSocketPath` defaults to `$XDG_RUNTIME_DIR/kolu/pty-host.sock` (else `/tmp/kolu-$UID/pty-host.sock`), so `kolu-tui list` finds the server without its pid and B's daemon retargets with no contract change. kolu's UUID terminal ids *(verified: ptyHost.ts:27,:281 `randomUUID`)* are **strictly better** than herdr's recycled compact ids, so do *not* import herdr's "ids compact, re-read them" warning.
 </Callout>
 
 <Callout kind="danger" title="A7 · SCM_RIGHTS live fd-passing — explicit NON-GOAL">
@@ -104,8 +105,8 @@ Borrow the **discipline, not the mechanism**: make "who may kill these PTYs" a s
 **Caveat:** kolu's existing `unread` attention bit *(verified: useViewState.ts:14,:71 — `"unread" \| "badge-only"`, keyed by terminal id, cleared in `activate()`)* is a *separate* signal from agent-turn-finished. Keep them as distinct inputs to one rollup rather than overloading `unread` — conflating them regresses the badge.
 </Callout>
 
-<Callout kind="warn" title="U2 · Agent-state model — but 'blocked' is gated, not free">
-<Pill variant="todo">medium</Pill> <Pill variant="warn">adapt</Pill> &nbsp; herdr's detection breadth (process-name + output heuristics + socket-API hooks across 14 agents) validates kolu's agent-agnostic philosophy. **But** kolu cannot produce `blocked` for its primary agent today: the claude-code state enum is `thinking \| tool_use \| waiting \| awaiting_user \| running_background` — **no `blocked`** — and the schema's own comment says `awaiting_user` *never fires under the current SDK*. *(verified: packages/integrations/claude-code/src/schemas.ts:50-56, comment names <Issue n={905} />.)* Adopt `working/idle/done-unseen` **now**; treat `blocked` as gated on the optional-hook work. The hook side-channel herdr uses (PreToolUse/PermissionRequest → state, with defensive discipline: temp-file stdin, short timeout, swallow-all, `exit 0`) is *exactly* what <Issue n={905} /> proposes.
+<Callout kind="warn" title="U2 · Agent-state model — 'blocked' equivalent now ships via screen scrape">
+<Pill variant="todo">medium</Pill> <Pill variant="warn">adapt</Pill> &nbsp; herdr's detection breadth (process-name + output heuristics + socket-API hooks across 14 agents) validates kolu's agent-agnostic philosophy. The claude-code state enum is `thinking \| tool_use \| waiting \| awaiting_user \| running_background` — still **no literal `blocked`** — but kolu now produces the blocked-equivalent: `awaiting_user` fires via the <Issue n={905} /> screen-scrape recovery, which recognizes AskUserQuestion and tool-permission prompts on the *rendered screen* (`screen.ts`) while the dialog is visible. *(verified: packages/integrations/claude-code/src/schemas.ts:35-55.)* Adopt `working/idle/done-unseen` **now**, and map `awaiting_user` into the rollup as Blocked. The hook side-channel herdr uses (PreToolUse/PermissionRequest → state, with defensive discipline: temp-file stdin, short timeout, swallow-all, `exit 0`) is *exactly* what <Issue n={905} /> proposed — kolu shipped that signal recovery, though via the screen scrape rather than hooks.
 </Callout>
 
 <Callout kind="danger" title="U4 · Copy-mode · prefix-keys · BSP mouse-resize · themes — do not port">
@@ -117,31 +118,31 @@ Borrow the **discipline, not the mechanism**: make "who may kill these PTYs" a s
 These are the highest leverage: herdr ideas with **no current plan coverage**. One is real and clean; one is a pre-existing condition the plans never arbitrate.
 
 <Callout kind="accent" title="G1 · Native agent-session resume (claude --resume <id>)">
-<Pill variant="new">missed adoptable</Pill> <Pill variant="good">high</Pill> &nbsp; herdr restores a finished agent by replaying its **native session id** through a strict data-not-shell-text argv — an allowlisted `{source, agent, kind, value}` ref validated for length caps, no control chars, absolute paths, so a hostile id can't shell-inject. *(herdr agent_resume.rs:99-140, :160-169.)* kolu's restore only **re-pastes the captured CLI string via `sendInput` — starting a *fresh* conversation**, not resuming the prior one. *(verified: useSessionRestore.ts → `resumeAgentCommand`; surface.ts:148 `lastAgentCommand`.)* kolu does **not** persist a native session id today (and `providers.ts:338` only *mentions* a sessions dir in a comment — it isn't a live watcher). The work: capture the native session id, persist it onto `ServerPersistedTerminalFieldsSchema`, offer `claude --resume <id>` with herdr's injection-safe ref model. Upgrades a feature kolu ships in a weaker form.
+<Pill variant="new">missed adoptable</Pill> <Pill variant="good">high</Pill> &nbsp; herdr restores a finished agent by replaying its **native session id** through a strict data-not-shell-text argv — an allowlisted `{source, agent, kind, value}` ref validated for length caps, no control chars, absolute paths, so a hostile id can't shell-inject. *(herdr agent_resume.rs:99-140, :160-169.)* kolu's restore launches the **continue form (`claude -c` / `codex resume --last` via `resumeAgentCommand`) — most-recent-conversation-in-cwd**, not the terminal's *exact* session. *(verified: useSessionRestore.ts → `resumeAgentCommand`; agent-cli.ts:141-144.)* No native session id is persisted — the claude-code integration's live session-JSONL watcher surfaces a `sessionId`, but it never lands in `ServerPersistedTerminalFieldsSchema` (cwd/git/`lastAgentCommand`/`lastActivityAt` only) — so two terminals sharing a cwd can resume the wrong conversation. The work: persist that native session id, offer `claude --resume <id>` with herdr's injection-safe ref model. Upgrades a feature kolu ships in a weaker form.
 </Callout>
 
 <Callout kind="accent" title="G2 · Multi-client geometry arbitration — no arbiter today">
-<Pill variant="warn">pre-existing gap</Pill> <Pill variant="good">high</Pill> &nbsp; **Verified:** kolu has *no* resize arbitration. `ptyHost.ts:567` is last-write-wins (no per-client size, no foreground concept), the router forwards it directly, and each client drives resize from its own xterm grid via a `ResizeObserver` *(Terminal.tsx:361)*. Because `attach()` fans out to multiple concurrent subscribers *(channel.ts)*, **two differently-sized clients already thrash *today*** in the pure-web case — a desktop browser + a phone over `--host 0.0.0.0` — so this is *not* introduced by kolu-tui. kolu-tui adds a *fixed character grid* that won't reflow, making the mismatch sharper. The plan endorses the shared-PTY case ("feature, not bug") and has kolu-tui issue `SIGWINCH → resize`, but never specs an arbiter. herdr solved exactly this with a single `foreground_client_id` whose size drives shared geometry. *(herdr headless.rs:115,:492-525; effective = foreground/most-recent client.)* **Pick a policy — most-recent-interactor wins, or fit-to-smallest — before kolu-tui Phase 2.**
+<Pill variant="warn">pre-existing gap</Pill> <Pill variant="good">high</Pill> &nbsp; **Verified:** kolu has *no* resize arbitration. `ptyHost.ts:567` is last-write-wins (no per-client size, no foreground concept), the router forwards it directly, and each client drives resize from its own xterm grid via a `ResizeObserver` *(Terminal.tsx:361)*. Because `attach()` fans out to multiple concurrent subscribers *(channel.ts)*, **two differently-sized clients already thrash *today*** in the pure-web case — a desktop browser + a phone over `--host 0.0.0.0` — so this is *not* introduced by kolu-tui. kolu-tui (shipped in <PrLink pr={1255} />) resizes the PTY to its own terminal's grid on attach and on every local resize, making the mismatch sharper. The plan endorses the shared-PTY case ("feature, not bug") and has kolu-tui issue `SIGWINCH → resize`, but never specs an arbiter. herdr solved exactly this with a single `foreground_client_id` whose size drives shared geometry. *(herdr headless.rs:115,:492-525; effective = foreground/most-recent client.)* **Phase 2 shipped (<PrLink pr={1255} />) with the policy documented as last-resize-wins (`attach.ts`) — a true arbiter (foreground client / fit-to-smallest, plus the size-change tap `attach.ts` names) remains open.**
 </Callout>
 
 <Callout kind="accent" title="G3 · Smaller gaps worth a look">
 <Pill variant="todo">investigate</Pill>
 
 - **Two-tier persistence + privacy:** herdr splits structural `session.json` (always written, no bytes) from opt-in, deletable `session-history.json` (scrollback). kolu's `@xterm/headless` snapshot is live-memory only, so a *cold* daemon restart loses all scrollback. Decide whether an opt-in scrollback-to-disk tier is wanted.
-- **Keyboard-protocol / alt-screen preservation:** herdr carries kitty-keyboard / bracketed-paste bytes across migration because the child won't re-emit them. Confirm `SerializeAddon` round-trips them so a reattached vim/Claude TUI keeps encoding input correctly. (Pairs with A3.)
+- **Keyboard-protocol / alt-screen preservation:** herdr carries kitty-keyboard / bracketed-paste bytes across migration because the child won't re-emit them. Resolved by <PrLink pr={1255} />: `@kolu/terminal-protocol` (`snapshotReset.ts`, `bracketedPaste.ts`) enumerates and resets exactly the modes `SerializeAddon` emits — remaining caveat: an xterm/serialize upgrade that starts serializing kitty-keyboard must extend the reset. (Pairs with A3.)
 - **Control ⟂ data channel invariant:** herdr keeps a reliable unbounded control channel separate from the droppable render channel. kolu drops the whole subscriber on overflow *(channel.ts:120-130, ends the iterator with no overflow-vs-exit distinction)*. Make "control-plane events never ride the droppable substrate" explicit, and for R-3 emit a distinguishable `overflow` vs `exit` frame.
 - **Retryable-error working-hold:** herdr treats provider 5xx/overload as continued *Working* with a grace before flipping, so transient API failures don't flicker the pane to done. kolu has no equivalent.
-- **Non-interactive TTY-guard for kolu-tui:** herdr hard-requires an interactive TTY for destructive prompts. kolu-tui will run agent-driven and in CI — define a non-tty contract for `kill`/`spawn`/the `~.` escape before Phase 3.
+- **Non-interactive TTY-guard for kolu-tui:** herdr hard-requires an interactive TTY for destructive prompts. kolu-tui runs agent-driven and in CI — attach (with its `~.` escape) already hard-requires a TTY (shipped in Phase 2: non-tty fails loud, pointing at `snapshot`); define the equivalent contract for `kill`/`spawn` before Phase 3.
 </Callout>
 
 ## What to do next
 
 1. **Phase B, now (low risk):** adopt the transactional handoff *discipline* (A1), the single-owner kill invariant (A2), the snapshot invariant test (A3), the two-axis honest-state + inline-recovery-hint (A4). Add the SCM_RIGHTS non-goal note (A7).
-2. **Close G2 (multi-client resize arbitration)** before kolu-tui Phase 2 — it's a real condition, not a nicety.
-3. **kolu-tui:** resolve the socket path the herdr way + CLI-as-API discipline (A5); add the TTY-guard contract (G3).
+2. **Close G2 (multi-client resize arbitration)** — Phase 2 shipped with documented last-resize-wins; an arbiter (and the size-change tap `attach.ts` already names) is still open.
+3. **kolu-tui:** A5's socket path and G3's attach TTY-guard shipped (<PrLink pr={1084} />, <PrLink pr={1255} />); carry the non-tty contract forward to Phase 3's `kill`/`spawn`.
 4. **UX:** ship the attention rollup with `Done = unseen` (U1), keeping `unread`-bytes distinct from turn-finished; fold the navigator into the palette (U3).
 5. **Investigate G1 (native `--resume`)** — the clearest missed adoptable; builds on data kolu already has.
-6. **Later / gated:** hook-based `blocked` state (U2, tied to <Issue n={905} />); R-2 reattach-hint UX (A6).
+6. **U2's `blocked` signal:** <Issue n={905} /> shipped (screen-scrape `awaiting_user`) — remaining: map `awaiting_user` into the U1 rollup as Blocked. **Later:** R-2 reattach-hint UX (A6).
 
 ---
 

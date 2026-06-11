@@ -3,35 +3,39 @@ title: Workflow viewer
 description: Integrating Claude Code dynamic-workflow JSONL into kolu — surfacing fan-out runs on the tile chrome and an Inspector run-list with live timelines.
 kind: feature
 maturity: budding
-updated: 2026-06-02
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
 
 Analysis of a live `do-wf` run in `drishti/.worktrees/hm`, generalized to the
 real case: **a session holds many workflow runs at once — some running, some
 finished**. Two-phase proposal, revised after hickey + lowy.
 
 <Callout kind="danger" title="Headline">
-kolu already knows a workflow is running — it just can't say *which* one or *how
-many* agents. The running state works (it comes from the transcript, not the
-journal). The *enrichment* is what's broken: `deriveWorkflowProgress()` reads a
-journal file that no longer exists, returns `null`, so the name/fan-out badge
-stays dark. And the model is single-run — even fixed, it collapses a session's
-whole history to one entry. *(verified: `core.ts:493-552` reads one dead
-`workflows/<runId>.json`; state is set separately at `core.ts:378-385`.)*
+kolu already knew a workflow was running — it just couldn't say *which* one or
+*how many* agents. The running state worked (it comes from the transcript, not
+the journal). The *enrichment* was what was broken (until <PrLink pr={1124} />,
+merged 2026-06-02): `deriveWorkflowProgress()` read a journal file that no
+longer exists, returned `null`, so the name/fan-out badge stayed dark. The part
+that still stands: the model is single-run — even with the reader fixed, it
+collapses a session's whole history to one entry. *(verified against the
+pre-#1124 reader: it read one dead `workflows/<runId>.json`; state was set
+separately.)*
 </Callout>
 
-<Callout kind="warn" title="Precisely what fails">
-`deriveState` promotes `waiting → running_background` purely from the
+<Callout kind="warn" title="Precisely what failed (fixed in #1124)">
+`deriveState` promoted `waiting → running_background` purely from the
 main-transcript launch marker via `outstandingBackgroundTasks()` — **no journal
-read** (`core.ts:378-385`). So the spinner + "Running in background" label
-already render. The journal is read *only* to fill the `workflow` field
-(`session-watcher.ts:245-247`), and `agentWorkflow()` needs *both*
-`state===running_background` *and* `workflow!=null` (`agentDisplay.ts:43-44`).
-State is true; `workflow` is null → the `do-wf · 5 agents` badge and the
-"Workflow" inspector row are the only things dark.
+read**. So the spinner + "Running in background" label already rendered. The
+journal was read *only* to fill the `workflow` field, and `agentWorkflow()`
+needs *both* `state===running_background` *and* `workflow!=null`. State was
+true; `workflow` was null → the `do-wf · 5 agents` badge and the "Workflow"
+inspector row were the only things dark. <PrLink pr={1124} /> repointed the
+reader and made the promotion journal-aware, so the `workflow` field is now
+populated during a live run.
 </Callout>
 
 ## Multiplicity is the normal case (verified)
@@ -56,7 +60,8 @@ timeline — not a single badge value.
     └── wf_e6f94ccf-a1f/  journal.jsonl + agent-*.jsonl       # run 2 …
 ```
 
-The three discrepancies vs. kolu's current reader, all verified:
+The three discrepancies vs. kolu's reader at the time (all verified; since fixed
+by <PrLink pr={1124} />):
 
 | kolu assumes | On disk |
 | --- | --- |
@@ -76,9 +81,11 @@ already pairs Task↔Run IDs at `core.ts:419, 478`.
 
 ## Proposal — two phases, each shippable alone
 
-### Phase 1 — repoint the reader (name + fan-out count appear)
+### Phase 1 — repoint the reader (name + fan-out count appear) <Pill variant="done">shipped</Pill>
 
-Bug-fix-shaped, almost entirely in `core.ts`; no UI change. They already consume
+Shipped in <PrLink pr={1124} /> (merged 2026-06-02; hardening follow-ups in
+<PrLink pr={1130} /> and <PrLink pr={1157} />). Bug-fix-shaped, almost entirely
+in `core.ts`; no UI change. They already consume
 `ClaudeWorkflow {name,status,agents}` (`agentDisplay.ts:42-44`,
 `TerminalMeta.tsx:78-80`, `MetadataInspector.tsx:194-205`):
 
@@ -168,7 +175,7 @@ completed).
 
 ## Cut line
 
-Phase 1 alone is worth shipping: a small correction that makes an already-built
-surface work for the first time, showing the active run. Phase 2 adds the
-multi-run list + timelines and is independently reviewable. When ready, drive it
-with `/do`.
+Phase 1 shipped in <PrLink pr={1124} /> (2026-06-02): a small correction that
+made the already-built surface work for the first time, showing the active run.
+Phase 2 — the multi-run list + timelines in the Inspector — is what remains, and
+is independently reviewable. When ready, drive it with `/do`.

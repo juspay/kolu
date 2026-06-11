@@ -3,8 +3,8 @@ title: The kolu Atlas
 description: kolu's second brain — an in-repo, MDX-authored knowledge base in a self-contained Astro project, dogfooded in the Code tab.
 kind: reference
 maturity: budding
-status: proposed
-updated: 2026-06-02
+status: implemented
+updated: 2026-06-10
 ---
 
 import PrLink from "../../components/PrLink.astro";
@@ -178,7 +178,7 @@ earns scoped styles + typed props as a real `.astro`).
 
 <Roadmap>
   <Milestone status="done" label="Shipped">original plans + MOC + house style + the `docs/**` agent rule (<PrLink pr={1095} />); the `docs-moc` gate + `plans::check` module (<PrLink pr={1098} />).</Milestone>
-  <Milestone status="now" label="Now">the Atlas as a self-contained `docs/atlas/` project — generated index, render route, committed HTML, `.apm` rule + `ci::atlas-sync` gate, and the MDX component kit. First migrated note; `release-workflow` removed.</Milestone>
+  <Milestone status="done" label="Done">the Atlas as a self-contained `docs/atlas/` project — generated index, render route, committed HTML, `.apm` rule + `ci::atlas-sync` gate, and the MDX component kit. First migrated note; the original `release-workflow` plan removed (since re-created as the release-runbook note, <PrLink pr={1208} />).</Milestone>
   <Milestone status="done" label="Done">the remaining `docs/plans/*.html` migrated to Atlas notes (`remote-terminals`, `pty-daemon`, `pty-daemon-chrome-bar`, `pty-daemon-tui`, `surface-app`); `docs/plans/` retired; the `/atlas` skill shipped.</Milestone>
 </Roadmap>
 

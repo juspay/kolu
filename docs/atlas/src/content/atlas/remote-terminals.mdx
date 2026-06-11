@@ -4,7 +4,7 @@ description: The phased implementation plan for kolu#951 — the TerminalBackend
 kind: feature
 status: accepted
 maturity: budding
-updated: 2026-06-09
+updated: 2026-06-10
 ---
 
 import D2 from "../../components/D2.astro";
@@ -43,7 +43,7 @@ server.remote -> agent.pty: "ssh stdio (stdioLink) · .drv-ship + remote realise
 | **R-1** | Server spine collapses around one `TerminalBackend` interface; the `meta/*.ts` orchestrators dissolve into `LocalTerminalBackend`. | None — byte-identical refactor. | <Pill variant="ok">shipped</Pill> <PrLink pr={981} /> |
 | **R-1.5** | `@kolu/surface` grew the stdio link, loopback link, peer-server, and in-memory channel/cell/publisher; new `@kolu/surface-nix-host` package (ssh + `.drv`-provisioning + lifecycle). Validated by the remote-process-monitor demo — "miniature Kolu". | None directly — framework capability. | <Pill variant="ok">shipped</Pill> <PrLink pr={984} /> |
 | **R-1.6** | The provider DAG (agent detectors ×3, git watcher, PR watcher, command tracker, foreground observer) extracts into `terminalBackend/providers.ts` behind `ProviderHooks` — one engine, two future hosts. | None — byte-identical refactor. | <Pill variant="ok">shipped</Pill> <PrLink pr={1004} /> |
-| **R-4** | Local PTYs move into a surviving daemon; `@kolu/pty-host` published. **Owned by the [pty-daemon](pty-daemon.html) note** — A1 <PrLink pr={1055} />, A2 <PrLink pr={1063} />, and [kolu-tui](pty-daemon-tui.html) Phase 1 <PrLink pr={1084} /> landed; B next. | Local terminals survive a kolu-server restart — replaces tmux/zmx, closes <Issue n={671} />. | <Pill variant="run">in progress</Pill> |
+| **R-4** | Local PTYs move into a surviving daemon; `@kolu/pty-host` published. **Owned by the [pty-daemon](pty-daemon.html) note** — A1 <PrLink pr={1055} />, A2 <PrLink pr={1063} />, and [kolu-tui](pty-daemon-tui.html) Phases 0–2 (<PrLink pr={1073} /> / <PrLink pr={1084} /> / <PrLink pr={1255} />) landed; B next. | Local terminals survive a kolu-server restart — replaces tmux/zmx, closes <Issue n={671} />. | <Pill variant="run">in progress</Pill> |
 | **R-2** | The ssh transport variant + remote-only UI: `.drv`-ship + remote-realise, HostChip on five surfaces, DisconnectedOverlay ssh states, SSH host picker, restore preserves location, paste/upload guard. | Remote terminals work end-to-end — PTY, branch chip, agent badge, PR, Code tab, upload, restore. | <Pill variant="todo">after R-4</Pill> |
 | **R-3** | Persist `remoteSessionId`; retire the `--refresh` hack; close the overflow-recovery loop. The reattach machinery itself ships with R-4. | Remote terminals survive network blips with full scrollback. | <Pill variant="todo">last</Pill> |
 

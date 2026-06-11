@@ -5,7 +5,7 @@ kind: feature
 maturity: budding
 status: implemented
 parents: [mobile-architecture-review]
-updated: 2026-06-04
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -13,8 +13,10 @@ import Pill from "../../components/Pill.astro";
 import PrLink from "../../components/PrLink.astro";
 
 Implemented in <PrLink pr={1181} />. Branch `mobile-keybar-two-row`. Plan of
-record for the `/be` run — **Option B (`grid-cols-6`)** shipped, current key
-order kept.
+record for the `/be` run — **Option B (fixed six-column grid)** shipped, current
+key order kept. (As shipped, the column count is derived —
+`COLS = ceil(controls / 2)` — and applied via an inline `grid-template-columns`,
+not a literal `grid-cols-6` class, which Tailwind would purge.)
 
 <Callout kind="note" title="The ask">
 On a phone the soft key bar (`MobileKeyBar.tsx`) is a single horizontally

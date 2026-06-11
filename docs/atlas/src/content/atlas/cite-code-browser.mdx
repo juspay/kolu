@@ -5,7 +5,7 @@ kind: feature
 maturity: seedling
 status: proposed
 parents: [second-brain, solid-fileview]
-updated: 2026-06-02
+updated: 2026-06-10
 ---
 
 import Cite from "../../components/Cite.astro";
@@ -25,7 +25,7 @@ single producer, so it's a localized change:
 
 - **`<Cite>` centralizes every `file:line` ref** → one component + one host handler.
 - **Opening a `file:line` is solved** — <Cite file="packages/client/src/right-panel/openInCodeTab.ts" lines="71" /> exposes `openInCodeTab({ ref, repoRoot, targetMode })`, which opens a `path:line` in the Code tab with the line highlighted (already used by terminal-link clicks and the right-click "Open path:N" menu).
-- **The iframe↔host bridge already exists** — <Cite file="packages/artifact-sdk/src/client/bridge.ts" lines="103" /> (`observeIframeNavigation`) carries in-iframe events to the host, and <Cite file="packages/client/src/right-panel/iframePreviewNav.ts" lines="22" /> (`repoPathFromPreviewPathname`) maps a preview URL back to a repo path — that's how the preview already follows links (<Cite file="packages/client/src/right-panel/BrowseIframeRenderer.tsx" lines="50" />).
+- **The iframe↔host bridge already exists** — <Cite file="packages/artifact-sdk/src/client/bridge.ts" lines="103" /> (`observeIframeNavigation`) carries in-iframe events to the host, and <Cite file="packages/solid-browser/src/previewPath.ts" lines="30" /> (`pathFromPreviewPathname`, from `@kolu/solid-browser`) maps a preview URL back to a repo path — that's how the preview already follows links (<Cite file="packages/client/src/right-panel/BrowseIframeRenderer.tsx" lines="50" />).
 
 ## Mechanism — two options
 

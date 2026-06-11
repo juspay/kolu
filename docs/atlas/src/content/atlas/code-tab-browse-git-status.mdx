@@ -1,11 +1,11 @@
 ---
 title: Git-status indicators in the Code-tab "All files" view
-description: Browsing the whole repo should still tell you what's changed. Give the Code-tab "All files" view the same git-status colors Local/Branch already show, by overlaying a local-status layer (primary) on a branch-status layer (fallback). Plan of record, /be.
+description: 'Browsing the whole repo should still tell you what''s changed. Gives the Code-tab "All files" view the same git-status colors Local/Branch already show, by overlaying a local-status layer (primary) on a branch-status layer (fallback). Shipped in #1185.'
 kind: feature
 maturity: seedling
 status: implemented
 parents: [solid-fileview]
-updated: 2026-06-04
+updated: 2026-06-10
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -78,9 +78,9 @@ export const CodeTreePrototype = () => {
 
 Shipped in <PrLink pr={1185} />.
 
-Today the **All files** view is the only Code-tab mode with no git signal —
-you switch to Local/Branch to see what changed, losing whole-repo context.
-After this, it looks like:
+Before this, the **All files** view was the only Code-tab mode with no git
+signal — you switched to Local/Branch to see what changed, losing whole-repo
+context. Now it looks like:
 
 <CodeTreePrototype />
 
