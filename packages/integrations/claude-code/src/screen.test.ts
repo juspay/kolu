@@ -46,6 +46,20 @@ Which package decomposition is cleanest?
 
 Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel`;
 
+/** AskUserQuestion — the v2.1.173 footer soft-wrapped by a narrow tile. xterm
+ *  breaks the footer across grid rows, and `getScreenText` joins rows with `\n`,
+ *  so `to navigate`, `n to add notes`, and `Esc to cancel` land on different
+ *  lines. The marker must span the newline (the regression F1 guards). */
+const ASK_USER_QUESTION_WRAPPED = ` ☐ Decomposition
+
+Which package decomposition is cleanest?
+
+❯ 1. Entry with behaviour
+  2. Supervisor owns the entry
+
+Enter to select · ↑/↓ to navigate · n to add
+notes · Esc to cancel`;
+
 /** AskUserQuestion — the multi-select (tabbed form) variant, captured live. Its
  *  nav hint is `Tab/Arrow keys to navigate`, not `↑/↓ to navigate`, so a marker
  *  keyed on the arrow glyphs alone would miss it; the trailing
@@ -121,6 +135,13 @@ srid on pureintent /tmp/project
 const PROSE_NAVIGATE = `● Use the arrow keys to navigate the file tree, then press
   enter to open the file you want.`;
 
+/** Adversarial NEGATIVE — prose that strings `to navigate`, a `·`, and
+ *  `Esc to cancel` together, but the `·` trails the object ("the tree"), not the
+ *  nav hint. Only the framework footer puts a `· ` *immediately* after the nav
+ *  hint, so this must NOT promote (the regression F2 guards). */
+const PROSE_NAVIGATE_WITH_SEPARATOR = `● Use arrow keys to navigate the tree · Esc to cancel
+  is roughly how that other tool's footer reads — ours differs.`;
+
 const PLAIN_ASSISTANT_TEXT = `● The function returns null when the file is
   missing, so the caller treats it as "retry".`;
 
@@ -174,6 +195,10 @@ describe("screenHasClaudePrompt — AskUserQuestion", () => {
   it("detects the footer with the 'n to add notes' segment (v2.1.173)", () => {
     expect(screenHasClaudePrompt(ASK_USER_QUESTION_WITH_NOTES)).toBe(true);
   });
+
+  it("detects the v2.1.173 footer when soft-wrapped across rows", () => {
+    expect(screenHasClaudePrompt(ASK_USER_QUESTION_WRAPPED)).toBe(true);
+  });
 });
 
 describe("screenHasClaudePrompt — permission gates", () => {
@@ -209,6 +234,10 @@ describe("screenHasClaudePrompt — negatives", () => {
 
   it("ignores prose mentioning 'arrow keys to navigate' with no glyphs", () => {
     expect(screenHasClaudePrompt(PROSE_NAVIGATE)).toBe(false);
+  });
+
+  it("ignores prose where '·' trails the object, not the nav hint", () => {
+    expect(screenHasClaudePrompt(PROSE_NAVIGATE_WITH_SEPARATOR)).toBe(false);
   });
 
   it("ignores ordinary assistant prose", () => {

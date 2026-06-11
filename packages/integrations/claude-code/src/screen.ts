@@ -22,9 +22,10 @@
  *  ## Signature — framework-rendered markers (claude-code v2.1.162–v2.1.173, captured live)
  *  See `PROMPT_MARKERS` for the verbatim list and per-marker rationale. In short,
  *  three awaiting-user prompts are recognized, each by chrome no idle menu or
- *  ordinary output carries: `AskUserQuestion` (its `… to navigate … · Esc to cancel`
- *  footer (tolerating an intervening segment such as v2.1.173's `· n to add
- *  notes`), covering both the single-select and multi-select tabbed shapes), the
+ *  ordinary output carries: `AskUserQuestion` (its `… to navigate · … · Esc to
+ *  cancel` footer (tolerating an intervening segment such as v2.1.173's `· n to
+ *  add notes`, and soft-wrap across rows), covering both the single-select and
+ *  multi-select tabbed shapes), the
  *  edit-family permission gate (Write/Edit/NotebookEdit — its full
  *  `Esc to cancel · Tab to amend` footer), and the other permission gates
  *  (Bash/WebFetch/… — their numbered `<n>. Yes, and don't ask again for <x>`
@@ -64,16 +65,20 @@ export const TAIL_REGION_LINES = 40;
  *  v2.1.162) — not model-supplied option text — anchored on a phrase no idle
  *  menu or ordinary output carries. Any one present in the screen tail is proof.
  *
- *   1. **AskUserQuestion** — its footer pairing `… to navigate … · Esc to
- *      cancel` on one line. Keying on the co-occurrence (not the nav-hint glyphs)
- *      covers both shapes — single-select renders `↑/↓ to navigate`, the
- *      multi-select tabbed form renders `Tab/Arrow keys to navigate` — and
- *      tolerates a middle segment between the two halves: v2.1.173 inserted
- *      `· n to add notes` there, so the regex spans `to navigate` … `· Esc to
- *      cancel` rather than requiring them adjacent. The match stays on a single
- *      line (no `s` flag), and the `· Esc to cancel` suffix keeps it off prose
- *      ("…arrow keys to navigate the file tree") and the look-alikes that end in
- *      "Esc to cancel" but never carry "to navigate" on that line (`/model` →
+ *   1. **AskUserQuestion** — its footer structure `… to navigate · [<seg> ·]*
+ *      Esc to cancel`. Keying on the footer's `·` separators (not the nav-hint
+ *      glyphs) covers both shapes — single-select renders `↑/↓ to navigate`, the
+ *      multi-select tabbed form renders `Tab/Arrow keys to navigate`. The
+ *      discriminator is the `·` *immediately* after the nav hint: only the
+ *      framework footer puts a `· ` separator there, so prose that merely says
+ *      "to navigate …" can't match — not "…to navigate the file tree" (no `·`)
+ *      nor "…to navigate the tree · Esc to cancel" (the `·` trails the object,
+ *      not the hint). After that separator the regex tolerates zero or more
+ *      additional `· <segment>` hints before `· Esc to cancel` — v2.1.173
+ *      inserted `· n to add notes` there — and, because the in-between spans
+ *      `[\s\S]` (newlines included), a footer xterm soft-wraps across rows still
+ *      matches. The `· Esc to cancel` suffix excludes the look-alikes that end in
+ *      "Esc to cancel" but never carry the "to navigate ·" hint (`/model` →
  *      "session only · Esc to cancel"; trust → "Enter to confirm · Esc to
  *      cancel"; `/fork` list → "↑/↓ to select · Enter to view").
  *   2. **Edit-family permission gate** (Write / Edit / NotebookEdit) — the
@@ -94,7 +99,7 @@ export const TAIL_REGION_LINES = 40;
  *  Permission gates fire while the tool call is on disk, so the session reads as
  *  `tool_use` (already pollable) — only the marker is new, not the state gate. */
 const PROMPT_MARKERS: readonly RegExp[] = [
-  /to navigate\b.*·\s*Esc to cancel/, // AskUserQuestion (single + multi-select; tolerates a middle footer segment, e.g. `· n to add notes`)
+  /to navigate\s*·(?:[\s\S]*?·)?\s*Esc to cancel/, // AskUserQuestion (single + multi-select); requires the `·` separator right after the nav hint (footer chrome, not prose) and tolerates intervening segments — e.g. v2.1.173's `· n to add notes` — across soft-wrapped rows
   /Esc to cancel\s*·?\s*Tab to amend/, // Write/Edit/NotebookEdit gate footer
   /^\s*\d+\.\s*Yes, and don.t ask again for\b/m, // Bash/WebFetch/etc. gate option
 ];
