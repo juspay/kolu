@@ -17,6 +17,8 @@ async function main(): Promise<void> {
   // The daemon owns shell-env preparation (cleanEnv runs here), so it must
   // apply the SAME nix-shell filter the server does, or the devshell env leaks
   // into terminals. The whitelist rides KOLU_NIX_ENV_WHITELIST (see socketEnv).
+  // The vars consumed here are part of the daemon's env contract (DAEMON_ENV_KEYS
+  // in ./env.ts) — the same list spawn.ts forwards into the systemd unit.
   configureNixShellEnv(process.env.KOLU_NIX_ENV_WHITELIST);
   const socketPath = process.env.KOLU_PTY_HOST_SOCKET || undefined;
   const result = await runPtyHostDaemon({

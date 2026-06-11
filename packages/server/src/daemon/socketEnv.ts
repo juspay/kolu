@@ -13,6 +13,10 @@
  *
  * Imported first in `index.ts` purely for this side effect; an explicit env var
  * already set (by the harness or a multi-instance launcher) always wins.
+ *
+ * Both vars promoted here are part of the daemon's env contract
+ * (`DAEMON_ENV_KEYS` in `./env.ts`) — the single list `spawn.ts` forwards into
+ * the systemd unit and `daemonMain.ts` consumes.
  */
 function flagValue(flag: string): string | undefined {
   const argv = process.argv;

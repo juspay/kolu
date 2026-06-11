@@ -30,6 +30,7 @@ import { closeSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Logger } from "kolu-shared";
+import { DAEMON_ENV_KEYS } from "./env.ts";
 
 export interface SpawnDaemonOpts {
   /** The resolved socket path the daemon must bind (passed via env). */
@@ -46,23 +47,6 @@ function resolveDaemonCommand(): { cmd: string; args: string[] } {
   const entry = fileURLToPath(new URL("./daemonMain.ts", import.meta.url));
   return { cmd: process.execPath, args: [...process.execArgv, entry] };
 }
-
-/**
- * The runtime env the daemon needs but a `systemd-run --user` unit does NOT
- * inherit from the spawning server: the socket override (set below), the
- * nix-shell whitelist (so terminals don't leak the devshell env), the
- * build-identity vars (so the daemon's `version()` reports a real staleKey /
- * commit), and the log level. Forwarded into the unit with `--setenv=` so the
- * daemon comes up configured identically to the in-place (non-systemd) child.
- */
-const DAEMON_ENV_KEYS = [
-  "KOLU_PTY_HOST_SOCKET",
-  "KOLU_NIX_ENV_WHITELIST",
-  "KOLU_PTY_HOST_BUILD_ID",
-  "KOLU_COMMIT_HASH",
-  "KOLU_DAEMON_BIN",
-  "LOG_LEVEL",
-] as const;
 
 /** `--setenv=K=V` for every daemon-needed var that is actually present in
  *  `env`, so the transient unit comes up with the same dynamic config the
