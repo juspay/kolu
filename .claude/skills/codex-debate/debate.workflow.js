@@ -203,27 +203,30 @@ function authorUncitedFlip(action, acceptedDisposition) {
 
 // Advance the author side of a finding's gate record after a round: set its
 // ACCEPTED disposition, and update `owed`. Called unconditionally per finding
-// the author dispositioned. An uncited author flip sets `owed` and does NOT
-// advance the accepted disposition (so the gate keeps catching it). A CITED flip
-// or a hold advances it and CLEARS `owed` (the author paid the debt or never
-// owed one).
+// the author dispositioned. An uncited *capitulation* (disputed → fixed/partial)
+// sets `owed` and does NOT advance the accepted disposition (so the gate keeps
+// catching it). Every other transition — a hold, a cited capitulation, or a
+// non-capitulating change like fixed → disputed (the author retreating after
+// codex rejects a fix) — advances the accepted disposition and CLEARS `owed`:
+// only giving in to the reviewer without a citation is debt, not any disposition
+// change. (The narrow capitulation condition is exactly `authorUncitedFlip`.)
 function advanceAuthorGate(action) {
   if (!action || !action.findingId) return
   const id = action.findingId
-  const g = gate[id]
-  const accepted = g?.disposition
+  const accepted = gate[id]?.disposition
   if (accepted === undefined || action.disposition === accepted) {
     // First-seen or a hold: adopt/keep the accepted disposition, no debt.
     gate[id] = { disposition: accepted === undefined ? action.disposition : accepted, owed: false }
     return
   }
-  if ((action.concessionReason || '').trim()) {
-    // Cited flip: the author paid the debt; the flipped position is now accepted.
-    gate[id] = { disposition: action.disposition, owed: false }
+  if (authorUncitedFlip(action, accepted)) {
+    // Uncited capitulation: keep the accepted (disputed) position and OWE a citation.
+    gate[id] = { disposition: accepted, owed: true }
     return
   }
-  // Uncited flip: keep the accepted (disputed) position and OWE a citation.
-  gate[id] = { disposition: accepted, owed: true }
+  // A cited capitulation or any non-capitulating flip advances the accepted
+  // disposition and owes nothing — only an uncited disputed→concede is debt.
+  gate[id] = { disposition: action.disposition, owed: false }
 }
 
 // Consensus = no finding left open, any severity — codex resolved every one
