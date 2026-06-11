@@ -33,6 +33,8 @@ describe("reloadForUpdate", () => {
     // stale shell and re-open the loop. The fix must navigate to a busted key.
     expect(reload).not.toHaveBeenCalled();
     expect(replace).toHaveBeenCalledTimes(1);
-    expect(replace).toHaveBeenCalledWith(cacheBustedShellUrl(href, String(now)));
+    expect(replace).toHaveBeenCalledWith(
+      cacheBustedShellUrl(href, String(now)),
+    );
   });
 });
