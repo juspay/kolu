@@ -1,6 +1,6 @@
 export const meta = {
   name: 'codex-answer-debate',
-  description: 'Have Claude and codex each answer a prompt in parallel, then cross-check until they agree, and synthesize one unified answer (no round cap, no deadlock exit)',
+  description: 'Have Claude and codex each answer a prompt in parallel, then cross-check until they agree (within a round backstop — unresolved is surfaced honestly), and synthesize one unified answer',
   phases: [
     { title: 'Answer', detail: 'claude + codex answer the prompt independently, in parallel' },
     { title: 'Reconcile', detail: 'each cross-checks the other, round after round, until both agree' },
@@ -18,6 +18,13 @@ const repoPath = a.repoPath || '.'
 const prompt = (a.prompt || '').trim()
 // Where the generated skill lives, so the codex runner can find codex-answer.sh.
 const skillDir = a.skillDir || '.claude/skills/codex-debate'
+// Round backstop, counting ALL turns (the round-1 parallel answers, each
+// cross-check round, and each confirmation turn). Looser than review mode's 3
+// because confirmation turns consume rounds too — but still a hard ceiling:
+// debate gains saturate early and extra rounds amplify agreement-for-its-own-sake
+// (see the review-orchestration Atlas note). Hitting it ends as `unresolved`,
+// reported honestly — never a synthesized answer presented as agreed.
+const maxRounds = a.maxRounds || 6
 // Per-worktree scratch dir, shared with the review mode. Gitignored, derived from
 // repoPath (the worktree root === $PWD) so parallel debates in DIFFERENT worktrees
 // never collide on shared /tmp paths and these files never pollute the repo.
@@ -111,7 +118,8 @@ ${JSON.stringify(other, null, 2)}
 
 Weigh CODEX's answer against yours:
   - Where CODEX is right and you were wrong or incomplete, UPDATE your answer to match and say what you changed in changedMind.
-  - Where CODEX is wrong or has a gap, hold your position and record it under objections with a specific, evidence-backed reason.`
+  - Where CODEX is wrong or has a gap, hold your position and record it under objections with a specific, evidence-backed reason.
+  - Concessions must be cited: if you move to agreement after disagreeing, changedMind must state the specific evidence or argument that convinced you. Agreeing just to end the debate is forbidden — an unconvinced agreement is worse than surfacing the disagreement.`
   const prompt_ = `You and CODEX were asked the SAME question. ${block}
 
 You may inspect the repo at \`${repoPath}\` to ground your answer — your shell cwd may be a different worktree, so use \`git -C ${repoPath}\` and absolute paths under it. READ-ONLY: read files, \`git -C ${repoPath} diff/log\`, grep; do NOT edit, create, delete, or run any git write command. Cite file:line for claims about this codebase. If the question isn't about this repo, answer from your own knowledge.
@@ -334,9 +342,9 @@ Return the unified answer in \`answer\`.`,
 // ---------------------------------------------------------------------------
 // The loop — round 1 is the independent answer (parallel); rounds 2+ are
 // cross-checks. Runs until BOTH sides agree, then a CONFIRMATION phase on a single
-// synthesized candidate. No round cap, no deadlock exit: each side keeps
-// cross-checking until they converge (the harness's per-workflow agent backstop is
-// the only hard ceiling — interrupt via /workflows or TaskStop).
+// synthesized candidate — all within the `maxRounds` backstop: a debate that hits
+// the ceiling ends `unresolved`, surfaced honestly with both sides' last positions
+// in the transcript, never presented as an agreed answer.
 //
 // Both sides run in PARALLEL each round, so in round N each cross-checks the OTHER's
 // round-(N-1) answer. That parallelism creates a SWAP/OSCILLATION hazard: if Claude
@@ -357,7 +365,7 @@ let finalAnswer = null
 // Carried across iterations so a rejected confirmation feeds the candidate + the
 // objector's complaints back into the next ordinary cross-check round.
 let pendingCandidate = null
-for (let round = 1; ; round++) {
+for (let round = 1; round <= maxRounds; round++) {
   const confirming = pendingCandidate !== null
   const prevClaude = claudeAns
   const prevCodex = codexAns
@@ -442,6 +450,14 @@ for (let round = 1; ; round++) {
       `Round ${round}: claude agrees=${sideAgrees(claude)} (objections=${(claude.objections || []).length}), codex agrees=${sideAgrees(codex)} (objections=${(codex.objections || []).length})`,
     )
   }
+}
+
+// Backstop exhausted without a both-sides-approved candidate → `unresolved`.
+// Honest by construction: `finalAnswer` is only ever the candidate both sides
+// approved, so an exhausted loop has nothing agreed to report.
+if (!finalAnswer && status === 'consensus') {
+  status = 'unresolved'
+  log(`Round backstop (${maxRounds}) hit without an approved candidate — ending as unresolved.`)
 }
 
 log(`Answer-debate ended: ${status} after ${transcript.length} round(s).`)

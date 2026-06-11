@@ -34,11 +34,15 @@ const repoPath = a.repoPath || '.'
 // resolution reassigns it. Idempotent when the caller already passed a merge-base
 // SHA (e.g. /be-review).
 let base = a.base || 'origin/master'
-// Safety backstop only — NOT a deadlock cap. The debate runs until consensus;
-// this just keeps a pathologically oscillating debate from running unbounded.
-// Hitting it is reported as `unresolved` (needs human), never `deadlock`, and
-// should essentially never happen between two good-faith lenses. Raise freely.
-const maxRounds = a.maxRounds || 12
+// Round backstop. Tight by design, not a formality: the contested set is
+// monotonically non-increasing (settled findings lock), so almost all genuine
+// convergence happens in the first rounds — and the multi-agent-debate
+// literature shows extra rounds amplify bias and produce unanimous-WRONG
+// consensus at a rate that grows with rounds (see the review-orchestration
+// Atlas note). What's still contested at round 4 is a real judgment call that
+// belongs to a human (`unresolved` — /be-review adjudicates), not to rounds
+// 5-12 of two same-family lenses wearing each other down.
+const maxRounds = a.maxRounds || 4
 // Apply agreed `fix` findings as individual commits (default on). `--no-commit`
 // still applies the edits to the working tree, it just leaves them uncommitted.
 // No-op when `apply` is false — the apply:false path returns plans in `fixes`
@@ -52,8 +56,14 @@ const apply = a.apply !== false
 // Fold in /code-police as a third, lower-weight voice: it SEEDS findings into
 // the debate set but does not get a vote in consensus (only lowy ⇄ hickey do).
 const withPolice = a.withPolice === true
-// Optional author note on deliberate design decisions, so the lenses don't flag
-// intentional choices (e.g. a deliberate fail-open). Threaded into every prompt.
+// Optional author note on deliberate design decisions (e.g. a deliberate
+// fail-open). Threaded into the DEBATE (cross-examination) prompts ONLY — never
+// the independent reviews. Pre-loading reviewers with author intent measurably
+// suppresses findings (the #1109 curation-bias lesson, and the 3-4x framing
+// effect in the review-orchestration Atlas note): the lens should flag the
+// deliberate decision cold, and the rationale then justifies a `drop`
+// disposition ON THE RECORD during cross-examination — a visible adjudication,
+// not a finding that was never born.
 const rationale = (a.rationale || '').trim()
 // Model every lens/agent runs on; defaults to MODEL (see top of file). Overridable
 // via args to mirror the file's input pattern and to make a model bump a one-liner.
@@ -173,6 +183,11 @@ const POSITION_SCHEMA = {
               "when disposition===fix, true only if you endorse the other lens's plan as-is; if false, your `plan` field is the amendment that must still converge",
           },
           reasoning: { type: 'string', description: 'argue from the code (cite file:line); concede explicitly when the other lens is right' },
+          concessionReason: {
+            type: 'string',
+            description:
+              'REQUIRED whenever your disposition for this finding differs from YOUR OWN previous round: the specific code (file:line) or opposing argument that changed your mind. An uncited flip does not settle the finding. Omit on round 1 or when holding your position.',
+          },
         },
       },
     },
@@ -196,8 +211,8 @@ function reviewBrief(lens, framework, probe) {
   const probeBlock = probe ? `\n${probe}\n` : ''
   return `You are the **${lens}** reviewer. First Read \`.claude/skills/${lens}/SKILL.md\` for your framework, then ${DIFF}
 
-Review the change through the **${framework}** lens, INDEPENDENTLY — you are NOT seeing any other reviewer's findings. That independence is the whole point: being handed someone else's curated finding biases the verdict.
-${rationaleBlock}${probeBlock}
+Review the change through the **${framework}** lens, INDEPENDENTLY — you are NOT seeing any other reviewer's findings, and you are NOT given the author's rationale. That independence is the whole point: being handed someone else's curated finding (or the author's framing) biases the verdict. Deliberate-decision context enters later, at cross-examination.
+${probeBlock}
 Give ALL your findings — every structural issue you see through your lens, no cap, at every level (boundary, complecting, naming, duplication, …). Each: a title, a file:line location, the problem in your lens's terms, a concrete suggestion, and a disposition — \`fix\` (worth changing in THIS PR) or \`drop\` (observation only). Don't fabricate issues, but don't hold any back either; an empty list is fine only for a genuinely clean diff.`
 }
 
@@ -219,7 +234,9 @@ ${activeFindings.map(findingLine).join('\n\n')}
 ${settledNote}
 ${oppBlock}
 
-Round ${roundNum}. For EVERY contested finding id above, output a disposition (\`fix\` = worth changing in THIS PR / \`drop\` = leave as-is, observation only), a concrete implementable plan if \`fix\`, and reasoning grounded in the code. **The goal is the correct answer for THIS PR, not winning** — concede explicitly ("conceding: …") when ${opp}'s code-grounded argument is right. A \`fix\` is worth it only if it genuinely improves the PR.`
+Round ${roundNum}. For EVERY contested finding id above, output a disposition (\`fix\` = worth changing in THIS PR / \`drop\` = leave as-is, observation only), a concrete implementable plan if \`fix\`, and reasoning grounded in the code. **The goal is the correct answer for THIS PR, not winning** — concede explicitly ("conceding: …") when ${opp}'s code-grounded argument is right. A \`fix\` is worth it only if it genuinely improves the PR.
+
+**Concessions must be cited.** If your disposition for a finding differs from YOUR OWN previous round, set \`concessionReason\` to the specific code (file:line) or the opposing argument that changed your mind. A flip without a cited \`concessionReason\` does NOT settle the finding — capitulating to end the debate is worse than leaving it unresolved for a human.`
 }
 
 function implementBrief(fix) {
@@ -402,8 +419,18 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
     schema: POSITION_SCHEMA,
   })
   const hickeyPos = posMap(hickeyRes)
-  lowyPrev = lowyPos
-  hickeyPrev = hickeyPos
+
+  // Cited-concession gate. A lens that FLIPS its own prior-round disposition
+  // without citing what convinced it (`concessionReason`) is the measured
+  // harmful pattern — conformity flips are predominantly wrong, and an
+  // agreement reached through one cannot be trusted (see the
+  // review-orchestration Atlas note). An uncited flip therefore does NOT
+  // settle the finding this round: it stays contested, and if it never earns a
+  // citation it ends `unresolved` for a human — strictly better than recording
+  // a capitulation as consensus. (lowyPrev/hickeyPrev still hold round r-1
+  // here; they're advanced after the settle pass below.)
+  const flipUncited = (cur, prev) =>
+    !!(cur && prev && cur.disposition !== prev.disposition && !(cur.concessionReason || '').trim())
 
   const per = []
   for (const id of [...activeIds]) {
@@ -417,19 +444,24 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
     // consensus, and Apply must never run on a `plan: undefined` (it would fall
     // back to a vague placeholder and commit an arbitrary edit as "agreed").
     const lowyHasPlan = !!(l && typeof l.plan === 'string' && l.plan.trim())
+    const uncited = flipUncited(l, lowyPrev?.[id]) || flipUncited(h, hickeyPrev?.[id])
     const agreed = !!(
       l &&
       h &&
+      !uncited &&
       l.disposition === h.disposition &&
       (l.disposition !== 'fix' || (h.agreesWithPlan === true && lowyHasPlan))
     )
-    per.push({ id, lowy: l?.disposition ?? '?', hickey: h?.disposition ?? '?', agreed })
+    if (uncited) log(`Round ${r}: ${id} flipped without a cited concessionReason — not settling it this round.`)
+    per.push({ id, lowy: l?.disposition ?? '?', hickey: h?.disposition ?? '?', agreed, uncitedFlip: uncited })
     if (agreed) {
       // Endorsement guarantees l.plan is the converged text; no arbitrary fallback.
       settled[id] = { disposition: l.disposition, plan: l.disposition === 'fix' ? l.plan : undefined, lowy: l, hickey: h }
       activeIds = activeIds.filter((x) => x !== id)
     }
   }
+  lowyPrev = lowyPos
+  hickeyPrev = hickeyPos
   history.push({ round: r, per })
   log(`Round ${r}: ${per.map((p) => `${p.id} ${p.lowy}/${p.hickey}${p.agreed ? '✓' : '✗'}`).join('  ')} | settled ${Object.keys(settled).length}/${combined.length}`)
 

@@ -42,6 +42,13 @@ const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 // carries the debate context (codex's findings + claude's dispositions). Never
 // pushes or merges — that stays the human's call.
 const commit = a.commit !== false
+// Round backstop. Tight by design: the literature on multi-agent debate shows
+// gains saturate by round 2 and extra rounds amplify bias toward unanimous-WRONG
+// consensus (see the review-orchestration Atlas note); kolu#1222 is the in-house
+// runaway this prevents. Hitting the backstop ends the debate as `unresolved` —
+// a real outcome surfaced honestly for a human (/be-review adjudicates the
+// still-open findings) — never a falsely-reported consensus.
+const maxRounds = a.maxRounds || 3
 // Model tiers. The claude-author round does real reasoning (fixing/disputing
 // codex's findings) → `model` (Opus). Everything else here is mechanical — the
 // codex runner just shells out to codex-review.sh and copies the verdict, the
@@ -58,13 +65,20 @@ const mechModel = a.mechModel || 'haiku'
 // agent's. The small per-round section writes stay on Haiku (tiny payloads).
 const copyModel = a.copyModel || 'sonnet'
 
-// The reasoning effort codex runs at, scoped to the debate. This JS constant is
-// the SINGLE home for the value: it is passed script-ward (a 4th positional arg
-// to codex-review.sh, which sets `-c model_reasoning_effort`) and read by
+// The reasoning effort codex runs at, TIERED by round: `xhigh` for the round-1
+// full review (where depth pays — kolu#97-class evidence says high+ is where
+// codex finds real issues), `high` for follow-up rounds (which only close out
+// findings already on the table — xhigh-every-round was the kolu#1222 cost
+// runaway). These constants are the SINGLE home for the values: effortFor() is
+// passed script-ward per round (a 4th positional arg to codex-review.sh, which
+// sets `-c model_reasoning_effort`) and REASONING_EFFORT_LABEL is read by
 // ledgerHeader for the published comment, so the `-c` flag and the header both
-// derive from here via the one-directional invocation channel — no literal
-// repeated across files held together by "remember to update all of them".
-const REASONING_EFFORT = 'xhigh'
+// derive from here — no literal repeated across files held together by
+// "remember to update all of them".
+const REASONING_EFFORT_R1 = 'xhigh'
+const REASONING_EFFORT_LATER = 'high'
+const effortFor = (round) => (round === 1 ? REASONING_EFFORT_R1 : REASONING_EFFORT_LATER)
+const REASONING_EFFORT_LABEL = `${REASONING_EFFORT_R1} (round 1), ${REASONING_EFFORT_LATER} thereafter`
 
 // ---------------------------------------------------------------------------
 // Schemas — the codex verdict schema mirrors scripts/codex-verdict.schema.json
@@ -80,6 +94,12 @@ const FINDING = {
     issue: { type: 'string' },
     suggestion: { type: 'string' },
     status: { type: 'string', enum: ['open', 'resolved'] },
+    // codex's cited reason when it resolves a finding by ACCEPTING the author's
+    // dispute (no code change) — "" otherwise. Required in the codex-side
+    // schema (codex-verdict.schema.json keeps every property required, so codex
+    // always emits it); optional here so the runner relay also accepts the
+    // lib's synthesized error verdict, which predates the field.
+    concession: { type: 'string' },
   },
   required: ['id', 'severity', 'location', 'issue', 'suggestion', 'status'],
 }
@@ -114,6 +134,11 @@ const CLAUDE_RESPONSE_SCHEMA = {
           findingId: { type: 'string' },
           disposition: { type: 'string', enum: ['fixed', 'disputed', 'partial'] },
           detail: { type: 'string' },
+          concessionReason: {
+            type: 'string',
+            description:
+              'REQUIRED when you now fix (or stop disputing) a finding you DISPUTED in a previous round: the specific code or codex argument that changed your mind. Omit when holding your position or on round 1.',
+          },
         },
         required: ['findingId', 'disposition', 'detail'],
       },
@@ -142,11 +167,11 @@ async function codexReviews(round, rebuttalJson) {
 ${rebuttalJson}
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath} ${REASONING_EFFORT}\``
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath} ${effortFor(round)}\``
     : `1. (No prior rebuttal this round.)
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath} ${REASONING_EFFORT}\``
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath} ${effortFor(round)}\``
 
   const prompt = `You are a MECHANICAL RUNNER for one round of an automated code-review debate. Do exactly the steps below and nothing else. Do NOT review the code yourself, do NOT edit any repository files, do NOT add commentary.
 
@@ -195,6 +220,8 @@ Address EVERY finding, any severity (don't skip minors/nits):
   - agree → fix it in the working tree; disposition "fixed".
   - disagree → leave the code, dispute it with a specific technical reason (cite file:line); disposition "disputed". Concede when codex is right.
   - partly → fix the valid part, explain the rest; disposition "partial".
+
+**Concessions must be cited.** If you now fix (or stop disputing) a finding you DISPUTED in a previous round, set \`concessionReason\` to the specific code or codex argument that changed your mind. Conceding just to end the debate is forbidden — an unconvinced "fixed" ships a change nobody believes in; hold the dispute instead and let the round backstop surface it to a human.
 
 Edit the working tree only — do NOT git add/commit/push. You may run the formatter on files you touched.
 
@@ -260,18 +287,24 @@ ${message}
 // the ledger chrome (backticks + the `status` field) for the commit message, which
 // wants plainer text; the field access stays in one place either way.
 function findingBullet(f, { plain = false } = {}) {
+  // A non-empty `concession` means codex resolved this finding by ACCEPTING the
+  // author's dispute — the cited reason is part of the trail, in both chromes.
+  const conceded = (f.concession || '').trim() ? ` — conceded: ${f.concession.trim()}` : ''
   return plain
-    ? `- [${f.id} · ${f.severity}] ${f.issue} (${f.location})`
-    : `- \`${f.id}\` · ${f.severity} · ${f.status} — ${f.issue} (${f.location})`
+    ? `- [${f.id} · ${f.severity}] ${f.issue} (${f.location})${conceded}`
+    : `- \`${f.id}\` · ${f.severity} · ${f.status} — ${f.issue} (${f.location})${conceded}`
 }
 
 // One author disposition as a Markdown bullet. The single projection of an action's
 // fields, shared by the ledger section and the round commit message. `plain` drops
 // the ledger chrome (backticks + bold) for the commit message.
 function actionBullet(a, { plain = false } = {}) {
+  // A non-empty `concessionReason` marks a cited cross-round flip (the author
+  // stopped disputing for a stated reason) — part of the trail, in both chromes.
+  const conceded = (a.concessionReason || '').trim() ? ` — conceded: ${a.concessionReason.trim()}` : ''
   return plain
-    ? `- ${a.findingId} ${a.disposition}: ${a.detail}`
-    : `- \`${a.findingId}\` **${a.disposition}** — ${a.detail}`
+    ? `- ${a.findingId} ${a.disposition}: ${a.detail}${conceded}`
+    : `- \`${a.findingId}\` **${a.disposition}** — ${a.detail}${conceded}`
 }
 
 // One round's findings, as a Markdown list. Shared by the section renderer below.
@@ -358,21 +391,25 @@ ${text}`
 }
 
 const transcript = []
-// 'consensus' is the only NORMAL terminus. 'reviewer-error' is the one abnormal
-// terminus: codex itself failed to produce a verdict (broken/unavailable). That
-// is infrastructure failure, not a debate outcome, so it ends the loop too —
-// distinct from the deliberate "no deadlock exit" for substantive disagreement.
+// 'consensus' is the normal terminus. 'unresolved' is the honest one: the round
+// backstop was hit with findings still open — a real debate outcome, surfaced
+// for a human to adjudicate, never papered over as agreement. 'reviewer-error'
+// is the abnormal terminus: codex itself failed to produce a verdict
+// (broken/unavailable) — infrastructure failure, not a debate outcome.
 let status = 'consensus'
 let finalVerdict = null
 let lastClaude = null
 
 // ---------------------------------------------------------------------------
-// The loop — runs until consensus. No round cap, no deadlock exit.
+// The loop — runs to consensus within the round backstop.
 // ---------------------------------------------------------------------------
-// The debate continues, round after round, until codex resolves every finding
-// (any severity). No upper bound, no "deadlock" surrender: the two sides argue
-// every point until one concedes. (The harness's per-workflow agent backstop is
-// the only hard ceiling; interrupt via /workflows or TaskStop by hand.)
+// The debate continues until codex resolves every finding (any severity) or the
+// backstop is hit. The backstop is not a "deadlock surrender": quitting without
+// agreement AND pretending otherwise is what defeats a debate — exiting with the
+// disagreement surfaced honestly (`unresolved`, still-open findings attached) is
+// the correct output of a debate that didn't converge, and strictly better than
+// more rounds of two models wearing each other down (gains saturate by round 2;
+// kolu#1222 is the runaway this caps).
 phase('Debate')
 
 // Resolve the diff base to the merge-base of (base, HEAD) so codex reviews only
@@ -420,7 +457,7 @@ await agent(
   { label: 'ledger:reset', phase: 'Debate', model: mechModel },
 )
 
-for (let round = 1; ; round++) {
+for (let round = 1; round <= maxRounds; round++) {
   const verdict = await codexReviews(round, lastClaude ? JSON.stringify(lastClaude) : null)
   finalVerdict = verdict
   const entry = { round, codex: verdict, claude: null }
@@ -484,6 +521,15 @@ for (let round = 1; ; round++) {
   await writeSection(entry)
 }
 
+// Backstop exhausted with findings still open → `unresolved`, the honest
+// terminal state. The still-open findings ride the return value so the caller
+// (/be-review) can adjudicate each one instead of trusting a manufactured
+// consensus or re-running the debate.
+if (status === 'consensus' && finalVerdict && openFindings(finalVerdict).length > 0) {
+  status = 'unresolved'
+  log(`Round backstop (${maxRounds}) hit with ${openFindings(finalVerdict).length} finding(s) still open — ending as unresolved for human adjudication.`)
+}
+
 const filesChanged = Array.from(
   new Set(transcript.flatMap((e) => (e.claude && e.claude.filesChanged) || [])),
 )
@@ -506,7 +552,10 @@ return {
   rounds: transcript.length,
   base,
   finalVerdict,
+  // The still-open findings on an `unresolved` exit — the caller's adjudication
+  // worklist. Empty on consensus and on reviewer-error (no trustworthy verdict).
+  unresolved: status === 'unresolved' ? openFindings(finalVerdict) : [],
   filesChanged,
   transcript,
-  comment: renderLedger(transcript, { status, rounds: transcript.length, base, reasoningEffort: REASONING_EFFORT }),
+  comment: renderLedger(transcript, { status, rounds: transcript.length, base, reasoningEffort: REASONING_EFFORT_LABEL }),
 }

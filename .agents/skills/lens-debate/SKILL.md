@@ -63,7 +63,7 @@ good-faith analysts, each told to argue from the code and concede when the other
 is right, **converge** — there is no fixed position to defend. So there is **no
 deadlock exit**: the debate runs until consensus, as many rounds as it takes.
 
-Three mechanics make that real rather than hopeful:
+Four mechanics make that real rather than hopeful:
 
 1. **Independent review** (above) removes the up-front framing bias.
 2. **Settled findings lock.** The moment both lenses agree on a finding's
@@ -73,11 +73,21 @@ Three mechanics make that real rather than hopeful:
 3. **Sequential reveal.** Within a round lowy posts first and hickey answers
    lowy's *current* positions, so the two land together instead of chasing each
    other's stale positions.
+4. **Cited concessions.** A lens that flips its own prior-round disposition must
+   set `concessionReason` — the specific code (file:line) or opposing argument
+   that convinced it. An uncited flip does **not** settle the finding: the
+   workflow holds it contested, so a capitulation-to-end-the-loop can never be
+   recorded as consensus.
 
-`--max-rounds` (default **12**) is a pure safety backstop so a pathological
-oscillation can't run unbounded — not a deadlock cap. Reaching it is reported as
-`unresolved` (needs a human), never `deadlock`, and should essentially never
-happen between two good-faith lenses.
+Termination and *truth* are different properties, though — disinterested lenses
+do converge, but the multi-agent-debate literature measures convergence going
+increasingly **wrong** as rounds accumulate (bias amplification, conformity
+flips; see the `review-orchestration` Atlas note). So `--max-rounds` (default
+**4**) is deliberately tight: with the settled-findings lock, almost all genuine
+convergence happens in the first rounds, and whatever is still contested at the
+backstop is a real judgment call that belongs to a human. Reaching it is
+reported as `unresolved` (needs a human — `/be-review` adjudicates), never
+`deadlock`.
 
 **This skill requires Claude Code's `Workflow` tool** (it is the engine). Under
 codex/opencode runtimes the skill is inert.
@@ -96,8 +106,11 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-ap
   used **as-is**. Fallback `origin/master`. Step 1 runs `git fetch origin` first.
   The workflow resolves this to the **merge-base** of `base` and HEAD and diffs
   against that, so the base branch's drift since the fork isn't reviewed as ours.
-- **`--max-rounds <n>`**: safety backstop on debate rounds. Default **12**. Not a
-  deadlock cap (see above) — raise it freely.
+- **`--max-rounds <n>`**: backstop on debate rounds. Default **4** — deliberately
+  tight (see above): genuine convergence happens early; what's left at the
+  backstop goes to a human as `unresolved` rather than to more rounds of bias
+  amplification. Raise it only when you have a specific reason to expect late
+  convergence.
 - **`--no-commit`**: still apply the agreed fixes to the working tree, but leave
   them uncommitted for you to commit yourself. Default is to **commit each fix
   individually** (see below).
@@ -137,7 +150,7 @@ Workflow({
   args: {
     repoPath: "<worktree root>",         // also the per-worktree scratch dir root
     base: "<base branch>",               // a remote-tracking ref, e.g. origin/master
-    maxRounds: <n, default 12>,
+    maxRounds: <n, default 4>,
     commit: <false only if --no-commit>,
     apply: <false only if --no-apply>,
     withPolice: <true only if --with-police>,
@@ -164,7 +177,11 @@ three phases the user can watch via `/workflows`:
 
 When `rationale` is set, pull it from the PR/issue description (the deliberate
 design decisions the author wants the lenses to respect, e.g. a deliberate
-fail-open) so the lenses don't flag intentional choices.
+fail-open). It is threaded into the **debate (cross-examination) rounds only**,
+never the independent reviews — pre-loading reviewers with author intent
+measurably suppresses findings (the #1109 curation-bias lesson). The lens flags
+the deliberate decision cold; the rationale then justifies a `drop` disposition
+*on the record* during cross-examination.
 
 Ephemeral scratch (commit-message files) lives under the gitignored, per-worktree
 `<repoPath>/.lens-debate/`, so parallel debates in different worktrees never
@@ -227,9 +244,11 @@ branch for the human to review):
   (unless `--no-commit`) so the PR history reads as the debate's conclusions, but
   the skill never pushes or merges. Consensus means "both lenses agree on the
   disposition," not "ship it" — the human reviews the commits and pushes/merges.
-- **No deadlock; bounded by a safety backstop.** The loop runs to consensus.
-  `--max-rounds` only prevents a pathological unbounded run; reaching it is
-  reported as `unresolved`, not deadlock.
+- **Bounded by a tight backstop; concessions must be cited.** The loop runs to
+  consensus within `--max-rounds` (default 4); reaching the backstop is reported
+  as `unresolved`, not deadlock, and the still-contested findings go to a human.
+  A disposition flip without a cited `concessionReason` never settles a finding,
+  so consensus can't be manufactured by one lens wearing the other down.
 - **Parallel-safe.** Ephemeral scratch lives under the gitignored, per-worktree
   `<repoPath>/.lens-debate/`, so debates on many worktrees run at once without
   clobbering each other.

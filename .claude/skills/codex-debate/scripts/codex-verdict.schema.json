@@ -40,6 +40,10 @@
             "type": "string",
             "enum": ["open", "resolved"],
             "description": "resolved once the authoring engineer has adequately addressed it (by a fix or a dispute you accept); otherwise open."
+          },
+          "concession": {
+            "type": "string",
+            "description": "When you mark a finding resolved by ACCEPTING the author's dispute (no code change), the specific argument or code (file:line) that convinced you. Resolving a disputed finding without a stated reason is capitulation — hold it open instead. Empty string when the finding was resolved by a fix, or is still open."
           }
         },
         "required": [
@@ -48,7 +52,8 @@
           "location",
           "issue",
           "suggestion",
-          "status"
+          "status",
+          "concession"
         ]
       }
     },

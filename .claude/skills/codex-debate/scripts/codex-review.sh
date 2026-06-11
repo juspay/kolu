@@ -134,6 +134,11 @@ Return your updated review in the JSON schema:
   - findings: one entry per issue, each with severity and the stable id you used
     before. status=resolved once addressed (CLAUDE fixed it, OR you accept CLAUDE's
     reasoning); else open.
+  - concession (per finding): when you resolve a finding by ACCEPTING CLAUDE's
+    dispute (no code change), state the specific argument or code (file:line)
+    that convinced you. Conceding without a citable reason just to converge is
+    forbidden — hold the finding open instead. Empty string when the finding was
+    resolved by a fix, or is still open.
   - approved: true ONLY when EVERY finding is resolved, at every severity.
   - responseToRebuttal: address each of CLAUDE's disputes individually — concede or
     hold firm with specific, technical reasoning. Leave no dispute unanswered.
@@ -167,6 +172,9 @@ Return your review in the JSON schema:
   - findings: one entry per issue, each with a severity and a stable id (F1, F2, …)
     reused across rounds for the same issue. Set status=resolved once it is
     adequately addressed (CLAUDE fixed it, OR you accept CLAUDE's reasoning); else open.
+  - concession (per finding): the cited reason when you resolve a finding by
+    accepting CLAUDE's dispute rather than a fix. Empty string on a fresh or
+    fix-resolved finding (so on a first review it is always "").
   - approved: true ONLY when EVERY finding is resolved — all your feedback addressed
     at every severity, not just blockers. The review is not done while any issue you
     raised still stands open.
