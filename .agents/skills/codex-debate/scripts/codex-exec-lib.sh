@@ -142,7 +142,11 @@ codex_exec_round() {
     # so overwriting is a harmless refresh. Failure to capture an id just means next
     # round cold-starts via the caller's fallback — not fatal.
     local sid
-    sid="$(grep -o '"thread_id":"[^"]*"' "$log" | tail -1 | cut -d'"' -f4)"
+    # Extract the LAST thread_id in the log (one awk, no grep|tail|cut pipeline).
+    # Splitting on '"', the value sits two fields AFTER the "thread_id" key field
+    # (key, then ":", then value) — NOT a fixed column, since other quoted keys
+    # (e.g. "type":"thread.started") precede it on the same JSON event line.
+    sid="$(awk -F'"' '{for (i = 1; i < NF; i++) if ($i == "thread_id") sid = $(i + 2)} END {print sid}' "$log")"
     if [ -n "$sid" ]; then
       printf '%s\n' "$sid" >"$session_id_file"
     fi
