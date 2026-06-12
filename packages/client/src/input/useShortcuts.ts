@@ -8,9 +8,9 @@ import {
   type ActionContext,
   type ActionId,
   type AppAction,
+  actionMatchesKeybind,
   isDispatchable,
 } from "./actions";
-import { matchesKeybind } from "./keyboard";
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
  *  the modifier (Alt or Ctrl) is held, and the cursor advances through that
@@ -19,13 +19,6 @@ import { matchesKeybind } from "./keyboard";
 interface MruCycleState {
   snapshot: TerminalId[];
   cursor: number;
-}
-
-/** Match the event against an action's primary or alt keybind. */
-function actionMatches(action: AppAction, e: KeyboardEvent): boolean {
-  if (matchesKeybind(e, action.keybind)) return true;
-  if (action.altKeybind && matchesKeybind(e, action.altKeybind)) return true;
-  return false;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root. */
@@ -91,7 +84,7 @@ function dispatch(
     ActionId,
     AppAction,
   ][]) {
-    if (!actionMatches(action, e)) continue;
+    if (!actionMatchesKeybind(action, e)) continue;
 
     // A scoped action can decline a matched event (e.g. findInTerminal defers
     // to the browser's native find inside the Code tab). `continue` here keeps

@@ -305,6 +305,20 @@ export const ACTIONS: Record<ActionId, AppAction> = _ACTIONS;
 export const advertisedNewTerminalKey: Keybind =
   ACTIONS.createTerminal.altKeybind ?? ACTIONS.createTerminal.keybind;
 
+/** Match the event against an action's primary or alt keybind. This is the
+ *  pure keybind rule, shared by both the dispatch path (`actionMatches` in
+ *  useShortcuts.ts, which layers a `when`/marker consultation on top) and the
+ *  xterm path (`matchesAnyShortcut` below, which must NOT consult markers). */
+export function actionMatchesKeybind(
+  action: AppAction,
+  e: KeyboardEvent,
+): boolean {
+  if (matchesKeybind(e, action.keybind)) return true;
+  if (action.altKeybind !== undefined && matchesKeybind(e, action.altKeybind))
+    return true;
+  return false;
+}
+
 /**
  * Check if a KeyboardEvent matches any registered action's keybind.
  * Used by xterm's key handler to let app shortcuts bubble through
@@ -312,9 +326,7 @@ export const advertisedNewTerminalKey: Keybind =
  */
 export function matchesAnyShortcut(e: KeyboardEvent): boolean {
   for (const a of Object.values(ACTIONS)) {
-    if (matchesKeybind(e, a.keybind)) return true;
-    if (a.altKeybind !== undefined && matchesKeybind(e, a.altKeybind))
-      return true;
+    if (actionMatchesKeybind(a, e)) return true;
   }
   return false;
 }
