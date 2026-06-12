@@ -127,6 +127,20 @@ const switchToActions = Object.fromEntries(
   ]),
 ) as { [K in SwitchId]: DispatchableAction };
 
+/** HTML data-attribute name that marks the Code tab root for native
+ *  find-in-page deferral. Place `{...NATIVE_FIND_ATTR_PROP}` on the element
+ *  and reference `NATIVE_FIND_MARKER` (the CSS selector derived from it) in
+ *  the action registry. Both share this single source of truth so they can't
+ *  drift. */
+export const NATIVE_FIND_ATTR = "data-kolu-native-find";
+/** CSS attribute selector derived from `NATIVE_FIND_ATTR`. Used by the
+ *  `findInTerminal` action's `nativeFindMarker` field for dispatcher deferral. */
+export const NATIVE_FIND_MARKER = `[${NATIVE_FIND_ATTR}]`;
+/** JSX spread props that stamp `NATIVE_FIND_ATTR` onto an element. */
+export const NATIVE_FIND_ATTR_PROP: Record<string, string> = {
+  [NATIVE_FIND_ATTR]: "",
+};
+
 // `_ACTIONS` keeps each entry's literal shape so `keyof typeof _ACTIONS`
 // produces the precise `ActionId` union. `ACTIONS` re-types it through
 // `Record<ActionId, AppAction>` so consumers see a uniform `AppAction` at
@@ -190,7 +204,7 @@ const _ACTIONS = {
     // chord opens kolu's terminal search as before. The dispatcher does the
     // `closest()` check against this marker and, on a match, declines without
     // `preventDefault` so the browser default proceeds (useShortcuts.ts).
-    nativeFindMarker: "[data-kolu-native-find]",
+    nativeFindMarker: NATIVE_FIND_MARKER,
     handler: (ctx) => ctx.setSearchOpen((v) => !v),
   },
   zoomIn: {
@@ -314,10 +328,10 @@ export function actionMatchesKeybind(
   action: AppAction,
   e: KeyboardEvent,
 ): boolean {
-  if (matchesKeybind(e, action.keybind)) return true;
-  if (action.altKeybind !== undefined && matchesKeybind(e, action.altKeybind))
-    return true;
-  return false;
+  return (
+    matchesKeybind(e, action.keybind) ||
+    (action.altKeybind !== undefined && matchesKeybind(e, action.altKeybind))
+  );
 }
 
 /**

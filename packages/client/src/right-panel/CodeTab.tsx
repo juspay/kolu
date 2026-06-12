@@ -66,6 +66,7 @@ import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
+import { NATIVE_FIND_ATTR_PROP } from "../input/actions";
 import {
   type OpenInCodeTabRequest,
   openInCodeTab,
@@ -695,7 +696,7 @@ const CodeTab: Component<{
         // the sandboxed HTML preview iframe) instead of opening kolu's terminal
         // search. The global shortcut dispatcher detects this marker via the
         // `findInTerminal` action's `nativeFindMarker` selector (input/actions.ts).
-        data-kolu-native-find=""
+        {...NATIVE_FIND_ATTR_PROP}
         ref={attachBackForwardInputs}
       >
         <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
