@@ -223,44 +223,45 @@ describe("matchesAnyShortcut", () => {
   });
 });
 
-describe("findInTerminal scoping (native find inside the Code tab)", () => {
-  // The action carries a `nativeFindMarker` selector the dispatcher checks
-  // against `e.target` after the chord matches: a matching ancestor → the
-  // dispatcher declines (no preventDefault) so the browser's find-in-page
-  // fires; no match → kolu opens its terminal search via the handler. Tests
-  // run under the `node` environment (no DOM), so fake the event target with a
-  // `closest` stub rather than building real elements.
-  const marker = ACTIONS.findInTerminal.nativeFindMarker;
+describe("findInTerminal scoping (xterm search confined to the terminal)", () => {
+  // The action carries a `focusScopeMarker` selector the dispatcher checks
+  // against `e.target` after the chord matches: a matching ancestor (focus is
+  // in a terminal) → the handler runs (xterm search); no match (focus anywhere
+  // else) → the dispatcher declines without preventDefault, so the browser's
+  // native find-in-page fires. Tests run under the `node` environment (no DOM),
+  // so fake the event target with a `closest` stub rather than real elements.
+  const marker = ACTIONS.findInTerminal.focusScopeMarker;
   const evt = (target: unknown): KeyboardEvent =>
     ({ key: "f", ctrlKey: true, target }) as unknown as KeyboardEvent;
 
-  // Mirror the dispatcher's `insideNativeFind` decision (useShortcuts.ts
-  // `dispatch`): skip (decline, no preventDefault) when the target sits inside
-  // the marker; otherwise the handler claims the chord. Keep this in sync with
-  // that branch — it's reproduced here because the node test env has no DOM to
-  // drive the real dispatcher through.
+  // Mirror the dispatcher's `outsideFocusScope` decision (useShortcuts.ts
+  // `dispatch`): decline (no preventDefault → browser find) when the target is
+  // NOT inside the scope marker; inside, the handler claims the chord. Keep this
+  // in sync with that branch — it's reproduced here because the node test env
+  // has no DOM to drive the real dispatcher through.
   const declines = (e: KeyboardEvent): boolean =>
-    marker != null && (e.target as Element | null)?.closest?.(marker) != null;
+    marker != null && (e.target as Element | null)?.closest?.(marker) == null;
 
-  it("is registered with a `nativeFindMarker` selector", () => {
+  it("is registered with a `focusScopeMarker` selector", () => {
     expect(typeof marker).toBe("string");
   });
 
-  it("claims the chord (terminal search) when focus is outside any Code-tab marker", () => {
-    // `closest` finds no marked ancestor → dispatcher runs the handler.
-    expect(declines(evt({ closest: () => null }))).toBe(false);
-  });
-
-  it("defers to native find when focus is inside the Code tab", () => {
-    // A `data-kolu-native-find` ancestor is found → dispatcher skips without
-    // preventDefault, leaving Cmd/Ctrl+F to the browser's find-in-page.
+  it("claims the chord (xterm search) when focus is inside a terminal", () => {
+    // A `data-kolu-terminal-search` ancestor is found → dispatcher runs the
+    // handler, opening kolu's terminal search.
     const found = {};
-    expect(declines(evt({ closest: () => found }))).toBe(true);
+    expect(declines(evt({ closest: () => found }))).toBe(false);
   });
 
-  it("claims the chord when the event has no element target", () => {
-    // Optional chaining short-circuits to undefined → no skip → handler runs.
-    expect(declines(evt(null))).toBe(false);
+  it("defers to native find when focus is outside any terminal", () => {
+    // `closest` finds no terminal ancestor → dispatcher declines without
+    // preventDefault, leaving Cmd/Ctrl+F to the browser's find-in-page.
+    expect(declines(evt({ closest: () => null }))).toBe(true);
+  });
+
+  it("defers to native find when the event has no element target", () => {
+    // Optional chaining short-circuits to undefined == null → decline → browser.
+    expect(declines(evt(null))).toBe(true);
   });
 });
 

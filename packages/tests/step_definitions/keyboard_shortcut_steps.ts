@@ -74,8 +74,8 @@ When("I press the find shortcut", async function (this: KoluWorld) {
 When("I focus the terminal", async function (this: KoluWorld) {
   // Clicking the active terminal's screen lands keyboard focus in xterm — the
   // same gesture the typing helpers use so input reaches the PTY. From here
-  // the find shortcut opens kolu's terminal search (focus is outside the
-  // Code tab's `data-kolu-native-find` subtree).
+  // the find shortcut opens kolu's terminal search (focus is inside the
+  // terminal's `data-kolu-terminal-search` subtree).
   await this.canvas.click();
   await this.waitForFrame();
 });

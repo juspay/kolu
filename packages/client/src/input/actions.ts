@@ -60,16 +60,18 @@ interface AppActionBase {
   keybind: Keybind;
   /** Optional alternate keybind that triggers the same handler (e.g. Cmd+Enter for "New terminal"). */
   altKeybind?: Keybind;
-  /** Optional attribute selector marking the focus region this chord defers
-   *  to the browser for. When present and the dispatch-time `e.target` is
-   *  inside a matching element, the dispatcher skips this action entirely —
-   *  it neither runs the handler nor `preventDefault`s, so the chord's native
-   *  browser action proceeds. Used to let Cmd/Ctrl+F fall through to the
-   *  browser's find-in-page inside the Code tab. The DOM read lives in the
-   *  dispatcher (which already owns `e.target`); the registry only names the
-   *  marker. `matchesAnyShortcut` needs no special case — a plain string field
-   *  is inert there. */
-  nativeFindMarker?: string;
+  /** Optional attribute selector confining this chord to a focus region. When
+   *  set, the dispatcher claims the chord ONLY if the dispatch-time `e.target`
+   *  is inside a matching element; anywhere else it declines without running
+   *  the handler or `preventDefault`ing, so the chord's native browser action
+   *  proceeds. Used to confine Cmd/Ctrl+F to the terminal — the one surface
+   *  where the browser's own find-in-page is useless (terminal content is
+   *  canvas-rendered, invisible to the DOM) — and let it fall through to
+   *  find-in-page everywhere else (Code tab, panels, palettes, bare chrome).
+   *  The DOM read lives in the dispatcher (which already owns `e.target`); the
+   *  registry only names the marker. `matchesAnyShortcut` needs no special
+   *  case — a plain string field is inert there. */
+  focusScopeMarker?: string;
 }
 
 /** An action whose dispatch flows through the registry's generic loop —
@@ -127,18 +129,19 @@ const switchToActions = Object.fromEntries(
   ]),
 ) as { [K in SwitchId]: DispatchableAction };
 
-/** HTML data-attribute name that marks the Code tab root for native
- *  find-in-page deferral. Place `{...NATIVE_FIND_ATTR_PROP}` on the element
- *  and reference `NATIVE_FIND_MARKER` (the CSS selector derived from it) in
+/** HTML data-attribute name that marks a terminal subtree — the focus scope
+ *  Cmd/Ctrl+F is confined to (outside it, the chord defers to the browser's
+ *  find-in-page). Place `{...TERMINAL_SEARCH_ATTR_PROP}` on the terminal root
+ *  and reference `TERMINAL_SEARCH_MARKER` (the CSS selector derived from it) in
  *  the action registry. Both share this single source of truth so they can't
  *  drift. */
-export const NATIVE_FIND_ATTR = "data-kolu-native-find";
-/** CSS attribute selector derived from `NATIVE_FIND_ATTR`. Used by the
- *  `findInTerminal` action's `nativeFindMarker` field for dispatcher deferral. */
-export const NATIVE_FIND_MARKER = `[${NATIVE_FIND_ATTR}]`;
-/** JSX spread props that stamp `NATIVE_FIND_ATTR` onto an element. */
-export const NATIVE_FIND_ATTR_PROP: Record<string, string> = {
-  [NATIVE_FIND_ATTR]: "",
+export const TERMINAL_SEARCH_ATTR = "data-kolu-terminal-search";
+/** CSS attribute selector derived from `TERMINAL_SEARCH_ATTR`. Used by the
+ *  `findInTerminal` action's `focusScopeMarker` field for dispatcher scoping. */
+export const TERMINAL_SEARCH_MARKER = `[${TERMINAL_SEARCH_ATTR}]`;
+/** JSX spread props that stamp `TERMINAL_SEARCH_ATTR` onto an element. */
+export const TERMINAL_SEARCH_ATTR_PROP: Record<string, string> = {
+  [TERMINAL_SEARCH_ATTR]: "",
 };
 
 // `_ACTIONS` keeps each entry's literal shape so `keyof typeof _ACTIONS`
@@ -195,16 +198,16 @@ const _ACTIONS = {
   findInTerminal: {
     label: "Find in terminal",
     keybind: { key: "f", mod: true },
-    // Defer to the browser's native find-in-page when focus is inside the
-    // Code tab, so Cmd/Ctrl+F searches the file source, rendered markdown, or
-    // the sandboxed HTML preview the user is looking at — the browser's own
-    // find spans every frame (including the opaque-origin preview iframe),
-    // which kolu's xterm search can't reach. The Code tab marks its root with
-    // `data-kolu-native-find`; everywhere else (terminal, canvas, dock) the
-    // chord opens kolu's terminal search as before. The dispatcher does the
-    // `closest()` check against this marker and, on a match, declines without
-    // `preventDefault` so the browser default proceeds (useShortcuts.ts).
-    nativeFindMarker: NATIVE_FIND_MARKER,
+    // Confine Cmd/Ctrl+F to the terminal: kolu's xterm search is the right tool
+    // ONLY there, because terminal content is canvas-rendered and invisible to
+    // the browser's own find. Everywhere else — Code tab, previews, panels, the
+    // command palette / workspace switcher, bare chrome — focus is in real DOM
+    // or iframes, so the dispatcher declines without `preventDefault` and the
+    // browser's native find-in-page takes over (it even spans the opaque-origin
+    // preview iframe, which xterm search can't reach). The terminal root carries
+    // `data-kolu-terminal-search`; the dispatcher does the `closest()` check and
+    // claims the chord only when focus is inside it (useShortcuts.ts).
+    focusScopeMarker: TERMINAL_SEARCH_MARKER,
     handler: (ctx) => ctx.setSearchOpen((v) => !v),
   },
   zoomIn: {
@@ -321,7 +324,7 @@ export const advertisedNewTerminalKey: Keybind =
 
 /** Match the event against an action's primary or alt keybind. This is the
  *  pure keybind rule, shared by both the dispatch path (`dispatch` in
- *  useShortcuts.ts, which layers the `nativeFindMarker` consultation on top)
+ *  useShortcuts.ts, which layers the `focusScopeMarker` consultation on top)
  *  and the xterm path (`matchesAnyShortcut` below, which must NOT consult
  *  markers). */
 export function actionMatchesKeybind(

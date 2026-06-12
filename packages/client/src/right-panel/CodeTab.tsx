@@ -66,7 +66,6 @@ import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
-import { NATIVE_FIND_ATTR_PROP } from "../input/actions";
 import {
   type OpenInCodeTabRequest,
   openInCodeTab,
@@ -691,12 +690,6 @@ const CodeTab: Component<{
       <div
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
-        // Cmd/Ctrl+F inside the Code tab defers to the browser's native
-        // find-in-page (which searches the file source, rendered markdown, and
-        // the sandboxed HTML preview iframe) instead of opening kolu's terminal
-        // search. The global shortcut dispatcher detects this marker via the
-        // `findInTerminal` action's `nativeFindMarker` selector (input/actions.ts).
-        {...NATIVE_FIND_ATTR_PROP}
         ref={attachBackForwardInputs}
       >
         <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
@@ -874,12 +867,12 @@ const CodeTab: Component<{
             as="div"
             data-testid="diff-content"
             // Focusable programmatically (tabindex -1: click-focusable, not in
-            // the Tab order) so a click on the rendered file content lands
-            // focus inside the Code tab — Pierre's source/diff rows and the
-            // rendered markdown aren't focusable on their own. That makes the
-            // `data-kolu-native-find` guard fire for Cmd/Ctrl+F, deferring to
-            // the browser's find-in-page. `outline-none` since no keyboard user
-            // ever tabs here.
+            // the Tab order) so a click on the rendered file content moves focus
+            // OUT of the terminal and into the Code tab — Pierre's source/diff
+            // rows and the rendered markdown aren't focusable on their own. With
+            // focus no longer in a terminal, Cmd/Ctrl+F defers to the browser's
+            // native find-in-page (input/actions.ts `focusScopeMarker`).
+            // `outline-none` since no keyboard user ever tabs here.
             tabindex={-1}
             class="min-h-0 overflow-auto outline-none"
             minSize={0.1}

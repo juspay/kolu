@@ -36,7 +36,11 @@ import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { FONT_FAMILY } from "terminal-themes";
-import { ACTIONS, matchesAnyShortcut } from "../input/actions";
+import {
+  ACTIONS,
+  matchesAnyShortcut,
+  TERMINAL_SEARCH_ATTR_PROP,
+} from "../input/actions";
 import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
@@ -988,7 +992,16 @@ const Terminal: Component<{
   });
 
   return (
-    <div class="w-full h-full relative" classList={{ hidden: !props.visible }}>
+    // Marks the terminal subtree as Cmd/Ctrl+F's focus scope: while focus is
+    // anywhere in here (the xterm or its SearchBar), the chord opens kolu's
+    // terminal search; outside any terminal it defers to the browser's native
+    // find-in-page. The global dispatcher reads this marker via the
+    // `findInTerminal` action's `focusScopeMarker` (input/actions.ts).
+    <div
+      class="w-full h-full relative"
+      classList={{ hidden: !props.visible }}
+      {...TERMINAL_SEARCH_ATTR_PROP}
+    >
       <Show when={searchAddon()}>
         {(addon) => (
           <SearchBar

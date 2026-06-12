@@ -282,13 +282,13 @@ Then(
 
 // Focus the Code tab content pane by *clicking* it — the real user gesture
 // the feature depends on. The pane is `tabindex=-1` (click-focusable but not
-// in the Tab order), so a click lands `document.activeElement` inside the
-// `data-kolu-native-find` subtree — the condition under which Cmd/Ctrl+F
-// defers to the browser's native find-in-page instead of opening kolu's
-// terminal search. We click (not programmatic `.focus()`) so a regression in
-// click-focusability — the whole point of the `tabindex=-1` — actually fails
-// this step, then assert focus really landed inside the marker before the
-// caller presses the find shortcut.
+// in the Tab order), so a click moves `document.activeElement` OUT of the
+// terminal and into the Code tab — the condition under which Cmd/Ctrl+F defers
+// to the browser's native find-in-page instead of opening kolu's terminal
+// search. We click (not programmatic `.focus()`) so a regression in click-
+// focusability — the whole point of the `tabindex=-1` — actually fails this
+// step, then assert focus left the terminal (no `data-kolu-terminal-search`
+// ancestor) and landed in the content pane before the caller presses the chord.
 When("I focus the Code tab content", async function (this: KoluWorld) {
   const content = this.page.locator(DIFF_CONTENT);
   await content.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -299,11 +299,13 @@ When("I focus the Code tab content", async function (this: KoluWorld) {
         (el) =>
           document.activeElement != null &&
           el.contains(document.activeElement) &&
-          document.activeElement.closest("[data-kolu-native-find]") != null,
+          document.activeElement.closest("[data-kolu-terminal-search]") == null,
       ),
-    isDone: (inside) => inside,
+    isDone: (outside) => outside,
     onTimeout: () =>
-      new Error("focus did not land inside the Code tab's native-find subtree"),
+      new Error(
+        "focus did not leave the terminal and land in the Code tab content",
+      ),
     timeoutMs: POLL_TIMEOUT,
   });
   await this.waitForFrame();

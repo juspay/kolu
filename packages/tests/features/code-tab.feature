@@ -1799,15 +1799,17 @@ Feature: Code tab (review + browse)
     And I scroll the file preview to the bottom
     Then the diff view should contain "LAST_LINE_MARKER"
 
-  # ── Find-in-page: Cmd/Ctrl+F is scoped to the focused surface ──
+  # ── Find-in-page: Cmd/Ctrl+F is confined to the terminal ──
   #
-  # Cmd/Ctrl+F is a global kolu shortcut that opens the terminal's find bar.
-  # The xterm search can't reach the Code tab's file viewer or its sandboxed
-  # HTML preview iframe, so inside the Code tab the chord instead falls through
-  # to the browser's native find-in-page (which spans every frame). The chord
-  # only defers while focus is inside the Code tab — in the terminal it still
-  # opens kolu's search, so this asserts both halves to stay non-vacuous.
-  Scenario: Cmd/Ctrl+F opens terminal search from the terminal but defers in the Code tab
+  # kolu's xterm search is the right Cmd/Ctrl+F target ONLY in the terminal,
+  # whose content is canvas-rendered and invisible to the browser's own find.
+  # So the chord opens kolu's find bar only while focus is in a terminal; in
+  # any other surface — here the Code tab, whose file viewer and sandboxed HTML
+  # preview xterm search can't reach — it defers to the browser's native
+  # find-in-page. This asserts both halves (terminal claims, Code tab defers) so
+  # it stays non-vacuous; the generic "outside any terminal → defer" predicate
+  # is unit-tested in keyboard.test.ts.
+  Scenario: Cmd/Ctrl+F opens terminal search from the terminal but defers outside it
     Given a Code tab in "browse" mode showing file "notes.txt" with content "find-me-here"
     When I click the file "notes.txt" in the file browser
     Then the file content should contain "find-me-here"
