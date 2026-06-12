@@ -1,0 +1,112 @@
+---
+title: odu-runner — a runner you can reach with nothing running
+description: 'Phase 0 of odu-web, owned by the runner: split serve from run so the socket outlives any single pipeline, give runs an identity a ledger can hold (repo × sha × seq × node), and decide who keeps the long-lived coordinator alive — priced against the warm pu-box pool. Everything odu-web consumes; nothing odu-web should have to build.'
+kind: feature
+status: proposed
+maturity: seedling
+updated: 2026-06-12
+parents: [odu]
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import D2 from "../../components/D2.astro";
+import Terminal from "../../components/Terminal.astro";
+import Roadmap from "../../components/Roadmap.astro";
+import Milestone from "../../components/Milestone.astro";
+
+*[odu-web](./odu-web.html) opens with "Phase 0 · prerequisites in the runner" and points back at [odu](./odu.html)'s backlog. This note is that phase given its own work order: what the runner must become before a service can sit on top of it — and why each piece is the runner's job rather than the service's.* <Pill variant="warn">proposed</Pill>
+
+<p>Status: <Pill variant="warn">proposed</Pill> · maturity <Pill variant="todo">seedling</Pill> · consumer: [odu-web](./odu-web.html) Phase 1 (the ledger needs run identity) and Phase 2 (the live observer needs idle attach) · the items themselves have sat on [odu](./odu.html)'s Phase 2 backlog since the MCP face shipped</p>
+
+<Callout kind="accent" title="The idea in one paragraph">
+odu's coordinator is **run-scoped**: `odu run` spawns it, it binds `.ci/odu.sock`, owns one DAG, and when the run settles it exits — taking the socket and every answer with it. Each face papers over this differently: the TUI lives inside the run, the MCP face's `run` tool *spawns* the coordinator it then talks to, and `status` with nothing live has nothing to dial. A service cannot paper over it: odu-web needs a thing that is *there* — attachable while idle, listing runs that finished, addressing each by an identity stable enough to put in a ledger and a URL. The fix is one inversion, the same one odu itself made against justci: **the socket stops belonging to the run; runs become things the long-lived server owns.** `run` becomes a procedure on the surface, runs gain a `(repo, sha, seq)` identity, and the lifecycle question — who keeps the server alive, at what cost — gets priced explicitly against the warm pu-box pool instead of inherited accidentally.
+</Callout>
+
+<D2
+  caption="Phase 0 as one inversion. Faces (top) attach to a long-lived server that owns the socket and a runs collection; per-run execution (the proven DAG machinery) is unchanged underneath, spawned into the server instead of being the process. Verdicts flow out to the per-SHA trail odu-web's ledger ingests."
+  code={`
+direction: down
+
+faces: "faces — TUI · MCP · odu-web (its Phase 2)"
+
+serve: "odu serve — the long-lived coordinator" {
+  sock: ".ci/odu.sock — outlives any run"
+  runs: "runs cell — identity: repo × sha × seq"
+  proc: "run — a procedure on the surface"
+}
+
+exec: "per-run execution — unchanged" {
+  dag: "DAG · nodes · nodeLog · rerun"
+  lanes: "platform lanes over HostSession"
+}
+
+trail: "per-SHA logs + verdicts — the trail odu-web ingests"
+
+faces -> serve: "attach any time — idle included"
+serve -> exec: "spawns runs into itself"
+exec -> trail: "on settle — survives the server"
+`}
+/>
+
+## Serve, don't spawn — the socket outlives the run
+
+Today the answer to "is CI okay?" depends on whether a process happens to be alive. `odu status`, `logs`, `attach`, and the MCP face all dial `.ci/odu.sock` — in-band, typed, the whole point — but the coordinator serving that socket exists only between `run`'s first node and its verdict. [The odu note](./odu.html) flagged this honestly at Phase 1 ("idle attach — a runner you can reach with no run live — moved to Phase 2 with the long-lived-runner question") and the MCP face inherited the shape: its `run` tool *spawns the coordinator*, which is why `run` is an MCP tool at all rather than just another surface call.
+
+The split: **`odu serve` owns the socket; `run` becomes a procedure on the surface.** The CLI UX does not change — `odu run` ensures a server (starting one if absent) and invokes the procedure; `attach` connects whether anything is running or not. What changes is what attach shows when nothing is live:
+
+<Terminal title="odu attach — idle, nothing running" lines={[
+  "$ odu attach",
+  "» dialing .ci/odu.sock … connected (idle — 0 running)",
+  " ",
+  "  odu · juspay/kolu                        ● serving",
+  " ",
+  "  recent runs",
+  "   seq  sha       ref          verdict      when",
+  "   47   26d2c2d   master       ✓ green      2h ago",
+  "   46   53c0889   PR #1291     ✗ e2e        5h ago",
+  "   45   b01c635   master       ✓ green      1d ago",
+  " ",
+  "  r run HEAD    [enter] open a run    q quit",
+]} />
+
+Two design facts make this cheap rather than risky. First, the serve-only failure mode is already banked knowledge: justci built an MCP server and reverted it (<Issue n={22} repo="juspay/justci" label="MCP server for ci" />, <PrLink pr={18} repo="juspay/justci" />) because launching its server *auto-ran every recipe* — a runner that owns the DAG as idle state has start/serve separation by construction, and Phase 0 merely promotes that property from "by construction" to "by contract." Second, the execution half doesn't move: the DAG machinery, platform lanes over `HostSession`, status posting, and per-SHA logs are the proven substrate — they get *spawned into* the server instead of *being* the process.
+
+The MCP face simplifies as a side effect: `run` stops being the odd tool that forks a process and becomes the same thin projection as the other four — and `wait_for_settle` can finally outlive the thing it waits on without holding the coordinator's stdio hostage.
+
+## Run identity — the tuple a ledger can hold
+
+odu's surface today is implicitly singular: *the* `nodes` cell, *the* `nodeLog` stream — correct while the coordinator and the run are the same object, meaningless the moment one server hosts run 46 and run 47. [odu-web](./odu-web.html)'s ledger and run pages need to reference runs from outside any process lifetime, which sets the requirement: identity must be **mintable by the runner, durable in the trail, and meaningful in a URL**.
+
+The tuple is `(repo, sha, seq)` — `seq` because the same SHA runs more than once (a rerun after an infra flake is a *new run*, not a mutation of the old one's history) — and `node` addresses within a run. On the surface this lands as one new collection and a scope parameter on the existing primitives:
+
+| Surface call | Today | After Phase 0 |
+| --- | --- | --- |
+| `runs.get({})` | — | New cell: every run the server knows — identity, ref, verdict, timestamps. The idle-attach screen and odu-web's ledger ingest are both projections of it. |
+| `nodes.get({})` | The run's nodes | `nodes.get({ run? })` — defaults to the latest run, so every shipped face keeps working unmodified. |
+| `nodeLog.get({ id })` | The run's node log | `nodeLog.get({ run?, id })` — same default. |
+| `node.rerun({ id })` | Reset + reschedule | Unchanged semantics, latest-run scope; rerunning a *finished* run's node means starting a new run (a `seq` bump), keeping history append-only. |
+
+The defaulting rule is the compatibility story: latest-run scope is exactly today's behavior, so the TUI, the `/ci` skill, and the MCP tools are correct on day one, and grow `run` parameters at leisure. The append-only rule is the ledger story: odu-web never has to model "history changed," only "a run was added" — which is also what keeps the per-SHA on-disk trail (already durable past runner death, by Phase 1 design) a faithful serialization of the same identity rather than a second bookkeeping scheme.
+
+## Lifecycle and pricing — who keeps it alive
+
+A long-lived process is a cost, and [the odu note](./odu.html) priced the warning into its own roadmap: *"price the idle-runner lifecycle against the warm pu-box pool."* The pool (`kolu-ci-1..8`, leased via `ci/pu/lease.sh`) already solved the adjacent problem — keep the *expensive* thing warm (a Nix store on a Linux box) so the *cheap* thing (a run) starts fast. Phase 0 should not blur that: the coordinator is not the expensive thing. It is a small node process serving a socket, and its lifecycle has three honest options, not one:
+
+- **Foreground, operator-owned** — `odu serve` in a terminal (or under the kolu app), dying with the session. Zero new infrastructure; idle attach works while you work. The right default for the single-operator loop, and Phase 0's exit bar.
+- **Supervised, machine-owned** — a home-manager / systemd unit, already named on odu's graduation roadmap. The right shape *under odu-web*, where the server and the service share a host and the unit is the service's substrate, not the operator's.
+- **On-demand with durable trail** — no resident process at all: `run` auto-starts a server that lingers (idle timeout) and exits, because the ledger — not the live server — is what answers history questions. This is the honest fallback that keeps "no daemon to register" true for casual consumers of `nix run github:juspay/odu`.
+
+Crash semantics follow the same line the gate half already drew: a dying lane posts `error`/`Errored` rather than wedging (shipped in Phase 1 of the odu plan), and a dying *server* must degrade the same way — in-flight runs marked errored in the trail, finished runs untouched, restart resuming an empty-but-serving state. **Runner-restart survival of *live* state stays out of scope**, exactly as the odu ledger scoped it: the durable artifact is the trail, and resurrection of a half-run DAG buys complexity that a `seq`-bump rerun buys back for free.
+
+## Phases
+
+Each lands alone; together they retire odu-web's Phase 0 row.
+
+<Roadmap>
+  <Milestone status="next" label="R1 · the serve/run split">`odu serve` owns `.ci/odu.sock`; `run` becomes a surface procedure; the CLI keeps its exact UX by ensuring a server before invoking it. The MCP face's `run` tool becomes a thin projection like its siblings. **Exit: `odu attach` connects with nothing running** and shows a (possibly empty) runs list.</Milestone>
+  <Milestone status="next" label="R2 · run identity">The `runs` cell; `(repo, sha, seq)` minted by the server and serialized into the per-SHA trail; `nodes` / `nodeLog` / `rerun` gain optional run scope with latest-run defaults so every shipped face is unmodified-correct. **Exit: a run started by the CLI and one by MCP land in one list with stable ids** — the ids odu-web Phase 1 puts in ledger rows and `target_url`s.</Milestone>
+  <Milestone status="next" label="R3 · lifecycle, crash semantics, pricing">The three lifecycle modes made real: foreground default, the home-manager unit (graduation roadmap item), idle-timeout auto-serve as the no-daemon fallback. Server death marks in-flight runs errored in the trail and restarts clean. The pricing note written against the warm pu-box pool: what stays warm, what spawns, and why the coordinator is never the expensive half. **Exit: kill the server mid-run — the trail shows errored, restart serves history, nothing wedges.**</Milestone>
+</Roadmap>
