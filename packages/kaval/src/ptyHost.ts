@@ -416,6 +416,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       cols,
       rows,
       scrollback,
+      // Match the client (Terminal.tsx): rewrap the cursor's wrapped line on a
+      // narrowing resize instead of truncating it. The serialized snapshot this
+      // terminal produces is the scrollback a client restores on attach/
+      // reconnect, so a URL left on the cursor line when the PTY resizes must
+      // survive here too — otherwise the restored buffer hands back a clipped
+      // link even though the live client got it right.
+      reflowCursorLine: true,
       allowProposedApi: true,
     });
     const serialize = new SerializeAddon();
