@@ -57,4 +57,23 @@ describe("serveOverStdio — settled-result contract", () => {
     read.destroy(reset);
     await expect(serving).resolves.toEqual({ reason: "error", error: reset });
   });
+
+  it("resolves — never rejects — when the WRITE stream errors (broken stdout pipe)", async () => {
+    // The write half is the symmetric footgun to the read half above: our
+    // stdout pipe can break (the parent exited, the unix-socket peer reset)
+    // while the read half is still open. A failed write emits 'error' on the
+    // write stream, and an 'error' with no listener is a hard crash — the
+    // same `process.exit(1)`-on-unhandled death the read side already guards.
+    // Serving must end the same way a read death ends it: a settled
+    // `{ reason: "error", error }`, never a crash.
+    const read = new PassThrough();
+    const write = new PassThrough();
+    const serving = serveOverStdio({
+      router: buildRouter(),
+      transport: { read, write },
+    });
+    const broken = new Error("write EPIPE");
+    write.destroy(broken);
+    await expect(serving).resolves.toEqual({ reason: "error", error: broken });
+  });
 });

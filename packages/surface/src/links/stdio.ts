@@ -37,7 +37,7 @@ import type {
 import { ClientPeer } from "@orpc/standard-server-peer";
 import { SURFACE_STDIO_TRANSPORT_CLOSED, deadTransportError } from "../client";
 import { wireClient, wireRetryPlugins } from "./_wire";
-import { encodeFrame, readFramedLines } from "./stdio-codec";
+import { readFramedLines, writeFramedMessage } from "./stdio-codec";
 
 /** A `Readable`/`Writable` pair the link reads and writes from. */
 export interface StdioLinkOptions {
@@ -72,13 +72,28 @@ export class LinkStdioClient<T extends ClientContext>
   private closed = false;
 
   constructor(opts: StdioLinkOptions) {
-    this.peer = new ClientPeer(async (message) => {
-      const line = `${encodeFrame(message)}\n`;
-      await new Promise<void>((resolve, reject) => {
-        opts.write.write(line, (err) =>
-          err == null ? resolve() : reject(err),
-        );
-      });
+    this.peer = new ClientPeer((message) =>
+      writeFramedMessage(opts.write, message),
+    );
+    // The write half needs its own 'error' sink. A failed `write()` already
+    // rejects the in-flight frame through the callback above, but Node ALSO
+    // emits 'error' on the stream itself — and an 'error' event with no
+    // listener is a hard process crash, not a catchable rejection. The pipe
+    // torn down mid-write is the routine case, not the exotic one: the ssh
+    // transport drops, or the peer exits and our `write` is its now-closed
+    // stdin, and the next frame raises EPIPE. Without this listener that
+    // EPIPE takes the whole process down (it felled a consumer's coordinator
+    // on teardown — destroying the lane mid-write, the unhandled 'error'
+    // crashed the process). A write error means one thing — the transport is
+    // gone — so route it through the same teardown the inbound stream's
+    // end/error takes: mark the link closed so later `call()`s reject fast
+    // instead of limping on a dead pipe. Symmetric with the read half's
+    // `read.on("error", …)` guard in `stdio-codec.ts`.
+    opts.write.on("error", (err) => {
+      process.stderr.write(
+        `[@kolu/surface/links/stdio] outbound write error: ${(err as Error).message}\n`,
+      );
+      this.handleTransportClosed();
     });
     readFramedLines(opts.read, (frame) => {
       // Swallow per-frame parse errors. A bad inbound frame is most

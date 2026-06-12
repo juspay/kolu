@@ -17,7 +17,7 @@
  * to the original `Uint8Array` the peer expects.
  */
 
-import type { Readable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import { ORPCError } from "@orpc/client";
 
 /** Encode a single peer message into a single base64 line (no trailing
@@ -41,6 +41,32 @@ export function encodeFrame(
 /** Decode one base64 line back into a `Uint8Array` for the peer codec. */
 export function decodeFrame(line: string): Uint8Array {
   return new Uint8Array(Buffer.from(line, "base64"));
+}
+
+/** Frame one peer message and write it to `write` as a single base64 line.
+ *  The write half's counterpart to `encodeFrame` + the newline delimiter:
+ *  it keeps the wire framing (`encodeFrame(message)` + `"\n"`) in the codec's
+ *  one home rather than open-coded at each call site — the client link and
+ *  the server peer both send through here so the delimiter/encoding can never
+ *  drift between them.
+ *
+ *  Deliberately framing-only: it resolves/rejects on the *write callback*
+ *  (this one frame flushed, or it didn't), and attaches NO stream `'error'`
+ *  listener. A dead write stream is a transport-lifecycle concern whose
+ *  response differs per consumer (the client closes its link; the server
+ *  ends its serve loop), so each side owns that guard locally — see the
+ *  `write.on("error", …)` handlers in `./stdio.ts` and `../peer-server.ts`.
+ *  The read half splits the same way: `decodeFrame` is framing, the
+ *  `read.on("error", …)` in `readFramedLines` is lifecycle. */
+export function writeFramedMessage(
+  write: Writable,
+  message: string | ArrayBufferLike | Uint8Array,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    write.write(`${encodeFrame(message)}\n`, (err) =>
+      err == null ? resolve() : reject(err),
+    );
+  });
 }
 
 /** Read line-delimited frames off `read` until the stream ends. Each

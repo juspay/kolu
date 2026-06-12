@@ -69,7 +69,7 @@ import {
   type HandleStandardServerPeerMessageOptions,
 } from "@orpc/server/standard-peer";
 import { ServerPeer } from "@orpc/standard-server-peer";
-import { encodeFrame, readFramedLines } from "./links/stdio-codec";
+import { readFramedLines, writeFramedMessage } from "./links/stdio-codec";
 
 /** Transport override for `serveOverStdio`. Default is `process.stdin`
  *  for `read` and `process.stdout` for `write`. */
@@ -153,14 +153,28 @@ export function serveOverStdio<T extends Context>(
   const handler = new StandardRPCHandler<T>(opts.router, opts.handlerOptions);
   let firstRequestSeen = false;
 
-  const writeLine = (line: string): Promise<void> =>
-    new Promise<void>((resolve, reject) => {
-      transport.write.write(`${line}\n`, (err) =>
-        err == null ? resolve() : reject(err),
-      );
-    });
+  // Symmetric to the client link's write guard (`links/stdio.ts`). A failed
+  // `write()` rejects the in-flight frame (the `writeFramedMessage` Promise
+  // below), but Node also emits 'error' on the write stream, and an unhandled
+  // 'error' is a hard crash — the very `process.exit(1)`-on-unhandled footgun
+  // this module already closes for the *read* side (see `ServeOverStdioEnd`).
+  // When our stdout pipe breaks (the parent died, the unix-socket peer reset),
+  // serving must end the same way a read-side death ends it, not crash the
+  // agent. Funnel the write error into the read stream's teardown so the
+  // returned promise settles `{ reason: "error", error }` exactly as a read
+  // error does — one teardown path, both directions. Guarded so a torn pipe
+  // that kills both halves at once doesn't double-destroy.
+  //
+  // This 'error' lifecycle guard stays here, not in the codec's
+  // `writeFramedMessage` (which is framing-only on purpose): the teardown
+  // response is consumer-specific (the client closes its link instead).
+  transport.write.on("error", (err) => {
+    if (!transport.read.destroyed) transport.read.destroy(err);
+  });
 
-  const peer = new ServerPeer((message) => writeLine(encodeFrame(message)));
+  const peer = new ServerPeer((message) =>
+    writeFramedMessage(transport.write, message),
+  );
 
   return readFramedLines(transport.read, (frame) => {
     if (!firstRequestSeen) {

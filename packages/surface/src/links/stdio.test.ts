@@ -11,6 +11,7 @@
  * than hanging.
  */
 
+import { PassThrough } from "node:stream";
 import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { describe, expect, it } from "vitest";
@@ -246,5 +247,44 @@ describe("stdio link over loopback", () => {
 
     pair.client.write.end();
     await serveDone;
+  });
+
+  it("does not crash when the write stream errors — closes the link instead (EPIPE guard)", async () => {
+    // Write-side teardown regression: the link writes outbound frames to a
+    // stream that can die under it (the ssh pipe drops, the peer exits and
+    // our `write` is its now-closed stdin). A failed write makes Node emit
+    // 'error' on the write stream, and an 'error' with no listener is a hard
+    // process crash — not a rejection a consumer can catch. A coordinator
+    // that destroyed its lane mid-write used to be felled by exactly this.
+    // The link must instead treat the write death as transport death and
+    // close itself, so a fresh RPC rejects fast rather than the process
+    // crashing.
+    //
+    // The write stream here is ISOLATED — a standalone Writable whose ONLY
+    // 'error' listener is the link's own guard — deliberately NOT a
+    // `createLoopbackPair()`. In a loopback pair the client's write IS the
+    // server's read, and `serveOverStdio` attaches a read-side 'error'
+    // listener to that same stream; that listener would absorb the destroy
+    // and the test would pass even with the link's guard removed, proving
+    // nothing. With an isolated write stream, removing the guard makes
+    // `destroy(err)` an uncaught 'error' that crashes this test — so the
+    // green run is genuine evidence the guard is load-bearing.
+    const contract = {
+      ping: oc.input(z.object({})).output(z.string()),
+    };
+
+    const read = new PassThrough(); // inbound — never fed; the link stays open
+    const write = new PassThrough(); // outbound — isolated; only the link listens
+    const client = stdioLink<typeof contract>({ read, write });
+
+    // The write half dies under us. With no guard this 'error' is unhandled
+    // (an uncaught error that fails the test); with it the link closes. Let
+    // the event settle before the next call.
+    write.destroy(new Error("EPIPE: write to a broken pipe"));
+    await new Promise((r) => setImmediate(r));
+
+    // The link is now closed: a fresh RPC rejects fast rather than hanging
+    // (or crashing).
+    await expect(client.ping({})).rejects.toThrow();
   });
 });
