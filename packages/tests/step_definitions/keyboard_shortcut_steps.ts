@@ -82,20 +82,24 @@ When("I press the find shortcut", async function (this: KoluWorld) {
 //
 // The listener is NOT `{ once: true }`: Playwright presses `Control`/`Meta`
 // down before `f`, so a one-shot listener would be consumed by the modifier's
-// own keydown and never see the `f` event. Instead we keep listening until the
-// matching Cmd/Ctrl+F keydown arrives, record it, then self-remove.
+// own keydown and never see the `f` event. Instead it stays installed and only
+// records the matching Cmd/Ctrl+F keydown (overwrite-on-match — the lone press
+// yields one matching event; the listener leaks harmlessly on the per-scenario
+// page). It MUST be an anonymous inline arrow: a named inner function/binding
+// makes tsx/esbuild inject a `__name(...)` call that is undefined in the page
+// context, so `page.evaluate` throws `ReferenceError: __name is not defined`
+// (the same trap `SHADOW_DFS_FN_SRC` in code_tab_steps.ts dodges via a string).
 When(
   "I press the find shortcut, watching for native handoff",
   async function (this: KoluWorld) {
     await this.page.evaluate(() => {
       const w = window as unknown as { __findDefaultPrevented?: boolean };
-      const onKeyDown = (e: KeyboardEvent) => {
+      w.__findDefaultPrevented = undefined;
+      window.addEventListener("keydown", (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
           w.__findDefaultPrevented = e.defaultPrevented;
-          window.removeEventListener("keydown", onKeyDown);
         }
-      };
-      window.addEventListener("keydown", onKeyDown);
+      });
     });
     await this.page.keyboard.press(`${MOD_KEY}+f`);
     await this.waitForFrame();
