@@ -29,6 +29,7 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
+    "@kolu/surface-daemon-supervisor": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",

@@ -31,6 +31,7 @@ import {
   defineBuildInfo,
   surfaceAppSurfaceWith,
 } from "@kolu/surface-app/surface";
+import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
@@ -594,7 +595,11 @@ export const PtyHostIdentitySchema = z.object({
  *  down" distinguishable from "you have no terminals" (B2, the empty-canvas-lie
  *  fix). `identity`/`startedAt` are present once `connected`. */
 export const DaemonStatusSchema = z.object({
-  state: z.enum(["connecting", "connected", "degraded", "dead"]),
+  // The state set is the spine's volatility — derive the enum from the
+  // supervisor's `ENDPOINT_STATES` so a new endpoint state is a compile-time
+  // obligation here, not a silently-dropped wire member. The `identity` arm
+  // below stays kolu's (it is the soul).
+  state: z.enum(ENDPOINT_STATES),
   identity: PtyHostIdentitySchema.optional(),
   /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
   startedAt: z.number().optional(),

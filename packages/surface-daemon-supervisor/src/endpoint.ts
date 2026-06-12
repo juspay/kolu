@@ -31,7 +31,18 @@ import { gatePid, isHolderLive, type Logger } from "@kolu/surface-daemon";
 import type { DaemonDriver } from "./driver.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
-export type EndpointState = "connecting" | "connected" | "degraded" | "dead";
+/** The set of daemon states the endpoint reports — the single source of truth.
+ *  Consumers that re-shape this surface (e.g. kolu's `DaemonStatusSchema`) derive
+ *  their state enum from this tuple so a new state is a compile-time obligation,
+ *  not a silent omission. */
+export const ENDPOINT_STATES = [
+  "connecting",
+  "connected",
+  "degraded",
+  "dead",
+] as const;
+
+export type EndpointState = (typeof ENDPOINT_STATES)[number];
 
 export interface EndpointStatus<I> {
   state: EndpointState;

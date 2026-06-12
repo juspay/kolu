@@ -25,6 +25,7 @@ export {
   type EndpointSpec,
   type EndpointState,
   type EndpointStatus,
+  ENDPOINT_STATES,
   createEndpoint,
 } from "./endpoint.ts";
 export {
