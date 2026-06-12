@@ -96,9 +96,9 @@ The production failures — four from #1034, four more paid for during #1275 —
 
 No feature flags — each PR ships complete to master and leaves kolu working. The hazard rule, refined from the first attempt: **each PR must be complete w.r.t. the hazards *it* opens** — B0 opens none (an in-process refactor with byte-identical behavior), and the door can open with the survival promise off, which empties its hazard set by policy. Each brief below is written to be executed end-to-end by a single agent session; the **Traps** lists are load-bearing — they encode the exact failure modes already paid for.
 
-### B0 — the inversion: dumb wire, client policy <Pill variant="todo">next</Pill>
+### B0 — the inversion: dumb wire, client policy <Pill variant="done">in review</Pill>
 
-**Goal:** flip who owns spawn policy. The pty-host's wire becomes **fully specified** — the daemon spawns exactly what it is told and asks no questions — and every kolu-ism moves to (or stays in) kolu's tier. In-process only; **zero user-visible change; zero new processes.** This is the contract change, made at the one moment it is free: no daemon exists yet, no survivors, both consumers in-repo.
+**Goal:** flip who owns spawn policy. The pty-host's wire becomes **fully specified** — the daemon spawns exactly what it is told and asks no questions — and every kolu-ism moves to (or stays in) kolu's tier. In-process only; **zero user-visible change; zero new processes.** This is the contract change, made at the one moment it is free: no daemon exists yet, no survivors, both consumers in-repo. Shipped in <PrLink pr={1292} />.
 
 Deliverables:
 
