@@ -53,7 +53,7 @@ import {
 import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
-import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost.ts";
+import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
@@ -122,27 +122,6 @@ const localGit: TerminalBackendGit = {
     return unwrapGit(await getDiff(repoPath, filePath, mode, log, oldPath));
   },
 };
-
-/** The in-process pty-host's self-declared identity (its own commit + closure
- *  staleKey), fetched once at boot through the contract. Surfaced on
- *  `server.info` for the ChromeBar's `srv · pty` rail.
- *
- *  Fires at module load (`router.ts` imports this module eagerly). The
- *  `directLink` call has no wire, so it settles on the next microtask and
- *  `server.info` never actually waits; the `.catch` keeps a failed `version()`
- *  from rejecting the info handler (`ptyHost` is optional on the wire). Phase
- *  B's socket variant should revisit this with a timeout — remote latency is
- *  real then. */
-export const ptyHostIdentity = ptyHostClient.surface.system
-  .version({})
-  .then((v) => v.identity)
-  .catch((err) => {
-    log.warn(
-      { err },
-      "pty-host version() failed at boot; identity unavailable",
-    );
-    return undefined;
-  });
 
 // ── The contract-backed terminal handle ─────────────────────────────────
 

@@ -629,6 +629,9 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../surface-app
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../surface-daemon-supervisor
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
@@ -1006,6 +1009,22 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.20.1)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/surface-daemon-supervisor:
+    dependencies:
+      '@kolu/surface-daemon':
+        specifier: workspace:*
+        version: link:../surface-daemon
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

@@ -142,6 +142,34 @@ process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
  *  `testBaseDir` means the whole run's scratch space cleans up together. */
 const koluStateDir = mkSubDir("state");
 
+/** Per-worker `XDG_RUNTIME_DIR` so each worker's kolu-server spawns its kaval
+ *  daemon at an ISOLATED socket + gate (`$XDG_RUNTIME_DIR/kaval/...`). Without
+ *  this, parallel workers collide on the shared runtime socket and the
+ *  single-instance gate makes worker 2's kaval yield to worker 1's — the same
+ *  foreign-server hazard the HTTP-port ownership check guards against. 0700
+ *  because the daemon refuses a gate dir that isn't owner-only. */
+const runtimeDir = mkSubDir("runtime");
+fs.chmodSync(runtimeDir, 0o700);
+
+/** SIGKILL the kaval daemon this worker's server spawned (it is detached, so it
+ *  outlives the server — B2 makes no survival promise, but the harness must not
+ *  leak it across runs). Reads the gate kaval wrote beside its socket; returns
+ *  the killed pid, or undefined if there was nothing to reap. Also the
+ *  `pkill kaval mid-session` step's mechanism for the degraded-state e2e. */
+export function killKavalDaemon(): number | undefined {
+  const gate = path.join(runtimeDir, "kaval", "kaval.pid");
+  try {
+    const pid = Number.parseInt(fs.readFileSync(gate, "utf8").trim(), 10);
+    if (Number.isInteger(pid) && pid > 0) {
+      process.kill(pid, "SIGKILL");
+      return pid;
+    }
+  } catch {
+    // No gate / already gone / not ours — nothing to reap.
+  }
+  return undefined;
+}
+
 /** PR-evidence capture (set `KOLU_EVIDENCE=1`): record a Playwright video per
  *  scenario and save it, scenario-named, under `reports/videos/` for the /do
  *  evidence flow to transcode + upload (the same GIF/Pages-player delivery the
@@ -356,12 +384,14 @@ function httpGet(url: string): Promise<{ ok: boolean }> {
   });
 }
 
-/** Kill the server child on any exit path (crash, SIGINT, SIGTERM). */
+/** Kill the server child on any exit path (crash, SIGINT, SIGTERM), then reap
+ *  the kaval daemon it spawned (detached, so it survives the server). */
 function killServer() {
   if (serverProcess) {
     serverProcess.kill("SIGTERM");
     serverProcess = undefined;
   }
+  killKavalDaemon();
 }
 process.on("exit", killServer);
 
@@ -550,6 +580,13 @@ BeforeAll(async () => {
             // Route server state to an ephemeral $TMPDIR path so test runs
             // never touch ~/.config and the dir can be wiped in AfterAll.
             KOLU_STATE_DIR: koluStateDir,
+            // Per-worker runtime dir → an isolated kaval socket + gate, so
+            // parallel workers' daemons never collide on the shared path.
+            XDG_RUNTIME_DIR: runtimeDir,
+            // Force a detached kaval spawn: e2e reaps the daemon itself and may
+            // run on a box with no systemd user session (where the production
+            // `systemd-run --user` path would fail).
+            KOLU_KAVAL_SPAWN: "detached",
             // The agent-dir overrides, derived once above: temp dirs normally,
             // all-undefined under X11CAP so the `...process.env` spread can't
             // re-introduce an inherited value and the server watches the real

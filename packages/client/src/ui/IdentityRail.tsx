@@ -1,35 +1,27 @@
 /** IdentityRail — the consolidated "which kolu am I running" chrome readout
- *  (R-4 A2). Replaces the standalone WebSocket dot with a two-column
- *  `srv · pty` rail: `srv` is the server you're connected to (its commit + the
- *  WebSocket liveness dot), `pty` is the pty-host serving your terminals (its
- *  commit + the closure-hash build, sourced from surface-app's `buildInfo`
- *  cell's `ptyHost` axis — pushed by the server once the in-process pty-host
- *  reports its identity at boot).
+ *  (R-4 A2, extended in B2). A three-column `srv · client · kaval` rail:
+ *  `srv` is the server you're connected to (its commit + the WebSocket liveness
+ *  dot), `client` is this browser's JS build, and `kaval` is the pty-host daemon
+ *  serving your terminals.
  *
- *  In A2 the pty-host is in-process, so the two columns coincide — an
- *  `≡ in-process` tag links them, and the match is the acceptance signal that
- *  the identity plumbing works end to end. Phase B gives `pty` a separate
- *  surviving process; only then can its column diverge (outdated / dead). Those
- *  branches are intentionally absent here — nothing can diverge from itself —
- *  and land with B's read-site `staleKey !== currentBuildId()` derivation, with
- *  no re-layout.
+ *  Before B2 the pty-host ran in-process, so its column was a no-op duplicate of
+ *  `srv` and stayed commented out. B2 makes kaval a separate, spawned daemon, so
+ *  the column is live: its **dot** is the supervisor's honest daemon state
+ *  (`connected`/`degraded`/`dead` — not the WebSocket's), its **uptime** is
+ *  derived from the daemon's `startedAt`, and its commit + closure-hash come from
+ *  surface-app's `buildInfo.ptyHost` axis (the staleKey the B-phase "update
+ *  pending" derivation will read). The daemon state rides the `daemonStatus`
+ *  surface collection (`useDaemonStatus`), not a prop, so desktop and mobile
+ *  chrome read the same source.
  *
- *  The rail renders `srv` and `client`: the `pty` column and `≡ in-process`
- *  tag are commented out below (a no-op duplicate of `srv` while the pty-host
- *  is in-process) and a follow-up PR uncomments them once the pty-host lands as
- *  a separate, divergeable process.
- *
- *  The `client` column is the commit this browser's JS was built from
- *  (`useSurfaceApp().clientCommit`, baked in at build time as
- *  `__SURFACE_APP_COMMIT__`). Surfacing it next to `srv`
- *  makes a stale client — an old bundle served from browser cache against a
- *  freshly deployed server — visible at a glance: when both refs are clean and
- *  disagree the column flags `≠ srv` (a mismatch; the two hashes prove
- *  difference, not which is newer). */
+ *  The `client` column is the commit this browser's JS was built from; when both
+ *  refs are clean and disagree it flags `≠ srv` (a stale bundle served from
+ *  cache against a freshly deployed server). */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import type { KoluBuildInfo } from "kolu-common/surface";
-import { type Component, Show } from "solid-js";
+import type { DaemonState, KoluBuildInfo } from "kolu-common/surface";
+import { type Component, createSignal, Show } from "solid-js";
+import { localDaemonStatus } from "../useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
 import { clientStale, StaleBadge } from "./StaleBadge";
@@ -42,55 +34,56 @@ const srvDot: Record<WsStatus, string> = {
   closed: "bg-danger",
 };
 
-// --- pty column (remote-terminals, Phase B) -------------------------------
-// The `srv · pty` rail collapses to `srv`-only until the pty-host is a real
-// surviving process whose commit can diverge from the server's. The pty
-// column, its divider, and the `≡ in-process` coincidence tag — plus the
-// helpers they need — are kept here verbatim so a future PR can uncomment.
-//
-// /** Short-form a build id for display: a nix store hash's leading 7 chars, or
-//  *  a path basename capped at 12. The full id lives in the tooltip. */
-// function shortId(id: string | null | undefined): string {
-//   if (!id) return "—";
-//   const hash = /^([a-z0-9]{7})/.exec(id);
-//   if (hash) return hash[1] as string;
-//   const tail = id.split("/").pop() ?? id;
-//   return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
-// }
-//
-// /** pty-host liveness dot in A2: mirrors the WebSocket status but with a
-//  *  different "closed" value — grey ("unknown") rather than red, because with
-//  *  the link down we can't claim pty state. Phase B replaces "closed" with a
-//  *  real daemon-state derivation (connected | outdated | dead). */
-// const ptyDot: Record<WsStatus, string> = {
-//   open: "bg-ok",
-//   connecting: "bg-warning animate-pulse",
-//   closed: "bg-fg-3/50", // link down → pty state unknown, not dead
-// };
-// --------------------------------------------------------------------------
+/** The daemon's honest state → the `kaval` dot. Distinct from the WebSocket dot:
+ *  a live WS link says nothing about whether the daemon behind the server is up.
+ *  Undefined (status still loading) is grey, not red — we don't claim "dead"
+ *  before the first yield. */
+function kavalDot(state: DaemonState | undefined): string {
+  switch (state) {
+    case "connected":
+      return "bg-ok";
+    case "connecting":
+      return "bg-warning animate-pulse";
+    case "degraded":
+    case "dead":
+      return "bg-danger";
+    default:
+      return "bg-fg-3/50";
+  }
+}
+
+/** Short-form a build id for display: a nix store hash's leading 7 chars, or a
+ *  path basename capped at 12. The full id lives in the tooltip. */
+function shortId(id: string | null | undefined): string {
+  if (!id) return "—";
+  const hash = /^([a-z0-9]{7})/.exec(id);
+  if (hash) return hash[1] as string;
+  const tail = id.split("/").pop() ?? id;
+  return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
+}
+
+/** Compact human uptime from a boot epoch — `45s`, `12m`, `3h 20m`, `2d 4h`. */
+function formatUptime(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ${min % 60}m`;
+  return `${Math.floor(hr / 24)}d ${hr % 24}h`;
+}
+
+// A coarse 30s clock so the kaval uptime advances without a per-second timer.
+// Module-level so the desktop + mobile rails share one interval.
+const [clockNow, setClockNow] = createSignal(Date.now());
+setInterval(() => setClockNow(Date.now()), 30_000);
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
-  // The server's build identity (commit + the in-process pty-host column) rides
-  // surface-app's `buildInfo` cell, surfaced by the headless model — the same
-  // value `stale` is derived from. `clientCommit` is this bundle's baked commit.
+  // The server's build identity (commit + the pty-host column) rides
+  // surface-app's `buildInfo` cell; `clientCommit` is this bundle's baked commit.
   const pwa = useSurfaceApp<KoluBuildInfo>();
-  // srv and pty coincide when connected and the relayed pty commit equals the
-  // server's own — the A2 acceptance signal that the plumbing agrees. A plain
-  // function (single consumer, per solidjs.md); still reactive inside <Show>.
-  // Restore alongside the pty column below.
-  // const coincident = () => {
-  //   const i = pwa.server();
-  //   return (
-  //     props.status === "open" &&
-  //     !!i?.ptyHost &&
-  //     i.commit === i.ptyHost.navigableCommit
-  //   );
-  // };
-
   // A genuinely outdated client — old bundle against a freshly deployed server.
-  // Shared with the mobile chrome via `StaleBadge`; the derivation is now
-  // surface-app's headless model (`useSurfaceApp().stale()`), so desktop and
-  // mobile flag the same thing the same way.
+  // Shared with the mobile chrome via `StaleBadge`.
   const stale = clientStale;
 
   return (
@@ -124,39 +117,37 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           </Tip>
         </Show>
       </span>
-      {/* pty column + `≡ in-process` tag — hidden until the pty-host is a
-          separate process (remote-terminals Phase B). Uncomment with the
-          helpers and `Show` import above.
-
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
-        <span class="text-[9px] uppercase tracking-wide text-fg-3">pty</span>
-        <Tip label="Terminal host (in-process)">
+        <span class="text-[9px] uppercase tracking-wide text-fg-3">kaval</span>
+        <Tip label="Terminal daemon (kaval) — the process that owns your shells">
           <span
-            class={`inline-block h-[7px] w-[7px] rounded-full ${ptyDot[props.status]}`}
+            data-daemon-state={localDaemonStatus()?.state ?? "unknown"}
+            class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(
+              localDaemonStatus()?.state,
+            )}`}
           />
         </Tip>
         <Commit sha={pwa.server()?.ptyHost?.navigableCommit} />
         <Show when={pwa.server()?.ptyHost?.staleKey}>
           {(key) => (
-            <Tip
-              label={`build ${key()} — @kolu/pty-host closure hash (staleness key)`}
-            >
+            <Tip label={`build ${key()} — kaval closure hash (staleness key)`}>
               <span class="cursor-help border-b border-dotted border-fg-3/50 text-[10px] text-fg-3">
                 {shortId(key())}
               </span>
             </Tip>
           )}
         </Show>
+        <Show when={localDaemonStatus()?.startedAt}>
+          {(startedAt) => (
+            <Tip label="How long this kaval daemon has been running">
+              <span class="tabular-nums text-[10px] text-fg-3">
+                {formatUptime(clockNow() - startedAt())}
+              </span>
+            </Tip>
+          )}
+        </Show>
       </span>
-      <Show when={coincident()}>
-        <Tip label="srv and pty are the same process in A2">
-          <span class="ml-1 self-center rounded-full border border-accent/40 px-1.5 text-[9px] leading-4 text-accent">
-            ≡ in-process
-          </span>
-        </Tip>
-      </Show>
-      */}
     </div>
   );
 };

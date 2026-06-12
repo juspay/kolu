@@ -2,7 +2,6 @@ import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
-import { getPtyHostSocketPath, servePtyHostOverUnixSocket } from "kaval";
 import { createDirServer } from "@kolu/serve-dir";
 import {
   gateStaleSocket,
@@ -32,7 +31,8 @@ import {
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
-import { ptyHostServedRouter } from "./ptyHost.ts";
+import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
+import { ensureLocalEndpoint } from "./ptyHost/index.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
@@ -76,11 +76,6 @@ const argv = cli({
       type: String,
       description:
         "Allow running inside a nix shell, forwarding only these comma-separated env vars to PTY shells (dev/test only). Uses built-in default list if set to 'default'.",
-    },
-    ptyHostSocket: {
-      type: String,
-      description:
-        "Path for the pty-host unix socket that kaval-tui connects to (default $XDG_RUNTIME_DIR/kolu/pty-host.sock).",
     },
   },
   strictFlags: true,
@@ -290,6 +285,15 @@ if (clientDist) {
   installFreshStatic(app, { root: clientDist, serviceWorker: "notify" });
 }
 
+// --- pty-host daemon (kaval) endpoint, B2 "the door" ---
+// Flip the topology: instead of running the pty-host in-process and serving it
+// on a socket, the server SPAWNS a `kaval` daemon (always-recycle boot policy)
+// and becomes its client. Awaited before the HTTP server starts so no terminal
+// RPC can race an unready endpoint; a boot failure reports `dead` (not a crash),
+// so the server still listens and the UI honestly shows the down state. `kaval`
+// serves its own socket, which `kaval-tui` now reaches with no `--socket` flag.
+await ensureLocalEndpoint({ onStatus: publishDaemonStatus });
+
 // --- TLS setup ---
 const { host, port } = argv.flags;
 const tlsOptions = await resolveTlsOptions(argv.flags);
@@ -390,15 +394,3 @@ server.on("upgrade", (req, socket, head) => {
     socket.destroy();
   }
 });
-
-// --- pty-host unix socket (kaval-tui, R-4 Phase 1) ---
-// One additive listener serving the SAME in-process pty-host router the web
-// path uses (./ptyHost.ts), so `kaval-tui` can list/snapshot the live PTYs from
-// the shell. Independent of the HTTP/WS server; its socket lives outside
-// koluRoot, so it gets its own exit-time cleanup.
-const ptyHostSocketListener = await servePtyHostOverUnixSocket({
-  socketPath: getPtyHostSocketPath(argv.flags.ptyHostSocket),
-  router: ptyHostServedRouter,
-  log,
-});
-process.on("exit", () => ptyHostSocketListener.close());

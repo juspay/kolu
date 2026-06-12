@@ -589,6 +589,19 @@ export const PtyHostIdentitySchema = z.object({
   navigableCommit: z.string(),
 });
 
+/** The live state of one host's pty-host daemon (kaval), as the supervisor's
+ *  endpoint reports it — the honest-state surface that makes "the daemon is
+ *  down" distinguishable from "you have no terminals" (B2, the empty-canvas-lie
+ *  fix). `identity`/`startedAt` are present once `connected`. */
+export const DaemonStatusSchema = z.object({
+  state: z.enum(["connecting", "connected", "degraded", "dead"]),
+  identity: PtyHostIdentitySchema.optional(),
+  /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
+  startedAt: z.number().optional(),
+});
+export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
+export type DaemonState = DaemonStatus["state"];
+
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
    *  commit. Optional only in the library-seeded default (`{ commit }`); once
@@ -682,6 +695,16 @@ export const koluSurface = defineSurface({
       keySchema: TerminalIdSchema,
       schema: TerminalMetadataSchema,
       // Only the streaming reads are exposed; writes are server-internal.
+      verbs: ["keys", "get"],
+    },
+
+    /** Per-host pty-host daemon (kaval) status, keyed by hostId — a map of one
+     *  (`local`) today, host-count-agnostic by construction for R-2's ssh hosts.
+     *  The supervisor's endpoint is the sole writer (server-internal); the rail
+     *  and DegradedCanvas subscribe so the UI never lies about the daemon. */
+    daemonStatus: {
+      keySchema: z.string(),
+      schema: DaemonStatusSchema,
       verbs: ["keys", "get"],
     },
   },
