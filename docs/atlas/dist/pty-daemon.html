@@ -275,6 +275,7 @@
 <li>The pid-gate <strong>acquire</strong> side as an in-package module (the read side comes in B2, server-side).</li>
 <li>The rename: package <code>kaval</code>, bin <code>kaval</code>; env vars <code>KAVAL_BUILD_ID</code> / <code>KAVAL_COMMIT_HASH</code> (staleKey semantics unchanged: the nix hash of the package dir); nix wiring per the new-package checklist (<code>default.nix</code> fileset, lockfile, vitest).</li>
 <li><code>kaval-tui</code>: its own bin, dialing kaval’s socket by default, <code>--socket</code> flag to override (until B2, reaching a running kolu’s in-process terminals needs the explicit kolu path — it’s a standalone tool now, and that’s the point).</li>
+<li><strong>kolu-tui is dropped entirely</strong> — no compat bin, no alias; the website’s <code>/tui</code> page (<code>website/src/pages/tui.astro</code>) is rewritten around kaval + kaval-tui, presenting them as the standalone pair they now are.</li>
 <li><code>buildId.closure.test.ts</code> re-rooted at the daemon entry; every file in the package hashed and reachable-or-test — zero exceptions.</li>
 <li>Tests: gate-race choreography (A acquires → B exits 0 while A lives → A dies → C acquires → D exits 0); double-bind hits the socket’s <code>already-served</code> refusal as a second tripwire; <code>system.version</code> + <code>system.info</code> roundtrip over the socket.</li>
 </ul>
