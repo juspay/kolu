@@ -75,10 +75,12 @@ lint: install
 # Run server with auto-reload. Honors KOLU_DEV_SERVER_PORT if set (e.g. by
 # `just dev`), otherwise the server CLI falls back to its default port.
 # KOLU_PTY_HOST_BIN points the daemon spawn at the tsx dev launcher (production
-# bakes the nix wrapper path instead).
+# bakes the nix wrapper path instead). The daemon socket is isolated per dev
+# instance (keyed by the dev port, in a private 0700 dir) so a dev server never
+# collides with a production kolu on the default $XDG_RUNTIME_DIR/kolu socket.
 server:
     KOLU_PTY_HOST_BIN="$(git rev-parse --show-toplevel)/packages/pty-host/bin/kolu-pty-host" \
-      {{ nix_shell }} bash -c 'cd packages/server && pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
+      {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d" && chmod 700 "$d"; cd packages/server && pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT} --pty-host-socket "$d/pty-host.sock"'
 
 # Run client with Vite dev server (HMR)
 client:
