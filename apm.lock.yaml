@@ -125,7 +125,7 @@ dependencies:
   content_hash: sha256:55aa91acea2f65028147786dffec979d5c2f1b18f402ee441353dada10ffbb2a
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 6d53751b5fb42cc2c55b9072b314f3cdd0449ecb
+  resolved_commit: 81455051ccca654c57ad6088838c85e7248ac159
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -181,7 +181,7 @@ dependencies:
   - .opencode/agents/hickey.md
   - .opencode/agents/lowy.md
   deployed_file_hashes:
-    .agents/skills/code-police/SKILL.md: sha256:5a9f4ec8c2c2c44aaf7305561ee44884fbf551d45b27f94373eec49a18e5ad1f
+    .agents/skills/code-police/SKILL.md: sha256:8d188754eaf56063de720a0c02fa927db3b56ff5fa30d0e612893ca8798da899
     .agents/skills/do/SKILL.md: sha256:24e77e783759e1f2d20c1600f2f9fc800d950efd19b9ea23f8e232d29d6ae84d
     .agents/skills/do/scripts/do-results: sha256:2684dfce9cc7e4314d56c39edd5495628ac65d0631860e27e11f17fdcc0c7d49
     .agents/skills/do/scripts/steps/done: sha256:03513d90bea1357eef3379c5b4fee5e46fe2d67b41fe8cf8b52d4beba4c73c72
@@ -198,7 +198,7 @@ dependencies:
     .claude/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
     .claude/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
-    .claude/skills/code-police/SKILL.md: sha256:5a9f4ec8c2c2c44aaf7305561ee44884fbf551d45b27f94373eec49a18e5ad1f
+    .claude/skills/code-police/SKILL.md: sha256:8d188754eaf56063de720a0c02fa927db3b56ff5fa30d0e612893ca8798da899
     .claude/skills/do/SKILL.md: sha256:24e77e783759e1f2d20c1600f2f9fc800d950efd19b9ea23f8e232d29d6ae84d
     .claude/skills/do/scripts/do-results: sha256:2684dfce9cc7e4314d56c39edd5495628ac65d0631860e27e11f17fdcc0c7d49
     .claude/skills/do/scripts/steps/done: sha256:03513d90bea1357eef3379c5b4fee5e46fe2d67b41fe8cf8b52d4beba4c73c72
@@ -214,7 +214,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
-  content_hash: sha256:703dc7eb1a510ab80f5daa4cd7d9997ed1c748cb0942ff3ced88ac7bd062944b
+  content_hash: sha256:e2144eca9c2932044bde96b74db5a546a2cec052f747be926abfc638ab684db9
 mcp_servers:
 - chrome-devtools
 - odu
@@ -313,7 +313,7 @@ local_deployed_files:
 - .claude/skills/test/SKILL.md
 local_deployed_file_hashes:
   .agents/skills/atlas/SKILL.md: sha256:f47500c2738a00d15f996ba9f56a33442195c74b6300b73cf167b30b058c1ef1
-  .agents/skills/be-review/SKILL.md: sha256:89e7e1d6d5ab4832bb5015f0b5d6c2baccf04ed22130b606042d178af54217d4
+  .agents/skills/be-review/SKILL.md: sha256:9869bfec8241f0d03e54db1a673a932d0169c570f9ffd3d9144ab81f9011aabc
   .agents/skills/be/SKILL.md: sha256:c9d23a783bab82a358ffe9a3753352100805be34de3cae6d1e5baff11089533c
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .agents/skills/codex-debate/SKILL.md: sha256:595c607447a68fcade0983d8a411bec326be9cd1eb0fe06da05e83e9b6858ab7
@@ -347,7 +347,7 @@ local_deployed_file_hashes:
   .claude/rules/surface.md: sha256:2d6e1255e1e277ef8498b0e0e630b411155d35862c15532b253d96b244c8af89
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .claude/skills/atlas/SKILL.md: sha256:f47500c2738a00d15f996ba9f56a33442195c74b6300b73cf167b30b058c1ef1
-  .claude/skills/be-review/SKILL.md: sha256:89e7e1d6d5ab4832bb5015f0b5d6c2baccf04ed22130b606042d178af54217d4
+  .claude/skills/be-review/SKILL.md: sha256:9869bfec8241f0d03e54db1a673a932d0169c570f9ffd3d9144ab81f9011aabc
   .claude/skills/be/SKILL.md: sha256:c9d23a783bab82a358ffe9a3753352100805be34de3cae6d1e5baff11089533c
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .claude/skills/codex-debate/SKILL.md: sha256:595c607447a68fcade0983d8a411bec326be9cd1eb0fe06da05e83e9b6858ab7
