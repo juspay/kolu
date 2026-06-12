@@ -43,8 +43,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.cycleTerminalMru.keybind)} cycles terminals in most-recently-used order`,
   },
   {
-    id: "amb-search",
-    text: `${formatKeybind(ACTIONS.findInTerminal.keybind)} searches terminal output`,
+    // Replaces the old "searches terminal output" tip (id `amb-search`), which
+    // is misleading now that the chord is terminal-scoped. New id so users who
+    // already saw the old one still get the corrected copy.
+    id: "amb-codetab-find",
+    text: `${formatKeybind(ACTIONS.findInTerminal.keybind)} searches the terminal; outside one — the Code tab, a preview, a panel — it hands off to your browser's own find-in-page`,
   },
   {
     id: "amb-shuffle-theme",

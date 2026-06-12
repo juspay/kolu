@@ -1798,3 +1798,31 @@ Feature: Code tab (review + browse)
     And I click the changed file "long.ts" in the Code tab
     And I scroll the file preview to the bottom
     Then the diff view should contain "LAST_LINE_MARKER"
+
+  # ── Find-in-page: Cmd/Ctrl+F is confined to the terminal ──
+  #
+  # kolu's xterm search is the right Cmd/Ctrl+F target ONLY in the terminal,
+  # whose content is canvas-rendered and invisible to the browser's own find.
+  # So the chord opens kolu's find bar only while focus is in a terminal; in
+  # any other surface — here the Code tab, whose file viewer and sandboxed HTML
+  # preview xterm search can't reach — it defers to the browser's native
+  # find-in-page. This asserts all three: the terminal claims the chord, the
+  # Code tab does not open kolu's bar, AND the chord actually reaches the browser
+  # un-prevented (so native find-in-page can fire) — without that last check a
+  # regression that ate the chord without opening the bar would pass vacuously.
+  # The generic "outside any terminal → defer" predicate is unit-tested in
+  # keyboard.test.ts.
+  Scenario: Cmd/Ctrl+F opens terminal search from the terminal but defers outside it
+    Given a Code tab in "browse" mode showing file "notes.txt" with content "find-me-here"
+    When I click the file "notes.txt" in the file browser
+    Then the file content should contain "find-me-here"
+    When I focus the terminal
+    And I press the find shortcut
+    Then the terminal search bar should be visible
+    When I press Escape
+    Then the terminal search bar should not be visible
+    When I focus the Code tab content
+    And I press the find shortcut, watching for native handoff
+    Then the terminal search bar should not be visible
+    And the find shortcut should reach the browser
+    And there should be no page errors

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // Mock the platform module before importing keyboard
 vi.mock("./platform", () => ({ isMac: false }));
 
-import { ACTIONS, matchesAnyShortcut } from "./actions";
+import { ACTIONS, isOutsideFocusScope, matchesAnyShortcut } from "./actions";
 import {
   formatKeybind,
   type Keybind,
@@ -220,6 +220,52 @@ describe("matchesAnyShortcut", () => {
 
   it("does not match random key", () => {
     expect(matchesAnyShortcut(makeEvent({ key: "z" }))).toBe(false);
+  });
+});
+
+describe("findInTerminal scoping (xterm search confined to the terminal)", () => {
+  // The action carries a `focusScopeMarker` selector the dispatcher checks
+  // against `e.target` after the chord matches: a matching ancestor (focus is
+  // in a terminal) → the handler runs (xterm search); no match (focus anywhere
+  // else) → the dispatcher declines without preventDefault, so the browser's
+  // native find-in-page fires. Tests run under the `node` environment (no DOM),
+  // so fake the event target with a `closest` stub rather than real elements.
+  const marker = ACTIONS.findInTerminal.focusScopeMarker;
+  // Drive the dispatcher's real decline rule (`isOutsideFocusScope` in
+  // actions.ts, also used by `dispatch` in useShortcuts.ts): true → the
+  // dispatcher declines (no preventDefault → browser find); false → the handler
+  // claims the chord. The node test env has no DOM, so fake the event target
+  // with a `closest` stub.
+  const evt = (target: unknown): KeyboardEvent =>
+    ({ key: "f", ctrlKey: true, target }) as unknown as KeyboardEvent;
+
+  it("is registered with a `focusScopeMarker` selector", () => {
+    expect(typeof marker).toBe("string");
+  });
+
+  it("claims the chord (xterm search) when focus is inside a terminal", () => {
+    // A `data-kolu-terminal-search` ancestor is found → dispatcher runs the
+    // handler, opening kolu's terminal search.
+    const found = {};
+    expect(
+      isOutsideFocusScope(
+        ACTIONS.findInTerminal,
+        evt({ closest: () => found }),
+      ),
+    ).toBe(false);
+  });
+
+  it("defers to native find when focus is outside any terminal", () => {
+    // `closest` finds no terminal ancestor → dispatcher declines without
+    // preventDefault, leaving Cmd/Ctrl+F to the browser's find-in-page.
+    expect(
+      isOutsideFocusScope(ACTIONS.findInTerminal, evt({ closest: () => null })),
+    ).toBe(true);
+  });
+
+  it("defers to native find when the event has no element target", () => {
+    // Optional chaining short-circuits to undefined == null → decline → browser.
+    expect(isOutsideFocusScope(ACTIONS.findInTerminal, evt(null))).toBe(true);
   });
 });
 

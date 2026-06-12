@@ -66,6 +66,96 @@ When("I press the maximize toggle shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+When("I press the find shortcut", async function (this: KoluWorld) {
+  await this.page.keyboard.press(`${MOD_KEY}+f`);
+  await this.waitForFrame();
+});
+
+// Press Cmd/Ctrl+F and record whether the app claimed it. A bubble-phase
+// window listener reads the event's final `defaultPrevented` AFTER the app's
+// capture-phase shortcut listener has run (capture fires before bubble), so it
+// sees the app's verdict. `defaultPrevented === false` means the dispatcher
+// declined and the browser's native find-in-page would fire — the core promise
+// of the focus-scoped chord. We can't observe the browser find UI itself (it's
+// chrome, outside the page), so proving the app did NOT eat the chord is the
+// load-bearing assertion. Stashed on `window` for the matching Then to read.
+//
+// The listener is NOT `{ once: true }`: Playwright presses `Control`/`Meta`
+// down before `f`, so a one-shot listener would be consumed by the modifier's
+// own keydown and never see the `f` event. Instead it stays installed and only
+// records the matching Cmd/Ctrl+F keydown (overwrite-on-match — the lone press
+// yields one matching event; the listener leaks harmlessly on the per-scenario
+// page). It MUST be an anonymous inline arrow: a named inner function/binding
+// makes tsx/esbuild inject a `__name(...)` call that is undefined in the page
+// context, so `page.evaluate` throws `ReferenceError: __name is not defined`
+// (the same trap `SHADOW_DFS_FN_SRC` in code_tab_steps.ts dodges via a string).
+When(
+  "I press the find shortcut, watching for native handoff",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(() => {
+      const w = window as unknown as { __findDefaultPrevented?: boolean };
+      w.__findDefaultPrevented = undefined;
+      window.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+          w.__findDefaultPrevented = e.defaultPrevented;
+        }
+      });
+    });
+    await this.page.keyboard.press(`${MOD_KEY}+f`);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the find shortcut should reach the browser",
+  async function (this: KoluWorld) {
+    const prevented = await this.page.evaluate(
+      () =>
+        (window as unknown as { __findDefaultPrevented?: boolean })
+          .__findDefaultPrevented,
+    );
+    // The listener must have fired (defined) and the app must not have
+    // prevented the default (false) — so the browser's native find-in-page
+    // takes over.
+    if (prevented !== false) {
+      throw new Error(
+        `expected Cmd/Ctrl+F to reach the browser (defaultPrevented false), got ${String(prevented)}`,
+      );
+    }
+  },
+);
+
+When("I focus the terminal", async function (this: KoluWorld) {
+  // Clicking the active terminal's screen lands keyboard focus in xterm — the
+  // same gesture the typing helpers use so input reaches the PTY. From here
+  // the find shortcut opens kolu's terminal search (focus is inside the
+  // terminal's `data-kolu-terminal-search` subtree).
+  await this.canvas.click();
+  await this.waitForFrame();
+});
+
+const TERMINAL_SEARCH = '[data-testid="terminal-search"]';
+
+Then(
+  "the terminal search bar should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(TERMINAL_SEARCH)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the terminal search bar should not be visible",
+  async function (this: KoluWorld) {
+    // The bar lives inside `<Show when={open}>`, so "closed" means detached;
+    // `hidden` covers both detached and not-visible.
+    await this.page
+      .locator(TERMINAL_SEARCH)
+      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+  },
+);
+
 Then(
   "the clipboard image should not be blank",
   async function (this: KoluWorld) {

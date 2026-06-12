@@ -8,9 +8,10 @@ import {
   type ActionContext,
   type ActionId,
   type AppAction,
+  actionMatchesKeybind,
   isDispatchable,
+  isOutsideFocusScope,
 } from "./actions";
-import { matchesKeybind } from "./keyboard";
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
  *  the modifier (Alt or Ctrl) is held, and the cursor advances through that
@@ -19,13 +20,6 @@ import { matchesKeybind } from "./keyboard";
 interface MruCycleState {
   snapshot: TerminalId[];
   cursor: number;
-}
-
-/** Match the event against an action's primary or alt keybind. */
-function actionMatches(action: AppAction, e: KeyboardEvent): boolean {
-  if (matchesKeybind(e, action.keybind)) return true;
-  if (action.altKeybind && matchesKeybind(e, action.altKeybind)) return true;
-  return false;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root. */
@@ -81,7 +75,10 @@ export function useShortcuts(ctx: ActionContext) {
   });
 }
 
-/** Try to handle the event. Returns true if a shortcut matched. */
+/** Try to handle the event. Returns true if the event was claimed and the
+ *  caller should `preventDefault` it. A matched-but-focus-scoped chord whose
+ *  target is outside its marker returns false — declined, so the browser's
+ *  native default fires. */
 function dispatch(
   e: KeyboardEvent,
   ctx: ActionContext,
@@ -91,7 +88,16 @@ function dispatch(
     ActionId,
     AppAction,
   ][]) {
-    if (!actionMatches(action, e)) continue;
+    if (!actionMatchesKeybind(action, e)) continue;
+
+    // A focus-scoped action (e.g. findInTerminal) claims the chord ONLY when
+    // focus is inside its scope. Outside it, hand the event straight to the
+    // browser: return false so the listener skips `preventDefault`, letting the
+    // chord's native default fire (e.g. Cmd/Ctrl+F → find-in-page when focus is
+    // not in a terminal). Returning (rather than `continue`) keeps the hand-off
+    // local to this matched action — it doesn't depend on no later action
+    // happening to share the chord.
+    if (isOutsideFocusScope(action, e)) return false;
 
     // cycleTerminalMru is stateful — the closure-bound snapshot/cursor pattern
     // can't fit the registry's plain `(ctx) => void` handler shape, so it's

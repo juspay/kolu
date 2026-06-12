@@ -60,6 +60,18 @@ interface AppActionBase {
   keybind: Keybind;
   /** Optional alternate keybind that triggers the same handler (e.g. Cmd+Enter for "New terminal"). */
   altKeybind?: Keybind;
+  /** Optional attribute selector confining this chord to a focus region. When
+   *  set, the dispatcher claims the chord ONLY if the dispatch-time `e.target`
+   *  is inside a matching element; anywhere else it declines without running
+   *  the handler or `preventDefault`ing, so the chord's native browser action
+   *  proceeds. Used to confine Cmd/Ctrl+F to the terminal — the one surface
+   *  where the browser's own find-in-page is useless (terminal content is
+   *  canvas-rendered, invisible to the DOM) — and let it fall through to
+   *  find-in-page everywhere else (Code tab, panels, palettes, bare chrome).
+   *  The DOM read lives in the dispatcher (which already owns `e.target`); the
+   *  registry only names the marker. `matchesAnyShortcut` needs no special
+   *  case — a plain string field is inert there. */
+  focusScopeMarker?: string;
 }
 
 /** An action whose dispatch flows through the registry's generic loop —
@@ -117,6 +129,21 @@ const switchToActions = Object.fromEntries(
   ]),
 ) as { [K in SwitchId]: DispatchableAction };
 
+/** HTML data-attribute name that marks a terminal subtree — the focus scope
+ *  Cmd/Ctrl+F is confined to (outside it, the chord defers to the browser's
+ *  find-in-page). Place `{...TERMINAL_SEARCH_ATTR_PROP}` on the terminal root
+ *  and reference `TERMINAL_SEARCH_MARKER` (the CSS selector derived from it) in
+ *  the action registry. Both share this single source of truth so they can't
+ *  drift. */
+export const TERMINAL_SEARCH_ATTR = "data-kolu-terminal-search";
+/** CSS attribute selector derived from `TERMINAL_SEARCH_ATTR`. Used by the
+ *  `findInTerminal` action's `focusScopeMarker` field for dispatcher scoping. */
+export const TERMINAL_SEARCH_MARKER = `[${TERMINAL_SEARCH_ATTR}]`;
+/** JSX spread props that stamp `TERMINAL_SEARCH_ATTR` onto an element. */
+export const TERMINAL_SEARCH_ATTR_PROP: Record<string, string> = {
+  [TERMINAL_SEARCH_ATTR]: "",
+};
+
 // `_ACTIONS` keeps each entry's literal shape so `keyof typeof _ACTIONS`
 // produces the precise `ActionId` union. `ACTIONS` re-types it through
 // `Record<ActionId, AppAction>` so consumers see a uniform `AppAction` at
@@ -171,6 +198,16 @@ const _ACTIONS = {
   findInTerminal: {
     label: "Find in terminal",
     keybind: { key: "f", mod: true },
+    // Confine Cmd/Ctrl+F to the terminal: kolu's xterm search is the right tool
+    // ONLY there, because terminal content is canvas-rendered and invisible to
+    // the browser's own find. Everywhere else — Code tab, previews, panels, the
+    // command palette / workspace switcher, bare chrome — focus is in real DOM
+    // or iframes, so the dispatcher declines without `preventDefault` and the
+    // browser's native find-in-page takes over (it even spans the opaque-origin
+    // preview iframe, which xterm search can't reach). The terminal root carries
+    // `data-kolu-terminal-search`; the dispatcher does the `closest()` check and
+    // claims the chord only when focus is inside it (useShortcuts.ts).
+    focusScopeMarker: TERMINAL_SEARCH_MARKER,
     handler: (ctx) => ctx.setSearchOpen((v) => !v),
   },
   zoomIn: {
@@ -285,6 +322,36 @@ export const ACTIONS: Record<ActionId, AppAction> = _ACTIONS;
 export const advertisedNewTerminalKey: Keybind =
   ACTIONS.createTerminal.altKeybind ?? ACTIONS.createTerminal.keybind;
 
+/** Match the event against an action's primary or alt keybind. This is the
+ *  pure keybind rule, shared by both the dispatch path (`dispatch` in
+ *  useShortcuts.ts, which layers the `focusScopeMarker` consultation on top)
+ *  and the xterm path (`matchesAnyShortcut` below, which must NOT consult
+ *  markers). */
+export function actionMatchesKeybind(
+  action: AppAction,
+  e: KeyboardEvent,
+): boolean {
+  return (
+    matchesKeybind(e, action.keybind) ||
+    (action.altKeybind !== undefined && matchesKeybind(e, action.altKeybind))
+  );
+}
+
+/** A focus-scoped action claims its chord ONLY when focus is inside its scope.
+ *  Returns true when the action is scoped but the event target is NOT inside the
+ *  marker — the dispatcher then declines the chord (no preventDefault), letting
+ *  the browser's native default fire. Shared by the dispatch path (`dispatch` in
+ *  useShortcuts.ts) and its unit test so both drive the same rule. */
+export function isOutsideFocusScope(
+  action: AppAction,
+  e: KeyboardEvent,
+): boolean {
+  return (
+    action.focusScopeMarker != null &&
+    (e.target as Element | null)?.closest?.(action.focusScopeMarker) == null
+  );
+}
+
 /**
  * Check if a KeyboardEvent matches any registered action's keybind.
  * Used by xterm's key handler to let app shortcuts bubble through
@@ -292,9 +359,7 @@ export const advertisedNewTerminalKey: Keybind =
  */
 export function matchesAnyShortcut(e: KeyboardEvent): boolean {
   for (const a of Object.values(ACTIONS)) {
-    if (matchesKeybind(e, a.keybind)) return true;
-    if (a.altKeybind !== undefined && matchesKeybind(e, a.altKeybind))
-      return true;
+    if (actionMatchesKeybind(a, e)) return true;
   }
   return false;
 }
