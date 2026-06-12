@@ -11,6 +11,7 @@
  * than hanging.
  */
 
+import { PassThrough } from "node:stream";
 import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { describe, expect, it } from "vitest";
@@ -258,33 +259,32 @@ describe("stdio link over loopback", () => {
     // The link must instead treat the write death as transport death and
     // close itself, so a fresh RPC rejects fast rather than the process
     // crashing.
+    //
+    // The write stream here is ISOLATED — a standalone Writable whose ONLY
+    // 'error' listener is the link's own guard — deliberately NOT a
+    // `createLoopbackPair()`. In a loopback pair the client's write IS the
+    // server's read, and `serveOverStdio` attaches a read-side 'error'
+    // listener to that same stream; that listener would absorb the destroy
+    // and the test would pass even with the link's guard removed, proving
+    // nothing. With an isolated write stream, removing the guard makes
+    // `destroy(err)` an uncaught 'error' that crashes this test — so the
+    // green run is genuine evidence the guard is load-bearing.
     const contract = {
       ping: oc.input(z.object({})).output(z.string()),
     };
-    const t = implement(contract);
-    const router = t.router({ ping: t.ping.handler(() => "pong") });
 
-    const pair = createLoopbackPair();
-    const serveDone = serveOverStdio({ router, transport: pair.server });
-    const client = stdioLink<typeof contract>({
-      read: pair.client.read,
-      write: pair.client.write,
-    });
+    const read = new PassThrough(); // inbound — never fed; the link stays open
+    const write = new PassThrough(); // outbound — isolated; only the link listens
+    const client = stdioLink<typeof contract>({ read, write });
 
-    // Link is live — one good round-trip first.
-    expect(await client.ping({})).toBe("pong");
-
-    // The write half dies under us. `destroy(err)` emits 'error' on the
-    // stream; without the link's write-side listener that 'error' is an
-    // uncaught crash (which would fail this test as an unhandled error),
-    // with it the link closes. Let the event settle before the next call.
-    pair.client.write.destroy(new Error("EPIPE: write to a broken pipe"));
+    // The write half dies under us. With no guard this 'error' is unhandled
+    // (an uncaught error that fails the test); with it the link closes. Let
+    // the event settle before the next call.
+    write.destroy(new Error("EPIPE: write to a broken pipe"));
     await new Promise((r) => setImmediate(r));
 
     // The link is now closed: a fresh RPC rejects fast rather than hanging
     // (or crashing).
     await expect(client.ping({})).rejects.toThrow();
-
-    await serveDone;
   });
 });
