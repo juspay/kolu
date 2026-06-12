@@ -32,6 +32,21 @@ Feature: Mobile soft keyboard
     And there should be no page errors
 
   @mobile
+  Scenario: Key-bar keys route to the focused split, not the parent tile
+    # The bar sends to `store.focusedId()` — the active sub-tab when a split
+    # has focus — not the tile root (`activeId`). Creating a split focuses the
+    # sub-terminal, so the slashes must land there (the terminal carrying
+    # data-sub-terminal), not the parent it was split from. Regression guard
+    # for the bug where the bar always targeted the main terminal even with a
+    # split active.
+    When I create a sub-terminal via command palette
+    And I tap the mobile key "slash"
+    And I tap the mobile key "slash"
+    And I tap the mobile key "slash"
+    Then the sub-terminal screen should contain "///"
+    And there should be no page errors
+
+  @mobile
   Scenario: Tapping Ctrl-C interrupts a running command
     Given I run "sleep 30"
     When I tap the mobile key "ctrl-c"
