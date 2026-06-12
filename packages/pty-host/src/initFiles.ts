@@ -13,7 +13,7 @@
 import { mkdirSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 
-export type InitFile = { name: string; content: string };
+import type { PtyHostInitFile } from "./ptyHostSurface.ts";
 
 /** Resolve `name` under `rcDir`, rejecting any name that escapes it. */
 function resolveWithin(rcDir: string, name: string): string {
@@ -28,7 +28,10 @@ function resolveWithin(rcDir: string, name: string): string {
 /** Write each init file under `rcDir`, creating parent dirs as needed, and
  *  return the absolute paths written (for {@link removeInitFiles} on dispose).
  *  Throws — before writing anything — if any name escapes `rcDir`. */
-export function writeInitFiles(rcDir: string, files: InitFile[]): string[] {
+export function writeInitFiles(
+  rcDir: string,
+  files: PtyHostInitFile[],
+): string[] {
   // Resolve every name up front so a containment violation aborts the spawn
   // before any file is written (no partial materialisation).
   const planned = files.map((f) => ({
