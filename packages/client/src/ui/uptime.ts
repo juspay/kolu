@@ -2,26 +2,24 @@
  *  formatter. The `srv up 2m` / `pty up 3h` gap is the glanceable proof the
  *  daemon outlived the last server deploy. */
 
-import { createSignal, onCleanup } from "solid-js";
+import { type Accessor, createSignal, onCleanup } from "solid-js";
+import { createSharedRoot } from "../createSharedRoot";
 
-// One coarse, 1s-ticking clock shared by every uptime readout. Module-level so
-// all consumers see the same tick; ref-counted so the interval only runs while
-// something is mounted.
-const [now, setNow] = createSignal(Date.now());
-let timer: ReturnType<typeof setInterval> | undefined;
-let refs = 0;
-
-/** Subscribe to the shared 1s clock for the lifetime of the calling component
- *  (auto-unsubscribes on cleanup). Returns the reactive `now` accessor. */
-export function useClock(): () => number {
-  if (refs++ === 0) timer = setInterval(() => setNow(Date.now()), 1_000);
-  onCleanup(() => {
-    if (--refs === 0 && timer) {
-      clearInterval(timer);
-      timer = undefined;
-    }
-  });
+// One coarse, 1s-ticking clock shared by every uptime readout — the same
+// `createSharedRoot` idiom `staleness.getNowTicker` uses (at 60s), so the
+// reactive owner is the app, not whichever component mounted first, and the
+// interval's `onCleanup` lives in that owner.
+const getClock = createSharedRoot<Accessor<number>>(() => {
+  const [now, setNow] = createSignal(Date.now());
+  const id = setInterval(() => setNow(Date.now()), 1_000);
+  onCleanup(() => clearInterval(id));
   return now;
+});
+
+/** The shared 1s clock — a reactive `now` accessor; reading it inside JSX /
+ *  `createMemo` re-renders on each tick. */
+export function useClock(): () => number {
+  return getClock();
 }
 
 /** Compact elapsed time since `startedAt` (epoch-ms): `45s`, `12m`, `3h`, `2d`.

@@ -58,7 +58,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // is reported separately by `daemonStatusError` — it must paint the dot red,
   // not freeze on the last value, so a lost feed can't masquerade as a healthy
   // daemon. The error wins over any stale `state`.
-  const pty = () => daemonStatus();
+  const pty = daemonStatus;
   const ptyState = (): DaemonState =>
     daemonStatusError() ? "dead" : (pty()?.state ?? "connecting");
 

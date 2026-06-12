@@ -15,6 +15,7 @@
  * spawn a second one onto a still-held gate).
  */
 
+import { setTimeout as sleep } from "node:timers/promises";
 import { pidIsAlive } from "@kolu/pty-host";
 import type { Logger } from "kolu-shared";
 import { LOAD_AWARE_CEILING_MS } from "./loadAwareCeiling.ts";
@@ -34,9 +35,6 @@ export interface WaitForPidGoneOpts {
   isAlive?: (pid: number) => boolean;
 }
 
-const defaultSleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
 /** Resolve `true` when `pid` is gone (`kill(pid,0)` → ESRCH), or `false` if it
  *  is still alive after `ceilingMs`. A pid that is already gone resolves `true`
  *  on the first probe. */
@@ -47,7 +45,7 @@ export async function waitForPidGone(
   const ceilingMs = opts.ceilingMs ?? LOAD_AWARE_CEILING_MS;
   const pollMs = opts.pollMs ?? 250;
   const now = opts.now ?? Date.now;
-  const sleep = opts.sleep ?? defaultSleep;
+  const sleepFor = opts.sleep ?? sleep;
   const isAlive = opts.isAlive ?? pidIsAlive;
 
   const deadline = now() + ceilingMs;
@@ -59,7 +57,7 @@ export async function waitForPidGone(
       );
       return false;
     }
-    await sleep(pollMs);
+    await sleepFor(pollMs);
   }
   return true;
 }
