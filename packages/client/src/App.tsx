@@ -605,7 +605,7 @@ const App: Component = () => {
                     appTitle={appTitle()}
                     onOpenPalette={() => openPalette()}
                     renderBody={renderMobileTileBody}
-                    bottomBar={<MobileKeyBar activeId={store.activeId} />}
+                    bottomBar={<MobileKeyBar focusedId={store.focusedId} />}
                   />
                 </RightPanelDrawer>
               ))
