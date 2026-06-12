@@ -87,14 +87,16 @@ function dispatch(
     if (!actionMatchesKeybind(action, e)) continue;
 
     // A scoped action can decline a matched event (e.g. findInTerminal defers
-    // to the browser's native find inside the Code tab). `continue` here keeps
-    // looping — but no other action claims this chord, so `dispatch` returns
-    // false and the listener skips `preventDefault`, letting the browser's
-    // default action for the chord fire.
+    // to the browser's native find inside the Code tab). The matched action is
+    // the one that owns this chord, so hand the event straight to the browser:
+    // return false so the listener skips `preventDefault`, letting the chord's
+    // native default fire. Returning (rather than `continue`) keeps the
+    // hand-off local to this action — it doesn't depend on no later action
+    // happening to share the chord.
     const insideNativeFind =
       action.nativeFindMarker != null &&
       (e.target as Element | null)?.closest?.(action.nativeFindMarker) != null;
-    if (insideNativeFind) continue;
+    if (insideNativeFind) return false;
 
     // cycleTerminalMru is stateful — the closure-bound snapshot/cursor pattern
     // can't fit the registry's plain `(ctx) => void` handler shape, so it's

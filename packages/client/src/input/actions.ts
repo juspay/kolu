@@ -306,9 +306,10 @@ export const advertisedNewTerminalKey: Keybind =
   ACTIONS.createTerminal.altKeybind ?? ACTIONS.createTerminal.keybind;
 
 /** Match the event against an action's primary or alt keybind. This is the
- *  pure keybind rule, shared by both the dispatch path (`actionMatches` in
- *  useShortcuts.ts, which layers a `when`/marker consultation on top) and the
- *  xterm path (`matchesAnyShortcut` below, which must NOT consult markers). */
+ *  pure keybind rule, shared by both the dispatch path (`dispatch` in
+ *  useShortcuts.ts, which layers the `nativeFindMarker` consultation on top)
+ *  and the xterm path (`matchesAnyShortcut` below, which must NOT consult
+ *  markers). */
 export function actionMatchesKeybind(
   action: AppAction,
   e: KeyboardEvent,

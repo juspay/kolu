@@ -694,7 +694,7 @@ const CodeTab: Component<{
         // find-in-page (which searches the file source, rendered markdown, and
         // the sandboxed HTML preview iframe) instead of opening kolu's terminal
         // search. The global shortcut dispatcher detects this marker via the
-        // `findInTerminal` action's `when` guard (input/actions.ts).
+        // `findInTerminal` action's `nativeFindMarker` selector (input/actions.ts).
         data-kolu-native-find=""
         ref={attachBackForwardInputs}
       >
