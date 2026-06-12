@@ -17,7 +17,6 @@
  *  terminal the user is typing into (soft-keyboard letters already do, via
  *  xterm's own onData). */
 
-import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import {
   applyStickyModifiers,
@@ -26,6 +25,7 @@ import {
   toggleStickyAlt,
   toggleStickyCtrl,
 } from "./terminal/stickyModifiers";
+import { useTerminalStore } from "./terminal/useTerminalStore";
 import { isTouch } from "./useMobile";
 import { client } from "./wire";
 
@@ -77,11 +77,8 @@ const KEY_CLASS =
 const KEY_UNARMED_CLASS =
   "bg-surface-2 text-fg-2 hover:bg-surface-3 active:bg-surface-3";
 
-const MobileKeyBar: Component<{
-  /** The terminal currently receiving input — the active split when one has
-   *  focus, else the tile root. See `useTerminalStore.focusedId`. */
-  focusedId: () => TerminalId | null;
-}> = (props) => {
+const MobileKeyBar: Component = () => {
+  const store = useTerminalStore();
   // 10ms haptic tick — Android only; iOS Safari doesn't implement
   // navigator.vibrate, so the guard makes it a silent no-op there.
   function tick() {
@@ -89,7 +86,7 @@ const MobileKeyBar: Component<{
   }
 
   function send(data: string) {
-    const id = props.focusedId();
+    const id = store.focusedId();
     if (!id) return;
     tick();
     void client.terminal.sendInput({ id, data: applyStickyModifiers(data) });
