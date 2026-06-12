@@ -153,6 +153,7 @@ const SearchBar: Component<{
   return (
     <Show when={props.open}>
       <div
+        data-testid="terminal-search"
         class={`absolute top-1 right-3 z-10 flex items-center gap-1.5 ${chrome.class} px-2 py-1.5`}
       >
         <input

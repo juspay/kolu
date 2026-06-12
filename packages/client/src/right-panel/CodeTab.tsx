@@ -690,6 +690,12 @@ const CodeTab: Component<{
       <div
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
+        // Cmd/Ctrl+F inside the Code tab defers to the browser's native
+        // find-in-page (which searches the file source, rendered markdown, and
+        // the sandboxed HTML preview iframe) instead of opening kolu's terminal
+        // search. The global shortcut dispatcher detects this marker via the
+        // `findInTerminal` action's `when` guard (input/actions.ts).
+        data-kolu-native-find=""
         ref={attachBackForwardInputs}
       >
         <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
@@ -866,7 +872,15 @@ const CodeTab: Component<{
           <Resizable.Panel
             as="div"
             data-testid="diff-content"
-            class="min-h-0 overflow-auto"
+            // Focusable programmatically (tabindex -1: click-focusable, not in
+            // the Tab order) so a click on the rendered file content lands
+            // focus inside the Code tab — Pierre's source/diff rows and the
+            // rendered markdown aren't focusable on their own. That makes the
+            // `data-kolu-native-find` guard fire for Cmd/Ctrl+F, deferring to
+            // the browser's find-in-page. `outline-none` since no keyboard user
+            // ever tabs here.
+            tabindex={-1}
+            class="min-h-0 overflow-auto outline-none"
             minSize={0.1}
           >
             <Show

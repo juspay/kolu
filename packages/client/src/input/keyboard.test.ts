@@ -223,6 +223,38 @@ describe("matchesAnyShortcut", () => {
   });
 });
 
+describe("findInTerminal scoping (native find inside the Code tab)", () => {
+  // The action carries a `when` guard the dispatcher consults after the chord
+  // matches: false → the dispatcher skips it (no preventDefault) so the
+  // browser's find-in-page fires; true → kolu opens its terminal search.
+  // Tests run under the `node` environment (no DOM), so fake the event target
+  // with a `closest` stub rather than building real elements.
+  const when = ACTIONS.findInTerminal.when;
+  const evt = (target: unknown): KeyboardEvent =>
+    ({ key: "f", ctrlKey: true, target }) as unknown as KeyboardEvent;
+
+  it("is registered with a `when` guard", () => {
+    expect(typeof when).toBe("function");
+  });
+
+  it("claims the chord (terminal search) when focus is outside any Code-tab marker", () => {
+    // `closest` finds no marked ancestor → guard true → handler runs.
+    expect(when?.(evt({ closest: () => null }))).toBe(true);
+  });
+
+  it("defers to native find when focus is inside the Code tab", () => {
+    // A `data-kolu-native-find` ancestor is found → guard false → dispatcher
+    // skips, leaving Cmd/Ctrl+F to the browser's find-in-page.
+    const marker = {};
+    expect(when?.(evt({ closest: () => marker }))).toBe(false);
+  });
+
+  it("claims the chord when the event has no element target", () => {
+    // Optional chaining short-circuits to undefined → `!undefined` → true.
+    expect(when?.(evt(null))).toBe(true);
+  });
+});
+
 describe("PROHIBITED_KEYBINDS", () => {
   // Synthesize the prohibited chord as a KeyboardEvent and ask
   // every registered action whether it would intercept it. A match

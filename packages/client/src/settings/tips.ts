@@ -47,6 +47,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.findInTerminal.keybind)} searches terminal output`,
   },
   {
+    id: "amb-codetab-find",
+    text: `Inside the Code tab, ${formatKeybind(ACTIONS.findInTerminal.keybind)} hands off to your browser's find-in-page — so it searches the file, diff, or HTML preview you're viewing`,
+  },
+  {
     id: "amb-shuffle-theme",
     text: `${formatKeybind(ACTIONS.shuffleTheme.keybind)} shuffles the terminal color theme`,
   },

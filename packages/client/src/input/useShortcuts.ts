@@ -93,6 +93,13 @@ function dispatch(
   ][]) {
     if (!actionMatches(action, e)) continue;
 
+    // A scoped action can decline a matched event (e.g. findInTerminal defers
+    // to the browser's native find inside the Code tab). `continue` here keeps
+    // looping — but no other action claims this chord, so `dispatch` returns
+    // false and the listener skips `preventDefault`, letting the browser's
+    // default action for the chord fire.
+    if (action.when && !action.when(e)) continue;
+
     // cycleTerminalMru is stateful — the closure-bound snapshot/cursor pattern
     // can't fit the registry's plain `(ctx) => void` handler shape, so it's
     // the one display-only action the dispatcher consults by id.

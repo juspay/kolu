@@ -66,6 +66,42 @@ When("I press the maximize toggle shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+When("I press the find shortcut", async function (this: KoluWorld) {
+  await this.page.keyboard.press(`${MOD_KEY}+f`);
+  await this.waitForFrame();
+});
+
+When("I focus the terminal", async function (this: KoluWorld) {
+  // Clicking the active terminal's screen lands keyboard focus in xterm — the
+  // same gesture the typing helpers use so input reaches the PTY. From here
+  // the find shortcut opens kolu's terminal search (focus is outside the
+  // Code tab's `data-kolu-native-find` subtree).
+  await this.canvas.click();
+  await this.waitForFrame();
+});
+
+const TERMINAL_SEARCH = '[data-testid="terminal-search"]';
+
+Then(
+  "the terminal search bar should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(TERMINAL_SEARCH)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the terminal search bar should not be visible",
+  async function (this: KoluWorld) {
+    // The bar lives inside `<Show when={open}>`, so "closed" means detached;
+    // `hidden` covers both detached and not-visible.
+    await this.page
+      .locator(TERMINAL_SEARCH)
+      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+  },
+);
+
 Then(
   "the clipboard image should not be blank",
   async function (this: KoluWorld) {

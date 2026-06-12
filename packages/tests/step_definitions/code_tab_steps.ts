@@ -280,6 +280,18 @@ Then(
   },
 );
 
+// Focus the Code tab content pane. The pane is `tabindex=-1`
+// (click-focusable), so focusing it puts `document.activeElement` inside the
+// `data-kolu-native-find` subtree — the condition under which Cmd/Ctrl+F
+// defers to the browser's native find-in-page instead of opening kolu's
+// terminal search.
+When("I focus the Code tab content", async function (this: KoluWorld) {
+  const content = this.page.locator(DIFF_CONTENT);
+  await content.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await content.focus();
+  await this.waitForFrame();
+});
+
 // ── Assertions ──
 
 Then("the Code tab should be active", async function (this: KoluWorld) {

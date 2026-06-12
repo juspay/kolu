@@ -1798,3 +1798,25 @@ Feature: Code tab (review + browse)
     And I click the changed file "long.ts" in the Code tab
     And I scroll the file preview to the bottom
     Then the diff view should contain "LAST_LINE_MARKER"
+
+  # ── Find-in-page: Cmd/Ctrl+F is scoped to the focused surface ──
+  #
+  # Cmd/Ctrl+F is a global kolu shortcut that opens the terminal's find bar.
+  # The xterm search can't reach the Code tab's file viewer or its sandboxed
+  # HTML preview iframe, so inside the Code tab the chord instead falls through
+  # to the browser's native find-in-page (which spans every frame). The chord
+  # only defers while focus is inside the Code tab — in the terminal it still
+  # opens kolu's search, so this asserts both halves to stay non-vacuous.
+  Scenario: Cmd/Ctrl+F opens terminal search from the terminal but defers in the Code tab
+    Given a Code tab in "browse" mode showing file "notes.txt" with content "find-me-here"
+    When I click the file "notes.txt" in the file browser
+    Then the file content should contain "find-me-here"
+    When I focus the terminal
+    And I press the find shortcut
+    Then the terminal search bar should be visible
+    When I press Escape
+    Then the terminal search bar should not be visible
+    When I focus the Code tab content
+    And I press the find shortcut
+    Then the terminal search bar should not be visible
+    And there should be no page errors
