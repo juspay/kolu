@@ -14,10 +14,10 @@
  *     the scope key, socket path, surface router, and lifetime policy.
  *
  *  The **supervisor half** (endpoint state machine, spawn/`waitForPidGone`
- *  drivers, composed restart) deliberately does NOT live here yet — it is built
- *  server-side in kaval B2 and moves in at S1. The invariant that keeps this
- *  package's whole-directory hash a correct staleKey contribution: **only code
- *  that runs in the daemon lives here.**
+ *  drivers, composed restart) deliberately NEVER lives here — it is born in
+ *  kaval B2 as its own `@kolu/surface-daemon-supervisor` package. The standing
+ *  invariant that keeps this package's whole-directory hash a correct staleKey
+ *  contribution: **only code that runs in the daemon lives here.**
  */
 
 export {

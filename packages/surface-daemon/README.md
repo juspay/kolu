@@ -26,7 +26,7 @@ It exists because two programs arrived at the identical machinery from opposite 
 | Export | What it is |
 | --- | --- |
 | `acquirePidGate(gatePath)` | The daemon side of the gate: atomic claim via `link(2)`, returns `{ kind: "acquired", release }` or `{ kind: "held", pid }` (a live instance already serves — exit 0). |
-| `gatePid(gatePath)` / `isHolderLive(pid)` | The gate's file format, single-sourced as two daemon-running primitives — the pid parse and the liveness probe. The supervisor (kolu-server, from B2) composes them where it lives (`isHolderLive(gatePid(path))`) for a live-only read, so no supervisor reader crosses into this daemon-hashed package. |
+| `gatePid(gatePath)` / `isHolderLive(pid)` | The gate's file format, single-sourced as two daemon-running primitives — the pid parse and the liveness probe. The supervisor (`@kolu/surface-daemon-supervisor`, from B2) composes them where it lives (`isHolderLive(gatePid(path))`) for a live-only read, so no supervisor reader crosses into this daemon-hashed package. |
 | `daemonMain(spec)` | The `gate → serve → teardown` skeleton. `spec` = `{ gatePath, socketPath, router, lifetime, log, signal?, onReady? }`; resolves a `DaemonExit`. |
 | `Logger` | The structural logging contract (so the package carries no `kolu-*` dep). |
 
@@ -49,10 +49,10 @@ const exit = await daemonMain({
 
 The line between **spine** (extract) and **soul** (keep per-program) is what makes this package safe to hash whole into a staleKey:
 
-- **No supervisor.** The endpoint state machine, the spawn / `waitForPidGone` drivers, and the composed restart run in the *client* process, not the daemon. They are built server-side in kaval B2 (`packages/server/src/ptyHost/`) and extract into a **separate** `@kolu/surface-daemon-supervisor` package at S1 — not a `/supervisor` subpath of this one, so the package boundary is the staleKey boundary (Atlas: surface-daemon, "a separate supervisor package"). A supervisor file *here* would flip kaval's staleKey on every supervisor-only edit — the over-prompting failure A2 killed, reborn.
+- **No supervisor.** The endpoint state machine, the spawn / `waitForPidGone` drivers, and the composed restart run in the *client* process, not the daemon. They are born in kaval B2 as a **separate** `@kolu/surface-daemon-supervisor` package — not a `/supervisor` subpath of this one, so the package boundary is the staleKey boundary (Atlas: surface-daemon, "a separate supervisor package"). A supervisor file *here* would flip kaval's staleKey on every supervisor-only edit — the over-prompting failure A2 killed, reborn.
 - **No survival, adoption, or reconciliation.** kaval's B3 soul — resurrecting live PTY fds across a restart — is irreplaceable kernel state with no analogue in `odu serve` (whose runs are replaceable). It never becomes spine.
 - **No env or spawn policy.** B0 moved all of that client-side; the daemon serves the router it is handed and asks no questions.
 
 ## Invariant this package carries
 
-> **Only code that runs inside the daemon process may live here.** `@kolu/surface-daemon`'s whole `src/` is hashed (alongside kaval and `terminal-protocol`) into kaval's build id (`default.nix`'s `kavalSrc`, pinned by `kaval/src/buildId.closure.test.ts`). That whole-package hash is a correct staleKey contribution *only* while everything in it is daemon-running code — so the supervisor half lives server-side until S1, when it extracts into its **own** `@kolu/surface-daemon-supervisor` package (not a subpath here): the package boundary becomes the hash boundary, with no subdir glob to mis-scope.
+> **Only code that runs inside the daemon process may live here.** `@kolu/surface-daemon`'s whole `src/` is hashed (alongside kaval and `terminal-protocol`) into kaval's build id (`default.nix`'s `kavalSrc`, pinned by `kaval/src/buildId.closure.test.ts`). That whole-package hash is a correct staleKey contribution *only* while everything in it is daemon-running code — so the supervisor half lives in its **own** `@kolu/surface-daemon-supervisor` package (born in kaval B2, not a subpath here): the package boundary is the hash boundary, with no subdir glob to mis-scope.
