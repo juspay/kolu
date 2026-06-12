@@ -214,14 +214,18 @@ describe("createPtyHost", () => {
       cols: 80,
       rows: 24,
     });
-    // Wait until the (wrapped) URL has been parsed into the headless screen.
-    await waitFor(() => host.getScreenText(id).includes("another=thing"));
+    // Wait until the WHOLE (wrapped) URL has been parsed into the headless
+    // screen. PTY output arrives in arbitrary chunks, so we join the wrapped
+    // rows and wait for the full 92-char URL — not just an interior substring
+    // that lands before the tail does — or the resize could fire on a
+    // half-written URL and the final assertion would fail for the wrong reason.
+    const joinedScreen = () => host.getScreenText(id).replace(/\n/g, "");
+    await waitFor(() => joinedScreen().includes(url));
     // Narrow the grid: the URL was wrapped at 80 columns and must rewrap at 40.
     host.resize(id, 40, 24);
-    // Joining the wrapped rows back together must reproduce the whole URL; a
-    // reflow that dropped the cursor line would leave a gap in the middle.
-    const joined = host.getScreenText(id).replace(/\n/g, "");
-    expect(joined).toContain(url);
+    // Joining the wrapped rows back together must still reproduce the whole URL;
+    // a reflow that dropped the cursor line would leave a gap in the middle.
+    expect(joinedScreen()).toContain(url);
   });
 
   it("resolves exitPromise with the child's exit code", async () => {
