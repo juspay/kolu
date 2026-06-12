@@ -102,8 +102,8 @@ function daemonEnv(): Record<string, string> {
  *
  *  The only survival-relevant fact kolu uniquely knows is whether kaval is being
  *  launched from source: no `KOLU_KAVAL_BIN` wrapper means dev/source, and
- *  `KOLU_KAVAL_SPAWN=detached` lets e2e force the same. The spine owns what to do
- *  with it (the `INVOCATION_ID` decision table). */
+ *  `KOLU_KAVAL_SPAWN=detached` lets e2e force the same. That single boolean is
+ *  all the spine needs — it owns the launch-path decision. */
 export function localKavalDriver(): DaemonDriver {
   const { binPath, args } = resolveKavalLaunch();
   const fromSource =
