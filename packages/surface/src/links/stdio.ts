@@ -37,7 +37,7 @@ import type {
 import { ClientPeer } from "@orpc/standard-server-peer";
 import { SURFACE_STDIO_TRANSPORT_CLOSED, deadTransportError } from "../client";
 import { wireClient, wireRetryPlugins } from "./_wire";
-import { encodeFrame, readFramedLines } from "./stdio-codec";
+import { readFramedLines, writeFramedMessage } from "./stdio-codec";
 
 /** A `Readable`/`Writable` pair the link reads and writes from. */
 export interface StdioLinkOptions {
@@ -72,14 +72,9 @@ export class LinkStdioClient<T extends ClientContext>
   private closed = false;
 
   constructor(opts: StdioLinkOptions) {
-    this.peer = new ClientPeer(async (message) => {
-      const line = `${encodeFrame(message)}\n`;
-      await new Promise<void>((resolve, reject) => {
-        opts.write.write(line, (err) =>
-          err == null ? resolve() : reject(err),
-        );
-      });
-    });
+    this.peer = new ClientPeer((message) =>
+      writeFramedMessage(opts.write, message),
+    );
     // The write half needs its own 'error' sink. A failed `write()` already
     // rejects the in-flight frame through the callback above, but Node ALSO
     // emits 'error' on the stream itself — and an 'error' event with no
