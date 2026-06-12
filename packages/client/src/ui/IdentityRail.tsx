@@ -20,7 +20,14 @@
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { DaemonState, KoluBuildInfo } from "kolu-common/surface";
-import { type Component, createSignal, Show } from "solid-js";
+import {
+  type Accessor,
+  type Component,
+  createSignal,
+  onCleanup,
+  Show,
+} from "solid-js";
+import { createSharedRoot } from "../createSharedRoot";
 import { localDaemonStatus } from "../useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
@@ -74,14 +81,23 @@ function formatUptime(ms: number): string {
 }
 
 // A coarse 30s clock so the kaval uptime advances without a per-second timer.
-// Module-level so the desktop + mobile rails share one interval.
-const [clockNow, setClockNow] = createSignal(Date.now());
-setInterval(() => setClockNow(Date.now()), 30_000);
+// One shared owner for the desktop + mobile rails (the `createSharedRoot`
+// singleton idiom shared with `staleness.ts`/`useDockOrder`), so the interval
+// is owned and its `onCleanup` clears it — never an orphaned module-level timer
+// that leaks under HMR or a test teardown.
+const getClockNow = createSharedRoot<Accessor<number>>(() => {
+  const [now, setNow] = createSignal(Date.now());
+  const id = setInterval(() => setNow(Date.now()), 30_000);
+  onCleanup(() => clearInterval(id));
+  return now;
+});
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // The server's build identity (commit + the pty-host column) rides
   // surface-app's `buildInfo` cell; `clientCommit` is this bundle's baked commit.
   const pwa = useSurfaceApp<KoluBuildInfo>();
+  // The shared 30s uptime clock — owned by the app root, cleaned up with it.
+  const clockNow = getClockNow();
   // A genuinely outdated client — old bundle against a freshly deployed server.
   // Shared with the mobile chrome via `StaleBadge`.
   const stale = clientStale;

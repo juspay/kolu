@@ -2,7 +2,7 @@
 
 The **supervisor half** of the surface-daemon spine: the mechanism a process uses to spawn, watch, and recycle a surface daemon it does *not* run in — the mirror of [`@kolu/surface-daemon`](../surface-daemon/README.md) (the daemon half). A zero-`kolu-*`-dependency package, deliberately **not** a staleKey root (it runs in the client process, never the daemon), so the second tenant (`odu serve`) reuses it without dragging kolu in.
 
-It exists because the same two programs that share the daemon half also share its mirror: [kaval](../../docs/atlas/src/content/atlas/pty-daemon.html) (kolu-server spawns and watches the PTY daemon, B2/B3) and `odu serve` ([odu-runner](../../docs/atlas/src/content/atlas/odu-runner.html), the odu CLI spawns and watches the CI coordinator) both need an endpoint state machine, a reap-wait, a survivable spawn, and a composed restart. The design and the mechanism/soul line live in the Atlas note [`surface-daemon`](../../docs/atlas/src/content/atlas/surface-daemon.html).
+It exists because the same two programs that share the daemon half also share its mirror: [kaval](../../docs/atlas/src/content/atlas/pty-daemon.mdx) (kolu-server spawns and watches the PTY daemon, B2/B3) and `odu serve` ([odu-runner](../../docs/atlas/src/content/atlas/odu-runner.mdx), the odu CLI spawns and watches the CI coordinator) both need an endpoint state machine, a reap-wait, a survivable spawn, and a composed restart. The design and the mechanism/soul line live in the Atlas note [`surface-daemon`](../../docs/atlas/src/content/atlas/surface-daemon.mdx).
 
 ## What's in scope — the incantation, not the values
 

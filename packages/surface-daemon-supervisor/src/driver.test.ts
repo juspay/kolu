@@ -130,4 +130,20 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     await driver.spawn();
     expect(only(calls).command).toBe("/nix/store/abc/bin/kaval");
   });
+
+  it("rejects (rather than throwing an uncaught exception) when the real fork fails", async () => {
+    // No `spawnProcess` seam → the real `node:child_process` spawn. A
+    // nonexistent binary emits `error` (ENOENT) ASYNCHRONOUSLY on the child;
+    // the driver must turn that into a rejection (which the endpoint maps to
+    // `dead`), not let it escape as the uncaught exception that would take the
+    // supervising process down (#F4).
+    const driver = survivableSpawnDriver({
+      binPath: "/nonexistent/definitely/not/a/real/kaval-binary",
+      args: [],
+      env: {},
+      unitPrefix: "kaval",
+      fromSource: true, // force the detached branch, skip systemd-run
+    });
+    await expect(driver.spawn()).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });

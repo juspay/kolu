@@ -25,6 +25,18 @@ export function localDaemonStatus(): DaemonStatus | undefined {
   return sub.byKey(LOCAL_HOST)?.();
 }
 
+/** True until the daemon-status stream has produced its FIRST value — i.e. the
+ *  status is genuinely unknown, not "up". The canvas gates on this so a `dead`
+ *  boot never flashes the normal empty workspace before the first status lands
+ *  (#1034): if `daemonDown()` (false while pending) drove the gate alone and the
+ *  session cell resolved to zero terminals first, the empty-state would paint and
+ *  then snap to DegradedCanvas. `pending` is undefined before `byKey` has a
+ *  subscription, which is itself the pre-first-value state, so treat that as
+ *  pending too. */
+export function daemonStatusPending(): boolean {
+  return sub.byKey(LOCAL_HOST)?.pending() ?? true;
+}
+
 /** The single projection of "is the daemon down, and which kind" — `dead`
  *  (never came up) or `degraded` (died mid-session), or `undefined` when it's
  *  up (or still loading, so a brief load never flashes the degraded surface).

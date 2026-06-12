@@ -158,12 +158,47 @@ describe("createEndpoint — boot, status, death", () => {
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
   });
 
-  it("recycles a live survivor: kills the gate holder before spawning fresh", async () => {
+  it("reports dead and throws when the driver's spawn rejects", async () => {
     const d = dir();
     const socketPath = join(d, "x.sock");
     const gatePath = join(d, "x.pid");
 
-    // A real live "survivor" whose pid sits in the gate.
+    const statuses: EndpointStatus<Identity>[] = [];
+    let connectCalled = false;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      // A bad binPath / un-forkable systemd-run surfaces as a rejecting spawn.
+      driver: {
+        spawn: async () => {
+          throw new Error("ENOENT: kaval binary not found");
+        },
+      },
+      connect: async () => {
+        connectCalled = true;
+        throw new Error("connect should never run after a failed spawn");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await expect(endpoint.ensure()).rejects.toThrow("ENOENT");
+    // The contract: failures publish `dead` before they throw, so the UI never
+    // sticks at `connecting`. And a failed spawn must not reach the handshake.
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
+    expect(connectCalled).toBe(false);
+  });
+
+  it("recycles a live survivor whose socket answers: kills the gate holder before spawning fresh", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    // A real live "survivor" whose pid sits in the gate AND whose socket is
+    // accepting — the recycle guard SIGTERMs only when both hold (proof it's
+    // really the daemon, not a reused pid).
     const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
     const survivorPid = survivor.pid as number;
     children.push(survivorPid);
@@ -172,8 +207,12 @@ describe("createEndpoint — boot, status, death", () => {
       survivor.on("exit", () => r()),
     );
 
+    // The survivor is "serving" — its socket is up before ensure(). The net
+    // server is in-process (unrelated to the `sleep` pid), so SIGTERMing the pid
+    // leaves it listening, and the post-spawn socket wait still finds it up.
     const fake = fakeDaemon(socketPath);
     servers.push(fake.server);
+    await fake.listen();
     let spawned = false;
 
     const endpoint = createEndpoint<string, Identity>({
@@ -184,7 +223,6 @@ describe("createEndpoint — boot, status, death", () => {
         spawn: async () => {
           // The recycle must have killed the survivor before we spawn.
           spawned = true;
-          await fake.listen();
         },
       },
       connect: async () => ({
@@ -202,6 +240,50 @@ describe("createEndpoint — boot, status, death", () => {
     await endpoint.ensure();
     await survivorExited; // the boot policy killed it
     expect(spawned).toBe(true);
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
+  });
+
+  it("leaves a live gate-pid ALONE when its socket is dead (stale gate / reused pid)", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    // A live "stranger" whose pid happens to sit in the gate, but with NO socket
+    // — the stale-gate-over-reused-pid hazard. The recycle must NOT SIGTERM it.
+    const stranger = spawn("sleep", ["60"], { stdio: "ignore" });
+    const strangerPid = stranger.pid as number;
+    children.push(strangerPid);
+    writeFileSync(gatePath, `${strangerPid}\n`);
+    let strangerSignalled = false;
+    stranger.on("exit", () => {
+      strangerSignalled = true;
+    });
+
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      // The fresh daemon brings the socket up — the stranger's pid is untouched.
+      driver: { spawn: () => fake.listen() },
+      connect: async () => ({
+        client: "C",
+        identity: { staleKey: "fresh" },
+        startedAt: 3,
+        dispose() {},
+        onClose() {},
+      }),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    await endpoint.ensure();
+    // Give any (erroneous) SIGTERM a tick to land.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(strangerSignalled).toBe(false);
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
   });
 });
