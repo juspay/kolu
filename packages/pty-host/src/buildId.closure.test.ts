@@ -1,13 +1,20 @@
 /**
- * The closure guard for the staleKey (R-4 A2).
+ * The closure guard for the staleKey (R-4 A2, re-rooted at the daemon entry in B1).
  *
  * `currentBuildId()` keys staleness on a nix hash of `packages/pty-host/src`
  * (see `default.nix`'s `ptyHostBuildId`). For that key to mean "a restart would
- * load different pty-host wire/behaviour code", every module the contract +
- * serving transitively reach must live INSIDE that hashed set — otherwise a
+ * load different pty-host wire/behaviour code", every module the package's
+ * entrypoints transitively reach must live INSIDE that hashed set — otherwise a
  * wire change in an out-of-package module escapes the key (the #1034 mis-scope).
  *
- * This walks `index.ts`'s transitive imports and asserts two things:
+ * The package has TWO real entrypoints, and the staleKey must cover both:
+ *   - `index.ts` — the library API kolu-server (and kolu-tui) consume;
+ *   - `daemon.ts` — the surviving daemon process (`runPtyHostDaemon`).
+ * The B1 one-rule is "package boundary = process boundary = hash set", so the
+ * daemon entry's own closure (the pid-gate, the daemon main) is hashed exactly
+ * like the rest — no file-level exception, no lockstep allowlist.
+ *
+ * Walking both roots, this asserts two things:
  *   (a) every bare (cross-package/external) edge is a known stable dep — a NEW
  *       edge (e.g. importing `kolu-common/contract`, the provider-DAG
  *       entrypoint, or `kolu-git`) fails the test and forces a conscious
@@ -23,7 +30,10 @@ import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-const ENTRY = resolve(SRC, "index.ts");
+// Both package entrypoints: the library API and the daemon process entry. The
+// daemon's closure (daemonMain, the pid-gate) is hashed exactly like the
+// library's — that is the B1 one-rule.
+const ENTRIES = [resolve(SRC, "index.ts"), resolve(SRC, "daemon.ts")];
 // The second hashed root: @kolu/terminal-protocol carries wire/behaviour the
 // pty-host serves (the device-query forward/drop policy, the suppression
 // grammars), so default.nix hashes it into the staleKey alongside this
@@ -68,7 +78,7 @@ describe("@kolu/pty-host closure (the staleKey's hashed set)", () => {
   it("reaches only known external deps, and its in-package set equals the nix-hashed files", () => {
     const reached = new Set<string>();
     const externals = new Set<string>();
-    const stack = [ENTRY];
+    const stack = [...ENTRIES];
     while (stack.length > 0) {
       const file = stack.pop() as string;
       if (reached.has(file)) continue;

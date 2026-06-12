@@ -260,6 +260,28 @@ let
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
   '';
 
+  # kolu-pty-host (R-4 Phase B): the surviving PTY daemon. Runs the SAME built
+  # workspace closure as `kolu`/`kolu-tui` under tsx (so @kolu/pty-host + node-pty
+  # resolve identically). Unlike kolu-tui it SERVES system.version, so it carries
+  # the identity env (the staleKey + commit hash the rail reads) and the app
+  # version baked into the shells it spawns; its PATH mirrors `koluBin` so those
+  # shells get the same git/gh as the in-process server's do. B1 ships it inert —
+  # runnable by hand on a `--pty-host-socket` override; B2 makes kolu-server spawn
+  # and consume it.
+  kolu-pty-host = pkgs.runCommand "kolu-pty-host"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "kolu-pty-host";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu-pty-host \
+      --add-flags "${kolu}/packages/pty-host/src/daemon.ts" \
+      --set KOLU_COMMIT_HASH "${commitHash}" \
+      --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
+      --set KOLU_VERSION "${version}" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
+  '';
+
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
   # so the fixed-output fetch is cached once.
@@ -303,5 +325,5 @@ let
   };
 in
 {
-  inherit default koluBin kolu-tui koluEnv pnpmDeps typecheck;
+  inherit default koluBin kolu-tui kolu-pty-host koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample // oduPackages

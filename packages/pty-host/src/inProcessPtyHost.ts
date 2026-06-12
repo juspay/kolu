@@ -271,8 +271,36 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
 /** The raw `implementSurface` fragment router — the `.router` field of
  *  `servePtyHost`. `directLink` consumes this fragment directly (the
  *  in-process web client); over-the-wire serving needs it wrapped first — see
- *  `createInProcessPtyHost`'s `servedRouter`. */
+ *  `servePtyHostRouter`. */
 export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
+
+/** Wrap an `implementSurface` fragment in a top-level contract router so the
+ *  `StandardRPCHandler` can route it over the wire (the bare fragment answers
+ *  "Not Found"). The fragment's procedure-context type doesn't line up with
+ *  `implement().router()`'s contract-derived param, though the runtime shape is
+ *  exactly correct — so the cast (and its biome-ignores) live here, once, rather
+ *  than at every serving call site (the same unavoidable mismatch as
+ *  `serveOverSocket.ts` and mini-ci's served router). */
+function asServedRouter(fragment: PtyHostRouter): Router<any, any> {
+  return implement(ptyHostSurface.contract).router(
+    // biome-ignore lint/suspicious/noExplicitAny: fragment procedure-context vs. contract-derived param mismatch (see above); runtime shape is correct.
+    fragment as any,
+    // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param (see above).
+  ) as Router<any, any>;
+}
+
+/** Serve `ptyHostSurface` over a fresh host and return the **contract-wrapped,
+ *  top-level router** — ready to hand straight to `servePtyHostOverUnixSocket`
+ *  (the surviving daemon) or `serveOverStdio` (the R-2 ssh host). The
+ *  over-the-wire counterpart to `createInProcessPtyHost`: a wire server has no
+ *  use for an in-process `directLink` client, so this returns *only* the served
+ *  router (one host per call, owned by the surface handlers for the router's
+ *  life). */
+export function servePtyHostRouter(
+  deps: InProcessPtyHostDeps,
+): Router<any, any> {
+  return asServedRouter(servePtyHost(deps).router);
+}
 
 /** Build the in-process pty-host ONCE and return three views of the same host:
  *   - `client` — the no-wire `directLink` client kolu-server's web path uses;
@@ -291,20 +319,9 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   client: PtyHostClient;
 } {
   const router = servePtyHost(deps).router;
-  // Wrap the implementSurface fragment in a top-level contract router so the
-  // StandardRPCHandler can route it over the wire; narrow the result back to
-  // the `Router<any, any>` serving wants (the fragment's procedure-context type
-  // doesn't line up with implement().router()'s contract-derived param, though
-  // the runtime shape is exactly correct — the same unavoidable mismatch as
-  // serveOverSocket.ts:125 and mini-ci's served router).
-  const servedRouter = implement(ptyHostSurface.contract).router(
-    // biome-ignore lint/suspicious/noExplicitAny: fragment procedure-context vs. contract-derived param mismatch (see above); runtime shape is correct.
-    router as any,
-    // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param (see above).
-  ) as Router<any, any>;
   return {
     router,
-    servedRouter,
+    servedRouter: asServedRouter(router),
     client: directLink<typeof ptyHostSurface.contract>(router),
   };
 }

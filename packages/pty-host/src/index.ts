@@ -40,6 +40,7 @@ export {
   type PtyHostClient,
   type PtyHostRouter,
   servePtyHost,
+  servePtyHostRouter,
 } from "./inProcessPtyHost.ts";
 export {
   createPtyHost,

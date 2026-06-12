@@ -24,6 +24,12 @@ import type { Logger } from "kolu-shared";
 export interface PtyHostSocketListener {
   /** The path the socket is bound to (or that a live peer already owns). */
   readonly socketPath: string;
+  /** Whether this call actually bound the socket. `false` means a refusal
+   *  (already-served, non-private dir, …) mapped to a warning + a no-op
+   *  listener — the in-process server treats the socket as additive and ignores
+   *  this, but the standalone daemon needs it: a daemon that didn't bind isn't
+   *  serving and must not pretend to. */
+  readonly listening: boolean;
   /** Stop accepting connections and remove the socket file. Idempotent and
    *  safe to call synchronously from a `process.on("exit")` handler. */
   close(): void;
@@ -86,13 +92,14 @@ export async function servePtyHostOverUnixSocket(opts: {
   if (outcome.kind !== "listening") {
     const { msg, ctx } = describeRefusal(outcome);
     log?.warn({ socketPath, ...ctx }, msg);
-    return listener;
+    return { socketPath, listening: false, close: () => listener.close() };
   }
 
   log?.info({ socketPath }, "pty-host socket listening (kolu-tui)");
   let closed = false;
   return {
     socketPath,
+    listening: true,
     close() {
       if (closed) return;
       closed = true;
