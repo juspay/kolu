@@ -26,6 +26,7 @@
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { configureNixShellEnv } from "kolu-pty";
 import type { Logger } from "kolu-shared";
 import { currentPtyHostIdentity } from "./buildId.ts";
 import {
@@ -64,6 +65,13 @@ export interface RunPtyHostDaemonOpts {
   version?: string;
   /** Gate pid override (tests only); default `process.pid`. */
   pid?: number;
+  /** The Nix-devshell env whitelist (`--allow-nix-shell-with-env-whitelist`'s
+   *  value: `"default"`, a comma list, or `undefined` for production
+   *  passthrough). The PTYs live in THIS process now, so `cleanEnv()`'s filter
+   *  decision must be configured HERE — the kolu-server that spawned us
+   *  configured its own module copy, which never reaches us. Forwarded across
+   *  the process boundary via `KOLU_NIX_ENV_WHITELIST` (see `localDriver.ts`). */
+  nixEnvWhitelist?: string;
   log?: Logger;
 }
 
@@ -110,6 +118,14 @@ export async function runPtyHostDaemon(
 ): Promise<StartOutcome> {
   const log = opts.log ?? stderrLogger();
   const socketPath = getPtyHostSocketPath(opts.socketPath);
+
+  // Configure the Nix-devshell env filter for the shells THIS process forks.
+  // `cleanEnv()` (in the spawn handler) reads module-local state that only this
+  // call sets — without it a dev/test daemon runs in passthrough mode and leaks
+  // the full Nix/test-harness env into PTY shells (the filter the in-process
+  // path applied before B2 moved PTYs here). Default-undefined means production
+  // passthrough, exactly as in kolu-server's own `configureNixShellEnv` call.
+  configureNixShellEnv(opts.nixEnvWhitelist);
 
   const gateResult = acquirePidGate(pidGatePathForSocket(socketPath), {
     pid: opts.pid,
@@ -170,17 +186,49 @@ export async function runPtyHostDaemon(
   return { started: true, handle };
 }
 
-/** The single `--pty-host-socket[=PATH]` flag (both spellings), hand-parsed so
- *  the daemon's hashed closure stays free of a CLI-parser dependency. */
-function parseSocketFlag(argv: string[]): string | undefined {
+/** The env var kolu-server forwards the `--allow-nix-shell-with-env-whitelist`
+ *  value through (the flag is a server flag; the daemon is a fresh process that
+ *  must re-apply the same filter — see `localDriver.ts`). Absent ⇒ production
+ *  passthrough. An empty string is meaningful (`configureNixShellEnv("")` ⇒
+ *  forward nothing), so it is distinct from absent. */
+export const NIX_ENV_WHITELIST_ENV = "KOLU_NIX_ENV_WHITELIST";
+
+/** The parsed argv, or a human-readable error. Strict by design: a standalone
+ *  daemon that silently bound the DEFAULT socket on a typo'd flag, or on
+ *  `--pty-host-socket` with no value, would collide with the in-process server's
+ *  socket instead of failing loudly — so both are rejected. */
+export type ParsedArgv =
+  | { ok: true; socketPath: string | undefined }
+  | { ok: false; error: string };
+
+/** Validate the daemon's argv. The only flag is `--pty-host-socket[=PATH]`
+ *  (both spellings); hand-parsed so the daemon's hashed closure stays free of a
+ *  CLI-parser dependency, but strict so the full argv contract is honoured —
+ *  missing values and unknown flags are errors, not silent default fallbacks. */
+export function parseArgv(argv: string[]): ParsedArgv {
   const FLAG = "--pty-host-socket";
+  let socketPath: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === undefined) continue;
-    if (a === FLAG) return argv[i + 1];
-    if (a.startsWith(`${FLAG}=`)) return a.slice(FLAG.length + 1);
+    if (a === FLAG) {
+      const value = argv[i + 1];
+      // A bare trailing flag, or one immediately followed by another flag, has
+      // no value — reject rather than silently use the default socket.
+      if (value === undefined || value.startsWith("--")) {
+        return { ok: false, error: `${FLAG} requires a PATH value` };
+      }
+      socketPath = value;
+      i++; // consume the value
+      continue;
+    }
+    if (a.startsWith(`${FLAG}=`)) {
+      socketPath = a.slice(FLAG.length + 1);
+      continue;
+    }
+    return { ok: false, error: `unknown argument: ${a}` };
   }
-  return undefined;
+  return { ok: true, socketPath };
 }
 
 /** Process wiring around {@link runPtyHostDaemon}: parse the socket flag, map a
@@ -191,8 +239,23 @@ export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
   const log = stderrLogger();
+
+  const parsed = parseArgv(argv);
+  if (!parsed.ok) {
+    log.error(
+      { error: parsed.error },
+      "invalid pty-host daemon arguments (usage: kolu-pty-host [--pty-host-socket PATH]) — exiting",
+    );
+    process.exit(2);
+  }
+
   const outcome = await runPtyHostDaemon({
-    socketPath: parseSocketFlag(argv),
+    socketPath: parsed.socketPath,
+    // `Object.hasOwn` distinguishes "set to empty" from "absent" — an empty
+    // whitelist (forward nothing) is a real, distinct configuration.
+    nixEnvWhitelist: Object.hasOwn(process.env, NIX_ENV_WHITELIST_ENV)
+      ? process.env[NIX_ENV_WHITELIST_ENV]
+      : undefined,
     log,
   });
 

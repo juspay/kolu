@@ -87,10 +87,11 @@ const escapes = [
       // with kolu running, list your terminals:{" "}
       <code class="text-ink">nix run github:juspay/kolu#kolu-tui -- list</code>
       <br />
-      // or drive a standalone daemon, no kolu-server at all:{" "}
+      // or drive a standalone daemon, no kolu-server at all (the socket dir must
+      be owner-only 0700, so use a private dir):{" "}
       <code class="text-ink"
-        >nix run github:juspay/kolu#kolu-pty-host -- --pty-host-socket
-        /tmp/p.sock</code
+        >d=$(mktemp -d); nix run github:juspay/kolu#kolu-pty-host --
+        --pty-host-socket "$d/p.sock"</code
       >
       <br />
       <span class="text-ink-faint">

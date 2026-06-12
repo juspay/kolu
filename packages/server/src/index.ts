@@ -111,6 +111,10 @@ const ptyHostEndpoint = await ensureLocalEndpoint({
   socketPath: getPtyHostSocketPath(argv.flags.ptyHostSocket),
   log,
   publishStatus: (status) => surfaceCtx.cells.daemonStatus.set(status),
+  // The PTYs live in the daemon now, so its OWN process must re-apply the
+  // Nix-devshell env filter — our `configureNixShellEnv` above only configured
+  // this process. Forward the same flag value across the spawn boundary.
+  nixEnvWhitelist: argv.flags.allowNixShellWithEnvWhitelist,
 });
 attachLocalPtyHost(ptyHostEndpoint.client);
 // Drop our client on exit — the daemon SURVIVES us (the whole point), so this

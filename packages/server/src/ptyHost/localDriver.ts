@@ -21,7 +21,12 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { pidGatePathForSocket, pidIsAlive, readPidGate } from "@kolu/pty-host";
+import {
+  NIX_ENV_WHITELIST_ENV,
+  pidGatePathForSocket,
+  pidIsAlive,
+  readPidGate,
+} from "@kolu/pty-host";
 import type { Logger } from "kolu-shared";
 
 function daemonBin(): string {
@@ -34,16 +39,27 @@ function daemonBin(): string {
   return bin;
 }
 
-/** The env the daemon inherits — the server's, MINUS its node flags. The daemon
- *  is a fresh, long-lived process with its own (nix-baked) identity env; it must
- *  not inherit the server's `NODE_OPTIONS`, which can carry the server's
- *  heapsnapshot flags (`KOLU_DIAG_DIR`), an `--inspect`, or — under vitest — a
- *  module loader that breaks an unrelated child. The brief's "dev-flag exec-arg
- *  filter". (Covers the detached macOS/dev path; the systemd-run unit gets a
- *  clean env regardless — see DAEMON_FORWARD_ENV.) */
-function daemonEnv(): NodeJS.ProcessEnv {
+/** The env the daemon inherits — the server's, MINUS its node flags, PLUS the
+ *  Nix-devshell whitelist decision. The daemon is a fresh, long-lived process
+ *  with its own (nix-baked) identity env; it must not inherit the server's
+ *  `NODE_OPTIONS`, which can carry the server's heapsnapshot flags
+ *  (`KOLU_DIAG_DIR`), an `--inspect`, or — under vitest — a module loader that
+ *  breaks an unrelated child. The brief's "dev-flag exec-arg filter".
+ *
+ *  The PTYs live in the daemon now, so its `cleanEnv()` — not the server's — is
+ *  the one that filters the shells' env. The server's
+ *  `--allow-nix-shell-with-env-whitelist` decision is module-local to the
+ *  server process, so we forward it explicitly via `KOLU_NIX_ENV_WHITELIST` for
+ *  the daemon to re-apply (see `daemonMain.ts`). Absent ⇒ production
+ *  passthrough; an empty string (forward nothing) is forwarded faithfully.
+ *  (Covers the detached macOS/dev path; the systemd-run unit gets a clean env
+ *  regardless — see DAEMON_FORWARD_ENV.) */
+function daemonEnv(nixEnvWhitelist: string | undefined): NodeJS.ProcessEnv {
   const env = { ...process.env };
   delete env.NODE_OPTIONS;
+  if (nixEnvWhitelist !== undefined) {
+    env[NIX_ENV_WHITELIST_ENV] = nixEnvWhitelist;
+  }
   return env;
 }
 
@@ -64,23 +80,41 @@ const DAEMON_FORWARD_ENV = [
   "KOLU_PTY_HOST_BUILD_ID",
   "KOLU_COMMIT_HASH",
   "KOLU_VERSION",
+  // The Nix-devshell whitelist decision (set by `daemonEnv` below). Forwarded
+  // through the transient unit's clean env so the systemd-run path filters PTY
+  // shells identically to the detached path. IN_NIX_SHELL too: the daemon's
+  // production safety net (crash if in a nix shell without a whitelist) needs
+  // it visible — but only matters in dev, where it is already in the env.
+  NIX_ENV_WHITELIST_ENV,
+  "IN_NIX_SHELL",
 ] as const;
 
 /** Launch the surviving pty-host daemon bound to `socketPath`. Returns once the
  *  spawn is *issued* — readiness is the endpoint's connect-retry, not this call.
- *  The daemon acquires its own pid-gate and binds the socket. */
-export function spawnDaemon(opts: { socketPath: string; log: Logger }): void {
-  const { socketPath, log } = opts;
+ *  The daemon acquires its own pid-gate and binds the socket.
+ *
+ *  `nixEnvWhitelist` is the server's `--allow-nix-shell-with-env-whitelist`
+ *  value, forwarded so the daemon (which now owns the PTYs) re-applies the same
+ *  filter — `undefined` in production (passthrough). */
+export function spawnDaemon(opts: {
+  socketPath: string;
+  log: Logger;
+  nixEnvWhitelist: string | undefined;
+}): void {
+  const { socketPath, log, nixEnvWhitelist } = opts;
   const bin = daemonBin();
   const args = ["--pty-host-socket", socketPath];
+  const env = daemonEnv(nixEnvWhitelist);
 
   // The transient unit runs in the user manager's clean env, so forward the
-  // keys the daemon needs (PATH, runtime dirs, identity) via `--setenv`.
+  // keys the daemon needs (PATH, runtime dirs, identity, the Nix whitelist) via
+  // `--setenv`. Derive the values from `env` (not `process.env`) so the
+  // whitelist decision injected above reaches the transient unit too.
   if (process.platform === "linux" && process.env.INVOCATION_ID) {
     const unit = `kolu-pty-host-${randomUUID().slice(0, 8)}`;
-    const setenv = DAEMON_FORWARD_ENV.filter(
-      (k) => process.env[k] !== undefined,
-    ).map((k) => `--setenv=${k}=${process.env[k]}`);
+    const setenv = DAEMON_FORWARD_ENV.filter((k) => env[k] !== undefined).map(
+      (k) => `--setenv=${k}=${env[k]}`,
+    );
     log.info(
       { socketPath, unit, bin },
       "spawning pty-host daemon (systemd-run --user, own cgroup)",
@@ -88,7 +122,7 @@ export function spawnDaemon(opts: { socketPath: string; log: Logger }): void {
     const child = spawn(
       "systemd-run",
       ["--user", "--collect", `--unit=${unit}`, ...setenv, bin, ...args],
-      { stdio: "ignore", env: daemonEnv() },
+      { stdio: "ignore", env },
     );
     child.on("error", (err) =>
       log.error(
@@ -104,7 +138,7 @@ export function spawnDaemon(opts: { socketPath: string; log: Logger }): void {
   const child = spawn(bin, args, {
     stdio: "ignore",
     detached: true,
-    env: daemonEnv(),
+    env,
   });
   child.on("error", (err) =>
     log.error({ err }, "failed to launch the pty-host daemon"),

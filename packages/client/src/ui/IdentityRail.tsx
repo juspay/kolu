@@ -23,7 +23,7 @@ import {
 } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import type { WsStatus } from "../rpc/rpc";
-import { daemonStatus } from "../wire";
+import { daemonStatus, daemonStatusError } from "../wire";
 import Commit from "./Commit";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
@@ -54,9 +54,13 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const stale = clientStale;
   const now = useClock();
   // Default to `connecting` before the first cell yield so the dot reads
-  // "warming up", never a blank.
+  // "warming up", never a blank. A subscription DROP (the cell stream erroring)
+  // is reported separately by `daemonStatusError` — it must paint the dot red,
+  // not freeze on the last value, so a lost feed can't masquerade as a healthy
+  // daemon. The error wins over any stale `state`.
   const pty = () => daemonStatus();
-  const ptyState = (): DaemonState => pty()?.state ?? "connecting";
+  const ptyState = (): DaemonState =>
+    daemonStatusError() ? "dead" : (pty()?.state ?? "connecting");
 
   return (
     <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
@@ -101,7 +105,13 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
         <span class="text-[9px] uppercase tracking-wide text-fg-3">pty</span>
-        <Tip label="Terminal host — the surviving pty-host daemon">
+        <Tip
+          label={
+            daemonStatusError()
+              ? `Daemon status feed dropped — ${daemonStatusError()?.message}`
+              : "Terminal host — the surviving pty-host daemon"
+          }
+        >
           <span
             data-daemon-state={ptyState()}
             class={`inline-block h-[7px] w-[7px] rounded-full ${ptyDot[ptyState()]}`}

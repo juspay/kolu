@@ -159,9 +159,16 @@ const _terminalList = app.cells.terminalList.use({
 export const terminalListSub = _terminalList.sub;
 
 // The surviving pty-host daemon's status — server-driven, the IdentityRail's
-// `pty` column reads it. No toast on error: the rail itself is the place a
-// daemon-health problem should surface, not an interruptive popup.
+// `pty` column reads it. No toast on error (the rail itself is where a daemon-
+// health problem belongs, not an interruptive popup) — but the failure is NOT
+// swallowed: the rail reads `daemonStatusError` and paints the `pty` dot red,
+// so a dropped subscription is visible rather than a frozen last-value lie.
 const _daemonStatus = app.cells.daemonStatus.use({});
 /** The pty-host daemon's current status (state · uptime origin · identity). */
 export const daemonStatus = (): DaemonStatus | undefined =>
   _daemonStatus.value();
+/** The daemon-status subscription's error, reactive — `undefined` while
+ *  healthy. The IdentityRail surfaces this as a `dead` `pty` dot so a silent
+ *  subscription drop can't hide behind a stale value. */
+export const daemonStatusError = (): Error | undefined =>
+  _daemonStatus.sub.error();

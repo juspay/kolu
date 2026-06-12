@@ -52,6 +52,10 @@ export {
   type PtySpawnOpts,
   type PtySpawnResult,
 } from "./ptyHost.ts";
+// The env var kolu-server forwards its `--allow-nix-shell-with-env-whitelist`
+// decision to the daemon through — the daemon owns the PTYs, so its own
+// `cleanEnv()` filter must be configured from this value (see daemonMain).
+export { NIX_ENV_WHITELIST_ENV } from "./daemonMain.ts";
 // The pty-host wire contract — the surface and its version. `ptyHostSurface`
 // is a VALUE export (not type-only): consumers do `typeof ptyHostSurface.contract`
 // to type their client, which collapses to `unknown` under a type-only re-export.

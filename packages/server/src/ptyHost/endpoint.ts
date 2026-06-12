@@ -22,8 +22,13 @@
  * NOT kill the daemon — surviving the server is the whole point.
  */
 
+import { rmSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
-import { type PtyHostClient, PTY_HOST_CONTRACT_VERSION } from "@kolu/pty-host";
+import {
+  type PtyHostClient,
+  PTY_HOST_CONTRACT_VERSION,
+  pidGatePathForSocket,
+} from "@kolu/pty-host";
 import type { ptyHostSurface } from "@kolu/pty-host";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
@@ -50,6 +55,10 @@ export interface EnsureLocalEndpointOpts {
   connectTimeoutMs?: number;
   /** Heartbeat cadence for mid-session death detection. */
   heartbeatMs?: number;
+  /** The server's `--allow-nix-shell-with-env-whitelist` value, forwarded to
+   *  the daemon so the process that now owns the PTYs re-applies the same
+   *  Nix-devshell env filter (`undefined` ⇒ production passthrough). */
+  nixEnvWhitelist?: string;
 }
 
 export interface LocalPtyHostEndpoint {
@@ -99,6 +108,48 @@ function nextHeartbeatState(
   return current === "dead" ? current : "dead";
 }
 
+/**
+ * Is the gate's pid REALLY this socket's daemon? `readDaemonPid` only proves
+ * "some live process owns this pid" (`kill(pid, 0)`), which a stale gate whose
+ * pid has been reused by an unrelated same-user process passes — and we must
+ * never `SIGTERM` that innocent process. The proof a gate is trustworthy is
+ * that the socket answers `system.version()` AND reports the gate's pid (a
+ * genuine daemon binds the socket and serves `process.pid` there; the gate
+ * stores that same `process.pid`). A connect failure or a pid mismatch ⇒
+ * untrusted: we do NOT signal, and let a fresh spawn's pid-gate arbitrate
+ * (it reclaims a stale gate, or steps aside for a real foreign holder).
+ *
+ * The probe is short and self-disposing — on the happy path the very next step
+ * tears the daemon down anyway; on the untrusted path we never touched it.
+ */
+async function gateBelongsToSocketDaemon(
+  socketPath: string,
+  gatePid: number,
+  log: Logger,
+): Promise<boolean> {
+  let conn: Awaited<ReturnType<typeof connectWithRetry>> | undefined;
+  try {
+    conn = await connectWithRetry(socketPath, 1_000);
+    // Bound the probe itself: a connected-but-wedged daemon (bound socket, no
+    // reply) must not hang boot. A timeout reads as "not verifiable" → untrusted.
+    const v = await Promise.race([
+      conn.client.surface.system.version({}),
+      sleep(1_000).then(() => {
+        throw new Error("system.version timed out during gate verification");
+      }),
+    ]);
+    return v.pid === gatePid;
+  } catch (err) {
+    log.warn(
+      { err, gatePid, socketPath },
+      "could not verify the gate pid against the socket's daemon — treating the gate as untrusted (not signalling it)",
+    );
+    return false;
+  } finally {
+    conn?.dispose();
+  }
+}
+
 export async function ensureLocalEndpoint(
   opts: EnsureLocalEndpointOpts,
 ): Promise<LocalPtyHostEndpoint> {
@@ -113,7 +164,15 @@ export async function ensureLocalEndpoint(
   setStatus({ state: "connecting" });
 
   const survivor = readDaemonPid(socketPath);
-  if (survivor !== null) {
+  // Only signal a pid we have PROVEN is this socket's daemon — a bare live pid
+  // from the gate could be an unrelated same-user process that reused the pid
+  // of a daemon whose stale gate outlived a reboot (the dev/macOS `tmpdir()`
+  // gate isn't wiped like `$XDG_RUNTIME_DIR`). Killing that would be a
+  // cross-process friendly-fire.
+  if (
+    survivor !== null &&
+    (await gateBelongsToSocketDaemon(socketPath, survivor, log))
+  ) {
     log.info(
       { pid: survivor, socketPath },
       "recycling a surviving pty-host daemon (B1: survival off)",
@@ -127,7 +186,7 @@ export async function ensureLocalEndpoint(
       );
     }
     if (await waitForPidGone(survivor, { log })) {
-      spawnDaemon({ socketPath, log });
+      spawnDaemon({ socketPath, log, nixEnvWhitelist: opts.nixEnvWhitelist });
     } else {
       log.warn(
         { pid: survivor },
@@ -135,7 +194,22 @@ export async function ensureLocalEndpoint(
       );
     }
   } else {
-    spawnDaemon({ socketPath, log });
+    // A live-but-untrusted gate (survivor present, yet the socket does not
+    // answer as that pid) is a stale gate whose pid was reused by an unrelated
+    // process. The fresh daemon's `acquirePidGate` would otherwise see that
+    // live pid and step aside as `already-running`, so the real daemon would
+    // never start. We have already PROVEN the socket isn't served by this pid,
+    // so clear the stale gate here before spawning. (A genuine daemon would
+    // have answered the probe and taken the recycle branch above.)
+    if (survivor !== null) {
+      log.warn(
+        { pid: survivor, socketPath },
+        "clearing a stale pid-gate (its pid does not serve the socket) so the fresh daemon can acquire it",
+      );
+      rmSync(pidGatePathForSocket(socketPath), { force: true });
+    }
+    // No survivor, or a stale gate just cleared: spawn fresh.
+    spawnDaemon({ socketPath, log, nixEnvWhitelist: opts.nixEnvWhitelist });
   }
 
   const conn = await connectWithRetry(

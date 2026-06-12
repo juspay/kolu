@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import type { Logger } from "kolu-shared";
 import { afterEach, describe, expect, it } from "vitest";
-import { type PtyHostDaemonHandle, runPtyHostDaemon } from "./daemonMain.ts";
+import {
+  parseArgv,
+  type PtyHostDaemonHandle,
+  runPtyHostDaemon,
+} from "./daemonMain.ts";
 import { servePtyHostRouter } from "./inProcessPtyHost.ts";
 import { PTY_HOST_CONTRACT_VERSION } from "./ptyHostSurface.ts";
 import type { ptyHostSurface } from "./ptyHostSurface.ts";
@@ -39,6 +43,10 @@ async function start(socketPath: string, shellDir: string, pid?: number) {
     shellDir,
     pid,
     version: "test",
+    // `just check` runs under a nix devshell (`IN_NIX_SHELL=1`); without a
+    // whitelist, `configureNixShellEnv(undefined)` would `process.exit(1)` and
+    // tear down the runner. `"default"` is the dev/test choice the harness makes.
+    nixEnvWhitelist: "default",
     log: silentLog,
   });
   if (outcome.started) handles.push(outcome.handle);
@@ -49,6 +57,38 @@ afterEach(() => {
   for (const d of disposers.splice(0)) d();
   for (const h of handles.splice(0)) h.close();
   for (const d of tmpDirs.splice(0)) spawnSync("rm", ["-rf", d]);
+});
+
+describe("parseArgv", () => {
+  it("accepts no args (default socket)", () => {
+    expect(parseArgv([])).toEqual({ ok: true, socketPath: undefined });
+  });
+
+  it("accepts --pty-host-socket PATH (both spellings)", () => {
+    expect(parseArgv(["--pty-host-socket", "/run/p.sock"])).toEqual({
+      ok: true,
+      socketPath: "/run/p.sock",
+    });
+    expect(parseArgv(["--pty-host-socket=/run/p.sock"])).toEqual({
+      ok: true,
+      socketPath: "/run/p.sock",
+    });
+  });
+
+  it("rejects a missing value instead of silently using the default socket", () => {
+    expect(parseArgv(["--pty-host-socket"])).toMatchObject({ ok: false });
+    // A following flag is not a value.
+    expect(parseArgv(["--pty-host-socket", "--other"])).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("rejects an unknown/misspelled flag rather than ignoring it", () => {
+    expect(parseArgv(["--pty-host-sockets", "/run/p.sock"])).toMatchObject({
+      ok: false,
+    });
+    expect(parseArgv(["--bogus"])).toMatchObject({ ok: false });
+  });
 });
 
 describe("runPtyHostDaemon", () => {
@@ -87,6 +127,7 @@ describe("runPtyHostDaemon", () => {
       socketPath,
       shellDir,
       pid: 999_999,
+      nixEnvWhitelist: "default",
       log: silentLog,
     });
     expect(second).toEqual({

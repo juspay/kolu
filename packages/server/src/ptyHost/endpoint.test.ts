@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { pidGatePathForSocket, pidIsAlive, readPidGate } from "@kolu/pty-host";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DaemonStatus } from "kolu-common/surface";
@@ -52,6 +52,23 @@ function freshSocket(): string {
   return socketPath;
 }
 
+/** `ensureLocalEndpoint` with the Nix-shell whitelist forwarded — `just check`
+ *  runs under a nix devshell, and without it the spawned daemon's
+ *  `configureNixShellEnv(undefined)` safety net would `process.exit(1)` and the
+ *  connect would hang. Mirrors the e2e harness passing
+ *  `--allow-nix-shell-with-env-whitelist default`. */
+function ensure(opts: {
+  socketPath: string;
+  publishStatus: (s: DaemonStatus) => void;
+}) {
+  return ensureLocalEndpoint({
+    socketPath: opts.socketPath,
+    log: silentLog,
+    publishStatus: opts.publishStatus,
+    nixEnvWhitelist: "default",
+  });
+}
+
 /** Reap any daemon a test left alive (it survives `dispose()` by design). */
 function reap(socketPath: string): void {
   const pid = readPidGate(pidGatePathForSocket(socketPath));
@@ -75,9 +92,8 @@ describe("ensureLocalEndpoint (real daemon)", () => {
   it("spawns + connects the daemon and publishes connected", async () => {
     const socketPath = freshSocket();
     const statuses: DaemonStatus[] = [];
-    const endpoint = await ensureLocalEndpoint({
+    const endpoint = await ensure({
       socketPath,
-      log: silentLog,
       publishStatus: (s) => statuses.push(s),
     });
     endpoints.push(endpoint);
@@ -100,22 +116,14 @@ describe("ensureLocalEndpoint (real daemon)", () => {
 
   it("recycles a surviving daemon: a fresh endpoint kills it and respawns", async () => {
     const socketPath = freshSocket();
-    const first = await ensureLocalEndpoint({
-      socketPath,
-      log: silentLog,
-      publishStatus: () => {},
-    });
+    const first = await ensure({ socketPath, publishStatus: () => {} });
     const firstPid = readPidGate(pidGatePathForSocket(socketPath));
     expect(firstPid).not.toBeNull();
     // The first endpoint's client is dropped, but the daemon SURVIVES — the
     // recycle must kill it, not adopt it.
     first.dispose();
 
-    const second = await ensureLocalEndpoint({
-      socketPath,
-      log: silentLog,
-      publishStatus: () => {},
-    });
+    const second = await ensure({ socketPath, publishStatus: () => {} });
     endpoints.push(second);
     const secondPid = readPidGate(pidGatePathForSocket(socketPath));
 
@@ -128,13 +136,36 @@ describe("ensureLocalEndpoint (real daemon)", () => {
     ).resolves.toBeDefined();
   }, 30_000);
 
+  it("does NOT signal a stale gate whose live pid is an unrelated process", async () => {
+    // The friendly-fire hazard: a stale gate (e.g. survived a reboot on the
+    // dev/macOS `tmpdir()` path) whose recorded pid was reused by an unrelated
+    // same-user process. `kill(pid, 0)` says "alive", but the socket does not
+    // serve that pid — so the boot recycle must NOT SIGTERM it. We plant the
+    // test runner's OWN pid (indisputably alive, indisputably not our daemon,
+    // and certain to still be alive after the endpoint returns) as the holder.
+    const socketPath = freshSocket();
+    const innocentPid = process.pid;
+    writeFileSync(pidGatePathForSocket(socketPath), `${innocentPid}\n`);
+
+    const endpoint = await ensure({ socketPath, publishStatus: () => {} });
+    endpoints.push(endpoint);
+
+    // The endpoint cleared the stale gate and spawned a REAL daemon instead of
+    // killing the innocent process (which is still alive — it is us).
+    expect(pidIsAlive(innocentPid)).toBe(true);
+    const daemonPid = readPidGate(pidGatePathForSocket(socketPath));
+    expect(daemonPid).not.toBeNull();
+    expect(daemonPid).not.toBe(innocentPid);
+    expect(pidIsAlive(daemonPid as number)).toBe(true);
+    // And it genuinely serves.
+    await expect(
+      endpoint.client.surface.system.heartbeat({}),
+    ).resolves.toBeDefined();
+  }, 30_000);
+
   it("dispose drops our client but does NOT kill the surviving daemon", async () => {
     const socketPath = freshSocket();
-    const endpoint = await ensureLocalEndpoint({
-      socketPath,
-      log: silentLog,
-      publishStatus: () => {},
-    });
+    const endpoint = await ensure({ socketPath, publishStatus: () => {} });
     const pid = readPidGate(pidGatePathForSocket(socketPath));
     endpoint.dispose();
     // The daemon outlives the server — that is the whole point of Phase B.
