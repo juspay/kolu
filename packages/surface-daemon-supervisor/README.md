@@ -59,7 +59,7 @@ const endpoint = createEndpoint<PtyHostClient, PtyHostIdentity>({
     env: { XDG_RUNTIME_DIR }, // the --setenv set
     unitPrefix: "kaval",
   }),
-  connect: connectKaval, // unixSocketLink + system.version handshake
+  connect: connectKaval, // direct createConnection + stdioLink + system.version handshake (owns the socket 'close' event)
   log,
   onStatus: (hostId, status) => publishDaemonStatus(hostId, status),
 });
