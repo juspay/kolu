@@ -1,22 +1,19 @@
 /**
- * `LocalTerminalBackend` — this kolu process. It owns `kaval`
- * in-process, but consumes it through the typed `ptyHostSurface` contract (via
- * the shared in-process `ptyHostClient` in `../ptyHost.ts`, the identity
- * link): it forwards
- * spawn/kill/write/resize/attach through that client AND **runs the
- * per-terminal provider DAG** (`./providers.ts`) against the pty-host's raw tap
- * streams (cwd · title · command-run · foreground).
+ * `LocalTerminalBackend` — this kolu process. It does **not** own `kaval`:
+ * `kolu-server` is a client of a separately spawned kaval daemon, and reaches
+ * it through the typed `ptyHostSurface` contract via the stable `ptyHostClient`
+ * forwarding facade (`../ptyHost/index.ts`) over that daemon's own socket. This
+ * backend forwards spawn/kill/write/resize/attach through that client AND
+ * **runs the per-terminal provider DAG** (`./providers.ts`) against the
+ * pty-host's raw tap streams (cwd · title · command-run · foreground).
  *
  * Why route through the contract rather than call `PtyHost` directly: the
- * consumer here is then written against `PtyHostClient` — the exact shape a
- * surviving daemon (over a unix socket) or a remote ssh pty-host will serve.
- * A later step swaps only the in-process client (`../ptyHost.ts`) for a socket-served client;
- * everything in this file is unchanged. And the provider DAG already has zero
- * synchronous dependency on the host (it reads taps, not a `PtyHandle`), so it
- * runs identically whether pty-host is in-process or across a wire. The same
- * `ptyHostRouter` is additionally served over a unix socket (`../index.ts`)
- * so `kaval-tui` can reach these PTYs — that's a second transport on the one
- * host, and changes nothing in this file. See
+ * consumer here is then written against `PtyHostClient` — the exact shape the
+ * daemon (over a unix socket) or a remote ssh pty-host serves. The provider DAG
+ * has zero synchronous dependency on the host (it reads taps, not a
+ * `PtyHandle`), so it runs identically across the wire. The kaval daemon serves
+ * its own socket, which `kaval-tui` reaches directly — a second consumer of the
+ * one host, and nothing in this file changes for it. See
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * `TerminalBackend.fs/git` stay on this side, abstracted per-location and (for
