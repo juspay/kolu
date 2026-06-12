@@ -574,17 +574,23 @@ export function applyPreferencesPatch(
 //
 // surface-app's `buildInfo` cell carries "what build is the server?" as
 // reactive server state (server-pushed, read with `{ authority: "server" }`).
-// The library default is `{ commit }`; kolu EXTENDS it with the in-process
-// pty-host's identity (its own closure `staleKey` + git-navigable commit), the
+// The library default is `{ commit }`; kolu EXTENDS it with the pty-host's
+// identity (its own closure `staleKey` + git-navigable commit), the
 // `srv · pty` rail's second column. `defineBuildInfo` is generic over the
 // schema, so the extra axis is type-checked end to end.
 //
-// `ptyHost` is optional: a future surviving daemon (remote-terminals phase B)
-// may predate it. `isStale` stays the library default — the clean-ref-guarded
-// COMMIT comparison — because kolu's staleness signal (`≠ srv`) is purely the
-// client-vs-server commit divergence; the pty-host column is displayed, not a
-// staleness input (the pty-host is in-process in A2, so it can't diverge from
-// the server it lives in).
+// As of B2 the pty-host (kaval) is an out-of-process daemon with its OWN
+// identity, reported over the wire via the supervisor — so its commit CAN
+// diverge from the server's. `ptyHost` is optional: the supervisor may not
+// have a connected daemon yet (boot/restart window).
+//
+// That commit nonetheless stays DISPLAY-ONLY: `isStale` remains the library
+// default — the clean-ref-guarded COMMIT comparison — because kolu's staleness
+// signal (`≠ srv`) is purely the client-vs-server commit divergence. Folding
+// kaval's commit into staleness buys little today: the always-recycle policy
+// tears down and respawns kaval on every server boot, so a kaval skew older
+// than one boot is already precluded; the rail surfaces the column for
+// observability rather than as a third staleness input.
 export const PtyHostIdentitySchema = z.object({
   staleKey: z.string(),
   navigableCommit: z.string(),
