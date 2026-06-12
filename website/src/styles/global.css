@@ -696,7 +696,7 @@ body {
   letter-spacing: 0.15em;
   text-transform: uppercase;
   color: var(--color-amber);
-  margin: 1.1rem 0 0.55rem;
+  margin: 1rem 0 0.4rem;
   /* Reset prose-invert heading overrides */
   font-weight: 600;
 }
@@ -713,7 +713,7 @@ body {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.3rem;
 }
 
 .prose-changelog li {
@@ -768,5 +768,5 @@ body {
 }
 
 .prose-changelog p {
-  margin: 0.9rem 0;
+  margin: 0.65rem 0;
 }

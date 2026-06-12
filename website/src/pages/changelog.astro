@@ -68,16 +68,15 @@ const rendered = await Promise.all(
     </p>
   </section>
 
-  {/* Wider than the intro: the entry rows are a 3-column table (title |
-      tags | PR) and need the room to keep titles on one line. */}
-  <section class="mx-auto max-w-4xl px-6 pb-24">
+  {/* Full-width entry rows (a 3-column table: title | tags | PR). The version
+      is a compact header above its entries rather than a sparse left rail, so
+      no horizontal gutter is wasted; aligned to the intro's column so titles
+      stay on one line without flinging the tag chips far across the row. */}
+  <section class="mx-auto max-w-3xl px-6 pb-24">
     {/* Unreleased — always shown; empty when you're on the latest tag. */}
-    <article class="border-t border-rule py-7 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
-      <div class="md:text-right">
-        <a
-          href="#unreleased"
-          class="version-link inline-block"
-        >
+    <article class="border-t border-rule py-5">
+      <header class="mb-3">
+        <a href="#unreleased" class="version-link inline-block">
           <span
             id="unreleased"
             class="mono text-[0.72rem] tracking-widest text-amber border border-amber/40 rounded-full px-2.5 py-1 scroll-mt-20 hover:bg-amber/10 transition-colors"
@@ -85,42 +84,39 @@ const rendered = await Promise.all(
             UNRELEASED
           </span>
         </a>
-      </div>
-      <div>
-        {
-          unreleasedHasBody && UnreleasedBody ? (
-            <div>
-              <div class="prose prose-changelog">
-                <UnreleasedBody components={mdxComponents} />
-              </div>
-              <p class="mono text-ink-faint text-sm leading-relaxed mt-7">
-                // already on{" "}
-                <code class="text-ink">master</code> — get these now:{" "}
-                <code class="text-ink">nix run github:juspay/kolu</code>
-              </p>
+      </header>
+      {
+        unreleasedHasBody && UnreleasedBody ? (
+          <div>
+            <div class="prose prose-changelog">
+              <UnreleasedBody components={mdxComponents} />
             </div>
-          ) : (
-            <p class="mono text-ink-muted text-sm leading-relaxed">
-              // nothing unreleased — you're on the latest tagged build.<br />
-              <span class="text-ink-faint">
-                track master for changes as they land:
-              </span>{" "}
-              <code class="text-ink">nix run github:juspay/kolu</code>
+            <p class="mono text-ink-faint text-sm leading-relaxed mt-5">
+              // already on <code class="text-ink">master</code> — get these
+              now: <code class="text-ink">nix run github:juspay/kolu</code>
             </p>
-          )
-        }
-      </div>
+          </div>
+        ) : (
+          <p class="mono text-ink-muted text-sm leading-relaxed">
+            // nothing unreleased — you're on the latest tagged build.<br />
+            <span class="text-ink-faint">
+              track master for changes as they land:
+            </span>{" "}
+            <code class="text-ink">nix run github:juspay/kolu</code>
+          </p>
+        )
+      }
     </article>
 
     {
       rendered.map(({ version, date, Body }) => {
         const anchor = `v${version.replace(/\./g, "-")}`;
         return (
-          <article class="border-t border-rule py-7 grid md:grid-cols-[10rem_1fr] gap-3 md:gap-8">
-            <div class="md:text-right">
+          <article class="border-t border-rule py-5">
+            <header class="mb-3 flex items-baseline gap-3">
               <a
                 href={`#${anchor}`}
-                class="version-link group/anchor inline-flex items-baseline gap-1.5 md:flex-row-reverse"
+                class="version-link group/anchor inline-flex items-baseline gap-1.5"
               >
                 <span
                   aria-hidden="true"
@@ -128,18 +124,18 @@ const rendered = await Promise.all(
                 >#</span>
                 <h2
                   id={anchor}
-                  class="display-sm text-[2rem] text-ink group-hover/anchor:text-amber transition-colors scroll-mt-20"
+                  class="display-sm text-[1.6rem] text-ink group-hover/anchor:text-amber transition-colors scroll-mt-20"
                 >
                   v{version}
                 </h2>
               </a>
               <time
-                class="mono text-[0.72rem] text-ink-muted tracking-widest block mt-1"
+                class="mono text-[0.72rem] text-ink-muted tracking-widest"
                 datetime={date.toISOString()}
               >
                 {fmtDate(date)}
               </time>
-            </div>
+            </header>
             <div class="prose prose-changelog">
               <Body components={mdxComponents} />
             </div>
