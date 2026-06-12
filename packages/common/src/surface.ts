@@ -590,6 +590,15 @@ export const PtyHostIdentitySchema = z.object({
 });
 export type PtyHostIdentity = z.infer<typeof PtyHostIdentitySchema>;
 
+/** The 'no identity reported' pty-host identity — the ONE empty-identity shape.
+ *  The endpoint's version-probe fallback and `DEFAULT_DAEMON_STATUS`'s
+ *  identity-half both reference it, so the empty-identity shape has exactly one
+ *  definition and can't drift from `PtyHostIdentitySchema`. */
+export const EMPTY_PTY_HOST_IDENTITY: PtyHostIdentity = {
+  staleKey: "",
+  navigableCommit: "",
+};
+
 /** The pty-host daemon's liveness, as the rail's `pty` column reads it. In B1
  *  the daemon is a separate, surviving process, so this is genuinely distinct
  *  from the server's own liveness: `connected` (serving), `degraded` (a contract
@@ -621,8 +630,7 @@ export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export const DEFAULT_DAEMON_STATUS: DaemonStatus = {
   state: "connecting",
   startedAt: null,
-  staleKey: "",
-  navigableCommit: "",
+  ...EMPTY_PTY_HOST_IDENTITY,
 };
 
 export interface KoluBuildInfo extends BuildInfo {

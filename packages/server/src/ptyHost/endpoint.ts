@@ -27,7 +27,11 @@ import { type PtyHostClient, PTY_HOST_CONTRACT_VERSION } from "@kolu/pty-host";
 import type { ptyHostSurface } from "@kolu/pty-host";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
-import { DEFAULT_DAEMON_STATUS, type DaemonStatus } from "kolu-common/surface";
+import {
+  DEFAULT_DAEMON_STATUS,
+  type DaemonStatus,
+  EMPTY_PTY_HOST_IDENTITY,
+} from "kolu-common/surface";
 import type { Logger } from "kolu-shared";
 import { LOAD_AWARE_CEILING_MS } from "./loadAwareCeiling.ts";
 import { readDaemonPid, spawnDaemon } from "./localDriver.ts";
@@ -126,7 +130,7 @@ export async function ensureLocalEndpoint(
 
   try {
     const v = await conn.client.surface.system.version({});
-    const identity = v.identity ?? { staleKey: "", navigableCommit: "" };
+    const identity = v.identity ?? EMPTY_PTY_HOST_IDENTITY;
     const compatible = isContractVersionCompatible(
       v.contractVersion,
       PTY_HOST_CONTRACT_VERSION,
