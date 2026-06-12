@@ -15,9 +15,11 @@
  */
 
 import { type Component, Show } from "solid-js";
-import type { DaemonState } from "kolu-common/surface";
 
-const DegradedCanvas: Component<{ state: DaemonState }> = (props) => {
+/** The daemon's down-sub-union — the only states that render this surface.
+ *  `downState()` in useDaemonStatus.ts is the single source that narrows the
+ *  4-state `DaemonState` to exactly these. */
+const DegradedCanvas: Component<{ state: "dead" | "degraded" }> = (props) => {
   const isDead = () => props.state === "dead";
   return (
     <div

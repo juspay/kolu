@@ -25,10 +25,17 @@ export function localDaemonStatus(): DaemonStatus | undefined {
   return sub.byKey(LOCAL_HOST)?.();
 }
 
-/** True when the daemon is down — dead (never came up) or degraded (died
- *  mid-session). The DegradedCanvas gate. Undefined status (still loading) is
- *  NOT down, so a brief load never flashes the degraded surface. */
-export function daemonDown(): boolean {
+/** The single projection of "is the daemon down, and which kind" — `dead`
+ *  (never came up) or `degraded` (died mid-session), or `undefined` when it's
+ *  up (or still loading, so a brief load never flashes the degraded surface).
+ *  Drives the DegradedCanvas gate AND its `state` prop, so the down-sub-union
+ *  is named in one place rather than re-derived by an inline ternary. */
+export function downState(): "dead" | "degraded" | undefined {
   const state = localDaemonStatus()?.state;
-  return state === "dead" || state === "degraded";
+  return state === "dead" || state === "degraded" ? state : undefined;
+}
+
+/** True when the daemon is down. The DegradedCanvas gate. */
+export function daemonDown(): boolean {
+  return downState() !== undefined;
 }

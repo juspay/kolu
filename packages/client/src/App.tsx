@@ -39,7 +39,7 @@ import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import DegradedCanvas from "./DegradedCanvas";
 import EmptyState from "./EmptyState";
-import { daemonDown, localDaemonStatus } from "./useDaemonStatus";
+import { daemonDown, downState } from "./useDaemonStatus";
 import WelcomeDialog from "./WelcomeDialog";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
@@ -564,15 +564,12 @@ const App: Component = () => {
             </div>
           }
         >
-          <Show when={daemonDown()}>
+          <Show when={downState()}>
             {/* Honest daemon-down surface — gated BEFORE the empty/terminals
                 branch so a dead/degraded kaval never masquerades as "you have
-                no terminals" (#1034's empty-canvas lie). */}
-            <DegradedCanvas
-              state={
-                localDaemonStatus()?.state === "dead" ? "dead" : "degraded"
-              }
-            />
+                no terminals" (#1034's empty-canvas lie). `downState()` is the
+                one source for both "is it down" and "which down". */}
+            {(state) => <DegradedCanvas state={state()} />}
           </Show>
           <Show
             when={!daemonDown() && !showEmpty()}
