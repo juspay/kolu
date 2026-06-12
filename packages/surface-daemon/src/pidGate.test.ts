@@ -3,7 +3,8 @@
  * read, with real OS pids for the liveness probe (a live child for "held", a
  * reaped child for "stale"). The cross-*process* race choreography against a
  * real spawned daemon lives in kaval's e2e; here we pin the file-format and
- * liveness logic that both sides share.
+ * liveness logic that both sides share — including `liveHolder`, the exact
+ * composition (`isHolderLive(gatePid(path))`) the B2 supervisor will run.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -11,7 +12,14 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { acquirePidGate, readPidGate } from "./pidGate.ts";
+import { acquirePidGate, gatePid, isHolderLive } from "./pidGate.ts";
+
+/** The supervisor's read, composed from the shared primitives: the live
+ *  holder's pid, or `undefined` (absent, malformed, or stale). */
+function liveHolder(gatePath: string): number | undefined {
+  const pid = gatePid(gatePath);
+  return pid !== undefined && isHolderLive(pid) ? pid : undefined;
+}
 
 const children: ChildProcess[] = [];
 afterEach(() => {
@@ -49,12 +57,12 @@ describe("acquirePidGate", () => {
     const path = gateIn();
     const gate = acquirePidGate(path);
     expect(gate.kind).toBe("acquired");
-    expect(readPidGate(path)).toBe(process.pid);
+    expect(liveHolder(path)).toBe(process.pid);
     expect(readFileSync(path, "utf8").trim()).toBe(String(process.pid));
 
     if (gate.kind === "acquired") gate.release();
     expect(existsSync(path)).toBe(false);
-    expect(readPidGate(path)).toBeUndefined();
+    expect(liveHolder(path)).toBeUndefined();
   });
 
   it("reports `held` (not acquired) when a live process owns the gate", () => {
@@ -74,7 +82,7 @@ describe("acquirePidGate", () => {
 
     const gate = acquirePidGate(path);
     expect(gate.kind).toBe("acquired");
-    expect(readPidGate(path)).toBe(process.pid);
+    expect(liveHolder(path)).toBe(process.pid);
   });
 
   it("reaps a malformed gate (garbage content) and acquires it", () => {
@@ -83,7 +91,7 @@ describe("acquirePidGate", () => {
 
     const gate = acquirePidGate(path);
     expect(gate.kind).toBe("acquired");
-    expect(readPidGate(path)).toBe(process.pid);
+    expect(liveHolder(path)).toBe(process.pid);
   });
 
   it("release does not remove a gate that a successor now owns", () => {
@@ -101,21 +109,21 @@ describe("acquirePidGate", () => {
   });
 });
 
-describe("readPidGate", () => {
+describe("liveHolder (supervisor read)", () => {
   it("returns undefined for an absent gate", () => {
-    expect(readPidGate(gateIn())).toBeUndefined();
+    expect(liveHolder(gateIn())).toBeUndefined();
   });
 
   it("returns the live holder's pid", () => {
     const path = gateIn();
     const pid = liveChild();
     writeFileSync(path, `${pid}\n`);
-    expect(readPidGate(path)).toBe(pid);
+    expect(liveHolder(path)).toBe(pid);
   });
 
   it("returns undefined for a stale gate", async () => {
     const path = gateIn();
     writeFileSync(path, `${await deadPid()}\n`);
-    expect(readPidGate(path)).toBeUndefined();
+    expect(liveHolder(path)).toBeUndefined();
   });
 });

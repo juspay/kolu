@@ -5,9 +5,11 @@
  *  (kaval today, `odu serve` next).
  *
  *  This package holds ONLY code that runs inside the daemon process:
- *   - `acquirePidGate` / `readPidGate` — the atomic single-instance gate, both
- *     sides of one file format (acquire runs in the daemon; read runs in the
- *     supervisor, from B2).
+ *   - `acquirePidGate` — the atomic single-instance gate. The gate's file
+ *     format is single-sourced here as two daemon-running primitives
+ *     (`gatePid`, the pid parse; `isHolderLive`, the liveness probe) that the
+ *     supervisor (kolu-server, from B2) composes where it lives — so the reader
+ *     itself never crosses into this daemon-hashed package.
  *   - `daemonMain` — the gate → serve → teardown skeleton, parameterized over
  *     the scope key, socket path, surface router, and lifetime policy.
  *
@@ -28,5 +30,6 @@ export type { Logger } from "./logger.ts";
 export {
   acquirePidGate,
   type GateAcquisition,
-  readPidGate,
+  gatePid,
+  isHolderLive,
 } from "./pidGate.ts";

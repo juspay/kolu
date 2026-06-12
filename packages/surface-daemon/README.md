@@ -26,7 +26,7 @@ It exists because two programs arrived at the identical machinery from opposite 
 | Export | What it is |
 | --- | --- |
 | `acquirePidGate(gatePath)` | The daemon side of the gate: atomic claim via `link(2)`, returns `{ kind: "acquired", release }` or `{ kind: "held", pid }` (a live instance already serves — exit 0). |
-| `readPidGate(gatePath)` | The supervisor side: the live holder's pid, or `undefined`. The same file format, read from the process that spawns and watches the daemon (kolu-server, from B2). |
+| `gatePid(gatePath)` / `isHolderLive(pid)` | The gate's file format, single-sourced as two daemon-running primitives — the pid parse and the liveness probe. The supervisor (kolu-server, from B2) composes them where it lives (`isHolderLive(gatePid(path))`) for a live-only read, so no supervisor reader crosses into this daemon-hashed package. |
 | `daemonMain(spec)` | The `gate → serve → teardown` skeleton. `spec` = `{ gatePath, socketPath, router, lifetime, log, signal?, onReady? }`; resolves a `DaemonExit`. |
 | `Logger` | The structural logging contract (so the package carries no `kolu-*` dep). |
 

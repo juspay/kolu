@@ -14,7 +14,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { type DaemonSpec, daemonMain } from "./daemonMain.ts";
 import type { Logger } from "./logger.ts";
-import { readPidGate } from "./pidGate.ts";
+import { gatePid, isHolderLive } from "./pidGate.ts";
+
+/** The supervisor's read, composed from the shared primitives: the live
+ *  holder's pid, or `undefined` (absent, malformed, or stale). */
+function liveHolder(gatePath: string): number | undefined {
+  const pid = gatePid(gatePath);
+  return pid !== undefined && isHolderLive(pid) ? pid : undefined;
+}
 
 const silentLog: Logger = {
   debug: () => {},
@@ -89,11 +96,11 @@ describe("daemonMain", () => {
     });
 
     await readyP;
-    expect(readPidGate(gatePath)).toBe(process.pid); // gate held while serving
+    expect(liveHolder(gatePath)).toBe(process.pid); // gate held while serving
     ac.abort();
 
     expect(await exitP).toEqual({ kind: "shutdown", reason: "abort" });
-    expect(readPidGate(gatePath)).toBeUndefined(); // gate released
+    expect(liveHolder(gatePath)).toBeUndefined(); // gate released
     expect(existsSync(socketPath)).toBe(false); // socket removed
   });
 
@@ -107,7 +114,7 @@ describe("daemonMain", () => {
       log: silentLog,
     });
     expect(exit).toEqual({ kind: "shutdown", reason: "idle" });
-    expect(readPidGate(gatePath)).toBeUndefined();
+    expect(liveHolder(gatePath)).toBeUndefined();
   });
 
   it("does not time out while activity keeps it busy", async () => {
@@ -132,7 +139,7 @@ describe("daemonMain", () => {
     await readyP;
     // Stay busy well past the idle window, then confirm it is still serving.
     await new Promise((r) => setTimeout(r, 80));
-    expect(readPidGate(gatePath)).toBe(process.pid);
+    expect(liveHolder(gatePath)).toBe(process.pid);
     busy = false; // now let it go idle
     expect(await exitP).toEqual({ kind: "shutdown", reason: "idle" });
   });

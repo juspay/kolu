@@ -1,5 +1,6 @@
 /**
- * The atomic single-instance pid-gate — both sides of one file format.
+ * The atomic single-instance pid-gate — the daemon side plus the shared file
+ * format the supervisor reads from where it lives.
  *
  * A "surface daemon" (kaval today, `odu serve` next) must run at most once per
  * scope. The gate is a small file at a scope-keyed path whose content is the
@@ -11,11 +12,13 @@
  * "already running" (the caller exits 0), a *dead* one means a crashed
  * predecessor left a stale gate, which is unlinked and retried.
  *
- * Two sides, one home:
- *   - `acquirePidGate` runs **inside the daemon** (kaval's `daemonMain`).
- *   - `readPidGate` runs **inside the supervisor** that spawns and watches the
- *     daemon (kolu-server, from B2). Co-locating them keeps the gate's file
- *     format — pid as decimal text — defined in exactly one place.
+ * Everything here runs **inside the daemon**: `acquirePidGate` (kaval's
+ * `daemonMain`) plus the two pieces the gate's file format is made of — the pid
+ * parse (`gatePid`) and the liveness probe (`isHolderLive`). The supervisor
+ * that spawns and watches the daemon (kolu-server, from B2) does not get a
+ * reader of its own here; it composes these same primitives where it lives, so
+ * the gate's file format — pid as decimal text — stays defined in one place
+ * without dragging supervisor code into this daemon-hashed package.
  *
  * No survival, adoption, or env policy lives here: this is pure lifecycle
  * mechanism, parameterized only by the gate path (the scope key).
@@ -40,8 +43,10 @@ export type GateAcquisition =
   | { kind: "held"; pid: number };
 
 /** Is `pid` a live process? `kill(pid, 0)` sends no signal — it only probes:
- *  success or `EPERM` (exists, not ours) ⇒ alive; `ESRCH` ⇒ gone. */
-function processAlive(pid: number): boolean {
+ *  success or `EPERM` (exists, not ours) ⇒ alive; `ESRCH` ⇒ gone. The daemon's
+ *  stale-reap uses it; the supervisor (B2) composes it with `gatePid` to decide
+ *  connect-vs-spawn — same primitive, read from where each side lives. */
+export function isHolderLive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -51,23 +56,16 @@ function processAlive(pid: number): boolean {
 }
 
 /** The gate's raw pid, or `undefined` if the file is absent or malformed. Does
- *  NOT check liveness — that is the two readers' job (acquire treats a dead pid
- *  as stale; `readPidGate` returns only a live one). */
-function gatePid(gatePath: string): number | undefined {
+ *  NOT check liveness — that is each reader's job (acquire treats a dead pid as
+ *  stale; the supervisor pairs this with `isHolderLive` for a live-only read).
+ *  The parse half of the gate's file format, single-sourced here. */
+export function gatePid(gatePath: string): number | undefined {
   try {
     const pid = Number.parseInt(readFileSync(gatePath, "utf8").trim(), 10);
     return Number.isInteger(pid) && pid > 0 ? pid : undefined;
   } catch {
     return undefined;
   }
-}
-
-/** The supervisor side: the pid of the *live* daemon currently holding the
- *  gate, or `undefined` if none does (no file, malformed, or a stale holder).
- *  kolu-server's endpoint (B2) uses this to decide connect-vs-spawn. */
-export function readPidGate(gatePath: string): number | undefined {
-  const pid = gatePid(gatePath);
-  return pid !== undefined && processAlive(pid) ? pid : undefined;
 }
 
 /** Take the gate for *this* process, atomically. Returns `acquired` (with a
@@ -123,7 +121,7 @@ export function acquirePidGate(gatePath: string): GateAcquisition {
       // retry. (Concurrent reapers are safe: ENOENT on unlink just means a
       // peer reaped first, and the next pass re-reads the new state.)
       const pid = gatePid(gatePath);
-      if (pid !== undefined && processAlive(pid)) {
+      if (pid !== undefined && isHolderLive(pid)) {
         return { kind: "held", pid };
       }
       try {
