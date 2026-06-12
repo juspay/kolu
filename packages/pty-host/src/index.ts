@@ -9,10 +9,12 @@
  *    fully-prepared spawn (env/shell-init is the caller's job — `kolu-pty`).
  *  - `ptyHostSurface` — the typed **contract** (the `PtyHost` interface
  *    projected onto a wire) + its version + compatibility check.
- *  - `servePtyHost` — the contract's **serving**, transport-agnostic: prepares
- *    the shell env and serves `ptyHostSurface` over `createPtyHost`, returning
- *    the router (+ ctx). Reused over a socket by the surviving daemon and over
- *    ssh by R-2 — only the link differs.
+ *  - `servePtyHost` — the contract's **serving**, transport-agnostic: serves
+ *    `ptyHostSurface` over `createPtyHost`, returning the router (+ ctx). It
+ *    derives no env or shell-init policy (B0, the kaval inversion) — it only
+ *    materialises the `initFiles` it is handed under the injected `rcDir` and
+ *    spawns the supplied `argv`/`env` verbatim. Reused over a socket by the
+ *    surviving daemon and over ssh by R-2 — only the link differs.
  *  - `createInProcessPtyHost` — the **identity link**: builds the host once and
  *    returns the no-wire `directLink` client over it (plus the router for the
  *    socket transport), so one host backs both the in-process (web) and socket

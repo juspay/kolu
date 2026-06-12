@@ -63,4 +63,21 @@ describe("writeInitFiles / removeInitFiles", () => {
     ).toThrow(/escapes rcDir/);
     expect(existsSync(join(rcDir, "ok"))).toBe(false);
   });
+
+  it("rolls back already-written files when a later write fails midway", () => {
+    const rcDir = freshRcDir();
+    // First file writes fine; the second targets a path whose parent is an
+    // existing FILE, so mkdirSync(recursive) throws ENOTDIR partway through.
+    writeInitFiles(rcDir, [{ name: "blocker", content: "x" }]);
+    expect(() =>
+      writeInitFiles(rcDir, [
+        { name: "first", content: "1" },
+        { name: join("blocker", "nested"), content: "2" },
+      ]),
+    ).toThrow();
+    // The first file from the failing call must not survive (rolled back);
+    // the pre-existing unrelated file is untouched.
+    expect(existsSync(join(rcDir, "first"))).toBe(false);
+    expect(existsSync(join(rcDir, "blocker"))).toBe(true);
+  });
 });

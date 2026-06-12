@@ -62,9 +62,20 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
  *   1. `cleanEnv()`        — parent env passthrough (Nix devshell filter).
  *   2. `koluIdentityEnv()` — kolu's identity vars (stomp parent).
  *   3. `plan.env`          — per-PTY overrides (e.g. ZDOTDIR for zsh).
- * `cleanEnv()`'s `env.SHELL`/`env.HOME` win for a local host; `system.info`'s
- * values are the fallback that makes the same composition work for a host this
- * process isn't running on (the R-2 remote enabler).
+ *
+ * **Local-host only, today.** The host this process talks to IS this process
+ * (the in-process `directLink`), so `cleanEnv()`'s `env.SHELL`/`env.HOME` —
+ * which describe *this* machine — are the right facts, and `system.info`'s
+ * shell/home only matter as a fallback when the local env omits them (e.g.
+ * systemd user services). `system.info.rcDir` (the host-side init-file dir) is
+ * the one fact already consumed unconditionally, since the host owns that disk.
+ *
+ * The remaining facts (`shell`, `home`) are NOT yet remote-correct: a host this
+ * process isn't running on would need its OWN shell/home/env to win over the
+ * server's `cleanEnv()`, and that env basis isn't modeled here yet. Wiring a
+ * remote host (R-2) must replace this `cleanEnv()`-wins layering with a
+ * host-fact-first one (or an env basis carried on `system.info`); until then,
+ * treat this composition as local-only.
  */
 export async function buildTerminalSpawnInput(args: {
   id: string;

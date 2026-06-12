@@ -27,7 +27,9 @@ function resolveWithin(rcDir: string, name: string): string {
 
 /** Write each init file under `rcDir`, creating parent dirs as needed, and
  *  return the absolute paths written (for {@link removeInitFiles} on dispose).
- *  Throws — before writing anything — if any name escapes `rcDir`. */
+ *  Throws — before writing anything — if any name escapes `rcDir`. If a write
+ *  fails partway, the files already written are removed before rethrowing, so a
+ *  failed materialisation never leaves stragglers under `rcDir`. */
 export function writeInitFiles(
   rcDir: string,
   files: PtyHostInitFile[],
@@ -38,11 +40,20 @@ export function writeInitFiles(
     path: resolveWithin(rcDir, f.name),
     content: f.content,
   }));
-  return planned.map(({ path, content }) => {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, content);
-    return path;
-  });
+  const written: string[] = [];
+  try {
+    for (const { path, content } of planned) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, content);
+      written.push(path);
+    }
+  } catch (err) {
+    // A mid-stream write failure (e.g. ENOSPC, EACCES) must not leak the files
+    // that already landed — roll back what we wrote, then rethrow.
+    removeInitFiles(rcDir, written);
+    throw err;
+  }
+  return written;
 }
 
 /** Remove the files {@link writeInitFiles} wrote, then prune the now-empty

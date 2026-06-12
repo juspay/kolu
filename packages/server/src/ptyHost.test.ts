@@ -51,6 +51,28 @@ describe("buildTerminalSpawnInput env layering", () => {
     expect(input.argv[0]).toBe("/bin/zsh");
     expect(input.env.ZDOTDIR).toBe(join(rcDirOf(input), `zdotdir-${id}`));
   });
+
+  it("local env SHELL wins over system.info.shell (the local-host boundary)", async () => {
+    // Boundary pin (codex F2): today the host IS this process, so cleanEnv()'s
+    // local SHELL is authoritative and system.info.shell is only a fallback.
+    // A future remote host (R-2) must invert this — host facts winning over the
+    // server's env — so locking the current local-wins ordering makes that
+    // change a deliberate, visible edit rather than a silent regression.
+    process.env.SHELL = "/bin/zsh";
+    const input = await buildTerminalSpawnInput({ id: "T-local-shell" });
+    expect(input.argv[0]).toBe("/bin/zsh");
+  });
+
+  it("system.info.shell is the fallback when the local env omits SHELL", async () => {
+    // With SHELL absent from the parent env, the composition falls back to the
+    // host's own fact (system.info.shell) rather than crashing — the same path
+    // a systemd user service (no SHELL) exercises. cleanEnv() itself backstops
+    // SHELL from /etc/passwd, so the resolved shell is always a real path.
+    delete process.env.SHELL;
+    const input = await buildTerminalSpawnInput({ id: "T-fallback-shell" });
+    expect(input.argv[0]).toBeTruthy();
+    expect(input.argv[0]?.startsWith("/")).toBe(true);
+  });
 });
 
 /** Recover the rcDir the host planned against from the ZDOTDIR it produced —

@@ -203,17 +203,26 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
             throw new ORPCError("BAD_REQUEST", { message: "argv is empty" });
           }
           const written = writeInitFiles(rcDir, input.initFiles);
-          const res = host.spawn({
-            id,
-            shell: program,
-            args,
-            env: input.env,
-            cwd: input.cwd,
-            cols: input.cols,
-            rows: input.rows,
-            scrollback: input.scrollback ?? DEFAULT_SCROLLBACK,
-            onDispose: () => removeInitFiles(rcDir, written),
-          });
+          let res: ReturnType<typeof host.spawn>;
+          try {
+            res = host.spawn({
+              id,
+              shell: program,
+              args,
+              env: input.env,
+              cwd: input.cwd,
+              cols: input.cols,
+              rows: input.rows,
+              scrollback: input.scrollback ?? DEFAULT_SCROLLBACK,
+              onDispose: () => removeInitFiles(rcDir, written),
+            });
+          } catch (err) {
+            // The PTY never came up, so its `onDispose` will never fire — clean
+            // up the init files we wrote for it here, before rethrowing, so a
+            // failed spawn leaves nothing behind under `rcDir`.
+            removeInitFiles(rcDir, written);
+            throw err;
+          }
           return { id: res.id, pid: res.pid, cwd: input.cwd };
         },
         // No kill-then-wait here (that's a reattach concern): the consumer
