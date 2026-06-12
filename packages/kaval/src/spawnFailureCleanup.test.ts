@@ -29,7 +29,7 @@ vi.mock("./ptyHost.ts", () => ({
 }));
 
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
-import type { Logger } from "./logger.ts";
+import type { Logger } from "@kolu/surface-daemon";
 
 const silentLog: Logger = {
   debug: () => {},

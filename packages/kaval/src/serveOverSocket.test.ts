@@ -13,7 +13,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
-import type { Logger } from "./logger.ts";
+import type { Logger } from "@kolu/surface-daemon";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {

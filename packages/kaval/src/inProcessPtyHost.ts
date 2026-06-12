@@ -35,7 +35,7 @@ import type { ContractRouterClient } from "@orpc/contract";
 import { implement, ORPCError, type Router } from "@orpc/server";
 import { currentPtyHostIdentity } from "./buildId.ts";
 import { removeInitFiles, writeInitFiles } from "./initFiles.ts";
-import type { Logger } from "./logger.ts";
+import type { Logger } from "@kolu/surface-daemon";
 import { createPtyHost, type PtyId } from "./ptyHost.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
