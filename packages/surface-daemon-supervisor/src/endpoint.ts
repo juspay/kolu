@@ -26,8 +26,8 @@
  * transition reports.
  */
 
-import { createConnection } from "node:net";
 import { gatePid, isHolderLive, type Logger } from "@kolu/surface-daemon";
+import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
@@ -100,9 +100,10 @@ export interface Endpoint<C, I> {
 }
 
 /** Poll until a connection to `socketPath` is accepted, or the ceiling passes.
- *  Resolves `true` if the socket came up, `false` on timeout. Each probe opens
- *  and immediately closes a bare socket — the endpoint's real (handshaken)
- *  connection is made once by `spec.connect()` after this resolves. */
+ *  Resolves `true` if the socket came up, `false` on timeout. Each probe dials
+ *  a bare socket through `dialSocket` (the one place that owns the connect/error
+ *  race) and immediately closes it — the endpoint's real (handshaken) connection
+ *  is made once by `spec.connect()` after this resolves. */
 function waitForSocket(
   socketPath: string,
   ceilingMs: number,
@@ -111,16 +112,16 @@ function waitForSocket(
   const deadline = Date.now() + ceilingMs;
   return new Promise<boolean>((resolve) => {
     const attempt = (): void => {
-      const sock = createConnection(socketPath);
-      sock.once("connect", () => {
-        sock.destroy();
-        resolve(true);
-      });
-      sock.once("error", () => {
-        sock.destroy();
-        if (Date.now() >= deadline) resolve(false);
-        else setTimeout(attempt, pollMs);
-      });
+      dialSocket(socketPath).then(
+        (sock) => {
+          sock.destroy();
+          resolve(true);
+        },
+        () => {
+          if (Date.now() >= deadline) resolve(false);
+          else setTimeout(attempt, pollMs);
+        },
+      );
     };
     attempt();
   });

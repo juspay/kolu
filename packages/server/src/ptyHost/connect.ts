@@ -5,19 +5,23 @@
  * "restart it", never an opaque deep-RPC error or an import-time throw), and
  * hands back a `DaemonConnection` the endpoint holds.
  *
- * It dials the socket *directly* (`createConnection` + `stdioLink`) rather than
- * through `@kolu/surface`'s `unixSocketLink`, for one reason the supervisor
- * genuinely needs and that link doesn't expose: the socket's **close event**.
- * When kaval dies mid-session the supervisor must learn it instantly (to flip
- * the endpoint to `degraded`), without polling — so kolu owns the socket here
- * and forwards its `close` as `onClose`. The framing and client wiring are
- * otherwise identical to `unixSocketLink`.
+ * It dials the socket *directly* (the supervisor's `dialSocket` + `stdioLink`)
+ * rather than through `@kolu/surface`'s `unixSocketLink`, for one reason the
+ * supervisor genuinely needs and that link doesn't expose: the socket's
+ * **close event**. When kaval dies mid-session the supervisor must learn it
+ * instantly (to flip the endpoint to `degraded`), without polling — so kolu
+ * owns the socket here and forwards its `close` as `onClose`. The dial shares
+ * `dialSocket` with the endpoint's readiness probe so the connect/error race
+ * lives at one site; the framing and client wiring are otherwise identical to
+ * `unixSocketLink`.
  */
 
-import { createConnection, type Socket } from "node:net";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import type { DaemonConnection } from "@kolu/surface-daemon-supervisor";
+import {
+  type DaemonConnection,
+  dialSocket,
+} from "@kolu/surface-daemon-supervisor";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostClient,
@@ -32,24 +36,13 @@ export type KavalConnection = DaemonConnection<
   PtyHostIdentity | undefined
 >;
 
-function dial(socketPath: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const socket = createConnection(socketPath);
-    socket.once("connect", () => {
-      socket.removeListener("error", reject);
-      resolve(socket);
-    });
-    socket.once("error", reject);
-  });
-}
-
 /** Dial kaval at `socketPath`, handshake, and return the live connection.
  *  Rejects (raw socket error) if the socket isn't up, or throws on a contract
  *  skew / unreadable version — the endpoint turns either into `dead`. */
 export async function connectKaval(
   socketPath: string,
 ): Promise<KavalConnection> {
-  const socket = await dial(socketPath);
+  const socket = await dialSocket(socketPath);
   const client = stdioLink<typeof ptyHostSurface.contract>({
     read: socket,
     write: socket,

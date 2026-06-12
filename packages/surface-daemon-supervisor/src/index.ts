@@ -28,6 +28,7 @@ export {
   ENDPOINT_STATES,
   createEndpoint,
 } from "./endpoint.ts";
+export { dialSocket } from "./dialSocket.ts";
 export {
   type DaemonDriver,
   type DaemonSpawnConfig,
