@@ -71,29 +71,31 @@ When("I press the find shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
-// Press Cmd/Ctrl+F and record whether the app claimed it. A one-shot
-// bubble-phase window listener reads the event's final `defaultPrevented`
-// AFTER the app's capture-phase shortcut listener has run (capture fires
-// before bubble), so it sees the app's verdict. `defaultPrevented === false`
-// means the dispatcher declined and the browser's native find-in-page would
-// fire — the core promise of the focus-scoped chord. We can't observe the
-// browser find UI itself (it's chrome, outside the page), so proving the app
-// did NOT eat the chord is the load-bearing assertion. Stashed on `window` for
-// the matching Then to read.
+// Press Cmd/Ctrl+F and record whether the app claimed it. A bubble-phase
+// window listener reads the event's final `defaultPrevented` AFTER the app's
+// capture-phase shortcut listener has run (capture fires before bubble), so it
+// sees the app's verdict. `defaultPrevented === false` means the dispatcher
+// declined and the browser's native find-in-page would fire — the core promise
+// of the focus-scoped chord. We can't observe the browser find UI itself (it's
+// chrome, outside the page), so proving the app did NOT eat the chord is the
+// load-bearing assertion. Stashed on `window` for the matching Then to read.
+//
+// The listener is NOT `{ once: true }`: Playwright presses `Control`/`Meta`
+// down before `f`, so a one-shot listener would be consumed by the modifier's
+// own keydown and never see the `f` event. Instead we keep listening until the
+// matching Cmd/Ctrl+F keydown arrives, record it, then self-remove.
 When(
   "I press the find shortcut, watching for native handoff",
   async function (this: KoluWorld) {
     await this.page.evaluate(() => {
       const w = window as unknown as { __findDefaultPrevented?: boolean };
-      window.addEventListener(
-        "keydown",
-        (e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
-            w.__findDefaultPrevented = e.defaultPrevented;
-          }
-        },
-        { once: true },
-      );
+      const onKeyDown = (e: KeyboardEvent) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+          w.__findDefaultPrevented = e.defaultPrevented;
+          window.removeEventListener("keydown", onKeyDown);
+        }
+      };
+      window.addEventListener("keydown", onKeyDown);
     });
     await this.page.keyboard.press(`${MOD_KEY}+f`);
     await this.waitForFrame();
