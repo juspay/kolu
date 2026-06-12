@@ -234,8 +234,11 @@ describe("findInTerminal scoping (native find inside the Code tab)", () => {
   const evt = (target: unknown): KeyboardEvent =>
     ({ key: "f", ctrlKey: true, target }) as unknown as KeyboardEvent;
 
-  // Mirror the dispatcher's decision: skip (decline, no preventDefault) when
-  // the target sits inside the marker; otherwise the handler claims the chord.
+  // Mirror the dispatcher's `insideNativeFind` decision (useShortcuts.ts
+  // `dispatch`): skip (decline, no preventDefault) when the target sits inside
+  // the marker; otherwise the handler claims the chord. Keep this in sync with
+  // that branch — it's reproduced here because the node test env has no DOM to
+  // drive the real dispatcher through.
   const declines = (e: KeyboardEvent): boolean =>
     marker != null && (e.target as Element | null)?.closest?.(marker) != null;
 
