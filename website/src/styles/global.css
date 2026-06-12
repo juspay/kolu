@@ -682,12 +682,17 @@ body {
 
 .prose-changelog {
   color: var(--color-ink-dim);
-  line-height: 1.65;
+  line-height: 1.7;
 }
 
+/* Lead paragraph (a release body's opening summary). Looser leading so the
+   wrapped lines — studded with bordered code chips — don't crowd, and a clear
+   gap before the first section label. */
 .prose-changelog > p:first-child {
   color: var(--color-ink);
   font-size: 1.05rem;
+  line-height: 1.8;
+  margin-bottom: 1.4rem;
 }
 
 /* Section labels (Added / Fixed / Internal) — a compact mono caption with a
@@ -702,7 +707,7 @@ body {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--color-amber);
-  margin: 0.9rem 0 0.3rem;
+  margin: 1.5rem 0 0.55rem;
   /* Reset prose-invert heading overrides */
   font-weight: 600;
 }

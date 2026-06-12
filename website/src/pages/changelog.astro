@@ -113,14 +113,14 @@ const rendered = await Promise.all(
         const anchor = `v${version.replace(/\./g, "-")}`;
         return (
           <article class="border-t border-rule py-5">
-            <header class="mb-3 flex items-baseline gap-3">
+            <header class="mb-2 flex items-baseline gap-3">
               <a
                 href={`#${anchor}`}
-                class="version-link group/anchor inline-flex items-baseline gap-1.5"
+                class="version-link group/anchor relative inline-flex items-baseline"
               >
                 <span
                   aria-hidden="true"
-                  class="mono text-amber opacity-0 group-hover/anchor:opacity-100 transition-opacity"
+                  class="mono text-amber opacity-0 group-hover/anchor:opacity-100 transition-opacity absolute right-full mr-1.5"
                 >#</span>
                 <h2
                   id={anchor}
