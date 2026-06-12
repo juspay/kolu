@@ -27,6 +27,7 @@ import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
+  type DaemonStatus,
   type PreferencesPatch,
   type RecentAgent,
   type RecentRepo,
@@ -156,3 +157,11 @@ const _terminalList = app.cells.terminalList.use({
 });
 /** Subscription handle for the live terminal list. */
 export const terminalListSub = _terminalList.sub;
+
+// The surviving pty-host daemon's status — server-driven, the IdentityRail's
+// `pty` column reads it. No toast on error: the rail itself is the place a
+// daemon-health problem should surface, not an interruptive popup.
+const _daemonStatus = app.cells.daemonStatus.use({});
+/** The pty-host daemon's current status (state · uptime origin · identity). */
+export const daemonStatus = (): DaemonStatus | undefined =>
+  _daemonStatus.value();

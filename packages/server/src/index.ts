@@ -2,10 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
-import {
-  getPtyHostSocketPath,
-  servePtyHostOverUnixSocket,
-} from "@kolu/pty-host";
+import { getPtyHostSocketPath } from "@kolu/pty-host";
 import { createDirServer } from "@kolu/serve-dir";
 import {
   gateStaleSocket,
@@ -35,11 +32,13 @@ import {
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
-import { ptyHostServedRouter } from "./ptyHost.ts";
+import { ensureLocalEndpoint } from "./ptyHost/endpoint.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
+import { surfaceCtx } from "./surfaceCtx.ts";
 import { getTerminal } from "./terminal-registry.ts";
+import { attachLocalPtyHost } from "./terminalBackend/local.ts";
 import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
@@ -95,6 +94,28 @@ configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
 if (argv.flags.verbose) log.level = "debug";
+
+// ── The one-way door: the surviving pty-host daemon ──────────────────────
+// The composition root. The PTYs no longer live in this process; the daemon
+// owns them across our restarts. Spawn-or-recycle it, connect a socket-backed
+// client, and inject that into the local backend — all BEFORE the server starts
+// accepting RPCs, so the first terminal op has a live client. The daemon also
+// serves this socket to kolu-tui (the role kolu-server used to play in-process).
+//
+// B1 boot policy is *always recycle, survival off*: a daemon surviving from a
+// prior server is killed and respawned, so user-facing semantics stay identical
+// to today (a deploy recycles terminals) while every deploy soaks the
+// kill→waitForPidGone→respawn race with zero sessions at stake. Survival proper
+// (adopt-by-id) is B2.
+const ptyHostEndpoint = await ensureLocalEndpoint({
+  socketPath: getPtyHostSocketPath(argv.flags.ptyHostSocket),
+  log,
+  publishStatus: (status) => surfaceCtx.cells.daemonStatus.set(status),
+});
+attachLocalPtyHost(ptyHostEndpoint.client);
+// Drop our client on exit — the daemon SURVIVES us (the whole point), so this
+// does not kill it.
+process.on("exit", () => ptyHostEndpoint.dispose());
 
 const app = new Hono();
 
@@ -394,14 +415,5 @@ server.on("upgrade", (req, socket, head) => {
   }
 });
 
-// --- pty-host unix socket (kolu-tui, R-4 Phase 1) ---
-// One additive listener serving the SAME in-process pty-host router the web
-// path uses (./ptyHost.ts), so `kolu-tui` can list/snapshot the live PTYs from
-// the shell. Independent of the HTTP/WS server; its socket lives outside
-// koluRoot, so it gets its own exit-time cleanup.
-const ptyHostSocketListener = await servePtyHostOverUnixSocket({
-  socketPath: getPtyHostSocketPath(argv.flags.ptyHostSocket),
-  router: ptyHostServedRouter,
-  log,
-});
-process.on("exit", () => ptyHostSocketListener.close());
+// The pty-host unix socket (for kolu-tui) is served by the DAEMON now, not here —
+// see the composition root above. kolu-tui dials the same path unchanged.

@@ -1,23 +1,21 @@
 /**
- * `LocalTerminalBackend` — this kolu process. It owns `@kolu/pty-host`
- * in-process, but consumes it through the typed `ptyHostSurface` contract (via
- * the shared in-process `ptyHostClient` in `../ptyHost.ts`, the identity
- * link): it forwards
+ * `LocalTerminalBackend` — this kolu process. The PTYs live in a separate,
+ * surviving `@kolu/pty-host` daemon (R-4 Phase B); this backend consumes them
+ * through the typed `ptyHostSurface` contract over a **socket-backed client**
+ * injected at boot (`attachPtyHost`, from `ptyHost/endpoint.ts`): it forwards
  * spawn/kill/write/resize/attach through that client AND **runs the
- * per-terminal provider DAG** (`./providers.ts`) against the pty-host's raw tap
- * streams (cwd · title · command-run · foreground).
+ * per-terminal provider DAG** (`./providers.ts`) against the daemon's raw tap
+ * streams (cwd · title · command-run · foreground), which re-run fresh in
+ * kolu-server every deploy while the daemon's PTYs persist.
  *
  * Why route through the contract rather than call `PtyHost` directly: the
- * consumer here is then written against `PtyHostClient` — the exact shape a
- * surviving daemon (over a unix socket) or a remote ssh pty-host will serve.
- * A later step swaps only the in-process client (`../ptyHost.ts`) for a socket-served client;
- * everything in this file is unchanged. And the provider DAG already has zero
- * synchronous dependency on the host (it reads taps, not a `PtyHandle`), so it
- * runs identically whether pty-host is in-process or across a wire. The same
- * `ptyHostRouter` is additionally served over a unix socket (`../index.ts`)
- * so `kolu-tui` can reach these PTYs — that's a second transport on the one
- * host, and changes nothing in this file. See
- * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
+ * consumer here is written against `PtyHostClient` — the exact shape the
+ * surviving daemon (over a unix socket today) and a remote ssh pty-host (R-2)
+ * serve. The provider DAG has zero synchronous dependency on the host (it reads
+ * taps, not a `PtyHandle`), so it runs identically across the wire. The daemon
+ * serves the same router to `kolu-tui` over its socket — a second client on the
+ * one daemon, and nothing in this file knows. See
+ * `docs/atlas/src/content/atlas/pty-daemon.mdx`.
  *
  * `TerminalBackend.fs/git` stay on this side, abstracted per-location and (for
  * local) shelling out to `kolu-git` directly.
@@ -53,7 +51,6 @@ import {
 import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
-import { ptyHostClient } from "../ptyHost.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
@@ -123,27 +120,6 @@ const localGit: TerminalBackendGit = {
   },
 };
 
-/** The in-process pty-host's self-declared identity (its own commit + closure
- *  staleKey), fetched once at boot through the contract. Surfaced on
- *  `server.info` for the ChromeBar's `srv · pty` rail.
- *
- *  Fires at module load (`router.ts` imports this module eagerly). The
- *  `directLink` call has no wire, so it settles on the next microtask and
- *  `server.info` never actually waits; the `.catch` keeps a failed `version()`
- *  from rejecting the info handler (`ptyHost` is optional on the wire). Phase
- *  B's socket variant should revisit this with a timeout — remote latency is
- *  real then. */
-export const ptyHostIdentity = ptyHostClient.surface.system
-  .version({})
-  .then((v) => v.identity)
-  .catch((err) => {
-    log.warn(
-      { err },
-      "pty-host version() failed at boot; identity unavailable",
-    );
-    return undefined;
-  });
-
 // ── The contract-backed terminal handle ─────────────────────────────────
 
 /** A `TerminalHandle` whose control verbs forward through the pty-host client.
@@ -167,10 +143,9 @@ class PtyHostTerminalProxy implements TerminalHandle {
   private rejectReady!: (err: unknown) => void;
 
   /** The pty-host client is injected so the proxy is decoupled from how it's
-   *  built (in-process today, socket-served later) — but it's a stable
-   *  reference, not a thunk: a transport swap re-points the module-level client
-   *  (or its internal connection re-dials), so a daemon reconnect is invisible
-   *  here and the proxy never needs to re-resolve per verb. */
+   *  built — a socket-served daemon today; a transport swap on a daemon restart
+   *  (B2) re-points the backend's client, and the proxy is short-lived (one per
+   *  terminal), so it never needs to re-resolve per verb. */
   constructor(
     private readonly id: TerminalId,
     private readonly client: PtyHostClient,
@@ -319,6 +294,27 @@ class LocalTerminalBackend implements TerminalBackend {
    *  with a live provider layer in this process. */
   private readonly lifecycles = new Map<TerminalId, TerminalLifecycle>();
 
+  /** The pty-host client, injected by the composition root at boot (after the
+   *  daemon endpoint connects, before the server accepts RPCs). Not a
+   *  module-global and not built at import time — the socket connection is
+   *  async, so there is no in-process client to grab eagerly. */
+  private client: PtyHostClient | undefined;
+
+  /** Inject the socket-backed pty-host client. Called once at boot; a transport
+   *  swap (a daemon restart, B2) re-points it through this same method. */
+  attachPtyHost(client: PtyHostClient): void {
+    this.client = client;
+  }
+
+  private requireClient(): PtyHostClient {
+    if (!this.client) {
+      throw new Error(
+        "LocalTerminalBackend used before attachPtyHost — the composition root must connect the daemon endpoint before serving",
+      );
+    }
+    return this.client;
+  }
+
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo {
     const tlog = log.child({ terminal: id });
 
@@ -327,7 +323,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // spawnPty` sync-shadow contract. The pty-host resolves the authoritative
     // cwd / pid on the async tail below; the provider DAG starts there too.
     const cwd = opts.cwd || process.env.HOME || "/";
-    const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
+    const proxy = new PtyHostTerminalProxy(id, this.requireClient());
     const meta: TerminalMetadata = { ...createMetadata(cwd) };
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
@@ -361,14 +357,14 @@ class LocalTerminalBackend implements TerminalBackend {
     opts: PtySpawnOpts,
     proxy: PtyHostTerminalProxy,
   ): Promise<{ pid: number; cwd: string } | null> {
-    const res = await ptyHostClient.surface.terminal.spawn({
+    const res = await this.requireClient().surface.terminal.spawn({
       id,
       cwd: opts.cwd,
     });
     if (!getTerminal(id)) {
       proxy.markFailed(new Error("terminal killed during spawn"));
       try {
-        await ptyHostClient.surface.terminal.kill({ id });
+        await this.requireClient().surface.terminal.kill({ id });
       } catch (err) {
         log
           .child({ terminal: id })
@@ -421,8 +417,8 @@ class LocalTerminalBackend implements TerminalBackend {
         "pty-host provider wiring failed after spawn; killing the orphaned PTY",
       );
       this.teardownProviders(id);
-      void ptyHostClient.surface.terminal
-        .kill({ id })
+      void this.requireClient()
+        .surface.terminal.kill({ id })
         .catch((killErr) =>
           tlog.error({ err: killErr }, "kill of partially-wired PTY failed"),
         );
@@ -470,7 +466,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // persisted metadata (the bridge owns `m.cwd`; the git provider reads
     // `channels.cwd` to re-resolve git).
     bridgeStream(
-      ptyHostClient.surface.cwd.get({ id }, { signal }),
+      this.requireClient().surface.cwd.get({ id }, { signal }),
       signal,
       (msg) => {
         updateServerMetadata(entry, id, (m) => {
@@ -480,17 +476,17 @@ class LocalTerminalBackend implements TerminalBackend {
       },
     );
     bridgeStream(
-      ptyHostClient.surface.title.get({ id }, { signal }),
+      this.requireClient().surface.title.get({ id }, { signal }),
       signal,
       (msg) => channels.title.publish(msg.title),
     );
     bridgeStream(
-      ptyHostClient.surface.commandRun.get({ id }, { signal }),
+      this.requireClient().surface.commandRun.get({ id }, { signal }),
       signal,
       (msg) => channels.commandRun.publish(msg.command),
     );
     bridgeStream(
-      ptyHostClient.surface.foreground.get({ id }, { signal }),
+      this.requireClient().surface.foreground.get({ id }, { signal }),
       signal,
       (msg) =>
         channels.foreground.publish({
@@ -504,7 +500,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // aborts this signal first (see `teardownProviders`), so `handleExit` only
     // ever fires for a genuine exit.
     bridgeStream(
-      ptyHostClient.surface.exit.get({ id }, { signal }),
+      this.requireClient().surface.exit.get({ id }, { signal }),
       signal,
       (msg) => this.handleExit(id, msg.exitCode),
       (err) => {
@@ -565,7 +561,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // cleanup instead.
     this.teardownProviders(id);
     try {
-      await ptyHostClient.surface.terminal.kill({ id });
+      await this.requireClient().surface.terminal.kill({ id });
     } catch (err) {
       tlog.error({ err }, "pty-host kill failed; unregistering anyway");
     }
@@ -581,7 +577,7 @@ class LocalTerminalBackend implements TerminalBackend {
     log.info({ count: ids.length }, "killing all terminals");
     for (const id of ids) this.teardownProviders(id);
     try {
-      await ptyHostClient.surface.terminal.killAll({});
+      await this.requireClient().surface.terminal.killAll({});
     } catch (err) {
       log.error({ err }, "pty-host killAll failed; draining anyway");
     }
@@ -600,7 +596,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // `TerminalHandle` invariant (undefined ⟹ already live); awaiting it
     // surfaces a spawn failure rather than hitting a missing PTY.
     await getTerminal(id)?.handle.ready;
-    const stream = await ptyHostClient.surface.terminalAttach.get(
+    const stream = await this.requireClient().surface.terminalAttach.get(
       { id },
       { signal },
     );
@@ -631,4 +627,14 @@ class LocalTerminalBackend implements TerminalBackend {
   }
 }
 
-export const localTerminalBackend: TerminalBackend = new LocalTerminalBackend();
+const localBackend = new LocalTerminalBackend();
+export const localTerminalBackend: TerminalBackend = localBackend;
+
+/** Inject the socket-backed pty-host client into the local backend. The
+ *  composition root (`index.ts`) calls this once at boot, after the daemon
+ *  endpoint connects and before the server accepts RPCs. Separate from the
+ *  `TerminalBackend`-typed export so the injection point isn't part of the
+ *  location-agnostic interface. */
+export function attachLocalPtyHost(client: PtyHostClient): void {
+  localBackend.attachPtyHost(client);
+}

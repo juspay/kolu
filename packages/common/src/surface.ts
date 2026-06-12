@@ -589,20 +589,46 @@ export const PtyHostIdentitySchema = z.object({
   navigableCommit: z.string(),
 });
 
+/** The pty-host daemon's liveness, as the rail's `pty` column reads it. In B1
+ *  the daemon is a separate, surviving process, so this is genuinely distinct
+ *  from the server's own liveness: `connected` (serving), `degraded` (a contract
+ *  skew or a failed identity probe — still reachable), `dead` (the heartbeat
+ *  stopped — the column goes red, never the empty-canvas lie). `connecting` is
+ *  the boot-recycle window. */
+export const DaemonStateSchema = z.enum([
+  "connecting",
+  "connected",
+  "degraded",
+  "dead",
+]);
+export type DaemonState = z.infer<typeof DaemonStateSchema>;
+
+/** The ONE daemon-status value the endpoint emits on every transition — state +
+ *  the daemon's boot time (for the `pty up 3h` uptime) + its identity (the same
+ *  staleKey/navigableCommit the in-process pty-host reported on `buildInfo` in
+ *  A2, now sourced live from the surviving daemon). */
+export const DaemonStatusSchema = PtyHostIdentitySchema.extend({
+  state: DaemonStateSchema,
+  startedAt: z.number().nullable(),
+});
+export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
+
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
    *  commit. Optional only in the library-seeded default (`{ commit }`); once
    *  the async buildInfo patch resolves it's always present — `pkg.version`,
    *  even in dev. */
   version?: string;
-  ptyHost?: z.infer<typeof PtyHostIdentitySchema>;
+  /** Epoch-ms this server process booted — drives the `srv up …` uptime beside
+   *  the daemon's, so the daemon outliving a deploy is glanceable. */
+  srvStartedAt?: number;
 }
 
 export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
   schema: z.object({
     commit: z.string(),
     version: z.string().optional(),
-    ptyHost: PtyHostIdentitySchema.optional(),
+    srvStartedAt: z.number().optional(),
   }),
   default: { commit: "" },
 });
@@ -670,6 +696,23 @@ export const koluSurface = defineSurface({
     terminalList: {
       schema: z.array(TerminalInfoSchema),
       default: [] as z.infer<typeof TerminalInfoSchema>[],
+      verbs: ["get"],
+    },
+
+    /** The surviving pty-host daemon's status — read-only on the client; the
+     *  local endpoint (`ptyHost/endpoint.ts`) is the sole writer, publishing on
+     *  every transition (boot recycle, heartbeat death). The rail's `pty` column
+     *  subscribes. One host in B1; R-2 promotes this to a collection keyed by
+     *  hostId (the endpoint is already the single owner, so it is a localized
+     *  change, not a singleton-assumption retrofit). */
+    daemonStatus: {
+      schema: DaemonStatusSchema,
+      default: {
+        state: "connecting",
+        startedAt: null,
+        staleKey: "",
+        navigableCommit: "",
+      } satisfies z.infer<typeof DaemonStatusSchema>,
       verbs: ["get"],
     },
   },

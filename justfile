@@ -74,8 +74,11 @@ lint: install
 
 # Run server with auto-reload. Honors KOLU_DEV_SERVER_PORT if set (e.g. by
 # `just dev`), otherwise the server CLI falls back to its default port.
+# KOLU_PTY_HOST_BIN points the daemon spawn at the tsx dev launcher (production
+# bakes the nix wrapper path instead).
 server:
-    cd packages/server && {{ nix_shell }} pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}
+    KOLU_PTY_HOST_BIN="$(git rev-parse --show-toplevel)/packages/pty-host/bin/kolu-pty-host" \
+      {{ nix_shell }} bash -c 'cd packages/server && pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
 
 # Run client with Vite dev server (HMR)
 client:

@@ -81,3 +81,7 @@ export {
 // connected to (kolu-tui) — one resolver both packages share so the default
 // path can never drift between them.
 export { getPtyHostSocketPath } from "./socketPath.ts";
+// The single-instance pid-gate's read side + path derivation — the daemon
+// (acquire) and a fresh kolu-server (read, to discover a survivor before the
+// boot recycle) compute the gate path identically through `pidGatePathForSocket`.
+export { pidGatePathForSocket, pidIsAlive, readPidGate } from "./pidGate.ts";

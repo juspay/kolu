@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Dev launcher for the surviving pty-host daemon.
+#
+# `just dev` runs kolu-server under tsx, and the server spawns the daemon via
+# $KOLU_PTY_HOST_BIN; in dev that is this script, which runs the same TS entry
+# under tsx (resolved from the nix devShell PATH the server already has).
+# Production and e2e use the nix `kolu-pty-host` wrapper (default.nix) instead —
+# it bakes tsx plus the identity env the daemon serves.
+#
+# This lives OUTSIDE packages/pty-host/src on purpose: it never runs in
+# production, so it must not enter the staleKey closure (the closure test +
+# nix fileFilter scope to src/*.ts).
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec tsx "$here/../src/daemon.ts" "$@"

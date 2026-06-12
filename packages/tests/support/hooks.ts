@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pidGatePathForSocket, readPidGate } from "@kolu/pty-host";
 import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
 import getPort from "get-port";
 import { NIX_ENV_WHITELIST } from "kolu-pty";
@@ -46,6 +47,13 @@ process.env.GIT_COMMITTER_EMAIL ??= "test@kolu.dev";
 const testBaseDir = fs.mkdtempSync(
   path.join(os.tmpdir(), `kolu-test-${process.pid}-w${workerId}-`),
 );
+
+/** Per-worker pty-host daemon socket — under the private `testBaseDir` (mkdtemp,
+ *  0700) so concurrent workers never collide on the default
+ *  `$XDG_RUNTIME_DIR/kolu/pty-host.sock`, and the socket + pid-gate are wiped
+ *  with the base dir. The server's daemon binds it; we reap that daemon in
+ *  `killServer` since it survives the server by design. */
+const ptyHostSocket = path.join(testBaseDir, "pty-host.sock");
 
 const mkSubDir = (name: string) => {
   const dir = path.join(testBaseDir, name);
@@ -356,11 +364,22 @@ function httpGet(url: string): Promise<{ ok: boolean }> {
   });
 }
 
-/** Kill the server child on any exit path (crash, SIGINT, SIGTERM). */
+/** Kill the server child on any exit path (crash, SIGINT, SIGTERM). The
+ *  pty-host daemon SURVIVES the server (the whole point of Phase B), so the
+ *  server's SIGTERM doesn't reap it — kill it explicitly via its pid-gate so a
+ *  test run leaves no orphan daemon squatting the socket. */
 function killServer() {
   if (serverProcess) {
     serverProcess.kill("SIGTERM");
     serverProcess = undefined;
+  }
+  const daemonPid = readPidGate(pidGatePathForSocket(ptyHostSocket));
+  if (daemonPid !== null) {
+    try {
+      process.kill(daemonPid, "SIGKILL");
+    } catch {
+      // Already gone — nothing to reap.
+    }
   }
 }
 process.on("exit", killServer);
@@ -542,6 +561,9 @@ BeforeAll(async () => {
           envWhitelist,
           "--port",
           String(port),
+          // Per-worker daemon socket — keeps concurrent workers' daemons apart.
+          "--pty-host-socket",
+          ptyHostSocket,
         ],
         {
           stdio: "pipe",

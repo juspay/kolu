@@ -1252,6 +1252,9 @@ importers:
       '@cucumber/cucumber':
         specifier: ^12.8.1
         version: 12.8.1
+      '@kolu/pty-host':
+        specifier: workspace:*
+        version: link:../pty-host
       get-port:
         specifier: ^7.2.0
         version: 7.2.0

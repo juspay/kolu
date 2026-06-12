@@ -218,6 +218,7 @@ let
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --set KOLU_COMMIT_HASH "${commitHash}" \
       --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
+      --set KOLU_PTY_HOST_BIN "${kolu-pty-host}/bin/kolu-pty-host" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"

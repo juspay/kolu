@@ -9,6 +9,11 @@ export const serverHostname = hostname();
 /** Unique ID for this server process — changes on every restart. */
 export const serverProcessId = randomUUID();
 
+/** Epoch-ms this server process booted. Surfaced on `buildInfo` so the rail can
+ *  show `srv up …` beside the daemon's uptime — the gap (`srv up 2m` next to
+ *  `pty up 3h`) is glanceable proof the daemon outlived the last deploy. */
+export const serverStartedAt = Date.now();
+
 /** Git commit this server was built from — the nix wrapper bakes
  *  `KOLU_COMMIT_HASH`. `""` off-nix (dev / tsx, where the wrapper isn't in
  *  play). Surfaced on `server.info` for the ChromeBar's `srv` column. */

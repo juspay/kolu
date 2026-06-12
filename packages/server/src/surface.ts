@@ -44,6 +44,7 @@ import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
   ActivityFeed,
+  DaemonStatus,
   KoluBuildInfo,
   Preferences,
   SavedSession,
@@ -58,7 +59,12 @@ import {
   gitStatusOutputEqual,
 } from "kolu-git";
 import { isBinaryPreviewable } from "kolu-common/preview";
-import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
+import {
+  serverCommit,
+  serverProcessId,
+  serverStartedAt,
+  serverVersion,
+} from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
@@ -71,7 +77,6 @@ import {
   terminalNotFound,
 } from "./terminal-registry.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
-import { ptyHostIdentity } from "./terminalBackend/local.ts";
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
 
@@ -101,6 +106,15 @@ const savedSessionStore: CellStore<SavedSession | null> =
 // through), so we type-check kolu's deps HERE at construction and cast only at
 // the entry boundary below — the same pattern the example server and the
 // `implementSurfaces` test use.
+// The daemon's last-published status. The endpoint owns transitions; this is
+// just the cell's server-side slot (no persistence — status is per-boot).
+let daemonStatusValue: DaemonStatus = {
+  state: "connecting",
+  startedAt: null,
+  staleKey: "",
+  navigableCommit: "",
+};
+
 const koluDeps: Omit<
   ImplementSurfaceDeps<typeof koluSurface.spec>,
   "channel"
@@ -159,6 +173,17 @@ const koluDeps: Omit<
     terminalList: {
       // Live registry; the in-memory store has no persistent slot.
       store: { get: () => listTerminals(), set: () => {} },
+    },
+    daemonStatus: {
+      // In-memory holder; the pty-host endpoint is the sole writer, through
+      // `surfaceCtx.cells.daemonStatus.set`, which writes here and publishes the
+      // delta to subscribed rails. No persistent slot — status is per-boot.
+      store: {
+        get: () => daemonStatusValue,
+        set: (v) => {
+          daemonStatusValue = v;
+        },
+      },
     },
   },
 
@@ -303,40 +328,30 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     },
     {
       // ── surface-app's server deps (sibling under `surfaceApp`) ───────────
-      // The build-identity cell's server fragment (skew axis), extended with
-      // kolu's pty-host column, PLUS the `identity.info` restart probe pinned to
-      // kolu's boot UUID. `commit` is kolu's single source (`serverCommit` ←
-      // `KOLU_COMMIT_HASH`); the pty-host axis is the boot-time-async source — the
-      // in-process pty-host reports its identity async (via `system.version`), so
-      // it lands as a `Partial<KoluBuildInfo>` patch after the cell is seeded with
-      // `{ commit }`. A failed probe leaves `ptyHost` undefined (the fragment
-      // swallows it); the rail's column shows `—`. Per-key deps are typed against
-      // the surface's own spec, so this needs no cast.
+      // The build-identity cell's server fragment: kolu's `srv` column (commit +
+      // version) and its boot time, PLUS the `identity.info` restart probe pinned
+      // to kolu's boot UUID. `commit` is kolu's single source (`serverCommit` ←
+      // `KOLU_COMMIT_HASH`). The pty-host's OWN identity no longer rides here —
+      // it now lives on the live `daemonStatus` cell (the one owner is the
+      // endpoint, emitting on every transition), so the rail's `pty` column reads
+      // a single source rather than a frozen buildInfo axis (the #1275
+      // fragmented-identity trap). `version`/`srvStartedAt` are static, so this
+      // resolver is synchronous now.
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
-        buildInfo: async () => {
-          const identity = await ptyHostIdentity;
-          // `version` is the bundled app version (`pkg.version` via
-          // `serverVersion`, always present — even in dev, unlike `commit` which
-          // is env-injected and empty off-nix); `ptyHost` is the boot-time-async
-          // probe. Both land as a patch over the library-seeded `{ commit }`.
-          return {
-            version: serverVersion,
-            ...(identity ? { ptyHost: identity } : {}),
-          };
-        },
+        buildInfo: async () => ({
+          version: serverVersion,
+          srvStartedAt: serverStartedAt,
+        }),
         commit: serverCommit,
         // surface-app's identity probe (restart axis) —
         // `surface.surfaceApp.identity.info`. Pin it to the existing boot UUID
         // (`serverProcessId`) so the value is stable within a process and
         // changes on restart. Composed, not hand-written.
         processId: serverProcessId,
-        // Surface a failed boot-time pty-host probe — `ptyHost` legitimately
-        // stays undefined when the probe resolves empty, but a *rejection* is a
-        // fault we log rather than swallow (the rail's column shows `—` either way).
         onError: (err) =>
           log.error(
             { err: err instanceof Error ? err.message : String(err) },
-            "buildInfo pty-host axis failed",
+            "buildInfo resolver failed",
           ),
       }),
 
