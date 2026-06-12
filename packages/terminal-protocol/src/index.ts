@@ -10,14 +10,14 @@
  *  - `headlessReplies` — the server-side forward/drop policy for replies the
  *    headless mirror generates.
  *  - `deviceQueries`   — the answered/silent matrix as data; executed against
- *    a real headless by `@kolu/pty-host`'s device-query contract tests.
+ *    a real headless by `kaval`'s device-query contract tests.
  *  - `bracketedPaste`  — the `?2004` paste delimiters.
  *  - `snapshotReset`   — the reciprocal reset for modes a replayed
  *    `@xterm/addon-serialize` snapshot can switch on.
  *
  * A leaf: zero runtime dependencies, importable from the browser bundle, the
  * pty-host, and the CLI alike — which is exactly why this lives in its own
- * package: the browser may not depend on `@kolu/pty-host`, yet both must
+ * package: the browser may not depend on `kaval`, yet both must
  * agree on every table in here. The constants/tables are plain strings (byte
  * consumers convert at their own boundary); the one byte-level member is the
  * streaming stripper (`Buffer` in, types-only `@types/node` dep) — its

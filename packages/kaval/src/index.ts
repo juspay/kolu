@@ -1,5 +1,12 @@
-/** `@kolu/pty-host` — the PTY-owner primitive, its wire contract, and the
- *  in-process serving of that contract.
+/** `kaval` — the standalone PTY daemon: the PTY-owner primitive, its wire
+ *  contract, the in-process serving of that contract, and (B1) the process
+ *  entry that turns it into a runnable program.
+ *
+ *  This `index.ts` is the **library surface** kolu-server embeds in-process
+ *  (the web path) and kaval-tui dials over a socket. The **daemon entry**
+ *  (`bin.ts` → `daemonMain.ts` → `@kolu/surface-daemon`) is deliberately NOT
+ *  re-exported here — it is the executable, reached by the closure test as its
+ *  own root, not pulled into every consumer of the library.
  *
  *  - `createPtyHost` — the **primitive**: a `node-pty` child + an
  *    `@xterm/headless` screen mirror + the VT-derived event taps (cwd via
@@ -14,11 +21,11 @@
  *    derives no env or shell-init policy (B0, the kaval inversion) — it only
  *    materialises the `initFiles` it is handed under the injected `rcDir` and
  *    spawns the supplied `argv`/`env` verbatim. Reused over a socket by the
- *    surviving daemon and over ssh by R-2 — only the link differs.
+ *    daemon and over ssh by R-2 — only the link differs.
  *  - `createInProcessPtyHost` — the **identity link**: builds the host once and
  *    returns the no-wire `directLink` client over it (plus the router for the
  *    socket transport), so one host backs both the in-process (web) and socket
- *    (kolu-tui) paths. The consumer (kolu-server) is invariant under a later
+ *    (kaval-tui) paths. The consumer (kolu-server) is invariant under a later
  *    link swap.
  */
 
@@ -75,13 +82,13 @@ export {
 } from "./ptyHostSurface.ts";
 
 // Serve the pty-host router over a unix socket — the socket link this package
-// promises. kolu-server uses it for kolu-tui (R-4 Phase 1); Phase B's daemon
+// promises. kolu-server uses it for kaval-tui (R-4 Phase 1); Phase B's daemon
 // reuses it unchanged.
 export {
   type PtyHostSocketListener,
   servePtyHostOverUnixSocket,
 } from "./serveOverSocket.ts";
 // The well-known unix-socket path the pty-host is served on (kolu-server) and
-// connected to (kolu-tui) — one resolver both packages share so the default
+// connected to (kaval-tui) — one resolver both packages share so the default
 // path can never drift between them.
 export { getPtyHostSocketPath } from "./socketPath.ts";

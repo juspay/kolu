@@ -1,26 +1,28 @@
 /**
- * kolu-tui — a terminal-side client for kolu-server's in-process pty-host
- * (R-4 Phases 1–2: `list` + `snapshot` + `attach`). It dials the server's
- * unix socket via `unixSocketLink` and speaks `ptyHostSurface` directly — the
- * *raw* client (the browser is the *rich* one over the full kolu contract).
+ * kaval-tui — a terminal-side client for a running `kaval` daemon
+ * (R-4 Phases 1–2: `list` + `snapshot` + `attach`). It dials kaval's unix
+ * socket via `unixSocketLink` and speaks `ptyHostSurface` directly — the *raw*
+ * client (the browser is the *rich* one over the full kolu contract).
  * See `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`.
  *
- *   kolu-tui list [--json]     list your live terminals (id · pid · idle · cwd)
- *   kolu-tui snapshot <id>     print a terminal's current scrollback, then exit
- *   kolu-tui attach <id>       take over a terminal from the shell; `~.` detaches
+ *   kaval-tui list [--json]     list your live terminals (id · pid · idle · cwd)
+ *   kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
+ *   kaval-tui attach <id>       take over a terminal from the shell; `~.` detaches
  *
- * `spawn` / `kill` are later phases. The CLI comes and goes; kolu-server
- * keeps owning the PTYs.
+ * By default it reaches a standalone `kaval` daemon. To drive a running
+ * kolu-server's in-process terminals instead (until B2 flips kolu onto the
+ * daemon), point `--socket` at kolu's socket
+ * (`$XDG_RUNTIME_DIR/kolu/pty-host.sock`).
+ *
+ * `spawn` / `kill` are later phases. The CLI comes and goes; the daemon keeps
+ * owning the PTYs.
  */
 import { writeSync } from "node:fs";
 import { homedir } from "node:os";
-import {
-  getPtyHostSocketPath,
-  PTY_HOST_CONTRACT_VERSION,
-} from "@kolu/pty-host";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
 import { cli, command } from "cleye";
+import { getPtyHostSocketPath, PTY_HOST_CONTRACT_VERSION } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { isValidEscapeChar } from "./escape.ts";
@@ -29,19 +31,19 @@ import { formatList, formatListJson } from "./render.ts";
 // Shared on both subcommands (cleye doesn't inherit a parent flag into a
 // subcommand's parsed type, so it's declared on each that needs it).
 const socketFlag = {
-  ptyHostSocket: {
+  socket: {
     type: String,
     description:
-      "pty-host socket path (default: $XDG_RUNTIME_DIR/kolu/pty-host.sock on systemd Linux, else /tmp/kolu-$UID/pty-host.sock)",
+      "socket path to dial (default: kaval's at $XDG_RUNTIME_DIR/kaval/pty-host.sock on systemd Linux, else /tmp/kaval-$UID/pty-host.sock). Point at $XDG_RUNTIME_DIR/kolu/pty-host.sock to reach a running kolu-server.",
   },
 } as const;
 
 const argv = cli({
-  name: "kolu-tui",
+  name: "kaval-tui",
   version: PTY_HOST_CONTRACT_VERSION,
   help: {
     description:
-      "A terminal-side client for kolu-server's pty-host (beta). Connects to a running kolu-server over a local unix socket — start the server first (e.g. `nix run github:juspay/kolu`); the socket appears once it boots. spawn / kill land later.",
+      "A terminal-side client for the kaval PTY daemon (beta). Connects to a running kaval over a local unix socket — start it with `kaval`; the socket appears once it boots. Use `--socket` to reach a kolu-server's in-process terminals instead. spawn / kill land later.",
   },
   commands: [
     command({
@@ -67,7 +69,7 @@ const argv = cli({
       parameters: ["<id>"],
       help: {
         description:
-          "Take over a terminal: raw passthrough until a line-start `~.` detaches (kolu-server keeps the terminal). `~?` lists the escapes.",
+          "Take over a terminal: raw passthrough until a line-start `~.` detaches (the daemon keeps the terminal). `~?` lists the escapes.",
       },
       flags: {
         ...socketFlag,
@@ -83,7 +85,7 @@ const argv = cli({
 });
 
 /** Backpressure-aware stdout write — a large scrollback to a pipe must drain
- *  before we exit, or the tail is truncated. EPIPE (e.g. `kolu-tui list | head
+ *  before we exit, or the tail is truncated. EPIPE (e.g. `kaval-tui list | head
  *  -1`) is treated as "done" rather than an error so the process exits cleanly. */
 function writeOut(text: string): Promise<void> {
   return new Promise((resolve) => {
@@ -102,7 +104,7 @@ function writeOut(text: string): Promise<void> {
 }
 
 function fail(message: string): never {
-  process.stderr.write(`kolu-tui: ${message}\n`);
+  process.stderr.write(`kaval-tui: ${message}\n`);
   process.exit(1);
 }
 
@@ -142,7 +144,7 @@ async function cmdAttach(
   }
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     fail(
-      "attach needs an interactive terminal (stdin/stdout is not a tty) — for scripting, use `kolu-tui snapshot`.",
+      "attach needs an interactive terminal (stdin/stdout is not a tty) — for scripting, use `kaval-tui snapshot`.",
     );
   }
 
@@ -169,7 +171,7 @@ async function cmdAttach(
   // In raw mode Ctrl+C arrives as byte 0x03 and is FORWARDED to the inner
   // program (the local tty generates no SIGINT) — these handlers only catch
   // *external* signals (kill, a closing terminal). Restore, then leave with
-  // the conventional 128+n code; kolu-server keeps the PTY either way.
+  // the conventional 128+n code; the daemon keeps the PTY either way.
   for (const [sig, n] of [
     ["SIGINT", 2],
     ["SIGTERM", 15],
@@ -202,7 +204,7 @@ async function cmdAttach(
   restore();
   switch (outcome.kind) {
     case "detached":
-      process.stderr.write(`— detached · ${id} stays live in kolu-server\n`);
+      process.stderr.write(`— detached · ${id} stays live in the daemon\n`);
       process.exit(0);
       break;
     case "exited":
@@ -214,7 +216,7 @@ async function cmdAttach(
       );
       break;
     case "not-found":
-      fail(`no terminal ${id} — \`kolu-tui list\` shows the live ones.`);
+      fail(`no terminal ${id} — \`kaval-tui list\` shows the live ones.`);
       break;
     case "error":
       fail(outcome.message);
@@ -223,24 +225,24 @@ async function cmdAttach(
   process.exit(1);
 }
 
-/** Confirm the running server speaks a wire-compatible pty-host contract before
- *  we invoke any command — a newer kolu-tui against an older/different server
+/** Confirm the running daemon speaks a wire-compatible pty-host contract before
+ *  we invoke any command — a newer kaval-tui against an older/different daemon
  *  would otherwise fail deep inside oRPC with an opaque schema/procedure error
- *  instead of an honest "restart your server" line. A major mismatch (or a
- *  newer-minor server) is a clean, actionable failure here. */
+ *  instead of an honest "restart it" line. A major mismatch (or a newer-minor
+ *  daemon) is a clean, actionable failure here. */
 async function assertCompatible(conn: Connection): Promise<void> {
   const { contractVersion } = await conn.client.surface.system
     .version({})
     .catch((err: Error) => {
       throw new Error(
-        `could not read the server's pty-host version (${err.message}) — is it a kolu-server new enough to expose \`system.version\`? Try restarting it.`,
+        `could not read the daemon's pty-host version (${err.message}) — is it a kaval (or kolu-server) new enough to expose \`system.version\`? Try restarting it.`,
       );
     });
   if (
     !isContractVersionCompatible(contractVersion, PTY_HOST_CONTRACT_VERSION)
   ) {
     fail(
-      `pty-host contract mismatch: server speaks ${contractVersion}, kolu-tui needs ${PTY_HOST_CONTRACT_VERSION}. Restart kolu-server (and kolu-tui) to the same build.`,
+      `pty-host contract mismatch: the daemon speaks ${contractVersion}, kaval-tui needs ${PTY_HOST_CONTRACT_VERSION}. Restart it (and kaval-tui) to the same build.`,
     );
   }
 }
@@ -253,11 +255,11 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const socketPath = getPtyHostSocketPath(argv.flags.ptyHostSocket);
+  const socketPath = getPtyHostSocketPath(argv.flags.socket, "kaval");
   const conn = await connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
     return fail(
-      `no pty-host socket at ${socketPath}${code ? ` (${code})` : ""} — is kolu-server running? the socket appears once it boots.`,
+      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is kaval running? Start it with \`kaval\`; the socket appears once it boots. To reach a kolu-server, pass \`--socket\`.`,
     );
   });
 
@@ -279,6 +281,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(`kolu-tui: ${(err as Error).message}\n`);
+  process.stderr.write(`kaval-tui: ${(err as Error).message}\n`);
   process.exit(1);
 });

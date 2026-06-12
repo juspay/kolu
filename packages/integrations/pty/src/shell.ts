@@ -139,11 +139,11 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *
  *  1. **OSC 2** — window title. Mirrors Ghostty/Kitty convention of
  *     showing the running command in the title bar. Consumed by
- *     `headless.onTitleChange` in `@kolu/pty-host` to drive event-driven
+ *     `headless.onTitleChange` in `kaval` to drive event-driven
  *     foreground process detection.
  *
  *  2. **OSC 633 ; E ; <cmd>** — VS Code's semantic "exact command line"
- *     mark. The OSC 633 handler in `@kolu/pty-host` republishes the raw
+ *     mark. The OSC 633 handler in `kaval` republishes the raw
  *     payload on the `commandRun` channel; downstream consumers derive the global
  *     "recent agents" MRU and a per-terminal agent-command stash (used to
  *     detect interpreter-shimmed agents like npm-installed codex, where

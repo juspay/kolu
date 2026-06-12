@@ -1,42 +1,42 @@
 ---
 /**
- * kolu.dev/tui — quick reference for the kolu-tui CLI (beta).
+ * kolu.dev/tui — quick reference for kaval + kaval-tui (beta).
  *
  * Deliberately UNLISTED: linked from nowhere on the site, excluded from the
  * sitemap (astro.config.mjs), and noindex'd below — it's a URL you hand to
  * someone trying the beta, not a navigation destination. Flip those three
- * switches together when the CLI graduates.
+ * switches together when the pair graduates.
  */
 import BaseLayout from "../layouts/BaseLayout.astro";
 
 const commands = [
   {
-    cmd: "kolu-tui list",
+    cmd: "kaval-tui list",
     flags: "--json",
     what: "One row per live terminal — id · pid · idle · cmd · cwd. --json emits a top-level array for jq.",
   },
   {
-    cmd: "kolu-tui snapshot <id>",
+    cmd: "kaval-tui snapshot <id>",
     flags: "",
     what: "Print a terminal's current scrollback as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean).",
   },
   {
-    cmd: "kolu-tui attach <id>",
+    cmd: "kaval-tui attach <id>",
     flags: "--escape <char>",
     what: "Take the terminal over, full screen. Raw passthrough — every keystroke and chord reaches the inner program; your window size follows along. Detach with the escape below.",
   },
 ];
 
 const escapes = [
-  { keys: "~.", what: "detach — kolu-tui exits, kolu-server keeps the terminal; re-attach anytime" },
+  { keys: "~.", what: "detach — kaval-tui exits, the daemon keeps the terminal; re-attach anytime" },
   { keys: "~~", what: "send one literal ~ to the shell" },
   { keys: "~?", what: "show this escape help" },
 ];
 ---
 
 <BaseLayout
-  title="kolu-tui"
-  description="kolu-tui — list, snapshot, and attach to your kolu terminals from the shell."
+  title="kaval-tui"
+  description="kaval — a standalone PTY daemon — and kaval-tui, its terminal client: list, snapshot, and attach to your terminals from the shell."
 >
   <meta name="robots" content="noindex" slot="head" />
 
@@ -63,31 +63,35 @@ const escapes = [
         <line x1="12" y1="17" x2="12.01" y2="17"></line>
       </svg>
       <p class="mono text-sm text-ink leading-relaxed">
-        <span class="text-brand-amber font-semibold">alpha</span> — kolu-tui is
-        an early preview. Commands, flags, and output formats{" "}
-        <span class="text-ink">will change</span> before it's finalized for
-        production use; don't script against it yet.
+        <span class="text-brand-amber font-semibold">alpha</span> — kaval and
+        kaval-tui are an early preview. Commands, flags, and output formats{" "}
+        <span class="text-ink">will change</span> before they're finalized for
+        production use; don't script against them yet.
       </p>
     </div>
-    <p class="eyebrow mb-4">the terminal client · alpha</p>
+    <p class="eyebrow mb-4">the PTY daemon &amp; its client · alpha</p>
     <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
-      kolu, without<br />the <span class="text-amber">browser</span>.
+      a watch over<br />your <span class="text-amber">terminals</span>.
     </h1>
     <p class="mt-6 text-ink-dim max-w-xl leading-relaxed">
-      <code class="mono text-ink">kolu-tui</code> talks to{" "}
-      <span class="text-ink">kolu-server</span> — the process that{" "}
-      <code class="mono text-ink">nix run github:juspay/kolu</code> starts and
-      your browser points at — over a local unix socket, and drives the very
-      same terminals the browser shows: list them, dump their scrollback, or
-      attach and type. The CLI comes and goes; the server keeps owning the
-      terminals.
+      <code class="mono text-ink">kaval</code> (Tamil <em>kāval</em> — watch,
+      guard) is a small, standalone PTY daemon: it owns your shells, mirrors
+      their screens, and serves them over a local unix socket — outliving the
+      clients that come and go.{" "}
+      <code class="mono text-ink">kaval-tui</code> is its terminal client: list
+      your shells, dump their scrollback, or attach and type. Run the pair on a
+      box where kolu has never been installed — a tmux/zellij-shaped duo, minus
+      the multiplexer's session model.
     </p>
     <p class="mono text-ink-faint text-sm leading-relaxed mt-7">
-      // start the server first, then:{" "}
-      <code class="text-ink">nix run github:juspay/kolu#kolu-tui -- list</code>
+      // start the daemon, then drive it:{" "}
+      <code class="text-ink">nix run github:juspay/kolu#kaval</code>
+      <br />
+      <code class="text-ink">nix run github:juspay/kolu#kaval-tui -- list</code>
       <br />
       <span class="text-ink-faint">
-        the home-manager module installs it next to the server automatically.
+        already running kolu? point kaval-tui at the server with{" "}
+        <code class="text-ink">--socket</code> (see the fine print).
       </span>
     </p>
   </section>
@@ -130,7 +134,7 @@ const escapes = [
     </div>
     <p class="mono text-ink-faint text-sm leading-relaxed mt-5">
       // ~ clashes (nested ssh?) — rebind it:{" "}
-      <code class="text-ink">kolu-tui attach &lt;id&gt; --escape %</code>
+      <code class="text-ink">kaval-tui attach &lt;id&gt; --escape %</code>
     </p>
   </section>
 
@@ -138,22 +142,23 @@ const escapes = [
     <p class="eyebrow mb-5">fine print</p>
     <ul class="text-ink-dim text-sm leading-relaxed max-w-xl space-y-3">
       <li>
-        The socket lives at{" "}
-        <code class="mono text-ink">$XDG_RUNTIME_DIR/kolu/pty-host.sock</code>{" "}
+        kaval's socket lives at{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR/kaval/pty-host.sock</code>{" "}
         (falling back to{" "}
-        <code class="mono text-ink">/tmp/kolu-$UID/pty-host.sock</code>) and
-        appears when kolu-server boots. Point at a non-default server with{" "}
-        <code class="mono text-ink">--pty-host-socket &lt;path&gt;</code> —
-        same flag on the server.
+        <code class="mono text-ink">/tmp/kaval-$UID/pty-host.sock</code>) and
+        appears when the daemon boots. kaval-tui dials it by default; point it
+        elsewhere — including a running kolu-server's{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR/kolu/pty-host.sock</code> —
+        with <code class="mono text-ink">--socket &lt;path&gt;</code>.
       </li>
       <li>
-        Detach is <span class="text-ink">client-side</span>: the CLI can come
-        and go while the server holds the terminal. Restarting kolu-server
+        Detach is <span class="text-ink">client-side</span>: kaval-tui can come
+        and go while the daemon holds the terminal. Restarting the daemon
         itself still ends its terminals — that persistence is later work.
       </li>
       <li>
-        When the program inside exits, kolu-tui exits with the same code.
-        An unreachable server is a one-line error, never a hang.
+        When the program inside exits, kaval-tui exits with the same code.
+        An unreachable daemon is a one-line error, never a hang.
       </li>
       <li>
         Next up: <code class="mono text-ink">spawn</code> and{" "}
@@ -166,7 +171,7 @@ const escapes = [
         <a
           href="https://htmlpreview.github.io/?https://github.com/juspay/kolu/blob/master/docs/atlas/dist/pty-daemon-tui.html"
           class="text-amber hover:underline"
-          rel="noopener">kolu-tui atlas note</a
+          rel="noopener">kaval-tui atlas note</a
         >.
       </li>
     </ul>

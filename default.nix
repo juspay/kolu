@@ -35,6 +35,7 @@ let
       ./packages/surface-mcp
       ./packages/surface-nix-host
       ./packages/surface-app
+      ./packages/surface-daemon
       ./packages/solid-pierre
       ./packages/solid-markdown
       ./packages/solid-pwa-install
@@ -47,8 +48,8 @@ let
       ./packages/terminal-themes
       ./packages/memorable-names
       ./packages/terminal-protocol
-      ./packages/pty-host
-      ./packages/pty-tui
+      ./packages/kaval
+      ./packages/kaval-tui
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -79,35 +80,43 @@ let
   # cache; koluStamped sed-replaces it with the real hash afterwards.
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
-  # The staleKey (R-4 A2): a content hash of the @kolu/pty-host source closure
-  # — the survivor's wire + behaviour. Baked into KOLU_PTY_HOST_BUILD_ID below
-  # so the server (and, in phase B, a surviving daemon) can tell whether a
-  # restart would load different pty-host code. Scoped to packages/pty-host/src
-  # (+ package.json for dep pins) so server-/client-only deploys leave it
-  # unchanged — no over-prompting. LC_ALL=C sort makes the hash byte-identical
-  # across Darwin/Linux. The .ts set hashed here is asserted to equal the
-  # contract's reachable closure by packages/pty-host/src/buildId.closure.test.ts
-  # — keep the fileFilter and that test in lockstep.
-  ptyHostSrc = pkgs.lib.fileset.toSource {
+  # The staleKey (R-4 A2, re-rooted in B1): a content hash of kaval's daemon
+  # source closure — the survivor's wire + behaviour. Baked into KAVAL_BUILD_ID
+  # below so the server (and, in phase B, a surviving daemon) can tell whether a
+  # restart would load different daemon code. Scoped to the three roots that run
+  # IN the daemon — kaval, terminal-protocol, and the surface-daemon spine — so
+  # server-/client-only deploys leave it unchanged (no over-prompting). The .ts
+  # filter drops `.test.ts` AND `.testlib.ts` (shared test-only helpers), and
+  # LC_ALL=C sort makes the hash byte-identical across Darwin/Linux. The set
+  # hashed here is asserted to equal the daemon's reachable closure by
+  # packages/kaval/src/buildId.closure.test.ts — keep the fileFilter and that
+  # test in lockstep.
+  isHashedSource =
+    f: f.hasExt "ts"
+      && !pkgs.lib.hasSuffix ".test.ts" f.name
+      && !pkgs.lib.hasSuffix ".testlib.ts" f.name;
+  kavalSrc = pkgs.lib.fileset.toSource {
     root = ./packages;
     fileset = pkgs.lib.fileset.unions [
-      (pkgs.lib.fileset.fileFilter
-        (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name)
-        ./packages/pty-host/src)
-      ./packages/pty-host/package.json
-      # @kolu/terminal-protocol is wire/behaviour the pty-host serves (the
+      (pkgs.lib.fileset.fileFilter isHashedSource ./packages/kaval/src)
+      ./packages/kaval/package.json
+      # @kolu/terminal-protocol is wire/behaviour the daemon serves (the
       # device-query forward/drop policy + the suppression grammars), reached
       # from the runtime closure — so it is hashed too, or a protocol change
       # would escape the staleKey.
-      (pkgs.lib.fileset.fileFilter
-        (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name)
-        ./packages/terminal-protocol/src)
+      (pkgs.lib.fileset.fileFilter isHashedSource ./packages/terminal-protocol/src)
       ./packages/terminal-protocol/package.json
+      # @kolu/surface-daemon is the daemon spine — the pid-gate and the
+      # `daemonMain` skeleton run inside the daemon process, so a change to them
+      # is a change to what a restart loads. Hashed WHOLE (its standing
+      # invariant: only daemon-running code lives there until S1).
+      (pkgs.lib.fileset.fileFilter isHashedSource ./packages/surface-daemon/src)
+      ./packages/surface-daemon/package.json
     ];
   };
 
-  ptyHostBuildId = builtins.readFile (pkgs.runCommand "kolu-pty-host-build-id"
-    { src = ptyHostSrc; } ''
+  kavalBuildId = builtins.readFile (pkgs.runCommand "kaval-build-id"
+    { src = kavalSrc; } ''
     cd "$src"
     find . -type f | LC_ALL=C sort | xargs cat | sha256sum | cut -c1-64 \
       | tr -d '\n' > $out
@@ -217,7 +226,8 @@ let
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --set KOLU_COMMIT_HASH "${commitHash}" \
-      --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
+      --set KAVAL_BUILD_ID "${kavalBuildId}" \
+      --set KAVAL_COMMIT_HASH "${commitHash}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"
@@ -244,19 +254,39 @@ let
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
 
-  # kolu-tui (R-4 Phase 1): the terminal-side CLI that connects to a running
-  # kolu-server's pty-host unix socket and lists/snapshots its live PTYs. Runs
-  # from the SAME built workspace closure as `kolu` (so @kolu/pty-host +
-  # @kolu/surface resolve identically) under tsx — no client bundle, no
-  # state dir, just nodejs.
-  kolu-tui = pkgs.runCommand "kolu-tui"
+  # kaval (R-4 Phase B): the standalone PTY daemon — owns the node-pty children,
+  # mirrors their screens, and serves `ptyHostSurface` over its own unix socket.
+  # Runs from the SAME built workspace closure as `kolu` (so kaval + @kolu/surface
+  # + @kolu/surface-daemon resolve identically) under tsx. Carries its OWN
+  # identity env (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH) so a standalone kaval reports
+  # a real `system.version`. In B1 kolu still embeds the host in-process; this bin
+  # is the runnable program the daemon flip (B2) will spawn.
+  kaval = pkgs.runCommand "kaval"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta.mainProgram = "kolu-tui";
+      meta.mainProgram = "kaval";
     } ''
     mkdir -p $out/bin
-    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu-tui \
-      --add-flags "${kolu}/packages/pty-tui/src/main.ts" \
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kaval \
+      --add-flags "${kolu}/packages/kaval/src/bin.ts" \
+      --set KAVAL_BUILD_ID "${kavalBuildId}" \
+      --set KAVAL_COMMIT_HASH "${commitHash}" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+  '';
+
+  # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's
+  # (or, with --socket, a kolu-server's) pty-host unix socket and lists/snapshots/
+  # attaches its live PTYs. Runs from the SAME built workspace closure as `kolu`
+  # (so kaval + @kolu/surface resolve identically) under tsx — no client bundle,
+  # no state dir, just nodejs.
+  kaval-tui = pkgs.runCommand "kaval-tui"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "kaval-tui";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kaval-tui \
+      --add-flags "${kolu}/packages/kaval-tui/src/main.ts" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
   '';
 
@@ -303,5 +333,5 @@ let
   };
 in
 {
-  inherit default koluBin kolu-tui koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample // oduPackages

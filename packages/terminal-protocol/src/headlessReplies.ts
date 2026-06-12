@@ -10,7 +10,7 @@
  * exists that a program consumes (the headless has no theme, no clipboard),
  * and an OSC packet echoed by a cooked tty prints as visible garbage. The
  * full answered/silent matrix lives in `deviceQueries.ts` and is pinned
- * against a real headless in `@kolu/pty-host`'s device-query contract tests.
+ * against a real headless in `kaval`'s device-query contract tests.
  */
 export function shouldForwardHeadlessReply(reply: string): boolean {
   return !reply.startsWith("\x1b]");

@@ -1,5 +1,5 @@
 /**
- * `LocalTerminalBackend` — this kolu process. It owns `@kolu/pty-host`
+ * `LocalTerminalBackend` — this kolu process. It owns `kaval`
  * in-process, but consumes it through the typed `ptyHostSurface` contract (via
  * the shared in-process `ptyHostClient` in `../ptyHost.ts`, the identity
  * link): it forwards
@@ -23,7 +23,7 @@
  * local) shelling out to `kolu-git` directly.
  */
 
-import type { ForegroundSample, PtyHostClient } from "@kolu/pty-host";
+import type { ForegroundSample, PtyHostClient } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   TerminalId,

@@ -1,7 +1,7 @@
 /**
- * `ptyHostSurface` — the typed contract for talking to a `@kolu/pty-host`.
+ * `ptyHostSurface` — the typed contract for talking to a `kaval`.
  *
- * `@kolu/pty-host` owns **only** the PTY: the node-pty children, the
+ * `kaval` owns **only** the PTY: the node-pty children, the
  * `@xterm/headless` screen mirror, and the raw VT-derived taps. It knows
  * nothing of git / PR / agent-detection — that volatile, most-edited code
  * (the provider DAG) runs in kolu-server, which consumes these raw taps and
@@ -28,7 +28,7 @@
  * wire-compatible but stale survivor — is a separate concern layered onto
  * `system.version` later; this module defines only the wire shape.
  *
- * Layering note. Co-locating the contract here gives `@kolu/pty-host` a
+ * Layering note. Co-locating the contract here gives `kaval` a
  * **contract-definition-only** dependency on `@kolu/surface` (just
  * `defineSurface`, which itself pulls only `@orpc/contract` + `zod`). PTY ids
  * cross the wire as opaque strings — the host neither mints nor interprets
@@ -153,7 +153,7 @@ const ForegroundMsgSchema = z.object({
 
 /** The running pty-host's self-declared build identity, surfaced on
  *  `system.version` for the ChromeBar's `srv · pty` readout. `staleKey` is the
- *  hash of the `@kolu/pty-host` source closure (nix bakes
+ *  hash of the `kaval` source closure (nix bakes
  *  `KOLU_PTY_HOST_BUILD_ID`) — it flips iff a restart would load different
  *  pty-host wire/behaviour code, the input to phase B's "update pending"
  *  derivation. `navigableCommit` is the git ref this kolu was built from

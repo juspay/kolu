@@ -61,7 +61,7 @@ import type {
   TerminalServerMetadata,
 } from "kolu-common/surface";
 import { opencodeProvider } from "kolu-opencode";
-import type { ForegroundSample } from "@kolu/pty-host";
+import type { ForegroundSample } from "kaval";
 import type { Channel } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";

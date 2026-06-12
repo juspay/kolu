@@ -45,12 +45,12 @@
     in
     {
       # The module proper is platform-agnostic; the flake closes over it to
-      # default `tuiPackage` to this flake's matching `kolu-tui` build, so the
+      # default `tuiPackage` to this flake's matching `kaval-tui` build, so the
       # CLI ships automatically with the server (override or set null to opt out).
       homeManagerModules.default = { pkgs, lib, ... }: {
         imports = [ ./nix/home/module.nix ];
         config.services.kolu.tuiPackage =
-          lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.kolu-tui;
+          lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.kaval-tui;
       };
       packages = eachSystem (pkgs:
         let

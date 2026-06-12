@@ -3,7 +3,7 @@
  * deliberately leaves silent. This table IS the policy; the implementations
  * that honor it live elsewhere (the headless's native answerers + the
  * pty-host's XTVERSION handler; the client-side duplicate suppression in
- * `responseFilter.ts`), and `@kolu/pty-host`'s device-query contract tests
+ * `responseFilter.ts`), and `kaval`'s device-query contract tests
  * execute this table against a real headless so the policy and the
  * implementation cannot drift apart.
  *

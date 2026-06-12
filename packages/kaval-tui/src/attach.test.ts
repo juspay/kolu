@@ -17,7 +17,7 @@ import {
   type PtyHostSocketListener,
   type PtyHostSpawnInput,
   servePtyHostOverUnixSocket,
-} from "@kolu/pty-host";
+} from "kaval";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AttachOutcome, type AttachTty, runAttach } from "./attach.ts";
 import {

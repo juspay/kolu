@@ -27,7 +27,7 @@ import {
   createInProcessPtyHost,
   type PtyHostSpawnInput,
   type PtyHostSystemInfo,
-} from "@kolu/pty-host";
+} from "kaval";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import pkg from "../package.json" with { type: "json" };

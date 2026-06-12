@@ -4,7 +4,7 @@
  * glue that fetches over the contract and prints these.
  */
 import { basename } from "node:path";
-import type { PtyHostListEntry } from "@kolu/pty-host";
+import type { PtyHostListEntry } from "kaval";
 import columnify from "columnify";
 
 /** Compact relative age of `ms` (an epoch from `lastActivity`) against `now`,

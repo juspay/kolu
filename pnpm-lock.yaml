@@ -491,36 +491,14 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/log:
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-
-  packages/memorable-names:
-    dependencies:
-      nonempty:
-        specifier: workspace:*
-        version: link:../nonempty
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
-
-  packages/nonempty:
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-
-  packages/pty-host:
+  packages/kaval:
     dependencies:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      '@kolu/surface-daemon':
+        specifier: workspace:*
+        version: link:../surface-daemon
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
@@ -546,6 +524,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -553,11 +534,8 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/pty-tui:
+  packages/kaval-tui:
     dependencies:
-      '@kolu/pty-host':
-        specifier: workspace:*
-        version: link:../pty-host
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -570,6 +548,9 @@ importers:
       columnify:
         specifier: ^1.6.0
         version: 1.6.0
+      kaval:
+        specifier: workspace:*
+        version: link:../kaval
     devDependencies:
       '@types/columnify':
         specifier: ^1.5.4
@@ -586,6 +567,31 @@ importers:
       vitest:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/log:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/memorable-names:
+    dependencies:
+      nonempty:
+        specifier: workspace:*
+        version: link:../nonempty
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/nonempty:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
 
   packages/serve-dir:
     dependencies:
@@ -614,9 +620,6 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
-      '@kolu/pty-host':
-        specifier: workspace:*
-        version: link:../pty-host
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir
@@ -662,6 +665,9 @@ importers:
       hono-pino:
         specifier: ^0.10.3
         version: 0.10.3(hono@4.12.23)(pino@10.3.1)
+      kaval:
+        specifier: workspace:*
+        version: link:../kaval
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -991,6 +997,25 @@ importers:
       vite-plugin-solid:
         specifier: ^2.11.0
         version: 2.11.11(solid-js@1.9.11)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/surface-daemon:
+    dependencies:
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.20.1)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/surface-mcp:
     dependencies:

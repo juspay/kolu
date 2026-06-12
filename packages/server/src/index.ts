@@ -2,10 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
-import {
-  getPtyHostSocketPath,
-  servePtyHostOverUnixSocket,
-} from "@kolu/pty-host";
+import { getPtyHostSocketPath, servePtyHostOverUnixSocket } from "kaval";
 import { createDirServer } from "@kolu/serve-dir";
 import {
   gateStaleSocket,

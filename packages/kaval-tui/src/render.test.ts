@@ -1,4 +1,4 @@
-import type { PtyHostListEntry } from "@kolu/pty-host";
+import type { PtyHostListEntry } from "kaval";
 import { describe, expect, it } from "vitest";
 import {
   commandName,

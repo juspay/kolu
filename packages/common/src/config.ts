@@ -24,6 +24,6 @@ export const DEFAULT_FONT_SIZE = 14;
  *
  *  Single source of truth for both the client's visible scrollback and the
  *  server's headless ring buffer — the local backend reads this and passes
- *  it to `@kolu/pty-host`'s `spawn` so the server-side headless terminal
+ *  it to `kaval`'s `spawn` so the server-side headless terminal
  *  stays in lock-step with what the client renders. */
 export const DEFAULT_SCROLLBACK = 50_000;

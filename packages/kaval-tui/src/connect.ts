@@ -6,7 +6,7 @@
  * reuse, swapping only the socket for a child's stdio). This module just
  * binds it to the `ptyHostSurface` contract.
  */
-import type { ptyHostSurface } from "@kolu/pty-host";
+import type { ptyHostSurface } from "kaval";
 import {
   type UnixSocketConnection,
   unixSocketLink,

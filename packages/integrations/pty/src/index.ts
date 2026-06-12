@@ -1,6 +1,6 @@
 /** kolu-pty — shell-environment preparation for PTY spawning.
  *
- *  The PTY-owner primitive itself lives in `@kolu/pty-host`; this package
+ *  The PTY-owner primitive itself lives in `kaval`; this package
  *  is the layer that decides *what shell* to spawn and *with what env* —
  *  the Nix-devshell env filtering, kolu's identity vars, and the per-PTY
  *  wrapper rc-file that replays user dotfiles and injects kolu's OSC hooks

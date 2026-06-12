@@ -41,13 +41,14 @@ in
       type = lib.types.nullOr lib.types.package;
       default = null;
       description = ''
-        The `kolu-tui` CLI package to install onto PATH alongside the running
-        server. When non-null, `kolu-tui` is added to `home.packages` so
-        `kolu-tui list` / `kolu-tui snapshot` work from any shell against this
-        server. The flake's `homeManagerModules.default` defaults this to the
-        matching `kolu-tui` build for the host platform, so the CLI ships
-        automatically with the service; set it to `null` to opt out, or to an
-        explicit package to pin a particular build.
+        The `kaval-tui` CLI package to install onto PATH alongside the running
+        server. When non-null, `kaval-tui` is added to `home.packages` so
+        `kaval-tui list` / `kaval-tui snapshot` work from any shell. The flake's
+        `homeManagerModules.default` defaults this to the matching `kaval-tui`
+        build for the host platform, so the CLI ships automatically with the
+        service; set it to `null` to opt out, or to an explicit package to pin a
+        particular build. (Until the daemon flip, point it at the server with
+        `kaval-tui --socket $XDG_RUNTIME_DIR/kolu/pty-host.sock`.)
       '';
     };
 
@@ -106,8 +107,8 @@ in
       }
     ];
 
-    # Ship the terminal-side CLI on PATH so `kolu-tui` reaches this server's
-    # pty-host socket from any shell. Skipped only when explicitly set null.
+    # Ship the terminal-side CLI (kaval-tui) on PATH so it can reach a pty-host
+    # socket from any shell. Skipped only when explicitly set null.
     home.packages = lib.optional (cfg.tuiPackage != null) cfg.tuiPackage;
 
     systemd.user.services = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
