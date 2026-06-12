@@ -536,15 +536,6 @@ importers:
       '@xterm/headless':
         specifier: ^6.0.0
         version: 6.0.0
-      kolu-common:
-        specifier: workspace:*
-        version: link:../common
-      kolu-pty:
-        specifier: workspace:*
-        version: link:../integrations/pty
-      kolu-shared:
-        specifier: workspace:*
-        version: link:../shared
       node-pty:
         specifier: github:juspay/node-pty#feat/foreground-pid-dist
         version: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d

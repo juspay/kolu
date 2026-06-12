@@ -63,8 +63,11 @@ export {
   type PtyHostForegroundMsg,
   type PtyHostIdentity,
   PtyHostIdentitySchema,
+  type PtyHostInitFile,
   type PtyHostListEntry,
+  type PtyHostSpawnInput,
   type PtyHostSurface,
+  type PtyHostSystemInfo,
   type PtyHostSystemVersion,
   ptyHostSurface,
 } from "./ptyHostSurface.ts";

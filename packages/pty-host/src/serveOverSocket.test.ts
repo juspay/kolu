@@ -13,7 +13,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
-import type { Logger } from "kolu-shared";
+import type { Logger } from "./logger.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
@@ -36,8 +36,7 @@ const silentLog = {
 function makeRouter() {
   const { servedRouter } = createInProcessPtyHost({
     log: silentLog,
-    shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
-    version: "test",
+    rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
   });
   return servedRouter;
 }

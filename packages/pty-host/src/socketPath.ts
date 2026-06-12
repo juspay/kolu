@@ -15,12 +15,14 @@
  */
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 
-/** The socket path: `override` if given, else `$XDG_RUNTIME_DIR/kolu/
+/** The socket path: `override` if given, else `$XDG_RUNTIME_DIR/<app>/
  *  pty-host.sock` on systemd Linux, else the `$TMPDIR`-independent per-user
- *  fallback `/tmp/kolu-$UID/pty-host.sock`. */
-export function getPtyHostSocketPath(override?: string): string {
+ *  fallback `/tmp/<app>-$UID/pty-host.sock`. `app` is parameterized (default
+ *  `"kolu"`) so a standalone daemon can own its own rendezvous namespace
+ *  without the host name being hardcoded into the path. */
+export function getPtyHostSocketPath(override?: string, app = "kolu"): string {
   return getRuntimeSocketPath({
-    app: "kolu",
+    app,
     file: "pty-host.sock",
     override,
   });

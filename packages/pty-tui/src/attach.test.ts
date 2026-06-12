@@ -15,6 +15,7 @@ import {
   createInProcessPtyHost,
   type InProcessPtyHostDeps,
   type PtyHostSocketListener,
+  type PtyHostSpawnInput,
   servePtyHostOverUnixSocket,
 } from "@kolu/pty-host";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -32,6 +33,19 @@ const silentLog = {
   error: () => {},
   child: () => silentLog,
 } as unknown as InProcessPtyHostDeps["log"];
+
+/** A minimal fully-specified spawn — a plain login shell, no rc files (the host
+ *  derives nothing from policy since B0). */
+function spawnInput(cwd: string): PtyHostSpawnInput {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v;
+  return {
+    argv: [process.env.SHELL || "/bin/bash"],
+    cwd,
+    env,
+    initFiles: [],
+  };
+}
 
 interface FakeTty {
   tty: AttachTty;
@@ -106,8 +120,7 @@ let killAll: () => Promise<unknown>;
 beforeAll(async () => {
   const { servedRouter, client } = createInProcessPtyHost({
     log: silentLog,
-    shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
-    version: "test",
+    rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
   });
   killAll = () => client.surface.terminal.killAll({});
   const socketPath = join(
@@ -145,9 +158,9 @@ describe("runAttach — over a real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
-    const { id, pid } = await conn.client.surface.terminal.spawn({
-      cwd: dir,
-    });
+    const { id, pid } = await conn.client.surface.terminal.spawn(
+      spawnInput(dir),
+    );
     const { tty, out, type } = fakeTty();
     const done = runAttach(conn.client, id, { tty });
 
@@ -173,7 +186,7 @@ describe("runAttach — over a real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
-    const { id } = await conn.client.surface.terminal.spawn({ cwd: dir });
+    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
     const { tty, out, type } = fakeTty();
     const done = runAttach(conn.client, id, { tty });
     await until(() => out().includes("snapshot restored"), "attach notice");
@@ -187,7 +200,7 @@ describe("runAttach — over a real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
-    const { id } = await conn.client.surface.terminal.spawn({ cwd: dir });
+    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
     const { tty, out, type } = fakeTty();
 
     // ssh-style escape ordering, pinned tightly: a slow write must still flush
@@ -230,7 +243,7 @@ describe("runAttach — over a real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
-    const { id } = await conn.client.surface.terminal.spawn({ cwd: dir });
+    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
     const { tty, out, type } = fakeTty();
     const done = runAttach(conn.client, id, { tty });
     await until(() => out().includes("snapshot restored"), "attach notice");

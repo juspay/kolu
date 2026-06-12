@@ -19,7 +19,7 @@ import {
   type UnixSocketServeOutcome,
 } from "@kolu/surface/unix-socket";
 import type { Router } from "@orpc/server";
-import type { Logger } from "kolu-shared";
+import type { Logger } from "./logger.ts";
 
 export interface PtyHostSocketListener {
   /** The path the socket is bound to (or that a live peer already owns). */

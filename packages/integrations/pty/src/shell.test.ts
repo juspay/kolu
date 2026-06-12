@@ -6,9 +6,15 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   koluIdentityEnv,
@@ -295,6 +301,102 @@ function execFileSyncBoth(script: string): string {
   }
 }
 
+/** The sole init file of a plan, asserted present (the bash/zsh wrappers always
+ *  produce exactly one). Keeps the golden assertions free of index-access
+ *  undefined-narrowing noise. */
+function onlyInitFile(init: ReturnType<typeof prepareShellInit>): {
+  name: string;
+  content: string;
+} {
+  expect(init.initFiles).toHaveLength(1);
+  const [file] = init.initFiles;
+  if (!file) throw new Error("expected exactly one init file");
+  return file;
+}
+
+/** Materialise a pure plan's init files under rcDir, the way the pty-host does
+ *  on spawn — so a behavioral test can source the wrapper the host would run. */
+function materialise(
+  rcDir: string,
+  init: ReturnType<typeof prepareShellInit>,
+): void {
+  for (const f of init.initFiles) {
+    const p = join(rcDir, f.name);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, f.content);
+  }
+}
+
+describe("prepareShellInit — fully-specified plan (B0)", () => {
+  // The golden parity guard: after the inversion `prepareShellInit` is PURE —
+  // it plans the wrapper (argv + env + initFiles) but writes nothing; the
+  // pty-host materialises the files on the disk it owns. These lock the exact
+  // shape the host now relies on (paths into the host's rcDir, the bash/zsh
+  // wrapper mechanism) so a refactor can't silently drift the spawn.
+
+  it("bash: --rcfile points into rcDir, content is replay-then-hooks, nothing written", () => {
+    const rcDir = mkdtempSync(join(tmpdir(), "kolu-rc-"));
+    const id = "T-bash";
+    const init = prepareShellInit({
+      shell: "/bin/bash",
+      home: "/home/x",
+      terminalId: id,
+      rcDir,
+    });
+    expect(init.args).toEqual(["--rcfile", join(rcDir, `bashrc-${id}`)]);
+    expect(init.env).toEqual({});
+    const file = onlyInitFile(init);
+    expect(file.name).toBe(`bashrc-${id}`);
+    // PURE: the planner touched no disk.
+    expect(existsSync(join(rcDir, `bashrc-${id}`))).toBe(false);
+    const content = file.content;
+    // replay (user dotfiles) precedes hooks (OSC injection) — load-bearing.
+    expect(content).toContain("/etc/profile"); // replay
+    expect(content).toContain("/home/x/.bashrc"); // replay, against the given home
+    expect(content).toContain(OSC7_FN); // hook
+    expect(content.indexOf("/home/x/.bashrc")).toBeLessThan(
+      content.indexOf(OSC7_FN),
+    );
+    rmSync(rcDir, { recursive: true, force: true });
+  });
+
+  it("zsh: ZDOTDIR points into rcDir, init file is <dir>/.zshrc, nothing written", () => {
+    const rcDir = mkdtempSync(join(tmpdir(), "kolu-rc-"));
+    const id = "T-zsh";
+    const init = prepareShellInit({
+      shell: "/bin/zsh",
+      home: "/home/x",
+      terminalId: id,
+      rcDir,
+    });
+    expect(init.args).toEqual([]);
+    expect(init.env.ZDOTDIR).toBe(join(rcDir, `zdotdir-${id}`));
+    expect(onlyInitFile(init).name).toBe(join(`zdotdir-${id}`, ".zshrc"));
+    expect(existsSync(join(rcDir, `zdotdir-${id}`))).toBe(false);
+    rmSync(rcDir, { recursive: true, force: true });
+  });
+
+  it("returns an empty plan for an unknown shell or a missing home", () => {
+    const empty = { args: [], env: {}, initFiles: [] };
+    expect(
+      prepareShellInit({
+        shell: "/usr/bin/fish",
+        home: "/home/x",
+        terminalId: "x",
+        rcDir: "/r",
+      }),
+    ).toEqual(empty);
+    expect(
+      prepareShellInit({
+        shell: "/bin/bash",
+        home: undefined,
+        terminalId: "x",
+        rcDir: "/r",
+      }),
+    ).toEqual(empty);
+  });
+});
+
 describe("prepareShellInit zsh wrapper", () => {
   // Behavioral regression for #800: spawn zsh against the wrapper rcfile
   // with a fake ~/.zshenv that exports a marker, then verify the marker
@@ -315,16 +417,14 @@ describe("prepareShellInit zsh wrapper", () => {
         terminalId: `test-zshenv-${process.pid}`,
         rcDir,
       });
-      try {
-        const rcPath = join(init.env.ZDOTDIR as string, ".zshrc");
-        const out = runZsh(
-          `source ${rcPath} >/dev/null 2>&1; printf '%s' "$KOLU_TEST_MARKER"`,
-        );
-        if (out === null) return; // zsh unavailable — skip
-        expect(out).toBe("loaded");
-      } finally {
-        init.cleanup();
-      }
+      // The pty-host writes the planned init files before spawn; do the same.
+      materialise(rcDir, init);
+      const rcPath = join(init.env.ZDOTDIR as string, ".zshrc");
+      const out = runZsh(
+        `source ${rcPath} >/dev/null 2>&1; printf '%s' "$KOLU_TEST_MARKER"`,
+      );
+      if (out === null) return; // zsh unavailable — skip
+      expect(out).toBe("loaded");
     } finally {
       rmSync(fakeHome, { recursive: true, force: true });
       rmSync(rcDir, { recursive: true, force: true });

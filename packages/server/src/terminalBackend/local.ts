@@ -53,7 +53,7 @@ import {
 import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
-import { ptyHostClient } from "../ptyHost.ts";
+import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
@@ -361,10 +361,9 @@ class LocalTerminalBackend implements TerminalBackend {
     opts: PtySpawnOpts,
     proxy: PtyHostTerminalProxy,
   ): Promise<{ pid: number; cwd: string } | null> {
-    const res = await ptyHostClient.surface.terminal.spawn({
-      id,
-      cwd: opts.cwd,
-    });
+    const res = await ptyHostClient.surface.terminal.spawn(
+      await buildTerminalSpawnInput({ id, cwd: opts.cwd }),
+    );
     if (!getTerminal(id)) {
       proxy.markFailed(new Error("terminal killed during spawn"));
       try {

@@ -35,10 +35,11 @@ const PROTOCOL_ENTRY = resolve(PROTOCOL_SRC, "index.ts");
 // Bare specifiers the closure is allowed to reach. The staleKey hashes only
 // packages/pty-host/src, so wire/behaviour code reached through an UNLISTED
 // edge would escape the key. These are the stable framework/leaf deps the
-// pty-host legitimately rests on. (Note: kolu-common/surface itself pulls the
-// provider DAG — that coupling is pre-existing and accepted; the staleKey stays
-// tight because that volatile code lives in kolu-common, not in the hashed
-// packages/pty-host/src.)
+// pty-host legitimately rests on — and, since B0, they are ALSO exactly the
+// graduation set: zero `kolu-*` workspace edges, so this same test is the guard
+// that no spawn policy leaks back daemon-side. Re-introducing `kolu-pty`,
+// `kolu-common`, or `kolu-shared` here (or any provider-DAG edge) fails the
+// test and forces a conscious decision: it does not belong in the daemon.
 const ALLOWED_EXTERNAL = [
   "node:",
   "zod",
@@ -46,9 +47,6 @@ const ALLOWED_EXTERNAL = [
   "@xterm/",
   "@orpc/",
   "@kolu/surface",
-  "kolu-shared",
-  "kolu-pty",
-  "kolu-common/",
 ];
 
 const isAllowed = (spec: string): boolean =>

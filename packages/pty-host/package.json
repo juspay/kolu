@@ -21,9 +21,6 @@
     "@orpc/server": "^1.13.13",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
-    "kolu-common": "workspace:*",
-    "kolu-pty": "workspace:*",
-    "kolu-shared": "workspace:*",
     "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist",
     "zod": "^4.3.6"
   },

@@ -10,28 +10,44 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Logger } from "kolu-shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createInProcessPtyHost,
   type PtyHostClient,
 } from "./inProcessPtyHost.ts";
-import { PTY_HOST_CONTRACT_VERSION } from "./ptyHostSurface.ts";
+import type { Logger } from "./logger.ts";
+import {
+  PTY_HOST_CONTRACT_VERSION,
+  type PtyHostSpawnInput,
+} from "./ptyHostSurface.ts";
 
-const silentLog = {
+const silentLog: Logger = {
   debug: () => {},
   info: () => {},
   warn: () => {},
   error: () => {},
-  child: () => silentLog,
-} as unknown as Logger;
+};
 
 function makeClient(): PtyHostClient {
   return createInProcessPtyHost({
     log: silentLog,
-    shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
-    version: "test",
+    rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
   }).client;
+}
+
+/** A minimal fully-specified spawn — a plain login shell, no rc files. Since
+ *  B0 the host derives nothing from policy, so the test supplies the complete
+ *  `{argv, env, initFiles}` a bare client would (and exercises exactly that
+ *  no-hooks path). */
+function spawnInput(cwd: string): PtyHostSpawnInput {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v;
+  return {
+    argv: [process.env.SHELL || "/bin/bash"],
+    cwd,
+    env,
+    initFiles: [],
+  };
 }
 
 describe("createInProcessPtyHost — contract serving (no child)", () => {
@@ -55,6 +71,17 @@ describe("createInProcessPtyHost — contract serving (no child)", () => {
   it("heartbeat returns a timestamp", async () => {
     const { ts } = await client.surface.system.heartbeat({});
     expect(typeof ts).toBe("number");
+  });
+
+  it("reports host facts on system.info — the seam a client composes spawn policy against", async () => {
+    const info = await client.surface.system.info({});
+    expect(typeof info.shell).toBe("string");
+    expect(info.shell.length).toBeGreaterThan(0);
+    expect(typeof info.home).toBe("string");
+    expect(info.platform).toBe(process.platform);
+    // rcDir is the injected dir the host writes init files under (a fresh
+    // mkdtemp per makeClient), so it's a non-empty absolute path.
+    expect(info.rcDir.startsWith("/")).toBe(true);
   });
 
   it("lists no terminals before any spawn", async () => {
@@ -100,7 +127,9 @@ describe("createInProcessPtyHost — real PTY lifecycle through the contract", (
 
   it("spawns a real shell, lists it, attaches snapshot-first, and yields an exit code when the PTY dies", async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-inproc-"));
-    const { id, pid, cwd } = await client.surface.terminal.spawn({ cwd: dir });
+    const { id, pid, cwd } = await client.surface.terminal.spawn(
+      spawnInput(dir),
+    );
     expect(pid).toBeGreaterThan(0);
     expect(cwd).toBe(dir);
 
@@ -132,7 +161,7 @@ describe("createInProcessPtyHost — real PTY lifecycle through the contract", (
     // reaches the entry THROUGH the contract — a regression that dropped the
     // metadata at the surface boundary (not just the primitive) is caught here.
     const dir = mkdtempSync(join(tmpdir(), "kolu-inproc-"));
-    const { id } = await client.surface.terminal.spawn({ cwd: dir });
+    const { id } = await client.surface.terminal.spawn(spawnInput(dir));
     // OSC 2 ; <title> ST — the same sequence kolu's preexec hook emits. Run it
     // as a long-lived foreground command (`sleep`) so the title is NOT clobbered
     // by the shell's prompt redraw before we read it, and so foregroundProcess
@@ -166,7 +195,7 @@ describe("createInProcessPtyHost — real PTY lifecycle through the contract", (
     // tap ends via abort rather than yielding an exit code that would become a
     // `terminalExit`. Verify the contract honors that abort.
     const dir = mkdtempSync(join(tmpdir(), "kolu-inproc-"));
-    const { id } = await client.surface.terminal.spawn({ cwd: dir });
+    const { id } = await client.surface.terminal.spawn(spawnInput(dir));
     const ac = new AbortController();
     const it = (await client.surface.exit.get({ id }, { signal: ac.signal }))[
       Symbol.asyncIterator

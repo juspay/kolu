@@ -27,7 +27,7 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
-import type { Logger } from "kolu-shared";
+import type { Logger } from "./logger.ts";
 import * as pty from "node-pty";
 import { Channel } from "./channel.ts";
 

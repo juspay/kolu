@@ -31,4 +31,13 @@ describe("getPtyHostSocketPath", () => {
     const uid = process.getuid?.() ?? "shared";
     expect(getPtyHostSocketPath()).toBe(`/tmp/kolu-${uid}/pty-host.sock`);
   });
+
+  it("parameterizes the app dir (default kolu) so a standalone daemon owns its own namespace", () => {
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
+    expect(getPtyHostSocketPath(undefined, "kaval")).toBe(
+      "/run/user/1000/kaval/pty-host.sock",
+    );
+    // default is unchanged
+    expect(getPtyHostSocketPath()).toBe("/run/user/1000/kolu/pty-host.sock");
+  });
 });
