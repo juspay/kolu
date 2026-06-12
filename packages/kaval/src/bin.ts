@@ -16,7 +16,7 @@
  */
 
 import { parseArgs } from "node:util";
-import type { Logger } from "@kolu/surface-daemon";
+import { daemonExitCode, type Logger } from "@kolu/surface-daemon";
 import { runKavalDaemon } from "./daemonMain.ts";
 
 const USAGE = `kaval — the standalone PTY daemon
@@ -65,9 +65,10 @@ if (values.help) {
 
 runKavalDaemon({ socketOverride: values.socket, log: stderrLogger() })
   .then((exit) => {
-    // `already-running` and a clean `shutdown` are both success — a second
-    // launch yielding to the live daemon must exit 0, not look like a crash.
-    process.exit(exit.kind === "serve-failed" ? 1 : 0);
+    // The success/failure classification lives with `DaemonExit` in the spine
+    // (`already-running`/`shutdown` → 0, `serve-failed` → 1), so a new variant
+    // is reclassified once at the type's home, not re-decided in every bin.
+    process.exit(daemonExitCode(exit));
   })
   .catch((err: unknown) => {
     process.stderr.write(`kaval: ${(err as Error).message}\n`);

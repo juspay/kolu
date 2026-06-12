@@ -21,9 +21,10 @@
  */
 
 export {
-  daemonMain,
   type DaemonExit,
+  daemonExitCode,
   type DaemonLifetime,
+  daemonMain,
   type DaemonSpec,
 } from "./daemonMain.ts";
 export type { Logger } from "./logger.ts";

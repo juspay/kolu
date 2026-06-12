@@ -38,6 +38,27 @@ export type DaemonExit =
   | { kind: "shutdown"; reason: "signal" | "abort" | "idle" }
   | { kind: "serve-failed"; detail: UnixSocketServeOutcome["kind"] };
 
+/** The process exit code for a `DaemonExit` — the success/failure classification
+ *  lives with the type, not re-decided in each bin's ternary. `already-running`
+ *  and `shutdown` are success (a second launch yielding to the live daemon must
+ *  exit 0, not look like a crash); `serve-failed` is the one real error. A new
+ *  `DaemonExit` variant fails this switch's exhaustiveness check, forcing the
+ *  classification update here at the type's home. */
+export function daemonExitCode(exit: DaemonExit): number {
+  switch (exit.kind) {
+    case "already-running":
+    case "shutdown":
+      return 0;
+    case "serve-failed":
+      return 1;
+  }
+  // Exhaustiveness fence: a new `DaemonExit` kind compile-fails here (`exit
+  // satisfies never`) until it joins one of the cases above — the
+  // classification update is forced at the type's home, not in each bin.
+  exit satisfies never;
+  return 1;
+}
+
 export interface DaemonSpec {
   /** The single-instance gate path — the scope key (per-user for kaval, per-repo
    *  for `odu serve`). */
