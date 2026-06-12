@@ -60,13 +60,16 @@ interface AppActionBase {
   keybind: Keybind;
   /** Optional alternate keybind that triggers the same handler (e.g. Cmd+Enter for "New terminal"). */
   altKeybind?: Keybind;
-  /** Optional guard evaluated at dispatch time, AFTER the chord matched.
-   *  When present and it returns `false` for the event, the dispatcher skips
-   *  this action entirely — it neither runs the handler nor `preventDefault`s,
-   *  so the chord's native browser action proceeds. Used to let Cmd/Ctrl+F
-   *  fall through to the browser's find-in-page inside the Code tab.
-   *  `matchesAnyShortcut` ignores it on purpose (see that function). */
-  when?: (e: KeyboardEvent) => boolean;
+  /** Optional attribute selector marking the focus region this chord defers
+   *  to the browser for. When present and the dispatch-time `e.target` is
+   *  inside a matching element, the dispatcher skips this action entirely —
+   *  it neither runs the handler nor `preventDefault`s, so the chord's native
+   *  browser action proceeds. Used to let Cmd/Ctrl+F fall through to the
+   *  browser's find-in-page inside the Code tab. The DOM read lives in the
+   *  dispatcher (which already owns `e.target`); the registry only names the
+   *  marker. `matchesAnyShortcut` needs no special case — a plain string field
+   *  is inert there. */
+  nativeFindMarker?: string;
 }
 
 /** An action whose dispatch flows through the registry's generic loop —
@@ -184,11 +187,10 @@ const _ACTIONS = {
     // find spans every frame (including the opaque-origin preview iframe),
     // which kolu's xterm search can't reach. The Code tab marks its root with
     // `data-kolu-native-find`; everywhere else (terminal, canvas, dock) the
-    // chord opens kolu's terminal search as before. Returning false here means
-    // the dispatcher never claims the event, so it skips `preventDefault` and
-    // the browser default proceeds (useShortcuts.ts).
-    when: (e) =>
-      !(e.target as Element | null)?.closest?.("[data-kolu-native-find]"),
+    // chord opens kolu's terminal search as before. The dispatcher does the
+    // `closest()` check against this marker and, on a match, declines without
+    // `preventDefault` so the browser default proceeds (useShortcuts.ts).
+    nativeFindMarker: "[data-kolu-native-find]",
     handler: (ctx) => ctx.setSearchOpen((v) => !v),
   },
   zoomIn: {
@@ -307,14 +309,6 @@ export const advertisedNewTerminalKey: Keybind =
  * Check if a KeyboardEvent matches any registered action's keybind.
  * Used by xterm's key handler to let app shortcuts bubble through
  * instead of being consumed by the terminal.
- *
- * Deliberately ignores an action's `when` guard: inside the terminal the
- * chord IS an app shortcut (so xterm must let Cmd/Ctrl+F bubble to the global
- * dispatcher, which then opens terminal search), and `when` is a focus-time
- * decision the dispatcher makes — not a question of whether the chord is
- * registered. Consulting `when` here would make xterm swallow Cmd+F whenever
- * the Code tab happened to hold focus, which never overlaps with terminal
- * focus anyway.
  */
 export function matchesAnyShortcut(e: KeyboardEvent): boolean {
   for (const a of Object.values(ACTIONS)) {

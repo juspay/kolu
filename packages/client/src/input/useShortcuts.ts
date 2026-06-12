@@ -98,7 +98,10 @@ function dispatch(
     // looping — but no other action claims this chord, so `dispatch` returns
     // false and the listener skips `preventDefault`, letting the browser's
     // default action for the chord fire.
-    if (action.when && !action.when(e)) continue;
+    const insideNativeFind =
+      action.nativeFindMarker != null &&
+      (e.target as Element | null)?.closest?.(action.nativeFindMarker) != null;
+    if (insideNativeFind) continue;
 
     // cycleTerminalMru is stateful — the closure-bound snapshot/cursor pattern
     // can't fit the registry's plain `(ctx) => void` handler shape, so it's
