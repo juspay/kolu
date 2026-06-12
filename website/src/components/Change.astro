@@ -64,6 +64,7 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
      both sides (negative inline margin + matching padding) so hovering lights
      up the whole line, arrow included, without shifting the layout. */
   .cl-change {
+    position: relative;
     margin: 0 -0.55rem;
     padding: 0.22rem 0.55rem;
     border-radius: 5px;
@@ -129,9 +130,10 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
     border-color: var(--color-amber);
     background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
-  /* Collapse: the grid 0fr→1fr trick animates to the description's natural
-     height with no JS and no magic max-height. Indented to sit under the
-     title, clear of the arrow column. */
+  /* Touch / no-JS fallback: an inline collapse (grid 0fr→1fr) that animates to
+     the description's natural height with no magic max-height. Indented under
+     the title, clear of the arrow column. Pointer devices replace this with a
+     floating popover below (see @media (hover: hover)). */
   .cl-change-reveal {
     display: grid;
     grid-template-rows: 0fr;
@@ -147,10 +149,45 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
     opacity: 0;
     transition: opacity 0.22s ease;
   }
+  /* Pointer devices: the description is a floating card anchored under the row.
+     Absolutely positioned, so opening it overlays the rows below instead of
+     shoving them down — no reflow, no list jump. It fades and lifts into place
+     on a transform (cheap to animate), and the row is raised above its
+     neighbours so the card is never clipped by a later row. */
   @media (hover: hover) {
+    .cl-change-reveal {
+      position: absolute;
+      top: 100%;
+      left: 1rem;
+      z-index: 1;
+      display: block;
+      width: min(42rem, calc(100% - 1rem));
+      margin-top: 0.3rem;
+      padding: 0.55rem 0.85rem 0.65rem;
+      background: var(--color-void-raised);
+      border: 1px solid var(--color-rule-strong);
+      border-radius: 8px;
+      box-shadow:
+        0 1px 2px rgb(0 0 0 / 0.08),
+        0 14px 30px -10px rgb(0 0 0 / 0.22);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-4px);
+      transition:
+        opacity 0.16s ease,
+        transform 0.16s ease,
+        visibility 0s linear 0.16s;
+      pointer-events: none;
+    }
+    .cl-change-desc {
+      overflow: visible;
+      opacity: 1;
+      transition: none;
+    }
     .cl-change:hover,
     .cl-change:focus-within {
       background: var(--color-void-raised);
+      z-index: 20;
     }
     .cl-change:hover .cl-change-arrow,
     .cl-change:focus-within .cl-change-arrow {
@@ -159,11 +196,22 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
     }
     .cl-change:hover .cl-change-reveal,
     .cl-change:focus-within .cl-change-reveal {
-      grid-template-rows: 1fr;
-    }
-    .cl-change:hover .cl-change-desc,
-    .cl-change:focus-within .cl-change-desc {
       opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+      transition-delay: 0s;
+    }
+  }
+  @media (hover: hover) and (prefers-reduced-motion: reduce) {
+    .cl-change-reveal {
+      transform: none;
+      transition:
+        opacity 0.12s ease,
+        visibility 0s linear 0.12s;
+    }
+    .cl-change:hover .cl-change-reveal,
+    .cl-change:focus-within .cl-change-reveal {
+      transform: none;
     }
   }
   /* No hover to reveal with (touch): the script below makes rows tap-to-toggle
