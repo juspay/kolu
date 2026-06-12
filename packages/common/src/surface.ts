@@ -613,6 +613,17 @@ export const DaemonStatusSchema = PtyHostIdentitySchema.extend({
 });
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 
+/** The boot/default daemon-status shape: pre-handshake, identity unknown. The
+ *  ONE owner of this seed — the `daemonStatus` cell default, the server's
+ *  status holder init, and the endpoint's `current` accumulator all reference
+ *  it, so adding a field to `DaemonStatusSchema` updates every seed at once. */
+export const CONNECTING_DAEMON_STATUS: DaemonStatus = {
+  state: "connecting",
+  startedAt: null,
+  staleKey: "",
+  navigableCommit: "",
+};
+
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
    *  commit. Optional only in the library-seeded default (`{ commit }`); once
@@ -707,12 +718,7 @@ export const koluSurface = defineSurface({
      *  change, not a singleton-assumption retrofit). */
     daemonStatus: {
       schema: DaemonStatusSchema,
-      default: {
-        state: "connecting",
-        startedAt: null,
-        staleKey: "",
-        navigableCommit: "",
-      } satisfies z.infer<typeof DaemonStatusSchema>,
+      default: CONNECTING_DAEMON_STATUS,
       verbs: ["get"],
     },
   },

@@ -27,7 +27,10 @@ import { type PtyHostClient, PTY_HOST_CONTRACT_VERSION } from "@kolu/pty-host";
 import type { ptyHostSurface } from "@kolu/pty-host";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
-import type { DaemonStatus } from "kolu-common/surface";
+import {
+  CONNECTING_DAEMON_STATUS,
+  type DaemonStatus,
+} from "kolu-common/surface";
 import type { Logger } from "kolu-shared";
 import { readDaemonPid, spawnDaemon } from "./localDriver.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
@@ -85,12 +88,7 @@ export async function ensureLocalEndpoint(
   const { socketPath, log, publishStatus } = opts;
   const heartbeatMs = opts.heartbeatMs ?? 5_000;
 
-  let current: DaemonStatus = {
-    state: "connecting",
-    startedAt: null,
-    staleKey: "",
-    navigableCommit: "",
-  };
+  let current: DaemonStatus = CONNECTING_DAEMON_STATUS;
   const setStatus = (next: Partial<DaemonStatus>): void => {
     current = { ...current, ...next };
     publishStatus(current);
