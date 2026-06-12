@@ -1,5 +1,5 @@
 /**
- * The ssh-style line-start escape for `kolu-tui attach` — the ONLY thing the
+ * The ssh-style line-start escape for `kaval-tui attach` — the ONLY thing the
  * raw passthrough ever intercepts. Every other byte (every Ctrl chord, every
  * mid-line `~`) reaches the inner program unmodified; see the "Detach /
  * escape" decision in `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`.
@@ -63,7 +63,7 @@ const advanceMarker = (pos: number, marker: Buffer, b: number): number => {
 export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
   const escByte = escapeChar.charCodeAt(0);
 
-  // Session start counts as line-start (ssh behaviour): `kolu-tui attach`
+  // Session start counts as line-start (ssh behaviour): `kaval-tui attach`
   // then immediately `~.` works without first pressing Enter.
   let atLineStart = true;
   // Saw the escape char at line start; holding it until the command byte

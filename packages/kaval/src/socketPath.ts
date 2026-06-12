@@ -1,6 +1,6 @@
 /**
  * The well-known unix-socket path where kolu-server serves the in-process
- * pty-host and `kolu-tui` connects to it. Single source of truth so the
+ * pty-host and `kaval-tui` connects to it. Single source of truth so the
  * server and the CLI — two separate packages, two separate processes —
  * compute it identically.
  *

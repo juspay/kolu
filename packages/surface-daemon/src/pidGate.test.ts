@@ -8,9 +8,15 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { acquirePidGate, gatePid, isHolderLive } from "./pidGate.ts";
 
@@ -92,6 +98,25 @@ describe("acquirePidGate", () => {
     const gate = acquirePidGate(path);
     expect(gate.kind).toBe("acquired");
     expect(liveHolder(path)).toBe(process.pid);
+  });
+
+  it("refuses (dir-not-private) when the gate dir is group/other-accessible", () => {
+    // Simulate the multi-user `/tmp/<app>-$UID` attack: a loose-perm dir with a
+    // pre-seeded gate holding a live pid. Honoring it would DoS the daemon
+    // (exit 0 as "already running") before the socket-side privacy check runs.
+    const path = gateIn();
+    const dir = dirname(path);
+    writeFileSync(path, `${liveChild()}\n`);
+    chmodSync(dir, 0o755);
+
+    const gate = acquirePidGate(path);
+    if (process.getuid === undefined) {
+      // No uid semantics (Windows): the check is a no-op and the live gate is
+      // honored — nothing to assert about privacy here.
+      expect(gate.kind).toBe("held");
+      return;
+    }
+    expect(gate).toEqual({ kind: "dir-not-private", dir });
   });
 
   it("release does not remove a gate that a successor now owns", () => {

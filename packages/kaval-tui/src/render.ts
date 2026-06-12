@@ -1,5 +1,5 @@
 /**
- * Pure rendering helpers for the kolu-tui CLI — no I/O, no transport, so the
+ * Pure rendering helpers for the kaval-tui CLI — no I/O, no transport, so the
  * formatting is unit-testable without a socket or a tty. `main.ts` is the thin
  * glue that fetches over the contract and prints these.
  */

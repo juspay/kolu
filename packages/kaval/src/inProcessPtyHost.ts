@@ -86,7 +86,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   const startedAt = Date.now();
 
   // The id-existence policy, owned once: a missing PTY is a clean NOT_FOUND
-  // (not `requireEntry`'s opaque internal error). kolu-tui's attach re-attach
+  // (not `requireEntry`'s opaque internal error). kaval-tui's attach re-attach
   // loop leans on this shape — NOT_FOUND reads as "the PTY is gone" (vs a
   // dropped stream) and falls through to the exit tombstone for the real code.
   // Handlers below compose this rather than each re-deriving it (`exit` alone
@@ -156,7 +156,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // the host-side waiter on teardown (a kill aborts this before the kill
       // RPC, so an intentional kill never yields here). Deliberately NOT
       // guarded by `requirePty`: dead ids are this stream's legitimate input —
-      // kolu-tui fetches the exit tombstone AFTER the PTY is gone.
+      // kaval-tui fetches the exit tombstone AFTER the PTY is gone.
       exit: {
         source: async function* (input, signal) {
           try {
@@ -308,7 +308,7 @@ export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
 /** Build the in-process pty-host ONCE and return three views of the same host:
  *   - `client` — the no-wire `directLink` client kolu-server's web path uses;
  *   - `servedRouter` — the host's router wrapped in a top-level contract router,
- *     ready to hand straight to `serveOverStdio` (the unix socket for kolu-tui;
+ *     ready to hand straight to `serveOverStdio` (the unix socket for kaval-tui;
  *     the ssh stdio for a daemon). The bare fragment can't route over the wire
  *     (the StandardRPCHandler answers "Not Found"), so the wrap lives here —
  *     once, beside the contract it references — rather than at every serving

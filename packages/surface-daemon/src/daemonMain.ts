@@ -94,6 +94,17 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
     );
     return { kind: "already-running", pid: gate.pid };
   }
+  if (gate.kind === "dir-not-private") {
+    // The gate's parent dir is not owner-only — another local user could have
+    // pre-created it (the stable `/tmp/<app>-$UID` fallback) and seeded a gate.
+    // Refuse rather than honor a gate we can't trust; the socket-side privacy
+    // check would refuse the same dir, so report it as a serve failure.
+    log.error(
+      { gatePath, dir: gate.dir },
+      "daemon gate directory is not private (owner-only); refusing to start",
+    );
+    return { kind: "serve-failed", detail: "dir-not-private" };
+  }
 
   const listener = await serveOverUnixSocket({ socketPath, router, log });
   if (listener.outcome.kind !== "listening") {
@@ -107,15 +118,23 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
     return { kind: "serve-failed", detail: listener.outcome.kind };
   }
 
-  log.info({ socketPath, gatePath, pid: process.pid }, "daemon listening");
-  spec.onReady?.({ socketPath, pid: process.pid });
+  // Once the socket is listening, the socket file and the held gate are real
+  // side effects — a `finally` guarantees they are torn down on EVERY exit from
+  // the lifetime block, not just the clean `waitForShutdown` resolve. Without
+  // it an `onReady` throw, an `isIdle` throw, or a `waitForShutdown` rejection
+  // would leak a stale socket and a held gate, blocking the next launch.
+  try {
+    log.info({ socketPath, gatePath, pid: process.pid }, "daemon listening");
+    spec.onReady?.({ socketPath, pid: process.pid });
 
-  const reason = await waitForShutdown(lifetime, signal);
+    const reason = await waitForShutdown(lifetime, signal);
 
-  log.info({ reason }, "daemon shutting down");
-  listener.close();
-  gate.release();
-  return { kind: "shutdown", reason };
+    log.info({ reason }, "daemon shutting down");
+    return { kind: "shutdown", reason };
+  } finally {
+    listener.close();
+    gate.release();
+  }
 }
 
 /** Resolve when the daemon should stop: an OS signal (SIGTERM/SIGINT), the

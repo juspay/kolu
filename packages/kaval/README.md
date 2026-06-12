@@ -1,6 +1,7 @@
-# @kolu/pty-host
+# kaval
 
-The **multi-client PTY-owner primitive**. One `PtyHost` owns any number of
+The **multi-client PTY-owner primitive** (and the standalone `kaval` daemon
+built on it). One `PtyHost` owns any number of
 PTYs; each PTY is a `node-pty` child paired with an `@xterm/headless` screen
 mirror and a set of VT-derived event taps, fanned out to any number of
 consumers through a bounded broadcast `Channel`.
@@ -53,7 +54,7 @@ re-subscribe then delivers a fresh snapshot.
 ## Usage
 
 ```ts
-import { createPtyHost } from "@kolu/pty-host";
+import { createPtyHost } from "kaval";
 
 const host = createPtyHost({ log });
 
@@ -81,7 +82,9 @@ host.kill(id); // exitPromise(id) still resolves
 
 ## Scope
 
-This package is a pure primitive extracted from kolu's in-process PTY code
-(`#951` R-4, slice R4a). It is consumed **in-process** by `kolu-server` today.
-The standalone-agent / daemon split (a `--stdio` supervisor, the agent surface
-contract, reattach) is later work (R4b–R4c) and is deliberately **not** here.
+This package began as a pure primitive extracted from kolu's in-process PTY
+code (`#951` R-4, slice R4a), consumed **in-process** by `kolu-server`. It now
+also ships the standalone `kaval` daemon: the same `PtyHost` served over a unix
+socket via `@kolu/surface-daemon`'s `gate → serve → teardown` skeleton, reached
+by the `kaval-tui` CLI. The primitive itself stays pure — it knows nothing about
+the socket, the gate, or the wire; those compose on top.

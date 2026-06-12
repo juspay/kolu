@@ -15,7 +15,7 @@
  * synchronous dependency on the host (it reads taps, not a `PtyHandle`), so it
  * runs identically whether pty-host is in-process or across a wire. The same
  * `ptyHostRouter` is additionally served over a unix socket (`../index.ts`)
- * so `kolu-tui` can reach these PTYs — that's a second transport on the one
+ * so `kaval-tui` can reach these PTYs — that's a second transport on the one
  * host, and changes nothing in this file. See
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *

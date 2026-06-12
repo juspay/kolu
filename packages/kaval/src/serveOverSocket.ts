@@ -1,7 +1,7 @@
 /**
  * Serve a top-level pty-host router over a unix-domain socket — the socket
  * link the in-process header promises ("Reused over a socket by the
- * surviving daemon"). kolu-server uses it for R-4 Phase 1 (so `kolu-tui`
+ * surviving daemon"). kolu-server uses it for R-4 Phase 1 (so `kaval-tui`
  * can reach the live PTYs); Phase B's standalone daemon reuses it unchanged.
  *
  * The transport lifecycle (probe, stale-inode clearing, dir-privacy gate,
@@ -45,7 +45,7 @@ function describeRefusal(
       };
     case "already-served":
       return {
-        msg: "pty-host socket already served by another kolu instance; not taking it over (kolu-tui reaches that one). Use --pty-host-socket to run a second instance.",
+        msg: "pty-host socket already served by another kolu instance; not taking it over (kaval-tui reaches that one). Use --pty-host-socket to run a second instance.",
         ctx: {},
       };
     case "probe-failed":
@@ -69,7 +69,7 @@ function describeRefusal(
 /** Start serving `router` over a unix socket at `socketPath`. Returns a
  *  listener whose `close()` stops it and removes the socket file.
  *
- *  The socket is an *additive* convenience — it's how `kolu-tui` reaches the
+ *  The socket is an *additive* convenience — it's how `kaval-tui` reaches the
  *  pty-host — and kolu-server's web path is entirely independent of it, so a
  *  failure to bind it must NEVER crash the server. Every failure mode
  *  resolves to a no-op listener with a warning, not a rejection. */
@@ -89,7 +89,7 @@ export async function servePtyHostOverUnixSocket(opts: {
     return listener;
   }
 
-  log?.info({ socketPath }, "pty-host socket listening (kolu-tui)");
+  log?.info({ socketPath }, "pty-host socket listening (kaval-tui)");
   let closed = false;
   return {
     socketPath,

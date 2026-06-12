@@ -7,7 +7,7 @@
  *   - `ptyHostClient` — the identity-link (`directLink`, no wire) client the
  *     `LocalTerminalBackend` (the web path) consumes;
  *   - `ptyHostServedRouter` — the same host's contract-wrapped router, which
- *     `index.ts` serves over a unix socket so `kolu-tui` (the raw CLI client)
+ *     `index.ts` serves over a unix socket so `kaval-tui` (the raw CLI client)
  *     can reach the same PTYs.
  *
  * One PTY host, two transports, byte-identical handlers. Instantiating here
@@ -40,7 +40,7 @@ const ptyHost = createInProcessPtyHost({
 });
 
 /** The contract-wrapped router — served over the unix socket in `index.ts`
- *  for kolu-tui (and, later, a standalone daemon). */
+ *  for kaval-tui (and, later, a standalone daemon). */
 export const ptyHostServedRouter = ptyHost.servedRouter;
 
 /** The in-process (no-wire) client the LocalTerminalBackend consumes. */

@@ -257,17 +257,25 @@ let
   # kaval (R-4 Phase B): the standalone PTY daemon — owns the node-pty children,
   # mirrors their screens, and serves `ptyHostSurface` over its own unix socket.
   # Runs from the SAME built workspace closure as `kolu` (so kaval + @kolu/surface
-  # + @kolu/surface-daemon resolve identically) under tsx. Carries its OWN
-  # identity env (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH) so a standalone kaval reports
-  # a real `system.version`. In B1 kolu still embeds the host in-process; this bin
-  # is the runnable program the daemon flip (B2) will spawn.
+  # + @kolu/surface-daemon resolve identically). Carries its OWN identity env
+  # (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH) so a standalone kaval reports a real
+  # `system.version`. In B1 kolu still embeds the host in-process; this bin is the
+  # runnable program the daemon flip (B2) will spawn.
+  #
+  # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: tsx's CLI
+  # forks a child, and that fork does NOT relay SIGTERM to the daemon's
+  # `waitForShutdown` — the daemon gets killed (143) and LEAKS its socket + gate
+  # instead of releasing them. The single-process loader form delivers the signal
+  # to the daemon directly, so SIGTERM teardown works (proven by socketDaemon.test's
+  # "shipped tsx-CLI wrapper" guard, which spawns BOTH shapes and pins the diff).
   kaval = pkgs.runCommand "kaval"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
       meta.mainProgram = "kaval";
     } ''
     mkdir -p $out/bin
-    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kaval \
+    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/kaval \
+      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
       --set KAVAL_BUILD_ID "${kavalBuildId}" \
       --set KAVAL_COMMIT_HASH "${commitHash}" \

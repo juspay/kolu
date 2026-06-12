@@ -106,20 +106,22 @@
               timeout=120,
           )
 
-          # kolu-tui (auto-installed via home.packages) reaches the running
+          # kaval-tui (auto-installed via home.packages) reaches the running
           # server's pty-host socket over $XDG_RUNTIME_DIR/kolu/pty-host.sock
           # and lists its (empty) terminals — end-to-end proof of both the
-          # R-4 Phase 1 CLI and its automatic install. The login shell picks
-          # up the home-manager profile PATH; the socket binds just after the
-          # HTTP listener, so retry briefly.
+          # R-4 Phase 1 CLI and its automatic install. kaval-tui defaults to
+          # the standalone `kaval` socket namespace, so --socket points it at
+          # kolu-server's socket. The login shell picks up the home-manager
+          # profile PATH; the socket binds just after the HTTP listener, so
+          # retry briefly.
           # `</dev/null` is load-bearing: machinectl forwards its stdin to the
           # session PTY, and the test driver's stdin pipe never EOFs — without
-          # the redirect machinectl never returns even after kolu-tui exits,
+          # the redirect machinectl never returns even after kaval-tui exits,
           # and a hung attempt hangs the whole lane (wait_until_succeeds only
           # bounds the retry loop, not one attempt). The in-guest `timeout 30`
           # is the belt to that suspender.
           machine.wait_until_succeeds(
-              "timeout 30 machinectl -q shell alice@.host /run/current-system/sw/bin/bash -lc 'kolu-tui list' </dev/null",
+              "timeout 30 machinectl -q shell alice@.host /run/current-system/sw/bin/bash -lc 'kaval-tui list --socket \"$XDG_RUNTIME_DIR/kolu/pty-host.sock\"' </dev/null",
               timeout=120,
           )
         '';

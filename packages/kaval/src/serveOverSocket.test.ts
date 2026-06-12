@@ -1,8 +1,8 @@
 /**
  * Falsifiability test for the R-4 Phase 1 transport: the pty-host router
  * served over a REAL unix socket and consumed over a REAL `net.Socket` via
- * `unixSocketLink` — the exact path kolu-tui uses, minus the CLI formatting
- * (covered by @kolu/pty-tui's render test). A green run proves the
+ * `unixSocketLink` — the exact path kaval-tui uses, minus the CLI formatting
+ * (covered by kaval-tui's render test). A green run proves the
  * pty-host's contract-wrapped router holds over the socket transport, not
  * just the in-process loopback. The transport hardening itself (stale-inode
  * clearing, regular-file/EACCES refusals, dir privacy) is pinned generically

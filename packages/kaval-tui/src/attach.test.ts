@@ -248,13 +248,13 @@ describe("runAttach — over a real unix socket", () => {
     const done = runAttach(conn.client, id, { tty });
     await until(() => out().includes("snapshot restored"), "attach notice");
     type("~?");
-    await until(() => out().includes("kolu-tui escapes"), "help text");
+    await until(() => out().includes("kaval-tui escapes"), "help text");
     type("~.");
     expect(await done).toEqual({ kind: "detached" });
     // The help went to the LOCAL tty only — the PTY's screen never saw it.
     const { text } = await conn.client.surface.terminal.getScreenText({
       id,
     });
-    expect(text).not.toContain("kolu-tui escapes");
+    expect(text).not.toContain("kaval-tui escapes");
   });
 });

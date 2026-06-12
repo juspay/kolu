@@ -1,5 +1,5 @@
 /**
- * `kolu-tui attach` — the raw-tty passthrough loop (R-4 Phase 2). The design
+ * `kaval-tui attach` — the raw-tty passthrough loop (R-4 Phase 2). The design
  * decisions live in `docs/atlas/src/content/atlas/pty-daemon-tui.mdx` (Phase 2
  * section) and are echoed at their sites below: device-query reply filtering,
  * resize-then-attach, one-shot notices only, exit-stream discrimination with
@@ -36,7 +36,7 @@ export interface AttachTty {
 export type AttachOutcome =
   /** The id matched no live PTY (and we never attached — not an exit). */
   | { kind: "not-found" }
-  /** `~.` (or stdin EOF): the CLI leaves, kolu-server keeps the PTY. */
+  /** `~.` (or stdin EOF): the CLI leaves, the daemon keeps the PTY. */
   | { kind: "detached" }
   /** The PTY's child exited; `exitCode` is the real code (exit tombstone). */
   | { kind: "exited"; exitCode: number }
@@ -46,8 +46,8 @@ export type AttachOutcome =
 export function helpText(escapeChar: string): string {
   const e = escapeChar;
   return (
-    `\r\nkolu-tui escapes (recognised at line start only):\r\n` +
-    `  ${e}.  detach — kolu-server keeps the terminal\r\n` +
+    `\r\nkaval-tui escapes (recognised at line start only):\r\n` +
+    `  ${e}.  detach — the daemon keeps the terminal\r\n` +
     `  ${e}${e}  send a literal ${e}\r\n` +
     `  ${e}?  this help\r\n`
   );
@@ -70,7 +70,7 @@ function describeError(err: unknown): string {
     errorCode(err) === SURFACE_STDIO_TRANSPORT_CLOSED ||
     /transport is closed|ECONNRESET|EPIPE|socket/i.test(message)
   ) {
-    return `kolu-server went away mid-attach (${message}) — re-run \`kolu-tui attach\` once it's back.`;
+    return `the daemon went away mid-attach (${message}) — re-run \`kaval-tui attach\` once it's back.`;
   }
   return message;
 }

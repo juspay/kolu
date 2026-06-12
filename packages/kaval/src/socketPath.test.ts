@@ -4,7 +4,7 @@
  * XDG/`/tmp/<app>-$UID` split, and the `$TMPDIR`-independence regression
  * behind the macOS "no pty-host socket" bug) is pinned generically in
  * `@kolu/surface`'s `unix-socket.test.ts`; what would break kolu-server ↔
- * kolu-tui rendezvous from HERE is only a drift in these names.
+ * kaval-tui rendezvous from HERE is only a drift in these names.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { getPtyHostSocketPath } from "./socketPath.ts";
