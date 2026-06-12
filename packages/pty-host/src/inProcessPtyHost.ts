@@ -50,11 +50,6 @@ export type PtyHostClient = ContractRouterClient<
   typeof ptyHostSurface.contract
 >;
 
-/** Headless scrollback used when a client omits `spawn`'s `scrollback` — an
- *  in-package default so the host never reaches into kolu's config. kolu passes
- *  its own `DEFAULT_SCROLLBACK` explicitly, so this only governs bare clients. */
-const DEFAULT_SCROLLBACK = 10_000;
-
 /** The host's own login-shell fact, with the host-side fallback formula owned
  *  once: the live `$SHELL`, else the passwd entry's shell, else `/bin/sh`. The
  *  result is contractually a non-empty string, so clients composing spawn
@@ -213,7 +208,9 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               cwd: input.cwd,
               cols: input.cols,
               rows: input.rows,
-              scrollback: input.scrollback ?? DEFAULT_SCROLLBACK,
+              // `createPtyHost` already applies the in-package default when a
+              // client omits this — pass it straight through, don't re-default.
+              scrollback: input.scrollback,
               onDispose: () => removeInitFiles(rcDir, written),
             });
           } catch (err) {
