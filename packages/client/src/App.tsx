@@ -39,7 +39,7 @@ import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import DegradedCanvas from "./DegradedCanvas";
 import EmptyState from "./EmptyState";
-import { daemonDown, downState } from "./useDaemonStatus";
+import { daemonDown, daemonStatusPending, downState } from "./useDaemonStatus";
 import WelcomeDialog from "./WelcomeDialog";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
@@ -557,8 +557,13 @@ const App: Component = () => {
         }}
       >
         <Show
-          when={!session.isLoading()}
+          when={!session.isLoading() && !daemonStatusPending()}
           fallback={
+            // Neutral connecting state until BOTH the session cell AND the
+            // daemon-status stream have produced their first value. Gating on
+            // daemon-status-pending (not just `daemonDown()`, which is false
+            // while pending) stops a `dead` boot from flashing the normal empty
+            // workspace before DegradedCanvas takes over (#1034).
             <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
               Connecting...
             </div>

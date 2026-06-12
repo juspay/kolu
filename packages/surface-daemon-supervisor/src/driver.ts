@@ -59,12 +59,25 @@ export interface DaemonSpawnConfig {
   fromSource?: boolean;
 }
 
-/** Spawn the daemon process so it outlives this one. Resolves once the launch
- *  is issued — NOT once the daemon is serving (the endpoint waits for the
- *  socket separately); a surface daemon daemonizes itself. */
+/** Spawn the daemon process so it outlives this one. Resolves once the child
+ *  has actually spawned (its `spawn` event) — NOT once the daemon is serving
+ *  (the endpoint waits for the socket separately); a surface daemon daemonizes
+ *  itself. **Rejects** if the launch fails — ENOENT (bad `binPath`), EACCES, or
+ *  a `systemd-run` that couldn't fork. Node emits that failure ASYNCHRONOUSLY on
+ *  the child's `error` event; without a listener it would become an uncaught
+ *  exception and take the supervising process down, so the driver owns that
+ *  listener and surfaces the failure as a rejection the endpoint maps to `dead`. */
 export interface DaemonDriver {
   spawn(): Promise<void>;
 }
+
+/** The slice of a spawned child the driver needs: `unref` (so the child outlives
+ *  us) plus the `spawn`/`error` lifecycle events. The real `ChildProcess` is an
+ *  `EventEmitter`, so `node:child_process`'s `spawn` satisfies this directly; a
+ *  test seam may return just `{ unref }` (no emitter), in which case the driver
+ *  resolves on the next tick — there is no real fork to fail. */
+export type SpawnedChild = Pick<ChildProcess, "unref"> &
+  Partial<Pick<ChildProcess, "once">>;
 
 /** Injectable seams so the platform branch and the launched argv are
  *  unit-testable without actually forking `systemd-run`. */
@@ -80,7 +93,7 @@ export interface SpawnDriverDeps {
       stdio: "ignore";
       env?: Record<string, string>;
     },
-  ) => Pick<ChildProcess, "unref">;
+  ) => SpawnedChild;
   /** Per-spawn unique unit-name suffix. Default `${pid}-${now}-${counter}`;
    *  injectable so a test can pin the unit name. */
   unitSuffix?: () => string;
@@ -100,6 +113,21 @@ export function survivableSpawnDriver(
       spawnCounter += 1;
       return `${process.pid}-${Date.now()}-${spawnCounter}`;
     });
+
+  /** Wire a freshly-spawned child into the spawn promise: resolve on its `spawn`
+   *  event (the launch succeeded), reject on `error` (ENOENT/EACCES/fork failure)
+   *  — and ALWAYS attach the `error` listener so the async failure is handled
+   *  rather than thrown as an uncaught exception that kills the parent. `unref`
+   *  the child either way so it outlives us. A seam child with no `once` (the
+   *  test mock) has no real fork to fail, so resolve on the next tick. */
+  const settle = (child: SpawnedChild): Promise<void> => {
+    child.unref();
+    if (typeof child.once !== "function") return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      child.once?.("spawn", () => resolve());
+      child.once?.("error", (err) => reject(err));
+    });
+  };
 
   return {
     spawn(): Promise<void> {
@@ -124,22 +152,22 @@ export function survivableSpawnDriver(
           cfg.binPath,
           ...cfg.args,
         ];
-        const child = spawnProcess("systemd-run", args, {
-          detached: true,
-          stdio: "ignore",
-        });
-        child.unref();
-      } else {
-        // Detached + unref: survives the parent on macOS/launchd and on a
-        // cgroup-less host. The forwarded env is layered onto ours.
-        const child = spawnProcess(cfg.binPath, cfg.args, {
+        return settle(
+          spawnProcess("systemd-run", args, {
+            detached: true,
+            stdio: "ignore",
+          }),
+        );
+      }
+      // Detached + unref: survives the parent on macOS/launchd and on a
+      // cgroup-less host. The forwarded env is layered onto ours.
+      return settle(
+        spawnProcess(cfg.binPath, cfg.args, {
           detached: true,
           stdio: "ignore",
           env: { ...(env as Record<string, string>), ...cfg.env },
-        });
-        child.unref();
-      }
-      return Promise.resolve();
+        }),
+      );
     },
   };
 }

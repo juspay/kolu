@@ -31,7 +31,7 @@ import {
   defineBuildInfo,
   surfaceAppSurfaceWith,
 } from "@kolu/surface-app/surface";
-import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor";
+import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";

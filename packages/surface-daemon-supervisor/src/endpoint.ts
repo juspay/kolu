@@ -29,20 +29,15 @@
 import { gatePid, isHolderLive, type Logger } from "@kolu/surface-daemon";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
+import { type EndpointState, ENDPOINT_STATES } from "./endpointStates.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
-/** The set of daemon states the endpoint reports — the single source of truth.
- *  Consumers that re-shape this surface (e.g. kolu's `DaemonStatusSchema`) derive
- *  their state enum from this tuple so a new state is a compile-time obligation,
- *  not a silent omission. */
-export const ENDPOINT_STATES = [
-  "connecting",
-  "connected",
-  "degraded",
-  "dead",
-] as const;
-
-export type EndpointState = (typeof ENDPOINT_STATES)[number];
+// `ENDPOINT_STATES` / `EndpointState` are the single source of truth for the
+// reported state set; they live in the zero-dependency `endpointStates.ts` leaf
+// so a browser-shared consumer (kolu's `DaemonStatusSchema`) can derive its enum
+// from them without pulling this Node-only module's transport/gate graph. The
+// endpoint re-exports them so existing supervisor consumers keep their import.
+export { type EndpointState, ENDPOINT_STATES };
 
 export interface EndpointStatus<I> {
   state: EndpointState;
@@ -127,6 +122,20 @@ function waitForSocket(
   });
 }
 
+/** One-shot probe: does `socketPath` accept a connection RIGHT NOW? Dials once
+ *  (no polling) and immediately closes — the recycle path uses it to prove a
+ *  live gate-pid is actually the daemon (its socket answers) before SIGTERMing
+ *  it, so a stale gate over a reused pid can't make us kill a stranger. */
+function socketAccepting(socketPath: string): Promise<boolean> {
+  return dialSocket(socketPath).then(
+    (sock) => {
+      sock.destroy();
+      return true;
+    },
+    () => false,
+  );
+}
+
 export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
   const socketReadyMs = spec.socketReadyMs ?? 30_000;
   const socketPollMs = spec.socketPollMs ?? 50;
@@ -143,8 +152,21 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
 
       // ALWAYS RECYCLE: a live survivor is killed, never adopted, so no
       // survival hazard can open. (Adoption that preserves a session is B3.)
+      //
+      // But the gate is PID-ONLY: a hard kill (SIGKILL / power loss) leaves the
+      // pidfile behind, and the OS can later reuse that pid for an UNRELATED
+      // process. SIGTERMing a live gate-pid blindly would then kill a stranger.
+      // So we kill only after PROVING the holder is actually the daemon — its
+      // socket must be accepting connections. If the gate names a live pid but
+      // the socket is dead/absent, the gate is stale (a crashed predecessor, or a
+      // recycled pid); we leave that pid alone and let the freshly-spawned
+      // daemon's own `acquirePidGate` reap the stale gate.
       const holder = gatePid(spec.gatePath);
-      if (holder !== undefined && isHolderLive(holder)) {
+      if (
+        holder !== undefined &&
+        isHolderLive(holder) &&
+        (await socketAccepting(spec.socketPath))
+      ) {
         spec.log.info(
           { hostId: spec.hostId, pid: holder },
           "recycling live daemon (boot policy = always recycle)",
@@ -164,9 +186,24 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
             `daemon pid ${holder} did not exit within the recycle ceiling`,
           );
         }
+      } else if (holder !== undefined && isHolderLive(holder)) {
+        spec.log.warn(
+          { hostId: spec.hostId, pid: holder, socketPath: spec.socketPath },
+          "gate names a live pid but its socket is dead — treating gate as " +
+            "stale (not killing the pid: it may be an unrelated reused pid)",
+        );
       }
 
-      await spec.driver.spawn();
+      try {
+        await spec.driver.spawn();
+      } catch (err) {
+        // The launch itself failed (ENOENT/EACCES on the binary, a systemd-run
+        // that couldn't fork). The endpoint contract is "failures report `dead`
+        // before they throw" — the UI relies on it to leave the indefinite
+        // `connecting` state — so flip to `dead` before rethrowing.
+        emit("dead");
+        throw err;
+      }
 
       const up = await waitForSocket(
         spec.socketPath,

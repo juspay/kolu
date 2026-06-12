@@ -36,9 +36,20 @@ import {
  *  (`$XDG_RUNTIME_DIR/kaval/pty-host.sock`), NOT a kolu-served one. That is the
  *  whole flip: the server no longer serves a socket; it spawns kaval, which
  *  serves this path, and `kaval-tui` (whose default is the same `kaval`
- *  namespace) reaches kolu's terminals with no `--socket` flag. */
+ *  namespace) reaches kolu's terminals with no `--socket` flag.
+ *
+ *  `KOLU_KAVAL_SOCKET` overrides the path entirely — the per-instance escape
+ *  hatch. The boot policy is ALWAYS-RECYCLE: a server SIGTERMs whatever daemon
+ *  holds its socket's gate before spawning fresh. So two kolu instances sharing
+ *  the default namespace (a `just dev` beside a production `kolu.service`, a
+ *  second worktree, a standalone kaval) would have the newcomer kill the
+ *  incumbent's daemon and drop its terminals. An instance that must NOT own the
+ *  default namespace points this at a private socket dir (the dev `server` recipe
+ *  and the e2e per-worker `XDG_RUNTIME_DIR` both do exactly this), and the
+ *  override is forwarded to the spawned kaval via `--socket` (`resolveKavalLaunch`)
+ *  so the daemon serves the very path the server dials. */
 export function kavalSocketPath(): string {
-  return getPtyHostSocketPath(undefined, "kaval");
+  return getPtyHostSocketPath(process.env.KOLU_KAVAL_SOCKET, "kaval");
 }
 
 /** The single-instance gate kaval claims, beside its socket — the same path
@@ -49,10 +60,20 @@ export function kavalGatePath(socketPath: string): string {
 }
 
 /** Resolve how to launch kaval: the built wrapper in production, or the
- *  from-source `node --import <tsx loader> bin.ts` shape in dev/e2e. */
-function resolveKavalLaunch(): { binPath: string; args: string[] } {
+ *  from-source `node --import <tsx loader> bin.ts` shape in dev/e2e.
+ *
+ *  When `KOLU_KAVAL_SOCKET` is set, the daemon is told to serve THAT path via
+ *  `--socket` so it lands on the exact socket the server dials (`kavalSocketPath`)
+ *  — the per-instance isolation that keeps a `just dev` / second worktree from
+ *  recycling another instance's daemon. Absent the override kaval picks its own
+ *  default (`kaval` namespace), so no flag is passed and `kaval-tui` reaches it
+ *  with no `--socket` either. */
+export function resolveKavalLaunch(): { binPath: string; args: string[] } {
+  const socketOverride = process.env.KOLU_KAVAL_SOCKET;
+  const socketArgs = socketOverride ? ["--socket", socketOverride] : [];
+
   const wrapper = process.env.KOLU_KAVAL_BIN;
-  if (wrapper) return { binPath: wrapper, args: [] };
+  if (wrapper) return { binPath: wrapper, args: socketArgs };
 
   // Dev/e2e: no nix wrapper — reproduce its launcher from source. The loader is
   // resolved via the package so the spawn doesn't depend on a hoisted .bin/tsx.
@@ -61,7 +82,10 @@ function resolveKavalLaunch(): { binPath: string; args: string[] } {
   const binTs = fileURLToPath(
     new URL("../../../kaval/src/bin.ts", import.meta.url),
   );
-  return { binPath: process.execPath, args: ["--import", tsxLoader, binTs] };
+  return {
+    binPath: process.execPath,
+    args: ["--import", tsxLoader, binTs, ...socketArgs],
+  };
 }
 
 /** Strip dev-only flags from a `NODE_OPTIONS` string so a kolu started with
