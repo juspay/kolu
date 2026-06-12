@@ -83,6 +83,14 @@ describe("parseArgv", () => {
     });
   });
 
+  it("rejects an empty value (both spellings) instead of the default socket", () => {
+    // `getRuntimeSocketPath` treats an empty override as absent, so an empty
+    // value would silently bind the DEFAULT socket — the exact collision F5 is
+    // about. Both the equals-form and the space-separated quoted-empty must fail.
+    expect(parseArgv(["--pty-host-socket="])).toMatchObject({ ok: false });
+    expect(parseArgv(["--pty-host-socket", ""])).toMatchObject({ ok: false });
+  });
+
   it("rejects an unknown/misspelled flag rather than ignoring it", () => {
     expect(parseArgv(["--pty-host-sockets", "/run/p.sock"])).toMatchObject({
       ok: false,

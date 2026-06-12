@@ -213,9 +213,11 @@ export function parseArgv(argv: string[]): ParsedArgv {
     if (a === undefined) continue;
     if (a === FLAG) {
       const value = argv[i + 1];
-      // A bare trailing flag, or one immediately followed by another flag, has
-      // no value — reject rather than silently use the default socket.
-      if (value === undefined || value.startsWith("--")) {
+      // A bare trailing flag, a following flag, or an empty value (`""`) has no
+      // usable PATH — reject rather than silently use the default socket.
+      // `getRuntimeSocketPath` treats an empty override as absent, so without
+      // this an empty value would silently collide with the default socket.
+      if (value === undefined || value === "" || value.startsWith("--")) {
         return { ok: false, error: `${FLAG} requires a PATH value` };
       }
       socketPath = value;
@@ -223,7 +225,13 @@ export function parseArgv(argv: string[]): ParsedArgv {
       continue;
     }
     if (a.startsWith(`${FLAG}=`)) {
-      socketPath = a.slice(FLAG.length + 1);
+      const value = a.slice(FLAG.length + 1);
+      // `--pty-host-socket=` (empty) is the equals-form of the no-value case —
+      // same silent-default collision, same rejection.
+      if (value === "") {
+        return { ok: false, error: `${FLAG} requires a PATH value` };
+      }
+      socketPath = value;
       continue;
     }
     return { ok: false, error: `unknown argument: ${a}` };
