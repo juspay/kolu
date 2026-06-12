@@ -90,7 +90,7 @@ The production failures — four from #1034, four more paid for during #1275 —
 
 No feature flags — each PR ships complete to master and leaves kolu working. The hazard rule, refined from the first attempt: **each PR must be complete w.r.t. the hazards *it* opens** — and the door can open with the survival promise off, which empties its hazard set by policy. Each brief below is written to be executed end-to-end by a single agent session; the **Traps** lists are load-bearing — they encode the exact failure modes already paid for.
 
-### B1 — the daemon binary, inert <Pill variant="todo">next</Pill>
+### B1 — the daemon binary, inert <Pill variant="ok">landed</Pill> <PrLink pr={1287} />
 
 **Goal:** `@kolu/pty-host` contains everything that runs in the daemon process, runnable by hand. **Zero changes to `packages/server`.**
 
@@ -106,7 +106,7 @@ Traps: no import-time throws anywhere; no top-level await; nothing in the packag
 
 Verify: hand-run the binary on an override socket; a server-only change leaves `KOLU_PTY_HOST_BUILD_ID` bit-identical across two nix builds; touching `daemonMain.ts` flips it (it now runs in the daemon — that's correct, not a regression).
 
-### B2 — the door, with survival off <Pill variant="todo">the one-way door</Pill>
+### B2 — the door, with survival off <Pill variant="todo">next · the one-way door</Pill>
 
 **Goal:** flip the topology — the server becomes a client of a daemon it spawns — while keeping user-facing semantics **byte-identical to today**: the boot policy is *always recycle* (connect-if-survivor → kill → `waitForPidGone` → spawn fresh → connect). No survivors exist, so no survival hazard can open: no orphans, no skew older than one boot, nothing for a restart to pray over. Every production deploy now exercises kill → wait-for-real-exit → respawn — **the exact race #1034 lost — with zero sessions at stake.**
 
@@ -188,3 +188,4 @@ From building + salvaging #1034, re-confirmed during #1275: typecheck every pack
 - **The fresh-approach redo** (2026-05-30/31): <PrLink pr={1055} /> (A1) landed the in-process foundation and removed every #1034 daemon artifact; <PrLink pr={1059} /> unified the link family; <PrLink pr={1063} /> (A2) landed identity + the closure-hash guard + the rail. kolu-tui Phases 0–2 (<PrLink pr={1073} /> / <PrLink pr={1084} /> / <PrLink pr={1255} />) then battle-tested the socket transport in production.
 - **Phase B first build** <PrLink pr={1275} /> (2026-06-11) — the whole feature as one 40-commit PR: functional, verified live across staged prod deploys, and discarded. What it proved: the user-facing spec works end-to-end. What it taught (each now a row in the impossible-by-construction table): the `@kolu/pty-host-daemon` package was extracted mid-PR after the review gauntlet; reattach correctness arrived as three sequential prod fixes (parentId, contract-on-adopt, lastAgentCommand); identity freshness was patched three times; the staleKey hash needed three lockstep file-level exception sites. The redo above designs each of those in.
 - **This plan** (2026-06-11): the three-PR redo — B1 (daemon binary, inert) → B2 (the door, survival off) → B3 (survival) → the staged-prod gate.
+- **B1 landed** <PrLink pr={1287} /> — `@kolu/pty-host` grew its process entry (`daemonMain` + `daemon.ts`), the atomic `pidGate`, and `servePtyHostRouter`; the closure test re-roots at the daemon entry (walking `index.ts` **and** `daemon.ts`), so the staleKey covers the daemon's own closure with zero file-level exceptions. Inert and `packages/server`-untouched, as designed; verified by a hand-run binary serving kolu-tui over an override socket. **Next: B2.**
