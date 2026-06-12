@@ -12,6 +12,14 @@ the run is **live state you attach to**: the coordinator serves a typed
 surface on `.ci/odu.sock`, so `status`/`logs`/`attach` are in-band — no
 process-compose, no separately-versioned socket client.
 
+> **Prefer the MCP face for runs.** When the `odu-mcp` skill is present (the
+> `mcp__odu__*` tools — check for an odu MCP server before shelling out), drive
+> runs through it — `run` → `wait_for_settle` (fail-fast) → read the red node's
+> log → `node_rerun`, with `cancel` / `run({supersede})` to call off or replace
+> a run. It spawns the same coordinator but gives you structured results and the
+> fail-fast loop instead of scraping terminal output. The `nix run … -- run`
+> CLI below is the reference and the fallback when no MCP server is wired.
+
 ## Invoking
 
 ```sh
@@ -103,11 +111,20 @@ nix run github:juspay/odu -- attach          # live TUI dashboard on a tty
                                              #  r rerun · q quit); -o json
                                              # = transition stream
 nix run github:juspay/odu -- logs -f e2e@x86_64-linux
+nix run github:juspay/odu -- cancel          # stop the live run, cleanly
 ```
 
 No run in progress ⇒ exit non-zero with `no run in progress in this
 checkout (no live socket at .ci/odu.sock)`. One run per checkout — a
 second `odu run` refuses while the socket is live.
+
+**Cancel / supersede / linger.** `odu cancel` drives the live run's teardown
+from a second process (finalize posted statuses, close lanes, drop the socket)
+and waits until it's gone — no need to wait out a doomed run or `pkill` the
+coordinator. `odu run --supersede` cancels whatever's live here first, then
+starts ("stop this, run the fixed commit"). By default a run exits the instant
+it drains; `odu run --linger` keeps it serving past settle so a node can be
+rerun later (retry a flake), self-reaping after an idle period or on `cancel`.
 
 ## Hosts config
 
