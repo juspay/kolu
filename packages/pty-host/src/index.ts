@@ -13,11 +13,10 @@
  *    the shell env and serves `ptyHostSurface` over `createPtyHost`, returning
  *    the router (+ ctx). Reused over a socket by the surviving daemon and over
  *    ssh by R-2 — only the link differs.
- *  - `createInProcessPtyHost` — the **identity link**: builds the host once and
- *    returns the no-wire `directLink` client over it (plus the router for the
- *    socket transport), so one host backs both the in-process (web) and socket
- *    (kolu-tui) paths. The consumer (kolu-server) is invariant under a later
- *    link swap.
+ *  - `servePtyHostRouter` — wraps that fragment in a top-level contract router
+ *    ready to hand to `servePtyHostOverUnixSocket` (the live wire primitive
+ *    every consumer reaches the host through). The consumer (kolu-server /
+ *    kolu-tui) dials the socket and is invariant under a later link swap.
  */
 
 // The running build identity — `currentBuildId()` (the staleKey, a hash of
@@ -31,11 +30,10 @@ export {
 } from "./buildId.ts";
 // The contract's serving: `servePtyHost` is the transport-agnostic half
 // (reused over a socket by the surviving daemon and over ssh by R-2);
-// `createInProcessPtyHost` closes the loop with the no-wire `directLink`,
-// handing the consumer its contract-typed client (and the router for the
-// socket transport). A later phase swaps only the link.
+// `servePtyHostRouter` wraps it in the contract-wrapped router every live
+// consumer reaches the host through (over the socket). A later phase swaps
+// only the link.
 export {
-  createInProcessPtyHost,
   type InProcessPtyHostDeps,
   type PtyHostClient,
   type PtyHostRouter,

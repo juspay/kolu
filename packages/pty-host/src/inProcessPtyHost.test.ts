@@ -1,22 +1,34 @@
 /**
- * Contract-level lifecycle coverage for the in-process serving — exercises
- * `ptyHostSurface` end-to-end through `createInProcessPtyHost(...).client` (the
- * identity link) over a real PTY. Two layers: serving glue that needs no child
- * (version handshake, the NOT_FOUND existence guard) and a real shell driven
- * through the contract (spawn → list → snapshot-first attach → exit-on-kill),
- * plus the abort/kill-silence mechanism the consumer relies on.
+ * Contract-level lifecycle coverage for the serving — exercises
+ * `ptyHostSurface` end-to-end through the no-wire `directLink` client over a
+ * real PTY. The in-process `directLink` client is now a test-only concern, so
+ * the test builds it itself off `servePtyHost(deps).router` (the live primitive
+ * consumers reach over the socket, here exercised without one). Two layers:
+ * serving glue that needs no child (version handshake, the NOT_FOUND existence
+ * guard) and a real shell driven through the contract (spawn → list →
+ * snapshot-first attach → exit-on-kill), plus the abort/kill-silence mechanism
+ * the consumer relies on.
  */
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { directLink } from "@kolu/surface/links/direct";
 import type { Logger } from "kolu-shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  createInProcessPtyHost,
+  type InProcessPtyHostDeps,
   type PtyHostClient,
+  servePtyHost,
 } from "./inProcessPtyHost.ts";
-import { PTY_HOST_CONTRACT_VERSION } from "./ptyHostSurface.ts";
+import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "./ptyHostSurface.ts";
+
+/** The no-wire in-process client — `directLink` over a fresh host's router.
+ *  Production reaches the host over a socket; this test-only loopback drives
+ *  the contract without one. */
+function directClient(deps: InProcessPtyHostDeps): PtyHostClient {
+  return directLink<typeof ptyHostSurface.contract>(servePtyHost(deps).router);
+}
 
 const silentLog = {
   debug: () => {},
@@ -27,14 +39,14 @@ const silentLog = {
 } as unknown as Logger;
 
 function makeClient(): PtyHostClient {
-  return createInProcessPtyHost({
+  return directClient({
     log: silentLog,
     shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     version: "test",
-  }).client;
+  });
 }
 
-describe("createInProcessPtyHost — contract serving (no child)", () => {
+describe("servePtyHost — contract serving (no child)", () => {
   let client: PtyHostClient;
   beforeAll(() => {
     client = makeClient();
@@ -89,7 +101,7 @@ describe("createInProcessPtyHost — contract serving (no child)", () => {
   });
 });
 
-describe("createInProcessPtyHost — real PTY lifecycle through the contract", () => {
+describe("servePtyHost — real PTY lifecycle through the contract", () => {
   let client: PtyHostClient;
   beforeAll(() => {
     client = makeClient();

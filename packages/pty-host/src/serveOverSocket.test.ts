@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import type { Logger } from "kolu-shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
+import { servePtyHostRouter } from "./inProcessPtyHost.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type ptyHostSurface,
@@ -34,12 +34,11 @@ const silentLog = {
 } as unknown as Logger;
 
 function makeRouter() {
-  const { servedRouter } = createInProcessPtyHost({
+  return servePtyHostRouter({
     log: silentLog,
     shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     version: "test",
   });
-  return servedRouter;
 }
 
 const connect = () =>

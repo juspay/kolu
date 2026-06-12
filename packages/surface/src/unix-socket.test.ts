@@ -56,7 +56,7 @@ function buildRouter(): Router<any, any> {
     },
   });
   return implement(surface.contract).router(
-    // biome-ignore lint/suspicious/noExplicitAny: fragment procedure-context vs. contract-derived param mismatch; runtime shape is valid (same cast as mini-ci and kolu's createInProcessPtyHost).
+    // biome-ignore lint/suspicious/noExplicitAny: fragment procedure-context vs. contract-derived param mismatch; runtime shape is valid (same cast as mini-ci and kolu's servePtyHostRouter).
     { ...fragment.router } as any,
     // biome-ignore lint/suspicious/noExplicitAny: narrow back to the `Router<any, any>` serving wants (see above).
   ) as Router<any, any>;

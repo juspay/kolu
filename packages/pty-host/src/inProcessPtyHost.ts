@@ -1,20 +1,21 @@
 /**
- * In-process serving of `ptyHostSurface` — the **identity link**.
+ * Serving of `ptyHostSurface` — the contract's *implementation*, co-located
+ * with the contract (`./ptyHostSurface.ts`) and the primitive (`./ptyHost.ts`)
+ * it serves.
  *
- * This is the contract's *implementation*, co-located with the contract
- * (`./ptyHostSurface.ts`) and the primitive (`./ptyHost.ts`) it serves.
  * `servePtyHost` builds the surface router over `createPtyHost` (transport-
- * agnostic — reused over a socket by the daemon and over ssh by R-2), and the
- * in-process client closes the loop with `directLink`, the no-wire member of
- * the surface link family — so `client.surface.terminal.spawn(...)` is a
- * direct (microtask-deferred) call into the host, no serialization.
+ * agnostic — reused over a socket by the daemon and over ssh by R-2), and
+ * `servePtyHostRouter` wraps that fragment in a top-level contract router ready
+ * to serve over a wire. Every live path now reaches the host over the socket
+ * (`servePtyHostOverUnixSocket`): the daemon serves it, and both kolu-server's
+ * web path and kolu-tui dial the socket. The no-wire `directLink` client is
+ * now a test-only concern — `inProcessPtyHost.test.ts` builds it directly off
+ * `servePtyHost(deps).router` to exercise the surface without a socket.
  *
- * The consumer (kolu-server's `terminalBackend/local.ts`) holds the returned
- * `PtyHostClient` and is written against that type alone. A later phase swaps
- * only the link — this same `implementSurface` body is served over a unix
- * socket by the surviving `kolu --stdio` daemon (`serveOverStdio`), and the
- * consumer connects a socket-backed client of the identical type — so nothing
- * downstream changes. See `docs/atlas/src/content/atlas/pty-daemon.mdx`.
+ * The consumer (kolu-server / kolu-tui) holds a `PtyHostClient` and is written
+ * against that type alone — the identical type backs the socket-served daemon,
+ * so nothing downstream changes when the link is the wire.
+ * See `docs/atlas/src/content/atlas/pty-daemon.mdx`.
  *
  * Host-specific config (`shellDir`, `version`) is **injected**, not imported:
  * the package owns the PTY + the contract + the serving, but not kolu-server's
@@ -26,7 +27,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { directLink } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryChannelByName } from "@kolu/surface/server";
 import type { ContractRouterClient } from "@orpc/contract";
 import { implement, ORPCError, type Router } from "@orpc/server";
@@ -41,9 +41,9 @@ import {
   ptyHostSurface,
 } from "./ptyHostSurface.ts";
 
-/** The typed client for talking to a pty-host. In-process today (this module);
- *  the identical type backs a socket-served daemon later — so the consumer is
- *  invariant under that swap. */
+/** The typed client for talking to a pty-host. The same type backs every link
+ *  — the socket-served daemon the consumer dials, and the no-wire `directLink`
+ *  client the tests build — so the consumer is invariant under the link. */
 export type PtyHostClient = ContractRouterClient<
   typeof ptyHostSurface.contract
 >;
@@ -60,8 +60,8 @@ export interface InProcessPtyHostDeps {
 
 /** Serve `ptyHostSurface` over a fresh `createPtyHost` — the **transport-
  *  agnostic** half of the serving. Returns `implementSurface`'s `{ router,
- *  ctx }`: feed the router to `directLink` for an in-process client (below),
- *  or to `serveOverStdio` for the socket daemon / ssh host later. The
+ *  ctx }`: wrap the router with `servePtyHostRouter` to serve it over the wire,
+ *  or feed it to `directLink` for the no-wire (test-only) in-process client. The
  *  `createPtyHost` instance is captured by the surface handlers, so it owns
  *  every local PTY for as long as the router (and any client over it) lives —
  *  one host per call. */
@@ -292,36 +292,11 @@ function asServedRouter(fragment: PtyHostRouter): Router<any, any> {
 /** Serve `ptyHostSurface` over a fresh host and return the **contract-wrapped,
  *  top-level router** — ready to hand straight to `servePtyHostOverUnixSocket`
  *  (the surviving daemon) or `serveOverStdio` (the R-2 ssh host). The
- *  over-the-wire counterpart to `createInProcessPtyHost`: a wire server has no
- *  use for an in-process `directLink` client, so this returns *only* the served
- *  router (one host per call, owned by the surface handlers for the router's
- *  life). */
+ *  a wire server has no use for an in-process `directLink` client, so this
+ *  returns *only* the served router (one host per call, owned by the surface
+ *  handlers for the router's life). */
 export function servePtyHostRouter(
   deps: InProcessPtyHostDeps,
 ): Router<any, any> {
   return asServedRouter(servePtyHost(deps).router);
-}
-
-/** Build the in-process pty-host ONCE and return three views of the same host:
- *   - `client` — the no-wire `directLink` client kolu-server's web path uses;
- *   - `servedRouter` — the host's router wrapped in a top-level contract router,
- *     ready to hand straight to `serveOverStdio` (the unix socket for kolu-tui;
- *     the ssh stdio for a daemon). The bare fragment can't route over the wire
- *     (the StandardRPCHandler answers "Not Found"), so the wrap lives here —
- *     once, beside the contract it references — rather than at every serving
- *     call site;
- *   - `router` — the raw fragment, for advanced in-process use.
- *  Call once per process; calling twice spawns two independent hosts. */
-export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
-  router: PtyHostRouter;
-  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param — the contract-wrapped served router's context type doesn't line up, though the runtime shape is exactly what serving wants.
-  servedRouter: Router<any, any>;
-  client: PtyHostClient;
-} {
-  const router = servePtyHost(deps).router;
-  return {
-    router,
-    servedRouter: asServedRouter(router),
-    client: directLink<typeof ptyHostSurface.contract>(router),
-  };
 }

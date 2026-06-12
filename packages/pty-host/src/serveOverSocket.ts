@@ -11,8 +11,7 @@
  * module is the kolu voice on top: it maps each outcome to an operator-facing
  * log line with the kolu-specific advice (what the socket is for, which flag
  * to reach for). The caller passes the contract-wrapped router
- * (`createInProcessPtyHost`'s `servedRouter`); the router is shared across
- * connections (and with the in-process `directLink` client).
+ * (`servePtyHostRouter`'s return); the router is shared across connections.
  */
 import {
   serveOverUnixSocket,

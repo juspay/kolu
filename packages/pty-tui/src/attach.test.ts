@@ -12,10 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import {
-  createInProcessPtyHost,
   type InProcessPtyHostDeps,
   type PtyHostSocketListener,
   servePtyHostOverUnixSocket,
+  servePtyHostRouter,
 } from "@kolu/pty-host";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type AttachOutcome, type AttachTty, runAttach } from "./attach.ts";
@@ -101,29 +101,27 @@ async function until(
 
 let listener: PtyHostSocketListener;
 let conn: Connection;
-let killAll: () => Promise<unknown>;
 
 beforeAll(async () => {
-  const { servedRouter, client } = createInProcessPtyHost({
+  const router = servePtyHostRouter({
     log: silentLog,
     shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     version: "test",
   });
-  killAll = () => client.surface.terminal.killAll({});
   const socketPath = join(
     mkdtempSync(join(tmpdir(), "kolu-pty-sock-")),
     "pty-host.sock",
   );
   listener = await servePtyHostOverUnixSocket({
     socketPath,
-    router: servedRouter,
+    router,
     log: silentLog,
   });
   conn = await connectPtyHost(socketPath);
 });
 
 afterAll(async () => {
-  await killAll();
+  await conn.client.surface.terminal.killAll({});
   conn.dispose();
   listener.close();
 });
