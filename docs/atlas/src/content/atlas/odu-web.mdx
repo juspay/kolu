@@ -1,0 +1,257 @@
+---
+title: odu-web — the service face of odu
+description: 'The browser face of odu is not a tab watching one live run — it is the service layer above the runner: a run ledger that outlives coordinators, the page a commit status Details link points at, forge triggers, and a multi-repo fleet dashboard. That territory belongs to juspay/vira today, so this is also the plan for whether odu-web replaces it. Proposed in five phases, with UI prototypes.'
+kind: feature
+status: proposed
+maturity: seedling
+updated: 2026-06-12
+parents: [odu, surface-app]
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import D2 from "../../components/D2.astro";
+import Roadmap from "../../components/Roadmap.astro";
+import Milestone from "../../components/Milestone.astro";
+
+*The question that produced this note: now that [odu](./odu.html) has a TUI and an MCP face, what would the web app look like — and should it replace [juspay/vira](https://github.com/juspay/vira)? The answer reframes the question: the web app worth building is not a third rendering of the attach surface. It is a **new program above the runner** — ledger, triggers, fleet — and the browser is merely how you look at it.* <Pill variant="new">proposed</Pill>
+
+<p>Status: <Pill variant="warn">proposed</Pill> · maturity <Pill variant="todo">seedling</Pill> · the runner this builds on is [odu](./odu.html) (Phase 1 + MCP face shipped) · the app shell is [surface-app](./surface-app.html) (kolu and drishti are its two consumers; odu-web would be the third)</p>
+
+<Callout kind="accent" title="The idea in one paragraph">
+odu today is **run-centric and ephemeral**: an operator — human or agent — starts a run, a coordinator owns the DAG as live state, and when the coordinator dies only the per-SHA log files survive. vira is the inverse: **repo-centric and persistent** — it watches registered repos, builds on its own initiative, and keeps history behind a web UI. Each is strong exactly where the other is weak. odu-web closes that gap *without growing the runner*: a second program that ingests forge events, spawns odu runs per repo × SHA, persists verdicts in a run ledger that outlives every coordinator, and serves the browser — including the one page CI cannot do without, the page a red check's **Details** link lands on. The runner stays the small, proven thing it is; odu-web attaches to it as just another client of the same typed surface.
+</Callout>
+
+<D2
+  caption="odu-web is a layer, not a face. The runner (bottom) is unchanged — odu-web is one more client of its typed surface, plus three things no runner client can be: a trigger ingester, a run ledger, and a browser server. The forge loop closes left to right: events in, statuses out, target_url back to the run page."
+  code={`
+direction: down
+
+forge: "forge — github.com" {
+  ev: "push / PR events"
+  st: "commit status · target_url"
+}
+
+web: "odu-web — the new program (the service)" {
+  trig: "triggers — webhook / poll"
+  ledger: "run ledger — outlives runners"
+  ui: "browser UI — surface-app PWA"
+  authz: "read-observer vs mutator gate"
+}
+
+runner: "odu runner — unchanged, one per repo × SHA run" {
+  surf: "nodes · nodeLog · rerun — typed surface"
+}
+
+forge -> web: "events in (Phase 3)"
+web -> runner: "spawns + attaches as a client"
+runner -> web: "verdicts + logs → ledger"
+web -> forge: "posts status — target_url → the run page (Phase 1)"
+`}
+/>
+
+export const S = {
+  ok: { background: "#e3f4e9", color: "#1b7a3a", border: "1px solid #bce3c8" },
+  run: { background: "#fbf1dc", color: "#8a5200", border: "1px solid #ecd9ab" },
+  fail: { background: "#fdebe9", color: "#b3261e", border: "1px solid #f3c4be" },
+  pend: { background: "#eef0f2", color: "#9197a1", border: "1px solid #e2e5ea" },
+};
+
+export const Cell = (props) => (
+  <span style={{ display: "block", textAlign: "center", borderRadius: "6px", padding: ".28rem .3rem", fontSize: ".7rem", fontWeight: 600, fontFamily: "ui-monospace,monospace", ...S[props.k] }}>{props.t}</span>
+);
+
+export const Chrome = (props) => (
+  <div style={{ margin: "1.6rem 0", maxWidth: "37rem", border: "1px solid #d9d4c6", borderRadius: "12px", overflow: "hidden", boxShadow: "0 3px 18px rgba(0,0,0,.09)", fontFamily: "ui-sans-serif,system-ui" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: ".45rem", padding: ".5rem .8rem", background: "#f3f0e7", borderBottom: "1px solid #e6e2d6" }}>
+      <span style={{ width: ".7rem", height: ".7rem", borderRadius: "50%", background: "#ff5f56", display: "inline-block" }} />
+      <span style={{ width: ".7rem", height: ".7rem", borderRadius: "50%", background: "#ffbd2e", display: "inline-block" }} />
+      <span style={{ width: ".7rem", height: ".7rem", borderRadius: "50%", background: "#27c93f", display: "inline-block" }} />
+      <code style={{ flex: 1, fontSize: ".72rem", color: "#3a3f47", background: "#fff", border: "1px solid #e2ddcf", borderRadius: "7px", padding: ".3rem .6rem", marginLeft: ".3rem" }}>{props.url}</code>
+    </div>
+    {props.children}
+  </div>
+);
+
+## Two products hide in "the web app"
+
+The first is the **attach face**: a browser tab rendering one live run — the TUI with rounder corners. [The odu note](./odu.html) already judged this one correctly, and the judgement stands: nobody opens a tab to watch a run they kicked off from their shell, the TUI and MCP faces serve the single-operator case better, and a hosted page is the one client that drags in the authz boundary the other faces dodge. Built alone, the attach face is cost with no constituency.
+
+The second is the **service face**, and it has three constituencies the runner cannot reach today:
+
+- **The PR author who never typed `odu run`.** odu posts commit statuses; a GitHub status carries a *Details* link; today odu has nothing for it to point at. The moment a teammate's check goes red, the product they need is a URL: this SHA, this node, this log.
+- **The team asking "what is CI doing right now, everywhere."** Fan-in across lanes, hosts — and repos. A single-repo web dashboard has no reason to exist; multi-repo is what justifies the tab.
+- **Anyone asking about yesterday.** The coordinator's state dies with it; only per-SHA log files survive. History, trends, "when did this lane start flaking" — there is no client that can answer, because there is nothing durable to ask.
+
+Every one of those is a property of a **layer above the runner** — persistence, triggers, identity across runs — not of a fourth rendering of `nodes` · `nodeLog` · `rerun`. That is the product. The attach face then falls out of it for free (Phase 2 below), instead of the other way around.
+
+## The wedge — be the `target_url`
+
+The smallest shippable slice of the service face is also the highest-value one: the **run page**, the URL odu's commit statuses start carrying as `target_url`. It is read-only, history-backed, and needs neither triggers nor live attach — only a **run ledger**: today's per-SHA on-disk log layout (which already survives runner death, by design) formalized into a queryable record of runs, verdicts, durations, and logs that odu-web ingests as runs complete.
+
+<Chrome url="odu.srid.ca/juspay/kolu/runs/26d2c2d">
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: ".7rem .95rem", background: "#fff", borderBottom: "1px solid #efeadd" }}>
+    <span style={{ display: "inline-flex", alignItems: "baseline", gap: ".5rem" }}>
+      <strong style={{ color: "#1a1c20", fontSize: ".95rem" }}>juspay/kolu</strong>
+      <code style={{ color: "#5a3ff0", background: "#efebff", borderRadius: "5px", padding: ".05rem .35rem", fontSize: ".7rem" }}>26d2c2d</code>
+      <span style={{ color: "#7a8089", fontSize: ".74rem" }}>fix(surface): guard stdio write streams…</span>
+    </span>
+    <span style={{ ...S.fail, display: "inline-flex", alignItems: "center", gap: ".3rem", borderRadius: "6px", padding: ".24rem .5rem", fontSize: ".72rem", fontWeight: 700, fontFamily: "ui-monospace,monospace" }}>✗ failed · 1 of 8</span>
+  </div>
+  <div style={{ padding: ".45rem .95rem", background: "#fbf8f0", borderBottom: "1px solid #efeadd", fontSize: ".68rem", color: "#8a8470", fontFamily: "ui-monospace,monospace" }}>↳ you arrived from GitHub — commit status <code style={{ color: "#5b6470" }}>ci::e2e@x86_64-linux</code> · Details</div>
+  <div style={{ padding: ".75rem .95rem .4rem", background: "#fff" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "4.2rem repeat(2, 1fr)", gap: ".32rem", alignItems: "center" }}>
+      <span />
+      <span style={{ textAlign: "center", fontSize: ".64rem", color: "#7a8089", fontFamily: "ui-monospace,monospace" }}>x86_64-linux</span>
+      <span style={{ textAlign: "center", fontSize: ".64rem", color: "#7a8089", fontFamily: "ui-monospace,monospace" }}>aarch64-darwin</span>
+      <code style={{ fontSize: ".74rem", color: "#3a3f47", fontWeight: 600 }}>nix</code>
+      <Cell k="ok" t="✓ 3m40" />
+      <Cell k="ok" t="✓ 4m02" />
+      <code style={{ fontSize: ".74rem", color: "#3a3f47", fontWeight: 600 }}>e2e</code>
+      <Cell k="fail" t="✗ 2m12" />
+      <Cell k="ok" t="✓ 2m44" />
+      <code style={{ fontSize: ".74rem", color: "#3a3f47", fontWeight: 600 }}>unit</code>
+      <Cell k="ok" t="✓ 0m31" />
+      <Cell k="ok" t="✓ 0m44" />
+      <code style={{ fontSize: ".74rem", color: "#3a3f47", fontWeight: 600 }}>lint</code>
+      <Cell k="ok" t="✓ 0m12" />
+      <Cell k="ok" t="✓ 0m14" />
+    </div>
+  </div>
+  <div style={{ margin: "0 .95rem .95rem", border: "1px solid #e6e2d6", borderRadius: "8px", overflow: "hidden" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: ".4rem .6rem", background: "#f7f4ec", borderBottom: "1px solid #ece7da", fontSize: ".7rem", color: "#5b6470", fontFamily: "ui-monospace,monospace" }}>
+      <span>x86_64-linux · e2e&nbsp; <span style={{ color: "#b3261e" }}>✗ failed · exit 1</span></span>
+      <span style={{ color: "#b9b2a0" }}>⟳ rerun — operators only</span>
+    </div>
+    <div style={{ padding: ".55rem .7rem", background: "#15171f", color: "#c9d1e3", fontFamily: "ui-monospace,monospace", fontSize: ".7rem", lineHeight: 1.55, whiteSpace: "pre", overflowX: "auto" }}>{`cucumber · 14 scenarios
+✓ open a terminal … 2.1s
+✗ reconnect after server restart
+    expected pane to repaint within 5s
+    at features/reconnect.feature:31`}</div>
+  </div>
+</Chrome>
+
+Three properties make this the wedge and not just the first feature:
+
+- **It is the first moment odu is visible to people who never invoked it.** Every hosted CI's adoption loop runs through the Details link; odu's gate half (statuses, branch protection) shipped in Phase 1 of [the odu note](./odu.html) — this completes that loop.
+- **It forces the ledger, and nothing else.** No triggers, no live protocol in the browser, and almost no authz — a read-only page behind whatever the team already uses (tailnet, basic auth). The greyed-out rerun button in the mockup is the Phase 4 boundary, visible but inert.
+- **It survives everything.** The page renders from the ledger, not from a live coordinator — a run that finished last week and a runner that died mid-flight both have a page.
+
+## The service — a coordinator of coordinators
+
+Everything past the wedge is one program growing around the ledger. The load-bearing decision is that **none of it lands in the runner**. odu keeps its shape — spawn, own one DAG, serve three primitives, exit relevance when the run is done. odu-web is the thing with opinions about *many* runs: it ingests forge events (webhook first, vira-style polling as the fallback for forges or networks without one), resolves repo × SHA into an odu invocation exactly the way the MCP face's `run` tool does today, attaches to the live coordinator as a read client, mirrors `nodes` and `nodeLog` into the browser, and writes the verdict into the ledger when the run settles.
+
+Because the browser speaks the same `useCell` / `useStream` Solid hooks every other face rides, the live view is the part that costs the least — [surface-app](./surface-app.html) already solves the app-shell problems (freshness, build identity, PWA install), with kolu and drishti as its two production consumers. A live run page looks like the wedge page with the verdict still warm:
+
+<Chrome url="odu.srid.ca/juspay/kolu — live">
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: ".7rem .95rem", background: "#fff", borderBottom: "1px solid #efeadd" }}>
+    <span style={{ display: "inline-flex", alignItems: "baseline", gap: ".5rem" }}>
+      <strong style={{ color: "#1a1c20", fontSize: ".95rem" }}>odu</strong>
+      <span style={{ color: "#7a8089", fontSize: ".8rem" }}>juspay/kolu</span>
+      <code style={{ color: "#5a3ff0", background: "#efebff", borderRadius: "5px", padding: ".05rem .35rem", fontSize: ".7rem" }}>26d2c2d</code>
+    </span>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: ".35rem", color: "#1b7a3a", fontSize: ".72rem", fontWeight: 600 }}>
+      <span style={{ width: ".5rem", height: ".5rem", borderRadius: "50%", background: "#1b7a3a", display: "inline-block" }} /> 3 lanes · connected
+    </span>
+  </div>
+  <div style={{ padding: ".75rem .95rem .4rem", background: "#fff" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "4.2rem repeat(3, 1fr)", gap: ".32rem", alignItems: "center" }}>
+      <span />
+      <span style={{ textAlign: "center", fontSize: ".64rem", color: "#7a8089", fontFamily: "ui-monospace,monospace" }}>x86_64-linux</span>
+      <span style={{ textAlign: "center", fontSize: ".64rem", color: "#7a8089", fontFamily: "ui-monospace,monospace" }}>aarch64-darwin</span>
+      <span style={{ textAlign: "center", fontSize: ".64rem", color: "#7a8089", fontFamily: "ui-monospace,monospace" }}>aarch64-linux</span>
+      <code style={{ fontSize: ".74rem", color: "#3a3f47", fontWeight: 600 }}>nix</code>
+      <Cell k="ok" t="✓ 3m40" />
+      <Cell k="ok" t="✓ 4m02" />
+      <Cell k="run" t="● 1m12" />
+      <code style={{ fontSize: ".74rem", color: "#3a3f47", fontWeight: 600 }}>e2e</code>
+      <Cell k="ok" t="✓ 2m03" />
+      <Cell k="run" t="● 1m55" />
+      <Cell k="pend" t="⏸ —" />
+      <code style={{ fontSize: ".74rem", color: "#3a3f47", fontWeight: 600 }}>unit</code>
+      <Cell k="ok" t="✓ 0m31" />
+      <Cell k="ok" t="✓ 0m44" />
+      <Cell k="pend" t="⏸ —" />
+      <code style={{ fontSize: ".74rem", color: "#3a3f47", fontWeight: 600 }}>lint</code>
+      <Cell k="ok" t="✓ 0m12" />
+      <Cell k="ok" t="✓ 0m14" />
+      <Cell k="pend" t="⏸ —" />
+    </div>
+  </div>
+  <div style={{ margin: "0 .95rem .95rem", border: "1px solid #e6e2d6", borderRadius: "8px", overflow: "hidden" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: ".4rem .6rem", background: "#f7f4ec", borderBottom: "1px solid #ece7da", fontSize: ".7rem", color: "#5b6470", fontFamily: "ui-monospace,monospace" }}>
+      <span>aarch64-darwin · e2e&nbsp; <span style={{ color: "#8a5200" }}>● running 1m55s</span></span>
+      <span style={{ color: "#5a3ff0" }}>⟳ rerun</span>
+    </div>
+    <div style={{ padding: ".55rem .7rem", background: "#15171f", color: "#c9d1e3", fontFamily: "ui-monospace,monospace", fontSize: ".7rem", lineHeight: 1.55, whiteSpace: "pre", overflowX: "auto" }}>{`cucumber · 14 scenarios
+✓ open a terminal … 2.1s
+✓ split a pane … 1.4s
+▸ reconnect after server restart …▍`}</div>
+  </div>
+</Chrome>
+
+And the fleet view is the same data one level up — **repo is just another fan-in axis**, the generalization of the lane matrix that [the odu note](./odu.html) catalogued as open:
+
+<Chrome url="odu.srid.ca">
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: ".7rem .95rem", background: "#fff", borderBottom: "1px solid #efeadd" }}>
+    <strong style={{ color: "#1a1c20", fontSize: ".95rem" }}>odu — fleet</strong>
+    <span style={{ fontSize: ".7rem", color: "#7a8089", fontFamily: "ui-monospace,monospace" }}>4 repos · 2 running · 11 runs today</span>
+  </div>
+  <div style={{ padding: ".6rem .95rem .85rem", background: "#fff" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 5.4rem 4.6rem 5.4rem", gap: ".32rem .5rem", alignItems: "center" }}>
+      <span style={{ fontSize: ".62rem", color: "#9aa0a9", fontFamily: "ui-monospace,monospace" }}>repo · ref</span>
+      <span style={{ fontSize: ".62rem", color: "#9aa0a9", fontFamily: "ui-monospace,monospace", textAlign: "center" }}>commit</span>
+      <span style={{ fontSize: ".62rem", color: "#9aa0a9", fontFamily: "ui-monospace,monospace", textAlign: "center" }}>verdict</span>
+      <span style={{ fontSize: ".62rem", color: "#9aa0a9", fontFamily: "ui-monospace,monospace", textAlign: "center" }}>duration</span>
+      <span style={{ fontSize: ".76rem", color: "#3a3f47" }}><strong>juspay/kolu</strong> <span style={{ color: "#7a8089" }}>· master</span></span>
+      <code style={{ color: "#5a3ff0", background: "#efebff", borderRadius: "5px", padding: ".05rem .3rem", fontSize: ".66rem", textAlign: "center" }}>26d2c2d</code>
+      <Cell k="run" t="● running" />
+      <Cell k="run" t="4m12" />
+      <span style={{ fontSize: ".76rem", color: "#3a3f47" }}><strong>juspay/kolu</strong> <span style={{ color: "#7a8089" }}>· PR #1291</span></span>
+      <code style={{ color: "#5a3ff0", background: "#efebff", borderRadius: "5px", padding: ".05rem .3rem", fontSize: ".66rem", textAlign: "center" }}>53c0889</code>
+      <Cell k="fail" t="✗ e2e" />
+      <Cell k="pend" t="9m03" />
+      <span style={{ fontSize: ".76rem", color: "#3a3f47" }}><strong>juspay/odu</strong> <span style={{ color: "#7a8089" }}>· master</span></span>
+      <code style={{ color: "#5a3ff0", background: "#efebff", borderRadius: "5px", padding: ".05rem .3rem", fontSize: ".66rem", textAlign: "center" }}>7fa40f3</code>
+      <Cell k="ok" t="✓ green" />
+      <Cell k="pend" t="2m31" />
+      <span style={{ fontSize: ".76rem", color: "#3a3f47" }}><strong>srid/drishti</strong> <span style={{ color: "#7a8089" }}>· master</span></span>
+      <code style={{ color: "#5a3ff0", background: "#efebff", borderRadius: "5px", padding: ".05rem .3rem", fontSize: ".66rem", textAlign: "center" }}>a41c9e2</code>
+      <Cell k="run" t="● nix" />
+      <Cell k="run" t="1m18" />
+    </div>
+  </div>
+</Chrome>
+
+The boundary the browser alone forces arrives on schedule, not up front: **read-observer vs mutator**. `rerun` is remote code execution, and a hosted page is the first client whose holder is not automatically the operator. The wedge and the live observer ship with mutations simply *absent from the wire* — the same trick `odu mcp` used to dodge `run.configure` — and Phase 4 introduces the mutator role as an explicit grant rather than retrofitting auth onto a surface that already leaked it.
+
+## Does it replace vira?
+
+It should — on the timescale where the service face actually exists, and not before. [vira](https://github.com/juspay/vira) is *"no-frills CI for small teams using Nix"*: a Haskell web app with acid-state persistence, managing registered repos and building them in Nix environments. It works today; nothing here argues for switching anything off this week. The argument is structural, and it is the same one [the odu note](./odu.html) ran against justci:
+
+| Axis | vira today | odu-web as planned |
+| --- | --- | --- |
+| Trigger model | watches registered repos, builds on its own initiative | Phase 3 — webhook first, polling fallback |
+| Persistence | acid-state database | the run ledger (Phase 1), grown from odu's per-SHA layout |
+| Multi-repo | yes — its core shape | Phase 3 — repo as a fan-in axis |
+| Run granularity | the build, coarse | odu's per-node DAG: statuses, logs, surgical rerun per node |
+| Live observation | page-grade | snapshot-then-delta surface; late attach replays everything |
+| Agent face | none | shipped — `odu mcp` (<PrLink pr={3} repo="juspay/odu" />) |
+| Forge gate | — | shipped — byte-compatible commit statuses + `protect` |
+| Stack | Haskell · htmx · acid-state | TypeScript · `@kolu/surface` · surface-app (Solid) |
+
+Two stacks under one author is a losing position — justci already taught that lesson here. vira's differentiators (triggers, persistence, multi-repo web UI) are things odu-web must build *anyway*; odu's differentiators (the typed live surface, per-node DAG, the MCP face) are things vira's batch-of-builds shape cannot retrofit, for the same reason justci couldn't. So the honest framing is **sunset-when-superseded**: vira keeps serving its teams until odu-web's Phase 3 covers a Nix team's daily loop, and Phase 4's exit criterion below names the test rather than the wish.
+
+## Phases
+
+Phase 0 lives in the runner and is already on [odu's Phase 2 backlog](./odu.html); everything after it lives in odu-web, each phase shippable on its own.
+
+<Roadmap>
+  <Milestone status="next" label="Phase 0 · prerequisites in the runner">Idle attach + the long-lived runner — a coordinator you can reach with nothing running — plus run identity stable enough for a ledger to reference (repo, SHA, run, node). Both already named on the odu roadmap; odu-web is the consumer that makes them load-bearing. Price the idle-runner lifecycle against the warm pu-box pool.</Milestone>
+  <Milestone status="next" label="Phase 1 · the ledger and the run page">Formalize the per-SHA on-disk layout into a queryable run ledger that outlives coordinators; serve the read-only per-SHA run page; flip odu's commit statuses to carry `target_url`. No triggers, no live wire to the browser, no new authz beyond a read gate. **Exit criterion: a red check on a kolu PR links to a page that names the failed node and shows its log.**</Milestone>
+  <Milestone status="next" label="Phase 2 · the live observer">The surface-app PWA (third consumer after kolu and drishti): odu-web attaches to live coordinators and mirrors `nodes` / `nodeLog` into the browser over the same `useCell` / `useStream` hooks the future OpenTUI face would share — "faces over one surface" becomes shared view code. Read-only: mutations stay off the wire entirely.</Milestone>
+  <Milestone status="next" label="Phase 3 · triggers and the fleet">Forge-event ingestion (webhook first, vira-style polling as fallback), the repo registry, runs spawned per push the way the MCP `run` tool spawns them today, and the multi-repo fleet dashboard. This is the line where odu crosses from tool to service — and the first phase that overlaps vira's core.</Milestone>
+  <Milestone status="next" label="Phase 4 · mutators, and the vira question">The read-observer/mutator split as an explicit grant; `rerun` from the run page for holders of it. Then the sunset test, stated as an exit criterion: **when a Nix team's daily loop — push, gate, red check, diagnose, rerun, green — runs through odu-web without reaching for vira, retire vira.** Until it passes, both live.</Milestone>
+</Roadmap>
