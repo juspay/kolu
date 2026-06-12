@@ -32,6 +32,7 @@ import {
   type DaemonStatus,
 } from "kolu-common/surface";
 import type { Logger } from "kolu-shared";
+import { LOAD_AWARE_CEILING_MS } from "./loadAwareCeiling.ts";
 import { readDaemonPid, spawnDaemon } from "./localDriver.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
@@ -123,7 +124,7 @@ export async function ensureLocalEndpoint(
 
   const conn = await connectWithRetry(
     socketPath,
-    opts.connectTimeoutMs ?? 120_000,
+    opts.connectTimeoutMs ?? LOAD_AWARE_CEILING_MS,
   );
 
   try {

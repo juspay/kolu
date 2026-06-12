@@ -17,6 +17,7 @@
 
 import { pidIsAlive } from "@kolu/pty-host";
 import type { Logger } from "kolu-shared";
+import { LOAD_AWARE_CEILING_MS } from "./loadAwareCeiling.ts";
 
 export interface WaitForPidGoneOpts {
   /** Upper bound before giving up. Default 120s — a loaded box with 20 heavy
@@ -43,7 +44,7 @@ export async function waitForPidGone(
   pid: number,
   opts: WaitForPidGoneOpts = {},
 ): Promise<boolean> {
-  const ceilingMs = opts.ceilingMs ?? 120_000;
+  const ceilingMs = opts.ceilingMs ?? LOAD_AWARE_CEILING_MS;
   const pollMs = opts.pollMs ?? 250;
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? defaultSleep;
