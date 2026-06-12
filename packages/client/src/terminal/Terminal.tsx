@@ -492,6 +492,16 @@ const Terminal: Component<{
             // whenever `document.hasFocus()` is false — unreliable on iOS Safari
             // with the soft keyboard up (CoreBrowserService.ts:55).
             cursorInactiveStyle: "block",
+            // Reflow the cursor's own wrapped line when the grid narrows.
+            // xterm defaults this off ("the shell will redraw it"), but kolu
+            // refits constantly — canvas tiles, zoom, window resize, split
+            // panes — and a long URL printed without a trailing newline sits
+            // on the cursor line. Without this, _reflowSmaller skips that line
+            // yet still trims every row to the new width, so the URL's overflow
+            // is truncated instead of rewrapped and a clicked web-link opens a
+            // clipped address. Turning it on rewraps the line contents (cursor
+            // position is unchanged), keeping wrapped links intact across fits.
+            reflowCursorLine: true,
             // Required by SerializeAddon and ImageAddon for buffer access
             allowProposedApi: true,
           });
