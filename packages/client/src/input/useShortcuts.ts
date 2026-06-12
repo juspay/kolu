@@ -10,6 +10,7 @@ import {
   type AppAction,
   actionMatchesKeybind,
   isDispatchable,
+  isOutsideFocusScope,
 } from "./actions";
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
@@ -93,10 +94,7 @@ function dispatch(
     // not in a terminal). Returning (rather than `continue`) keeps the hand-off
     // local to this matched action — it doesn't depend on no later action
     // happening to share the chord.
-    const outsideFocusScope =
-      action.focusScopeMarker != null &&
-      (e.target as Element | null)?.closest?.(action.focusScopeMarker) == null;
-    if (outsideFocusScope) return false;
+    if (isOutsideFocusScope(action, e)) return false;
 
     // cycleTerminalMru is stateful — the closure-bound snapshot/cursor pattern
     // can't fit the registry's plain `(ctx) => void` handler shape, so it's

@@ -337,6 +337,21 @@ export function actionMatchesKeybind(
   );
 }
 
+/** A focus-scoped action claims its chord ONLY when focus is inside its scope.
+ *  Returns true when the action is scoped but the event target is NOT inside the
+ *  marker — the dispatcher then declines the chord (no preventDefault), letting
+ *  the browser's native default fire. Shared by the dispatch path (`dispatch` in
+ *  useShortcuts.ts) and its unit test so both drive the same rule. */
+export function isOutsideFocusScope(
+  action: AppAction,
+  e: KeyboardEvent,
+): boolean {
+  return (
+    action.focusScopeMarker != null &&
+    (e.target as Element | null)?.closest?.(action.focusScopeMarker) == null
+  );
+}
+
 /**
  * Check if a KeyboardEvent matches any registered action's keybind.
  * Used by xterm's key handler to let app shortcuts bubble through
