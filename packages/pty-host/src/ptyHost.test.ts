@@ -191,6 +191,39 @@ describe("createPtyHost", () => {
     expect(snapshot).toContain("snap content");
   });
 
+  it("keeps a wrapped URL on the cursor line intact across a narrowing resize", async () => {
+    // A long URL printed WITHOUT a trailing newline leaves the cursor on the
+    // wrapped line. xterm's reflow defaults to leaving the cursor's line alone
+    // on a narrowing resize (then trims every row to the new width), which
+    // truncates the overflow — a clicked web-link then opens a clipped address.
+    // The headless terminal sets reflowCursorLine:true so the line rewraps and
+    // the URL survives in the screen state a client restores on attach.
+    const url =
+      "https://example.com/path/to/a/really/long/resource?query=value&another=thing&more=stuff&x=12";
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      // The child must outlive the synchronous resize+read below: its exit
+      // tears the entry down (disposes the headless terminal), after which
+      // getScreenText returns "" and the assertion would fail for the wrong
+      // reason. Sleep long enough to dwarf any scheduler stall — afterEach's
+      // host.dispose() kills it the moment the test returns, so it never lingers.
+      args: ["-c", `printf '%s' '${url}'; sleep 30`],
+      env: shellEnv,
+      cwd: "/tmp",
+      cols: 80,
+      rows: 24,
+    });
+    // Wait until the (wrapped) URL has been parsed into the headless screen.
+    await waitFor(() => host.getScreenText(id).includes("another=thing"));
+    // Narrow the grid: the URL was wrapped at 80 columns and must rewrap at 40.
+    host.resize(id, 40, 24);
+    // Joining the wrapped rows back together must reproduce the whole URL; a
+    // reflow that dropped the cursor line would leave a gap in the middle.
+    const joined = host.getScreenText(id).replace(/\n/g, "");
+    expect(joined).toContain(url);
+  });
+
   it("resolves exitPromise with the child's exit code", async () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
