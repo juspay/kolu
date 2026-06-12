@@ -2,7 +2,7 @@
  * The closure guard for the staleKey (R-4 A2, re-rooted in B1).
  *
  * `currentBuildId()` keys staleness on a nix hash of kaval's daemon source
- * closure (see `default.nix`'s `ptyHostSrc`). For that key to mean "a restart
+ * closure (see `default.nix`'s `kavalSrc`). For that key to mean "a restart
  * would load different daemon wire/behaviour code", every module that runs in
  * the daemon must live INSIDE the hashed set — otherwise a wire change in an
  * out-of-package module escapes the key (the #1034 mis-scope).
@@ -116,7 +116,7 @@ describe("kaval daemon closure (the staleKey's hashed set)", () => {
     ).toEqual([]);
 
     // (b) The reached set == what nix hashes (each root's src/*.ts minus tests
-    // and shared test-only helpers). This mirrors default.nix's ptyHostSrc
+    // and shared test-only helpers). This mirrors default.nix's kavalSrc
     // fileFilter so the hashed set can never silently drift from the closure
     // this test asserts.
     const nonTest = (dir: string): string[] =>

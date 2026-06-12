@@ -55,4 +55,4 @@ The line between **spine** (extract) and **soul** (keep per-program) is what mak
 
 ## Invariant this package carries
 
-> **Only code that runs inside the daemon process may live here.** `@kolu/surface-daemon`'s whole `src/` is hashed (alongside kaval and `terminal-protocol`) into kaval's build id (`default.nix`'s `ptyHostSrc`, pinned by `kaval/src/buildId.closure.test.ts`). That whole-package hash is a correct staleKey contribution *only* while everything in it is daemon-running code — so the supervisor half stays out until S1 re-scopes the hash to a `/daemon` subdirectory.
+> **Only code that runs inside the daemon process may live here.** `@kolu/surface-daemon`'s whole `src/` is hashed (alongside kaval and `terminal-protocol`) into kaval's build id (`default.nix`'s `kavalSrc`, pinned by `kaval/src/buildId.closure.test.ts`). That whole-package hash is a correct staleKey contribution *only* while everything in it is daemon-running code — so the supervisor half stays out until S1 re-scopes the hash to a `/daemon` subdirectory.

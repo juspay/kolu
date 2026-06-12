@@ -41,7 +41,7 @@ What deliberately does *not* live here: the ssh-style `~.` escape state machine 
 
 - **One answerer or none.** A new suppressed class in `responseFilter` MUST land in one arm of `deviceQueries` (and thereby in the pty-host contract tests) before it ships — the failure mode is a TUI blocking forever on a query nobody answers.
 - **OSC 52 (clipboard) is NOT suppressed**: only the browser can answer it; its reply must reach the PTY.
-- **staleKey participation.** This package is hashed into `@kolu/pty-host`'s build id (`default.nix`'s `ptyHostSrc`, pinned by `buildId.closure.test.ts`): a protocol change here is observable pty-host behaviour, so it must flip the daemon-staleness key.
+- **staleKey participation.** This package is hashed into `@kolu/pty-host`'s build id (`default.nix`'s `kavalSrc`, pinned by `buildId.closure.test.ts`): a protocol change here is observable pty-host behaviour, so it must flip the daemon-staleness key.
 - **Browser-safe by tree-shaking.** Tables and predicates are plain strings; the one byte-level member (the streaming stripper, `Buffer` in) is Node-side only and `sideEffects: false` keeps it out of the browser bundle.
 
 Design history: the Phase 2 review trail on [juspay/kolu#1255](https://github.com/juspay/kolu/pull/1255) and the kolu-tui design note [`pty-daemon-tui`](../../docs/atlas/src/content/atlas/pty-daemon-tui.mdx).
