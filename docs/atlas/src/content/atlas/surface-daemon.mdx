@@ -1,0 +1,100 @@
+---
+title: "@kolu/surface-daemon — one spine for kaval and odu serve"
+description: 'kaval (the PTY daemon) and odu serve (the long-lived CI coordinator) need the identical lifecycle machinery — pid-gated entry, a unix socket that outlives clients, a contract handshake on every connect, an endpoint state machine, spawn/respawn drivers. This note names that shared spine, says what is mechanism (extract) versus policy (keep per-program), and sequences the extraction: built and soaked in kaval B1/B2 first, extracted post-B, consumed by odu-runner R1/R3 as the second tenant.'
+kind: feature
+status: proposed
+maturity: seedling
+updated: 2026-06-12
+parents: [pty-daemon, electricity]
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import D2 from "../../components/D2.astro";
+import Roadmap from "../../components/Roadmap.astro";
+import Milestone from "../../components/Milestone.astro";
+
+*Two plans of record arrived at the same machinery from opposite ends in the same week: [kaval](./pty-daemon.html) B1/B2 designs a daemon entry, single-instance gate, handshake, and client-side supervisor for the PTY daemon; [odu-runner](./odu-runner.html) R1/R3 sketches the same four things for the CI coordinator. This note is the deduplication — named before either hand-rolls a second copy.* <Pill variant="warn">proposed</Pill>
+
+<p>Status: <Pill variant="warn">proposed</Pill> · maturity <Pill variant="todo">seedling</Pill> · first consumer: kaval (where the spine is <em>built</em>, B1/B2) · second consumer: odu serve (where it is <em>reused</em>, R1/R3) — the second tenant is what clears the [electricity](./electricity.html) bar for extraction</p>
+
+<Callout kind="accent" title="The idea in one paragraph">
+A "surface daemon" is a recurring shape in this codebase: a long-lived process that owns a unix socket, serves a typed `@kolu/surface`, and is supervised from outside by a client that must never lie about its state. kaval is one; `odu serve` is the next; drishti's agent is a cousin. The shape decomposes cleanly into a **spine** that is identical across them — atomic pid-gate, a `daemonMain` skeleton (gate → serve → SIGTERM teardown), a `system.version`/build-id handshake fragment, and an endpoint supervisor (state machine + spawn/respawn drivers + a composed restart) — and a **soul** that must never be shared: what the daemon holds, whether that state survives restarts, and when the process is allowed to die. The extraction already started without a name: kolu-tui's <PrLink pr={1084} /> moved the unix-socket transport pair, `getRuntimeSocketPath`, and `isContractVersionCompatible` into `@kolu/surface`, and kaval's own follow-ups callout lists the rest. This note gives the rest its destination and its trigger.
+</Callout>
+
+<D2
+  caption="Mechanism below the line, policy above it. Both daemons ride the same spine — the daemon half runs inside each daemon process, the supervisor half runs inside whatever spawns and watches it (kolu-server for kaval; the odu CLI / odu-web for odu serve). The wire-adjacent handshake fragment lands in @kolu/surface itself, joining what PR #1084 already moved there."
+  code={`
+direction: down
+
+programs: "the souls — policy, never shared" {
+  kaval: "kaval — holds live PTY fds; survival is the point (B3)"
+  odu: "odu serve — holds replaceable runs; trail + seq-bump rerun"
+}
+
+spine: "@kolu/surface-daemon — the spine (proposed)" {
+  daemon: "daemon half — pid-gate · daemonMain skeleton"
+  sup: "supervisor half — endpoint states · drivers · waitForPidGone · restart compose"
+}
+
+surface: "@kolu/surface — the wire (shipped)" {
+  prior: "unix-socket pair · getRuntimeSocketPath · isContractVersionCompatible — PR #1084"
+  next: "handshake fragment — system.version · build-id"
+}
+
+programs -> spine: "consume mechanism, keep policy"
+spine -> surface: "serves and dials the same wire"
+`}
+/>
+
+## Two daemons, one spine
+
+The correspondence is one-to-one, and kaval's column is the more battle-hardened — every row carries a #1034/#1275 scar and a designed answer:
+
+| Lifecycle concern | kaval (B1/B2 — designed, hazard-annotated) | odu serve (R1/R3 — sketched) |
+| --- | --- | --- |
+| Process entry | `daemonMain`: pid-gate → serve loop → SIGTERM teardown | "`odu serve` owns the socket" — same sequence, unnamed |
+| Single instance | Atomic pid-gate — write-temp + `link(2)`, liveness-probe on `EEXIST`, stale-unlink-retry | Implied, undesigned |
+| Socket | `$XDG_RUNTIME_DIR/kaval/kaval.sock`; app-name parameterized in B0 | `.ci/odu.sock`, per-repo |
+| Skew safety | Contract handshake on every connect; **never** an import-time throw | Needed identically — a pinned `nix run` client against a newer resident server |
+| Supervision | `endpoint.ts`: `connecting → connected → degraded → dead`, status emitted on every transition, keyed by hostId | odu's connection cell (`copying → connecting → connected`) — same idea, fewer states |
+| Spawn/respawn | `systemd-run --user` + per-spawn unique units / macOS detached+unref; `waitForPidGone` (ESRCH poll, load-aware ceiling) | R3's home-manager mode needs exactly this |
+| Restart | One composed sequence, steps non-optional in the type, serialized | R3's "kill the server mid-run — nothing wedges" |
+| Honest death | Degraded state visibly distinct from "you have no terminals" | "errored in the trail, restart serves history" |
+| Staleness | staleKey = nix hash of the daemon closure; "what would a restart gain?" | Unaddressed — but a resident `odu serve` under odu-web is a daemon that can fall a build behind, same question |
+
+The asymmetry in maturity is the sequencing argument: kaval's spine is *designed against eight production failures already paid for* (the impossible-by-construction table in [pty-daemon](./pty-daemon.html)), and B2's staged-prod gate will soak the exact restart race (#1034) that odu serve would otherwise rediscover. The spine should be born there, not invented twice.
+
+## Mechanism vs policy — what stays per-program
+
+The extraction is safe only because the line between spine and soul is sharp. Three asymmetries between the two consumers are load-bearing, and the spine must parameterize around them rather than absorb them:
+
+- **Survivor semantics.** kaval holds *irreplaceable kernel state* — live PTY fds that cannot be reconstructed; B3's survival, adoption, and reconciliation are its whole point. odu serve holds *replaceable orchestration state* — the per-SHA trail is durable on disk, runs are append-only, and a lost in-flight run is a `seq`-bump rerun. **B3 is not spine.** Adoption, `reconcile.ts`, the schema round-trip — none of it transfers, and odu-runner's "live-state resurrection stays out of scope" must survive the deduplication.
+- **Scope.** kaval is a per-user machine singleton; odu serve is per-repo — many sockets, one per checkout. The pid-gate takes a scope key; neither program's choice leaks into the mechanism.
+- **Lifecycle policy.** odu-runner's idle-timeout auto-serve is a legitimate mode for a CI coordinator and a catastrophic one for a PTY daemon (an idle-timeout kaval kills your terminals). The `daemonMain` skeleton exposes lifetime as a parameter (`forever` | `idleTimeout(ms)`); each program picks, neither inherits.
+
+Same mechanism, opposite policies — which is precisely the evidence the mechanism is real. A spine that worked for only one lifetime policy or one scope would just be kaval's internals wearing a package name.
+
+## Where each piece lands
+
+Two destinations, split by what the code touches:
+
+| Piece | Destination | Why there |
+| --- | --- | --- |
+| `system.version` / build-id handshake fragment | `@kolu/surface` | Wire-adjacent — it joins `isContractVersionCompatible` and the unix-socket pair that <PrLink pr={1084} /> already moved; every surface client/server pair wants it, daemon or not. |
+| Atomic pid-gate (acquire + read sides) | `@kolu/surface-daemon` `/daemon` | Runs inside the daemon process (acquire) and the supervisor (read); pure lifecycle, no wire. |
+| `daemonMain` skeleton — gate → serve → teardown, lifetime parameter | `@kolu/surface-daemon` `/daemon` | The entry every surface daemon repeats; each program supplies its surface and its policy knobs. |
+| Endpoint supervisor — state machine, driver ops (`spawn`/`waitForPidGone`), composed restart | `@kolu/surface-daemon` `/supervisor` | Runs in the *client* process (kolu-server; the odu CLI or odu-web). Mirrors how `@kolu/surface` itself ships server and client halves of one contract. |
+
+One honest trap, inherited from kaval's one rule: **extraction interacts with the staleKey.** kaval's staleness key is "the nix hash of the daemon's code, zero exceptions," and its closure test walks imports *from the daemon entry*. Once the pid-gate and `daemonMain` live in `@kolu/surface-daemon`, that walk crosses a package boundary — so the hash set must follow the import graph (a spine bump flips kaval's key, correctly: that code runs in the daemon), not the package directory. The closure test already walks imports, so this is a test-fixture change, not a redesign — but it must land *with* the extraction, or the key silently under-scopes, which is #1034's first row all over again.
+
+## Phases
+
+The trigger discipline matters more than the speed: extract **after** the spine has soaked in production once, **before** a second hand-rolled copy exists.
+
+<Roadmap>
+  <Milestone status="next" label="S0 · the spine is born in kaval">Not this note's work — kaval B1/B2 build the pid-gate, `daemonMain`, handshake-on-connect, endpoint supervisor, and composed restart in-tree (`packages/kaval` + `server/src/ptyHost/`), and the staged-prod gate soaks the restart race with zero sessions at stake. This note adds one constraint to that work: **keep the spine/soul line visible in the file layout**, so S1 is a move, not a disentangling.</Milestone>
+  <Milestone status="next" label="S1 · the post-B extraction">The handshake fragment into `@kolu/surface`; pid-gate + `daemonMain` skeleton into `@kolu/surface-daemon/daemon`; endpoint supervisor + drivers + restart compose into `/supervisor`. kaval becomes the first consumer by mechanical refactor — behavior-identical, with the staleKey closure test re-rooted to follow imports across the boundary. **Exit: kaval's e2e green with zero behavior change, and a spine-only edit flips kaval's staleKey while a supervisor-only edit does not.**</Milestone>
+  <Milestone status="next" label="S2 · odu serve, the second tenant">odu-runner R1 builds `odu serve` on the spine (per-repo scope key, idle-timeout lifetime as one supported mode); R3 reuses the supervisor half for the home-manager unit and crash semantics. The [electricity](./electricity.html) bar — domain-agnostic, hides hard volatility, second consumer — passes by construction rather than by argument. **Exit: odu-runner R1's "attach with nothing running" ships without odu defining a pid-gate, an entry sequence, or a handshake of its own.**</Milestone>
+</Roadmap>

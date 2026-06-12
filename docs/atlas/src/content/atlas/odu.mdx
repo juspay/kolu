@@ -4,7 +4,7 @@ description: 'Every local CI tool runs your pipeline as a batch process and leav
 kind: feature
 status: implemented
 maturity: seedling
-updated: 2026-06-10
+updated: 2026-06-12
 parents: [surface-app, electricity]
 ---
 
@@ -70,69 +70,7 @@ mini-ci moves exactly one load-bearing axis: **ssh carries a typed, live, snapsh
 
 ## Faces over one surface
 
-The runner exposes its entire capability as **three typed primitives** (the next section names them), and because that surface *is* the whole interface, every client is a thin adapter over the same thing. A CI runner wants two of those adapters — one for the human driving it, one for the agent driving it. The same surface leaves a third — a browser dashboard — available for free, catalogued at the end as a latent capability a CLI tool doesn't actually need.
-
-export const S = {
-  ok: { background: "#e3f4e9", color: "#1b7a3a", border: "1px solid #bce3c8" },
-  run: { background: "#fbf1dc", color: "#8a5200", border: "1px solid #ecd9ab" },
-  pend: { background: "#eef0f2", color: "#9197a1", border: "1px solid #e2e5ea" },
-};
-
-export const Cell = (props) => (
-  <span style={{ display: "block", textAlign: "center", borderRadius: "6px", padding: ".28rem .3rem", fontSize: ".7rem", fontWeight: 600, fontFamily: "ui-monospace,monospace", ...S[props.k] }}>{props.t}</span>
-);
-
-export const Dashboard = () => {
-  const cols = ["x86_64-linux", "aarch64-darwin", "aarch64-linux"];
-  const rows = [
-    ["nix", [["ok", "✓ 3m40"], ["ok", "✓ 4m02"], ["run", "● 1m12"]]],
-    ["e2e", [["ok", "✓ 2m03"], ["run", "● 1m55"], ["pend", "⏸ —"]]],
-    ["unit", [["ok", "✓ 0m31"], ["ok", "✓ 0m44"], ["pend", "⏸ —"]]],
-    ["lint", [["ok", "✓ 0m12"], ["ok", "✓ 0m14"], ["pend", "⏸ —"]]],
-  ];
-  return (
-    <div style={{ margin: "1.6rem 0", maxWidth: "37rem", border: "1px solid #d9d4c6", borderRadius: "12px", overflow: "hidden", boxShadow: "0 3px 18px rgba(0,0,0,.09)", fontFamily: "ui-sans-serif,system-ui" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: ".45rem", padding: ".5rem .8rem", background: "#f3f0e7", borderBottom: "1px solid #e6e2d6" }}>
-        <span style={{ width: ".7rem", height: ".7rem", borderRadius: "50%", background: "#ff5f56", display: "inline-block" }} />
-        <span style={{ width: ".7rem", height: ".7rem", borderRadius: "50%", background: "#ffbd2e", display: "inline-block" }} />
-        <span style={{ width: ".7rem", height: ".7rem", borderRadius: "50%", background: "#27c93f", display: "inline-block" }} />
-        <code style={{ flex: 1, fontSize: ".72rem", color: "#3a3f47", background: "#fff", border: "1px solid #e2ddcf", borderRadius: "7px", padding: ".3rem .6rem", marginLeft: ".3rem" }}>odu.srid.ca / juspay/kolu</code>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: ".7rem .95rem", background: "#fff", borderBottom: "1px solid #efeadd" }}>
-        <span style={{ display: "inline-flex", alignItems: "baseline", gap: ".5rem" }}>
-          <strong style={{ color: "#1a1c20", fontSize: ".95rem" }}>odu</strong>
-          <span style={{ color: "#7a8089", fontSize: ".8rem" }}>juspay/kolu</span>
-          <code style={{ color: "#5a3ff0", background: "#efebff", borderRadius: "5px", padding: ".05rem .35rem", fontSize: ".7rem" }}>26d2c2d</code>
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: ".35rem", color: "#1b7a3a", fontSize: ".72rem", fontWeight: 600 }}>
-          <span style={{ width: ".5rem", height: ".5rem", borderRadius: "50%", background: "#1b7a3a", display: "inline-block" }} /> 3 lanes · connected
-        </span>
-      </div>
-      <div style={{ padding: ".75rem .95rem .4rem", background: "#fff" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "4.2rem repeat(3, 1fr)", gap: ".32rem", alignItems: "center" }}>
-          <span />
-          {cols.map((c) => (
-            <span key={c} style={{ textAlign: "center", fontSize: ".64rem", color: "#7a8089", fontFamily: "ui-monospace,monospace" }}>{c}</span>
-          ))}
-          {rows.map((r) => [
-            <code key={`${r[0]}-n`} style={{ fontSize: ".74rem", color: "#3a3f47", fontWeight: 600 }}>{r[0]}</code>,
-            r[1].map((cell, i) => <Cell key={`${r[0]}-${i}`} k={cell[0]} t={cell[1]} />),
-          ])}
-        </div>
-      </div>
-      <div style={{ margin: "0 .95rem .95rem", border: "1px solid #e6e2d6", borderRadius: "8px", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: ".4rem .6rem", background: "#f7f4ec", borderBottom: "1px solid #ece7da", fontSize: ".7rem", color: "#5b6470", fontFamily: "ui-monospace,monospace" }}>
-          <span>aarch64-darwin · e2e&nbsp; <span style={{ color: "#8a5200" }}>● running 1m55s</span></span>
-          <span style={{ color: "#5a3ff0" }}>⟳ rerun</span>
-        </div>
-        <div style={{ padding: ".55rem .7rem", background: "#15171f", color: "#c9d1e3", fontFamily: "ui-monospace,monospace", fontSize: ".7rem", lineHeight: 1.55, whiteSpace: "pre", overflowX: "auto" }}>{`cucumber · 14 scenarios
-✓ open a terminal … 2.1s
-✓ split a pane … 1.4s
-▸ reconnect after server restart …▍`}</div>
-      </div>
-    </div>
-  );
-};
+The runner exposes its entire capability as **three typed primitives** (the next section names them), and because that surface *is* the whole interface, every client is a thin adapter over the same thing. A CI runner wants two of those adapters — one for the human driving it, one for the agent driving it. The same surface leaves a third — a browser dashboard — available for free; it has since grown from a latent capability into its own plan of record, [odu-web](./odu-web.html).
 
 ### The human face — the TUI <Pill variant="ok">shipped</Pill>
 
@@ -191,13 +129,11 @@ Shipped in <PrLink pr={3} repo="juspay/odu" /> (through the full codex + lens + 
 
 **No new authz boundary — which is exactly why MCP, not the browser, is next.** An earlier draft of this note parked the agent face behind an authn/authz split. That conflated *agent* access with *multi-client* access. `odu mcp` runs as the same operator, on the same machine, dialing the same `.ci/odu.sock` the CLI's `status` / `logs` / `attach` already use; `rerun_node` is remote code execution, but it is RCE the operator already holds through the CLI — the agent acts *as* the operator, under the same ssh trust. So the single-operator MCP face needs no new trust model and lands in Phase 2 directly. A read-observer-vs-mutator authz boundary becomes load-bearing only when a *second, untrusted* client appears — the browser face below — which is why that face, not this one, carries the prerequisite.
 
-### A browser face — the surface allows it, a CLI doesn't need it <Pill variant="todo">latent</Pill>
+### The browser face — not an attach face at all <Pill variant="warn">proposed — [odu-web](./odu-web.html)</Pill>
 
-The same surface would drive a browser PWA without a new line of protocol — the `useCell` / `useStream` hooks are Solid, and kolu already ships [surface-app](./surface-app.html) for exactly this. It would also answer the multi-platform question by fanning N platform runners *in* to one dashboard, where justci fans *out* one ssh + one log file + one status context per (recipe × platform) pair:
+The same surface would drive a browser PWA without a new line of protocol — the `useCell` / `useStream` hooks are Solid, and kolu already ships [surface-app](./surface-app.html) for exactly this. And this note's original verdict still holds for the obvious reading: odu is a CLI CI runner, nobody opens a browser tab to watch a run they kicked off from their shell, and a hosted dashboard is the one client that *does* drag in the authz boundary the CLI and MCP faces dodge.
 
-<Dashboard />
-
-But odu is a CLI CI runner. Nobody opens a browser tab to watch a run they kicked off from their shell, and a hosted dashboard is the one client that *does* drag in the authz boundary the CLI and MCP faces dodge. So the PWA stays a **latent capability** the architecture leaves open — not a roadmap item. If it ever ships, it is the face that forces the read-observer/mutator split, and the face that turns OpenTUI's "shared view code" from a bonus into the point.
+What changed is the diagnosis, not the verdict. The browser face worth building is not a tab on one live run — it is the **service layer above the runner**: the run ledger that survives coordinators, the page a GitHub commit status's *Details* link points at, forge triggers, and a multi-repo fleet view. That product — its UI prototypes, its phases, and whether it replaces [juspay/vira](https://github.com/juspay/vira) — has its own plan of record: **[odu-web](./odu-web.html)**. If it ships, it is also the face that forces the read-observer/mutator split, and the face that turns OpenTUI's "shared view code" from a bonus into the point.
 
 ## The architecture — three primitives over ssh
 
@@ -209,7 +145,7 @@ direction: down
 clients: "clients — attach / detach / reconnect" {
   tui: "TUI · shipped"
   mcp: "MCP · shipped — agent CLIs"
-  pwa: "PWA · latent"
+  pwa: "Web · odu-web — planned"
 }
 
 wire: "@kolu/surface — typed wire" {
@@ -267,7 +203,7 @@ A CI tool has two halves. The **watch-and-drive half** — see state, read logs,
 | Typed `rerun` of a node + dependents on the **live** DAG (no new process) | `justci run RECIPE@PLATFORM` spins up a brand-new batch | <Pill variant="run">beyond</Pill> |
 | Self-healing reconnect — fresh snapshot on every resubscribe, infinite retry, session respawn | No reattach to an in-flight run (side-socket introspection only) | <Pill variant="run">beyond</Pill> |
 | Idle attach + selective start — clients connect *before* anything runs | <Issue n={22} repo="juspay/justci" label="MCP server for ci" /> — no serve-only mode in process-compose; justci tried and reverted (<PrLink pr={18} repo="juspay/justci" />) | <Pill variant="run">beyond</Pill> |
-| **Faces over one surface** — TUI (shipped) · MCP (shipped) · PWA (latent), each a thin adapter, only the link differs | No live dashboard and no agent-drivable API | <Pill variant="run">beyond</Pill> |
+| **Faces over one surface** — TUI (shipped) · MCP (shipped) · Web (planned — [odu-web](./odu-web.html)), each a thin adapter, only the link differs | No live dashboard and no agent-drivable API | <Pill variant="run">beyond</Pill> |
 | Fan-**in**: N platform runners into one typed dashboard | Fan-**out**: one ssh + log + status context per (recipe × platform), plus a <Issue n={47} repo="juspay/justci" label="sharding" /> aggregator hack | <Pill variant="todo">open</Pill> |
 | Typed `cancel` / `cron` / mid-run reload | Sealed at preflight, pinned to a worktree SHA — foreclosed under the translator | <Pill variant="todo">open</Pill> |
 | Concurrent-client mutation semantics (who may rerun, when) | A non-question under one-run-one-driver — a **new problem** the live shape creates and must own | <Pill variant="todo">open</Pill> |
@@ -302,6 +238,6 @@ The delivery path is proven, not hypothetical. remote-process-monitor — anothe
 <Roadmap>
   <Milestone status="done" label="Phase 0 · the proven substrate">Shipped: a long-lived runner owns the DAG and serves `nodes` + `nodeLog` + `rerun` over the real stdio transport; tests bank snapshot-then-delta, race-free topo order, late-subscriber log replay, rerun-the-closure, and no-false-greens; live e2e over a real ssh session. TUI-only, single host, read-only closure ⇒ typecheck-only.</Milestone>
   <Milestone status="done" label="Phase 1 · replace justci in this repo">Shipped: <PrLink pr={1252} label="the Phase-1 PR" /> — `packages/odu` built fresh per the work order (writable per-SHA workspaces, `just`-DAG ingestion + `dump`/`graph`, strict hygiene with justci's per-SHA log layout, byte-compatible commit statuses + `protect`, multi-platform lanes over the warm-pool lease untouched, in-band `status`/`logs`/`attach` on `.ci/odu.sock`), the `/ci` skill + `.agency/do.md` rewritten, the lease wrapper repointed, and the exit criterion met the strong way: **the PR's own required checks were posted by odu**, with `nix run github:juspay/justci` gone from every live path (the justci-era ralph reports carry historical notes). Dogfooding fixed what only production could: real pipes for recipes that reopen `/dev/stderr`, host-provided nix (a pinned client corrupts CA handling against a newer daemon), one-shot lane semantics with `errored` posts.</Milestone>
-  <Milestone status="now" label="Phase 2 · the agent face">**Shipped:** the **MCP server face** — <PrLink pr={3} repo="juspay/odu" label="juspay/odu#3" />, `odu mcp` re-exposing the live surface as agent tools (`run` · `get_nodes` · `tail_log` · `rerun_node` · fail-fast `wait_for_settle`) plus subscribable resources (`odu://nodes` · `odu://log/{node}`, `notifications/resources/updated`) — the agent-controlled CI justci built and reverted (<Issue n={22} repo="juspay/justci" label="MCP server for ci" />) because its batch shape had no serve-only mode. It needs **no new authz**: single-operator, same ssh trust as the CLI. kolu consumes it via the npins pin + the apm-deployed `.mcp.json`. The rest of the live-service backlog rides behind it: idle-attach + selective start (the runner you reach with nothing live); the TUI rebuilt on OpenTUI's Solid reconciler (prototype `odu attach` first); typed `cancel`/`cron`/`reload`; multi-platform fan-**in** with defined concurrent-mutation semantics; notifications + forge-event ingestion (beyond what justci ever had); runner-restart survival of live state; the per-node platform filter. The browser PWA — and the read-observer/mutator authz boundary it alone forces — stays latent until a multi-client need is real. Price the idle-runner lifecycle against the warm pu-box pool.</Milestone>
+  <Milestone status="now" label="Phase 2 · the agent face">**Shipped:** the **MCP server face** — <PrLink pr={3} repo="juspay/odu" label="juspay/odu#3" />, `odu mcp` re-exposing the live surface as agent tools (`run` · `get_nodes` · `tail_log` · `rerun_node` · fail-fast `wait_for_settle`) plus subscribable resources (`odu://nodes` · `odu://log/{node}`, `notifications/resources/updated`) — the agent-controlled CI justci built and reverted (<Issue n={22} repo="juspay/justci" label="MCP server for ci" />) because its batch shape had no serve-only mode. It needs **no new authz**: single-operator, same ssh trust as the CLI. kolu consumes it via the npins pin + the apm-deployed `.mcp.json`. The rest of the live-service backlog rides behind it: idle-attach + selective start (the runner you reach with nothing live — now planned as [odu-runner](./odu-runner.html)); the TUI rebuilt on OpenTUI's Solid reconciler (prototype `odu attach` first); typed `cancel`/`cron`/`reload`; multi-platform fan-**in** with defined concurrent-mutation semantics; notifications + forge-event ingestion (beyond what justci ever had); runner-restart survival of live state; the per-node platform filter. The browser face — and the read-observer/mutator authz boundary it alone forces — has graduated from latent capability to its own plan of record, [odu-web](./odu-web.html). Price the idle-runner lifecycle against the warm pu-box pool.</Milestone>
   <Milestone status="now" label="Phase 3 · graduation">Landed: <PrLink pr={1} repo="juspay/odu" label="juspay/odu#1" /> (merged) stood the standalone repo up the drishti way — `npins`-pinned `@kolu/{surface,surface-nix-host}` extracted by overlay and hydrated as raw TypeScript (no vendoring), a zero-input flake (`nix run github:juspay/odu`), and self-hosted CI from day one — GitHub Actions runs odu-on-odu per push (two platform lanes, strict, posting `ci::*` statuses with the odu built from the commit under test; first run green in 2m31s). Remaining: thread the runner derivation for repos that don't expose `odu-runner` themselves, adopt `surface-app` (with the PWA face), a home-manager service, and extracting reusable concerns back into the libraries. The dependency then flipped: kolu deleted `packages/odu` and consumes the graduated repo via an npins pin re-exported through its own flake (`npins update odu` to bump).</Milestone>
 </Roadmap>
