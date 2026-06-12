@@ -42,7 +42,11 @@
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import { TerminalIdSchema } from "kolu-common/surface";
+import {
+  type PtyHostIdentity,
+  PtyHostIdentitySchema,
+  TerminalIdSchema,
+} from "kolu-common/surface";
 import { z } from "zod";
 
 /** The wire-shape `major.minor` version this build serves and expects.
@@ -114,18 +118,17 @@ const ForegroundMsgSchema = z.object({
   foregroundPid: z.number().int().optional(),
 });
 
-/** The running pty-host's self-declared build identity, surfaced on
- *  `system.version` for the ChromeBar's `srv · pty` readout. `staleKey` is the
- *  hash of the `@kolu/pty-host` source closure (nix bakes
- *  `KOLU_PTY_HOST_BUILD_ID`) — it flips iff a restart would load different
- *  pty-host wire/behaviour code, the input to phase B's "update pending"
- *  derivation. `navigableCommit` is the git ref this kolu was built from
- *  (`KOLU_COMMIT_HASH`), the GitHub-clickable identity. */
-export const PtyHostIdentitySchema = z.object({
-  staleKey: z.string(),
-  navigableCommit: z.string(),
-});
-export type PtyHostIdentity = z.infer<typeof PtyHostIdentitySchema>;
+// The running pty-host's self-declared build identity, surfaced on
+// `system.version` for the ChromeBar's `srv · pty` readout. `staleKey` is the
+// hash of the `@kolu/pty-host` source closure (nix bakes
+// `KOLU_PTY_HOST_BUILD_ID`) — it flips iff a restart would load different
+// pty-host wire/behaviour code, the input to phase B's "update pending"
+// derivation. `navigableCommit` is the git ref this kolu was built from
+// (`KOLU_COMMIT_HASH`), the GitHub-clickable identity. Defined once in
+// `kolu-common/surface` (where the rail's `DaemonStatusSchema` extends it) and
+// imported here — the wire source and the rail share one identity shape, so a
+// new field can't reach one side and silently miss the other.
+export { type PtyHostIdentity, PtyHostIdentitySchema };
 
 const SystemVersionOutputSchema = z.object({
   contractVersion: z.string(),

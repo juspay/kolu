@@ -588,6 +588,7 @@ export const PtyHostIdentitySchema = z.object({
   staleKey: z.string(),
   navigableCommit: z.string(),
 });
+export type PtyHostIdentity = z.infer<typeof PtyHostIdentitySchema>;
 
 /** The pty-host daemon's liveness, as the rail's `pty` column reads it. In B1
  *  the daemon is a separate, surviving process, so this is genuinely distinct
