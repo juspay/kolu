@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-06-10T16:52:17.938081+00:00'
-apm_version: 0.18.0
+generated_at: '2026-06-12T09:44:39.138420+00:00'
+apm_version: 0.20.0
 dependencies:
 - repo_url: anthropics/skills
   host: github.com
@@ -10,7 +10,16 @@ dependencies:
   package_type: claude_skill
   deployed_files:
   - .agents/skills/frontend-design
+  - .agents/skills/frontend-design/LICENSE.txt
+  - .agents/skills/frontend-design/SKILL.md
   - .claude/skills/frontend-design
+  - .claude/skills/frontend-design/LICENSE.txt
+  - .claude/skills/frontend-design/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/frontend-design/LICENSE.txt: sha256:0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594
+    .agents/skills/frontend-design/SKILL.md: sha256:b81e2ff87ed8fa4d6c377ccb127a7254c9e6a77e3ae94f21e6b514f7bb2945a0
+    .claude/skills/frontend-design/LICENSE.txt: sha256:0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594
+    .claude/skills/frontend-design/SKILL.md: sha256:b81e2ff87ed8fa4d6c377ccb127a7254c9e6a77e3ae94f21e6b514f7bb2945a0
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
@@ -18,25 +27,52 @@ dependencies:
   package_type: apm_package
   deployed_files:
   - .agents/skills/nix-chrome-devtools-mcp
+  - .agents/skills/nix-chrome-devtools-mcp/SKILL.md
+  - .agents/skills/nix-chrome-devtools-mcp/bin/serve
   - .claude/skills/nix-chrome-devtools-mcp
+  - .claude/skills/nix-chrome-devtools-mcp/SKILL.md
+  - .claude/skills/nix-chrome-devtools-mcp/bin/serve
+  deployed_file_hashes:
+    .agents/skills/nix-chrome-devtools-mcp/SKILL.md: sha256:78f9b651b1c832b4db6fe6aa9d588c2a84521c2d9ab0f60432813c98352d3ce0
+    .agents/skills/nix-chrome-devtools-mcp/bin/serve: sha256:d8988c3305ba7faf43293c911c47beb7df09b72ed00b324a58e73abe253820a8
+    .claude/skills/nix-chrome-devtools-mcp/SKILL.md: sha256:78f9b651b1c832b4db6fe6aa9d588c2a84521c2d9ab0f60432813c98352d3ce0
+    .claude/skills/nix-chrome-devtools-mcp/bin/serve: sha256:d8988c3305ba7faf43293c911c47beb7df09b72ed00b324a58e73abe253820a8
   content_hash: sha256:51308bd8cc8b6ae24781a77b67a7c8140bdea5d793e35427e7b8fcbeb0662074
 - repo_url: juspay/odu
   host: github.com
-  resolved_commit: 7fa40f32b42d9e85d0ef07ace009dc0f6744d36d
+  resolved_commit: 7d898683aa661545825b1119f7ffa991fe135f62
   package_type: apm_package
   deployed_files:
   - .agents/skills/ci
+  - .agents/skills/ci/SKILL.md
   - .agents/skills/odu-mcp
+  - .agents/skills/odu-mcp/SKILL.md
+  - .agents/skills/odu-mcp/bin/serve
   - .claude/skills/ci
+  - .claude/skills/ci/SKILL.md
   - .claude/skills/odu-mcp
-  content_hash: sha256:4b3dbfd892aa13e1da2383bd3c242fabb44e983684fce62ba3243c686ac8f4ba
+  - .claude/skills/odu-mcp/SKILL.md
+  - .claude/skills/odu-mcp/bin/serve
+  deployed_file_hashes:
+    .agents/skills/ci/SKILL.md: sha256:42ac11783a9334f91143f0542d855b9d10413ba4c17fdf9524599a1ecdeebac1
+    .agents/skills/odu-mcp/SKILL.md: sha256:25cd14d47aa082fb4061e793d3b74095eeb6749672356eea6b9acde9f9de6863
+    .agents/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
+    .claude/skills/ci/SKILL.md: sha256:42ac11783a9334f91143f0542d855b9d10413ba4c17fdf9524599a1ecdeebac1
+    .claude/skills/odu-mcp/SKILL.md: sha256:25cd14d47aa082fb4061e793d3b74095eeb6749672356eea6b9acde9f9de6863
+    .claude/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
+  content_hash: sha256:c9f786b0adbfb974a3b1fd778c684ecc5c0b73b8310a75acaaa6401a11293f9f
 - repo_url: juspay/project-unknown
   host: github.com
   resolved_commit: 27c4973ae3837eaa54b0439faa5346a3320ac379
   package_type: apm_package
   deployed_files:
   - .agents/skills/pu
+  - .agents/skills/pu/SKILL.md
   - .claude/skills/pu
+  - .claude/skills/pu/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/pu/SKILL.md: sha256:7760fd56daed8ef793d2dd1b7409652b414a098fcc13cbd079bbfb1394aaf781
+    .claude/skills/pu/SKILL.md: sha256:7760fd56daed8ef793d2dd1b7409652b414a098fcc13cbd079bbfb1394aaf781
   content_hash: sha256:3694a4feafcb2a8e33364e0eacd9ef5ab37f893733769570e2f18e4eb13ae3c8
 - repo_url: juspay/skills
   host: github.com
@@ -46,7 +82,12 @@ dependencies:
   package_type: claude_skill
   deployed_files:
   - .agents/skills/nix-justfile
+  - .agents/skills/nix-justfile/SKILL.md
   - .claude/skills/nix-justfile
+  - .claude/skills/nix-justfile/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/nix-justfile/SKILL.md: sha256:730345294a6536793ede474dc7f624faa83af6e97dbcbeb10fed1954a0d408fd
+    .claude/skills/nix-justfile/SKILL.md: sha256:730345294a6536793ede474dc7f624faa83af6e97dbcbeb10fed1954a0d408fd
   content_hash: sha256:8f48e067e59da48c3ac90b4e2228ebb4ecfd988375b40efe831339d9a493accd
 - repo_url: juspay/skills
   host: github.com
@@ -56,7 +97,12 @@ dependencies:
   package_type: claude_skill
   deployed_files:
   - .agents/skills/nix-typescript
+  - .agents/skills/nix-typescript/SKILL.md
   - .claude/skills/nix-typescript
+  - .claude/skills/nix-typescript/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/nix-typescript/SKILL.md: sha256:cd771d988edb89b88b233c7b799f3816c9982d669419d75fb409dd38103b1962
+    .claude/skills/nix-typescript/SKILL.md: sha256:cd771d988edb89b88b233c7b799f3816c9982d669419d75fb409dd38103b1962
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: juspay/skills
   host: github.com
@@ -66,7 +112,16 @@ dependencies:
   package_type: claude_skill
   deployed_files:
   - .agents/skills/pg
+  - .agents/skills/pg/SKILL.md
+  - .agents/skills/pg/SOURCES.md
   - .claude/skills/pg
+  - .claude/skills/pg/SKILL.md
+  - .claude/skills/pg/SOURCES.md
+  deployed_file_hashes:
+    .agents/skills/pg/SKILL.md: sha256:dad7b551903255328c279b6058905199d17dd859ccf37055bd5957ff2a739058
+    .agents/skills/pg/SOURCES.md: sha256:883da1d6a48c91b555c1df085523865badc917b1cc051ea37ea85ab745e8197d
+    .claude/skills/pg/SKILL.md: sha256:dad7b551903255328c279b6058905199d17dd859ccf37055bd5957ff2a739058
+    .claude/skills/pg/SOURCES.md: sha256:883da1d6a48c91b555c1df085523865badc917b1cc051ea37ea85ab745e8197d
   content_hash: sha256:55aa91acea2f65028147786dffec979d5c2f1b18f402ee441353dada10ffbb2a
 - repo_url: srid/agency
   host: github.com
@@ -75,35 +130,87 @@ dependencies:
   package_type: apm_package
   deployed_files:
   - .agents/skills/code-police
+  - .agents/skills/code-police/SKILL.md
   - .agents/skills/do
+  - .agents/skills/do/SKILL.md
+  - .agents/skills/do/scripts/do-results
+  - .agents/skills/do/scripts/steps/done
+  - .agents/skills/do/scripts/steps/sync
   - .agents/skills/elegance
+  - .agents/skills/elegance/SKILL.md
   - .agents/skills/fact-check
+  - .agents/skills/fact-check/SKILL.md
   - .agents/skills/forge-pr
+  - .agents/skills/forge-pr/SKILL.md
   - .agents/skills/hickey
+  - .agents/skills/hickey/SKILL.md
+  - .agents/skills/hickey/transcript.md
   - .agents/skills/lowy
+  - .agents/skills/lowy/SKILL.md
   - .agents/skills/ralph
+  - .agents/skills/ralph/SKILL.md
   - .agents/skills/talk
+  - .agents/skills/talk/SKILL.md
   - .claude/agents/hickey.md
   - .claude/agents/lowy.md
   - .claude/hooks/agency/scripts/do-stop-guard.sh
   - .claude/rules/apm-sources.md
   - .claude/skills/code-police
+  - .claude/skills/code-police/SKILL.md
   - .claude/skills/do
+  - .claude/skills/do/SKILL.md
+  - .claude/skills/do/scripts/do-results
+  - .claude/skills/do/scripts/steps/done
+  - .claude/skills/do/scripts/steps/sync
   - .claude/skills/elegance
+  - .claude/skills/elegance/SKILL.md
   - .claude/skills/fact-check
+  - .claude/skills/fact-check/SKILL.md
   - .claude/skills/forge-pr
+  - .claude/skills/forge-pr/SKILL.md
   - .claude/skills/hickey
+  - .claude/skills/hickey/SKILL.md
+  - .claude/skills/hickey/transcript.md
   - .claude/skills/lowy
+  - .claude/skills/lowy/SKILL.md
   - .claude/skills/ralph
+  - .claude/skills/ralph/SKILL.md
   - .claude/skills/talk
+  - .claude/skills/talk/SKILL.md
   - .codex/hooks/agency/scripts/do-stop-guard.sh
   - .opencode/agents/hickey.md
   - .opencode/agents/lowy.md
   deployed_file_hashes:
+    .agents/skills/code-police/SKILL.md: sha256:5a9f4ec8c2c2c44aaf7305561ee44884fbf551d45b27f94373eec49a18e5ad1f
+    .agents/skills/do/SKILL.md: sha256:24e77e783759e1f2d20c1600f2f9fc800d950efd19b9ea23f8e232d29d6ae84d
+    .agents/skills/do/scripts/do-results: sha256:2684dfce9cc7e4314d56c39edd5495628ac65d0631860e27e11f17fdcc0c7d49
+    .agents/skills/do/scripts/steps/done: sha256:03513d90bea1357eef3379c5b4fee5e46fe2d67b41fe8cf8b52d4beba4c73c72
+    .agents/skills/do/scripts/steps/sync: sha256:88fc95c548b183b766df02285038bf12d43fd06ae32b9a15f57dd741d9c83466
+    .agents/skills/elegance/SKILL.md: sha256:f330bf7e37034587f717e3a3d6453bd04ba80522fd9bdf8921a7140c7d5d3a3c
+    .agents/skills/fact-check/SKILL.md: sha256:6c4280ef618d27c278fc34365d336b1f889afb5b92f06ef6199fafe5a11304c0
+    .agents/skills/forge-pr/SKILL.md: sha256:78c66fbcb5146dbd83d856540eb810978fd9236e2d66cb4ebf14a2a012b9cda6
+    .agents/skills/hickey/SKILL.md: sha256:6eccc8ef4a2368c8ca898abde4b8a94451b844bb9cc082767a718fa2796c29ef
+    .agents/skills/hickey/transcript.md: sha256:c7da3fda455cc17adc5788984954baf95a354f2e83367bff0efd1b01f45a96a3
+    .agents/skills/lowy/SKILL.md: sha256:082aa643189b3b31fa90fb185a01239cfb5e437cdd7b1afb122de1e533ac48eb
+    .agents/skills/ralph/SKILL.md: sha256:1b2c547102584c87384b90b291536bedc0494dcb8382ac776bd0a3cec0fe1b4a
+    .agents/skills/talk/SKILL.md: sha256:ba059751cd4b3c1c52221554719bfe1fc5da56540694cb8e793ae0c19e210377
     .claude/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .claude/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
     .claude/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
+    .claude/skills/code-police/SKILL.md: sha256:5a9f4ec8c2c2c44aaf7305561ee44884fbf551d45b27f94373eec49a18e5ad1f
+    .claude/skills/do/SKILL.md: sha256:24e77e783759e1f2d20c1600f2f9fc800d950efd19b9ea23f8e232d29d6ae84d
+    .claude/skills/do/scripts/do-results: sha256:2684dfce9cc7e4314d56c39edd5495628ac65d0631860e27e11f17fdcc0c7d49
+    .claude/skills/do/scripts/steps/done: sha256:03513d90bea1357eef3379c5b4fee5e46fe2d67b41fe8cf8b52d4beba4c73c72
+    .claude/skills/do/scripts/steps/sync: sha256:88fc95c548b183b766df02285038bf12d43fd06ae32b9a15f57dd741d9c83466
+    .claude/skills/elegance/SKILL.md: sha256:f330bf7e37034587f717e3a3d6453bd04ba80522fd9bdf8921a7140c7d5d3a3c
+    .claude/skills/fact-check/SKILL.md: sha256:6c4280ef618d27c278fc34365d336b1f889afb5b92f06ef6199fafe5a11304c0
+    .claude/skills/forge-pr/SKILL.md: sha256:78c66fbcb5146dbd83d856540eb810978fd9236e2d66cb4ebf14a2a012b9cda6
+    .claude/skills/hickey/SKILL.md: sha256:6eccc8ef4a2368c8ca898abde4b8a94451b844bb9cc082767a718fa2796c29ef
+    .claude/skills/hickey/transcript.md: sha256:c7da3fda455cc17adc5788984954baf95a354f2e83367bff0efd1b01f45a96a3
+    .claude/skills/lowy/SKILL.md: sha256:082aa643189b3b31fa90fb185a01239cfb5e437cdd7b1afb122de1e533ac48eb
+    .claude/skills/ralph/SKILL.md: sha256:1b2c547102584c87384b90b291536bedc0494dcb8382ac776bd0a3cec0fe1b4a
+    .claude/skills/talk/SKILL.md: sha256:ba059751cd4b3c1c52221554719bfe1fc5da56540694cb8e793ae0c19e210377
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
@@ -124,18 +231,39 @@ mcp_configs:
     command: .agents/skills/odu-mcp/bin/serve
 local_deployed_files:
 - .agents/skills/atlas
+- .agents/skills/atlas/SKILL.md
 - .agents/skills/be
 - .agents/skills/be-review
+- .agents/skills/be-review/SKILL.md
+- .agents/skills/be/SKILL.md
 - .agents/skills/blog-post
+- .agents/skills/blog-post/SKILL.md
 - .agents/skills/codex-debate
+- .agents/skills/codex-debate/SKILL.md
+- .agents/skills/codex-debate/answer.workflow.js
+- .agents/skills/codex-debate/debate.workflow.js
+- .agents/skills/codex-debate/scripts/codex-answer.schema.json
+- .agents/skills/codex-debate/scripts/codex-answer.sh
+- .agents/skills/codex-debate/scripts/codex-exec-lib.sh
+- .agents/skills/codex-debate/scripts/codex-review.sh
+- .agents/skills/codex-debate/scripts/codex-verdict.schema.json
 - .agents/skills/dev-server
+- .agents/skills/dev-server/SKILL.md
 - .agents/skills/evidence
+- .agents/skills/evidence/SKILL.md
 - .agents/skills/lens-debate
+- .agents/skills/lens-debate/SKILL.md
+- .agents/skills/lens-debate/debate.workflow.js
 - .agents/skills/parcel
+- .agents/skills/parcel/SKILL.md
 - .agents/skills/perf-diagnose
+- .agents/skills/perf-diagnose/SKILL.md
 - .agents/skills/pierre
+- .agents/skills/pierre/SKILL.md
 - .agents/skills/release
+- .agents/skills/release/SKILL.md
 - .agents/skills/test
+- .agents/skills/test/SKILL.md
 - .claude/rules/apm-sources.md
 - .claude/rules/apm-workflow.md
 - .claude/rules/architecture.md
@@ -150,19 +278,61 @@ local_deployed_files:
 - .claude/rules/surface.md
 - .claude/rules/toast-conventions.md
 - .claude/skills/atlas
+- .claude/skills/atlas/SKILL.md
 - .claude/skills/be
 - .claude/skills/be-review
+- .claude/skills/be-review/SKILL.md
+- .claude/skills/be/SKILL.md
 - .claude/skills/blog-post
+- .claude/skills/blog-post/SKILL.md
 - .claude/skills/codex-debate
+- .claude/skills/codex-debate/SKILL.md
+- .claude/skills/codex-debate/answer.workflow.js
+- .claude/skills/codex-debate/debate.workflow.js
+- .claude/skills/codex-debate/scripts/codex-answer.schema.json
+- .claude/skills/codex-debate/scripts/codex-answer.sh
+- .claude/skills/codex-debate/scripts/codex-exec-lib.sh
+- .claude/skills/codex-debate/scripts/codex-review.sh
+- .claude/skills/codex-debate/scripts/codex-verdict.schema.json
 - .claude/skills/dev-server
+- .claude/skills/dev-server/SKILL.md
 - .claude/skills/evidence
+- .claude/skills/evidence/SKILL.md
 - .claude/skills/lens-debate
+- .claude/skills/lens-debate/SKILL.md
+- .claude/skills/lens-debate/debate.workflow.js
 - .claude/skills/parcel
+- .claude/skills/parcel/SKILL.md
 - .claude/skills/perf-diagnose
+- .claude/skills/perf-diagnose/SKILL.md
 - .claude/skills/pierre
+- .claude/skills/pierre/SKILL.md
 - .claude/skills/release
+- .claude/skills/release/SKILL.md
 - .claude/skills/test
+- .claude/skills/test/SKILL.md
 local_deployed_file_hashes:
+  .agents/skills/atlas/SKILL.md: sha256:f47500c2738a00d15f996ba9f56a33442195c74b6300b73cf167b30b058c1ef1
+  .agents/skills/be-review/SKILL.md: sha256:89e7e1d6d5ab4832bb5015f0b5d6c2baccf04ed22130b606042d178af54217d4
+  .agents/skills/be/SKILL.md: sha256:c9d23a783bab82a358ffe9a3753352100805be34de3cae6d1e5baff11089533c
+  .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
+  .agents/skills/codex-debate/SKILL.md: sha256:595c607447a68fcade0983d8a411bec326be9cd1eb0fe06da05e83e9b6858ab7
+  .agents/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
+  .agents/skills/codex-debate/debate.workflow.js: sha256:61203406107f8e2ecdb07e12df44c690eefcd950adaf8aff798bc6e58a21ea22
+  .agents/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
+  .agents/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
+  .agents/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
+  .agents/skills/codex-debate/scripts/codex-review.sh: sha256:ffb3da606a74e2fbd2d56a66ca456fae889049c6882f56ef05f856e30257d53b
+  .agents/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
+  .agents/skills/dev-server/SKILL.md: sha256:925026a0764d3330f5369192420f4f6c1fe3bb650017f5f784a9358955cf8acb
+  .agents/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
+  .agents/skills/lens-debate/SKILL.md: sha256:1693987c14e9081ad073921f6c1d7839354a2e93f59bbb25fc87aaec5560acbc
+  .agents/skills/lens-debate/debate.workflow.js: sha256:97b8eba518ba749bf53b542b9784285973fe1d011e7d147bd20e1ce2f46a4c78
+  .agents/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
+  .agents/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
+  .agents/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
+  .agents/skills/release/SKILL.md: sha256:9ecdcae3c7e44df8984f5edb877d8fb3c613fde4abd80e230bc5f83dbec5a8e4
+  .agents/skills/test/SKILL.md: sha256:48ed47865035a0d527bbbc7cd3ba900f44c6b6f79d3db837b9aa09db3bb8a005
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
   .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
@@ -176,3 +346,24 @@ local_deployed_file_hashes:
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
   .claude/rules/surface.md: sha256:2d6e1255e1e277ef8498b0e0e630b411155d35862c15532b253d96b244c8af89
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
+  .claude/skills/atlas/SKILL.md: sha256:f47500c2738a00d15f996ba9f56a33442195c74b6300b73cf167b30b058c1ef1
+  .claude/skills/be-review/SKILL.md: sha256:89e7e1d6d5ab4832bb5015f0b5d6c2baccf04ed22130b606042d178af54217d4
+  .claude/skills/be/SKILL.md: sha256:c9d23a783bab82a358ffe9a3753352100805be34de3cae6d1e5baff11089533c
+  .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
+  .claude/skills/codex-debate/SKILL.md: sha256:595c607447a68fcade0983d8a411bec326be9cd1eb0fe06da05e83e9b6858ab7
+  .claude/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
+  .claude/skills/codex-debate/debate.workflow.js: sha256:61203406107f8e2ecdb07e12df44c690eefcd950adaf8aff798bc6e58a21ea22
+  .claude/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
+  .claude/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
+  .claude/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
+  .claude/skills/codex-debate/scripts/codex-review.sh: sha256:ffb3da606a74e2fbd2d56a66ca456fae889049c6882f56ef05f856e30257d53b
+  .claude/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
+  .claude/skills/dev-server/SKILL.md: sha256:925026a0764d3330f5369192420f4f6c1fe3bb650017f5f784a9358955cf8acb
+  .claude/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
+  .claude/skills/lens-debate/SKILL.md: sha256:1693987c14e9081ad073921f6c1d7839354a2e93f59bbb25fc87aaec5560acbc
+  .claude/skills/lens-debate/debate.workflow.js: sha256:97b8eba518ba749bf53b542b9784285973fe1d011e7d147bd20e1ce2f46a4c78
+  .claude/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
+  .claude/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
+  .claude/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
+  .claude/skills/release/SKILL.md: sha256:9ecdcae3c7e44df8984f5edb877d8fb3c613fde4abd80e230bc5f83dbec5a8e4
+  .claude/skills/test/SKILL.md: sha256:48ed47865035a0d527bbbc7cd3ba900f44c6b6f79d3db837b9aa09db3bb8a005
