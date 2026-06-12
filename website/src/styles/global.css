@@ -690,54 +690,60 @@ body {
   font-size: 1.05rem;
 }
 
+/* Section labels (Added / Fixed / Internal) — a compact mono caption with a
+   hairline rule running out to the right margin, separating groups without a
+   tall heading. */
 .prose-changelog h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.72rem;
-  letter-spacing: 0.15em;
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--color-amber);
-  margin: 1rem 0 0.4rem;
+  margin: 0.9rem 0 0.3rem;
   /* Reset prose-invert heading overrides */
   font-weight: 600;
 }
+.prose-changelog h3::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-rule);
+}
 
 /* First section header in a body hugs the top — its top margin is dead space
-   between the version column and the first entry. */
+   between the version header and the first entry. */
 .prose-changelog h3:first-child {
   margin-top: 0;
 }
 
+/* Dense entry list: no inter-row gap — each <Change> row owns its own padding
+   and a full-bleed hover band, so rows pack tight and read as one column. */
 .prose-changelog ul {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
 }
 
 .prose-changelog li {
   position: relative;
-  padding-left: 1.1rem;
 }
 
-.prose-changelog li::before {
+/* Plain prose bullets (a release body written without <Change>, e.g. v1.0.0)
+   keep an arrow marker and a little air. <Change> rows bring their own arrow
+   and density, so they get neither. */
+.prose-changelog li:not(:has(.cl-change)) {
+  padding-left: 1.35rem;
+  margin: 0.5rem 0;
+}
+
+.prose-changelog li:not(:has(.cl-change))::before {
   content: "→";
   position: absolute;
   left: 0;
   color: var(--color-ink-faint);
-  transition:
-    transform 0.22s ease,
-    color 0.22s ease;
-}
-
-/* While a <Change> row is unfolded (hover / keyboard focus), its arrow swings
-   down and lights up — the one moving part that says "this row is open". */
-.prose-changelog li:has(.cl-change:hover)::before,
-.prose-changelog li:has(.cl-change:focus-within)::before,
-.prose-changelog li:has(.cl-change.open)::before {
-  transform: rotate(90deg);
-  color: var(--color-amber);
 }
 
 .prose-changelog strong {

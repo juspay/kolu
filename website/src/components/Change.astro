@@ -1,11 +1,11 @@
 ---
 /**
- * One changelog entry as a row in an aligned, table-like list: title in the
- * first column, area tags (what it touches — terminal, code tab, keyboard…)
- * in a fixed second column so chips line up down the page, and the PR chip
- * right-aligned in the third. The description is collapsed by default and
- * unfolds on hover / keyboard focus (desktop) or tap (touch), so a release
- * reads as a dense list of headlines you expand only where curious. Touch
+ * One changelog entry as a single dense row: the title on the left, and a
+ * right-grouped cluster of area tags (what it touches — terminal, code tab,
+ * keyboard…) plus the PR chip flush to the right margin, so every row is one
+ * scannable line. The description is collapsed by default and unfolds beneath
+ * the title on hover / keyboard focus (desktop) or tap (touch), so a release
+ * reads as a tight list of headlines you expand only where curious. Touch
  * devices with JS off keep descriptions always visible.
  *
  * Tag chips are buttons: clicking one filters the whole page to entries
@@ -19,9 +19,9 @@
  *     without a reload.</Change>
  *
  * Used as the content of a Markdown list item (`- <Change …>…</Change>`), so the
- * `<ul>/<li>` and the `→` bullet come from `.prose-changelog` (the bullet swings
- * to `↓` while a row is expanded); this component owns the row layout, the tag
- * chips, and the collapse. Auto-injected into changelog MDX (see
+ * `<ul>/<li>` come from `.prose-changelog`; this component owns the whole row —
+ * its own `→` bullet (which swings to `↓` while expanded), the metadata
+ * cluster, and the collapse. Auto-injected into changelog MDX (see
  * `changelog.astro`'s `components` prop), so entries need no import.
  * `repo` / `state` pass straight through to `<PR>` (default: a merged
  * juspay/kolu pull).
@@ -41,8 +41,9 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
 
 <div class="cl-change" tabindex="0" data-tags={tags.join("|")}>
   <p class="cl-change-head">
+    <span class="cl-change-arrow" aria-hidden="true">→</span>
     <span class="cl-change-title">{title}</span>
-    <span class="cl-change-tags">
+    <span class="cl-change-meta">
       {
         tags.map((tag) => (
           <button class="cl-change-tag" type="button" data-tag={tag}>
@@ -50,8 +51,6 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
           </button>
         ))
       }
-    </span>
-    <span class="cl-change-pr">
       {pr !== undefined && <PR id={pr} repo={repo} state={state} />}
     </span>
   </p>
@@ -61,64 +60,60 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
 </div>
 
 <style>
-  /* No outer margin: each <Change> is a list item, so `.prose-changelog ul`'s
-     gap spaces the entries. Mobile-first: a wrapping flex line; from md up,
-     a 3-column grid (title | tags | pr) whose fixed tag column keeps chips
-     vertically aligned across rows. */
+  /* A dense full-width row. The hover band bleeds a touch past the text on
+     both sides (negative inline margin + matching padding) so hovering lights
+     up the whole line, arrow included, without shifting the layout. */
   .cl-change {
-    margin: 0;
+    margin: 0 -0.55rem;
+    padding: 0.22rem 0.55rem;
+    border-radius: 5px;
     outline: none;
+    transition: background 0.15s ease;
   }
+  /* Headline: arrow | title | right-grouped metadata, all on one baseline. */
   .cl-change-head {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 0.85rem minmax(0, 1fr) auto;
     align-items: baseline;
-    gap: 0.4rem 0.6rem;
+    column-gap: 0.5rem;
     margin: 0;
-    line-height: 1.35;
+    line-height: 1.4;
   }
-  @media (min-width: 768px) {
-    .cl-change {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 8rem auto;
-      column-gap: 0.85rem;
-      align-items: baseline;
-    }
-    /* The <p> dissolves; title / tags / pr become the grid cells. */
-    .cl-change-head {
-      display: contents;
-    }
-    .cl-change-pr {
-      justify-self: end;
-    }
-    .cl-change-reveal {
-      grid-column: 1 / -1;
-    }
+  .cl-change-arrow {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--color-ink-faint);
+    transition:
+      transform 0.2s ease,
+      color 0.2s ease;
   }
   .cl-change-title {
     color: var(--color-ink);
-    font-weight: 600;
-    font-size: 0.95rem;
+    font-weight: 550;
+    font-size: 0.92rem;
     letter-spacing: -0.01em;
-    line-height: 1.3;
+    line-height: 1.4;
   }
-  /* Area tags: what the change touches. Buttons — click to filter the page. */
-  .cl-change-tags {
+  /* Tags + PR, grouped and flush right so the chip column aligns down the
+     page. Wraps under the title on a narrow screen. */
+  .cl-change-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.35rem;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 0.3rem;
   }
+  /* Area tags: what the change touches. Buttons — click to filter the page. */
   .cl-change-tag {
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.62rem;
-    letter-spacing: 0.08em;
+    font-size: 0.6rem;
+    letter-spacing: 0.07em;
     text-transform: uppercase;
     white-space: nowrap;
     color: var(--color-ink-faint);
     background: none;
     border: 1px solid var(--color-rule);
     border-radius: 9999px;
-    padding: 0.12em 0.65em;
+    padding: 0.1em 0.6em;
     cursor: pointer;
     transition:
       color 0.15s ease,
@@ -135,22 +130,33 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
     background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
   /* Collapse: the grid 0fr→1fr trick animates to the description's natural
-     height with no JS and no magic max-height. */
+     height with no JS and no magic max-height. Indented to sit under the
+     title, clear of the arrow column. */
   .cl-change-reveal {
     display: grid;
     grid-template-rows: 0fr;
+    padding-left: 1.35rem;
     transition: grid-template-rows 0.22s ease;
   }
   .cl-change-desc {
     overflow: hidden;
     min-height: 0;
     color: var(--color-ink-muted);
-    font-size: 0.88rem;
+    font-size: 0.86rem;
     line-height: 1.5;
     opacity: 0;
     transition: opacity 0.22s ease;
   }
   @media (hover: hover) {
+    .cl-change:hover,
+    .cl-change:focus-within {
+      background: var(--color-void-raised);
+    }
+    .cl-change:hover .cl-change-arrow,
+    .cl-change:focus-within .cl-change-arrow {
+      transform: translateX(1px) rotate(90deg);
+      color: var(--color-amber);
+    }
     .cl-change:hover .cl-change-reveal,
     .cl-change:focus-within .cl-change-reveal {
       grid-template-rows: 1fr;
@@ -172,6 +178,10 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
     .cl-change.open .cl-change-desc {
       opacity: 1;
     }
+    .cl-change.open .cl-change-arrow {
+      transform: translateX(1px) rotate(90deg);
+      color: var(--color-amber);
+    }
     .cl-change.cl-tap .cl-change-head {
       cursor: pointer;
     }
@@ -179,7 +189,7 @@ const { title, pr, repo, state, tags = [] } = Astro.props;
   /* Breathing room between headline and unfolded description — lives INSIDE
      the clipped box so the collapsed row stays exactly headline-height. */
   .cl-change-desc > :global(:first-child) {
-    margin-top: 0.35rem;
+    margin-top: 0.3rem;
   }
   .cl-change-desc :global(p) {
     margin: 0;
