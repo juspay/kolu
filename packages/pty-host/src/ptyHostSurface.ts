@@ -127,8 +127,8 @@ const ForegroundMsgSchema = z.object({
 // (`KOLU_COMMIT_HASH`), the GitHub-clickable identity. Defined once in
 // `kolu-common/surface` (where the rail's `DaemonStatusSchema` extends it) and
 // imported here — the wire source and the rail share one identity shape, so a
-// new field can't reach one side and silently miss the other.
-export { type PtyHostIdentity, PtyHostIdentitySchema };
+// new field can't reach one side and silently miss the other. Consumers import
+// the type from `kolu-common/surface` directly; this module does not re-bridge it.
 
 const SystemVersionOutputSchema = z.object({
   contractVersion: z.string(),

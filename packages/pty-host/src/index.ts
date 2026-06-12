@@ -64,8 +64,6 @@ export {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostDataMsg,
   type PtyHostForegroundMsg,
-  type PtyHostIdentity,
-  PtyHostIdentitySchema,
   type PtyHostListEntry,
   type PtyHostSurface,
   type PtyHostSystemVersion,

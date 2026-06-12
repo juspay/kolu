@@ -43,14 +43,17 @@ export function pidGatePathForSocket(socketPath: string): string {
 
 /** Is `pid` a live process? `kill(pid, 0)` delivers no signal but performs the
  *  permission/existence check: success or `EPERM` (exists, owned by another
- *  user) ⇒ alive; `ESRCH` (and anything else) ⇒ not. */
+ *  user) ⇒ alive; only `ESRCH` (no such process) ⇒ dead. */
 export function pidIsAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
   } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
+    // ESRCH is the ONLY "dead" verdict. EPERM is alive; any other, unexpected
+    // probe error is ambiguous — treat it as alive too, so a single-instance gate
+    // is never *stolen* on a transient probe failure (the safe side for a lock).
+    return (err as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
 

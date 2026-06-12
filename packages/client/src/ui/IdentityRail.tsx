@@ -21,7 +21,7 @@ import {
   formatStaleKey,
   type KoluBuildInfo,
 } from "kolu-common/surface";
-import { type Component, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import type { WsStatus } from "../rpc/rpc";
 import { daemonStatus, daemonStatusError } from "../wire";
 import Commit from "./Commit";
@@ -59,8 +59,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // not freeze on the last value, so a lost feed can't masquerade as a healthy
   // daemon. The error wins over any stale `state`.
   const pty = daemonStatus;
-  const ptyState = (): DaemonState =>
-    daemonStatusError() ? "dead" : (pty()?.state ?? "connecting");
+  // createMemo: two JSX sites read this derived value (data-daemon-state attr +
+  // ptyDot lookup) — memo ensures the reactive computation runs once per update.
+  const ptyState = createMemo(
+    (): DaemonState =>
+      daemonStatusError() ? "dead" : (pty()?.state ?? "connecting"),
+  );
 
   return (
     <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
@@ -106,11 +110,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
         <span class="text-[9px] uppercase tracking-wide text-fg-3">pty</span>
         <Tip
-          label={
-            daemonStatusError()
-              ? `Daemon status feed dropped — ${daemonStatusError()?.message}`
-              : "Terminal host — the surviving pty-host daemon"
-          }
+          label={(() => {
+            const err = daemonStatusError();
+            return err
+              ? `Daemon status feed dropped — ${err.message}`
+              : "Terminal host — the surviving pty-host daemon";
+          })()}
         >
           <span
             data-daemon-state={ptyState()}

@@ -18,7 +18,7 @@
  * (`staleKey !== currentBuildId()`) that phase B adds.
  */
 
-import type { PtyHostIdentity } from "./ptyHostSurface.ts";
+import type { PtyHostIdentity } from "kolu-common/surface";
 
 /** The staleKey — the nix-baked hash of the `@kolu/pty-host` source closure. */
 export function currentBuildId(): string {
