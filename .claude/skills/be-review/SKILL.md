@@ -21,8 +21,9 @@ applies its own fixes directly:
 3. **`/simplify`** — the self-applying reuse / simplification / efficiency pass
    over the changed code. Now that nothing runs concurrently, it runs as itself
    (it could not against the old read-only snapshot).
-4. **code-police** — its rule-checklist, fact-check, and elegance passes, applying
-   their fixes (the elegance pass re-runs `/simplify`, harmless after step 3).
+4. **code-police** — its rule-checklist and fact-check passes, applying their
+   fixes. Run with `--no-elegance` so its elegance pass is skipped: that pass
+   re-invokes `/simplify`, which step 3 already ran over this same tree.
 
 Each step runs to completion before the next begins. Wall-clock is
 `lens + codex + simplify + police` — slower than the old parallel form, but with
@@ -106,18 +107,20 @@ it once per step.
    changed (`refactor: simplify <area>`, staging only the files it touched). If it
    changed nothing, note that and move on.
 
-4. **police** — invoke `/code-police` (Skill tool). It runs all three of its
-   passes — rule checklist, fact-check, and the elegance pass (which itself
-   re-invokes `/simplify`). Its embedded pass prompts diff against
+4. **police** — invoke `/code-police` (Skill tool), passing **`--no-elegance`
+   whenever the simplify track (step 3) ran this gauntlet**. That flag skips
+   Pass 3 (elegance), which would otherwise re-invoke `/simplify` over the tree
+   step 3 already simplified — a full skill invocation to re-derive a
+   near-guaranteed no-op. Pass 1 (rules) and Pass 2 (fact-check) still run.
+   _Only omit the flag when `--tracks` excluded `simplify`_ — then no standalone
+   simplify ran, and the elegance pass is the run's one simplify, not redundant.
+   Its embedded pass prompts diff against
    `origin/HEAD...HEAD` by default, which is *wrong* whenever `--base` isn't the
    repo default: before invoking, **tell the police passes to scope to `MB`** —
    pass the merge-base explicitly so every pass runs `git diff <MB>...HEAD`, not
    the default ref. **Apply** the fixes it surfaces, committing each
    `fix(police): <title>` with the finding in the message (stage only the files
-   changed). Its elegance pass re-running `/simplify` over an already-simplified
-   tree (step 3) is harmless — on a settled tree `/simplify` typically reports no
-   changes — so let it run rather than ask code-police to skip a
-   pass its contract has no flag for.
+   changed).
 
 ## Push, then comment
 
