@@ -55,6 +55,20 @@ export type PtyHostClient = ContractRouterClient<
  *  its own `DEFAULT_SCROLLBACK` explicitly, so this only governs bare clients. */
 const DEFAULT_SCROLLBACK = 10_000;
 
+/** The host's own login-shell fact, with the host-side fallback formula owned
+ *  once: the live `$SHELL`, else the passwd entry's shell, else `/bin/sh`. The
+ *  result is contractually a non-empty string, so clients composing spawn
+ *  policy against `system.info` need no further `/bin/sh` fallback. */
+function hostShell(): string {
+  return process.env.SHELL || userInfo().shell || "/bin/sh";
+}
+
+/** The host's own `$HOME` fact, with the host-side fallback formula owned once:
+ *  the live `$HOME`, else the passwd entry's home, else `/`. */
+function hostHome(): string {
+  return process.env.HOME || homedir() || "/";
+}
+
 export interface InProcessPtyHostDeps {
   log: Logger;
   /** Directory under which the host materialises `spawn`'s `initFiles` (the
@@ -269,8 +283,8 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
         // against these (and for a remote host, this is the *only* way it
         // learns the login shell / HOME / rcDir it must target).
         info: async () => ({
-          shell: process.env.SHELL || userInfo().shell || "/bin/sh",
-          home: process.env.HOME || homedir() || "/",
+          shell: hostShell(),
+          home: hostHome(),
           platform: platform(),
           rcDir,
         }),

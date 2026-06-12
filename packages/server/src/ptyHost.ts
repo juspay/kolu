@@ -72,7 +72,7 @@ export async function buildTerminalSpawnInput(args: {
 }): Promise<PtyHostSpawnInput> {
   const info = await hostInfo();
   const env = cleanEnv();
-  const shell = env.SHELL ?? info.shell ?? "/bin/sh";
+  const shell = env.SHELL ?? info.shell;
   const home = env.HOME ?? info.home;
   const cwd = args.cwd || home || "/";
   Object.assign(env, koluIdentityEnv(pkg.version));
