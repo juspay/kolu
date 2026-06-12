@@ -40,7 +40,7 @@ function stderrLogger(): Logger {
   const emit =
     (level: string) =>
     (obj: Record<string, unknown>, msg: string): void => {
-      const line = JSON.stringify({ level, msg, ...obj });
+      const line = JSON.stringify({ ...obj, level, msg });
       process.stderr.write(`${line}\n`);
     };
   return {
