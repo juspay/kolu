@@ -109,7 +109,8 @@ let
       # @kolu/surface-daemon is the daemon spine — the pid-gate and the
       # `daemonMain` skeleton run inside the daemon process, so a change to them
       # is a change to what a restart loads. Hashed WHOLE (its standing
-      # invariant: only daemon-running code lives there until S1).
+      # invariant: only daemon-running code lives there — the supervisor
+      # half is its own un-hashed package from B2).
       (pkgs.lib.fileset.fileFilter isHashedSource ./packages/surface-daemon/src)
       ./packages/surface-daemon/package.json
     ];
