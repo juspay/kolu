@@ -98,6 +98,9 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const pwa = useSurfaceApp<KoluBuildInfo>();
   // The shared 30s uptime clock — owned by the app root, cleaned up with it.
   const clockNow = getClockNow();
+  // The kaval daemon's live status — read once per render (the column reads its
+  // state, dot, and uptime), not re-resolved per use.
+  const daemon = localDaemonStatus;
   // A genuinely outdated client — old bundle against a freshly deployed server.
   // Shared with the mobile chrome via `StaleBadge`.
   const stale = clientStale;
@@ -138,9 +141,9 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         <span class="text-[9px] uppercase tracking-wide text-fg-3">kaval</span>
         <Tip label="Terminal daemon (kaval) — the process that owns your shells">
           <span
-            data-daemon-state={localDaemonStatus()?.state ?? "unknown"}
+            data-daemon-state={daemon()?.state ?? "unknown"}
             class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(
-              localDaemonStatus()?.state,
+              daemon()?.state,
             )}`}
           />
         </Tip>
@@ -154,7 +157,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
             </Tip>
           )}
         </Show>
-        <Show when={localDaemonStatus()?.startedAt}>
+        <Show when={daemon()?.startedAt}>
           {(startedAt) => (
             <Tip label="How long this kaval daemon has been running">
               <span class="tabular-nums text-[10px] text-fg-3">
