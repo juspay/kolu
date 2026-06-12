@@ -1,11 +1,11 @@
 ---
-title: R-4 — Local PTY daemon (@kolu/pty-host)
-description: 'The redo plan for R-4 — local PTY daemonization. A1/A2 landed; the first Phase B (#1275) was built whole, verified live, and discarded for architecture. The redo: one rule (package boundary = process boundary = staleKey hash), a host-count-agnostic endpoint core, and three PRs — the daemon binary inert, the door with survival off, then survival — each complete w.r.t. the hazards it opens. Carries the #1034 postmortem and its hard constraints.'
+title: R-4 — kaval, the standalone PTY daemon
+description: 'The redo plan for R-4 — local PTY daemonization, reframed: the daemon is kaval, a standalone program in the drishti/odu tradition, and kolu is its first client. One rule (package boundary = process boundary = staleKey hash), a dumb fully-specified wire, and four PRs — the spawn-policy inversion, the kaval binary + client, the door with survival off, then survival — each complete w.r.t. the hazards it opens. Carries the #1034 postmortem and its hard constraints.'
 kind: feature
 status: accepted
 maturity: budding
 parents: [remote-terminals]
-updated: 2026-06-11
+updated: 2026-06-12
 ---
 
 import D2 from "../../components/D2.astro";
@@ -15,61 +15,67 @@ import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 import Commit from "../../components/Commit.astro";
 
-**The R-4 plan of record** — local PTY daemonization + `@kolu/pty-host`. Split out of the parent [remote-terminals](remote-terminals.html) plan on 2026-05-30; the parent keeps R-1/R-1.5/R-1.6 (shipped) and R-2/R-3 (post-R-4), and now also owns the **multi-host direction** (1 local + N ssh-remote pty-hosts, host switching in the ChromeBar) that this plan must not foreclose. **Current state: A1 (<PrLink pr={1055} />) and A2 (<PrLink pr={1063} />) are on master. The first Phase B build (<PrLink pr={1275} />) shipped the full feature as one 40-commit PR, was verified live in production, and was then deliberately discarded: functional, but the architecture was discovered in review rather than designed.** This note is the redo plan — same user-facing functionality, a designed architecture, and a three-PR split sized so each PR can be executed end-to-end by a single agent session.
+**The R-4 plan of record** — local PTY daemonization + `@kolu/pty-host`. Split out of the parent [remote-terminals](remote-terminals.html) plan on 2026-05-30; the parent keeps R-1/R-1.5/R-1.6 (shipped) and R-2/R-3 (post-R-4), and now also owns the **multi-host direction** (1 local + N ssh-remote pty-hosts, host switching in the ChromeBar) that this plan must not foreclose. **Current state: A1 (<PrLink pr={1055} />) and A2 (<PrLink pr={1063} />) are on master. The first Phase B build (<PrLink pr={1275} />) shipped the full feature as one 40-commit PR, was verified live in production, and was then deliberately discarded: functional, but the architecture was discovered in review rather than designed.** This note is the redo plan — same user-facing functionality, a designed architecture, and a PR split sized so each PR can be executed end-to-end by a single agent session. **Reframed 2026-06-12:** the daemon is not a kolu module that happens to run in its own process — it is **kaval** (Tamil *kāval* — watch, guard), a standalone program in the tradition of [drishti](https://github.com/srid/drishti) and [odu](https://github.com/juspay/odu), with kolu as its first and biggest client. The split is now four PRs: B0 (the spawn-policy inversion) → B1 (the kaval binary + client) → B2 (the door) → B3 (survival).
 
-Companions: the [`srv · pty` ChromeBar rail](pty-daemon-chrome-bar.html) (A2's deliverable, shipped) and [kolu-tui](pty-daemon-tui.html) (Phases 0–2 shipped — the CLI that dials the pty-host unix socket, today served by the in-process server, after B2 by the daemon).
+Companions: the [`srv · pty` ChromeBar rail](pty-daemon-chrome-bar.html) (A2's deliverable, shipped) and [kolu-tui](pty-daemon-tui.html) (Phases 0–2 shipped — the CLI that dials the pty-host unix socket, today served by the in-process server, after B2 by the daemon; renamed **kaval-tui** in B1, when it gains a bin of its own).
 
 ## The architecture — one rule, then a module map
 
 <D2
-  caption="The redo's module map. @kolu/pty-host is exactly the code that runs in the daemon process — the package boundary is the process boundary is the staleKey hash set, zero file-level exceptions. The server-side supervisor is a directory seam (endpoint · driver · restart · reconcile), keyed by hostId from day one so R-2's ssh driver is an additive sibling."
+  caption="The module map, post-reframing. kaval (today @kolu/pty-host) is exactly the code that runs in the daemon process — package boundary = process boundary = staleKey hash, zero file-level exceptions. All spawn policy (cleanEnv · identity env · shell-init rcfiles, i.e. kolu-pty) lives client-side in kolu-server and reaches kaval as data — spawn {argv, env, initFiles} — never as code. The server-side supervisor (endpoint · localDriver · restart · reconcile) is a directory seam keyed by hostId from day one, so R-2's ssh driver is an additive sibling that provisions the same kaval closure via surface-nix-host. kaval-tui dials the same socket kolu does."
   code={`direction: down
-daemon: "@kolu/pty-host — THE DAEMON PROCESS (hashed: staleKey covers every file)" {
-  entry: "daemonMain — pid-gate acquire · own root · env · serve loop"
-  core: "createPtyHost + taps + ptyHostSurface + serveOverUnixSocket"
+ui: "kolu web UI\\n(browser)"
+brain: "kolu-server — the session brain\\n(restarts every deploy)" {
+  sup: "src/ptyHost/ supervisor\\nendpoint · driver · restart · reconcile"
+  policy: "spawn policy (kolu-pty)\\ncleanEnv · identity env · shell-init"
+  providers: "provider DAG\\nFRESH each deploy"
 }
-server: "kolu-server — restarts every deploy" {
-  sup: "src/ptyHost/ — the supervisor (a directory, promotable to a package at R-2)" {
-    endpoint: "endpoint.ts — status owner, map keyed by hostId"
-    driver: "localDriver.ts — spawn · waitForPidGone · pid-gate read"
-    restart: "restart.ts — composed sequence, steps non-optional in the type"
-    reconcile: "reconcile.ts — pure: list x saved -> adopt | restore | orphans"
-  }
-  backend: "terminalBackend/local.ts — wireTerminal: spawn | adopt as siblings"
-  providers: "providers.ts — provider DAG, FRESH each deploy"
+kaval: "kaval — dumb-but-durable PTY daemon\\n(hashed whole: the staleKey)" {
+  entry: "daemonMain\\npid-gate · own rcDir · serve loop"
+  core: "createPtyHost · taps\\nsurface contract · unix socket"
 }
-client: "client" {
-  rail: "IdentityRail — SRV / DAEMON columns + per-host status"
-}
-tui: "kolu-tui"
-server.sup.driver -> daemon: "spawns + supervises (systemd-run / detached)"
-server.sup.endpoint -> daemon: "unixSocketLink + contract handshake"
-server.backend -> daemon: "PTY RPCs + raw taps"
-client.rail -> server.sup.endpoint: "derives from the status collection"
-tui -> daemon: "dials the same socket"
+tui: "kaval-tui\\n(reference client)"
+ui -> brain: "websocket surface"
+brain.sup -> kaval.entry: "spawns + supervises"
+brain.policy -> kaval.core: "spawn {argv, env, initFiles}"
+brain.providers -> kaval.core: "raw taps"
+tui -> kaval.core: "dials the socket"
 `}
 />
 
-> **The one rule everything follows from: the package boundary IS the process boundary IS the staleKey hash set.** `@kolu/pty-host` contains exactly the code that executes inside the daemon — the PTY primitive, the wire contract, the taps, the socket serving, *and the process entry* (pid-gate acquisition, the daemon's own root/shellDir, env application, exit handling). The staleKey is "the nix hash of this package dir" with **zero file-level exceptions**, and `buildId.closure.test.ts` walks the import graph **from the daemon entry** (not `index.ts`) — the closure test now answers the exact question the staleKey asks: *what would a restart gain?* Everything that supervises from outside (spawn, wait, handle, restart, reconcile) lives in `packages/server` — un-hashed, correctly, because changing the supervisor never changes what a restart would gain.
+> **The one rule everything follows from: the package boundary IS the process boundary IS the staleKey hash set.** kaval (today `@kolu/pty-host`; renamed in B1) contains exactly the code that executes inside the daemon — the PTY primitive, the wire contract, the taps, the socket serving, *and the process entry* (pid-gate acquisition, the daemon's own root/rcDir, exit handling). The staleKey is "the nix hash of this package dir" with **zero file-level exceptions**, and `buildId.closure.test.ts` walks the import graph **from the daemon entry** (not `index.ts`) — the closure test now answers the exact question the staleKey asks: *what would a restart gain?* Everything that supervises from outside (spawn, wait, handle, restart, reconcile) lives in `packages/server` — un-hashed, correctly, because changing the supervisor never changes what a restart would gain. And after B0, so does all spawn *policy* — it crosses the wire as data, so changing kolu's shell arcana never forces a daemon restart either.
+
+### kaval — a program of its own; kolu, its first client
+
+Three insights (2026-06-12) reframe what the daemon *is*, without changing what Phase B builds:
+
+1. **The graduation pattern already exists.** drishti grew out of the remote-process-monitor example; odu grew out of `mini-ci`; both are surface agents that graduated from kolu's monorepo once their domain stabilized. kaval — Tamil *kāval*, watch/guard: the thing that stands watch over your terminals — is the third graduate, and the most natural, since `ptyHostSurface` already *is* a `defineSurface()` declaration. It has been a surface app all along, just trapped inside kolu-server's process. B1 makes it graduation-*ready* (own bin, own socket, zero kolu deps); actual extraction to its own repo waits until the domain stops churning, exactly like the other two.
+
+2. **The layering is: dumb-but-durable kaval ← kolu the session brain ← kolu the web UI.** kaval holds fds, mirrors screens, serves taps — and *nothing else*. kolu-server remains a substantive middle tier, deliberately: the #1031 postmortem is binding (daemonizing the provider DAG served stale detection on every deploy), so session persistence, reconciliation, the provider DAG, and all spawn policy stay kolu's domain, re-run fresh against surviving PTYs. kolu is not a *thin* client — but it is *a* client, one of several (kaval-tui today, an MCP face later).
+
+3. **Spawn policy crosses the wire as data, never as code.** Today `cleanEnv`/`koluIdentityEnv`/`prepareShellInit` are baked into the daemon's spawn handler — kolu's sensor system (the OSC 7/2/633 hooks powering cwd tracking, foreground detection, and agent awareness) implanted host-side. B0 inverts this: kaval exposes host facts (`system.info → {shell, home, platform}`), and `spawn` takes the full specification `{argv, env, initFiles}` — the daemon writes the rcfiles it is handed and asks no questions. `TERM_PROGRAM=kolu` is asserted by the tier that renders pixels, not the tier that holds fds — tmux doesn't claim to be your terminal emulator either. A bare kaval client spawns a plain shell; the tap channels just stay quiet. The inversion is also what makes a *remote* kaval possible: shell-init content for a host that isn't kolu's own machine is computable from `system.info`, and the rcfiles land daemon-side where kolu's hands can't reach.
 
 The remaining axes, most stable → most volatile (the boundaries that own them):
 
 | Axis | Rate | Boundary that owns it |
 | --- | --- | --- |
-| Everything in the daemon process | rarely | `@kolu/pty-host` — hashed whole; the entry travels with the package, so R-2's remote daemon gets single-instance arbitration for free. |
-| Wire contract + compat + identity | per wire change | `ptyHostSurface` + `PTY_HOST_CONTRACT_VERSION` + `PtyHostIdentity`, in-package (unchanged from A1/A2). |
+| Everything in the daemon process | rarely | kaval (today `@kolu/pty-host`) — hashed whole; the entry travels with the package, so R-2's remote daemon gets single-instance arbitration for free. |
+| Wire contract + compat + identity | per wire change | `ptyHostSurface` + `PTY_HOST_CONTRACT_VERSION` + `PtyHostIdentity`, in-package (unchanged from A1/A2; one bump at B0 for the fully-specified spawn + `system.info`). |
+| Spawn policy — env basis, identity vars, shell-init rcfiles | per shell/OS quirk | Client-side: `kolu-pty` consumed by `packages/server`; crosses the wire as data (`spawn {argv, env, initFiles}`), never as code. kaval stays host-agnostic. |
 | Identity values: staleKey vs navigableCommit | key: per wire change · commit: per deploy | `buildId.ts` (unchanged). Currency is **derived at the read site** (`staleKey !== currentBuildId()`), never stored, never frozen onto a connection. |
 | Endpoint status (the one health owner) | per endpoint-model change | `server/src/ptyHost/endpoint.ts` — emits `{state, identity, startedAt}` on **every** transition; a **map keyed by hostId** (a map of one, today: `local`). Everything else — buildInfo, rail, degraded canvas — derives by subscription. |
-| Local reach mechanics | per platform quirk | `localDriver.ts` — `systemd-run --user` with per-spawn unique unit names + explicit `--setenv` env forwarding (Linux) / detached+unref (macOS); `waitForPidGone` (ESRCH poll, load-aware ceiling); pid-gate *read* side. R-2 adds `sshDriver` as a sibling (HostSession reach + `provisionAgent`). |
+| Local reach mechanics | per platform quirk | `localDriver.ts` — `systemd-run --user` with per-spawn unique unit names (Linux) / detached+unref (macOS); `waitForPidGone` (ESRCH poll, load-aware ceiling); pid-gate *read* side. `--setenv` forwarding shrinks to daemon-operational vars (`XDG_RUNTIME_DIR`) — PTY env arrives per-spawn on the wire after B0. R-2 adds `sshDriver` as a sibling (HostSession reach + `provisionAgent`, shipping the same kaval closure). |
 | Recovery sequence | per recovery policy | `restart.ts` — one composed `capture → save → drain → waitForGone → respawn → reattach`, all steps **non-optional in the type**, serialized (concurrent callers observe `restarting`), parameterized over driver ops. The forced and user paths are the same function. |
 | Reconciliation + adoption | per persisted field | `reconcile.ts` (a pure function: `daemon.list() × savedSession → {adopt, restoreCard, orphanExtras}`) + `wireTerminal` in `local.ts` with **adopt and spawn as siblings**. Adoption consumes the **whole `SavedTerminal` record as a unit** — never field-by-field reconstruction — and a schema-level round-trip test iterates the schema's keys. |
-| Health → UI projection | per UX tweak | A per-host status collection on the surface; rail + DegradedCanvas + restart dialog subscribe. User-facing name: **“kolu daemon”**. |
+| Health → UI projection | per UX tweak | A per-host status collection on the surface; rail + DegradedCanvas + restart dialog subscribe. User-facing name: **“kaval”** — it's a thing of its own, and the name says so. |
 
-There is deliberately **no `@kolu/pty-host-daemon` package**. The supervisor has no second consumer — R-2's ssh driver is a *sibling behind the endpoint concept*, not a consumer of the local driver's code. A directory seam gives the same review isolation; promote it to a package only when R-2 produces a real second tenant.
+There is deliberately **no separate daemon package** — the process entry lives inside kaval itself. The supervisor has no second consumer — R-2's ssh driver is a *sibling behind the endpoint concept*, not a consumer of the local driver's code. A directory seam gives the same review isolation; promote it to a package only when R-2 produces a real second tenant.
 
 ### Multi-host readiness (the shapes, not the feature)
 
 The [parent note](remote-terminals.html) owns the direction: 1 local + N ssh-remote pty-hosts, host switching in the ChromeBar, reattach to all of them. Phase B ships exactly one endpoint but must be host-count-agnostic in its **shapes**: the endpoint map is keyed by hostId; daemon status is a per-host collection (not a singleton cell); adoption and the saved session join on `(host, id)` — terminal records already carry `location` from R-1; and the daemon-side code is one hashed package that runs identically on a remote host. None of this costs more than the singleton version; retrofitting any of it later costs another #1275.
+
+The kaval reframing collapses R-2's provisioning story into existing machinery: a remote pty-host is the **same kaval closure** shipped by `@kolu/surface-nix-host` — `nix copy`, realise, run — exactly how odu provisions `odu-runner` onto lane hosts and drishti its agent. B0's `system.info` is what makes spawn policy computable for a host that isn't kolu's own machine; B0's `initFiles` is what lets the rcfiles land on a disk kolu's hands can't reach.
 
 ## What this makes impossible by construction
 
@@ -86,25 +92,43 @@ The production failures — four from #1034, four more paid for during #1275 —
 | Identity gone stale after restart (#1275: one-shot read, then manual republish at enumerated call sites) | B2 | One status owner emitting on every transition; everything derives by subscription. |
 | Contract-skew crash-loop masked by launchd as an “App updated” loop (the zest field report on <PrLink pr={1275} />) | B2 | Version checked over the socket on every connect, **never** an import-time throw; skew at boot → controlled recycle (B2) / composed restart (B3). |
 
-## The three PRs — each an executable brief
+## The four PRs — each an executable brief
 
-No feature flags — each PR ships complete to master and leaves kolu working. The hazard rule, refined from the first attempt: **each PR must be complete w.r.t. the hazards *it* opens** — and the door can open with the survival promise off, which empties its hazard set by policy. Each brief below is written to be executed end-to-end by a single agent session; the **Traps** lists are load-bearing — they encode the exact failure modes already paid for.
+No feature flags — each PR ships complete to master and leaves kolu working. The hazard rule, refined from the first attempt: **each PR must be complete w.r.t. the hazards *it* opens** — B0 opens none (an in-process refactor with byte-identical behavior), and the door can open with the survival promise off, which empties its hazard set by policy. Each brief below is written to be executed end-to-end by a single agent session; the **Traps** lists are load-bearing — they encode the exact failure modes already paid for.
 
-### B1 — the daemon binary, inert <Pill variant="todo">next</Pill>
+### B0 — the inversion: dumb wire, client policy <Pill variant="todo">next</Pill>
 
-**Goal:** `@kolu/pty-host` contains everything that runs in the daemon process, runnable by hand. **Zero changes to `packages/server`.**
+**Goal:** flip who owns spawn policy. The pty-host's wire becomes **fully specified** — the daemon spawns exactly what it is told and asks no questions — and every kolu-ism moves to (or stays in) kolu's tier. In-process only; **zero user-visible change; zero new processes.** This is the contract change, made at the one moment it is free: no daemon exists yet, no survivors, both consumers in-repo.
 
 Deliverables:
 
-- `packages/pty-host/src/daemonMain.ts` — the process entry, a plain sequence: acquire the pid-gate **atomically** (write pid to a temp file, `link(2)` it into place; on `EEXIST` read the gate, liveness-probe `kill(pid,0)`, exit 0 if a live daemon holds it, unlink-and-retry if stale) → compute the daemon's **own** root + shellDir with an in-package helper (do *not* import the server's `koluRoot`) → serve via `servePtyHost` + `servePtyHostOverUnixSocket` at `getPtyHostSocketPath()` → emit one structured boot log line → on SIGTERM: close the socket, release the gate, exit. PTY env derives from the daemon's **own** `process.env` (the `cleanEnv`/`koluIdentityEnv`/`prepareShellInit` calls already live daemon-side in `servePtyHost`'s spawn handler).
+- **The contract change** (one `PTY_HOST_CONTRACT_VERSION` bump; the server moves in lockstep in the same PR, and an old kolu-tui binary refuses politely via the existing handshake):
+  - `spawn` input becomes `{id, argv, cwd, env, initFiles: [{name, content}], scrollback?}` — the daemon writes `initFiles` into its own rcDir before spawn and removes them when the PTY exits; `env` and `argv` arrive whole; **nothing is derived from the daemon's `process.env`**.
+  - `system.info` → `{shell, home, platform}` — host facts, read once per connection, so a client can compute shell-init content for a host that isn't its own machine (the R-2 enabler).
+- **Policy relocation:** the server's spawn call sites compose `cleanEnv()` + `koluIdentityEnv()` + `prepareShellInit()` (against `system.info`) into the wire input. `kolu-pty`'s ~330 lines of shell arcana move tiers untouched — `kolu-pty` becomes a `packages/server` dependency only.
+- **Dependency diet:** `kolu-pty`, `kolu-common`, `kolu-shared` drop out of `packages/pty-host` — PTY ids are opaque strings at the wire (kolu keeps `TerminalIdSchema` at its own boundary); scrollback is a spawn input with an in-package default; `Logger` becomes a structural in-package type. What remains is graduation-compatible: `@kolu/surface`, `@kolu/terminal-protocol`, `node-pty`, `@xterm/*`.
+- Socket path: the app-name in `getPtyHostSocketPath()` parameterized (no hardcoded "kolu"), still defaulting to today's path until B1.
+
+Traps: behavior parity IS the deliverable — golden-test that the assembled rcfile content reaching the PTY is byte-identical before/after the inversion; no policy may remain daemon-side (a test walks the package's import graph and fails on any `kolu-pty`/`kolu-common`/`kolu-shared` hit); the staleKey flips on this deploy (a wire change — correct, not a regression).
+
+Verify: e2e green — titles, cwd tracking, agent detection all ride the relocated OSC hooks, so the existing features are the test; `packages/pty-host/package.json` shows zero `kolu-*` workspace deps; a server-only change *after* this PR still leaves the staleKey bit-identical.
+
+### B1 — kaval: the binary and its client <Pill variant="todo">the rename</Pill>
+
+**Goal:** the daemon becomes a thing of its own — `packages/pty-host` → **`kaval`**, `packages/pty-tui` → **`kaval-tui`**, both with bin entries, runnable as a pair on a machine where kolu has never been installed. **Zero changes to `packages/server`** beyond mechanical import renames.
+
+Deliverables:
+
+- `packages/kaval/src/daemonMain.ts` — the process entry, a plain sequence: acquire the pid-gate **atomically** (write pid to a temp file, `link(2)` it into place; on `EEXIST` read the gate, liveness-probe `kill(pid,0)`, exit 0 if a live daemon holds it, unlink-and-retry if stale) → compute the daemon's **own** root + rcDir with an in-package helper (do *not* import the server's `koluRoot`) → serve at `$XDG_RUNTIME_DIR/kaval/kaval.sock` (a `--socket` flag overrides) → emit one structured boot log line → on SIGTERM: close the socket, release the gate, exit. (B0 already removed the daemon's env role — there is no env-application step.)
 - The pid-gate **acquire** side as an in-package module (the read side comes in B2, server-side).
+- The rename: package `kaval`, bin `kaval`; env vars `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` (staleKey semantics unchanged: the nix hash of the package dir); nix wiring per the new-package checklist (`default.nix` fileset, lockfile, vitest).
+- `kaval-tui`: its own bin, dialing kaval's socket by default, `--socket` flag to override (until B2, reaching a running kolu's in-process terminals needs the explicit kolu path — it's a standalone tool now, and that's the point).
 - `buildId.closure.test.ts` re-rooted at the daemon entry; every file in the package hashed and reachable-or-test — zero exceptions.
-- A bin entry for the daemon (the `kolu-pty-host` binary; nix wiring per the new-package checklist: `default.nix` fileset, lockfile, vitest).
-- Tests: gate-race choreography (A acquires → B exits 0 while A lives → A dies → C acquires → D exits 0); double-bind hits the socket's `already-served` refusal as a second tripwire; `system.version` roundtrip over the socket.
+- Tests: gate-race choreography (A acquires → B exits 0 while A lives → A dies → C acquires → D exits 0); double-bind hits the socket's `already-served` refusal as a second tripwire; `system.version` + `system.info` roundtrip over the socket.
 
-Traps: no import-time throws anywhere; no top-level await; nothing in the package may import from `packages/server`; hand-testing against a running kolu must use a socket-path override (the default path is served by the in-process server until B2 — `serveOverUnixSocket`'s probe will refuse politely, which is itself a test).
+Traps: no import-time throws anywhere; no top-level await; nothing in the package may import from `packages/server`. (The first attempt's socket-collision trap dissolves by construction: kaval's default path differs from the in-process kolu path.)
 
-Verify: hand-run the binary on an override socket; a server-only change leaves `KOLU_PTY_HOST_BUILD_ID` bit-identical across two nix builds; touching `daemonMain.ts` flips it (it now runs in the daemon — that's correct, not a regression).
+Verify: on a clean box (a pu box is ideal): run `kaval`, spawn + drive + detach + reattach a shell with `kaval-tui` — kolu nowhere in the picture. A server-only change leaves `KAVAL_BUILD_ID` bit-identical across two nix builds; touching `daemonMain.ts` flips it (it now runs in the daemon — that's correct, not a regression).
 
 ### B2 — the door, with survival off <Pill variant="todo">the one-way door</Pill>
 
@@ -112,16 +136,16 @@ Verify: hand-run the binary on an override socket; a server-only change leaves `
 
 Deliverables:
 
-- `packages/server/src/ptyHost/` — `localDriver.ts` (spawn via `systemd-run --user` gated on `INVOCATION_ID`, **per-spawn unique unit name**, absolute daemon path, explicit `--setenv` forwarding of the daemon-env keys, dev-flag exec-arg filter; macOS detached+unref), `waitForPidGone.ts` (poll `kill(pid,0)` → ESRCH; load-aware ceiling, ~120s default), pid-gate read, `endpoint.ts` (state machine `connecting | connected | degraded | dead`; emits `{state, identity, startedAt}` on every transition; **map keyed by hostId**), `restart.ts` (the composed sequence — in this PR invoked only as the boot recycle, with capture/drain/reattach in their degenerate forms; the type already requires all steps).
+- `packages/server/src/ptyHost/` — `localDriver.ts` (spawn the `kaval` binary via `systemd-run --user` gated on `INVOCATION_ID`, **per-spawn unique unit name**, absolute daemon path, dev-flag exec-arg filter; macOS detached+unref — and the `--setenv` forwarding set shrinks to daemon-operational vars like `XDG_RUNTIME_DIR`, because PTY env arrives per-spawn on the wire since B0: the #1275 env-forwarding bug class is gone by construction), `waitForPidGone.ts` (poll `kill(pid,0)` → ESRCH; load-aware ceiling, ~120s default), pid-gate read, `endpoint.ts` (state machine `connecting | connected | degraded | dead`; emits `{state, identity, startedAt}` on every transition; **map keyed by hostId**), `restart.ts` (the composed sequence — in this PR invoked only as the boot recycle, with capture/drain/reattach in their degenerate forms; the type already requires all steps).
 - **Composition root:** `index.ts` boots explicitly — parse argv → `ensureLocalEndpoint()` → construct `LocalTerminalBackend` with the **injected** client → listen. `server/src/ptyHost.ts`'s import-time construction is deleted; no module-global client, no top-level await.
-- **The flip:** `LocalTerminalBackend`'s client is the endpoint's socket-backed client; the server **stops serving** the pty-host socket (today's `index.ts:397-407`) — the daemon serves it; kolu-tui is unchanged.
+- **The flip:** `LocalTerminalBackend`'s client is the endpoint's socket-backed client; the server **stops serving** its pty-host socket (today's `index.ts:397-407`) — kaval serves its own; `kaval-tui`'s default socket now reaches kolu's terminals with no flags.
 - Contract handshake on every connect (`isContractVersionCompatible` against `system.version`); skew at boot → recycle (the boot policy anyway). Never an import-time version throw.
-- Honest minimal state: a per-host daemon status on the surface; the rail's DAEMON column lights up (uptime from the daemon's `startedAt` beside SRV's, green/red dot); a mid-session daemon death presents as an explicit degraded state — visibly distinct from “you have no terminals”.
+- Honest minimal state: a per-host daemon status on the surface; the rail's KAVAL column lights up (uptime from the daemon's `startedAt` beside SRV's, green/red dot); a mid-session daemon death presents as an explicit degraded state — visibly distinct from “you have no terminals”.
 - e2e: per-worker `XDG_RUNTIME_DIR` socket isolation; hooks teardown kills spawned daemons.
 
 Traps: **no mode flag** — the socket is *the* path (a `KOLU_DAEMON_MODE` toggle is a feature flag in a trench coat); do not implement adoption (assert `terminal.list()` is empty after the recycle); do not widen any shared schema; restore-card-on-deploy behavior must be exactly today's.
 
-Verify: e2e green on both platforms (the darwin lane's *presence* is itself a check — its absence was once silent); kolu-tui works against the daemon; `pkill`-ing the daemon mid-session shows the honest dead state; a staged deploy shows the recycle in the journal.
+Verify: e2e green on both platforms (the darwin lane's *presence* is itself a check — its absence was once silent); kaval-tui works against the daemon with no flags; `pkill`-ing kaval mid-session shows the honest dead state; a staged deploy shows the recycle in the journal.
 
 ### B3 — survival <Pill variant="todo">the promise flips on</Pill>
 
@@ -133,7 +157,7 @@ Deliverables:
 - Adoption: `wireTerminal` as the shared core, `adopt` and `spawn` as siblings over it. Adopt consumes the **whole `SavedTerminal`** (parentId so splits stay nested, `lastAgentCommand` so a later cold restore still offers `claude -c`, and every other server-persisted field), marks ready from the list entry's pid (**no spawn RPC**), re-runs the provider DAG fresh against the surviving taps. The round-trip test iterates the persisted schema's keys — every field survives adopt→snapshot.
 - The restart sequence gains its real parameters: capture (`snapshotSession` → `setSavedSession`, which wins the autosave-cancel race by construction) → drain (`killAndUnwatch` per terminal — abort the exit tap *then* kill, the single kill path) → `waitForPidGone` → respawn → reconnect → reattach. Serialized: concurrent triggers observe `restarting`; a failed respawn leaves `dead` + the preserved session + a retry affordance — never an empty canvas. Exposed as the `daemon.restart` RPC.
 - Forced path: contract-skew on adopt → the same composed restart with an empty capture.
-- Currency UX: `staleKey !== currentBuildId()` derived at read sites; the rail's `⬆ update pending` (amber) is a **one-click confirmed restart** whose dialog explains *why* (the daemon is a build behind), *what happens* (a brief terminal recycle with the session restored), and that it's **optional**; a palette command **Restart kolu daemon**; full DegradedCanvas treatment; a tip in the tips registry; changelog.
+- Currency UX: `staleKey !== currentBuildId()` derived at read sites; the rail's `⬆ update pending` (amber) is a **one-click confirmed restart** whose dialog explains *why* (kaval is a build behind), *what happens* (a brief terminal recycle with the session restored), and that it's **optional**; a palette command **Restart kaval**; full DegradedCanvas treatment; a tip in the tips registry; changelog.
 - e2e: `daemon-reattach.feature` + `daemon-update.feature`, written red-first where the harness allows.
 
 Traps: never key currency on the commit hash (the #1034 over-prompting bug, re-introduced once already); never store currency as a boolean; never rebuild adopted records field-by-field through the spawn path's metadata seeding — the record flows whole; never let the nudge fire on a server-only deploy (that's the falsifiable A2 test, now end-to-end).
@@ -145,11 +169,11 @@ Verify: the unit ordering invariant (`capture < save < drain < waitForGone < res
 CI structurally cannot exercise “redeploy over a live daemon”; the acceptance signal is a **staged prod checklist**, a planned step: deploy B3 → open terminals + a running agent + a split → **server-only redeploy** (no nudge; survivors adopted; the `reattach:` counts reconcile; the split still nested; the agent still running) → **pty-host-touching redeploy** (amber nudge → confirmed restart → recovery honest; a deliberately failed respawn leaves the restorable session).
 
 <Callout kind="warning" title="Two honest costs, accepted up front">
-<strong>1 — B2's recycle can block boot.</strong> On a loaded box, the old daemon's exit can take minutes (#1034's 25G/2min case); B2's boot waits on <code>waitForPidGone</code> up to the load-aware ceiling before spawning. That is the same blast radius as today's in-process teardown — and it is exactly the soak we want on the race before B3 promises anything. <strong>2 — rollback orphans a daemon.</strong> Rolling back B2 or B3 leaves a surviving daemon holding the socket; the in-process server's own socket serve will refuse politely (<code>already-served</code>) and kolu-tui will keep talking to the orphan. The reap is manual and documented: <code>systemctl --user stop</code> the unit (Linux) / kill the pid in the gate (macOS) — the mirror of the A1 cutover reap.
+<strong>1 — B2's recycle can block boot.</strong> On a loaded box, the old daemon's exit can take minutes (#1034's 25G/2min case); B2's boot waits on <code>waitForPidGone</code> up to the load-aware ceiling before spawning. That is the same blast radius as today's in-process teardown — and it is exactly the soak we want on the race before B3 promises anything. <strong>2 — rollback orphans a daemon.</strong> Rolling back B2 or B3 leaves a surviving kaval holding its socket; the rolled-back server simply serves its own in-process socket again (the paths differ, so there is no collision) — but kaval-tui keeps talking to the orphan, which burns RAM and holds stale PTYs. The reap is manual and documented: <code>systemctl --user stop</code> the unit (Linux) / kill the pid in the gate (macOS) — the mirror of the A1 cutover reap.
 </Callout>
 
-<Callout kind="note" title="Open follow-up — surface ↔ pty-host upstreaming">
-The first instalment shipped with kolu-tui Phase 1 (<PrLink pr={1084} />): the unix-socket transport pair, `getRuntimeSocketPath`, `serveOverStdio`'s settled end result, and the generic `isContractVersionCompatible` all moved into <code>@kolu/surface</code>. What remains for a post-B pass: a standard <code>system.version</code>/build-id handshake fragment, plus whatever B2's endpoint glue turns out to want.
+<Callout kind="note" title="Open follow-ups — surface upstreaming, the MCP face, graduation">
+The first instalment shipped with kolu-tui Phase 1 (<PrLink pr={1084} />): the unix-socket transport pair, `getRuntimeSocketPath`, `serveOverStdio`'s settled end result, and the generic `isContractVersionCompatible` all moved into <code>@kolu/surface</code>. What remains for a post-B pass: a standard <code>system.version</code>/build-id handshake fragment, plus whatever B2's endpoint glue turns out to want. The kaval reframing adds two more post-B directions: project kaval's surface through <code>@kolu/surface-mcp</code> (default-deny) so coding agents get structured terminal access — read screen state, observe command runs — without scraping; and graduation to its own repository once the contract stops churning, the drishti/odu path.
 </Callout>
 
 ## The #1034 postmortem — production failure and hard constraints
@@ -173,7 +197,7 @@ From building + salvaging #1034, re-confirmed during #1275: typecheck every pack
 
 ## Design notes that carry forward
 
-**The survivor is `@kolu/pty-host` only** — node-pty fds + the `@xterm/headless` mirror + the raw VT taps + a unix socket + its own process entry. A kolu-server restart re-runs the providers against the surviving PTYs, so detection is never stale while the PTYs persist. Honest cost (accepted): metadata is no longer "warm" across a restart — a brief re-detection pass, trading warm-on-reconnect for freshness-on-deploy. Only a pty-host contract change (rare) forces terminal loss; a provider change (frequent) restarts the cheap layer with PTYs untouched. This corrects #1031, which daemonized a survivor that *held* the providers.
+**The survivor is kaval only** — node-pty fds + the `@xterm/headless` mirror + the raw VT taps + a unix socket + its own process entry. A kolu-server restart re-runs the providers against the surviving PTYs, so detection is never stale while the PTYs persist. Honest cost (accepted): metadata is no longer "warm" across a restart — a brief re-detection pass, trading warm-on-reconnect for freshness-on-deploy. Only a pty-host contract change (rare) forces terminal loss; a provider change (frequent) restarts the cheap layer with PTYs untouched. This corrects #1031, which daemonized a survivor that *held* the providers.
 
 **The cgroup mechanism (spike-verified).** On Linux/systemd the daemon spawns via `systemd-run --user` (gated on `INVOCATION_ID`), landing in its own transient cgroup — a plain detached/`setsid` child does **not** survive on cgroup-v2 (`KillMode=control-group` walks cgroup membership, not the session — the #1031 Linux failure). macOS's detached spawn already survives launchd. Caveats folded into B2: linger must be on; absolute daemon path (minimal unit PATH); **per-spawn unique unit names** (a dead unit can linger loaded). Single-instance two ways: the unit name plus the atomic pid-gate.
 
@@ -187,4 +211,5 @@ From building + salvaging #1034, re-confirmed during #1275: typecheck every pack
 - **R4c redo** <PrLink pr={1034} /> — the postmortem above; shipped + salvaged, then discarded by the fresh approach.
 - **The fresh-approach redo** (2026-05-30/31): <PrLink pr={1055} /> (A1) landed the in-process foundation and removed every #1034 daemon artifact; <PrLink pr={1059} /> unified the link family; <PrLink pr={1063} /> (A2) landed identity + the closure-hash guard + the rail. kolu-tui Phases 0–2 (<PrLink pr={1073} /> / <PrLink pr={1084} /> / <PrLink pr={1255} />) then battle-tested the socket transport in production.
 - **Phase B first build** <PrLink pr={1275} /> (2026-06-11) — the whole feature as one 40-commit PR: functional, verified live across staged prod deploys, and discarded. What it proved: the user-facing spec works end-to-end. What it taught (each now a row in the impossible-by-construction table): the `@kolu/pty-host-daemon` package was extracted mid-PR after the review gauntlet; reattach correctness arrived as three sequential prod fixes (parentId, contract-on-adopt, lastAgentCommand); identity freshness was patched three times; the staleKey hash needed three lockstep file-level exception sites. The redo above designs each of those in.
-- **This plan** (2026-06-11): the three-PR redo — B1 (daemon binary, inert) → B2 (the door, survival off) → B3 (survival) → the staged-prod gate.
+- **This plan, first cut** (2026-06-11): the three-PR redo — B1 (daemon binary, inert) → B2 (the door, survival off) → B3 (survival) → the staged-prod gate.
+- **The kaval reframing** (2026-06-12): the daemon is **kaval** (Tamil *kāval* — watch, guard), a standalone program in the drishti/odu graduate tradition, with kolu as its first client — *dumb-but-durable kaval ← kolu the session brain ← kolu the web UI*. A coupling audit found four real ties to kolu: no bin entry, spawn policy baked daemon-side (`cleanEnv`/`koluIdentityEnv`/`prepareShellInit`), the hardcoded socket app-name, and kolu's build-id env vars. The split becomes four PRs: **B0** inverts spawn policy onto a fully-specified wire (`spawn {argv, env, initFiles}` + `system.info` host facts) while everything is still in-process — the contract change made at the one moment it is free; **B1** ships the renamed binary + kaval-tui; B2/B3 unchanged in substance. The inversion also deletes B2's env-forwarding hazard class by construction and makes R-2's remote host a `surface-nix-host` deployment of the same kaval closure.
