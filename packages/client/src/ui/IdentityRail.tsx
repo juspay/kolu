@@ -28,6 +28,7 @@ import {
   Show,
 } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
+import KavalInfoDialog from "../KavalInfoDialog";
 import { localDaemonStatus } from "../useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
@@ -99,8 +100,9 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // The shared 30s uptime clock — owned by the app root, cleaned up with it.
   const clockNow = getClockNow();
   // The kaval daemon's live status — read once per render (the column reads its
-  // state, dot, and uptime), not re-resolved per use.
+  // state, dot, identity, and uptime), not re-resolved per use.
   const daemon = localDaemonStatus;
+  const [kavalDialogOpen, setKavalDialogOpen] = createSignal(false);
   // A genuinely outdated client — old bundle against a freshly deployed server.
   // Shared with the mobile chrome via `StaleBadge`.
   const stale = clientStale;
@@ -137,36 +139,45 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         </Show>
       </span>
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
-      <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
+      {/* The kaval column reads its identity from the SAME daemonStatus source
+          as the dot + uptime (not buildInfo.ptyHost — that's the pre-B2
+          in-process axis the out-of-process daemon doesn't populate). The whole
+          column is a button: click it for the daemon details + how to reach
+          these terminals from `kaval-tui`. */}
+      <button
+        type="button"
+        onClick={() => setKavalDialogOpen(true)}
+        class="inline-flex items-center gap-1.5 rounded px-2 py-0.5 transition-colors hover:bg-surface-3/50"
+        title="kaval daemon — click for details and how to attach with kaval-tui"
+      >
         <span class="text-[9px] uppercase tracking-wide text-fg-3">kaval</span>
-        <Tip label="Terminal daemon (kaval) — the process that owns your shells">
-          <span
-            data-daemon-state={daemon()?.state ?? "unknown"}
-            class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(
-              daemon()?.state,
-            )}`}
-          />
-        </Tip>
-        <Commit sha={pwa.server()?.ptyHost?.navigableCommit} />
-        <Show when={pwa.server()?.ptyHost?.staleKey}>
+        <span
+          data-daemon-state={daemon()?.state ?? "unknown"}
+          class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(
+            daemon()?.state,
+          )}`}
+        />
+        <Commit sha={daemon()?.identity?.navigableCommit} />
+        <Show when={daemon()?.identity?.staleKey}>
           {(key) => (
-            <Tip label={`build ${key()} — kaval closure hash (staleness key)`}>
-              <span class="cursor-help border-b border-dotted border-fg-3/50 text-[10px] text-fg-3">
-                {shortId(key())}
-              </span>
-            </Tip>
+            <span class="border-b border-dotted border-fg-3/50 text-[10px] text-fg-3">
+              {shortId(key())}
+            </span>
           )}
         </Show>
         <Show when={daemon()?.startedAt}>
           {(startedAt) => (
-            <Tip label="How long this kaval daemon has been running">
-              <span class="tabular-nums text-[10px] text-fg-3">
-                {formatUptime(clockNow() - startedAt())}
-              </span>
-            </Tip>
+            <span class="tabular-nums text-[10px] text-fg-3">
+              {formatUptime(clockNow() - startedAt())}
+            </span>
           )}
         </Show>
-      </span>
+      </button>
+      <KavalInfoDialog
+        open={kavalDialogOpen()}
+        onOpenChange={setKavalDialogOpen}
+        status={daemon()}
+      />
     </div>
   );
 };
