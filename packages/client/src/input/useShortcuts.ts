@@ -75,7 +75,10 @@ export function useShortcuts(ctx: ActionContext) {
   });
 }
 
-/** Try to handle the event. Returns true if a shortcut matched. */
+/** Try to handle the event. Returns true if the event was claimed and the
+ *  caller should `preventDefault` it. A matched-but-focus-scoped chord whose
+ *  target is outside its marker returns false — declined, so the browser's
+ *  native default fires. */
 function dispatch(
   e: KeyboardEvent,
   ctx: ActionContext,

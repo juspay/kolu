@@ -71,6 +71,54 @@ When("I press the find shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+// Press Cmd/Ctrl+F and record whether the app claimed it. A one-shot
+// bubble-phase window listener reads the event's final `defaultPrevented`
+// AFTER the app's capture-phase shortcut listener has run (capture fires
+// before bubble), so it sees the app's verdict. `defaultPrevented === false`
+// means the dispatcher declined and the browser's native find-in-page would
+// fire — the core promise of the focus-scoped chord. We can't observe the
+// browser find UI itself (it's chrome, outside the page), so proving the app
+// did NOT eat the chord is the load-bearing assertion. Stashed on `window` for
+// the matching Then to read.
+When(
+  "I press the find shortcut, watching for native handoff",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(() => {
+      const w = window as unknown as { __findDefaultPrevented?: boolean };
+      window.addEventListener(
+        "keydown",
+        (e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+            w.__findDefaultPrevented = e.defaultPrevented;
+          }
+        },
+        { once: true },
+      );
+    });
+    await this.page.keyboard.press(`${MOD_KEY}+f`);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the find shortcut should reach the browser",
+  async function (this: KoluWorld) {
+    const prevented = await this.page.evaluate(
+      () =>
+        (window as unknown as { __findDefaultPrevented?: boolean })
+          .__findDefaultPrevented,
+    );
+    // The listener must have fired (defined) and the app must not have
+    // prevented the default (false) — so the browser's native find-in-page
+    // takes over.
+    if (prevented !== false) {
+      throw new Error(
+        `expected Cmd/Ctrl+F to reach the browser (defaultPrevented false), got ${String(prevented)}`,
+      );
+    }
+  },
+);
+
 When("I focus the terminal", async function (this: KoluWorld) {
   // Clicking the active terminal's screen lands keyboard focus in xterm — the
   // same gesture the typing helpers use so input reaches the PTY. From here
