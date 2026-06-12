@@ -4,39 +4,30 @@ import { getCollection, render } from "astro:content";
 import PR from "../components/PR.astro";
 import Change from "../components/Change.astro";
 
-// Components auto-injected into every changelog entry's MDX, so an entry writes
-// `<Change title="…" pr={1235}>…</Change>` (or a bare `<PR id={…} />`) with no
-// per-file import.
 const mdxComponents = { PR, Change };
 
-const fmtDate = (d: Date) =>
-  d
+const fmtDate = (date: Date) =>
+  date
     .toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "2-digit",
-      // Dates are authored as plain `YYYY-MM-DD` (parsed as UTC midnight by
-      // Zod's coerce). Format in UTC so the rendered day never shifts with the
-      // build machine's timezone.
       timeZone: "UTC",
     })
     .toUpperCase();
 
-const all = await getCollection("changelog");
+const countChanges = (body?: string) => body?.match(/<Change\b/g)?.length ?? 0;
 
-// Newest-first by date, then semver-descending so same-day releases (a patch
-// cut hours after its minor) still order newest version first. `id` is the
-// final stable fallback for anything non-`X.Y.Z`.
 const semverDesc = (a: string, b: string) => {
   const [aMaj, aMin, aPat] = a.split(".").map(Number);
   const [bMaj, bMin, bPat] = b.split(".").map(Number);
   return (bMaj! - aMaj!) || (bMin! - aMin!) || (bPat! - aPat!);
 };
 
-// A dateless entry is the open Unreleased section; dated entries are releases.
-const unreleased = all.find((e) => !e.data.date);
+const all = await getCollection("changelog");
+const unreleased = all.find((entry) => !entry.data.date);
 const released = all
-  .filter((e) => e.data.date)
+  .filter((entry) => entry.data.date)
   .sort(
     (a, b) =>
       b.data.date!.valueOf() - a.data.date!.valueOf() ||
@@ -44,169 +35,403 @@ const released = all
       a.id.localeCompare(b.id),
   );
 
-// Pre-render MDX bodies in frontmatter (can't `await render()` inside the map).
 const unreleasedHasBody = !!unreleased?.body?.trim();
+const unreleasedChangeCount = countChanges(unreleased?.body);
 const UnreleasedBody = unreleased ? (await render(unreleased)).Content : null;
-const rendered = await Promise.all(
-  released.map(async (entry) => ({
-    version: entry.data.version,
-    date: entry.data.date!,
-    Body: (await render(entry)).Content,
-  })),
+
+const releases = await Promise.all(
+  released.map(async (entry) => {
+    const date = entry.data.date!;
+    return {
+      version: entry.data.version,
+      date,
+      dateLabel: fmtDate(date),
+      anchor: `v${entry.data.version.replace(/\./g, "-")}`,
+      changeCount: countChanges(entry.body),
+      Body: (await render(entry)).Content,
+    };
+  }),
 );
 ---
 
-<BaseLayout title="Changelog" description="What's new in kolu — shipped and on the way.">
-  <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
-    <p class="eyebrow mb-4">the changelog</p>
-    <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
-      What's <span class="text-amber">new</span><br />in kolu.
-    </h1>
-    <p class="mt-6 text-ink-dim max-w-xl leading-relaxed">
-      Every tagged release, newest first — plus what's already landed on{" "}
-      <code class="mono text-ink">master</code> and waiting for the next tag.
-    </p>
-  </section>
+<BaseLayout title="Changelog" description="What's new in kolu, newest first.">
+  <section class="changelog">
+    <header class="changelog-head">
+      <h1>Changelog</h1>
+      <p>
+        Newest first. On master:
+        <code>nix run github:juspay/kolu</code>
+      </p>
+    </header>
 
-  {/* Full-width entry rows (a 3-column table: title | tags | PR). The version
-      is a compact header above its entries rather than a sparse left rail, so
-      no horizontal gutter is wasted; aligned to the intro's column so titles
-      stay on one line without flinging the tag chips far across the row. */}
-  <section class="mx-auto max-w-3xl px-6 pb-24">
-    {/* Unreleased — always shown; empty when you're on the latest tag. */}
-    <article class="border-t border-rule py-5">
-      <header class="mb-3">
-        <a href="#unreleased" class="version-link inline-block">
-          <span
-            id="unreleased"
-            class="mono text-[0.72rem] tracking-widest text-amber border border-amber/40 rounded-full px-2.5 py-1 scroll-mt-20 hover:bg-amber/10 transition-colors"
-          >
-            UNRELEASED
-          </span>
-        </a>
-      </header>
+    <div class="release-stream">
+      <article class="release">
+        <aside class="release-stamp">
+          <a href="#unreleased" class="release-link">
+            <span id="unreleased">Unreleased</span>
+          </a>
+          <small>
+            {unreleasedChangeCount ? `${unreleasedChangeCount} pending` : "empty"}
+          </small>
+        </aside>
+
+        <div class="release-body-wrap">
+          {
+            unreleasedHasBody && UnreleasedBody ? (
+              <div class="release-body prose prose-changelog">
+                <UnreleasedBody components={mdxComponents} />
+              </div>
+            ) : (
+              <p class="empty-note">
+                Nothing unreleased. Track master with the command above.
+              </p>
+            )
+          }
+        </div>
+      </article>
+
       {
-        unreleasedHasBody && UnreleasedBody ? (
-          <div>
-            <div class="prose prose-changelog">
-              <UnreleasedBody components={mdxComponents} />
-            </div>
-            <p class="mono text-ink-faint text-sm leading-relaxed mt-5">
-              // already on <code class="text-ink">master</code> — get these
-              now: <code class="text-ink">nix run github:juspay/kolu</code>
-            </p>
-          </div>
-        ) : (
-          <p class="mono text-ink-muted text-sm leading-relaxed">
-            // nothing unreleased — you're on the latest tagged build.<br />
-            <span class="text-ink-faint">
-              track master for changes as they land:
-            </span>{" "}
-            <code class="text-ink">nix run github:juspay/kolu</code>
-          </p>
-        )
-      }
-    </article>
-
-    {
-      rendered.map(({ version, date, Body }) => {
-        const anchor = `v${version.replace(/\./g, "-")}`;
-        return (
-          <article class="border-t border-rule py-5">
-            <header class="mb-2 flex items-baseline gap-3">
-              <a
-                href={`#${anchor}`}
-                class="version-link group/anchor relative inline-flex items-baseline"
-              >
-                <span
-                  aria-hidden="true"
-                  class="mono text-amber opacity-0 group-hover/anchor:opacity-100 transition-opacity absolute right-full mr-1.5"
-                >#</span>
-                <h2
-                  id={anchor}
-                  class="display-sm text-[1.6rem] text-ink group-hover/anchor:text-amber transition-colors scroll-mt-20"
-                >
-                  v{version}
-                </h2>
+        releases.map((release) => (
+          <article class="release">
+            <aside class="release-stamp">
+              <a href={`#${release.anchor}`} class="release-link">
+                <span id={release.anchor}>v{release.version}</span>
               </a>
-              <time
-                class="mono text-[0.72rem] text-ink-muted tracking-widest"
-                datetime={date.toISOString()}
-              >
-                {fmtDate(date)}
-              </time>
-            </header>
-            <div class="prose prose-changelog">
-              <Body components={mdxComponents} />
+              <time datetime={release.date.toISOString()}>{release.dateLabel}</time>
+              {release.changeCount > 0 && <small>{release.changeCount} changes</small>}
+            </aside>
+
+            <div class="release-body-wrap">
+              <div class="release-body prose prose-changelog">
+                <release.Body components={mdxComponents} />
+              </div>
             </div>
           </article>
-        );
-      })
-    }
-  </section>
+        ))
+      }
+    </div>
 
-  {/* Tag-filter indicator: hidden until a tag chip is clicked, then floats
-      bottom-center naming the active tag; click (or Esc) shows everything
-      again. Wired up by the filter script below. */}
-  <button
-    id="cl-filter-clear"
-    class="cl-filter-clear mono"
-    type="button"
-    title="Show all entries (Esc)"
-    hidden
-  >
-    filtering: <span class="cl-filter-tag" id="cl-filter-tag"></span>
-    <span aria-hidden="true">✕</span>
-  </button>
+    <button
+      id="cl-filter-clear"
+      class="cl-filter-clear mono"
+      type="button"
+      title="Show all entries (Esc)"
+      hidden
+    >
+      filtering: <span id="cl-filter-tag"></span>
+      <span aria-hidden="true">x</span>
+    </button>
+  </section>
 </BaseLayout>
 
 <style>
-  /* Version headings are their own permalink — no underline, anchors handle it. */
-  .version-link {
+  .changelog {
+    width: min(100% - 2rem, 72rem);
+    margin: 0 auto;
+    padding: 2.45rem 0 3.5rem;
+  }
+
+  .changelog-head {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    padding-bottom: 1.05rem;
+  }
+
+  .changelog-head h1 {
+    margin: 0;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1;
+  }
+
+  .changelog-head p {
+    margin: 0;
+    color: var(--color-ink-dim);
+    font-size: 0.88rem;
+    line-height: 1.35;
+  }
+
+  .changelog code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    color: var(--color-ink);
+    background: var(--color-void-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: 4px;
+    padding: 0.1em 0.38em;
+  }
+
+  .release-stream {
+    border-top: 1px solid var(--color-rule-strong);
+  }
+
+  .release {
+    display: grid;
+    grid-template-columns: 8.75rem minmax(0, 1fr);
+    gap: 1.15rem;
+    padding: 1rem 0 1.15rem;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .release + .release {
+    padding-top: 1.45rem;
+  }
+
+  .release-stamp {
+    padding-top: 0.02rem;
+  }
+
+  .release-link {
+    display: inline-block;
+    color: var(--color-ink);
     text-decoration: none;
   }
 
-  /* Floating "filtering: <tag> ✕" pill — the always-visible way out of a tag
-     filter, whatever scroll position the chip was clicked at. */
+  .release-link span {
+    font-family: var(--font-sans);
+    font-size: 0.98rem;
+    font-weight: 680;
+    letter-spacing: 0;
+    line-height: 1.05;
+    scroll-margin-top: 5rem;
+    transition: color 0.15s ease;
+  }
+
+  .release-link:hover span {
+    color: var(--color-amber);
+  }
+
+  .release-stamp time,
+  .release-stamp small {
+    display: block;
+    margin-top: 0.22rem;
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.07em;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
+
+  .release-stamp small {
+    color: var(--color-ink-faint);
+  }
+
+  .release-body-wrap {
+    min-width: 0;
+  }
+
+  .install-note,
+  .empty-note {
+    margin: 0.7rem 0 0;
+    color: var(--color-ink-muted);
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    letter-spacing: 0;
+    line-height: 1.25;
+  }
+
+  .install-note code,
+  .empty-note code {
+    margin-left: 0.35rem;
+  }
+
+  .changelog :global(.prose-changelog) {
+    max-width: none;
+  }
+
+  .changelog :global(.prose-changelog > p:first-child) {
+    margin: 0.1rem 0 0.8rem;
+    color: var(--color-ink-dim);
+    font-size: 0.92rem;
+    line-height: 1.45;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .changelog :global(.prose-changelog h3) {
+    margin: 0.95rem 0 0.38rem;
+    gap: 0.45rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    line-height: 1.15;
+  }
+
+  .changelog :global(.prose-changelog h3:first-child) {
+    margin-top: 0.1rem;
+  }
+
+  .changelog :global(.prose-changelog ul) {
+    display: grid;
+    gap: 0;
+  }
+
+  .changelog :global(.prose-changelog li) {
+    margin: 0;
+  }
+
+  .changelog :global(.prose-changelog li:not(:has(.cl-change))) {
+    margin: 0;
+    padding-left: 1.05rem;
+    color: var(--color-ink-dim);
+    font-size: 0.92rem;
+    line-height: 1.55;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .changelog :global(.prose-changelog li:not(:has(.cl-change))::before) {
+    top: 0;
+  }
+
+  .changelog :global(.cl-change) {
+    margin-left: -0.25rem;
+    margin-right: -0.25rem;
+    padding: 0.08rem 0.25rem;
+    border-radius: 3px;
+  }
+
+  .changelog :global(.cl-change-head) {
+    grid-template-columns: 0.7rem minmax(0, 1fr) auto;
+    column-gap: 0.34rem;
+    line-height: 1.32;
+  }
+
+  .changelog :global(.cl-change-arrow) {
+    font-size: 0.82rem;
+  }
+
+  .changelog :global(.cl-change-title) {
+    overflow: hidden;
+    font-size: 0.92rem;
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 1.32;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .changelog :global(.cl-change-meta) {
+    flex-wrap: nowrap;
+    gap: 0.22rem;
+    overflow: hidden;
+    max-width: 27rem;
+  }
+
+  .changelog :global(.cl-change-tag) {
+    font-size: 0.56rem;
+    letter-spacing: 0.05em;
+    padding: 0.02em 0.42em;
+  }
+
+  .changelog :global(.pr-ref) {
+    gap: 0.24em;
+    font-size: 0.64rem;
+    padding: 0.1em 0.42em 0.1em 0.34em;
+  }
+
+  .changelog :global(.cl-change-desc) {
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  .changelog :global(.prose-changelog strong) {
+    font-weight: 500;
+  }
+
+  .changelog :global(.cl-change-desc > :first-child) {
+    margin-top: 0.36rem;
+  }
+
+  .changelog :global(.cl-change-desc p + p) {
+    margin-top: 0.5rem;
+  }
+
   .cl-filter-clear {
     position: fixed;
-    bottom: 1.5rem;
+    bottom: 1.25rem;
     left: 50%;
-    transform: translateX(-50%);
     z-index: 50;
     display: inline-flex;
     align-items: baseline;
     gap: 0.5em;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    transform: translateX(-50%);
     color: var(--color-ink-dim);
     background: var(--color-void-raised);
     border: 1px solid var(--color-rule);
     border-radius: 9999px;
-    padding: 0.5em 1.1em;
-    cursor: pointer;
+    padding: 0.5em 1em;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+    cursor: pointer;
     transition:
       color 0.15s ease,
       border-color 0.15s ease;
   }
+
   .cl-filter-clear:hover {
     color: var(--color-ink);
     border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
   }
-  .cl-filter-tag {
+
+  .cl-filter-clear #cl-filter-tag {
     color: var(--color-amber);
+  }
+
+  @media (max-width: 740px) {
+    .changelog {
+      width: min(100% - 2rem, 58rem);
+      padding-top: 2rem;
+    }
+
+    .changelog-head {
+      display: block;
+      gap: 1rem;
+    }
+
+    .changelog-head h1 {
+      font-size: 1.55rem;
+    }
+
+    .release {
+      grid-template-columns: 1fr;
+      gap: 0.5rem;
+      padding: 0.85rem 0 0.95rem;
+    }
+
+    .release-stamp {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.45rem 0.7rem;
+      padding-top: 0;
+    }
+
+    .release-stamp time,
+    .release-stamp small {
+      margin-top: 0;
+    }
+
+    .changelog :global(.cl-change-head) {
+      grid-template-columns: 0.7rem minmax(0, 1fr);
+    }
+
+    .changelog :global(.cl-change-meta) {
+      grid-column: 2;
+      max-width: 100%;
+    }
   }
 </style>
 
 <script>
-  // Tag filtering: click a tag chip anywhere to show only entries carrying
-  // that tag, across every release. Click it again (or press Escape) to
-  // clear. Sections and releases left with no visible entries hide too —
-  // including untagged prose bullets (e.g. v1.0.0's), which match no tag.
-  // `style.display` rather than `hidden`: utility classes (`.grid`, flex on
-  // `.prose-changelog ul`) would override the UA's `[hidden]` rule.
   const chips = [
     ...document.querySelectorAll<HTMLButtonElement>(".cl-change-tag"),
   ];
@@ -217,7 +442,7 @@ const rendered = await Promise.all(
 
   const apply = () => {
     clearBtn.hidden = !active;
-    clearTag.textContent = active;
+    clearTag.textContent = active ?? "";
     for (const chip of chips)
       chip.dataset.active = String(chip.dataset.tag === active);
     for (const li of document.querySelectorAll<HTMLElement>(
@@ -228,7 +453,6 @@ const rendered = await Promise.all(
         [];
       li.style.display = !active || tags.includes(active) ? "" : "none";
     }
-    // Collapse emptied structure bottom-up: ul → its section h3 → the release.
     for (const ul of document.querySelectorAll<HTMLElement>(
       ".prose-changelog ul",
     )) {
@@ -241,7 +465,7 @@ const rendered = await Promise.all(
         h3.style.display = empty ? "none" : "";
     }
     for (const article of document.querySelectorAll<HTMLElement>(
-      "section > article",
+      ".release-stream > article",
     )) {
       const lis = article.querySelectorAll<HTMLElement>(".prose-changelog li");
       const empty =
@@ -253,8 +477,8 @@ const rendered = await Promise.all(
   };
 
   for (const chip of chips)
-    chip.addEventListener("click", (e) => {
-      e.stopPropagation(); // don't toggle the row open/closed on touch
+    chip.addEventListener("click", (event) => {
+      event.stopPropagation();
       active = active === chip.dataset.tag ? null : (chip.dataset.tag ?? null);
       apply();
     });
@@ -264,8 +488,8 @@ const rendered = await Promise.all(
     apply();
   });
 
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && active) {
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && active) {
       active = null;
       apply();
     }
