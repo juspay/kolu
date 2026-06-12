@@ -617,7 +617,7 @@ export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
  *  ONE owner of this seed — the `daemonStatus` cell default, the server's
  *  status holder init, and the endpoint's `current` accumulator all reference
  *  it, so adding a field to `DaemonStatusSchema` updates every seed at once. */
-export const CONNECTING_DAEMON_STATUS: DaemonStatus = {
+export const DEFAULT_DAEMON_STATUS: DaemonStatus = {
   state: "connecting",
   startedAt: null,
   staleKey: "",
@@ -718,7 +718,7 @@ export const koluSurface = defineSurface({
      *  change, not a singleton-assumption retrofit). */
     daemonStatus: {
       schema: DaemonStatusSchema,
-      default: CONNECTING_DAEMON_STATUS,
+      default: DEFAULT_DAEMON_STATUS,
       verbs: ["get"],
     },
   },

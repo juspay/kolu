@@ -51,7 +51,7 @@ import type {
   TerminalMetadata,
 } from "kolu-common/surface";
 import {
-  CONNECTING_DAEMON_STATUS,
+  DEFAULT_DAEMON_STATUS,
   koluSurface,
   surfaces,
 } from "kolu-common/surface";
@@ -112,7 +112,7 @@ const savedSessionStore: CellStore<SavedSession | null> =
 // `implementSurfaces` test use.
 // The daemon's last-published status. The endpoint owns transitions; this is
 // just the cell's server-side slot (no persistence — status is per-boot).
-let daemonStatusValue: DaemonStatus = CONNECTING_DAEMON_STATUS;
+let daemonStatusValue: DaemonStatus = DEFAULT_DAEMON_STATUS;
 
 const koluDeps: Omit<
   ImplementSurfaceDeps<typeof koluSurface.spec>,
