@@ -160,6 +160,21 @@ export function serveOverStdio<T extends Context>(
       );
     });
 
+  // Symmetric to the client link's write guard (`links/stdio.ts`). A failed
+  // `write()` rejects the in-flight `writeLine` above, but Node also emits
+  // 'error' on the write stream, and an unhandled 'error' is a hard crash —
+  // the very `process.exit(1)`-on-unhandled footgun this module already
+  // closes for the *read* side (see `ServeOverStdioEnd`). When our stdout
+  // pipe breaks (the parent died, the unix-socket peer reset), serving must
+  // end the same way a read-side death ends it, not crash the agent. Funnel
+  // the write error into the read stream's teardown so the returned promise
+  // settles `{ reason: "error", error }` exactly as a read error does — one
+  // teardown path, both directions. Guarded so a torn pipe that kills both
+  // halves at once doesn't double-destroy.
+  transport.write.on("error", (err) => {
+    if (!transport.read.destroyed) transport.read.destroy(err);
+  });
+
   const peer = new ServerPeer((message) => writeLine(encodeFrame(message)));
 
   return readFramedLines(transport.read, (frame) => {

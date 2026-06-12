@@ -247,4 +247,44 @@ describe("stdio link over loopback", () => {
     pair.client.write.end();
     await serveDone;
   });
+
+  it("does not crash when the write stream errors — closes the link instead (EPIPE guard)", async () => {
+    // Write-side teardown regression: the link writes outbound frames to a
+    // stream that can die under it (the ssh pipe drops, the peer exits and
+    // our `write` is its now-closed stdin). A failed write makes Node emit
+    // 'error' on the write stream, and an 'error' with no listener is a hard
+    // process crash — not a rejection a consumer can catch. A coordinator
+    // that destroyed its lane mid-write used to be felled by exactly this.
+    // The link must instead treat the write death as transport death and
+    // close itself, so a fresh RPC rejects fast rather than the process
+    // crashing.
+    const contract = {
+      ping: oc.input(z.object({})).output(z.string()),
+    };
+    const t = implement(contract);
+    const router = t.router({ ping: t.ping.handler(() => "pong") });
+
+    const pair = createLoopbackPair();
+    const serveDone = serveOverStdio({ router, transport: pair.server });
+    const client = stdioLink<typeof contract>({
+      read: pair.client.read,
+      write: pair.client.write,
+    });
+
+    // Link is live — one good round-trip first.
+    expect(await client.ping({})).toBe("pong");
+
+    // The write half dies under us. `destroy(err)` emits 'error' on the
+    // stream; without the link's write-side listener that 'error' is an
+    // uncaught crash (which would fail this test as an unhandled error),
+    // with it the link closes. Let the event settle before the next call.
+    pair.client.write.destroy(new Error("EPIPE: write to a broken pipe"));
+    await new Promise((r) => setImmediate(r));
+
+    // The link is now closed: a fresh RPC rejects fast rather than hanging
+    // (or crashing).
+    await expect(client.ping({})).rejects.toThrow();
+
+    await serveDone;
+  });
 });
