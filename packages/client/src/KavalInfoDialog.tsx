@@ -8,10 +8,14 @@
  * flag needed.
  */
 
-import { type Component, Show } from "solid-js";
+import Dialog from "@corvu/dialog";
+import type { Component } from "solid-js";
+import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
-import ModalDialog from "./ui/ModalDialog";
 import Commit from "./ui/Commit";
+import { CloseIcon } from "./ui/Icons";
+import ModalDialog from "./ui/ModalDialog";
+import { surface } from "./ui/Surface";
 
 const STATE_LABEL: Record<DaemonStatus["state"], string> = {
   connecting: "starting…",
@@ -51,13 +55,28 @@ const KavalInfoDialog: Component<{
   onOpenChange: (open: boolean) => void;
   status: DaemonStatus | undefined;
 }> = (props) => {
+  const chrome = surface({ portalled: true });
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
-      <div class="p-5">
-        <h2 class="text-sm font-semibold text-fg flex items-center gap-2">
+      <Dialog.Content
+        class={`${chrome.class} relative p-5`}
+        style={chrome.style}
+      >
+        {/* Close — the rail has no visible affordance otherwise; Escape +
+            backdrop also dismiss via ModalDialog. */}
+        <button
+          type="button"
+          onClick={() => props.onOpenChange(false)}
+          class="absolute right-3 top-3 rounded p-1 text-fg-3 transition-colors hover:bg-surface-3/60 hover:text-fg"
+          aria-label="Close"
+        >
+          <CloseIcon class="h-4 w-4" />
+        </button>
+
+        <Dialog.Label class="text-sm font-semibold text-fg flex items-center gap-2">
           <span class="font-mono text-accent">kaval</span>
           <span class="text-fg-3 font-normal">— the terminal daemon</span>
-        </h2>
+        </Dialog.Label>
         <p class="mt-1.5 text-xs leading-relaxed text-fg-2">
           kaval is the process that owns your shells. kolu talks to it over a
           local socket, so your terminals outlive the page and can be reached
@@ -65,7 +84,7 @@ const KavalInfoDialog: Component<{
         </p>
 
         {/* Live status */}
-        <div class="mt-4 rounded-lg border border-edge bg-surface-2/40 px-3 py-2.5 text-xs">
+        <div class="mt-4 rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-xs">
           <Show
             when={props.status}
             fallback={<span class="text-fg-3">status unavailable</span>}
@@ -110,7 +129,7 @@ const KavalInfoDialog: Component<{
             <code class="font-mono text-fg">kaval-tui</code> reaches these same
             terminals — no <code class="font-mono">--socket</code> flag needed.
           </p>
-          <div class="mt-2 rounded-lg border border-edge bg-surface-2/40 px-3 py-2 divide-y divide-edge/60">
+          <div class="mt-2 rounded-lg border border-edge bg-surface-2 px-3 py-2 divide-y divide-edge/60">
             <Cmd note="every live terminal — id · pid · cwd">
               kaval-tui list
             </Cmd>
@@ -129,7 +148,7 @@ const KavalInfoDialog: Component<{
             — or it ships with the home-manager module.
           </p>
         </div>
-      </div>
+      </Dialog.Content>
     </ModalDialog>
   );
 };
