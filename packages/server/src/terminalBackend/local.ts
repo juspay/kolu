@@ -326,7 +326,15 @@ class LocalTerminalBackend implements TerminalBackend {
     // metadata) so the tile renders immediately — the `TerminalBackend.
     // spawnPty` sync-shadow contract. The pty-host resolves the authoritative
     // cwd / pid on the async tail below; the provider DAG starts there too.
-    const cwd = opts.cwd || process.env.HOME || "/";
+    //
+    // The shadow only needs a placeholder cwd until the spawn echoes back the
+    // resolved value (`res.cwd` at the `spawnAndWire` tail). We deliberately do
+    // NOT re-derive a home-dir fallback here: that would be a second rule for
+    // the same value that can disagree with the spawn's own fallback chain
+    // (`buildTerminalSpawnInput`, which can consult the host's `info.home` that
+    // this synchronous path cannot see). Seed with the caller's cwd or empty,
+    // and let the `res.cwd` correction below install the single authority.
+    const cwd = opts.cwd ?? "";
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     const meta: TerminalMetadata = { ...createMetadata(cwd) };
     if (opts.parentId) meta.parentId = opts.parentId;
