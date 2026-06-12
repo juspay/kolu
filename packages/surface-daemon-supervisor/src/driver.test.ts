@@ -108,13 +108,13 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
     });
   });
 
-  it("strategy:detached forces a detached fork even under a systemd session", async () => {
+  it("fromSource forces a detached fork even under a systemd session", async () => {
     // The dev/e2e case: INVOCATION_ID is set (shell is in a systemd session) but
     // we run kaval from source, so systemd-run would strip the env — force
     // detached.
     const { calls, spawnProcess } = capture();
     const driver = survivableSpawnDriver(
-      { ...cfg, strategy: "detached" },
+      { ...cfg, fromSource: true },
       { env: { INVOCATION_ID: "deadbeef" }, spawnProcess },
     );
     await driver.spawn();

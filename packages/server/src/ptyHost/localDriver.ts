@@ -100,29 +100,19 @@ function daemonEnv(): Record<string, string> {
 
 /** The kaval driver: the survivable-spawn mechanism bound to kaval's values.
  *
- *  Strategy ties to HOW kaval is launched, not just whether a systemd session
- *  exists: in production (`KOLU_KAVAL_BIN` set, kolu running as its own systemd
- *  user service) we use `systemd-run --user` so the daemon escapes kolu's
- *  cgroup; from source (dev/e2e, no `KOLU_KAVAL_BIN`) we force detached, because
- *  `INVOCATION_ID` is also set for any shell inside a systemd session and a
- *  `systemd-run` transient unit would strip the nix/tsx environment the
- *  from-source launcher needs. */
+ *  The only survival-relevant fact kolu uniquely knows is whether kaval is being
+ *  launched from source: no `KOLU_KAVAL_BIN` wrapper means dev/source, and
+ *  `KOLU_KAVAL_SPAWN=detached` lets e2e force the same. The spine owns what to do
+ *  with it (the `INVOCATION_ID` decision table). */
 export function localKavalDriver(): DaemonDriver {
   const { binPath, args } = resolveKavalLaunch();
-  // e2e forces detached (it reaps the daemon itself and may run on a box with
-  // no systemd user session); production (KOLU_KAVAL_BIN set, kolu as a service)
-  // uses systemd-run via "auto"; from-source dev has no KOLU_KAVAL_BIN.
-  const strategy =
-    process.env.KOLU_KAVAL_SPAWN === "detached"
-      ? "detached"
-      : process.env.KOLU_KAVAL_BIN
-        ? "auto"
-        : "detached";
+  const fromSource =
+    !process.env.KOLU_KAVAL_BIN || process.env.KOLU_KAVAL_SPAWN === "detached";
   return survivableSpawnDriver({
     binPath,
     args,
     env: daemonEnv(),
     unitPrefix: "kaval",
-    strategy,
+    fromSource,
   });
 }

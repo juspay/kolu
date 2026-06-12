@@ -49,18 +49,14 @@ export interface DaemonSpawnConfig {
   /** Transient `.service` unit-name prefix (a per-spawn unique suffix is
    *  appended). Only used on the systemd branch. */
   unitPrefix: string;
-  /** How to make the child outlive us:
-   *   - `"auto"` (default): `systemd-run --user` when `INVOCATION_ID` is set
-   *     (we're a systemd service whose cgroup a detached child wouldn't escape),
-   *     else detached+unref.
-   *   - `"detached"`: always detached, even under a systemd session — for a
-   *     caller running the daemon FROM SOURCE (dev/test), where `systemd-run`'s
-   *     transient unit would strip the build environment the source launcher
-   *     needs. `INVOCATION_ID` alone can't tell "I am a service" from "my shell
-   *     is in a systemd session", so the caller that knows it isn't a service
-   *     says so here.
-   *  Defaults to `"auto"`. */
-  strategy?: "auto" | "detached";
+  /** The one fact only the caller knows: the daemon is being launched FROM
+   *  SOURCE (dev/test), not from a built binary. `INVOCATION_ID` alone can't
+   *  tell "I am a systemd service" from "my shell merely runs inside a systemd
+   *  session", so a from-source caller reports it here — and the spine then
+   *  forces detached even under a session, because `systemd-run`'s transient
+   *  unit would strip the build environment the source launcher needs.
+   *  Defaults to `false`. */
+  fromSource?: boolean;
 }
 
 /** Spawn the daemon process so it outlives this one. Resolves once the launch
@@ -108,7 +104,7 @@ export function survivableSpawnDriver(
   return {
     spawn(): Promise<void> {
       const underSystemd =
-        cfg.strategy !== "detached" &&
+        !cfg.fromSource &&
         env.INVOCATION_ID !== undefined &&
         env.INVOCATION_ID !== "";
 
