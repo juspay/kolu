@@ -147,8 +147,17 @@ const koluStateDir = mkSubDir("state");
  *  this, parallel workers collide on the shared runtime socket and the
  *  single-instance gate makes worker 2's kaval yield to worker 1's — the same
  *  foreign-server hazard the HTTP-port ownership check guards against. 0700
- *  because the daemon refuses a gate dir that isn't owner-only. */
-const runtimeDir = mkSubDir("runtime");
+ *  because the daemon refuses a gate dir that isn't owner-only.
+ *
+ *  Deliberately a SHORT, top-level path — NOT nested under `testBaseDir` (which
+ *  lives under the deep nix-shell `$TMPDIR`). kolu's per-terminal scratch dir
+ *  hangs off `$XDG_RUNTIME_DIR`, so a long runtime path makes a pasted scratch
+ *  file path (clipboard / file-drop) wrap in the 80-col test terminal — and
+ *  bash 5's bracketed-paste active-region redraw of a *wrapped* line garbles the
+ *  cells so the screen-state read can't find the filename. A short runtime dir
+ *  keeps the path on one line. Cleaned up by `killServer` (it sits outside
+ *  `testBaseDir`, so the run's recursive remove doesn't catch it). */
+const runtimeDir = fs.mkdtempSync(path.join("/tmp", `kr${workerId}-`));
 fs.chmodSync(runtimeDir, 0o700);
 
 /** SIGKILL the kaval daemon this worker's server spawned (it is detached, so it
@@ -392,6 +401,13 @@ function killServer() {
     serverProcess = undefined;
   }
   killKavalDaemon();
+  // The per-worker runtime dir lives outside `testBaseDir` (short path, see its
+  // comment), so the run's recursive remove won't catch it — reap it here.
+  try {
+    fs.rmSync(runtimeDir, { recursive: true, force: true });
+  } catch {
+    // Best-effort: already gone / never created.
+  }
 }
 process.on("exit", killServer);
 
