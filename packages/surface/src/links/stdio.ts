@@ -89,7 +89,12 @@ export class LinkStdioClient<T extends ClientContext>
     // end/error takes: mark the link closed so later `call()`s reject fast
     // instead of limping on a dead pipe. Symmetric with the read half's
     // `read.on("error", …)` guard in `stdio-codec.ts`.
-    opts.write.on("error", () => this.handleTransportClosed());
+    opts.write.on("error", (err) => {
+      process.stderr.write(
+        `[@kolu/surface/links/stdio] outbound write error: ${(err as Error).message}\n`,
+      );
+      this.handleTransportClosed();
+    });
     readFramedLines(opts.read, (frame) => {
       // Swallow per-frame parse errors. A bad inbound frame is most
       // likely an agent-side stdout corruption (lesson #4); the
