@@ -144,12 +144,24 @@ const escapes = [
       <li>
         kaval's socket lives at{" "}
         <code class="mono text-ink">$XDG_RUNTIME_DIR/kaval/pty-host.sock</code>{" "}
-        (falling back to{" "}
-        <code class="mono text-ink">/tmp/kaval-$UID/pty-host.sock</code>) and
-        appears when the daemon boots. kaval-tui dials it by default; point it
-        elsewhere — including a running kolu-server's{" "}
-        <code class="mono text-ink">$XDG_RUNTIME_DIR/kolu/pty-host.sock</code> —
-        with <code class="mono text-ink">--socket &lt;path&gt;</code>.
+        (or{" "}
+        <code class="mono text-ink">/tmp/kaval-$UID/pty-host.sock</code> when{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR</code> is unset) and appears
+        when the daemon boots. kaval-tui dials it by default; point it elsewhere
+        with <code class="mono text-ink">--socket &lt;path&gt;</code> — which
+        goes <span class="text-ink">after the subcommand</span> (
+        <code class="mono text-ink">kaval-tui list --socket …</code>).
+      </li>
+      <li>
+        To drive a running <span class="text-ink">kolu-server</span>'s in-process
+        terminals, point at <em>its</em> socket —{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR/kolu/pty-host.sock</code>, or{" "}
+        <code class="mono text-ink">/tmp/kolu-$UID/pty-host.sock</code> when{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR</code> is unset (over ssh or a
+        non-login session, where a hand-built{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR/kolu/…</code> would collapse
+        to a wrong <code class="mono text-ink">/kolu/…</code>). When kaval isn't
+        reachable, kaval-tui prints the exact path to use.
       </li>
       <li>
         Detach is <span class="text-ink">client-side</span>: kaval-tui can come

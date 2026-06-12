@@ -28,13 +28,14 @@ import { type Connection, connectPtyHost } from "./connect.ts";
 import { isValidEscapeChar } from "./escape.ts";
 import { formatList, formatListJson } from "./render.ts";
 
-// Shared on both subcommands (cleye doesn't inherit a parent flag into a
-// subcommand's parsed type, so it's declared on each that needs it).
+// Declared on each subcommand (cleye binds flags only AFTER the subcommand —
+// it does not inherit a parent flag — so `--socket` goes after the command:
+// `kaval-tui list --socket <path>`, never `kaval-tui --socket <path> list`).
 const socketFlag = {
   socket: {
     type: String,
     description:
-      "socket path to dial (default: kaval's at $XDG_RUNTIME_DIR/kaval/pty-host.sock on systemd Linux, else /tmp/kaval-$UID/pty-host.sock). Point at $XDG_RUNTIME_DIR/kolu/pty-host.sock to reach a running kolu-server.",
+      "socket to dial — goes AFTER the subcommand. Default: kaval's own, $XDG_RUNTIME_DIR/kaval/pty-host.sock (or /tmp/kaval-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset). To reach a running kolu-server, pass ITS socket: $XDG_RUNTIME_DIR/kolu/pty-host.sock (or /tmp/kolu-$UID/pty-host.sock when $XDG_RUNTIME_DIR is unset — e.g. over ssh / a non-login session).",
   },
 } as const;
 
@@ -248,9 +249,18 @@ async function assertCompatible(conn: Connection): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  // cleye already handled --help / --version / unknown commands (it prints and
-  // exits). No subcommand at all → show help and signal misuse.
+  // cleye already handled --help / --version (it prints and exits). We land here
+  // with no command in two cases: bare `kaval-tui` (no args → show help), or the
+  // common trap of a flag BEFORE the subcommand (`kaval-tui --socket X list`) —
+  // cleye binds flags only after the command, so a leading flag swallows it and
+  // cleye finds no command. Steer that case to the right order instead of
+  // dumping bare help (which is what made the mistake look like a no-op).
   if (argv.command === undefined) {
+    if (process.argv.length > 2) {
+      fail(
+        "no command. Flags go AFTER the subcommand — try `kaval-tui list --socket <path>` (not `kaval-tui --socket <path> list`). `kaval-tui --help` lists the commands.",
+      );
+    }
     argv.showHelp();
     process.exit(1);
   }
@@ -258,8 +268,12 @@ async function main(): Promise<void> {
   const socketPath = getPtyHostSocketPath(argv.flags.socket, "kaval");
   const conn = await connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
+    // The kolu-server hint names the SAME path kolu computes — and the
+    // $XDG_RUNTIME_DIR-unset fallback (e.g. over ssh), the exact case where a
+    // hand-built `$XDG_RUNTIME_DIR/kolu/...` collapses to a wrong `/kolu/...`.
+    const koluSock = getPtyHostSocketPath(undefined, "kolu");
     return fail(
-      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is kaval running? Start it with \`kaval\`; the socket appears once it boots. To reach a kolu-server, pass \`--socket\`.`,
+      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is kaval running? Start it with \`kaval\`; the socket appears once it boots. To reach a running kolu-server instead, point at its socket: \`--socket ${koluSock}\`.`,
     );
   });
 

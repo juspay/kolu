@@ -152,17 +152,26 @@ async function reap(d: Daemon): Promise<void> {
   await d.exited;
 }
 
-/** Run `kaval-tui <args>` to completion; capture stdout + exit code. */
+/** Run `kaval-tui <args>` to completion; capture stdout, stderr + exit code. */
 function runKavalTui(
   args: string[],
-): Promise<{ code: number | null; stdout: string }> {
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolvePromise) => {
-    const child = track(spawnTs(KAVAL_TUI, args, "pipe"));
+    const child = track(
+      spawn(process.execPath, ["--import", TSX_LOADER, KAVAL_TUI, ...args], {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: process.env,
+      }),
+    );
     let stdout = "";
+    let stderr = "";
     child.stdout?.on("data", (b) => {
       stdout += String(b);
     });
-    child.on("exit", (code) => resolvePromise({ code, stdout }));
+    child.stderr?.on("data", (b) => {
+      stderr += String(b);
+    });
+    child.on("exit", (code) => resolvePromise({ code, stdout, stderr }));
   });
 }
 
@@ -371,5 +380,24 @@ describe("kaval daemon — process-boundary behaviour", () => {
 
     await conn.dispose();
     await reap(d);
+  }, 30000);
+
+  it("a flag BEFORE the subcommand fails with a flag-order hint, not silent help", async () => {
+    // cleye binds flags only after the subcommand, so `--socket X list` makes it
+    // lose the command. Rather than print bare help (which read as a no-op), the
+    // CLI must steer the user to the right order with a non-zero exit. No daemon
+    // needed — this fails at arg parsing, before any connect.
+    const wrong = await runKavalTui(["--socket", "/whatever", "list"]);
+    expect(wrong.code).not.toBe(0);
+    expect(wrong.stderr).toContain("AFTER the subcommand");
+    // And the conventional order is accepted as far as arg parsing (it then
+    // fails to connect to the bogus path — a *different*, honest error).
+    const right = await runKavalTui([
+      "list",
+      "--socket",
+      "/no/such/kaval.sock",
+    ]);
+    expect(right.code).not.toBe(0);
+    expect(right.stderr).toContain("no socket at /no/such/kaval.sock");
   }, 30000);
 });
