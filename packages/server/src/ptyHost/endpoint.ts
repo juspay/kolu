@@ -29,6 +29,7 @@ import { isContractVersionCompatible } from "@kolu/surface/define";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import {
   DEFAULT_DAEMON_STATUS,
+  type DaemonState,
   type DaemonStatus,
   EMPTY_PTY_HOST_IDENTITY,
 } from "kolu-common/surface";
@@ -82,6 +83,20 @@ async function connectWithRetry(
       await sleep(100);
     }
   }
+}
+
+/**
+ * The heartbeat transition table, declared in one place rather than scattered
+ * across `current.state` conditionals in the timer callback. A successful probe
+ * promotes a `degraded` daemon back to `connected`; a failed probe demotes any
+ * still-alive daemon to `dead`. Every other (state, probe) pair is a no-op.
+ */
+function nextHeartbeatState(
+  current: DaemonState,
+  probe: "ok" | "fail",
+): DaemonState {
+  if (probe === "ok") return current === "degraded" ? "connected" : current;
+  return current === "dead" ? current : "dead";
 }
 
 export async function ensureLocalEndpoint(
@@ -151,20 +166,21 @@ export async function ensureLocalEndpoint(
     setStatus({ state: "degraded" });
   }
 
+  const applyProbe = (probe: "ok" | "fail"): void => {
+    const next = nextHeartbeatState(current.state, probe);
+    if (next === current.state) return;
+    if (next === "dead") {
+      log.error(
+        { socketPath },
+        "pty-host daemon heartbeat failed — marking dead",
+      );
+    }
+    setStatus({ state: next });
+  };
   const heartbeat = setInterval(() => {
     void conn.client.surface.system.heartbeat({}).then(
-      () => {
-        if (current.state === "degraded") setStatus({ state: "connected" });
-      },
-      () => {
-        if (current.state !== "dead") {
-          log.error(
-            { socketPath },
-            "pty-host daemon heartbeat failed — marking dead",
-          );
-          setStatus({ state: "dead" });
-        }
-      },
+      () => applyProbe("ok"),
+      () => applyProbe("fail"),
     );
   }, heartbeatMs);
   heartbeat.unref();
