@@ -6,15 +6,8 @@ set working-directory := '..'
 # these recipes need to enter it when invoked from a bare shell.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
-# TEMPORARY: build apm-cli from the head of microsoft/apm#1665 — the fix that
-# keeps format-transformed rule files (`.claude/rules/*`) tracked + in sync;
-# without it, `apm install` silently leaves edited rules stale (updates AGENTS.md
-# but not `.claude/rules/`, masking the drift). The PR forks upstream `main`, so
-# it also carries the compile-hang fix (#1576, released in 0.18.0).
-# `refs/pull/1665/head` tracks the PR head on the base repo. Revert to
-# `--from apm-cli` once it merges and a release ships.
-# PR: https://github.com/microsoft/apm/pull/1665 (closes #1662).
-apm_cmd := nix_shell + ' uvx --from git+https://github.com/microsoft/apm@refs/pull/1665/head apm'
+# `apm-cli` is the PyPI package that provides the `apm` command.
+apm_cmd := nix_shell + ' uvx --from apm-cli apm'
 apm_targets := 'claude,codex,opencode'
 apm_compile_targets := 'codex,opencode'
 
