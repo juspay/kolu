@@ -89,6 +89,68 @@ Two destinations, split by what the code touches:
 
 One honest trap, inherited from kaval's one rule: **the package interacts with the staleKey.** From B1, `@kolu/surface-daemon` is hashed **whole** into kaval's key, as a third root beside `terminal-protocol` (the closure test's existing multi-root pattern: every root's non-test files hashed, and the import walk from the daemon entry must reach exactly that set). Whole-package hashing is correct exactly while everything in the package runs in the daemon — which is therefore the package's **standing invariant until S1: only daemon-half code may live here.** A supervisor file in the package would flip kaval's key on every supervisor-only edit — the over-prompting failure A2 killed, reborn. S1, when it moves the supervisor in under `/supervisor`, re-scopes the hashing to the `/daemon` half in the same change (the nix fileFilter narrows to the subdir; the closure walk already follows imports) — and the exit test pins it: a `/daemon` edit flips kaval's key, a `/supervisor`-only edit does not. If the re-scoping lags the move, the key silently over-fires; if it under-scopes, that's #1034's first row all over again.
 
+## The daemon half's public API — by example
+
+What B1 actually exports: two modules, small enough to read whole. The *shape* is normative — it encodes the mechanism/policy line, with every program-specific choice arriving as an argument — while the names may shift in B1's review.
+
+```ts
+// @kolu/surface-daemon — the daemon half (all of it, B1)
+
+/** Structural, so the package carries zero kolu-* deps (the kaval pattern). */
+export type LogFn = (msg: string, fields?: object) => void;
+export type Logger = { debug: LogFn; info: LogFn; warn: LogFn; error: LogFn };
+
+// ── pidGate.ts — both sides of one file format ──────────────────────────
+export type GateResult =
+  | { kind: "acquired"; release: () => void } // we hold it; release at teardown
+  | { kind: "held"; pid: number };            // a LIVE process holds it
+/** Atomic: write pid to a temp file, link(2) into place;
+ *  on EEXIST read the gate, liveness-probe kill(pid,0), steal if stale. */
+export function acquirePidGate(gatePath: string): GateResult;
+/** The supervisor side — B2's endpoint imports this, from here. */
+export function readPidGate(gatePath: string): number | undefined;
+
+// ── daemonMain.ts — the skeleton: gate → serve → teardown ───────────────
+export type DaemonLifetime =
+  | { kind: "forever" }                       // kaval: an idle PTY daemon still holds your terminals
+  | { kind: "idleTimeout"; ms: number; isIdle: () => boolean }; // odu serve: a quiet coordinator may exit
+export type DaemonExit =
+  | { kind: "already-running"; pid: number }  // single-instance: this is SUCCESS, the caller exits 0
+  | { kind: "shutdown"; reason: "sigterm" | "abort" | "idle" };
+export function daemonMain(spec: {
+  gatePath: string;       // the scope key: per-user for kaval, per-repo for odu serve
+  socketPath: string;
+  router: SurfaceRouter;  // any @kolu/surface router — served over the unix-socket listener PR #1084 moved there
+  lifetime: DaemonLifetime;
+  log: Logger;            // one structured boot line; every transition logged
+  signal?: AbortSignal;   // tests drive teardown without real signals
+}): Promise<DaemonExit>;  // never calls process.exit — the bin maps DaemonExit to a code
+```
+
+The two consumers, side by side — same mechanism, opposite policies, all arriving as arguments:
+
+```ts
+// packages/kaval/src/bin.ts — kaval's entire entry (B1)
+const exit = await daemonMain({
+  gatePath:   join(kavalRuntimeDir(), "kaval.pid"),
+  socketPath: cli.socket ?? getPtyHostSocketPath(undefined, "kaval"),
+  router:     servePtyHost({ log, rcDir: kavalRcDir() }).router, // B0's policy-free serving
+  lifetime:   { kind: "forever" },
+  log,
+}); // "held by a live daemon" and "shutdown" are both clean exits
+
+// odu serve (S2, projected) — the second tenant, by substitution only
+await daemonMain({
+  gatePath:   join(repoRoot, ".ci/odu.pid"),   // per-repo scope
+  socketPath: join(repoRoot, ".ci/odu.sock"),
+  router:     oduRunnerRouter,
+  lifetime:   { kind: "idleTimeout", ms: 30 * 60_000, isIdle: () => runsInFlight() === 0 },
+  log,
+});
+```
+
+As load-bearing as what's exported is what is **deliberately absent**: no env application (B0 removed the daemon's env role), no spawn/respawn or `waitForPidGone` (supervisor half — `server/src/ptyHost/` until S1), no survival, adoption, or reconciliation (kaval B3's soul, never spine), and no `process.exit` inside the mechanism (the gate-race tests run it in-process).
+
 ## Phases
 
 The trigger discipline matters more than the speed: the daemon half is a package from birth (B1); the supervisor half moves in **after** it has soaked in production once (B2's recycle, B3's restart), **before** a second hand-rolled copy exists (odu serve, S2).
