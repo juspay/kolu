@@ -72,6 +72,8 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
  * prepareShellInit.
  */
 export function cleanEnv(): Record<string, string> {
+  // Resolve the login shell once — used in both branches.
+  const loginShell = userInfo().shell || "/bin/sh";
   let env: Record<string, string>;
   if (envWhitelist) {
     env = {};
@@ -81,13 +83,12 @@ export function cleanEnv(): Record<string, string> {
     }
     // Nix sets SHELL to /nix/store/.../bash which lacks features like progcomp
     // that user bashrc files expect. Use the real login shell from /etc/passwd.
-    env.SHELL = userInfo().shell || "/bin/sh";
+    env.SHELL = loginShell;
   } else {
     env = { ...process.env } as Record<string, string>;
+    // Ensure SHELL is set — systemd user services may not have it.
+    env.SHELL ??= loginShell;
   }
-  // Ensure SHELL is set — systemd user services may not have it.
-  // Fall back to the login shell from /etc/passwd.
-  env.SHELL ??= userInfo().shell || "/bin/sh";
   return env;
 }
 
