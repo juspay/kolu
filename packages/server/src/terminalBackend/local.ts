@@ -143,10 +143,11 @@ class PtyHostTerminalProxy implements TerminalHandle {
   private rejectReady!: (err: unknown) => void;
 
   /** The pty-host client is injected so the proxy is decoupled from how it's
-   *  built (in-process today, socket-served later) — but it's a stable
-   *  reference, not a thunk: a transport swap re-points the module-level client
-   *  (or its internal connection re-dials), so a daemon reconnect is invisible
-   *  here and the proxy never needs to re-resolve per verb. */
+   *  built — but it's a stable reference, not a thunk: this is the forwarding
+   *  facade from `../ptyHost/index.ts` (`makeForwardingClient`), which resolves
+   *  the endpoint's live connection on every call. So a daemon recycle (B3) is
+   *  invisible here without re-pointing anything, and the proxy never needs to
+   *  re-resolve per verb. */
   constructor(
     private readonly id: TerminalId,
     private readonly client: PtyHostClient,
