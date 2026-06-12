@@ -1,12 +1,13 @@
 import { fileURLToPath } from "node:url";
 import { pidGatePathForSocket, pidIsAlive, readPidGate } from "@kolu/pty-host";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DaemonStatus } from "kolu-common/surface";
 import type { Logger } from "kolu-shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { type LocalPtyHostEndpoint, ensureLocalEndpoint } from "./endpoint.ts";
+import { daemonLogPath } from "./localDriver.ts";
 
 // The real daemon, run through the tsx dev launcher (production bakes the nix
 // wrapper) — so this exercises the actual spawn → connect → recycle path, not a
@@ -170,5 +171,25 @@ describe("ensureLocalEndpoint (real daemon)", () => {
     endpoint.dispose();
     // The daemon outlives the server — that is the whole point of Phase B.
     expect(pidIsAlive(pid as number)).toBe(true);
+  }, 30_000);
+
+  it("captures the detached daemon's stderr to a log file, not /dev/null", async () => {
+    // The macOS prod gap: the detached spawn used `stdio: "ignore"`, so the
+    // daemon's whole voice (its boot line, any error) vanished. It now writes a
+    // sibling log file — the daemon's own `system.version`-style boot line lands
+    // there. (This test forces the detached path via `beforeAll`.)
+    const socketPath = freshSocket();
+    const endpoint = await ensure({ socketPath, publishStatus: () => {} });
+    endpoints.push(endpoint);
+
+    const logPath = daemonLogPath(socketPath);
+    let log = "";
+    for (let i = 0; i < 60 && !log.includes("pty-host daemon listening"); i++) {
+      log = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
+      if (!log.includes("pty-host daemon listening")) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+    expect(log).toContain("pty-host daemon listening");
   }, 30_000);
 });

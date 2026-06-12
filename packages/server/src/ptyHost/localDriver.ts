@@ -13,6 +13,10 @@
  *   - macOS, or Linux NOT under systemd (dev): a detached + `unref`'d child,
  *     which already reparents to launchd/init and outlives the server.
  *
+ * Either way the daemon's stdout/stderr land in one file (`daemonLogPath`,
+ * beside the socket) — the same place on every platform, so its logs are never
+ * `/dev/null` and never platform-guesswork.
+ *
  * The daemon binary is `$KOLU_PTY_HOST_BIN` — the nix `kolu-pty-host` wrapper in
  * production/e2e (it bakes the identity env it serves), the tsx dev launcher
  * under `just dev`. It is required, never guessed: a wrong daemon binary is the
@@ -21,6 +25,8 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { closeSync, mkdirSync, openSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   NIX_ENV_WHITELIST_ENV,
   pidGatePathForSocket,
@@ -28,6 +34,18 @@ import {
   readPidGate,
 } from "@kolu/pty-host";
 import type { Logger } from "kolu-shared";
+
+/** The daemon's log file — a sibling of its socket, in the same private dir,
+ *  the SAME path on every platform. The daemon's stdout+stderr land here:
+ *  inherited-fd on the detached path (macOS / dev), `StandardOutput=append` on
+ *  the systemd-run path (Linux) — so an operator tails one place regardless of
+ *  launch mechanism. (It closes the gap a live macOS deploy surfaced — `stdio:
+ *  "ignore"` had discarded the daemon's whole voice into `/dev/null`.)
+ *  Append-mode: a recycle interleaves the old and new daemon's lines — each
+ *  tagged with its own pid + timestamp — rather than truncating the prior tail. */
+export function daemonLogPath(socketPath: string): string {
+  return join(dirname(socketPath), "pty-host.log");
+}
 
 function daemonBin(): string {
   const bin = process.env.KOLU_PTY_HOST_BIN;
@@ -106,22 +124,40 @@ export function spawnDaemon(opts: {
   const args = ["--pty-host-socket", socketPath];
   const env = daemonEnv(nixEnvWhitelist);
 
+  // The daemon's log file — the SAME path on EVERY platform, so an operator
+  // tails one place no matter how the daemon was launched. We log the path so it
+  // never has to be guessed. (On Linux journald *additionally* records the
+  // transient unit's lifecycle, but the daemon's own voice lands in this file.)
+  const logPath = daemonLogPath(socketPath);
+  mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 });
+
   // The transient unit runs in the user manager's clean env, so forward the
   // keys the daemon needs (PATH, runtime dirs, identity, the Nix whitelist) via
   // `--setenv`. Derive the values from `env` (not `process.env`) so the
-  // whitelist decision injected above reaches the transient unit too.
+  // whitelist decision injected above reaches the transient unit too. The unit's
+  // stdout+stderr append to `logPath` (same as the detached path) rather than
+  // going only to journald — consistency over platform-native.
   if (process.platform === "linux" && process.env.INVOCATION_ID) {
     const unit = `kolu-pty-host-${randomUUID().slice(0, 8)}`;
     const setenv = DAEMON_FORWARD_ENV.filter((k) => env[k] !== undefined).map(
       (k) => `--setenv=${k}=${env[k]}`,
     );
     log.info(
-      { socketPath, unit, bin },
+      { socketPath, unit, bin, logPath },
       "spawning pty-host daemon (systemd-run --user, own cgroup)",
     );
     const child = spawn(
       "systemd-run",
-      ["--user", "--collect", `--unit=${unit}`, ...setenv, bin, ...args],
+      [
+        "--user",
+        "--collect",
+        `--unit=${unit}`,
+        `--property=StandardOutput=append:${logPath}`,
+        `--property=StandardError=append:${logPath}`,
+        ...setenv,
+        bin,
+        ...args,
+      ],
       { stdio: "ignore", env },
     );
     child.on("error", (err) =>
@@ -134,9 +170,14 @@ export function spawnDaemon(opts: {
     return;
   }
 
-  log.info({ socketPath, bin }, "spawning pty-host daemon (detached)");
+  // Detached (macOS / dev-Linux without systemd): there is no journald, so the
+  // daemon's stdout+stderr go straight to `logPath` via the inherited fd. The
+  // child dup's it; close our copy after spawn so the long-lived server never
+  // leaks it.
+  const logFd = openSync(logPath, "a");
+  log.info({ socketPath, bin, logPath }, "spawning pty-host daemon (detached)");
   const child = spawn(bin, args, {
-    stdio: "ignore",
+    stdio: ["ignore", logFd, logFd],
     detached: true,
     env,
   });
@@ -144,6 +185,7 @@ export function spawnDaemon(opts: {
     log.error({ err }, "failed to launch the pty-host daemon"),
   );
   child.unref();
+  closeSync(logFd);
 }
 
 /** The pid of a daemon already holding the socket's gate, or `null` if the gate
