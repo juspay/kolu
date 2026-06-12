@@ -15,6 +15,7 @@
  */
 
 import { type Component, Show } from "solid-js";
+import { WarningIcon } from "./ui/Icons";
 
 /** The daemon's down-sub-union — the only states that render this surface.
  *  `downState()` in useDaemonStatus.ts is the single source that narrows the
@@ -29,20 +30,7 @@ const DegradedCanvas: Component<{ state: "dead" | "degraded" }> = (props) => {
     >
       <div class="mx-6 max-w-md rounded-xl border border-danger/50 bg-danger/5 px-6 py-5">
         <div class="flex items-start gap-3">
-          <svg
-            class="mt-0.5 h-6 w-6 shrink-0 text-danger"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-            <line x1="12" y1="9" x2="12" y2="13" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
+          <WarningIcon class="mt-0.5 h-6 w-6 shrink-0 text-danger" />
           <div class="min-w-0">
             <h2 class="text-sm font-semibold text-fg">
               {isDead()
