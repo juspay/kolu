@@ -16,7 +16,11 @@
  *    — never the empty-canvas lie. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import type { DaemonState, KoluBuildInfo } from "kolu-common/surface";
+import {
+  type DaemonState,
+  formatStaleKey,
+  type KoluBuildInfo,
+} from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import type { WsStatus } from "../rpc/rpc";
 import { daemonStatus } from "../wire";
@@ -41,16 +45,6 @@ const ptyDot: Record<DaemonState, string> = {
   degraded: "bg-warning",
   dead: "bg-danger",
 };
-
-/** Short-form a build id for display: a nix store hash's leading 7 chars, or a
- *  path basename capped at 12. The full id lives in the tooltip. */
-function shortId(id: string | null | undefined): string {
-  if (!id) return "—";
-  const hash = /^([a-z0-9]{7})/.exec(id);
-  if (hash) return hash[1] as string;
-  const tail = id.split("/").pop() ?? id;
-  return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
-}
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // `srv` build identity rides surface-app's `buildInfo` cell; the daemon's
@@ -120,7 +114,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
               label={`build ${key()} — @kolu/pty-host closure hash (staleness key)`}
             >
               <span class="cursor-help border-b border-dotted border-fg-3/50 text-[10px] text-fg-3">
-                {shortId(key())}
+                {formatStaleKey(key())}
               </span>
             </Tip>
           )}

@@ -599,6 +599,19 @@ export const EMPTY_PTY_HOST_IDENTITY: PtyHostIdentity = {
   navigableCommit: "",
 };
 
+/** Short-form a pty-host `staleKey` for display: a nix store hash's leading 7
+ *  chars, or a path basename capped at 12. Lives beside the identity that mints
+ *  `KOLU_PTY_HOST_BUILD_ID` — the side that knows whether the key is a
+ *  store-hash or a path — so any status surface can render it without re-deriving
+ *  the shape. The full key lives in the consumer's tooltip. */
+export function formatStaleKey(id: string | null | undefined): string {
+  if (!id) return "—";
+  const hash = /^([a-z0-9]{7})/.exec(id);
+  if (hash) return hash[1] as string;
+  const tail = id.split("/").pop() ?? id;
+  return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
+}
+
 /** The pty-host daemon's liveness, as the rail's `pty` column reads it. In B1
  *  the daemon is a separate, surviving process, so this is genuinely distinct
  *  from the server's own liveness: `connected` (serving), `degraded` (a contract
