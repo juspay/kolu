@@ -73,11 +73,25 @@ export const ProtoStyles = () => (
   .lang-border .tb-alert{animation:tb-bord-throb 1.2s ease-in-out infinite}
   @keyframes tb-bord-throb{0%,100%{border-color:color-mix(in oklch,var(--violet) 50%,#161618);box-shadow:0 0 0 0 transparent}50%{border-color:var(--violet);box-shadow:0 0 0 2px color-mix(in oklch,var(--violet) 24%,transparent)}}
 
-  /* ── C · SWEEP — a comet of light marches the border (energetic "running") ── */
-  .lang-sweep .tb-working::after{content:"";position:absolute;inset:0;border-radius:9px;padding:1.5px;background:conic-gradient(from 0deg,transparent 0deg,var(--rust) 70deg,transparent 150deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;animation:tb-spin 2.4s linear infinite;pointer-events:none}
+  /* ── C · RUN / SWEEP (refined) — motion TYPE + SPEED carry the state, so the
+     COLOUR is the terminal's own (--tile-c). Working "runs" (a long soft glow
+     circulates, calm); needs-you "sweeps" (a sharp comet orbits) and its SPEED is
+     the urgency: fastest on alert, slower on fresh-waiting, slower still as it
+     goes stale. Louder states also brighten/saturate the SAME tile colour. Ring
+     via the conic-mask trick. ── */
   @keyframes tb-spin{to{transform:rotate(1turn)}}
-  .lang-sweep .tb-waiting{box-shadow:0 0 0 1px var(--violet),0 0 12px -3px color-mix(in oklch,var(--violet) 55%,transparent)}
-  .lang-sweep .tb-alert{animation:tb-halo-throb 1.2s ease-in-out infinite}
+  .lang-runsweep .tb-tile{border-color:color-mix(in oklch,var(--tile-c) 42%,#161618)}
+  .lang-runsweep .tb-dot{background:var(--tile-c)}
+  .lang-runsweep .tb-name{color:color-mix(in oklch,var(--tile-c) 62%,#9aa0aa)}
+  .lang-runsweep .tb-working::after,.lang-runsweep .tb-waiting::after,.lang-runsweep .tb-waitingstale::after,.lang-runsweep .tb-alert::after{content:"";position:absolute;inset:0;border-radius:9px;padding:1.7px;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;pointer-events:none}
+  /* working — RUNS: long soft arc, calm fixed pace, tile colour as-is */
+  .lang-runsweep .tb-working::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 80deg,color-mix(in oklch,var(--tile-c) 55%,transparent) 150deg,transparent 215deg,transparent 360deg);animation:tb-spin 3.2s linear infinite}
+  /* alert — SWEEPS fastest: tight bright comet */
+  .lang-runsweep .tb-alert::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 30deg,transparent 80deg,transparent 360deg);filter:brightness(1.6) saturate(1.7);animation:tb-spin 1s linear infinite}
+  /* waiting (fresh) — SWEEPS medium */
+  .lang-runsweep .tb-waiting::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 36deg,transparent 92deg,transparent 360deg);filter:brightness(1.3) saturate(1.35);animation:tb-spin 2.1s linear infinite}
+  /* waiting (stale) — SWEEPS slow + cooled: the longer it waits, the slower it scans */
+  .lang-runsweep .tb-waitingstale::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 34deg,transparent 90deg,transparent 360deg);filter:brightness(.95) saturate(.85);animation:tb-spin 3.8s linear infinite}
 
   /* ── D · TOP BAR — a thin status bar on the top edge; reads at any zoom (canvas + minimap) ── */
   .lang-bar .tb-tile::after{content:"";position:absolute;top:0;left:0;height:2.5px;width:100%;pointer-events:none;background:transparent}
@@ -108,7 +122,11 @@ export const ProtoStyles = () => (
     .lang-halo .tb-alert{box-shadow:0 0 0 1.5px var(--violet),0 0 0 5px color-mix(in oklch,var(--violet) 18%,transparent)}
     .lang-border .tb-waiting{border-color:var(--violet)}
     .lang-border .tb-alert{border-color:var(--violet);box-shadow:0 0 0 2px color-mix(in oklch,var(--violet) 24%,transparent)}
-    .lang-sweep .tb-working{box-shadow:0 0 0 1px var(--rust),0 0 12px -4px var(--rust)}
+    .lang-runsweep .tb-working::after,.lang-runsweep .tb-waiting::after,.lang-runsweep .tb-waitingstale::after,.lang-runsweep .tb-alert::after{display:none}
+    .lang-runsweep .tb-working{box-shadow:0 0 0 1px color-mix(in oklch,var(--tile-c) 65%,transparent)}
+    .lang-runsweep .tb-waiting{box-shadow:0 0 0 1px var(--tile-c),0 0 9px -4px var(--tile-c)}
+    .lang-runsweep .tb-waitingstale{box-shadow:0 0 0 1px color-mix(in oklch,var(--tile-c) 45%,transparent)}
+    .lang-runsweep .tb-alert{box-shadow:0 0 0 1.5px var(--tile-c),0 0 13px -3px var(--tile-c)}
     .lang-bar .tb-waiting::after,.lang-bar .tb-alert::after,.mm-waiting::after,.mm-alert::after{opacity:1}
   }
   `}</style>
@@ -335,17 +353,91 @@ aging ladder.
 
 <Gallery lang="border" lead="B · Live border — the line carries state" />
 
-### C — Sweep
+### C — Run / sweep (refined): motion is the state, colour is the terminal
 
-A comet of light **marches around the border** while working — the most "this is
-actively running right now" of the set, echoing the dock rail's orbiting glow.
-But that's the trap under the priority order: it spends the loudest channel
-(continuous motion) on the **lowest-priority** active state — working, rank 3 —
-pulling the eye to a churning tile over one that's actually blocked on you. The
-rank inverts it. Keep it only if "what's running" matters more than "what's
-waiting." (Attention states fall back to the halo throb.)
+The first cut of C put its loudest motion on *working* (inverting the rank) and
+forced a fixed hue. Both objections fall away once **the *type* and *speed* of
+motion carry the state — which frees the colour to be the terminal's own**:
 
-<Gallery lang="sweep" lead="C · Sweep — a marching comet for working" />
+- **Working → it *runs*.** A long, soft light circulates the border at a calm,
+  fixed pace — "this machine is busy," steady, asking for nothing.
+- **Needs-you → it *sweeps*.** A sharp comet scans around the border, and its
+  **speed is the urgency**: **alert** sweeps fastest, **fresh-waiting** slower,
+  and a waiting tile **keeps slowing as it goes stale** — the decay you asked for,
+  read as a comet winding down instead of a bar dimming.
+
+Because motion does the semantic work, the running/sweeping light is drawn from
+**the tile's own theme colour** — just brightened + saturated more for the louder
+states. Nothing is hard-coded rust or violet: a teal terminal runs teal, an amber
+one runs amber, and the border always harmonises with the tile instead of
+fighting its theme. That's the answer to "why orange and purple?"
+
+export const RUNSWEEP = [
+  { k: "alert", cap: "Alert", tail: "sweep · fastest", sub: "⏵ Awaiting input" },
+  { k: "waiting", cap: "Waiting · fresh", tail: "sweep · medium", sub: "⏵ Waiting for input" },
+  { k: "waitingstale", cap: "Waiting · stale", tail: "sweep · slow", sub: "⏵ Waiting · 6h" },
+  { k: "working", cap: "Working", tail: "runs", sub: "◐ Thinking…" },
+  { k: "idle", cap: "Idle", tail: "static", sub: "$ ▏" },
+];
+
+export const RunSweepLadder = () => (
+  <div class="tb-canvas lang-runsweep" style="--tile-c:#5a9ea0">
+    <div class="lead">C · run vs sweep — one terminal colour (teal); motion-type + speed carry the state</div>
+    <div class="tb-grid" style="grid-template-columns:repeat(5,1fr)">
+      {RUNSWEEP.map((s) => (
+        <div class="tb-cell">
+          <div class={`tb-tile tb-${s.k}`}>
+            <div class="tb-titlebar"><span class="tb-dot" /><span class="tb-name">argh · claude</span></div>
+            <div class="tb-body">{s.sub}</div>
+          </div>
+          <div class="tb-caption"><b>{s.cap}</b><br />{s.tail}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+<RunSweepLadder />
+
+State is read from **how it moves**: run vs sweep splits working from needs-you;
+sweep speed splits alert (fastest) → fresh (medium) → stale (slowest). And the
+colour is whatever the terminal is — here the same *waiting · sweep* across five
+themes:
+
+export const THEMECOLS = [
+  { c: "#5a9ea0", n: "teal" },
+  { c: "#d6a35c", n: "amber" },
+  { c: "#6cc070", n: "green" },
+  { c: "#6ea8e0", n: "blue" },
+  { c: "#c98aa8", n: "rose" },
+];
+
+export const RunSweepThemes = () => (
+  <div class="tb-canvas lang-runsweep">
+    <div class="lead">…and the colour is the terminal's own — same waiting · sweep, five themes</div>
+    <div class="tb-grid" style="grid-template-columns:repeat(5,1fr)">
+      {THEMECOLS.map((t) => (
+        <div class="tb-cell" style={`--tile-c:${t.c}`}>
+          <div class="tb-tile tb-waiting">
+            <div class="tb-titlebar"><span class="tb-dot" /><span class="tb-name">{t.n} · agent</span></div>
+            <div class="tb-body">{"⏵ Waiting"}</div>
+          </div>
+          <div class="tb-caption"><b>{t.n}</b></div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+<RunSweepThemes />
+
+The trade vs the shipped top-bar (**D**): this is the most *alive* and the most
+*theme-native* of the set, and it sidesteps the fixed-colour question entirely.
+The costs are real, though — a moving light on **every** busy tile (busier with a
+full canvas of working agents), and a thin orbiting comet doesn't shrink to a
+legible **minimap** marker the way a flat bar does, so at minimap scale you'd
+likely still fall back to D's top edge. State here is read from *how it moves*,
+not a learned hue.
 
 ### D — Top bar (reads at any zoom)
 
