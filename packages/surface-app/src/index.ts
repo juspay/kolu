@@ -116,11 +116,19 @@ export function injectShellCommit(html: string, commit: string): string {
   return html.slice(0, at) + shellCommitScript(commit) + html.slice(at);
 }
 
+/** The never-stale sentinel: the commit value that means "don't claim
+ *  staleness." `resolveCommit` (`./vite`) falls back to it, `shellCommit`
+ *  (`./lifecycle`) falls back to it, and `isCleanRef` treats it as not a clean
+ *  ref — so a dev/stampless build on either side never false-positives the
+ *  update prompt. The ONE authoritative copy: `lifecycle` imports it; `vite.ts`
+ *  is self-contained (Node ESM) and pins its literal to this in `vite.test.ts`. */
+export const DEV_COMMIT = "dev";
+
 /** A clean, comparable git ref: a real SHA — not `dev`, not a `-dirty` tree.
  *  Staleness is only claimed between two clean refs, so a dev/dirty build on
  *  either side never false-positives. */
 export const isCleanRef = (sha: string | undefined): sha is string =>
-  !!sha && sha !== "dev" && !sha.includes("-dirty");
+  !!sha && sha !== DEV_COMMIT && !sha.includes("-dirty");
 
 /** True when this browser's build provably differs from the server's: both are
  *  clean refs and they disagree. */

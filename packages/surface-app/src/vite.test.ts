@@ -10,9 +10,12 @@
  * are the lockstep guard between its literal and the kernel constant.
  */
 
-import { describe, expect, it } from "vitest";
-import { SHELL_COMMIT_GLOBAL, shellCommitScriptBody } from "./index";
-import { surfaceApp } from "./vite";
+import { execSync } from "node:child_process";
+import { describe, expect, it, vi } from "vitest";
+import { DEV_COMMIT, SHELL_COMMIT_GLOBAL, shellCommitScriptBody } from "./index";
+import { resolveCommit, surfaceApp } from "./vite";
+
+vi.mock("node:child_process", () => ({ execSync: vi.fn() }));
 
 describe("surfaceApp (vite plugin)", () => {
   it("injects the commit onto the shell global via transformIndexHtml", () => {
@@ -44,5 +47,17 @@ describe("surfaceApp (vite plugin)", () => {
   it("defines NOTHING into the bundle — the define path is retired (kolu#1319)", () => {
     const plugin = surfaceApp({ commit: "0fab0cc" });
     expect("config" in plugin).toBe(false);
+  });
+
+  // `resolveCommit` is self-contained (Node ESM — see the vite.ts header), so
+  // its never-stale fallback is a literal `"dev"` rather than an import of
+  // `DEV_COMMIT`. Pin the literal to the kernel constant the same way the global
+  // name is pinned: the fallback MUST equal the value `isCleanRef` treats as
+  // never-stale, or a stampless client would silently look stale.
+  it("falls back to DEV_COMMIT when no env var is set and git is unavailable", () => {
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("not a git repo");
+    });
+    expect(resolveCommit("__SURFACE_APP_COMMIT_UNSET__")).toBe(DEV_COMMIT);
   });
 });

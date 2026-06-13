@@ -15,7 +15,7 @@ import {
   deadTransportError,
   SURFACE_TRANSPORT_RETIRED,
 } from "@kolu/surface/client";
-import { SHELL_COMMIT_GLOBAL } from "./index";
+import { DEV_COMMIT, SHELL_COMMIT_GLOBAL } from "./index";
 
 /** Permanently retire a transport the server rejected as stale (a tab bound to a
  *  previous process). The app's reload affordance is now the only way forward, so
@@ -123,9 +123,9 @@ export function reloadForUpdate(): void {
  *  false-positive the update prompt. Pass it to the provider —
  *  `clientCommit={shellCommit()}`. */
 export function shellCommit(): string {
-  if (typeof window === "undefined") return "dev";
+  if (typeof window === "undefined") return DEV_COMMIT;
   const commit = (window as unknown as Record<string, unknown>)[
     SHELL_COMMIT_GLOBAL
   ];
-  return typeof commit === "string" && commit !== "" ? commit : "dev";
+  return typeof commit === "string" && commit !== "" ? commit : DEV_COMMIT;
 }
