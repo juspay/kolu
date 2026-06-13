@@ -15,7 +15,7 @@ import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 import Commit from "../../components/Commit.astro";
 
-**The R-4 plan of record** — local PTY daemonization + `@kolu/pty-host`. Split out of the parent [remote-terminals](remote-terminals.html) plan on 2026-05-30; the parent keeps R-1/R-1.5/R-1.6 (shipped) and R-2/R-3 (post-R-4), and now also owns the **multi-host direction** (1 local + N ssh-remote pty-hosts, host switching in the ChromeBar) that this plan must not foreclose. **Current state: A1 (<PrLink pr={1055} />), A2 (<PrLink pr={1063} />), and B0 (<PrLink pr={1292} />) are on master. The first Phase B build (<PrLink pr={1275} />) shipped the full feature as one 40-commit PR, was verified live in production, and was then deliberately discarded: functional, but the architecture was discovered in review rather than designed.** This note is the redo plan — same user-facing functionality, a designed architecture, and a PR split sized so each PR can be executed end-to-end by a single agent session. **Reframed 2026-06-12:** the daemon is not a kolu module that happens to run in its own process — it is **kaval** (Tamil *kāval* — watch, guard), a standalone program in the tradition of [drishti](https://github.com/srid/drishti) and [odu](https://github.com/juspay/odu), with kolu as its first and biggest client. The split is now four PRs: B0 (the spawn-policy inversion) → B1 (the kaval binary + client) → B2 (the door) → B3 (survival). **B0 shipped in <PrLink pr={1292} /> (2026-06-12)** — the wire is fully specified and the package carries zero `kolu-*` deps; **B1 shipped in <PrLink pr={1301} /> (2026-06-12)** (the rename to kaval + kaval-tui, the daemon binary, `@kolu/surface-daemon`, full e2e); **B2 — the door — shipped in <PrLink pr={1310} /> (2026-06-12)** (the topology flip, `@kolu/surface-daemon-supervisor`, the honest degraded state + the live KAVAL rail column/dialog); **B3 — survival — remains, redone as a six-PR chain** after a one-big-PR attempt (<PrLink pr={1326} />) was closed (too big; two blocking data-loss bugs survived its own review). The same week, [surface-daemon](surface-daemon.html) (<PrLink pr={1294} />) named the daemon-lifecycle machinery B1/B2 build as a shared **spine** with `odu serve` as its second tenant — and B1 now ships the spine's **daemon half** as `@kolu/surface-daemon` from the get-go (the review-isolation decision below), plus **full e2e coverage** for the kaval + kaval-tui pair; the supervisor half is born as its own package — `@kolu/surface-daemon-supervisor` — **in B2 itself** (revised 2026-06-12 on B2 planning; S1 shrinks to the handshake move).
+**The R-4 plan of record** — local PTY daemonization + `@kolu/pty-host`. Split out of the parent [remote-terminals](remote-terminals.html) plan on 2026-05-30; the parent keeps R-1/R-1.5/R-1.6 (shipped) and R-2/R-3 (post-R-4), and now also owns the **multi-host direction** (1 local + N ssh-remote pty-hosts, host switching in the ChromeBar) that this plan must not foreclose. **Current state: A1 (<PrLink pr={1055} />), A2 (<PrLink pr={1063} />), and B0 (<PrLink pr={1292} />) are on master. The first Phase B build (<PrLink pr={1275} />) shipped the full feature as one 40-commit PR, was verified live in production, and was then deliberately discarded: functional, but the architecture was discovered in review rather than designed.** This note is the redo plan — same user-facing functionality, a designed architecture, and a PR split sized so each PR can be executed end-to-end by a single agent session. **Reframed 2026-06-12:** the daemon is not a kolu module that happens to run in its own process — it is **kaval** (Tamil *kāval* — watch, guard), a standalone program in the tradition of [drishti](https://github.com/srid/drishti) and [odu](https://github.com/juspay/odu), with kolu as its first and biggest client. The split is now four PRs: B0 (the spawn-policy inversion) → B1 (the kaval binary + client) → B2 (the door) → B3 (survival). **B0 shipped in <PrLink pr={1292} /> (2026-06-12)** — the wire is fully specified and the package carries zero `kolu-*` deps; **B1 shipped in <PrLink pr={1301} /> (2026-06-12)** (the rename to kaval + kaval-tui, the daemon binary, `@kolu/surface-daemon`, full e2e); **B2 — the door — shipped in <PrLink pr={1310} /> (2026-06-12)** (the topology flip, `@kolu/surface-daemon-supervisor`, the honest degraded state + the live KAVAL rail column/dialog); **B3 — survival — remains, redone as a four-PR chain** after a one-big-PR attempt (<PrLink pr={1326} />) was closed (too big; two blocking data-loss bugs survived its own review). The same week, [surface-daemon](surface-daemon.html) (<PrLink pr={1294} />) named the daemon-lifecycle machinery B1/B2 build as a shared **spine** with `odu serve` as its second tenant — and B1 now ships the spine's **daemon half** as `@kolu/surface-daemon` from the get-go (the review-isolation decision below), plus **full e2e coverage** for the kaval + kaval-tui pair; the supervisor half is born as its own package — `@kolu/surface-daemon-supervisor` — **in B2 itself** (revised 2026-06-12 on B2 planning; S1 shrinks to the handshake move).
 
 Companions: the [`srv · pty` ChromeBar rail](pty-daemon-chrome-bar.html) (A2's deliverable, shipped) and [kolu-tui](pty-daemon-tui.html) (Phases 0–2 shipped — the CLI that dials the pty-host unix socket, today served by the in-process server, after B2 by the daemon; renamed **kaval-tui** in B1, when it gains a bin of its own).
 
@@ -86,16 +86,16 @@ The production failures — four from #1034, four more paid for during #1275 —
 | --- | --- | --- |
 | Mis-scoped staleness key (wire change didn't flip it) | A2 ✅ | Closure-scoped key + import-walk guard (now re-rooted at the daemon entry in B1). |
 | Over-prompting (key nudged on every deploy) | A2 ✅ | Server-only change leaves the key bit-identical — a falsifiable test. |
-| Data-loss restart (kill-then-pray, #1034) | B3.3 | One composed restart, snapshot-before-kill a **type-level fact**; forced + user paths are one function. |
+| Data-loss restart (kill-then-pray, #1034) | B3.2 | One composed restart, snapshot-before-kill a **type-level fact**; forced + user paths are one function. |
 | Empty-canvas lie (dead daemon → “no terminals”) | B2 | Honest dead/degraded state ships **with the door**, before any survival promise exists. |
-| Lossy adoption (#1275: splits un-nested, then agent-resume lost *and autosaved*, poisoning cold restores) | B3.4 · B3.5 | Adoption consumes the whole persisted record; a schema-key-iterating round-trip test closes the *class*, not the instance; the partial remainder is durable across autosave. |
-| Lazy adopt-on-spawn (#1275: orphan shells respawned into the daemon — duplicated terminals) | B3.4 | Eager boot-time reconciliation is the only adopt path; orphans are reaped and logged, non-survivors go to the restore card — never silently dropped. |
+| Lossy adoption (#1275: splits un-nested, then agent-resume lost *and autosaved*, poisoning cold restores) | B3.3 | Adoption consumes the whole persisted record; a schema-key-iterating round-trip test closes the *class*; a non-survivor is an exited shell, dropped as `handleExit` already does — never a hidden, autosave-clobbered restore card. |
+| Lazy adopt-on-spawn (#1275: orphan shells respawned into the daemon — duplicated terminals) | B3.3 | Eager boot-time reconciliation is the only adopt path; orphans are reaped and logged; exited shells are dropped (not respawned), so no duplicates. |
 | Identity gone stale after restart (#1275: one-shot read, then manual republish at enumerated call sites) | B2 | One status owner emitting on every transition; everything derives by subscription. |
-| Contract-skew crash-loop masked by launchd as an “App updated” loop (the zest field report on <PrLink pr={1275} />) | B2 | Version checked over the socket on every connect, **never** an import-time throw; skew at boot → controlled recycle (B2) / composed restart (B3.3). |
+| Contract-skew crash-loop masked by launchd as an “App updated” loop (the zest field report on <PrLink pr={1275} />) | B2 | Version checked over the socket on every connect, **never** an import-time throw; skew at boot → controlled recycle (B2) / composed restart (B3.2). |
 
 ## The PRs — each an executable brief
 
-No feature flags — each PR ships complete to master and leaves kolu working. The hazard rule, refined from the first attempt: **each PR must be complete w.r.t. the hazards *it* opens** — B0 opens none (an in-process refactor with byte-identical behavior), and the door can open with the survival promise off, which empties its hazard set by policy. B0–B2 shipped as single PRs; **B3 is itself a six-PR chain** (below), each self-sufficient, after the one-big-PR attempt (<PrLink pr={1326} />) was closed.
+No feature flags — each PR ships complete to master and leaves kolu working. The hazard rule, refined from the first attempt: **each PR must be complete w.r.t. the hazards *it* opens** — B0 opens none (an in-process refactor with byte-identical behavior), and the door can open with the survival promise off, which empties its hazard set by policy. B0–B2 shipped as single PRs; **B3 is itself a four-PR chain** (below), each self-sufficient, after the one-big-PR attempt (<PrLink pr={1326} />) was closed.
 
 ### B0 — the inversion: dumb wire, client policy <Pill variant="done">shipped</Pill>
 
@@ -154,47 +154,42 @@ Traps: **no mode flag** — the socket is *the* path (a `KOLU_DAEMON_MODE` toggl
 
 Verify: e2e green on both platforms (the darwin lane's *presence* is itself a check — its absence was once silent); kaval-tui works against the daemon with no flags; `pkill`-ing kaval mid-session shows the honest dead state; a staged deploy shows the recycle in the journal.
 
-### B3 — survival: six PRs, not one <Pill variant="todo">the promise flips on</Pill>
+### B3 — survival: four PRs, not one <Pill variant="todo">the promise flips on</Pill>
 
-**Goal:** terminals survive a kolu update. The first build did it as **one ~1800-line PR** (<PrLink pr={1326} />, **closed**) — too big to review (two blocking data-loss bugs survived its own gauntlet), the spine grew mid-implementation, and one CI-unreachable edge case (partial survival) dragged a race-sensitive autosave swamp into the diff. The redo is a **shallow chain of six PRs** — two refactors, then one capability each.
+**Goal:** terminals survive a kolu update. The first build did it as **one ~1800-line PR** (<PrLink pr={1326} />, **closed**) — too big to review (two blocking data-loss bugs survived its own gauntlet), the spine grew mid-implementation, and a *misframed* edge case (partial survival) dragged a race-sensitive autosave swamp into the diff **that wasn't even needed** (see the crux). The redo is a **shallow chain of four PRs** — one refactor, then one capability each.
 
 <D2
-  caption="The B3 chain. Two pure refactors (blue) carve the seams; then supervised-restart — fully CI-testable, and it finishes B2's deferred Restart-kaval button — lands BEFORE adoption (the staged-prod headline) so adoption reuses the proven recycle+restore plumbing; the partial-survivor swamp is quarantined to its own PR; currency is last, gated on a CI proof that the build-id reaches the server. adoptOrEnsure ⊥ serializeRestart (no call-edge) is what licenses splitting the spine across B3.3/B3.4."
+  caption="The B3 chain. One pure refactor (blue) carves the seams; then supervised-restart — fully CI-testable, and it finishes B2's deferred Restart-kaval button — lands BEFORE adoption (the staged-prod headline) so adoption reuses the proven capture+restore plumbing; currency is last, gated on a CI proof that the build-id reaches the server. adoptOrEnsure ⊥ serializeRestart (no call-edge) is what licenses splitting the spine across B3.2/B3.3."
   code={`direction: down
-r1: "B3.1 · refactor\\nspine: extract ensure() helpers" {style.fill: "#dbeafe"}
-r2: "B3.2 · refactor\\nserver: F1/F2 helpers (tested)" {style.fill: "#dbeafe"}
-f3: "B3.3 · supervised restart\\n✓ CI-testable · finishes B2's button" {style.fill: "#dcfce7"}
-f4: "B3.4 · adoption (HEADLINE)\\nstaged-prod" {style.fill: "#fef9c3"}
-f5: "B3.5 · partial remainder (OPTIONAL)\\nquarantined autosave swamp" {style.fill: "#fee2e2"; style.stroke-dash: 3}
-f6: "B3.6 · currency nudge\\n✓ CI-gated" {style.fill: "#dcfce7"}
+r1: "B3.1 · refactor\\ncarve the seams (spine + server)" {style.fill: "#dbeafe"}
+f2: "B3.2 · supervised restart\\n✓ CI-testable · finishes B2's button" {style.fill: "#dcfce7"}
+f3: "B3.3 · adoption (HEADLINE)\\nstaged-prod" {style.fill: "#fef9c3"}
+f4: "B3.4 · currency nudge\\n✓ CI-gated" {style.fill: "#dcfce7"}
+r1 -> f2
 r1 -> f3
-r1 -> f4
-r2 -> f3
-r2 -> f4
-f3 -> f4: "reuse recycle+restore"
-f4 -> f5: "upgrade partial (optional)" {style.stroke-dash: 3}
-f3 -> f6: "click target"
-f4 -> f6: "reachability"
+f2 -> f3: "reuse capture+restore"
+f2 -> f4: "click target"
+f3 -> f4: "reachability"
 `}
 />
 
 | PR | Kind | Ships (user-visible) | Spine symbol — frozen up front | Hazard killed by construction | Dep |
 | --- | --- | --- | --- | --- | --- |
-| **B3.1** | refactor | *none* | extract `ensure()` helpers (`liveServingHolder` · `killLiveHolder` · `spawnConnectHold`); `ensure()` still always-recycles | byte-identical — existing `endpoint.test.ts` is the gate | — |
-| **B3.2** | refactor | *none* | *(server)* extract `killHalfWiredPty` + `setSavedSessionFromSnapshot` (the **F1** empty→null guard, tested in isolation) | F1 receptacle centralized + tested before any consumer | B3.1 |
-| **B3.3** | feature | **session-preserving restart of kaval** — works on a **running** daemon (pick up a new build · user-initiated) *and* a dead/degraded one (recover); finishes B2's deferred "Restart kaval" button | `restarting` + `serializeRestart` + emit-guard | **F1 · F4 · F5 · F6**; fully **CI/e2e-testable** (recycle→fresh) | B3.1–2 |
-| **B3.4** | feature | live PTYs — process + scrollback + running agent — **survive a deploy that didn't change kaval's source** (staleKey unchanged — the common case) *(partial survival → a clean recycle + full restore via B3.3)* | `adoptOrEnsure` — reconcile **before** wiring | **#1275** whole-record adopt + **F2** fold-back; lazy-adopt impossible (eager boot reconcile only) | B3.2–3 |
-| **B3.5** | feature · **optional** | only in the *rare* partial redeploy: the **survivors keep their live process** instead of re-spawning with the rest (B3.4 already loses nothing — this just spares the survivors a recycle) | *none (server autosave)* | **F3** — the isolated ~104-line `session.ts` cluster; tests must fail against pre-fix code | B3.4 |
-| **B3.6** | feature | amber **⬆ update pending** when kaval is a build behind → one-click recycle | *none (reads existing `identity.staleKey`)* | **#1034** over-prompting (keyed on closure hash only); **CI gate**: build-id reaches the server | B3.3–4 |
+| **B3.1** | refactor | *none* | spine: extract the `ensure()` helpers (`liveServingHolder` · `killLiveHolder` · `spawnConnectHold`); server: extract `killHalfWiredPty` + `setSavedSessionFromSnapshot` (the **F1** empty→null guard) | byte-identical (existing `endpoint.test.ts` is the gate); F1/F2 receptacles tested before any consumer | — |
+| **B3.2** | feature | **session-preserving restart of kaval** — on a **running** daemon (pick up a new build · user-initiated) *and* a dead/degraded one (recover); finishes B2's deferred "Restart kaval" button | `restarting` + `serializeRestart` + emit-guard | **F1 · F4 · F5 · F6**; fully **CI/e2e-testable** (recycle→fresh, restore from the empty canvas) | B3.1 |
+| **B3.3** | feature | live PTYs — process + scrollback + running agent — **survive a deploy that didn't change kaval's source** (staleKey unchanged — the common case) | `adoptOrEnsure` — reconcile **before** wiring | **#1275** whole-record adopt + **F2**; a non-survivor is an exited shell → **dropped** (kolu's normal `handleExit`), never restore-carded | B3.1–2 |
+| **B3.4** | feature | amber **⬆ update pending** when kaval is a build behind → one-click recycle | *none (reads existing `identity.staleKey`)* | **#1034** over-prompting (keyed on closure hash only); **CI gate**: build-id reaches the server | B3.2–3 |
 
-*Why B3.6 stands alone:* it's a distinct capability (the nudge + currency derivation) with its own hazard (**#1034** over-prompting — never nudge when a deploy left kaval's staleKey unchanged) and its own Nix gate, and it depends on **both** B3.3 (the restart it fires) and B3.4 (reachability — a build-behind daemon only exists once adoption keeps one alive; under always-recycle there's nothing to nudge about).
+*Why B3.4 stands alone:* it's a distinct capability (the nudge + currency derivation) with its own hazard (**#1034** over-prompting — never nudge when a deploy left kaval's staleKey unchanged) and its own Nix gate, and it depends on **both** B3.2 (the restart it fires) and B3.3 (reachability — a build-behind daemon only exists once adoption keeps one alive; under always-recycle there's nothing to nudge about).
 
-**The crux — the partial-survivor case, decided here, not in review.** Every #1326 bug and the `session.ts` doubling lived here:
+**The crux — the partial case dissolves; #1326's swamp was a conflation.** Every #1326 bug and the `session.ts` doubling came from one mistake: treating an *adopt-case* non-survivor like a *restart-case* one. They're different:
 
-| Option | Verdict |
-| --- | --- |
-| Collapse-to-recycle | ❌ **not free** — by boot, `adoptOrEnsure()` has already adopted the survivors *live*; recycling-on-partial **force-kills the running agents it just adopted** and needs a new boot-recycle path. |
-| Fail-closed → durable *(two-step)* | ✅ **B3.4** reconciles *before* wiring; on a partial set it recycles-and-fully-restores (lossless of the session, re-spawns survivors only in the rare partial case). **B3.5** then upgrades it to keep survivors live, paying the durability machinery **once, in isolation.** |
+| Case | A non-survivor is… | Right move |
+| --- | --- | --- |
+| **B3.2 restart** — daemon killed, *all* PTYs die | a terminal you still want (you didn't close it) | restore it (re-spawn from the captured session) — on the **empty** canvas, so no live survivors, no autosave race |
+| **B3.3 adoption** — daemon *survived*, a PTY is gone | an **exited shell** (its process ended in the restart window) | **drop it** — exactly what kolu's `handleExit` already does when a shell exits with the server up |
+
+So adoption's "partial" case is trivial — **adopt the live, drop the exited** — with no restore card, no recycle, no autosave-durability machinery. #1326 mis-applied the restart-case restore card to the adopt case, which forced the `pendingRestoreCard` / union / `session.restored` cluster that burned four codex rounds **for a problem that doesn't exist.** *(If kolu ever keeps exited terminals around instead of closing them, revisit — that's a separate feature.)*
 
 #### What upstreams to the spine libraries
 
@@ -202,11 +197,11 @@ f4 -> f6: "reachability"
 
 | Upstreams → `@kolu/surface-daemon-supervisor` (mechanism) | Stays in kolu-server (soul — session/terminal policy) |
 | --- | --- |
-| **B3.4** `adoptOrEnsure()` — adopt a live, handshake-compatible survivor; recycle only an absent / dead / skewed one. Generic: it adopts-or-recycles via the injected `connect`, knowing nothing of PTYs | `reconcile.ts` — *which* daemon PTYs map to *which* saved terminals; `adoptTerminal` / `wireTerminal` whole-record adoption |
-| **B3.3** `restarting` state + `serializeRestart` (coalesce concurrent triggers) + the emit-guard (hold `restarting` across the inner recycle) | `setSavedSessionFromSnapshot`, the B3.5 partial-remainder durability, the `daemon.restart` RPC, the currency comparison vs the *expected* build |
+| **B3.3** `adoptOrEnsure()` — adopt a live, handshake-compatible survivor; recycle only an absent / dead / skewed one. Generic: it adopts-or-recycles via the injected `connect`, knowing nothing of PTYs | `reconcile.ts` — *which* daemon PTYs map to *which* saved terminals; `adoptTerminal` / `wireTerminal` whole-record adoption |
+| **B3.2** `restarting` state + `serializeRestart` (coalesce concurrent triggers) + the emit-guard (hold `restarting` across the inner recycle) | `setSavedSessionFromSnapshot`, the `daemon.restart` RPC, the currency comparison vs the *expected* build |
 | **B3.1** `ensure()` helper extraction · *already there from B2:* composed `restart`, `waitForPidGone`, the driver, per-transition `identity` reporting | — |
 
-**Every PR also:** names its spine symbol up front and ships it **with** its consumer (#1326's spine doubled mid-flight); carries its Nix wiring day-1 — `default.nix` fileset + `ci::flake-check` + zero-`kolu-*` dep-allowlist, **B3.4** asserting `KAVAL_BUILD_ID` bit-identical (no forced restart) and **B3.6** the build-id-reaches-server CI gate (#1326's "stranded nix" was a missing assertion, not missing wiring); and maps its slice of #1034 / #1275 / F1–F6 to a type- or test-level fact. No "follow-up / degrades gracefully / flagged for review."
+**Every PR also:** names its spine symbol up front and ships it **with** its consumer (#1326's spine doubled mid-flight); carries its Nix wiring day-1 — `default.nix` fileset + `ci::flake-check` + zero-`kolu-*` dep-allowlist, **B3.3** asserting `KAVAL_BUILD_ID` bit-identical (no forced restart) and **B3.4** the build-id-reaches-server CI gate (#1326's "stranded nix" was a missing assertion, not missing wiring); and maps its slice of #1034 / #1275 / F1–F6 to a type- or test-level fact. No "follow-up / degrades gracefully / flagged for review."
 
 ### The gate — the second deploy (not a PR)
 
