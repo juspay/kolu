@@ -14,21 +14,15 @@ import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
 import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
-import { DAEMON_STATE_PRESENTATION, toneDot } from "./useDaemonStatus";
+import {
+  DAEMON_STATE_PRESENTATION,
+  formatUptime,
+  toneDot,
+} from "./useDaemonStatus";
 import Commit from "./ui/Commit";
 import { CloseIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
-
-function uptime(startedAt: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ${m % 60}m`;
-  return `${Math.floor(h / 24)}d ${h % 24}h`;
-}
 
 const Cmd: Component<{ children: string; note: string }> = (props) => (
   <div class="flex items-baseline justify-between gap-3 py-1">
@@ -98,7 +92,7 @@ const KavalInfoDialog: Component<{
                   <Show when={s().startedAt}>
                     {(t) => (
                       <span class="text-fg-3 tabular-nums">
-                        · up {uptime(t())}
+                        · up {formatUptime(Date.now() - t())}
                       </span>
                     )}
                   </Show>

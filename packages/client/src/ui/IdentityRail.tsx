@@ -31,6 +31,7 @@ import { createSharedRoot } from "../createSharedRoot";
 import KavalInfoDialog from "../KavalInfoDialog";
 import {
   DAEMON_STATE_PRESENTATION,
+  formatUptime,
   localDaemonStatus,
   toneDot,
 } from "../useDaemonStatus";
@@ -64,17 +65,6 @@ function shortId(id: string | null | undefined): string {
   if (hash) return hash[1] as string;
   const tail = id.split("/").pop() ?? id;
   return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
-}
-
-/** Compact human uptime from a boot epoch — `45s`, `12m`, `3h 20m`, `2d 4h`. */
-function formatUptime(ms: number): string {
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  if (sec < 60) return `${sec}s`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ${min % 60}m`;
-  return `${Math.floor(hr / 24)}d ${hr % 24}h`;
 }
 
 // A 1s clock so the kaval uptime ticks live (`15s → 16s → …`) rather than

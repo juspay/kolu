@@ -65,6 +65,20 @@ export const DAEMON_STATE_PRESENTATION: Record<
   },
 };
 
+/** Compact human uptime from a millisecond delta — `45s`, `12m`, `3h 20m`,
+ *  `2d 4h`. The one uptime projection for the one daemon: the rail (passing
+ *  `clockNow() - startedAt`) and the kaval dialog (`Date.now() - startedAt`)
+ *  both call this, so a format tweak reaches both surfaces at once. */
+export function formatUptime(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ${min % 60}m`;
+  return `${Math.floor(hr / 24)}d ${hr % 24}h`;
+}
+
 /** A tone → status-dot class. The one place `warming`==`animate-pulse` etc. is
  *  spelled, so the dot is derived from {@link DAEMON_STATE_PRESENTATION}'s tone
  *  rather than re-tabulated per display. */
