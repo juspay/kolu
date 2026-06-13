@@ -663,8 +663,10 @@ const CodeTab: Component<{
               ? NO_BRANCH_BASE
               : "Working tree vs branch base",
           icon: GitBranchIcon,
-          // No base ⇒ nothing to count; suppress the pill rather than show 0.
-          badge: noBase ? undefined : branchCount(),
+          // No base ⇒ not badgeable, so omit the field entirely rather than
+          // carry a value the presenter has to special-case. With a base, the
+          // badge is the change count (the presenter hides it when 0).
+          ...(noBase ? {} : { badge: branchCount() }),
         },
       };
       return CODE_TAB_VIEW_ORDER.map((value) => ({
