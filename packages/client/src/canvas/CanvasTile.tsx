@@ -29,6 +29,7 @@ import {
   tileTitleBarBg,
   tileTitleBarBorder,
 } from "./tileChrome";
+import type { TileAura } from "./tileAura";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
 import { tileTransformCSS } from "./viewport/coordinates";
 
@@ -55,6 +56,11 @@ const CanvasTile: Component<{
   theme: TileTheme;
   /** Per-repo identity color; drives the tile border. */
   repoColor: string;
+  /** Agent-state aura tier — paints a top-edge bar so the tile's state is
+   *  legible at a glance across the canvas. Computed by the caller from the
+   *  same classifiers the dock uses (`agentBucket` + unread + staleness);
+   *  the tile shell only renders the bar. `"none"` paints nothing. */
+  aura: TileAura;
   onSelect: () => void;
   onClose: () => void;
   /** Toggle between tiled and maximized. Bound to title-bar double-click. */
@@ -160,6 +166,7 @@ const CanvasTile: Component<{
       data-active={props.active ? "true" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
+      data-aura={props.aura}
       // `inert` (when covered) removes the subtree from tab order, blocks
       // pointer events, and hides from assistive tech in one go — matches
       // the pre-#988 `visibility: hidden` wrapper without re-introducing
@@ -193,6 +200,15 @@ const CanvasTile: Component<{
       style={tileStyle()}
       onMouseDown={() => props.onSelect()}
     >
+      {/* State aura — a top-edge bar coloured + animated by agent state
+       *  (canvas/tileAura.ts + the `.aura-bar` rules in index.css). Styled via
+       *  the root's `data-aura`; the active tile mutes its own bar so focus
+       *  stays dominant. Skipped when maximized (the bar would stripe the
+       *  whole viewport) and when `"none"` (idle / no agent). */}
+      <Show when={!isMaximized() && props.aura !== "none"}>
+        <div data-testid="canvas-tile-aura" class="aura-bar" />
+      </Show>
+
       {/* Title bar — uses tile foreground at low opacity for guaranteed
        *  contrast against the tile background, regardless of theme. The
        *  drag activators only attach when tiled — a maximized tile shouldn't

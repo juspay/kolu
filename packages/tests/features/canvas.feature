@@ -277,6 +277,23 @@ Feature: Canvas workspace
     Then minimap tile 1 should be in the "none" bucket
     And there should be no page errors
 
+  @claude-mock
+  Scenario: Canvas tile and minimap paint a waiting agent's state as a top-edge aura
+    # A tile and its minimap marker carry a `data-aura` tier (canvas/tileAura.ts)
+    # so the fleet's state reads at a glance. A waiting agent is the fresh
+    # "needs-you" tier; the same mapper drives both surfaces.
+    When a Claude Code session is mocked with state "waiting"
+    Then canvas tile 1 should have aura "waiting"
+    And minimap tile 1 should have aura "waiting"
+    And there should be no page errors
+
+  @claude-mock
+  Scenario: A working agent reads as the working aura on tile and minimap
+    When a Claude Code session is mocked with state "thinking"
+    Then canvas tile 1 should have aura "working"
+    And minimap tile 1 should have aura "working"
+    And there should be no page errors
+
   Scenario: Minimap arrange button repositions tiles
     Given I create a terminal
     Then there should be 2 canvas tiles

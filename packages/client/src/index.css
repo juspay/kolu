@@ -193,6 +193,74 @@ body {
   }
 }
 
+/* Canvas tile + minimap state aura — a thin bar on a tile's TOP edge whose
+ * colour + motion encode the attention rank (see canvas/tileAura.ts). One
+ * language at two scales: a full canvas tile and a minimap marker both set
+ * `data-aura` on their root and contain an `.aura-bar`, so these rules paint
+ * both. Motion is reserved for the rungs that want you — alert blinks,
+ * fresh-waiting pulses; working is a steady rust hum, stale-waiting a static
+ * ember. Rust (busy) for working keeps it distinct from the teal focus ring. */
+.aura-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  pointer-events: none;
+}
+.aura-bar--mini {
+  height: 1.5px;
+}
+[data-aura="working"] .aura-bar {
+  background: var(--color-busy);
+}
+[data-aura="waiting"] .aura-bar {
+  background: var(--color-alert);
+  animation: aura-pulse 2.4s ease-in-out infinite;
+}
+[data-aura="alert"] .aura-bar {
+  background: var(--color-alert);
+  animation: aura-blink 1.2s ease-in-out infinite;
+}
+[data-aura="waiting-stale"] .aura-bar {
+  right: auto;
+  width: 55%;
+  background: color-mix(in oklch, var(--color-alert) 42%, transparent);
+}
+/* The active tile is where you already are — mute its bar to a whisper (and
+ * still it, so the focus ring dominates and the loud bars stay on tiles you're
+ * NOT in). Placed after the colour rules so equal specificity resolves here. */
+[data-active="true"] .aura-bar {
+  animation: none;
+  opacity: 0.35;
+}
+@keyframes aura-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes aura-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+/* Reduced motion: drop the pulse/blink but keep each tier legible by colour. */
+@media (prefers-reduced-motion: reduce) {
+  [data-aura="waiting"] .aura-bar,
+  [data-aura="alert"] .aura-bar {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* Inset highlight: marks the pill as ALSO the active terminal when
  * the border is already busy showing agent state. Sits inside the
  * pill so it doesn't compete with the outer animated ring. */

@@ -348,6 +348,42 @@ Then(
   },
 );
 
+Then(
+  /^canvas tile (\d+) should have aura "(alert|waiting|waiting-stale|working|none)"$/,
+  async function (this: KoluWorld, index: number, aura: string) {
+    const i = Number(index) - 1;
+    await this.page.waitForFunction(
+      ({ i, want }: { i: number; want: string }) => {
+        const tiles = document.querySelectorAll('[data-testid="canvas-tile"]');
+        const tile = tiles[i] as HTMLElement | undefined;
+        if (!tile) return false;
+        return tile.getAttribute("data-aura") === want;
+      },
+      { i, want: aura },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  /^minimap tile (\d+) should have aura "(alert|waiting|waiting-stale|working|none)"$/,
+  async function (this: KoluWorld, index: number, aura: string) {
+    const i = Number(index) - 1;
+    await this.page.waitForFunction(
+      ({ i, want }: { i: number; want: string }) => {
+        const rects = document.querySelectorAll(
+          '[data-testid="minimap-tile-rect"]',
+        );
+        const rect = rects[i] as HTMLElement | undefined;
+        if (!rect) return false;
+        return rect.getAttribute("data-aura") === want;
+      },
+      { i, want: aura },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then("no two canvas tiles should overlap", async function (this: KoluWorld) {
   await this.page.waitForFunction(
     (sel: string) => {

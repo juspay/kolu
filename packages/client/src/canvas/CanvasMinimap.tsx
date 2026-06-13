@@ -13,13 +13,14 @@ import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { ActivityWindowChip } from "../ui/ActivityWindowChip";
 import { GridIcon } from "../ui/Icons";
-import { agentBucket, bucketDescriptor } from "./dockModel";
+import { agentBucket } from "./dockModel";
 import {
   handleMinimapClick,
   startTileDrag,
   startViewportDrag,
 } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
+import { type TileAura, tileAura } from "./tileAura";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
@@ -337,6 +338,12 @@ const CanvasMinimap: Component<{
             const isActive = () => store.activeId() === id;
             const hasAgent = () => state().bucket !== "none";
             const badgeVisible = () => hasAgent() && !parked();
+            // Same aura tier the full canvas tile paints — one mapper, two
+            // scales. Parked tiles render as ghosts (no bar), so the stale
+            // ember tier never surfaces here; a fresh awaiter pulses, a worker
+            // hums, an unread alert blinks.
+            const auraTier = (): TileAura =>
+              tileAura(state().bucket, store.isUnread(id), parked());
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
             // theme or Tailwind-color-space change flows through. Inline bg
             // is for non-parked only — `theme().bg` is a dynamic per-repo
@@ -375,6 +382,7 @@ const CanvasMinimap: Component<{
                     data-testid="minimap-tile-rect"
                     data-tile-id={id}
                     data-bucket={state().bucket}
+                    data-aura={auraTier()}
                     data-parked={parked() ? "" : undefined}
                     class={`absolute cursor-pointer ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
                     classList={{
@@ -393,20 +401,14 @@ const CanvasMinimap: Component<{
                     onPointerDown={handleTilePointerDown}
                     onClick={handleTileClick}
                   >
-                    {/* Mount-gate stays open while parked so a bucket→none
-                        flip mid-park doesn't cut the opacity fade short. */}
-                    <Show when={hasAgent() || parked()}>
-                      <span
-                        data-testid={`minimap-${state().bucket}-dot`}
-                        class={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity ${MORPH_TRANSITION}`}
-                        classList={{
-                          "opacity-0": !badgeVisible(),
-                          "opacity-100": badgeVisible(),
-                        }}
-                        style={{
-                          "background-color": bucketDescriptor(state().bucket)
-                            .accentVar,
-                        }}
+                    {/* State aura — the same top-edge bar the full canvas tile
+                        paints (index.css `.aura-bar`, coloured via the rect's
+                        `data-aura`), at minimap scale. Only for live, non-parked
+                        tiles; parked tiles are already the recessive ghost. */}
+                    <Show when={badgeVisible() && auraTier() !== "none"}>
+                      <div
+                        data-testid="minimap-tile-aura"
+                        class="aura-bar aura-bar--mini"
                       />
                     </Show>
                   </div>

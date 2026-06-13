@@ -38,6 +38,8 @@ import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
+import { agentBucket } from "./dockModel";
+import { type TileAura, tileAura } from "./tileAura";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
 import {
@@ -409,6 +411,18 @@ const TerminalCanvas: Component<{
                   : active()
                     ? "maximized"
                     : "covered";
+              // State aura tier — same classifiers the dock + minimap use, so
+              // every surface reads one source of truth (no parallel state
+              // logic). The minute-by-minute staleness tick that feeds `dimmed`
+              // also cools an awaiting tile from `waiting` to `waiting-stale`.
+              const aura = (): TileAura => {
+                const meta = store.getMetadata(id);
+                return tileAura(
+                  agentBucket(meta?.agent),
+                  store.isUnread(id),
+                  isStale(meta?.lastActivityAt ?? 0),
+                );
+              };
               return (
                 <Show when={store.getDisplayInfo(id)}>
                   {(info) => (
@@ -419,6 +433,7 @@ const TerminalCanvas: Component<{
                       dimmed={isStale(
                         store.getMetadata(id)?.lastActivityAt ?? 0,
                       )}
+                      aura={aura()}
                       theme={tileTheme(id)}
                       repoColor={info().repoColor}
                       onSelect={() => props.onSelect(id)}
