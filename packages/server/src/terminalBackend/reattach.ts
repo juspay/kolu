@@ -28,15 +28,11 @@
 import type { PtyHostListEntry } from "kaval";
 import { log } from "../log.ts";
 import { setAdoptedCount } from "../ptyHost/daemonStatus.ts";
-import { ptyHostClient } from "../ptyHost/index.ts";
+import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
 import { getSavedSession, saveSession } from "../session.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
 import { adoptLocalTerminal } from "./local.ts";
-
-/** The local host's daemon-status key (mirrors `ensureLocalEndpoint`'s
- *  `hostId: "local"`). */
-const LOCAL_HOST = "local";
 
 /** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
  *  adopt the survivors. See the module doc. Called from `ensureLocalEndpoint`
@@ -91,7 +87,7 @@ export async function adoptSurvivingSession(): Promise<void> {
   saveSession(snapshotSession());
 
   if (adopt.length > 0) {
-    setAdoptedCount(LOCAL_HOST, adopt.length);
+    setAdoptedCount(LOCAL_HOST_ID, adopt.length);
     log.info(
       { adopted: adopt.length, reaped: orphanExtras.length },
       "adopted surviving terminals after restart",

@@ -42,6 +42,11 @@ import {
 
 type Identity = PtyHostIdentity | undefined;
 
+/** The single local kaval host's id — the daemon-status key the endpoint reports
+ *  under and consumers (e.g. boot adoption's `setAdoptedCount`) read by. Owned
+ *  here, where `ensureLocalEndpoint` defines the daemon's identity/lifecycle. */
+export const LOCAL_HOST_ID = "local";
+
 let endpoint: Endpoint<PtyHostClient, Identity> | undefined;
 
 /** The serialized, emit-guarded restart trigger, bound to the live endpoint by
@@ -124,7 +129,7 @@ export async function ensureLocalEndpoint(opts: {
 }): Promise<void> {
   const socketPath = kavalSocketPath(opts.port);
   const ep = createEndpoint<PtyHostClient, Identity>({
-    hostId: "local",
+    hostId: LOCAL_HOST_ID,
     gatePath: kavalGatePath(socketPath),
     socketPath,
     driver: localKavalDriver(socketPath),
