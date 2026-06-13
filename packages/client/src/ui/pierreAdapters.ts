@@ -14,7 +14,11 @@ import type {
   ContextMenuItem,
   ContextMenuOpenContext,
 } from "@kolu/solid-pierre";
-import { type CodeTabView, viewLabel } from "kolu-common/surface";
+import {
+  CODE_TAB_VIEW_ORDER,
+  type CodeTabView,
+  viewLabel,
+} from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "./clipboard";
 
@@ -37,12 +41,6 @@ function navEntryLabel(target: CodeTabView): string {
     : `Open ${viewLabel(target)} diff`;
 }
 
-/** Canonical view order, matching the scope switcher's `scopeSegments` ordering.
- *  `navEntriesFor` derives its entries from this list, so adding a view is a
- *  one-line edit and "exactly the other views, in canonical order" stays
- *  mechanical instead of hand-tabulated. */
-const VIEW_ORDER = ["browse", "local", "branch"] as const;
-
 /** View-switch entries offered for the current `view`: every other view in
  *  canonical order. Browse (All files) jumps into either git-diff view; either
  *  git-diff view can return to All files or flip to its sibling diff. The
@@ -60,10 +58,12 @@ const VIEW_ORDER = ["browse", "local", "branch"] as const;
 function navEntriesFor(
   view: CodeTabView,
 ): readonly { label: string; target: CodeTabView }[] {
-  return VIEW_ORDER.filter((target) => target !== view).map((target) => ({
-    label: navEntryLabel(target),
-    target,
-  }));
+  return CODE_TAB_VIEW_ORDER.filter((target) => target !== view).map(
+    (target) => ({
+      label: navEntryLabel(target),
+      target,
+    }),
+  );
 }
 
 /** Pierre wraps the rendered element in a `display:flex; align-items:center`

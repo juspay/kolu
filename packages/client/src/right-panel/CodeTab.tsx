@@ -18,6 +18,7 @@ import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import {
+  CODE_TAB_VIEW_ORDER,
   type CodeTabView,
   type TerminalId,
   type TerminalMetadata,
@@ -631,33 +632,31 @@ const CodeTab: Component<{
   const localCount = (): number => localStatus()?.files.length ?? 0;
   const branchCount = (): number => branchStatus()?.files.length ?? 0;
 
-  // Scope catalog — owns the list of views, their labels, tooltips,
-  // icons, change counts, and grouping. Adding a new view (e.g. "stash")
-  // happens here, plus the data-source switch above. The shared
+  // Scope catalog — attaches each view's label, tooltip, icon, change count,
+  // and group divider to the canonical `CODE_TAB_VIEW_ORDER`. The order itself
+  // lives in `surface.ts` (shared with the right-click "jump to view" menu);
+  // this memo only supplies the per-view metadata. The shared
   // `SegmentedControl` is purely a presenter.
   const scopeSegments = createMemo<SegmentedControlOption<CodeTabView>[]>(
     () => {
       const ref = branchRef();
       const noBase = branchBase() === null;
-      return [
-        {
-          value: "browse",
-          label: viewLabel("browse"),
+      const meta: Record<
+        CodeTabView,
+        Omit<SegmentedControlOption<CodeTabView>, "value" | "label">
+      > = {
+        browse: {
           hint: "Browse the whole repo",
           icon: FileBrowseIcon,
         },
-        {
-          value: "local",
-          label: viewLabel("local"),
+        local: {
           hint: "Working tree vs HEAD",
           icon: GitBranchIcon,
           badge: localCount(),
           // First git segment — set apart from the whole-repo browse tree.
           dividerBefore: true,
         },
-        {
-          value: "branch",
-          label: viewLabel("branch"),
+        branch: {
           hint: ref
             ? `Working tree vs ${ref}`
             : noBase
@@ -667,7 +666,12 @@ const CodeTab: Component<{
           // No base ⇒ nothing to count; suppress the pill rather than show 0.
           badge: noBase ? undefined : branchCount(),
         },
-      ];
+      };
+      return CODE_TAB_VIEW_ORDER.map((value) => ({
+        value,
+        label: viewLabel(value),
+        ...meta[value],
+      }));
     },
   );
 
