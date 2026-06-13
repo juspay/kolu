@@ -52,12 +52,6 @@ export function daemonDown(): boolean {
   return downState() !== undefined;
 }
 
-/** True while a supervised restart is in flight (the spine's `restarting`
- *  state) — neither up nor down: the daemon is recycling, session preserved. */
-export function daemonRestarting(): boolean {
-  return localDaemonStatus()?.state === "restarting";
-}
-
 /** Is the connected daemon a build behind the server's expected kaval build?
  *  The currency check, derived at the read site (never stored): a `connected`
  *  daemon whose `identity.staleKey` differs from the server's `expectedStaleKey`.
