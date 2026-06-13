@@ -92,11 +92,19 @@ export function daemonDown(): boolean {
   return downState() !== undefined;
 }
 
-/** True while the daemon is transiently coming up — `connecting` (boot) or
- *  `restarting` (a supervised restart in flight) — i.e. its `tone` is `warming`.
- *  Derived from the presentation table so a future warming state is covered
- *  automatically. Before the first status yield the state is unknown (not
- *  warming); `daemonStatusPending()` owns that pre-first-value gate.
+/** Is a daemon state in the transient "warming" bucket — `connecting` (boot) or
+ *  `restarting` (a supervised restart in flight)? Derived from the presentation
+ *  table so the warming set is named ONCE: both the module-singleton gate
+ *  ({@link daemonWarming}) and the param-taking restart-button predicate
+ *  (`restartInFlight` in `useDaemonRestart`) project from it, so they can't drift
+ *  on what counts as "coming up", and a future warming state is covered for free. */
+export function isWarming(state: DaemonState | undefined): boolean {
+  return state ? DAEMON_STATE_PRESENTATION[state].tone === "warming" : false;
+}
+
+/** True while the local daemon is transiently coming up (its state {@link
+ *  isWarming}). Before the first status yield the state is unknown (not warming);
+ *  `daemonStatusPending()` owns that pre-first-value gate.
  *
  *  Two consumers share this gate, covering both the visible and the invisible
  *  create paths: the App.tsx canvas reads it to suppress the empty-state welcome
@@ -109,6 +117,5 @@ export function daemonDown(): boolean {
  *  kill (or a momentarily-`current` old connection). Terminal creation must wait
  *  for `connected`. */
 export function daemonWarming(): boolean {
-  const state = localDaemonStatus()?.state;
-  return state ? DAEMON_STATE_PRESENTATION[state].tone === "warming" : false;
+  return isWarming(localDaemonStatus()?.state);
 }

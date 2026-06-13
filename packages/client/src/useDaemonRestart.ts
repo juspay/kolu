@@ -15,28 +15,24 @@
 import type { DaemonStatus } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { isWarming } from "./useDaemonStatus";
 import { client } from "./wire";
 
+// True from the click until the restart RPC settles — closes the visible click
+// window immediately (before the surface state flips) so a double-click can't
+// fire a second recycle (the server coalesces too). Module-private: the shared
+// `restartInFlight` predicate below is the one every affordance reads.
 const [restarting, setRestarting] = createSignal(false);
 
-/** True from the click until the restart RPC settles — gates the buttons so a
- *  double-click can't fire a second recycle (the server coalesces too, but this
- *  closes the visible click window immediately, before the surface state flips). */
-export const daemonRestarting = restarting;
-
 /** The one "a restart is underway, disable the button" predicate, read by every
- *  affordance that triggers `restartDaemon`. It is in flight while the local
- *  click is being serviced (`daemonRestarting`) OR while the daemon surface is
- *  mid-transition (`restarting`/`connecting`) — the latter arm catches a restart
- *  another client kicked off, which the local signal can't see. Both the kaval
- *  dialog and the DegradedCanvas disable on this, so the two buttons can't
- *  disagree on what counts as in flight. */
+ *  affordance that triggers `restartDaemon`. In flight while the local click is
+ *  being serviced (the module `restarting` signal) OR while the daemon surface is
+ *  mid-transition ({@link isWarming} — `restarting`/`connecting`) — the latter arm
+ *  catches a restart another client kicked off, which the local signal can't see.
+ *  Both the kaval dialog and the DegradedCanvas disable on this, so the two
+ *  buttons can't disagree on what counts as in flight. */
 export function restartInFlight(status: DaemonStatus | undefined): boolean {
-  return (
-    daemonRestarting() ||
-    status?.state === "restarting" ||
-    status?.state === "connecting"
-  );
+  return restarting() || isWarming(status?.state);
 }
 
 /** Restart the local kaval daemon, preserving the session. Safe to call from
