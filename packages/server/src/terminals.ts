@@ -198,13 +198,19 @@ function rightPanelStateEqual(
 // Active terminal ID — client-reported, used only for session snapshots.
 let activeTerminalId: TerminalId | null = null;
 
+/** The sole writer of `activeTerminalId`. Records the marker and nothing else —
+ *  the dirty-fire is a separate concern the client setter composes on top. */
+function assignActiveTerminalId(id: TerminalId | null): void {
+  activeTerminalId = id;
+}
+
 /** Store which terminal is active (reported by the client).
  *  Only emits session:changed when a terminal is actually selected —
  *  null (no selection, e.g. client reconnect) must not trigger
  *  auto-save because snapshotSession() may return an empty terminal
  *  list at that point, which would clear the saved session. */
 export function setActiveTerminalId(id: TerminalId | null): void {
-  activeTerminalId = id;
+  assignActiveTerminalId(id);
   if (id !== null) terminalsDirtyChannel.publish({});
 }
 
@@ -214,7 +220,7 @@ export function setActiveTerminalId(id: TerminalId | null): void {
  *  after, so this must not arm a competing autosave; it only seeds the value
  *  `snapshotSession()` will read so the adopted session keeps its active tile. */
 export function restoreActiveTerminalId(id: TerminalId | null): void {
-  activeTerminalId = id;
+  assignActiveTerminalId(id);
 }
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */
