@@ -38,14 +38,16 @@ const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`
 // deterministic, never re-rendered through an agent (nothing weak ever retypes a
 // large blob). codex is NOT a reader: it keeps its own warm session, so re-feeding
 // it the ledger would just duplicate what it already remembers.
-// Commit each round's changes individually (default on). The commit message
-// carries the debate context (codex's findings + claude's dispositions). Never
-// pushes or merges — that stays the human's call.
+// Commit each round's changes individually (default on). The author commits its
+// OWN round in-session — it already edits the tree, so it stages exactly what it
+// changed and writes a message carrying the debate context (codex's findings +
+// its dispositions). Never pushes or merges — that stays the human's call.
 const commit = a.commit !== false
 // Model tiers. The claude-author round does real reasoning (fixing/disputing
-// codex's findings) → `model` (Opus). Everything else here is mechanical — the
-// codex runner just shells out to codex-review.sh and copies the verdict, the
-// committer stages files, the merge-base resolver runs one git command → `mechModel`
+// codex's findings, and committing its own round) → `model` (Opus). Everything
+// else here is mechanical — the codex runner just shells out to codex-review.sh
+// and copies the verdict, the ledger writer dumps a section file, the merge-base
+// resolver runs one git command → `mechModel`
 // (Haiku). Defaults match a direct invocation; /be-review passes both explicitly.
 const model = a.model || 'opus'
 const mechModel = a.mechModel || 'haiku'
@@ -119,6 +121,9 @@ const CLAUDE_RESPONSE_SCHEMA = {
       },
     },
     filesChanged: { type: 'array', items: { type: 'string' } },
+    // The author commits its own round (it already edits the tree), so it returns
+    // the resulting SHA here. "" when it changed nothing or ran under --no-commit.
+    commitSha: { type: 'string' },
     done: { type: 'boolean' },
   },
   required: ['summary', 'actions', 'filesChanged', 'done'],
@@ -166,7 +171,7 @@ ${rebuttalStep}
   })
 }
 
-async function claudeResponds(round, verdict) {
+async function claudeResponds(round, verdict, doCommit) {
   // WARM AUTHOR. We can't truly resume the Claude author (agent() is one-shot,
   // and Claude isn't headless under Max auth, so there's no session to resume the
   // way `codex exec resume` carries codex's reasoning forward). The achievable
@@ -196,9 +201,13 @@ Address EVERY finding, any severity (don't skip minors/nits):
   - disagree → leave the code, dispute it with a specific technical reason (cite file:line); disposition "disputed". Concede when codex is right.
   - partly → fix the valid part, explain the rest; disposition "partial".
 
-Edit the working tree only — do NOT git add/commit/push. You may run the formatter on files you touched.
+You may run the formatter on files you touched. ${
+    doCommit
+      ? `Once you've addressed every finding AND you actually changed files, COMMIT this round's work yourself — the debate records one commit per round. Stage ONLY the files you changed (never \`git add -A\` or \`git add .\`) and commit with \`git -C ${repoPath}\`, subject \`fix: codex review — debate round ${round}\` and a body that summarizes your changes plus, briefly, codex's findings and how you dispositioned each. Do NOT push. Return the resulting SHA (\`git -C ${repoPath} rev-parse HEAD\`) in \`commitSha\`. If you changed no files, don't commit and leave \`commitSha\` empty.`
+      : `Edit the working tree only — do NOT git add/commit/push; leave \`commitSha\` empty.`
+  }
 
-Return: actions (one per finding — findingId, disposition, detail), filesChanged, and done (true once you've addressed every finding this round).`
+Return: actions (one per finding — findingId, disposition, detail), filesChanged, commitSha, and done (true once you've addressed every finding this round).`
 
   return agent(prompt, {
     label: `claude:round${round}`,
@@ -208,70 +217,20 @@ Return: actions (one per finding — findingId, disposition, detail), filesChang
   })
 }
 
-// Commit message for one debate round, carrying the debate context: what codex
-// raised and how claude dispositioned each finding. It reuses the same per-bullet
-// projection as the ledger section (findingBullet/actionBullet), in `plain` chrome
-// — no backticks/bold and no `status` field — so the round summary derives from a
-// single rendering rather than two parallel ones.
-function roundCommitMessage(round, verdict, response) {
-  const findings = (verdict.findings || [])
-    .map((f) => findingBullet(f, { plain: true }))
-    .join('\n')
-  const actions = (response.actions || [])
-    .map((a) => actionBullet(a, { plain: true }))
-    .join('\n')
-  return `fix: codex review — debate round ${round}
-
-${response.summary}
-
-codex (round ${round}) findings:
-${findings || '- (none)'}
-
-claude:
-${actions || '- (no actions)'}
-
-Committed by the codex<->claude debate (round ${round}); not pushed or merged.`
-}
-
-// Commit exactly the files claude changed this round, with the debate-context
-// message. A thin mechanical agent: the workflow can't run git itself.
-async function commitRound(round, files, message) {
-  const fileArgs = files.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ')
-  const msgPath = `${workDir}/commit-msg-${round}.txt`
-  const prompt = `You are a MECHANICAL COMMITTER. Do exactly these steps and nothing else — do not edit files, do not push, do not stage anything beyond the listed files.
-
-1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
-2. Using the Write tool, create \`${msgPath}\` with EXACTLY this content:
-
-${message}
-
-3. Run (every git command uses \`git -C ${repoPath}\`, so it targets THIS worktree regardless of your shell cwd):
-   \`git -C ${repoPath} add -- ${fileArgs} && git -C ${repoPath} commit -F ${msgPath}\`
-   Stage ONLY those files. Do NOT use \`git add -A\` or \`git add .\`.
-4. Return the new commit SHA from \`git -C ${repoPath} rev-parse HEAD\`. Do NOT push.`
-  return agent(prompt, { label: `commit:round${round}`, phase: 'Debate', model: mechModel })
-}
-
 // ---------------------------------------------------------------------------
 // The shared ledger — rendered from the transcript, deterministically
 // ---------------------------------------------------------------------------
-// One codex finding as a Markdown bullet. The single projection of a finding's
-// fields, shared by the ledger section and the round commit message. `plain` drops
-// the ledger chrome (backticks + the `status` field) for the commit message, which
-// wants plainer text; the field access stays in one place either way.
-function findingBullet(f, { plain = false } = {}) {
-  return plain
-    ? `- [${f.id} · ${f.severity}] ${f.issue} (${f.location})`
-    : `- \`${f.id}\` · ${f.severity} · ${f.status} — ${f.issue} (${f.location})`
+// One codex finding as a Markdown bullet — the single projection of a finding's
+// fields for the ledger section. (The per-round commit message is now written by
+// the author itself, in its own session, so this no longer feeds it.)
+function findingBullet(f) {
+  return `- \`${f.id}\` · ${f.severity} · ${f.status} — ${f.issue} (${f.location})`
 }
 
-// One author disposition as a Markdown bullet. The single projection of an action's
-// fields, shared by the ledger section and the round commit message. `plain` drops
-// the ledger chrome (backticks + bold) for the commit message.
-function actionBullet(a, { plain = false } = {}) {
-  return plain
-    ? `- ${a.findingId} ${a.disposition}: ${a.detail}`
-    : `- \`${a.findingId}\` **${a.disposition}** — ${a.detail}`
+// One author disposition as a Markdown bullet — the single projection of an
+// action's fields for the ledger section.
+function actionBullet(a) {
+  return `- \`${a.findingId}\` **${a.disposition}** — ${a.detail}`
 }
 
 // One round's findings, as a Markdown list. Shared by the section renderer below.
@@ -412,8 +371,8 @@ log(`Diffing against ${base.slice(0, 12)} (merge-base of ${rawBase} and HEAD), s
 // thin mechanical agent (the workflow can't run shell itself). The reset is
 // section/ledger-scoped: it deletes only the stale `section-*.md` files, not the
 // whole scratch dir, so other artifacts in there (verdict-N.json, rebuttal.json,
-// commit-msg-N.txt) keep their own lifecycle and a future pre-loop writer won't
-// be silently wiped. This script has no true resume (agent() is one-shot, the
+// and any commit-message file the author writes) keep their own lifecycle and a
+// future pre-loop writer won't be silently wiped. This script has no true resume (agent() is one-shot, the
 // whole workflow re-runs from scratch), so a fresh start owns a fresh ledger.
 await agent(
   `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`mkdir -p -- ${shq(workDir)} && rm -f -- ${shq(workDir)}/section-*.md\`. Do not edit any other file. Do not run git.`,
@@ -462,20 +421,21 @@ for (let round = 1; ; round++) {
   // rest. It reads the per-round section files (written at the end of each round
   // below) for its cross-round memory. `lastClaude` is kept only to feed codex's
   // rebuttal next round (see codexReviews) — it is no longer the author's memory.
-  const response = await claudeResponds(round, verdict)
+  const response = await claudeResponds(round, verdict, commit)
   entry.claude = response
   lastClaude = response
   log(
     `Round ${round}: claude done=${response.done}, actions=${(response.actions || []).length}, files=${(response.filesChanged || []).length}`,
   )
 
-  // Commit this round individually so the PR history reads as the debate
-  // itself — one commit per round, message carrying codex's findings and
-  // claude's dispositions. Only when claude actually changed files.
+  // The author commits its own round in-session (one commit per round, message
+  // carrying codex's findings and its dispositions), so here we just record the
+  // SHA it returned. Only when it actually changed files; flag the inconsistency
+  // if it reported changes but no commit rather than silently dropping it.
   if (commit && (response.filesChanged || []).length > 0) {
-    const sha = await commitRound(round, response.filesChanged, roundCommitMessage(round, verdict, response))
-    entry.commit = (sha || '').trim()
-    log(`Round ${round}: committed ${entry.commit}`)
+    entry.commit = (response.commitSha || '').trim()
+    if (entry.commit) log(`Round ${round}: committed ${entry.commit}`)
+    else log(`Round ${round}: author changed ${response.filesChanged.length} file(s) but returned no commit SHA`)
   }
 
   // Write this round's section so the NEXT round's author can read the full

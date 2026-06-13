@@ -179,13 +179,30 @@ const POSITION_SCHEMA = {
   },
 }
 
-const IMPL_SCHEMA = {
+// One Apply agent implements every agreed fix and commits each in a single
+// session, so it returns the full per-fix outcome (not one impl per agent). One
+// entry per fix it was handed; `commit` is "" under `--no-commit` or when a fix
+// turned out to need no change.
+const APPLY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['summary', 'filesChanged'],
+  required: ['applied'],
   properties: {
-    summary: { type: 'string', description: 'one line: what you changed' },
-    filesChanged: { type: 'array', items: { type: 'string' } },
+    applied: {
+      type: 'array',
+      description: 'one entry for EVERY agreed fix you were given, in the same order',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'summary', 'filesChanged'],
+        properties: {
+          id: { type: 'string' },
+          summary: { type: 'string', description: 'one line: what you changed for this fix' },
+          filesChanged: { type: 'array', items: { type: 'string' } },
+          commit: { type: 'string', description: 'this fix\'s commit SHA, or "" if nothing was committed' },
+        },
+      },
+    },
   },
 }
 
@@ -222,47 +239,48 @@ ${oppBlock}
 Round ${roundNum}. For EVERY contested finding id above, output a disposition (\`fix\` = worth changing in THIS PR / \`drop\` = leave as-is, observation only), a concrete implementable plan if \`fix\`, and reasoning grounded in the code. **The goal is the correct answer for THIS PR, not winning** — concede explicitly ("conceding: …") when ${opp}'s code-grounded argument is right. A \`fix\` is worth it only if it genuinely improves the PR.`
 }
 
-function implementBrief(fix) {
-  return `You are implementing ONE change that two structural-review lenses (lowy and hickey) independently agreed should be fixed in THIS PR. Work in the repo at \`${repoPath}\` — your shell cwd may be a DIFFERENT worktree, so every file you Read/Edit MUST be an ABSOLUTE path under \`${repoPath}\`.
+// ONE brief for ALL agreed fixes — implemented and committed in a single Apply
+// session, so the agent orients on the repo once instead of paying that cost per
+// fix (the old form spawned an implement agent AND a commit agent per finding,
+// serially). The fixes are independent and their plans already converged in the
+// debate, so there's no cross-fix reasoning to isolate; what we keep is one
+// commit PER finding so the history still reads finding-by-finding.
+function applyAllBrief(fixes, doCommit) {
+  const list = fixes
+    .map(
+      (f) => `### ${f.id} (raised by ${f.origin}) — ${f.title}
+  at ${f.location}
+  problem: ${f.problem}
+  original suggestion (context, not the agreed plan): ${f.suggestion}
+  agreed plan: ${f.plan}`,
+    )
+    .join('\n\n')
+  const commitStep = doCommit
+    ? `After a fix's edits are done, COMMIT that fix on its own before moving to the next, so each finding maps to one commit and the history reads finding-by-finding. Stage ONLY the files you changed for that fix — never \`git add -A\` or \`git add .\`. Write the message to a file under \`${workDir}\` (run \`mkdir -p ${workDir}\` first) and commit with \`git -C ${repoPath} add -- <files> && git -C ${repoPath} commit -F <msgfile>\`, using EXACTLY this message shape:
 
-Finding ${fix.id} (raised by ${fix.origin}) — ${fix.title}
-  at ${fix.location}
-  problem: ${fix.problem}
-  original suggestion (context, not the agreed plan): ${fix.suggestion}
-  agreed plan: ${fix.plan}
+  fix(lens): <the fix's title>
 
-Make ONLY this change in the working tree, following the agreed plan above. Keep it tightly scoped to the finding; read the surrounding code first so the edit fits the existing style. Do NOT git add / commit / push. You may run the project's formatter on files you touched. Return a one-line summary and the exact list of files you changed.`
+  <your one-line summary of the change>
+
+  Agreed by the lowy ⇄ hickey lens debate (finding <id>, raised by <origin>). Not pushed or merged.
+
+Do NOT push. Record each fix's resulting commit SHA (\`git -C ${repoPath} rev-parse HEAD\`) in its \`commit\` field. If a fix turns out to need no change, leave its \`filesChanged\` empty and its \`commit\` "".`
+    : `Do NOT git add / commit / push — leave every change in the working tree and set each fix's \`commit\` to "".`
+  return `You are implementing the changes that two structural-review lenses (lowy and hickey) independently agreed should be fixed in THIS PR. Work in the repo at \`${repoPath}\` — your shell cwd may be a DIFFERENT worktree, so every file you Read/Edit MUST be an ABSOLUTE path under \`${repoPath}\` and every git command MUST use \`git -C ${repoPath}\`.
+
+Apply each agreed fix below, IN ORDER. The fixes are independent — keep each one tightly scoped to its finding and don't let one bleed into another. Read the surrounding code first so each edit fits the existing style. You may run the project's formatter on files you touched.
+
+${list}
+
+${commitStep}
+
+Return one \`applied\` entry per fix (same order): its id, a one-line summary, the exact files you changed, and the commit SHA (or "").`
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 const posMap = (res) => Object.fromEntries((res?.positions ?? []).map((p) => [p.id, p]))
-
-// Commit exactly the files one fix changed, with a message carrying the debate
-// context. A thin mechanical agent: the workflow can't run git itself.
-async function commitFix(fix, files, summary) {
-  const fileArgs = files.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ')
-  const msgPath = `${workDir}/commit-msg-${fix.id}.txt`
-  // `fix(lens):` — the conventional prefix for lens-originated commits.
-  const message = `fix(lens): ${fix.title}
-
-${summary}
-
-Agreed by the lowy ⇄ hickey lens debate (finding ${fix.id}, raised by ${fix.origin}). Not pushed or merged.`
-  const prompt = `You are a MECHANICAL COMMITTER. Do exactly these steps and nothing else — do not edit files, do not push, do not stage anything beyond the listed files.
-
-1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
-2. Using the Write tool, create \`${msgPath}\` with EXACTLY this content:
-
-${message}
-
-3. Run (every git command uses \`git -C ${repoPath}\`, so it targets THIS worktree regardless of your shell cwd):
-   \`git -C ${repoPath} add -- ${fileArgs} && git -C ${repoPath} commit -F ${msgPath}\`
-   Stage ONLY those files. Do NOT use \`git add -A\` or \`git add .\`.
-4. Return the new commit SHA from \`git -C ${repoPath} rev-parse HEAD\`. Do NOT push.`
-  return agent(prompt, { label: `commit:${fix.id}`, phase: 'Apply', model: mechModel })
-}
 
 // Render the PR comment deterministically from the debate outcome, returned as a
 // string so the ORCHESTRATOR posts it verbatim (`gh pr comment -F`) — no agent
@@ -452,25 +470,29 @@ const unresolved = settledOut.filter((s) => !s.agreed)
 log(`Debate ended: ${status} after ${rounds} round(s); ${settledOut.length - unresolved.length}/${settledOut.length} settled, ${unresolved.length} unresolved.`)
 
 // ---------------------------------------------------------------------------
-// Phase 3 — apply the agreed `fix` findings, each as its own commit. Skipped
-// wholesale under `apply: false`: the agreed plans are returned in `fixes` for
-// the caller to implement against whatever tree it chooses.
+// Phase 3 — apply every agreed `fix` finding in a SINGLE session, one commit
+// per finding. One agent orients on the repo once and applies all the fixes,
+// rather than paying a fresh implement+commit agent (and its re-orientation
+// cost) per finding; the fixes are independent and their plans already
+// converged, so there's no cross-fix reasoning to isolate. Skipped wholesale
+// under `apply: false`: the agreed plans are returned in `fixes` for the caller
+// to implement against whatever tree it chooses.
 // ---------------------------------------------------------------------------
 const fixes = settledOut.filter((s) => s.agreed && s.disposition === 'fix')
-const applied = []
-if (apply) {
+let applied = []
+if (apply && fixes.length) {
   phase('Apply')
-  for (const fix of fixes) {
-    const impl = await agent(implementBrief(fix), { label: `apply:${fix.id}`, phase: 'Apply', model, schema: IMPL_SCHEMA })
-    const files = impl?.filesChanged ?? []
-    let sha = null
-    if (commit && files.length > 0) {
-      const out = await commitFix(fix, files, impl.summary)
-      sha = (out || '').trim()
-    }
-    applied.push({ id: fix.id, title: fix.title, files, commit: sha })
-    log(`Applied ${fix.id}: ${files.length} file(s)${sha ? `, committed ${sha.slice(0, 9)}` : ' (uncommitted)'}`)
-  }
+  const res = await agent(applyAllBrief(fixes, commit), { label: 'apply:all', phase: 'Apply', model, schema: APPLY_SCHEMA })
+  const byId = Object.fromEntries((res?.applied ?? []).map((a) => [a.id, a]))
+  // Re-key off the agreed `fixes` (not the agent's array) so a fix the agent
+  // dropped from its output still surfaces — as 0 files / uncommitted — instead
+  // of vanishing from `applied` and the PR comment.
+  applied = fixes.map((f) => {
+    const a = byId[f.id] || {}
+    const sha = (a.commit || '').trim()
+    return { id: f.id, title: f.title, files: a.filesChanged ?? [], commit: sha || null }
+  })
+  applied.forEach((a) => log(`Applied ${a.id}: ${a.files.length} file(s)${a.commit ? `, committed ${a.commit.slice(0, 9)}` : ' (uncommitted)'}`))
 } else if (fixes.length) {
   log(`Apply skipped (apply: false) — returning ${fixes.length} agreed fix plan(s) to the caller.`)
 }

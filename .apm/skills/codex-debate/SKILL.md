@@ -141,9 +141,11 @@ Workflow({
 The workflow runs in the background and notifies you when it completes. It
 alternates `codex:roundN` and `claude:roundN` agents under a **Debate** phase —
 the user can watch live via `/workflows`. Each Claude round edits the working
-tree, then (unless `--no-commit`) a `commit:roundN` agent **commits exactly that
-round's changed files** with a message embedding the round's codex findings and
-Claude's dispositions — never pushing or merging.
+tree and (unless `--no-commit`) **commits exactly that round's changed files in
+the same session** — one commit per round, with a message embedding the round's
+codex findings and Claude's dispositions — never pushing or merging. (The commit
+is no longer a separate `commit:roundN` agent: the author already has the tree
+open, so it commits its own round.)
 
 Ephemeral scratch (verdicts, rebuttals, the debate ledger) lives under the
 gitignored, per-worktree `<repoPath>/.codex-debate/`, so **parallel debates in

@@ -157,10 +157,12 @@ three phases the user can watch via `/workflows`:
   means both lenses agree on the disposition *and* the plan — if they both say
   `fix` but propose different changes, the finding stays open until the plans
   converge too (so Apply never picks one lens's plan arbitrarily).
-- **Apply** — one `apply:<finding-id>` per agreed `fix`, each followed (unless
-  `--no-commit`) by a `commit:<finding-id>` that commits **exactly** that fix's
-  changed files with a message carrying the debate context. Skipped wholesale
-  under `--no-apply` — the plans come back in `fixes` for the caller to apply.
+- **Apply** — a single `apply:all` agent implements **every** agreed `fix` in one
+  session and (unless `--no-commit`) commits each one individually, staging
+  **exactly** that fix's changed files with a message carrying the debate context.
+  One orientation for all fixes instead of a fresh implement+commit agent per
+  finding. Skipped wholesale under `--no-apply` — the plans come back in `fixes`
+  for the caller to apply.
 
 When `rationale` is set, pull it from the PR/issue description (the deliberate
 design decisions the author wants the lenses to respect, e.g. a deliberate
@@ -222,7 +224,8 @@ branch for the human to review):
 
 - **The lenses are read-only reviewers; only the Apply phase writes.** lowy and
   hickey never edit code — they only emit dispositions. The sole writes to the
-  tree come from the `apply:` agents implementing the *agreed* fixes.
+  tree come from the single `apply:all` agent implementing the *agreed* fixes
+  (one session, one commit per finding) — not one agent per fix.
 - **Commits, but never pushes or merges.** Each agreed fix is committed locally
   (unless `--no-commit`) so the PR history reads as the debate's conclusions, but
   the skill never pushes or merges. Consensus means "both lenses agree on the
