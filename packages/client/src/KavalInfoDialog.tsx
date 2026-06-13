@@ -72,7 +72,15 @@ const KavalInfoDialog: Component<{
         <p class="mt-1.5 text-xs leading-relaxed text-fg-2">
           kaval is the process that owns your shells. kolu talks to it over a
           local socket, so your terminals outlive the page and can be reached
-          from the command line too.
+          from the command line too.{" "}
+          <a
+            href="https://kolu.dev/kaval/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
+          >
+            Learn more&nbsp;↗
+          </a>
         </p>
 
         {/* Live status */}
