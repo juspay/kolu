@@ -14,11 +14,20 @@ export default defineConfig({
   site: "https://kolu.dev",
   trailingSlash: "ignore",
   server: { port: DEV_PORT, host: "127.0.0.1" },
+  // /tui is the page's old name (from before the daemon `kaval` and its client
+  // `kaval-tui` were named apart) — keep the URL working, send it to /kaval.
+  redirects: { "/tui": "/kaval" },
   integrations: [
     mdx(),
-    // /tui is deliberately unlisted (shared by URL only): keep it out of the
-    // sitemap so it stays unadvertised — the page itself also carries noindex.
-    sitemap({ filter: (page) => !new URL(page).pathname.startsWith("/tui") }),
+    // /kaval is deliberately unlisted (shared by URL only): keep it — and the
+    // /tui redirect that points at it — out of the sitemap so they stay
+    // unadvertised; the page itself also carries noindex.
+    sitemap({
+      filter: (page) => {
+        const { pathname } = new URL(page);
+        return !pathname.startsWith("/kaval") && !pathname.startsWith("/tui");
+      },
+    }),
   ],
   vite: {
     plugins: [tailwindcss()],
