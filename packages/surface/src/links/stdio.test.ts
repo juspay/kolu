@@ -269,6 +269,7 @@ describe("stdio link over loopback", () => {
     // nothing. With an isolated write stream, removing the guard makes
     // `destroy(err)` an uncaught 'error' that crashes this test — so the
     // green run is genuine evidence the guard is load-bearing.
+    // biome-ignore lint/correctness/noUnusedVariables: read only as a type via `typeof contract` below — this test drives the link itself, not the contract value, so the runtime binding is intentionally unused.
     const contract = {
       ping: oc.input(z.object({})).output(z.string()),
     };

@@ -14,6 +14,13 @@
 export const ENDPOINT_STATES = [
   "connecting",
   "connected",
+  // A session-preserving restart in flight (B3.2): the supervisor reports this
+  // across the whole capture → drain → recycle → reattach sequence instead of
+  // the bare recycle's connecting→connected flicker, so an observer (kolu's
+  // KAVAL rail, the DegradedCanvas) shows one honest "restarting" while the old
+  // daemon is torn down and a fresh one is brought up. Transient, not a down
+  // state — it resolves to `connected` (success) or `dead` (failed recycle).
+  "restarting",
   "degraded",
   "dead",
 ] as const;

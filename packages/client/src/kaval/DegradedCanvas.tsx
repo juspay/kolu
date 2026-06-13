@@ -9,17 +9,21 @@
  * seemingly gone. This surface is visibly distinct: a warning-toned card naming
  * the real problem.
  *
- * B2 is honest but not yet self-healing — a one-click "Restart kaval" affordance
- * (and the session-restore it drives) is B3's supervised restart. Here we tell
- * the user what happened and that their saved session is safe.
+ * B3.2 makes it self-healing: a one-click "Restart kaval" recovers the daemon
+ * (recycle → fresh) and offers the preserved session for restore on the empty
+ * canvas. Here we name what happened and give the user that single button.
  */
 
 import { type Component, Show } from "solid-js";
-import { WarningIcon } from "./ui/Icons";
+import RestartKavalButton from "./RestartKavalButton";
+import { restartDaemon } from "./useDaemonRestart";
+import { localDaemonStatus } from "./useDaemonStatus";
+import { WarningIcon } from "../ui/Icons";
 
 /** The daemon's down-sub-union — the only states that render this surface.
  *  `downState()` in useDaemonStatus.ts is the single source that narrows the
- *  4-state `DaemonState` to exactly these. */
+ *  full `DaemonState` to exactly these (a `restarting` daemon is coming back,
+ *  not down, so it never renders here). */
 const DegradedCanvas: Component<{ state: "dead" | "degraded" }> = (props) => {
   const isDead = () => props.state === "dead";
   return (
@@ -50,10 +54,16 @@ const DegradedCanvas: Component<{ state: "dead" | "degraded" }> = (props) => {
               back.
             </p>
             <p class="mt-2 text-xs leading-relaxed text-fg-3">
-              Your saved session is preserved. Restart kolu to bring kaval back;
-              your terminals are offered for restore once it’s healthy. (A
-              one-click restart lands in a later release.)
+              Your saved session is preserved. Restart kaval to bring it back —
+              your terminals are offered for restore on the fresh daemon.
             </p>
+            <div class="mt-3">
+              <RestartKavalButton
+                status={localDaemonStatus()}
+                tone="danger"
+                onConfirm={() => void restartDaemon()}
+              />
+            </div>
           </div>
         </div>
       </div>

@@ -543,6 +543,23 @@ export const RestoreIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Restart — a circular arrow for "recycle the kaval daemon". */
+export const RestartIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
+    <path d="M13.5 2.5v3h-3" />
+  </svg>
+);
+
 /** Inspector toggle — square with a divider on the right edge.
  *  Filled-right when active to indicate the right panel is open. */
 export const InspectorToggleIcon: Component<{ active?: boolean }> = (props) => (

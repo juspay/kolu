@@ -25,6 +25,7 @@ import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
+import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import {
@@ -279,6 +280,12 @@ export const appRouter = t.router({
         return { html, filename };
       },
     ),
+  },
+  daemon: {
+    restart: t.daemon.restart.handler(async () => {
+      log.info({}, "kaval restart requested");
+      await restartLocalDaemon();
+    }),
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
