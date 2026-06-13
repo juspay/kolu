@@ -1,0 +1,153 @@
+---
+title: The active-tile indicator — a channel apart from agent status
+description: Now that the tile border is owned by the animated agent-status ring (+ repo identity), the focused-tile indicator must move off the border to a completely separate channel. The current teal right-edge competes with the ring; here are live prototypes of where focus should live instead — chrome, depth, or an outer glow.
+kind: feature
+status: proposed
+maturity: seedling
+parents: [canvas-tile-state-borders]
+updated: 2026-06-13
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import Cite from "../../components/Cite.astro";
+
+The canvas tile now carries an **animated agent-status ring** on its border
+(marching ants / sweeping comet, in the terminal's theme colour — see
+[canvas-tile-state-borders](/canvas-tile-state-borders.html)). That ring, plus
+the repo-identity border colour, means the **border is spoken for**. But the
+*active / focused* tile is still marked the old way — a teal `--color-accent`
+right-edge + a 1px accent ring — which now sits right on top of the status ring
+and reads as a second, competing border.
+
+<Callout kind="note" title="The ask">
+The **active** indicator should be **completely different** from the agent-status
+thing — its own channel, not another coloured border. (And the teal right-edge
+has to go.)
+</Callout>
+
+export const AiStyles = () => (
+  <style>{`
+  .ai-canvas{background:#0c0c0e;border:1px solid #27272c;border-radius:12px;padding:1.3rem 1rem 1.05rem;margin:1.2rem 0;--accent:#5a9ea0}
+  .ai-lead{font:600 .67rem/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;margin:0 0 1.05rem .1rem;text-align:center}
+  .ai-row{display:flex;gap:1.6rem;justify-content:center;align-items:center;flex-wrap:wrap;min-height:104px}
+  .ai-tile{position:relative;width:152px;height:92px;border-radius:10px;border:1.5px solid var(--repo);background:#161618;overflow:hidden;transition:transform .2s,opacity .2s,box-shadow .2s}
+  .ai-tb{display:flex;align-items:center;gap:.4rem;padding:.4rem .55rem;background:rgba(228,228,232,.06);border-bottom:1px solid rgba(228,228,232,.09);font:600 .56rem/1 ui-monospace,monospace;color:#9aa0aa;transition:background .15s,color .15s,box-shadow .15s}
+  .ai-dot{width:7px;height:7px;border-radius:50%;background:var(--repo);flex:none}
+  .ai-body{padding:.45rem .55rem;font:.6rem/1.3 ui-monospace,monospace;color:#8a909a}
+  .ai-cap{font:600 .64rem/1.35 ui-sans-serif,system-ui;color:#8b929d;text-align:center;max-width:34rem;margin:.2rem auto 0}
+  .ai-cap b{color:#c7ccd6}
+
+  /* agent-status ring — CONTEXT: every tile has one, so the focus signal must
+     NOT compete with it. A theme-coloured comet via a fixed mask + spun child. */
+  .ai-ring{position:absolute;inset:0;border-radius:10px;z-index:3;pointer-events:none;padding:2px;overflow:hidden;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
+  .ai-ring::before{content:"";position:absolute;inset:-50%;background:conic-gradient(from 0deg,var(--fg) 0deg,color-mix(in oklch,var(--fg) 30%,transparent) 30deg,transparent 78deg,transparent 360deg);animation:ai-spin 2.4s linear infinite}
+  @keyframes ai-spin{to{transform:rotate(1turn)}}
+
+  /* ── TODAY (rejected): teal right-edge + teal ring — a second border, on top of the status ring ── */
+  .opt-today .ai-tile.active{border-right-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 6px 18px rgba(0,0,0,.4)}
+
+  /* ── A · accent title bar — focus lives in the chrome ── */
+  .opt-titlebar .ai-tile.active .ai-tb{background:color-mix(in oklch,var(--accent) 30%,#161618);color:#e9f4f4;box-shadow:inset 0 -2px 0 var(--accent)}
+  .opt-titlebar .ai-tile.active .ai-dot{background:var(--accent)}
+
+  /* ── B · lift / elevation — pure depth, no colour ── */
+  .opt-lift .ai-tile:not(.active){opacity:.5}
+  .opt-lift .ai-tile.active{transform:translateY(-5px);box-shadow:0 14px 30px rgba(0,0,0,.62)}
+
+  /* ── C · outer accent glow — a soft halo OUTSIDE the tile ── */
+  .opt-glow .ai-tile.active{box-shadow:0 0 0 3px color-mix(in oklch,var(--accent) 15%,transparent),0 0 22px -1px var(--accent)}
+
+  @media (prefers-reduced-motion:reduce){.ai-ring::before{animation:none}}
+  `}</style>
+);
+
+export const AiTile = (props) => (
+  <div
+    class={`ai-tile${props.active ? " active" : ""}`}
+    style={`--repo:${props.repo};--fg:${props.fg}`}
+  >
+    <div class="ai-ring" />
+    <div class="ai-tb"><span class="ai-dot" /><span>{props.name}</span></div>
+    <div class="ai-body">{props.sub}</div>
+  </div>
+);
+
+export const AiGallery = (props) => (
+  <div class={`ai-canvas opt-${props.opt}`}>
+    <div class="ai-lead">{props.lead}</div>
+    <div class="ai-row">
+      <AiTile repo="#6cc070" fg="#bfe6c8" name="blog · codex" sub="◐ working" />
+      <AiTile active repo="#a98bd6" fg="#d8caf0" name="argh · claude" sub="⏵ waiting" />
+      <AiTile repo="#d6a35c" fg="#e8d3a3" name="odu · claude" sub="◐ working" />
+    </div>
+  </div>
+);
+
+<AiStyles />
+
+Every tile below wears its **agent-status comet** (the spinning border light). The
+**middle** tile is the focused one. The question is only how *focus* is marked.
+
+## Today — and why it's out
+
+<Pill variant="run">rejected</Pill> The focused tile gets a teal accent on its
+right edge + a 1px accent ring. Sitting on the same border the status comet
+travels, it reads as a **second border** fighting the first — exactly the clash
+you flagged.
+
+<AiGallery opt="today" lead="Today · teal right-edge + accent ring (competes with the status ring)" />
+
+## The options
+
+All three move focus **off the border** entirely, so the border belongs to repo
+identity + agent status alone.
+
+### A — Accent title bar
+
+<Pill variant="good">Recommended</Pill> The focused tile's **title bar** lights
+up in the accent (a tint + a thin accent underline). Focus lives in the *chrome*;
+the border is never touched. Unmistakable, and it can't be confused with the
+status ring because it's a different part of the tile. Bonus: the title bar is
+where you read the tile's identity anyway, so the eye is already there.
+
+<AiGallery opt="titlebar" lead="A · accent title bar — focus in the chrome (recommended)" />
+
+### B — Lift / elevation
+
+No colour at all: the focused tile **raises** (a stronger drop shadow) and the
+others **recede** (dim). Pure depth — nothing can compete with the border because
+focus isn't a border treatment at all. Calmest and most physical, but more subtle
+across a busy canvas, and it leans on the inactive tiles dimming to read.
+
+<AiGallery opt="lift" lead="B · lift + recede — depth only, no colour" />
+
+### C — Outer accent glow
+
+A soft accent **halo outside** the tile (plus a faint lift). Different geometry
+from the on-border comet (it bleeds outward, not on the edge), so it doesn't
+*overlap* the ring — but it still puts the accent colour near the border, so on a
+dense canvas it can read as busy next to the comet. The middle ground.
+
+<AiGallery opt="glow" lead="C · outer accent glow — accent, but off the edge" />
+
+## Recommendation
+
+<Callout kind="good" title="A — accent title bar, optionally with a hint of B">
+**A** is the cleanest separation: the **border** = repo identity + agent status;
+the **title bar** = focus. Two different surfaces, zero overlap, and the accent
+colour never appears on the border. Pair it with a *gentle* version of **B** (the
+focused tile lifts a touch, inactive tiles dim to ~0.92 as they already do) for
+depth, and drop the teal right-edge and the accent ring from
+<Cite file="packages/client/src/canvas/CanvasTile.tsx" /> entirely. **C** is the
+fallback if you want the accent *somewhere* near the tile, but it's the most
+likely to read busy beside the comet.
+</Callout>
+
+Pick one (or "A + a hint of B") and I'll wire it into the tile — `border-right-color`
+and the accent `box-shadow` ring come out; the chosen channel goes in.
+
+---
+
+*Status: `proposed` — a follow-on to the shipped agent-status ring
+([canvas-tile-state-borders](/canvas-tile-state-borders.html)).*
