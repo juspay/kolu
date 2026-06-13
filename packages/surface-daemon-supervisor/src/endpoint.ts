@@ -1,0 +1,247 @@
+/**
+ * The endpoint state machine — the supervisor's view of one daemon.
+ *
+ * An endpoint owns the relationship between a supervising process (kolu-server;
+ * the odu CLI) and one surface daemon it spawns and watches: it takes the
+ * daemon from nothing to a live, handshaken connection, and reports — on every
+ * transition — an honest `{ state, identity, startedAt }` the supervisor's
+ * surface projects so the UI never lies about whether the daemon is there.
+ *
+ *   connecting → connected            (spawned, socket up, handshake passed)
+ *   connecting → dead                 (couldn't recycle / spawn / connect)
+ *   connected  → degraded             (the daemon died mid-session)
+ *
+ * **Boot policy is always-recycle** (B2, "the door"): on `ensure()` a live
+ * survivor is *killed*, not adopted, then a fresh daemon is spawned — so no
+ * survival hazard can open (no orphan, no skew older than one boot). Every boot
+ * therefore exercises kill → `waitForPidGone` → spawn → connect, the exact race
+ * #1034 lost, but with zero sessions at stake. Adoption and the supervised
+ * restart that *preserve* a session are B3; this endpoint only requires the
+ * composed `restart` type, invoking its recycle path.
+ *
+ * The endpoint is **spine**: generic over the client `C` and the identity `I`,
+ * it interprets neither. The contract handshake, the surface shape, and what
+ * `identity` means all live in the injected `connect` (the program's soul). The
+ * endpoint only orchestrates: gate read, kill, wait, spawn, connect, and the
+ * transition reports.
+ */
+
+import { gatePid, isHolderLive, type Logger } from "@kolu/surface-daemon";
+import { dialSocket } from "./dialSocket.ts";
+import type { DaemonDriver } from "./driver.ts";
+import { type EndpointState, ENDPOINT_STATES } from "./endpointStates.ts";
+import { waitForPidGone } from "./waitForPidGone.ts";
+
+// `ENDPOINT_STATES` / `EndpointState` are the single source of truth for the
+// reported state set; they live in the zero-dependency `endpointStates.ts` leaf
+// so a browser-shared consumer (kolu's `DaemonStatusSchema`) can derive its enum
+// from them without pulling this Node-only module's transport/gate graph. The
+// endpoint re-exports them so existing supervisor consumers keep their import.
+export { type EndpointState, ENDPOINT_STATES };
+
+export interface EndpointStatus<I> {
+  state: EndpointState;
+  /** Present once `connected`: the daemon's self-declared identity. */
+  identity?: I;
+  /** Present once `connected`: the daemon's boot time (ms epoch), for uptime. */
+  startedAt?: number;
+}
+
+/** A live, handshaken connection to a daemon. The injected `connect` builds it;
+ *  the endpoint holds it and tears it down. */
+export interface DaemonConnection<C, I> {
+  client: C;
+  identity: I;
+  startedAt: number;
+  /** Drop the transport. */
+  dispose(): void;
+  /** Subscribe to the transport dropping (the daemon exited / the socket
+   *  closed). Fires at most once. The endpoint uses it to flip to `degraded`. */
+  onClose(cb: () => void): void;
+}
+
+export interface EndpointSpec<C, I> {
+  /** Which host this endpoint is for. The status is reported per-host so the
+   *  shapes stay host-count-agnostic (one local host today; ssh hosts at R-2). */
+  hostId: string;
+  /** The daemon's single-instance gate path — the same path the daemon's own
+   *  `daemonMain` derives, so the supervisor reads the true current holder. */
+  gatePath: string;
+  /** The unix socket the daemon serves and we dial. */
+  socketPath: string;
+  /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
+  driver: DaemonDriver;
+  /** Dial `socketPath`, run the contract-version handshake, and return the live
+   *  connection. Rejects on a skew (an incompatible daemon) or a transport
+   *  failure — the endpoint treats either as a failed boot (`dead`). */
+  connect(): Promise<DaemonConnection<C, I>>;
+  log: Logger;
+  /** Called on every state transition — the supervisor publishes it. */
+  onStatus(hostId: string, status: EndpointStatus<I>): void;
+  /** Ceiling for the freshly-spawned daemon's socket to start accepting.
+   *  Default 30_000ms. */
+  socketReadyMs?: number;
+  /** Socket-readiness poll spacing. Default 50ms. */
+  socketPollMs?: number;
+}
+
+export interface Endpoint<C, I> {
+  /** Take the daemon to a live connection under the always-recycle boot policy.
+   *  Throws (after reporting `dead`) if it cannot. */
+  ensure(): Promise<void>;
+  /** The live connection, or `undefined` before `ensure()` or after the daemon
+   *  died (`degraded`). */
+  current(): DaemonConnection<C, I> | undefined;
+}
+
+/** Poll until a connection to `socketPath` is accepted, or the ceiling passes.
+ *  Resolves `true` if the socket came up, `false` on timeout. Each probe dials
+ *  a bare socket through `dialSocket` (the one place that owns the connect/error
+ *  race) and immediately closes it — the endpoint's real (handshaken) connection
+ *  is made once by `spec.connect()` after this resolves. */
+function waitForSocket(
+  socketPath: string,
+  ceilingMs: number,
+  pollMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + ceilingMs;
+  return new Promise<boolean>((resolve) => {
+    const attempt = (): void => {
+      dialSocket(socketPath).then(
+        (sock) => {
+          sock.destroy();
+          resolve(true);
+        },
+        () => {
+          if (Date.now() >= deadline) resolve(false);
+          else setTimeout(attempt, pollMs);
+        },
+      );
+    };
+    attempt();
+  });
+}
+
+/** One-shot probe: does `socketPath` accept a connection RIGHT NOW? Dials once
+ *  (no polling) and immediately closes — the recycle path uses it to prove a
+ *  live gate-pid is actually the daemon (its socket answers) before SIGTERMing
+ *  it, so a stale gate over a reused pid can't make us kill a stranger. */
+function socketAccepting(socketPath: string): Promise<boolean> {
+  return dialSocket(socketPath).then(
+    (sock) => {
+      sock.destroy();
+      return true;
+    },
+    () => false,
+  );
+}
+
+export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
+  const socketReadyMs = spec.socketReadyMs ?? 30_000;
+  const socketPollMs = spec.socketPollMs ?? 50;
+  let conn: DaemonConnection<C, I> | undefined;
+
+  const emit = (state: EndpointState, identity?: I, startedAt?: number): void =>
+    spec.onStatus(spec.hostId, { state, identity, startedAt });
+
+  return {
+    current: () => conn,
+
+    async ensure(): Promise<void> {
+      emit("connecting");
+
+      // ALWAYS RECYCLE: a live survivor is killed, never adopted, so no
+      // survival hazard can open. (Adoption that preserves a session is B3.)
+      //
+      // But the gate is PID-ONLY: a hard kill (SIGKILL / power loss) leaves the
+      // pidfile behind, and the OS can later reuse that pid for an UNRELATED
+      // process. SIGTERMing a live gate-pid blindly would then kill a stranger.
+      // So we kill only after PROVING the holder is actually the daemon — its
+      // socket must be accepting connections. If the gate names a live pid but
+      // the socket is dead/absent, the gate is stale (a crashed predecessor, or a
+      // recycled pid); we leave that pid alone and let the freshly-spawned
+      // daemon's own `acquirePidGate` reap the stale gate.
+      const holder = gatePid(spec.gatePath);
+      if (
+        holder !== undefined &&
+        isHolderLive(holder) &&
+        (await socketAccepting(spec.socketPath))
+      ) {
+        spec.log.info(
+          { hostId: spec.hostId, pid: holder },
+          "recycling live daemon (boot policy = always recycle)",
+        );
+        try {
+          process.kill(holder, "SIGTERM");
+        } catch {
+          // Raced its own exit between the liveness probe and here — fine, the
+          // wait below confirms it's gone.
+        }
+        const gone = await waitForPidGone(holder);
+        if (!gone) {
+          // Respawning now would just make the new daemon yield to the still-live
+          // gate holder (single instance) — a silent no-op recycle. Fail loudly.
+          emit("dead");
+          throw new Error(
+            `daemon pid ${holder} did not exit within the recycle ceiling`,
+          );
+        }
+      } else if (holder !== undefined && isHolderLive(holder)) {
+        spec.log.warn(
+          { hostId: spec.hostId, pid: holder, socketPath: spec.socketPath },
+          "gate names a live pid but its socket is dead — treating gate as " +
+            "stale (not killing the pid: it may be an unrelated reused pid)",
+        );
+      }
+
+      try {
+        await spec.driver.spawn();
+      } catch (err) {
+        // The launch itself failed (ENOENT/EACCES on the binary, a systemd-run
+        // that couldn't fork). The endpoint contract is "failures report `dead`
+        // before they throw" — the UI relies on it to leave the indefinite
+        // `connecting` state — so flip to `dead` before rethrowing.
+        emit("dead");
+        throw err;
+      }
+
+      const up = await waitForSocket(
+        spec.socketPath,
+        socketReadyMs,
+        socketPollMs,
+      );
+      if (!up) {
+        emit("dead");
+        throw new Error(
+          `daemon socket ${spec.socketPath} never came up within ${socketReadyMs}ms`,
+        );
+      }
+
+      let next: DaemonConnection<C, I>;
+      try {
+        next = await spec.connect();
+      } catch (err) {
+        // A fresh spawn shouldn't skew (it's the current build), so this is a
+        // genuine boot failure — never an import-time throw, just an honest
+        // `dead`.
+        emit("dead");
+        throw err;
+      }
+
+      conn = next;
+      next.onClose(() => {
+        // Only the CURRENT connection's close demotes us — a stale close from a
+        // disposed predecessor must not stomp a fresh `connected`.
+        if (conn === next) {
+          conn = undefined;
+          spec.log.warn(
+            { hostId: spec.hostId },
+            "daemon connection closed mid-session — degraded",
+          );
+          emit("degraded");
+        }
+      });
+      emit("connected", next.identity, next.startedAt);
+    },
+  };
+}

@@ -70,8 +70,12 @@ import {
   listTerminals,
   terminalNotFound,
 } from "./terminal-registry.ts";
+import {
+  readDaemonStatus,
+  readDaemonStatuses,
+} from "./ptyHost/daemonStatus.ts";
+import { currentPtyHostIdentity } from "./ptyHost/index.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
-import { ptyHostIdentity } from "./terminalBackend/local.ts";
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
 
@@ -181,6 +185,16 @@ const koluDeps: Omit<
       // publish without re-mutating the registry (the registry is the
       // store; `terminalBackend/metadata.ts` mutates entry.meta in place before
       // calling ctx.upsert).
+      upsert: () => {},
+      remove: () => {},
+    },
+
+    daemonStatus: {
+      readAll: () => readDaemonStatuses(),
+      readOne: (key) => readDaemonStatus(key as string),
+      // Server-internal: `publishDaemonStatus` writes the store before calling
+      // `surfaceCtx.collections.daemonStatus.upsert`, so these are no-ops (the
+      // store is the authority, mirroring `terminalMetadata`).
       upsert: () => {},
       remove: () => {},
     },
@@ -314,11 +328,12 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // the surface's own spec, so this needs no cast.
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
         buildInfo: async () => {
-          const identity = await ptyHostIdentity;
-          // `version` is the bundled app version (`pkg.version` via
-          // `serverVersion`, always present — even in dev, unlike `commit` which
-          // is env-injected and empty off-nix); `ptyHost` is the boot-time-async
-          // probe. Both land as a patch over the library-seeded `{ commit }`.
+          // The connected kaval daemon's self-declared identity, read at
+          // buildInfo time (the endpoint is connected by the time a client reads
+          // the rail). Undefined while the daemon is down → the rail's column
+          // shows `—`. `version` is the bundled app version (always present);
+          // both land as a patch over the library-seeded `{ commit }`.
+          const identity = currentPtyHostIdentity();
           return {
             version: serverVersion,
             ...(identity ? { ptyHost: identity } : {}),
@@ -330,9 +345,9 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         // (`serverProcessId`) so the value is stable within a process and
         // changes on restart. Composed, not hand-written.
         processId: serverProcessId,
-        // Surface a failed boot-time pty-host probe — `ptyHost` legitimately
-        // stays undefined when the probe resolves empty, but a *rejection* is a
-        // fault we log rather than swallow (the rail's column shows `—` either way).
+        // Surface a failed buildInfo read — `ptyHost` legitimately stays
+        // undefined when the daemon is down, but a *rejection* is a fault we log
+        // rather than swallow (the rail's column shows `—` either way).
         onError: (err) =>
           log.error(
             { err: err instanceof Error ? err.message : String(err) },

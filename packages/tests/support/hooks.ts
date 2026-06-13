@@ -142,6 +142,43 @@ process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
  *  `testBaseDir` means the whole run's scratch space cleans up together. */
 const koluStateDir = mkSubDir("state");
 
+/** Per-worker `XDG_RUNTIME_DIR` so each worker's kolu-server spawns its kaval
+ *  daemon at an ISOLATED socket + gate (`$XDG_RUNTIME_DIR/kaval/...`). Without
+ *  this, parallel workers collide on the shared runtime socket and the
+ *  single-instance gate makes worker 2's kaval yield to worker 1's — the same
+ *  foreign-server hazard the HTTP-port ownership check guards against. 0700
+ *  because the daemon refuses a gate dir that isn't owner-only.
+ *
+ *  Deliberately a SHORT, top-level path — NOT nested under `testBaseDir` (which
+ *  lives under the deep nix-shell `$TMPDIR`). kolu's per-terminal scratch dir
+ *  hangs off `$XDG_RUNTIME_DIR`, so a long runtime path makes a pasted scratch
+ *  file path (clipboard / file-drop) wrap in the 80-col test terminal — and
+ *  bash 5's bracketed-paste active-region redraw of a *wrapped* line garbles the
+ *  cells so the screen-state read can't find the filename. A short runtime dir
+ *  keeps the path on one line. Cleaned up by `killServer` (it sits outside
+ *  `testBaseDir`, so the run's recursive remove doesn't catch it). */
+const runtimeDir = fs.mkdtempSync(path.join("/tmp", `kr${workerId}-`));
+fs.chmodSync(runtimeDir, 0o700);
+
+/** SIGKILL the kaval daemon this worker's server spawned (it is detached, so it
+ *  outlives the server — B2 makes no survival promise, but the harness must not
+ *  leak it across runs). Reads the gate kaval wrote beside its socket; returns
+ *  the killed pid, or undefined if there was nothing to reap. Also the
+ *  `pkill kaval mid-session` step's mechanism for the degraded-state e2e. */
+export function killKavalDaemon(): number | undefined {
+  const gate = path.join(runtimeDir, "kaval", "kaval.pid");
+  try {
+    const pid = Number.parseInt(fs.readFileSync(gate, "utf8").trim(), 10);
+    if (Number.isInteger(pid) && pid > 0) {
+      process.kill(pid, "SIGKILL");
+      return pid;
+    }
+  } catch {
+    // No gate / already gone / not ours — nothing to reap.
+  }
+  return undefined;
+}
+
 /** PR-evidence capture (set `KOLU_EVIDENCE=1`): record a Playwright video per
  *  scenario and save it, scenario-named, under `reports/videos/` for the /do
  *  evidence flow to transcode + upload (the same GIF/Pages-player delivery the
@@ -356,11 +393,20 @@ function httpGet(url: string): Promise<{ ok: boolean }> {
   });
 }
 
-/** Kill the server child on any exit path (crash, SIGINT, SIGTERM). */
+/** Kill the server child on any exit path (crash, SIGINT, SIGTERM), then reap
+ *  the kaval daemon it spawned (detached, so it survives the server). */
 function killServer() {
   if (serverProcess) {
     serverProcess.kill("SIGTERM");
     serverProcess = undefined;
+  }
+  killKavalDaemon();
+  // The per-worker runtime dir lives outside `testBaseDir` (short path, see its
+  // comment), so the run's recursive remove won't catch it — reap it here.
+  try {
+    fs.rmSync(runtimeDir, { recursive: true, force: true });
+  } catch {
+    // Best-effort: already gone / never created.
   }
 }
 process.on("exit", killServer);
@@ -480,6 +526,137 @@ async function waitForOwnedServer(
   return false;
 }
 
+/** Spawn the kolu server BINARY on a fresh random port and wait until OUR child
+ *  owns it and answers health, setting `serverProcess` + `baseUrl`. Retries on a
+ *  fresh port if a stale orphan squats the one `get-port` handed us (see
+ *  `waitForOwnedServer`). Used at BeforeAll AND by the restart path that the
+ *  kaval-daemon scenario's After hook drives — that scenario SIGKILLs the
+ *  worker's kaval, leaving the server degraded, so the worker must be re-booted
+ *  before any later scenario tries to create a terminal. */
+async function startServerChild(koluServer: string): Promise<void> {
+  // Extend NIX_ENV_WHITELIST with GIT_AUTHOR_*/GIT_COMMITTER_* so PTY
+  // shells in fixtures like `code-tab.feature` (which run `git init &&
+  // git commit` inside the terminal under test) inherit the same
+  // identity set on process.env above. Without this, the whitelist
+  // filter strips them and those scenarios fail on pristine hosts.
+  const envWhitelist = [
+    NIX_ENV_WHITELIST,
+    "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
+  ].join(",");
+  // Append-mode per-worker server log: a server that dies mid-run otherwise
+  // leaves NO trace in the suite log; the file preserves the crash stack /
+  // clean-exit / silence-then-gone that distinguishes a crash from a wedge.
+  fs.mkdirSync(serverLogDir, { recursive: true });
+  const serverLog = fs.createWriteStream(
+    path.join(serverLogDir, `server-w${workerId}.log`),
+    { flags: "a" },
+  );
+
+  // Spawn on a random port, retrying on a fresh port if our child can't take
+  // ownership of it (a stale orphan may be squatting — see waitForOwnedServer).
+  const MAX_SPAWN_ATTEMPTS = 5;
+  let started = false;
+  for (let attempt = 1; attempt <= MAX_SPAWN_ATTEMPTS && !started; attempt++) {
+    const port = await getPort();
+    const url = `http://localhost:${port}`;
+    console.log(
+      `[worker:${workerId}] Starting server on port ${port} (attempt ${attempt}/${MAX_SPAWN_ATTEMPTS})...`,
+    );
+    const child = spawn(
+      koluServer,
+      [
+        "--allow-nix-shell-with-env-whitelist",
+        envWhitelist,
+        "--port",
+        String(port),
+      ],
+      {
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          // Route server state to an ephemeral $TMPDIR path so test runs
+          // never touch ~/.config and the dir can be wiped in AfterAll.
+          KOLU_STATE_DIR: koluStateDir,
+          // Per-worker runtime dir → an isolated kaval socket + gate, so
+          // parallel workers' daemons never collide on the shared path.
+          XDG_RUNTIME_DIR: runtimeDir,
+          // Force a detached kaval spawn: e2e reaps the daemon itself and may
+          // run on a box with no systemd user session (where the production
+          // `systemd-run --user` path would fail).
+          KOLU_KAVAL_SPAWN: "detached",
+          // The agent-dir overrides, derived once above: temp dirs normally,
+          // all-undefined under X11CAP so the `...process.env` spread can't
+          // re-introduce an inherited value and the server watches the real
+          // ~/.claude/projects + ~/.codex (the dock then tracks the live agent).
+          ...agentDirEnv,
+          KOLU_OPENCODE_DB: opencodeDbPath,
+        },
+      },
+    );
+
+    // Detect when OUR child announces it bound the port. The address in the
+    // `kolu listening {...,"address":"http://127.0.0.1:<port>"}` log proves
+    // ownership; buffer across chunks so a split line still matches.
+    let outBuf = "";
+    let ownsPort = false;
+    let exited = false;
+    const scan = (data: Buffer) => {
+      serverLog.write(data);
+      if (!ownsPort) {
+        outBuf += data.toString();
+        if (outBuf.includes("kolu listening") && outBuf.includes(`:${port}`))
+          ownsPort = true;
+        // Cap the scan buffer — once it's clearly past the boot banner and
+        // still no match, keep only the tail so memory can't grow unbounded.
+        if (outBuf.length > 16_384) outBuf = outBuf.slice(-4_096);
+      }
+    };
+    child.stderr?.on("data", (data: Buffer) => {
+      scan(data);
+      process.stderr.write(`[server:${workerId}] ${data}`);
+    });
+    child.stdout?.on("data", (data: Buffer) => {
+      scan(data);
+      if (process.env.KOLU_TEST_VERBOSE) {
+        process.stderr.write(`[server:${workerId}:out] ${data}`);
+      }
+    });
+    // Record the death itself: code/signal disambiguates crash (code≠0 or a
+    // signal) from a clean exit from a never-fired handler (wedge). A bind
+    // failure (port squatted) shows up here and flips `exited`.
+    child.on("exit", (code, signal) => {
+      exited = true;
+      const line = `[server:${workerId}] process exited code=${code} signal=${signal}\n`;
+      serverLog.write(line);
+      process.stderr.write(line);
+    });
+
+    const owned = await waitForOwnedServer(
+      url,
+      () => ownsPort,
+      () => exited,
+      15_000,
+    );
+    if (owned) {
+      serverProcess = child;
+      baseUrl = url;
+      started = true;
+      console.log(`[worker:${workerId}] Server is healthy on ${port}.`);
+    } else {
+      console.log(
+        `[worker:${workerId}] Server did not take ownership of port ${port} ` +
+          `(ownsPort=${ownsPort} exited=${exited}) — likely a squatter; retrying on a fresh port.`,
+      );
+      child.kill("SIGKILL");
+    }
+  }
+  if (!started) {
+    throw new Error(
+      `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempts`,
+    );
+  }
+}
+
 BeforeAll(async () => {
   // KOLU_X11CAP: bring up the Xvfb virtual display BEFORE launching the (headful)
   // browser, and point DISPLAY at it so Chrome and ffmpeg share the framebuffer.
@@ -503,124 +680,7 @@ BeforeAll(async () => {
     // Reuse an already-running server
     baseUrl = koluServer;
   } else {
-    // Extend NIX_ENV_WHITELIST with GIT_AUTHOR_*/GIT_COMMITTER_* so PTY
-    // shells in fixtures like `code-tab.feature` (which run `git init &&
-    // git commit` inside the terminal under test) inherit the same
-    // identity set on process.env above. Without this, the whitelist
-    // filter strips them and those scenarios fail on pristine hosts.
-    const envWhitelist = [
-      NIX_ENV_WHITELIST,
-      "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
-    ].join(",");
-    // Append-mode per-worker server log: a server that dies mid-run otherwise
-    // leaves NO trace in the suite log; the file preserves the crash stack /
-    // clean-exit / silence-then-gone that distinguishes a crash from a wedge.
-    fs.mkdirSync(serverLogDir, { recursive: true });
-    const serverLog = fs.createWriteStream(
-      path.join(serverLogDir, `server-w${workerId}.log`),
-      { flags: "a" },
-    );
-
-    // Spawn on a random port, retrying on a fresh port if our child can't take
-    // ownership of it (a stale orphan may be squatting — see waitForOwnedServer).
-    const MAX_SPAWN_ATTEMPTS = 5;
-    let started = false;
-    for (
-      let attempt = 1;
-      attempt <= MAX_SPAWN_ATTEMPTS && !started;
-      attempt++
-    ) {
-      const port = await getPort();
-      const url = `http://localhost:${port}`;
-      console.log(
-        `[worker:${workerId}] Starting server on port ${port} (attempt ${attempt}/${MAX_SPAWN_ATTEMPTS})...`,
-      );
-      const child = spawn(
-        koluServer,
-        [
-          "--allow-nix-shell-with-env-whitelist",
-          envWhitelist,
-          "--port",
-          String(port),
-        ],
-        {
-          stdio: "pipe",
-          env: {
-            ...process.env,
-            // Route server state to an ephemeral $TMPDIR path so test runs
-            // never touch ~/.config and the dir can be wiped in AfterAll.
-            KOLU_STATE_DIR: koluStateDir,
-            // The agent-dir overrides, derived once above: temp dirs normally,
-            // all-undefined under X11CAP so the `...process.env` spread can't
-            // re-introduce an inherited value and the server watches the real
-            // ~/.claude/projects + ~/.codex (the dock then tracks the live agent).
-            ...agentDirEnv,
-            KOLU_OPENCODE_DB: opencodeDbPath,
-          },
-        },
-      );
-
-      // Detect when OUR child announces it bound the port. The address in the
-      // `kolu listening {...,"address":"http://127.0.0.1:<port>"}` log proves
-      // ownership; buffer across chunks so a split line still matches.
-      let outBuf = "";
-      let ownsPort = false;
-      let exited = false;
-      const scan = (data: Buffer) => {
-        serverLog.write(data);
-        if (!ownsPort) {
-          outBuf += data.toString();
-          if (outBuf.includes("kolu listening") && outBuf.includes(`:${port}`))
-            ownsPort = true;
-          // Cap the scan buffer — once it's clearly past the boot banner and
-          // still no match, keep only the tail so memory can't grow unbounded.
-          if (outBuf.length > 16_384) outBuf = outBuf.slice(-4_096);
-        }
-      };
-      child.stderr?.on("data", (data: Buffer) => {
-        scan(data);
-        process.stderr.write(`[server:${workerId}] ${data}`);
-      });
-      child.stdout?.on("data", (data: Buffer) => {
-        scan(data);
-        if (process.env.KOLU_TEST_VERBOSE) {
-          process.stderr.write(`[server:${workerId}:out] ${data}`);
-        }
-      });
-      // Record the death itself: code/signal disambiguates crash (code≠0 or a
-      // signal) from a clean exit from a never-fired handler (wedge). A bind
-      // failure (port squatted) shows up here and flips `exited`.
-      child.on("exit", (code, signal) => {
-        exited = true;
-        const line = `[server:${workerId}] process exited code=${code} signal=${signal}\n`;
-        serverLog.write(line);
-        process.stderr.write(line);
-      });
-
-      const owned = await waitForOwnedServer(
-        url,
-        () => ownsPort,
-        () => exited,
-        15_000,
-      );
-      if (owned) {
-        serverProcess = child;
-        baseUrl = url;
-        started = true;
-        console.log(`[worker:${workerId}] Server is healthy on ${port}.`);
-      } else {
-        console.log(
-          `[worker:${workerId}] Server did not take ownership of port ${port} ` +
-            `(ownsPort=${ownsPort} exited=${exited}) — likely a squatter; retrying on a fresh port.`,
-        );
-        child.kill("SIGKILL");
-      }
-    }
-    if (!started) {
-      throw new Error(
-        `[worker:${workerId}] could not start a kolu server that owns its port after ${MAX_SPAWN_ATTEMPTS} attempts`,
-      );
-    }
+    await startServerChild(koluServer);
   }
 
   // Launch browser — always use CI args for consistency and performance.
@@ -906,4 +966,22 @@ After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
     });
     console.log(`[worker:${workerId}] KOLU_X11CAP: web assets → ${out.mp4}`);
   }
+});
+
+/** Restore the worker after a scenario that SIGKILLed its kaval daemon
+ *  (`@kaval-restart`, the kaval-daemon.feature degraded-state e2e). The kill
+ *  leaves the worker's server in `degraded` with NO daemon — `ensureLocalEndpoint`
+ *  only spawns kaval at server boot, so the only way back to a healthy worker is
+ *  to restart the server. Without this, a later scenario the cucumber queue
+ *  assigns to THIS worker would fail the instant it tries to create a terminal.
+ *  Skipped when KOLU_SERVER is a URL (a reused server we don't own/can't restart;
+ *  that mode runs the suite single-server and isn't subject to the queue-poison). */
+After({ tags: "@kaval-restart" }, async function (this: KoluWorld) {
+  const koluServer = process.env.KOLU_SERVER;
+  if (!koluServer || koluServer.startsWith("http")) return;
+  console.log(
+    `[worker:${workerId}] @kaval-restart: rebooting server to respawn its kaval daemon.`,
+  );
+  killServer(); // also reaps any surviving kaval
+  await startServerChild(koluServer);
 });

@@ -37,7 +37,9 @@ import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher, supportsSpatialCanvas } from "./capabilities";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
+import DegradedCanvas from "./DegradedCanvas";
 import EmptyState from "./EmptyState";
+import { daemonDown, daemonStatusPending, downState } from "./useDaemonStatus";
 import WelcomeDialog from "./WelcomeDialog";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
@@ -555,39 +557,58 @@ const App: Component = () => {
         }}
       >
         <Show
-          when={!session.isLoading()}
+          when={!session.isLoading() && !daemonStatusPending()}
           fallback={
+            // Neutral connecting state until BOTH the session cell AND the
+            // daemon-status stream have produced their first value. Gating on
+            // daemon-status-pending (not just `daemonDown()`, which is false
+            // while pending) stops a `dead` boot from flashing the normal empty
+            // workspace before DegradedCanvas takes over (#1034).
             <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
               Connecting...
             </div>
           }
         >
+          <Show when={downState()}>
+            {/* Honest daemon-down surface — gated BEFORE the empty/terminals
+                branch so a dead/degraded kaval never masquerades as "you have
+                no terminals" (#1034's empty-canvas lie). `downState()` is the
+                one source for both "is it down" and "which down". */}
+            {(state) => <DegradedCanvas state={state()} />}
+          </Show>
           <Show
-            when={!showEmpty()}
+            when={!daemonDown() && !showEmpty()}
             fallback={
-              <div
-                data-testid="canvas-container"
-                class="relative flex-1 min-h-0 canvas-grid-bg"
-              >
-                <CanvasWatermark text={appTitle()} />
-                {/* The Dock stays mounted at zero terminals (desktop only)
-                 *  so its `+` new-terminal button is the always-reachable
-                 *  mouse path to the first terminal — the welcome card
-                 *  advertises ⌘⏎ but carries no clickable affordance
-                 *  (#1202). The empty Dock is just its header; the
-                 *  `relative` parent anchors its tiled-posture float
-                 *  (`top-12 left-4`), the only posture reachable at zero
-                 *  tiles. Mobile keeps its own pull-down nav. */}
-                <Show when={!isMobile()}>
-                  <Dock {...dockPalette} />
-                </Show>
-                <EmptyState
-                  install={pwaInstall}
-                  savedSession={session.savedSession() ?? undefined}
-                  isRestoring={session.isRestoring()}
-                  onRestore={(opts) => void session.handleRestoreSession(opts)}
-                />
-              </div>
+              // Empty-state welcome — only when the daemon is healthy. When it's
+              // down, DegradedCanvas (above) owns the canvas, so this fallback
+              // must stay hidden or both would render.
+              <Show when={!daemonDown()}>
+                <div
+                  data-testid="canvas-container"
+                  class="relative flex-1 min-h-0 canvas-grid-bg"
+                >
+                  <CanvasWatermark text={appTitle()} />
+                  {/* The Dock stays mounted at zero terminals (desktop only)
+                   *  so its `+` new-terminal button is the always-reachable
+                   *  mouse path to the first terminal — the welcome card
+                   *  advertises ⌘⏎ but carries no clickable affordance
+                   *  (#1202). The empty Dock is just its header; the
+                   *  `relative` parent anchors its tiled-posture float
+                   *  (`top-12 left-4`), the only posture reachable at zero
+                   *  tiles. Mobile keeps its own pull-down nav. */}
+                  <Show when={!isMobile()}>
+                    <Dock {...dockPalette} />
+                  </Show>
+                  <EmptyState
+                    install={pwaInstall}
+                    savedSession={session.savedSession() ?? undefined}
+                    isRestoring={session.isRestoring()}
+                    onRestore={(opts) =>
+                      void session.handleRestoreSession(opts)
+                    }
+                  />
+                </div>
+              </Show>
             }
           >
             {match(isMobile())

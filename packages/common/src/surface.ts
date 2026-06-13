@@ -31,6 +31,7 @@ import {
   defineBuildInfo,
   surfaceAppSurfaceWith,
 } from "@kolu/surface-app/surface";
+import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
@@ -573,21 +574,44 @@ export function applyPreferencesPatch(
 //
 // surface-app's `buildInfo` cell carries "what build is the server?" as
 // reactive server state (server-pushed, read with `{ authority: "server" }`).
-// The library default is `{ commit }`; kolu EXTENDS it with the in-process
-// pty-host's identity (its own closure `staleKey` + git-navigable commit), the
+// The library default is `{ commit }`; kolu EXTENDS it with the pty-host's
+// identity (its own closure `staleKey` + git-navigable commit), the
 // `srv · pty` rail's second column. `defineBuildInfo` is generic over the
 // schema, so the extra axis is type-checked end to end.
 //
-// `ptyHost` is optional: a future surviving daemon (remote-terminals phase B)
-// may predate it. `isStale` stays the library default — the clean-ref-guarded
-// COMMIT comparison — because kolu's staleness signal (`≠ srv`) is purely the
-// client-vs-server commit divergence; the pty-host column is displayed, not a
-// staleness input (the pty-host is in-process in A2, so it can't diverge from
-// the server it lives in).
+// As of B2 the pty-host (kaval) is an out-of-process daemon with its OWN
+// identity, reported over the wire via the supervisor — so its commit CAN
+// diverge from the server's. `ptyHost` is optional: the supervisor may not
+// have a connected daemon yet (boot/restart window).
+//
+// That commit nonetheless stays DISPLAY-ONLY: `isStale` remains the library
+// default — the clean-ref-guarded COMMIT comparison — because kolu's staleness
+// signal (`≠ srv`) is purely the client-vs-server commit divergence. Folding
+// kaval's commit into staleness buys little today: the always-recycle policy
+// tears down and respawns kaval on every server boot, so a kaval skew older
+// than one boot is already precluded; the rail surfaces the column for
+// observability rather than as a third staleness input.
 export const PtyHostIdentitySchema = z.object({
   staleKey: z.string(),
   navigableCommit: z.string(),
 });
+
+/** The live state of one host's pty-host daemon (kaval), as the supervisor's
+ *  endpoint reports it — the honest-state surface that makes "the daemon is
+ *  down" distinguishable from "you have no terminals" (B2, the empty-canvas-lie
+ *  fix). `identity`/`startedAt` are present once `connected`. */
+export const DaemonStatusSchema = z.object({
+  // The state set is the spine's volatility — derive the enum from the
+  // supervisor's `ENDPOINT_STATES` so a new endpoint state is a compile-time
+  // obligation here, not a silently-dropped wire member. The `identity` arm
+  // below stays kolu's (it is the soul).
+  state: z.enum(ENDPOINT_STATES),
+  identity: PtyHostIdentitySchema.optional(),
+  /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
+  startedAt: z.number().optional(),
+});
+export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
+export type DaemonState = DaemonStatus["state"];
 
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
@@ -682,6 +706,16 @@ export const koluSurface = defineSurface({
       keySchema: TerminalIdSchema,
       schema: TerminalMetadataSchema,
       // Only the streaming reads are exposed; writes are server-internal.
+      verbs: ["keys", "get"],
+    },
+
+    /** Per-host pty-host daemon (kaval) status, keyed by hostId — a map of one
+     *  (`local`) today, host-count-agnostic by construction for R-2's ssh hosts.
+     *  The supervisor's endpoint is the sole writer (server-internal); the rail
+     *  and DegradedCanvas subscribe so the UI never lies about the daemon. */
+    daemonStatus: {
+      keySchema: z.string(),
+      schema: DaemonStatusSchema,
       verbs: ["keys", "get"],
     },
   },

@@ -74,8 +74,12 @@ lint: install
 
 # Run server with auto-reload. Honors KOLU_DEV_SERVER_PORT if set (e.g. by
 # `just dev`), otherwise the server CLI falls back to its default port.
+# KOLU_KAVAL_SOCKET isolates this dev instance's kaval daemon in a private,
+# per-port 0700 dir so the always-recycle boot policy never SIGTERMs a production
+# kolu.service's daemon (which holds the default $XDG_RUNTIME_DIR/kaval socket)
+# — and a second worktree's dev server (its own port) likewise gets its own.
 server:
-    cd packages/server && {{ nix_shell }} pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}
+    {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d" && chmod 700 "$d"; cd packages/server && KOLU_KAVAL_SOCKET="$d/pty-host.sock" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
 
 # Run client with Vite dev server (HMR)
 client:

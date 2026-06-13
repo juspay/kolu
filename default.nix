@@ -36,6 +36,7 @@ let
       ./packages/surface-nix-host
       ./packages/surface-app
       ./packages/surface-daemon
+      ./packages/surface-daemon-supervisor
       ./packages/solid-pierre
       ./packages/solid-markdown
       ./packages/solid-pwa-install
@@ -229,6 +230,7 @@ let
       --set KOLU_COMMIT_HASH "${commitHash}" \
       --set KAVAL_BUILD_ID "${kavalBuildId}" \
       --set KAVAL_COMMIT_HASH "${commitHash}" \
+      --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"
