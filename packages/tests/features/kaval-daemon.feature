@@ -25,6 +25,8 @@ Feature: kaval daemon lifecycle (B2 — the door)
     When I restart kaval from the degraded canvas
     Then the warming canvas is shown while kaval restarts
     And the restore card is not offered until kaval is connected
+    When I press the create terminal shortcut while kaval restarts
+    Then no terminal is created while kaval is warming
     Then the daemon returns to running
     And the session restore card should be visible
     When I click the restore button

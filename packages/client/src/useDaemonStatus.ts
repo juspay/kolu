@@ -98,12 +98,16 @@ export function daemonDown(): boolean {
  *  automatically. Before the first status yield the state is unknown (not
  *  warming); `daemonStatusPending()` owns that pre-first-value gate.
  *
- *  The canvas reads this to suppress the normal empty-state welcome (with its
- *  enabled Restore / new-terminal affordances) while the daemon is warming: a
- *  restart's `drain` empties the terminal list, which would otherwise paint
- *  EmptyState while `restarting`, letting a fast click spawn/restore terminals
- *  into a daemon the recycle is about to kill (or against a momentarily-`current`
- *  old connection). Terminal creation must wait for `connected`. */
+ *  Two consumers share this gate, covering both the visible and the invisible
+ *  create paths: the App.tsx canvas reads it to suppress the empty-state welcome
+ *  (its enabled Restore / new-terminal affordances) while warming — a restart's
+ *  `drain` empties the terminal list, which would otherwise paint EmptyState
+ *  while `restarting`; and `useTerminalCrud.handleCreate` reads it to refuse the
+ *  keyboard (`Cmd+T`) and command-palette create paths, which stay live over the
+ *  neutral warming surface the canvas shows. Without the crud guard a `Cmd+T`
+ *  would call `client.terminal.create` against the daemon the recycle is about to
+ *  kill (or a momentarily-`current` old connection). Terminal creation must wait
+ *  for `connected`. */
 export function daemonWarming(): boolean {
   const state = localDaemonStatus()?.state;
   return state ? DAEMON_STATE_PRESENTATION[state].tone === "warming" : false;

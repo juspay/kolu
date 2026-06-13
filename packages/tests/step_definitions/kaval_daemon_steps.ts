@@ -10,7 +10,7 @@
 
 import { Then, When } from "@cucumber/cucumber";
 import { killKavalDaemon } from "../support/hooks.ts";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 When("the kaval daemon is killed", async function (this: KoluWorld) {
   const pid = killKavalDaemon();
@@ -71,6 +71,39 @@ Then(
       throw new Error(
         "restore card was reachable while kaval was still warming — it must " +
           "be gated until the daemon is connected (F3)",
+      );
+    }
+  },
+);
+
+// B3.2 / F3 — the warming gate must cover the keyboard/palette create path, not
+// just the EmptyState/Dock affordances the canvas hides. The create shortcut
+// (`Cmd+T` / `Cmd+Enter`) stays live over the neutral warming surface, so without
+// the `useTerminalCrud.handleCreate` guard a keypress would call
+// `client.terminal.create` against the daemon the recycle is about to kill. Press
+// the shortcut, then assert in ONE DOM snapshot: if the warming surface is STILL
+// up (so `daemonWarming()` was true) no `canvas-tile` may have appeared — the
+// shared create chokepoint must have refused.
+When(
+  "I press the create terminal shortcut while kaval restarts",
+  async function (this: KoluWorld) {
+    await this.page.keyboard.press(`${MOD_KEY}+t`);
+  },
+);
+
+Then(
+  "no terminal is created while kaval is warming",
+  async function (this: KoluWorld) {
+    const leaked = await this.page.evaluate(() => {
+      const warming = document.querySelector('[data-testid="daemon-warming"]');
+      const tile = document.querySelector('[data-testid="canvas-tile"]');
+      return Boolean(warming && tile);
+    });
+    if (leaked) {
+      throw new Error(
+        "a terminal was created via the keyboard shortcut while kaval was " +
+          "still warming — the create chokepoint must refuse until the " +
+          "daemon is connected (F3)",
       );
     }
   },

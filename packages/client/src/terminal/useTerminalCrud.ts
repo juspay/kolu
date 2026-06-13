@@ -14,6 +14,7 @@ import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
+import { daemonWarming } from "../useDaemonStatus";
 import { client, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
@@ -95,6 +96,21 @@ export function useTerminalCrud(deps: { store: TerminalStore }) {
     cwd?: string,
     initial?: InitialTerminalMetadata,
   ): Promise<TerminalId> {
+    // The one create chokepoint — keyboard (`Cmd+T`/`Cmd+Enter`), palette
+    // "New terminal", the Dock `+`, worktree ops, and session restore's
+    // per-terminal creates all funnel here. Block while the daemon is warming
+    // (boot `connecting` or a supervised `restarting`): the App.tsx canvas
+    // gate only hides the EmptyState/Dock affordances, but the shortcut and
+    // palette stay live over the neutral warming surface, so without this
+    // guard a `Cmd+T` or palette create races the recycle — spawning a
+    // terminal into the daemon the restart is about to kill (or against a
+    // momentarily-stale `current` connection). Creation must wait for
+    // `connected` (F3). `throw` (not a silent return) so the restore loop
+    // aborts cleanly rather than half-creating.
+    if (daemonWarming()) {
+      toast.warning("Daemon is starting — try again in a moment");
+      throw new Error("daemon warming: terminal creation deferred");
+    }
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
     // Snapshot peer backgrounds BEFORE creating — the new terminal gets the
@@ -134,6 +150,13 @@ export function useTerminalCrud(deps: { store: TerminalStore }) {
   }
 
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
+    // Split creation reaches `client.terminal.create` directly (not via
+    // `handleCreate`), so it needs the same warming guard — the split
+    // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
+    if (daemonWarming()) {
+      toast.warning("Daemon is starting — try again in a moment");
+      return;
+    }
     const info = await client.terminal
       .create({ cwd, parentId })
       .catch((err: Error) => {
