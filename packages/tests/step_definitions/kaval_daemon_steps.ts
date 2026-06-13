@@ -32,10 +32,13 @@ Then("the degraded canvas is shown", async function (this: KoluWorld) {
 // B3.2 — the supervised restart. The degraded canvas' "Restart kaval" button
 // fires `daemon.restart`: capture the session, drain, recycle (spawn fresh +
 // connect). The same button lives in the kaval rail dialog for a running daemon.
+// Restart is destructive (kills the daemon + every terminal), so the button
+// opens an inline confirm first — click through both.
 When(
   "I restart kaval from the degraded canvas",
   async function (this: KoluWorld) {
     await this.page.locator('[data-testid="restart-kaval"]').click();
+    await this.page.locator('[data-testid="restart-kaval-confirm"]').click();
   },
 );
 

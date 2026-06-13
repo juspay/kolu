@@ -12,10 +12,11 @@ import Dialog from "@corvu/dialog";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
-import { restartDaemon, restartInFlight } from "./useDaemonRestart";
+import RestartKavalButton from "./RestartKavalButton";
+import { restartDaemon } from "./useDaemonRestart";
 import { DAEMON_STATE_PRESENTATION, toneDot } from "./useDaemonStatus";
 import Commit from "./ui/Commit";
-import { CloseIcon, RestartIcon } from "./ui/Icons";
+import { CloseIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 
@@ -44,10 +45,6 @@ const KavalInfoDialog: Component<{
   status: DaemonStatus | undefined;
 }> = (props) => {
   const chrome = surface({ portalled: true });
-  // The shared "a restart is underway" predicate — disabled while the click is
-  // being serviced or the daemon surface is mid-transition, so a second click
-  // can't stack a recycle. DegradedCanvas reads the same predicate.
-  const inFlight = (): boolean => restartInFlight(props.status);
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
       <Dialog.Content
@@ -123,25 +120,20 @@ const KavalInfoDialog: Component<{
         </div>
 
         {/* Restart — recycle the daemon to pick up a new build or recover a
-            stopped one; the session is captured first and offered for restore. */}
+            stopped one; confirms first (it's destructive), then the session is
+            captured and offered for restore. `onConfirm` closes this dialog
+            before restarting — the recycle empties the canvas and surfaces the
+            restore card, and a modal kaval dialog left open would overlay it
+            (the rail dialog is an info panel, not where you'd click Restore). */}
         <div class="mt-3">
-          <button
-            type="button"
-            data-testid="restart-kaval"
-            disabled={inFlight()}
-            // Close this dialog before kicking off the restart — the recycle
-            // empties the canvas and surfaces the session-restore card, and a
-            // modal kaval dialog left open would overlay it (the rail dialog is
-            // an info panel, not where you'd then click Restore).
-            onClick={() => {
+          <RestartKavalButton
+            status={props.status}
+            tone="neutral"
+            onConfirm={() => {
               props.onOpenChange(false);
               void restartDaemon();
             }}
-            class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-surface-3/60 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RestartIcon class="h-3.5 w-3.5" />
-            {inFlight() ? "Restarting…" : "Restart kaval"}
-          </button>
+          />
           <p class="mt-1.5 text-[11px] leading-relaxed text-fg-3">
             Picks up a new build or recovers a stopped daemon. Your terminals
             are captured first and offered for restore on the fresh daemon.
