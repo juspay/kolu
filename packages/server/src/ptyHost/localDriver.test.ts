@@ -21,15 +21,22 @@ import { kavalSocketPath, resolveKavalLaunch } from "./localDriver.ts";
 describe("per-instance kaval daemon isolation", () => {
   let savedSocket: string | undefined;
   let savedBin: string | undefined;
+  let savedXdg: string | undefined;
 
   beforeEach(() => {
     savedSocket = process.env.KOLU_KAVAL_SOCKET;
     savedBin = process.env.KOLU_KAVAL_BIN;
+    savedXdg = process.env.XDG_RUNTIME_DIR;
+    // Pin the runtime root so the per-port namespace assertions are
+    // deterministic — off systemd (e.g. macOS CI) the path would otherwise be
+    // the `/tmp/<app>-<uid>/` fallback, with no `/kaval-<port>/` segment.
+    process.env.XDG_RUNTIME_DIR = "/run/user/1000";
   });
 
   afterEach(() => {
     restore("KOLU_KAVAL_SOCKET", savedSocket);
     restore("KOLU_KAVAL_BIN", savedBin);
+    restore("XDG_RUNTIME_DIR", savedXdg);
   });
 
   it("namespaces the socket by listen port, so two servers never collide", () => {
@@ -40,10 +47,9 @@ describe("per-instance kaval daemon isolation", () => {
 
     // Distinct per-port namespaces — the whole fix: a repro server on 18331
     // can never land on (and recycle) a production server's 7681 daemon.
+    expect(a).toBe("/run/user/1000/kaval-7681/pty-host.sock");
+    expect(b).toBe("/run/user/1000/kaval-18331/pty-host.sock");
     expect(a).not.toBe(b);
-    expect(a).toContain("/kaval-7681/");
-    expect(b).toContain("/kaval-18331/");
-    expect(a.endsWith("/pty-host.sock")).toBe(true);
   });
 
   it("KOLU_KAVAL_SOCKET overrides the per-port default (the explicit pin)", () => {
