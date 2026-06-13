@@ -96,6 +96,21 @@ export function setSavedSession(session: SavedSession | null): void {
   writeSession(session);
 }
 
+/** Persist a `{terminals, activeTerminalId}` snapshot as the saved session,
+ *  owning the empty→null + `savedAt: Date.now()` rule in one place — with
+ *  `setSavedSession`'s autosave-cancel semantics. The B3 reattach paths (boot
+ *  reconcile's restore card and the restart capture) build a snapshot under a
+ *  recycle and must win the autosave race; they call THIS rather than re-inlining
+ *  the same mapping. (`saveSession` keeps its own no-cancel autosave path.) */
+export function setSavedSessionFromSnapshot(snapshot: {
+  terminals: SavedTerminal[];
+  activeTerminalId: string | null;
+}): void {
+  setSavedSession(
+    snapshot.terminals.length > 0 ? { ...snapshot, savedAt: Date.now() } : null,
+  );
+}
+
 // --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
 
 /** Wire up throttled session save from terminal change events. Called once at startup.

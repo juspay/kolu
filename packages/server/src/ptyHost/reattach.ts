@@ -19,7 +19,7 @@
 import type { PtyHostListEntry } from "kaval";
 import { restart } from "@kolu/surface-daemon-supervisor";
 import { log } from "../log.ts";
-import { getSavedSession, setSavedSession } from "../session.ts";
+import { getSavedSession, setSavedSessionFromSnapshot } from "../session.ts";
 import {
   adoptLocalTerminal,
   localTerminalBackend,
@@ -77,15 +77,10 @@ async function reconcileSession(phase: "boot" | "restart"): Promise<void> {
     restoreCard.some((t) => t.id === saved.activeTerminalId)
       ? saved.activeTerminalId
       : null;
-  setSavedSession(
-    restoreCard.length > 0
-      ? {
-          terminals: restoreCard,
-          activeTerminalId: activeStillRestorable,
-          savedAt: Date.now(),
-        }
-      : null,
-  );
+  setSavedSessionFromSnapshot({
+    terminals: restoreCard,
+    activeTerminalId: activeStillRestorable,
+  });
 
   log.info(
     {
@@ -121,16 +116,7 @@ export async function restartDaemon(): Promise<void> {
     // autosave-cancel race by construction (`setSavedSession` cancels any pending
     // dirty-driven autosave).
     capture: async () => {
-      const snap = snapshotSession();
-      setSavedSession(
-        snap.terminals.length > 0
-          ? {
-              terminals: snap.terminals,
-              activeTerminalId: snap.activeTerminalId,
-              savedAt: Date.now(),
-            }
-          : null,
-      );
+      setSavedSessionFromSnapshot(snapshotSession());
     },
     // Drain the live terminals — the single kill path aborts each exit tap before
     // killing, so the daemon death during the recycle can't double-publish exits.
