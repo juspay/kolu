@@ -52,30 +52,27 @@ function writeSession(next: SavedSession | null): void {
   surfaceCtx.cells.session.set(next);
 }
 
-/** A live snapshot of the terminal set — the shape autosave persists, and the
- *  unit the snapshot→`SavedSession` rule maps. Exported so the producer
- *  (`snapshotSession` in terminals.ts) and the consumers (`saveSession` /
- *  `initSessionAutoSave`) reference one nominal contract. */
+/** A live snapshot of the terminal set — the shape autosave persists. Exported
+ *  so the producer (`snapshotSession` in terminals.ts) and the consumers
+ *  (`saveSession` / `initSessionAutoSave`) reference one nominal contract
+ *  instead of each re-spelling the inline shape. */
 export interface SessionSnapshot {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
 }
 
-/** The one snapshot→`SavedSession` rule: no terminals clears the session
- *  (returns null); otherwise stamp `savedAt`. The autosave path (`saveSession`)
- *  maps through here so the empty→null guard lives in exactly one place. */
-function toSavedSession(snapshot: SessionSnapshot): SavedSession | null {
-  if (snapshot.terminals.length === 0) return null;
-  return {
+/** Save a session snapshot. Clears the session when no terminals remain;
+ *  otherwise stamps `savedAt`. */
+export function saveSession(snapshot: SessionSnapshot): void {
+  if (snapshot.terminals.length === 0) {
+    writeSession(null);
+    return;
+  }
+  writeSession({
     terminals: snapshot.terminals,
     activeTerminalId: snapshot.activeTerminalId,
     savedAt: Date.now(),
-  };
-}
-
-/** Save a session snapshot. Clears the session when no terminals remain. */
-export function saveSession(snapshot: SessionSnapshot): void {
-  writeSession(toSavedSession(snapshot));
+  });
 }
 
 /** Get the saved session, or null if none exists. */
