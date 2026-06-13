@@ -20,7 +20,8 @@ import {
   startViewportDrag,
 } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
-import { type TileAura, tileAura } from "./tileAura";
+import type { TileAura } from "./tileAura";
+import { useTileAura } from "./useTileAura";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
@@ -115,6 +116,9 @@ const CanvasMinimap: Component<{
   // dock-row bucket classifier and the badge gate, so a user who
   // shortens the window in one place shortens it everywhere.
   const isParked = useStaleCheck();
+  // Same id→aura socket the full canvas tile reads — gathers agent bucket +
+  // unread + staleness once instead of re-assembling the three classifiers.
+  const auraFor = useTileAura();
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -342,8 +346,7 @@ const CanvasMinimap: Component<{
             // scales. Parked tiles render as ghosts (no bar), so the stale
             // ember tier never surfaces here; a fresh awaiter pulses, a worker
             // hums, an unread alert blinks.
-            const auraTier = (): TileAura =>
-              tileAura(state().bucket, store.isUnread(id), parked());
+            const auraTier = (): TileAura => auraFor(id);
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
             // theme or Tailwind-color-space change flows through. Inline bg
             // is for non-parked only — `theme().bg` is a dynamic per-repo

@@ -38,8 +38,7 @@ import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
-import { agentBucket } from "./dockModel";
-import { type TileAura, tileAura } from "./tileAura";
+import { useTileAura } from "./useTileAura";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
 import {
@@ -109,6 +108,9 @@ const TerminalCanvas: Component<{
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
   const isStale = useStaleCheck();
+  // Single id→aura socket: gathers agent bucket + unread + staleness once so
+  // this surface and the minimap don't hand-wire the same three classifiers.
+  const auraFor = useTileAura();
 
   /** Pending per-tile layout overrides — bridges the gap between local
    *  geometry intent (drag-end, resize-end, default-place, arrange) and
@@ -411,18 +413,6 @@ const TerminalCanvas: Component<{
                   : active()
                     ? "maximized"
                     : "covered";
-              // State aura tier — same classifiers the dock + minimap use, so
-              // every surface reads one source of truth (no parallel state
-              // logic). The minute-by-minute staleness tick that feeds `dimmed`
-              // also cools an awaiting tile from `waiting` to `waiting-stale`.
-              const aura = (): TileAura => {
-                const meta = store.getMetadata(id);
-                return tileAura(
-                  agentBucket(meta?.agent),
-                  store.isUnread(id),
-                  isStale(meta?.lastActivityAt ?? 0),
-                );
-              };
               return (
                 <Show when={store.getDisplayInfo(id)}>
                   {(info) => (
@@ -433,7 +423,7 @@ const TerminalCanvas: Component<{
                       dimmed={isStale(
                         store.getMetadata(id)?.lastActivityAt ?? 0,
                       )}
-                      aura={aura()}
+                      aura={auraFor(id)}
                       theme={tileTheme(id)}
                       repoColor={info().repoColor}
                       onSelect={() => props.onSelect(id)}

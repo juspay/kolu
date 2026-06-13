@@ -5,7 +5,9 @@
  *  but maps to the canvas's own vocabulary — a top bar, where "waiting" splits
  *  by staleness into a loud fresh tier and a cooled ember. Extracted as a pure
  *  function so the rule is unit-testable without a Solid render harness, the
- *  way `pipVariant` is.
+ *  way `pipVariant` is. The reactive receptacle that gathers its three inputs
+ *  once — so both surfaces plug into one socket — lives in `useTileAura.ts`,
+ *  kept separate so this pure module stays free of the store/wire import graph.
  *
  *  The loudness order, brightest → quiet: alert ▸ waiting ▸ working ▸
  *  waiting-stale ▸ none. Motion (in the CSS) is reserved for the rungs that
