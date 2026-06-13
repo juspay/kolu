@@ -10,6 +10,10 @@ import { CloseIcon, SearchIcon } from "../ui/Icons";
 const FileSearchInput: Component<{
   value: string;
   onChange: (q: string) => void;
+  /** Coarse-pointer host (the Code-tab toolbar passes `isTouch()`): grows the
+   *  clear-filter button to a 24px tap target so it clears the WCAG 2.2 floor,
+   *  matching the rest of the touch-sized toolbar. */
+  touch?: boolean;
 }> = (props) => (
   <label class="flex items-center gap-1.5 flex-1 min-w-0 text-[10px] font-mono text-fg-3 focus-within:text-fg-2">
     <SearchIcon class="w-3 h-3 opacity-50 shrink-0" />
@@ -26,9 +30,10 @@ const FileSearchInput: Component<{
     <Show when={props.value.length > 0}>
       <button
         type="button"
+        data-touch={props.touch || undefined}
         onClick={() => props.onChange("")}
         title="Clear filter"
-        class="shrink-0 text-fg-3 hover:text-fg cursor-pointer p-0.5 -mr-0.5"
+        class="grid place-items-center shrink-0 text-fg-3 hover:text-fg cursor-pointer p-0.5 -mr-0.5 data-[touch=true]:p-0 data-[touch=true]:h-6 data-[touch=true]:w-6"
         data-testid="diff-filter-clear"
       >
         <CloseIcon class="w-3 h-3" />

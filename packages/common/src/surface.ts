@@ -489,6 +489,14 @@ export function viewLabel(view: CodeTabView): string {
   return VIEW_LABELS[view];
 }
 
+/** Canonical left-to-right order of the Code-tab views — the single source the
+ *  scope switcher's segments and the file-tree right-click "jump to view"
+ *  entries both order themselves by. Defined here (not derived from
+ *  `CodeTabViewSchema`, whose enum order is storage-driven and differs) so the
+ *  two surfaces stay in sync structurally rather than by a convention comment.
+ *  Adding a view is one edit here. */
+export const CODE_TAB_VIEW_ORDER = ["browse", "local", "branch"] as const;
+
 export type RightPanelTabKind = z.infer<typeof RightPanelTabKindSchema>;
 export type RightPanelPerTerminalState = z.infer<
   typeof RightPanelPerTerminalStateSchema
