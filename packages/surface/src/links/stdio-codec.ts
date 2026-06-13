@@ -58,7 +58,7 @@ export function decodeFrame(line: string): Uint8Array {
  *  `write.on("error", …)` handlers in `./stdio.ts` and `../peer-server.ts`.
  *  The read half splits the same way: `decodeFrame` is framing, the
  *  `read.on("error", …)` in `readFramedLines` is lifecycle. */
-export function writeFramedMessage(
+function writeFramedMessage(
   write: Writable,
   message: string | ArrayBufferLike | Uint8Array,
 ): Promise<void> {
