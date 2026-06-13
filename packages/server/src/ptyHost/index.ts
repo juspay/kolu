@@ -21,6 +21,8 @@ import {
   type Endpoint,
   type EndpointStatus,
   restart,
+  type RestartSteps,
+  serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import type {
   PtyHostClient,
@@ -42,6 +44,14 @@ import {
 type Identity = PtyHostIdentity | undefined;
 
 let endpoint: Endpoint<PtyHostClient, Identity> | undefined;
+
+/** The serialized, emit-guarded restart trigger, bound to the live endpoint by
+ *  `ensureLocalEndpoint`. Held here (not rebuilt per call) so its coalescing
+ *  state is shared: concurrent restart requests ride one in-flight recycle. The
+ *  soul's restart steps reach it through `restartLocalEndpoint`. */
+let triggerRestart:
+  | (<Ctx>(steps: RestartSteps<PtyHostClient, Identity, Ctx>) => Promise<void>)
+  | undefined;
 
 /** The live socket client, or a thrown error if the endpoint isn't connected
  *  (before `ensureLocalEndpoint()`, or while the daemon is down — `degraded`).
@@ -119,6 +129,7 @@ export async function ensureLocalEndpoint(opts: {
     onStatus: opts.onStatus,
   });
   endpoint = ep;
+  triggerRestart = serializeRestart(ep);
   try {
     // The boot recycle, expressed as a restart with degenerate steps — B2 makes
     // no survival promise, so there is nothing to capture/drain/reattach. B3
@@ -132,6 +143,20 @@ export async function ensureLocalEndpoint(opts: {
     // The endpoint already reported `dead`; don't crash the server boot.
     log.error({ err }, "kaval endpoint failed to come up at boot");
   }
+}
+
+/** Run a serialized, session-preserving restart of the local kaval endpoint
+ *  (B3.2). The caller (`restartLocal.ts`, the soul) supplies the restart steps —
+ *  capture the session, drain the terminals, recycle, reattach — and this
+ *  forwards them through the endpoint's coalescing + emit-guard trigger. Throws
+ *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run). */
+export function restartLocalEndpoint<Ctx>(
+  steps: RestartSteps<PtyHostClient, Identity, Ctx>,
+): Promise<void> {
+  if (!triggerRestart) {
+    throw new Error("kaval endpoint not initialized — cannot restart");
+  }
+  return triggerRestart(steps);
 }
 
 // ── Spawn policy (kolu's soul) — unchanged from the in-process inversion,

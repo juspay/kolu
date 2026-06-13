@@ -28,7 +28,7 @@ Add a question only when something material is genuinely unclear — don't pad. 
 
 ## 2. Implement
 
-- **Bug:** reproduce first — write a **failing e2e test** that captures the bug (via the `/test` harness), confirm it's red, *then* fix until green. No fix without a reproducing test.
+- **Bug:** reproduce *before* you theorize or fix — start from facts, not a story about the bug. **(1)** Get ground truth from the running system; observe the real symptom, don't trust a description of it. **(2)** Pin the one hard, observable fact the bug produces — a wrong value, an error, a state that can't legally happen (e.g. "the client SHA stays `7deb397` across reloads"). **(3)** Build a reproduction that exhibits *that exact fact* and is **red on the current code** — a **failing e2e test** via the `/test` harness when it can express the bug, otherwise a scripted repro. A repro that *passes / converges / "works"* is **not** a reproduction: if it doesn't show the symptom the **repro** is wrong — fix the repro, never conclude "no bug" from it. **(4)** Only now fix, until that same repro flips green. No fix without a reproduction that was first red for the real reason.
 - **Feature / new behavior:** write the covering test (e2e/integration/unit as fits) before or alongside the change.
 - **Refactor/chore:** no test-first requirement; rely on existing coverage.
 

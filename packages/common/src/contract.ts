@@ -178,6 +178,17 @@ export const contract = oc.router({
       .input(ExportTranscriptHtmlInputSchema)
       .output(ExportTranscriptHtmlOutputSchema),
   },
+  daemon: {
+    /** Restart the local kaval daemon, preserving the session (B3.2). Captures
+     *  the session before the kill, recycles the daemon (kill → wait → spawn →
+     *  connect), and leaves the empty canvas + preserved session the restore
+     *  card consumes. Resolves once the fresh daemon is connected — the daemon's
+     *  live state rides the `daemonStatus` surface (`restarting`→`connected`),
+     *  not this return value. The user reaches it from the kaval rail dialog (a
+     *  running or degraded daemon) or the DegradedCanvas (a dead one). No input:
+     *  one local host today, host-count-agnostic shapes deferred to R-2. */
+    restart: oc.output(z.void()),
+  },
   git: {
     worktreeCreate: oc
       .input(WorktreeCreateInputSchema)

@@ -103,6 +103,39 @@ export function setSavedSession(session: SavedSession | null): void {
   writeSession(session);
 }
 
+/** Capture a live snapshot as the saved session, for the restart-capture path
+ *  (B3.2's supervised restart). The **F1 receptacle** — it differs from a plain
+ *  `saveSession` in two restart-specific ways:
+ *
+ *  1. **It cancels the pending autosave first, unconditionally.** The surface
+ *     session cell's `onWrite` hook already cancels autosave on every write, but
+ *     the cell **dedups** byte-identical writes (`equals`) — so a capture that
+ *     happens to re-persist the current session would be short-circuited and its
+ *     `onWrite` cancel skipped, leaving a pending `terminals:dirty` timer armed
+ *     *before* the restart free to fire ~500 ms later with an empty snapshot and
+ *     clobber the capture to null. Cancelling first makes the snapshot durable
+ *     through the kill regardless of dedup. (The restart's own drain —
+ *     `killAllTerminals` — fires no `terminals:dirty`, so it arms no new timer;
+ *     this guards only the pre-existing one.)
+ *
+ *  2. **An empty snapshot PRESERVES the existing saved session — it does not
+ *     clear it (F1).** A restart can be triggered when the live registry is
+ *     empty: most importantly from a `dead` boot, where the daemon never came up
+ *     so no terminals were ever restored, yet a saved session from a *previous*
+ *     run is still on disk and is the only thing the restore card has to offer.
+ *     Routing an empty snapshot through `saveSession` (empty→null) would erase
+ *     that restore data BEFORE the recycle — the exact "never kill-then-pray"
+ *     data loss this whole sequence exists to prevent. So an empty capture only
+ *     cancels the stale timer and leaves the saved session untouched; a non-empty
+ *     capture persists normally (with the `savedAt` stamp). */
+export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
+  cancelPendingAutosave();
+  // Empty live registry → there is nothing fresher to persist; keep whatever
+  // session is already saved rather than clearing the user's only restore data.
+  if (snapshot.terminals.length === 0) return;
+  saveSession(snapshot);
+}
+
 // --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
 
 /** Wire up throttled session save from terminal change events. Called once at startup.
