@@ -25,6 +25,7 @@ import { cli, command } from "cleye";
 import {
   discoverPtyHostSockets,
   getPtyHostSocketPath,
+  KAVAL_NS_PREFIX,
   PTY_HOST_CONTRACT_VERSION,
 } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
@@ -119,7 +120,10 @@ function fail(message: string): never {
  *  one found → use it (the common case: one kolu on the box). More than one →
  *  bail asking for `--socket`, since we can't guess which kolu you mean. None →
  *  the bare `kaval` default, so the connect error names a sensible path. */
-function resolveSocketPath(override: string | undefined): string {
+function resolveSocketPath(
+  override: string | undefined,
+  kavalDefault: string,
+): string {
   if (override) return getPtyHostSocketPath(override);
   const found = discoverPtyHostSockets();
   const [first, ...rest] = found;
@@ -131,7 +135,7 @@ function resolveSocketPath(override: string | undefined): string {
       )}\nPass --socket <path> to pick one.`,
     );
   }
-  return getPtyHostSocketPath(undefined, "kaval");
+  return kavalDefault;
 }
 
 async function cmdList(conn: Connection, json: boolean): Promise<void> {
@@ -290,7 +294,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const socketPath = resolveSocketPath(argv.flags.socket);
+  // The bare-kaval default we dial when discovery finds no daemon — bound once
+  // so the path the resolver falls through to is the same value by construction.
+  const kavalDefault = getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX);
+  const socketPath = resolveSocketPath(argv.flags.socket, kavalDefault);
   const conn = await connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
     // The kolu-server hint names the SAME path kolu computes — and the
