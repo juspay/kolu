@@ -370,17 +370,12 @@ class LocalTerminalBackend implements TerminalBackend {
     try {
       this.startProviderLayer(id, entry, pid);
     } catch (err) {
-      tlog.error(
-        { err },
+      this.killHalfWiredPty(
+        id,
+        tlog,
+        err,
         "adopt: provider wiring failed; killing the orphaned PTY",
       );
-      this.teardownProviders(id);
-      void ptyHostClient.surface.terminal
-        .kill({ id })
-        .catch((killErr) =>
-          tlog.error({ err: killErr }, "kill of partially-adopted PTY failed"),
-        );
-      this.unwindSpawnShadow(id);
       return undefined;
     }
     tlog.info({ pid, total: listTerminals().length }, "adopted");
@@ -451,17 +446,12 @@ class LocalTerminalBackend implements TerminalBackend {
     try {
       this.startProviderLayer(id, entry, res.pid);
     } catch (err) {
-      tlog.error(
-        { err },
+      this.killHalfWiredPty(
+        id,
+        tlog,
+        err,
         "pty-host provider wiring failed after spawn; killing the orphaned PTY",
       );
-      this.teardownProviders(id);
-      void ptyHostClient.surface.terminal
-        .kill({ id })
-        .catch((killErr) =>
-          tlog.error({ err: killErr }, "kill of partially-wired PTY failed"),
-        );
-      this.unwindSpawnShadow(id);
       return;
     }
     tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
@@ -474,6 +464,28 @@ class LocalTerminalBackend implements TerminalBackend {
     unregisterTerminal(id);
     emitTerminalsDirty();
     emitTerminalListChanged();
+  }
+
+  /** Recover from "the PTY exists on the daemon but provider wiring failed":
+   *  log the wiring error under `reason`, tear down any partial providers, kill
+   *  the orphaned PTY (a kill failure is logged, not thrown — there's nothing
+   *  left to do), and unwind the sync shadow. Shared by `spawnAndWire`'s phase-2
+   *  catch (a fresh spawn) and `adoptTerminal`'s catch (a survivor adoption) —
+   *  one reap policy, one place to change it. `reason` distinguishes the two. */
+  private killHalfWiredPty(
+    id: TerminalId,
+    tlog: typeof log,
+    err: unknown,
+    reason: string,
+  ): void {
+    tlog.error({ err }, reason);
+    this.teardownProviders(id);
+    void ptyHostClient.surface.terminal
+      .kill({ id })
+      .catch((killErr) =>
+        tlog.error({ err: killErr }, "kill of half-wired PTY failed"),
+      );
+    this.unwindSpawnShadow(id);
   }
 
   /** Start the per-terminal provider DAG against the pty-host's tap streams.
