@@ -253,35 +253,26 @@ body {
   );
   --aura-period: 9s;
 }
-/* needs-you — a single sweeping comet; rotation SPEED is the urgency */
-[data-aura="alert"] .tile-aura {
-  --aura-paint: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    var(--aura-c) 34deg,
-    transparent 86deg,
-    transparent 360deg
-  );
-  --aura-period: 1s;
-}
-[data-aura="waiting"] .tile-aura {
-  --aura-paint: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    var(--aura-c) 40deg,
-    transparent 98deg,
-    transparent 360deg
-  );
-  --aura-period: 2.2s;
-}
+/* needs-you — one sweeping comet (same shape); only the rotation SPEED is the
+ * urgency: alert fastest, fresh slower, stale slowest. */
+[data-aura="alert"] .tile-aura,
+[data-aura="waiting"] .tile-aura,
 [data-aura="waiting-stale"] .tile-aura {
   --aura-paint: conic-gradient(
     from 0deg,
     transparent 0deg,
-    var(--aura-c) 38deg,
-    transparent 94deg,
+    var(--aura-c) 36deg,
+    transparent 92deg,
     transparent 360deg
   );
+}
+[data-aura="alert"] .tile-aura {
+  --aura-period: 1s;
+}
+[data-aura="waiting"] .tile-aura {
+  --aura-period: 2.2s;
+}
+[data-aura="waiting-stale"] .tile-aura {
   --aura-period: 4s;
   opacity: 0.65;
 }
