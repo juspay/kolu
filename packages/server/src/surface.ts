@@ -62,7 +62,11 @@ import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
-import { cancelPendingAutosave, getSavedSession } from "./session.ts";
+import {
+  cancelPendingAutosave,
+  getSavedSession,
+  onSessionCellWrite,
+} from "./session.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
 import {
@@ -158,7 +162,20 @@ const koluDeps: Omit<
       // (cycle 6). Harmless no-op on the autosave loop's own write path
       // (the loop clears the timer synchronously before calling
       // `saveSession`); future dirty events arm a fresh timer normally.
-      onWrite: () => cancelPendingAutosave(),
+      //
+      // `onSessionCellWrite` additionally drops the partial-reconcile
+      // pending restore card on any EXTERNAL write (a client restore
+      // success writes the cell to `null` from `useSessionRestore`, which
+      // never calls the server's `setSavedSession`). It guards itself
+      // against the autosave loop's own union write, so it clears only on
+      // writes that genuinely supersede the remainder. Without this, the
+      // pending set would survive a restore and re-union the already-
+      // restored original ids into later autosaves, resurrecting them as a
+      // phantom restore card.
+      onWrite: () => {
+        cancelPendingAutosave();
+        onSessionCellWrite();
+      },
     },
     terminalList: {
       // Live registry; the in-memory store has no persistent slot.

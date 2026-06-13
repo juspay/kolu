@@ -301,6 +301,18 @@ export function useSessionRestore(deps: {
           ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${resumed > 1 ? "s" : ""}`
           : "Session restored";
       setSavedSession(null);
+      // Tell the server the restore landed so it drops any partial-reconcile
+      // pending restore card. The session cell is read-only on the client (the
+      // server's autosave loop owns writes), so this is the only way to clear
+      // that server-side remainder; without it the original ids would re-union
+      // into later autosaves and resurrect as a phantom restore card once the
+      // freshly-restored terminals close. Fire-and-forget: the restore already
+      // succeeded, so a failed signal must not flip the toast to an error — at
+      // worst the (unreachable-in-CI) pending set lingers until the next
+      // explicit session write.
+      void client.session
+        .restored()
+        .catch(() => {}) /* best-effort; restore already succeeded */;
       toast.success(summary, { id });
     } catch (err) {
       toast.error(`Restore failed: ${(err as Error).message}`, { id });

@@ -203,4 +203,16 @@ export const contract = oc.router({
      *  card. Idempotent under concurrent triggers (they coalesce onto one). */
     restart: oc.input(DaemonRestartInputSchema).output(z.void()),
   },
+  session: {
+    /** Fire-and-forget signal from the client that a saved-session restore just
+     *  succeeded. The session cell is read-only on the client (the server's
+     *  autosave loop owns writes), so the client cannot clear server state by
+     *  writing the cell. This lets the server drop the partial-reconcile pending
+     *  restore card: a restore creates fresh terminals with NEW ids, so without
+     *  this the server's pending remainder would re-union the already-restored
+     *  ORIGINAL ids into later autosaves and resurrect them as a phantom restore
+     *  card after the new terminals close. Idempotent — a no-op when no pending
+     *  remainder is held (the common case). */
+    restored: oc.output(z.void()),
+  },
 });

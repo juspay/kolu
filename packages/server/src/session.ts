@@ -27,10 +27,12 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined;
  *  canvas they are hidden, and the survivors' own `terminals:dirty` autosaves
  *  would otherwise re-snapshot only the LIVE terminals and delete these from
  *  disk. The autosave loop unions this set into every snapshot so it can never
- *  drop them, and the next session write (a successful restore clears the
- *  session; a restart capture replaces it) clears the set. This is the
- *  fail-closed guard that keeps the partial remainder durable until a
- *  non-empty-canvas restore affordance lands (R-2). */
+ *  drop them. It is cleared when the remainder is no longer pending: a client
+ *  restore success signals `session.restored` → `clearPendingRestoreCard` (the
+ *  session cell is read-only on the client, so the restore can't clear it by
+ *  writing the cell); a server-side restart capture replaces it via
+ *  `setSavedSession`. This is the fail-closed guard that keeps the partial
+ *  remainder durable until a non-empty-canvas restore affordance lands (R-2). */
 let pendingRestoreCard: SavedTerminal[] = [];
 
 /** Register the partial-reconcile remainder so autosave can't delete it (see
@@ -38,6 +40,35 @@ let pendingRestoreCard: SavedTerminal[] = [];
  *  whole remainder. An empty array clears it. */
 export function setPendingRestoreCard(terminals: SavedTerminal[]): void {
   pendingRestoreCard = terminals;
+}
+
+/** Set while the autosave loop's own `saveSession` write is in flight so the
+ *  session cell's `onWrite` hook can tell its OWN union write apart from an
+ *  EXTERNAL one (a client restore success, a test fixture, the reattach paths).
+ *  Only external writes clear the pending remainder — the autosave loop must NOT
+ *  clear it, or the very first union write would drop the protection and the next
+ *  survivors-only snapshot would delete the remainder. See `onSessionCellWrite`. */
+let inAutosaveWrite = false;
+
+/** Called by the session cell's `onWrite` hook on EVERY write to the cell. An
+ *  external write (the reattach capture, a `test__set` fixture) supersedes the
+ *  partial-reconcile remainder, so it clears `pendingRestoreCard`; the autosave
+ *  loop's own union write (guarded by `inAutosaveWrite`) must not. The client
+ *  restore path does NOT reach here (the session cell is read-only on the
+ *  client — see `clearPendingRestoreCard` / the `session.restored` RPC). */
+export function onSessionCellWrite(): void {
+  if (inAutosaveWrite) return;
+  pendingRestoreCard = [];
+}
+
+/** Drop the partial-reconcile pending restore card. Called by the
+ *  `session.restored` RPC handler when the client reports a successful restore:
+ *  the restore created fresh terminals with NEW ids, so the original remainder
+ *  is no longer pending and must NOT be re-unioned into future autosaves (it
+ *  would resurrect the already-restored originals as a phantom restore card once
+ *  the new terminals close). Idempotent — a no-op when nothing is pending. */
+export function clearPendingRestoreCard(): void {
+  pendingRestoreCard = [];
 }
 
 /** Merge the live snapshot with the pending restore-card remainder, keeping the
@@ -131,13 +162,14 @@ export function clearSavedSession(): void {
  *  the restore card disappears mid-scenario. */
 export function setSavedSession(session: SavedSession | null): void {
   cancelPendingAutosave();
-  // An explicit write supersedes the partial-reconcile remainder: a successful
-  // restore writes `null` (the remainder is no longer pending), and a restart
-  // capture writes the freshly captured session (a new authoritative set). In
-  // both cases the old pending set is stale, so drop it — leaving it would let
-  // it leak back into a later autosave union. `reconcileSession` re-registers a
-  // fresh set AFTER its own `setSavedSessionFromSnapshot` write when the new
-  // reconcile is still partial.
+  // An explicit server-side write supersedes the partial-reconcile remainder:
+  // the restart capture writes the freshly captured session (a new authoritative
+  // set), so the old pending set is stale — drop it, or it would leak back into a
+  // later autosave union. `reconcileSession` re-registers a fresh set AFTER its
+  // own `setSavedSessionFromSnapshot` write when the new reconcile is still
+  // partial. (Note the CLIENT restore success does NOT reach here — the session
+  // cell is read-only on the client; it clears the remainder via the
+  // `session.restored` RPC → `clearPendingRestoreCard` instead.)
   pendingRestoreCard = [];
   writeSession(session);
 }
@@ -186,8 +218,16 @@ export function initSessionAutoSave(
           saveTimer = undefined;
           // Union in the partial-reconcile remainder so a survivors-only
           // snapshot can't delete the restore-card terminals that have no live
-          // PTY (see `pendingRestoreCard`).
-          saveSession(unionWithPendingRestore(snapshot()));
+          // PTY (see `pendingRestoreCard`). Guard the write so the session
+          // cell's `onWrite` hook does NOT mistake this for an external write
+          // and clear the very remainder we're preserving (see
+          // `onSessionCellWrite`).
+          inAutosaveWrite = true;
+          try {
+            saveSession(unionWithPendingRestore(snapshot()));
+          } finally {
+            inAutosaveWrite = false;
+          }
         }, 500);
       }
     } catch (err) {

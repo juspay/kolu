@@ -14,9 +14,11 @@ import { terminalsDirtyChannel } from "./publisher.ts";
 import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
 import { store } from "./state.ts";
 import {
+  clearPendingRestoreCard,
   clearSavedSession,
   getSavedSession,
   initSessionAutoSave,
+  onSessionCellWrite,
   saveSession,
   setPendingRestoreCard,
   setSavedSession,
@@ -233,12 +235,13 @@ describe("session persistence", () => {
       ]);
     });
 
-    it("an explicit session write clears the pending set (no stale leak)", async () => {
+    it("a server-side explicit session write clears the pending set (no stale leak)", async () => {
       setPendingRestoreCard([
         { id: "c", cwd: "/c", git: null, lastActivityAt: 3 },
       ]);
-      // A successful restore writes null; this must drop the pending remainder
-      // so it can't reappear in a later autosave union.
+      // The restart-capture path writes a fresh session through `setSavedSession`
+      // (here modelled with null); that explicit server write must drop the
+      // pending remainder so it can't reappear in a later autosave union.
       setSavedSession(null);
 
       await runAutosaveOnce({
@@ -246,6 +249,73 @@ describe("session persistence", () => {
         activeTerminalId: "a",
       });
 
+      const session = getSavedSession();
+      assert.ok(
+        session !== null,
+        "autosave should have persisted the live set",
+      );
+      expect(session.terminals.map((t) => t.id)).toEqual(["a"]);
+    });
+
+    it("clearPendingRestoreCard (session.restored RPC) stops the remainder resurrecting after restore", async () => {
+      // Codex F3 round-3 scenario. The CLIENT restore path does NOT call
+      // `setSavedSession` (the session cell is read-only on the client) — it
+      // creates fresh terminals with NEW ids and signals the server via the
+      // `session.restored` RPC, which calls `clearPendingRestoreCard`. Without
+      // that clear, the old pending ids would re-union into later autosaves and
+      // resurrect as a phantom restore card once the new terminals close.
+      const remainder: SavedTerminal[] = [
+        { id: "c-old", cwd: "/c", git: null, lastActivityAt: 3 },
+      ];
+      setPendingRestoreCard(remainder);
+
+      // The user restored the remainder: the client created `c-new` (a fresh id)
+      // and fired `session.restored` → clearPendingRestoreCard.
+      clearPendingRestoreCard();
+
+      // First autosave with the freshly-restored terminal: the OLD id must NOT
+      // come back via the union.
+      await runAutosaveOnce({
+        terminals: [{ id: "c-new", cwd: "/c", git: null, lastActivityAt: 9 }],
+        activeTerminalId: "c-new",
+      });
+      let session = getSavedSession();
+      assert.ok(
+        session !== null,
+        "autosave should have persisted the live set",
+      );
+      expect(session.terminals.map((t) => t.id)).toEqual(["c-new"]);
+
+      // Now the user closes the restored terminal. The next (empty) autosave must
+      // NOT resurrect `c-old` — proving the pending set is truly gone, not merely
+      // masked by a live terminal of the same id.
+      await runAutosaveOnce({ terminals: [], activeTerminalId: null });
+      session = getSavedSession();
+      assert.strictEqual(
+        session,
+        null,
+        "the cleared remainder must not resurrect as a phantom restore card",
+      );
+    });
+
+    it("onSessionCellWrite clears the pending set on an external write but not the autosave loop's own union", async () => {
+      // The session cell's `onWrite` hook calls `onSessionCellWrite` on EVERY
+      // write. An EXTERNAL write (a `test__set` e2e seed) supersedes the
+      // remainder and must clear it; the autosave loop's OWN union write must not
+      // (the `inAutosaveWrite` guard) — or the very first union would drop the
+      // protection and the next survivors-only snapshot would delete the
+      // remainder. The autosave-keeps-it half is covered by the union test above
+      // (the hook is wired in surface.ts and fires during that write in prod);
+      // here we assert the external-write half directly.
+      setPendingRestoreCard([
+        { id: "c", cwd: "/c", git: null, lastActivityAt: 3 },
+      ]);
+      onSessionCellWrite();
+
+      await runAutosaveOnce({
+        terminals: [{ id: "a", cwd: "/a", git: null, lastActivityAt: 1 }],
+        activeTerminalId: "a",
+      });
       const session = getSavedSession();
       assert.ok(
         session !== null,

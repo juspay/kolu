@@ -27,6 +27,7 @@ import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
 import { restartDaemon } from "./ptyHost/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { clearPendingRestoreCard } from "./session.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import {
   getTerminal,
@@ -306,6 +307,15 @@ export const appRouter = t.router({
       // serialized by the spine, so a double-click coalesces.
       log.info({ hostId: input.hostId }, "daemon.restart requested");
       await restartDaemon();
+    }),
+  },
+  session: {
+    restored: t.session.restored.handler(async () => {
+      // The client reports a successful saved-session restore. Drop the
+      // partial-reconcile pending restore card so the original (now-restored)
+      // ids stop being re-unioned into autosaves and can't resurrect as a
+      // phantom restore card. Idempotent — a no-op when nothing is pending.
+      clearPendingRestoreCard();
     }),
   },
 });
