@@ -409,4 +409,46 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     // `dead` passes through the guard — a failed recycle is not "still restarting".
     expect(seq.at(-1)).toBe("dead");
   });
+
+  it("a capture failure (before the recycle) recovers to `connected`, not stuck `restarting` (F4)", async () => {
+    const { endpoint, statuses } = await bootedEndpoint();
+
+    // `capture` rejects BEFORE the recycle runs — the daemon connection is
+    // untouched, so the honest state is still `connected`. Without recovery the
+    // surface would stick at `restarting` forever (rail/buttons in-flight).
+    await expect(
+      serializeRestart(endpoint)({
+        capture: async () => {
+          throw new Error("snapshot write failed");
+        },
+        drain: async () => {},
+        reattach: async () => {},
+      }),
+    ).rejects.toThrow("snapshot write failed");
+
+    const seq = statuses.map((s) => s.state);
+    expect(seq[0]).toBe("restarting");
+    expect(seq.at(-1)).toBe("connected");
+    // The recycle never ran — the original connection is still current.
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "k1" });
+  });
+
+  it("a drain failure (before the recycle) recovers to `connected`, not stuck `restarting` (F4)", async () => {
+    const { endpoint, statuses } = await bootedEndpoint();
+
+    await expect(
+      serializeRestart(endpoint)({
+        capture: async () => {},
+        drain: async () => {
+          throw new Error("killAll failed");
+        },
+        reattach: async () => {},
+      }),
+    ).rejects.toThrow("killAll failed");
+
+    const seq = statuses.map((s) => s.state);
+    expect(seq[0]).toBe("restarting");
+    expect(seq.at(-1)).toBe("connected");
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "k1" });
+  });
 });

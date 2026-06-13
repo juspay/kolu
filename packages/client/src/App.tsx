@@ -11,8 +11,6 @@ import { shellCommit } from "@kolu/surface-app/lifecycle";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
-import Commit from "./ui/Commit";
-import { realSizes } from "./ui/corvuResizable";
 import {
   type Component,
   createEffect,
@@ -26,7 +24,10 @@ import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
+import Commit from "./ui/Commit";
+import { realSizes } from "./ui/corvuResizable";
 import "kolu-common/test-hooks";
+import Resizable from "@corvu/resizable";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import Dock, { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
@@ -37,14 +38,11 @@ import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher, supportsSpatialCanvas } from "./capabilities";
 import { createCommands } from "./commands";
-import DiagnosticInfo from "./DiagnosticInfo";
 import DegradedCanvas from "./DegradedCanvas";
+import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
-import { daemonDown, daemonStatusPending, downState } from "./useDaemonStatus";
-import WelcomeDialog from "./WelcomeDialog";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
-import { exportSession, importSession } from "./sessionTransfer";
 import type { ActionContext } from "./input/actions";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
@@ -53,15 +51,14 @@ import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
-import Resizable from "@corvu/resizable";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
+import { exportSession, importSession } from "./sessionTransfer";
 import TipBanner from "./settings/TipBanner";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
@@ -71,9 +68,18 @@ import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminals } from "./terminal/useTerminals";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
+import { Z_HANDLE_OUTER } from "./ui/stackLayers";
+import {
+  daemonDown,
+  daemonStatusPending,
+  daemonWarming,
+  downState,
+  localDaemonStatus,
+} from "./useDaemonStatus";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
+import WelcomeDialog from "./WelcomeDialog";
 import { client, savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
@@ -575,36 +581,61 @@ const App: Component = () => {
             {(state) => <DegradedCanvas state={state()} />}
           </Show>
           <Show
-            when={!daemonDown() && !showEmpty()}
+            when={!daemonDown() && !daemonWarming() && !showEmpty()}
             fallback={
-              // Empty-state welcome — only when the daemon is healthy. When it's
-              // down, DegradedCanvas (above) owns the canvas, so this fallback
-              // must stay hidden or both would render.
-              <Show when={!daemonDown()}>
-                <div
-                  data-testid="canvas-container"
-                  class="relative flex-1 min-h-0 canvas-grid-bg"
-                >
-                  <CanvasWatermark text={appTitle()} />
-                  {/* The Dock stays mounted at zero terminals (desktop only)
-                   *  so its `+` new-terminal button is the always-reachable
-                   *  mouse path to the first terminal — the welcome card
-                   *  advertises ⌘⏎ but carries no clickable affordance
-                   *  (#1202). The empty Dock is just its header; the
-                   *  `relative` parent anchors its tiled-posture float
-                   *  (`top-12 left-4`), the only posture reachable at zero
-                   *  tiles. Mobile keeps its own pull-down nav. */}
-                  <Show when={!isMobile()}>
-                    <Dock {...dockPalette} />
+              // When the daemon is transiently warming (boot `connecting` or a
+              // supervised `restarting`), render a neutral surface instead of the
+              // empty-state welcome. A restart's drain empties the terminal list,
+              // so without this gate EmptyState would paint mid-restart with its
+              // ENABLED Restore + new-terminal affordances — and a fast click
+              // would spawn/restore terminals into a daemon the recycle is about
+              // to kill (or against a momentarily-stale old connection). Terminal
+              // creation must wait for `connected` (F3). DegradedCanvas (above)
+              // already owns the `dead`/`degraded` case, so this stays hidden
+              // when the daemon is down (and the empty-state below stays hidden
+              // when warming) — exactly one of the three branches renders.
+              <Show
+                when={!daemonDown() && daemonWarming()}
+                fallback={
+                  // Empty-state welcome — only when the daemon is healthy
+                  // (`connected`, not warming, not down).
+                  <Show when={!daemonDown() && !daemonWarming()}>
+                    <div
+                      data-testid="canvas-container"
+                      class="relative flex-1 min-h-0 canvas-grid-bg"
+                    >
+                      <CanvasWatermark text={appTitle()} />
+                      {/* The Dock stays mounted at zero terminals (desktop only)
+                       *  so its `+` new-terminal button is the always-reachable
+                       *  mouse path to the first terminal — the welcome card
+                       *  advertises ⌘⏎ but carries no clickable affordance
+                       *  (#1202). The empty Dock is just its header; the
+                       *  `relative` parent anchors its tiled-posture float
+                       *  (`top-12 left-4`), the only posture reachable at zero
+                       *  tiles. Mobile keeps its own pull-down nav. */}
+                      <Show when={!isMobile()}>
+                        <Dock {...dockPalette} />
+                      </Show>
+                      <EmptyState
+                        install={pwaInstall}
+                        savedSession={session.savedSession() ?? undefined}
+                        isRestoring={session.isRestoring()}
+                        onRestore={(opts) =>
+                          void session.handleRestoreSession(opts)
+                        }
+                      />
+                    </div>
                   </Show>
-                  <EmptyState
-                    install={pwaInstall}
-                    savedSession={session.savedSession() ?? undefined}
-                    isRestoring={session.isRestoring()}
-                    onRestore={(opts) =>
-                      void session.handleRestoreSession(opts)
-                    }
-                  />
+                }
+              >
+                <div
+                  data-testid="daemon-warming"
+                  data-daemon-state={localDaemonStatus()?.state}
+                  class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
+                >
+                  {localDaemonStatus()?.state === "restarting"
+                    ? "Restarting kaval…"
+                    : "Connecting…"}
                 </div>
               </Show>
             }

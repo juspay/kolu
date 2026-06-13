@@ -23,6 +23,8 @@ Feature: kaval daemon lifecycle (B2 — the door)
     When the kaval daemon is killed
     Then the degraded canvas is shown
     When I restart kaval from the degraded canvas
+    Then the warming canvas is shown while kaval restarts
+    And the restore card is not offered until kaval is connected
     Then the daemon returns to running
     And the session restore card should be visible
     When I click the restore button

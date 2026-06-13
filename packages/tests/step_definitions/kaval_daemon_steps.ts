@@ -39,6 +39,43 @@ When(
   },
 );
 
+// B3.2 / F3 — while the recycle is in flight the supervisor holds `restarting`,
+// and the drain empties the terminal list. The canvas must render the neutral
+// warming surface, NOT the empty-state welcome with its enabled Restore +
+// new-terminal affordances (which would let a click spawn/restore terminals into
+// the daemon the recycle is about to kill). A fresh-daemon spawn under CI load is
+// slow, so the `restarting` window is reliably observable.
+Then(
+  "the warming canvas is shown while kaval restarts",
+  async function (this: KoluWorld) {
+    await this.page.waitForSelector('[data-testid="daemon-warming"]', {
+      timeout: POLL_TIMEOUT,
+    });
+  },
+);
+
+Then(
+  "the restore card is not offered until kaval is connected",
+  async function (this: KoluWorld) {
+    // The gate's invariant: while the warming surface is up (the daemon is not
+    // yet `connected`), the empty-state restore card is absent — terminal
+    // creation/restore must wait for `connected`. Read both in ONE DOM snapshot
+    // so a flip-to-connected between two reads can't make this flake: the assert
+    // only fires when warming is STILL present, and the restore card is too.
+    const leaked = await this.page.evaluate(() => {
+      const warming = document.querySelector('[data-testid="daemon-warming"]');
+      const restore = document.querySelector('[data-testid="restore-session"]');
+      return Boolean(warming && restore);
+    });
+    if (leaked) {
+      throw new Error(
+        "restore card was reachable while kaval was still warming — it must " +
+          "be gated until the daemon is connected (F3)",
+      );
+    }
+  },
+);
+
 Then("the daemon returns to running", async function (this: KoluWorld) {
   // The recycle spawns a FRESH daemon (the dead one's stale gate is reaped by
   // its `acquirePidGate`), so the supervisor's endpoint reports `connected`

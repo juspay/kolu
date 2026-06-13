@@ -10,7 +10,10 @@
  *     session, BEFORE the daemon is killed (the #1034 constraint: never
  *     kill-then-pray). `setSavedSessionFromSnapshot` is the F1 receptacle — it
  *     cancels any pending autosave so a stale `terminals:dirty` timer can't
- *     clobber the snapshot to null mid-restart.
+ *     clobber the snapshot to null mid-restart, AND it preserves an existing
+ *     saved session when the live registry is empty (e.g. a `dead` boot, where
+ *     the daemon never came up so nothing is live, but a prior run's session is
+ *     still on disk and is the only restore data) rather than erasing it.
  *   - **drain** — `killAllTerminals` tears down the provider DAGs and clears the
  *     registry. The daemon (about to be recycled) takes the PTYs with it; this
  *     just clears kolu's side so the canvas goes honestly empty. It fires no

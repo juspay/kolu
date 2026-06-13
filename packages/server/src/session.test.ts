@@ -1,9 +1,7 @@
 import * as assert from "node:assert";
-import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { confStore } from "@kolu/surface/server";
+import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
-import { store } from "./state.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import {
   clearSavedSession,
@@ -13,6 +11,8 @@ import {
   setSavedSession,
   setSavedSessionFromSnapshot,
 } from "./session.ts";
+import { store } from "./state.ts";
+import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json to route
 // conf state into $TMPDIR, keeping ~/.config clean. state.ts reads it at
@@ -195,9 +195,26 @@ describe("setSavedSessionFromSnapshot — the F1 receptacle", () => {
     __resetSurfaceCtxForTest();
   });
 
-  it("clears the session when the snapshot has no terminals (empty→null)", () => {
+  it("PRESERVES an existing saved session when the snapshot is empty (F1)", () => {
+    // The restart-capture path on a `dead`/empty registry: the live snapshot has
+    // no terminals, but a saved session from a prior run is still on disk and is
+    // the only restore data the user has. Capturing must NOT clear it — routing
+    // an empty snapshot through `saveSession` (empty→null) would erase the
+    // restore data before the recycle, the kill-then-pray data loss F1 guards.
     saveSession({ terminals: [terminal], activeTerminalId: null });
     expect(getSavedSession()).not.toBeNull();
+    setSavedSessionFromSnapshot({ terminals: [], activeTerminalId: null });
+    const session = getSavedSession();
+    assert.ok(
+      session !== null,
+      "empty capture clobbered the pre-existing session",
+    );
+    expect(session.terminals[0]?.id).toBe("term-1");
+  });
+
+  it("leaves a null session null when the snapshot is empty (no spurious write)", () => {
+    clearSavedSession();
+    expect(getSavedSession()).toBeNull();
     setSavedSessionFromSnapshot({ terminals: [], activeTerminalId: null });
     expect(getSavedSession()).toBeNull();
   });

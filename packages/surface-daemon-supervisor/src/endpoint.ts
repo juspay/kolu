@@ -29,7 +29,7 @@
 import { gatePid, isHolderLive, type Logger } from "@kolu/surface-daemon";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
-import { type EndpointState, ENDPOINT_STATES } from "./endpointStates.ts";
+import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
 // `ENDPOINT_STATES` / `EndpointState` are the single source of truth for the
@@ -37,7 +37,7 @@ import { waitForPidGone } from "./waitForPidGone.ts";
 // so a browser-shared consumer (kolu's `DaemonStatusSchema`) can derive its enum
 // from them without pulling this Node-only module's transport/gate graph. The
 // endpoint re-exports them so existing supervisor consumers keep their import.
-export { type EndpointState, ENDPOINT_STATES };
+export { ENDPOINT_STATES, type EndpointState };
 
 export interface EndpointStatus<I> {
   state: EndpointState;
@@ -153,6 +153,11 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
   // supervised restart's inner sequence. See `emit` for what it coerces.
   let restartHold = false;
 
+  // The last state actually published (post-coercion). `holdRestarting` reads it
+  // to detect a restart that errored out BEFORE any terminal `connected`/`dead`
+  // transition — leaving the surface pinned at `restarting` — and recover it.
+  let lastReported: EndpointState | undefined;
+
   const emit = (
     state: EndpointState,
     identity?: I,
@@ -167,6 +172,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       restartHold && (state === "connecting" || state === "degraded")
         ? "restarting"
         : state;
+    lastReported = reported;
     spec.onStatus(spec.hostId, { state: reported, identity, startedAt });
   };
 
@@ -283,6 +289,23 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       emit("restarting");
       try {
         await body();
+      } catch (err) {
+        // The recycle (`ensure()`) reports its own terminal `dead`/`connected`
+        // before it throws. But a step that runs BEFORE the recycle — `capture`
+        // or `drain` — can reject with the surface still pinned at `restarting`,
+        // even though the daemon never moved (those steps don't touch the
+        // connection). Recover the honest current state so the rail/buttons
+        // don't stick in an in-flight state forever: a live connection means the
+        // old daemon is still `connected`; no connection means it's `dead`.
+        // (Skip if the recycle already emitted a terminal state — `lastReported`
+        // is no longer `restarting` — so we never stomp a fresh `connected`/`dead`.)
+        if (lastReported === "restarting") {
+          // restartHold is still true here, but `connected`/`dead` are never
+          // coerced by `emit`, so the recovery reports honestly.
+          if (conn) emit("connected", conn.identity, conn.startedAt);
+          else emit("dead");
+        }
+        throw err;
       } finally {
         restartHold = false;
       }

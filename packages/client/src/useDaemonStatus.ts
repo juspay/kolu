@@ -91,3 +91,20 @@ export function downState(): "dead" | "degraded" | undefined {
 export function daemonDown(): boolean {
   return downState() !== undefined;
 }
+
+/** True while the daemon is transiently coming up — `connecting` (boot) or
+ *  `restarting` (a supervised restart in flight) — i.e. its `tone` is `warming`.
+ *  Derived from the presentation table so a future warming state is covered
+ *  automatically. Before the first status yield the state is unknown (not
+ *  warming); `daemonStatusPending()` owns that pre-first-value gate.
+ *
+ *  The canvas reads this to suppress the normal empty-state welcome (with its
+ *  enabled Restore / new-terminal affordances) while the daemon is warming: a
+ *  restart's `drain` empties the terminal list, which would otherwise paint
+ *  EmptyState while `restarting`, letting a fast click spawn/restore terminals
+ *  into a daemon the recycle is about to kill (or against a momentarily-`current`
+ *  old connection). Terminal creation must wait for `connected`. */
+export function daemonWarming(): boolean {
+  const state = localDaemonStatus()?.state;
+  return state ? DAEMON_STATE_PRESENTATION[state].tone === "warming" : false;
+}

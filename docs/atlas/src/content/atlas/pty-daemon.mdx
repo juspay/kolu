@@ -5,7 +5,7 @@ kind: feature
 status: accepted
 maturity: budding
 parents: [remote-terminals]
-updated: 2026-06-12
+updated: 2026-06-13
 ---
 
 import D2 from "../../components/D2.astro";
@@ -66,7 +66,7 @@ The remaining axes, most stable → most volatile (the boundaries that own them)
 | Endpoint status (the one health owner) | per endpoint-model change | `@kolu/surface-daemon-supervisor`'s `endpoint.ts` (born B2) — a single-host endpoint per spec (keyed implicitly by its `spec.hostId`), emitting `{state, identity, startedAt}` on **every** transition via `onStatus(hostId, …)`. The per-hostId **map lives server-side** — `daemonStatus.ts`'s `Map<hostId, DaemonStatus>` (a map of one, today: `local`); everything else — buildInfo, rail, degraded canvas — derives by subscription. |
 | Survivable-spawn mechanics | per platform quirk | `@kolu/surface-daemon-supervisor`'s default `DaemonDriver` (`survivableSpawnDriver(DaemonSpawnConfig)`) — the `fromSource` gate (`!fromSource && INVOCATION_ID` set → `systemd-run --user` with per-spawn unique unit names; otherwise, macOS included → detached+unref); `waitForPidGone` (ESRCH poll, load-aware ceiling); composes the gate's `gatePid`/`isHolderLive`. |
 | kaval's reach values | per kolu packaging change | `localDriver.ts` in `packages/server` — the parameter bundle: the kaval binary from the kolu closure, dev-flag exec-arg filter, unit prefix, socket/gate paths, the `--setenv` set (shrunk to daemon-operational vars (`XDG_RUNTIME_DIR`) — PTY env arrives per-spawn on the wire after B0). R-2 adds `sshDriver` as a sibling (HostSession reach + `provisionAgent`, shipping the same kaval closure). |
-| Recovery sequence | per recovery policy | `restart.ts` — one composed `capture → drain → recycle → reattach`, where `recycle` is `endpoint.ensure()` (kill → `waitForPidGone` → spawn → connect); the **three caller steps** (`RestartSteps`) are **non-optional in the type**, with `save` folded into capture. The forced and user paths are the same function. *(B3 adds serialization so concurrent callers observe a `restarting` state — not yet built; today `ENDPOINT_STATES` is connecting/connected/degraded/dead.)* |
+| Recovery sequence | per recovery policy | `restart.ts` — one composed `capture → drain → recycle → reattach`, where `recycle` is `endpoint.ensure()` (kill → `waitForPidGone` → spawn → connect); the **three caller steps** (`RestartSteps`) are **non-optional in the type**, with `save` folded into capture. The forced and user paths are the same function. *(B3.2 ✅ <PrLink pr={1337} /> added `serializeRestart` — coalesces concurrent callers onto one in-flight recycle — and the `restarting` state, held across the whole sequence by `endpoint.holdRestarting`; `ENDPOINT_STATES` is now connecting/connected/**restarting**/degraded/dead.)* |
 | Reconciliation + adoption | per persisted field | `reconcile.ts` (a pure function: `daemon.list() × savedSession → {adopt, restoreCard, orphanExtras}`) + `wireTerminal` in `local.ts` with **adopt and spawn as siblings**. Adoption consumes the **whole `SavedTerminal` record as a unit** — never field-by-field reconstruction — and a schema-level round-trip test iterates the schema's keys. |
 | Health → UI projection | per UX tweak | A per-host status collection on the surface; rail + DegradedCanvas + restart dialog subscribe. User-facing name: **“kaval”** — it's a thing of its own, and the name says so. |
 

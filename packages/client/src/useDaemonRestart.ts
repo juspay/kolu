@@ -46,7 +46,7 @@ export async function restartDaemon(): Promise<void> {
   setRestarting(true);
   const id = toast.loading("Restarting kaval…");
   try {
-    await client.daemon.restart({});
+    await client.daemon.restart();
     toast.success("kaval restarted — your session is offered for restore", {
       id,
     });
