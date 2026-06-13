@@ -343,8 +343,9 @@ const CanvasMinimap: Component<{
             // Same aura tier the full canvas tile paints — one mapper, two
             // scales. Parked tiles render as ghosts (no bar), so the stale
             // ember tier never surfaces here; a fresh awaiter pulses, a worker
-            // hums, an unread alert blinks.
-            const auraTier = (): TileAura => auraFor(id);
+            // hums, an unread alert blinks. Memoized like the sibling `state()`
+            // accessor above — the JSX reads it twice per tile per tick.
+            const auraTier = createMemo<TileAura>(() => auraFor(id));
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
             // theme or Tailwind-color-space change flows through. Inline bg
             // is for non-parked only — `theme().bg` is a dynamic per-repo
