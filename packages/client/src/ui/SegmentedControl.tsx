@@ -7,9 +7,10 @@
  *  `${testIdPrefix}-${value}` so e2e tests can click the option directly.
  *
  *  The "rich" affordances (icon / hint / badge / dividerBefore, and the
- *  control-level `ariaRole` / `ariaLabel` / `dataMode`) are all optional and
- *  inert when unset, so the plain settings call sites render exactly as before
- *  while the scope switcher renders the toolbar variant. */
+ *  control-level `ariaRole` / `ariaLabel` / `dataMode` / `touch`) are all
+ *  optional and inert when unset, so the plain settings call sites render
+ *  exactly as before while the scope switcher renders the toolbar variant
+ *  (and grows its hit targets on a coarse pointer when `touch` is set). */
 
 import { type Component, For, type JSX, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
@@ -47,6 +48,11 @@ export default function SegmentedControl<T extends string>(props: {
   /** Mirror the active `value` onto a `data-mode` attribute on the group, so
    *  tests can read the selection without interaction. */
   dataMode?: boolean;
+  /** Enlarge the toolbar variant's hit targets for a coarse pointer (the host
+   *  passes `isTouch()`): segments grow 20px → 28px tall so a tap clears the
+   *  WCAG 2.2 24px floor, mirroring the Code-tab tree's touch density. Ignored
+   *  by the plain (settings) variant. */
+  touch?: boolean;
 }): JSX.Element {
   return (
     <Show
@@ -81,7 +87,8 @@ export default function SegmentedControl<T extends string>(props: {
         role="toolbar"
         aria-label={props.ariaLabel}
         data-mode={props.dataMode ? props.value : undefined}
-        class="flex items-center gap-0.5 shrink-0 rounded bg-surface-2/40 p-0.5"
+        data-touch={props.touch}
+        class="flex items-center gap-0.5 data-[touch=true]:gap-1 shrink-0 rounded bg-surface-2/40 p-0.5 data-[touch=true]:p-1"
       >
         <For each={props.options}>
           {(opt) => (
@@ -99,7 +106,8 @@ export default function SegmentedControl<T extends string>(props: {
                 data-active={props.value === opt.value}
                 data-mode={opt.value}
                 title={opt.hint}
-                class="flex items-center gap-1.5 px-2 h-5 rounded text-[10px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-[active=true]:bg-surface-0 data-[active=true]:text-fg data-[active=true]:shadow-sm"
+                data-touch={props.touch}
+                class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-[active=true]:bg-surface-0 data-[active=true]:text-fg data-[active=true]:shadow-sm"
                 onClick={() => props.onChange(opt.value)}
               >
                 <Show when={opt.icon}>

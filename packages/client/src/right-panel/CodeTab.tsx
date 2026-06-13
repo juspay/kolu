@@ -739,7 +739,14 @@ const CodeTab: Component<{
         data-testid="diff-tab"
         ref={attachBackForwardInputs}
       >
-        <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+        {/* Toolbar grows roomier on a coarse pointer (back/fwd + each scope
+         *  segment clear the WCAG 2.2 24px tap floor); `overflow-x-auto`
+         *  +`scrollbar-none` is a clip safety net for the narrowest phones,
+         *  where the segments + filter can't all fit the drawer width. */}
+        <div
+          data-touch={isTouch()}
+          class="flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
+        >
           <div class="flex items-center gap-0.5 shrink-0">
             <button
               type="button"
@@ -748,7 +755,8 @@ const CodeTab: Component<{
               title="Go back (Alt+←)"
               disabled={!rightPanel.canNavigateBack()}
               onClick={goBack}
-              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              data-touch={isTouch()}
+              class="grid h-5 w-5 data-[touch=true]:h-7 data-[touch=true]:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
             >
               <ChevronRightIcon class="h-3.5 w-3.5 rotate-180" />
             </button>
@@ -759,7 +767,8 @@ const CodeTab: Component<{
               title="Go forward (Alt+→)"
               disabled={!rightPanel.canNavigateForward()}
               onClick={goForward}
-              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              data-touch={isTouch()}
+              class="grid h-5 w-5 data-[touch=true]:h-7 data-[touch=true]:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
             >
               <ChevronRightIcon class="h-3.5 w-3.5" />
             </button>
@@ -772,6 +781,7 @@ const CodeTab: Component<{
             ariaRole="toolbar"
             ariaLabel="File scope"
             dataMode
+            touch={isTouch()}
           />
           <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
         </div>
