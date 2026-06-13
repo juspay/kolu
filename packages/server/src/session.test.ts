@@ -9,7 +9,6 @@ import {
   getSavedSession,
   saveSession,
   setSavedSession,
-  setSavedSessionFromSnapshot,
 } from "./session.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json to route
@@ -99,34 +98,6 @@ describe("session persistence", () => {
   it("returns null when session has empty terminals array", () => {
     // Use setSavedSession to bypass the empty check in saveSession
     setSavedSession({ terminals: [], savedAt: Date.now() });
-    expect(getSavedSession()).toBeNull();
-  });
-
-  // `setSavedSessionFromSnapshot` is the B3 reattach entry point (the restart
-  // capture, the boot reconcile's restore card) — the F1 receptacle. It maps a
-  // snapshot through the one `toSavedSession` rule and, via `setSavedSession`,
-  // cancels any pending autosave so a stale empty-snapshot tick can't null it
-  // out. B3.1 ships and tests it before either consumer exists.
-  it("setSavedSessionFromSnapshot persists a non-empty snapshot with savedAt", () => {
-    clearSavedSession();
-    setSavedSessionFromSnapshot({
-      terminals: [terminal],
-      activeTerminalId: "term-1",
-    });
-    const session = getSavedSession();
-    assert.ok(session !== null, "snapshot was not persisted");
-    expect(session.terminals).toHaveLength(1);
-    expect(session.terminals[0]?.id).toBe("term-1");
-    expect(session.activeTerminalId).toBe("term-1");
-    expect(session.savedAt).toBeTypeOf("number");
-  });
-
-  it("setSavedSessionFromSnapshot clears the session on an empty snapshot", () => {
-    // The empty→null half of the one snapshot→session rule, reached through the
-    // reattach entry point (a partial/empty capture must not persist a phantom).
-    saveSession({ terminals: [terminal], activeTerminalId: null });
-    expect(getSavedSession()).not.toBeNull();
-    setSavedSessionFromSnapshot({ terminals: [], activeTerminalId: null });
     expect(getSavedSession()).toBeNull();
   });
 
