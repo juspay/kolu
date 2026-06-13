@@ -53,8 +53,11 @@ function writeSession(next: SavedSession | null): void {
 }
 
 /** A live snapshot of the terminal set — the shape autosave and the B3 reattach
- *  paths persist, and the unit the snapshot→`SavedSession` rule maps. */
-interface SessionSnapshot {
+ *  paths persist, and the unit the snapshot→`SavedSession` rule maps. Exported
+ *  so the producer (`snapshotSession` in terminals.ts) and both consumers
+ *  (`saveSession`/`setSavedSessionFromSnapshot`/`initSessionAutoSave`) reference
+ *  one nominal contract. */
+export interface SessionSnapshot {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
 }
