@@ -17,7 +17,7 @@
  * consequence: there is no one fixed path a flag-less `kaval-tui` can assume, so
  * it `discoverPtyHostSockets()` the running daemon instead.
  */
-import { existsSync, readdirSync } from "node:fs";
+import { lstatSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 
@@ -49,6 +49,29 @@ export function getPtyHostSocketPath(override?: string, app = "kolu"): string {
   });
 }
 
+/** Is `dir` a private, owner-only directory the current user owns? The SAME
+ *  boundary `serveOverUnixSocket` / `acquirePidGate` enforce before serving (cf.
+ *  `isPrivateOwnedDir` in `@kolu/surface/unix-socket`). It is re-checked HERE, on
+ *  the connecting side, because a stable shared path (`/tmp/<app>-$UID`) is one
+ *  any local user can pre-create: the `-$UID` in the NAME is not an ownership
+ *  proof, so without this a flag-less `kaval-tui` would happily dial another
+ *  user's planted socket and hand them its session. `lstatSync` (NOT `statSync`)
+ *  so a symlink is judged as itself and rejected, never followed to a target the
+ *  attacker still controls the `/tmp` component of. Returns true on platforms
+ *  without uid semantics (Windows: `process.getuid` is undefined) — the ACL model
+ *  there is out of scope. */
+function isPrivateOwnedDir(dir: string): boolean {
+  const getuid = process.getuid?.bind(process);
+  if (getuid === undefined) return true;
+  try {
+    const st = lstatSync(dir);
+    return st.isDirectory() && st.uid === getuid() && (st.mode & 0o077) === 0;
+  } catch {
+    // Couldn't stat at all — treat as not-private (skip) rather than assume safe.
+    return false;
+  }
+}
+
 /** Discover the rendezvous sockets of running pty-host daemons under the per-user
  *  runtime root — every kolu-server's per-port namespace (`kaval-<port>/`) plus a
  *  bare standalone `kaval/`. Lets a flag-less `kaval-tui` dial the daemon without
@@ -60,8 +83,14 @@ export function getPtyHostSocketPath(override?: string, app = "kolu"): string {
  *  socket path, then walk back up — its grandparent is the root to scan, its
  *  parent's basename is the (possibly `-$UID`-decorated) bare namespace dir. The
  *  per-port pattern is the same decoration with `\d+` substituted for the port,
- *  learnt from a probe build with port `0`. Returns every `<ns>/pty-host.sock`
- *  that exists; never throws (an unreadable root → []). */
+ *  learnt from a probe build with port `0`.
+ *
+ *  A name match is necessary but NOT sufficient: every candidate's namespace dir
+ *  must also pass the same owner-only privacy check the serving side enforces, so
+ *  a sibling another local user planted under the shared `/tmp` root (whose name
+ *  they can spell freely, `-$UID` and all) is never dialed. The socket inode must
+ *  itself be a socket — not any file a name-squatter dropped in. Returns every
+ *  surviving `<ns>/pty-host.sock`; never throws (an unreadable root → []). */
 export function discoverPtyHostSockets(): string[] {
   // The bare daemon's socket: `<root>/<bareDir>/pty-host.sock`. Whatever shape
   // surface gives it (XDG `kaval/`, or `/tmp` `kaval-$UID/`) the decoration is
@@ -97,8 +126,25 @@ export function discoverPtyHostSockets(): string[] {
   const found: string[] = [];
   for (const name of entries) {
     if (name !== bareName && !portedRe.test(name)) continue;
-    const sock = join(root, name, PTY_HOST_SOCK_FILE);
-    if (existsSync(sock)) found.push(sock);
+    // Name match alone is not ownership: require the namespace dir to be ours
+    // and owner-only (the serving-side boundary), and the inode to be an actual
+    // socket — so a name-squatter's planted dir/file under a shared root is
+    // never dialed.
+    const dir = join(root, name);
+    if (!isPrivateOwnedDir(dir)) continue;
+    const sock = join(dir, PTY_HOST_SOCK_FILE);
+    if (isSocketInode(sock)) found.push(sock);
   }
   return found;
+}
+
+/** Is `path` an actual socket inode? `lstatSync` (NOT `statSync`) so a symlink
+ *  is judged as itself, never followed — a name-squatter must not be able to
+ *  point us elsewhere with a link. A missing path or any non-socket inode → no. */
+function isSocketInode(path: string): boolean {
+  try {
+    return lstatSync(path).isSocket();
+  } catch {
+    return false;
+  }
 }
