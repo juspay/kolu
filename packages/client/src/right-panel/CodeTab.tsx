@@ -109,12 +109,17 @@ const CodeTab: Component<{
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
 
+  // Single read of the coarse-pointer modality for the whole Code tab: the tree
+  // density, the toolbar row's `data-touch`, and the SegmentedControl `touch`
+  // prop all consume this one fact rather than each re-deriving it. Keyed on
+  // `isTouch` (input modality), not `isMobile` (viewport): roomier rows are a
+  // tap-target affordance, so a coarse-pointer tablet wider than `sm` wants them
+  // too.
+  const touch = isTouch();
   // Pierre captures `density` once at construction (like `initialExpansion`),
   // so snapshot the choice here rather than passing a reactive accessor in the
-  // JSX, where it would read as reactive. Keyed on `isTouch` (input modality),
-  // not `isMobile` (viewport): roomier rows are a tap-target affordance, so a
-  // coarse-pointer tablet wider than `sm` wants them too.
-  const treeDensity = isTouch() ? "relaxed" : undefined;
+  // JSX, where it would read as reactive.
+  const treeDensity = touch ? "relaxed" : undefined;
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -744,8 +749,8 @@ const CodeTab: Component<{
          *  +`scrollbar-none` is a clip safety net for the narrowest phones,
          *  where the segments + filter can't all fit the drawer width. */}
         <div
-          data-touch={isTouch()}
-          class="flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
+          data-touch={touch || undefined}
+          class="group/toolbar flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
         >
           <div class="flex items-center gap-0.5 shrink-0">
             <button
@@ -755,8 +760,7 @@ const CodeTab: Component<{
               title="Go back (Alt+←)"
               disabled={!rightPanel.canNavigateBack()}
               onClick={goBack}
-              data-touch={isTouch()}
-              class="grid h-5 w-5 data-[touch=true]:h-7 data-[touch=true]:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
             >
               <ChevronRightIcon class="h-3.5 w-3.5 rotate-180" />
             </button>
@@ -767,8 +771,7 @@ const CodeTab: Component<{
               title="Go forward (Alt+→)"
               disabled={!rightPanel.canNavigateForward()}
               onClick={goForward}
-              data-touch={isTouch()}
-              class="grid h-5 w-5 data-[touch=true]:h-7 data-[touch=true]:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+              class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
             >
               <ChevronRightIcon class="h-3.5 w-3.5" />
             </button>
@@ -781,7 +784,7 @@ const CodeTab: Component<{
             ariaRole="toolbar"
             ariaLabel="File scope"
             dataMode
-            touch={isTouch()}
+            touch={touch}
           />
           <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
         </div>
