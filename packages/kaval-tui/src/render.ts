@@ -34,7 +34,6 @@ export function commandName(processPath: string | undefined): string {
  *  output stays raw (`JSON.stringify` escapes controls), this is only the
  *  human-rendered path. */
 export function sanitizeCell(value: string): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately matching C0 (\x00-\x1f) + DEL (\x7f) to neutralize them.
   return value.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
 }
 

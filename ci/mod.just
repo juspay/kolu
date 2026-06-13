@@ -55,7 +55,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix home-manager e2e smoke fmt biome unit surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
+default: nix flake-check home-manager e2e smoke fmt biome unit surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -89,6 +89,17 @@ pnpm-hash-fresh:
 # is content-addressed, so it only re-runs when a typechecked source changes.
 nix:
     nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
+
+# `nix flake check`: evaluate every flake output and run the flake's `checks.*`.
+# Complements the `nix` node (devour-flake builds the output drvs) with the
+# flake-schema + whole-output *evaluation* gate — it forces every output to
+# evaluate, so an eval-time regression like an import-from-derivation that can't
+# be realised mid-eval (juspay/kolu#1317) fails here even when a plain build of
+# the affected drv would have succeeded. Store locking dedups its check builds
+# against the concurrent `nix` node, so it overlaps that build rather than
+# repeating it. No `nix` dep — it's an independent parallel leaf.
+flake-check:
+    nix flake check --accept-flake-config -L
 
 # Builds the home-manager example flake, which pulls kolu in via
 # `--override-input flake/kolu .` — so it builds kolu from source itself. No
