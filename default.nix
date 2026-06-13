@@ -197,13 +197,33 @@ let
     '';
   };
 
-  # Stamp the real commit hash into the built JS bundle.
-  # Only this re-runs on docs-only commits; the expensive build above is cached.
+  # Stamp the real commit hash into the no-store SHELL (index.html), NOT the
+  # hashed JS bundle. The `surfaceApp()` Vite plugin injects the placeholder
+  # onto the shell global (`window.__SURFACE_APP_COMMIT__`), so it lands in
+  # index.html only. Stamping the shell — not a `/assets/*.js` file — is the fix
+  # for kolu#1319: the JS is content-hashed and served `immutable`, so rewriting
+  # its bytes under an unchanged filename (what the old `find … -name '*.js'`
+  # did) stranded every returning browser on the year-cached old stamp whenever
+  # two deploys differed only outside the client build (a docs-only commit). The
+  # shell is re-fetched on every load (`no-store`), so a commit stamped here is
+  # always the deployed one. Only this step re-runs on docs-only commits; the
+  # expensive build above is cached. The placeholder appears exactly once, in
+  # index.html — assert that so a future build-graph change that moves it (back
+  # into the bundle, or drops it) fails LOUD here instead of silently shipping an
+  # unstamped or mis-stamped shell.
   koluStamped = pkgs.runCommand "kolu-stamped" { } ''
     cp -r ${kolu} $out
     chmod -R u+w $out/packages/client/dist
-    find $out/packages/client/dist -name '*.js' -exec \
-      sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' {} +
+    shell="$out/packages/client/dist/index.html"
+    if ! grep -q '${koluCommitPlaceholder}' "$shell"; then
+      echo "koluStamped: '${koluCommitPlaceholder}' not found in index.html — the surfaceApp() shell injection broke (kolu#1319)." >&2
+      exit 1
+    fi
+    if grep -rl '${koluCommitPlaceholder}' "$out/packages/client/dist/assets" 2>/dev/null; then
+      echo "koluStamped: '${koluCommitPlaceholder}' leaked into a hashed /assets/* file — identity must ride the shell, not an immutable bundle (kolu#1319)." >&2
+      exit 1
+    fi
+    sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' "$shell"
   '';
 
   # Base wrapper: tsx + env vars + PATH. Does NOT set KOLU_STATE_DIR —

@@ -3,14 +3,16 @@
  *
  * The freshness contract (`index.ts` invariant #1) is only correct for
  * *content-hashed* assets pinned `immutable` behind a *no-store* shell that
- * names them. Producing that layout — hashed `/assets/*` filenames, the
- * `__SURFACE_APP_COMMIT__` define stamped from the one resolver, and the shell
- * rewritten to point at the hashed URLs — is the build half of the contract, and
- * it was being hand-rolled per consumer (drishti's `build.ts`). `buildSurfaceClient`
- * owns it so a Bun-built app *composes* the build instead of re-deriving it; the
- * app supplies only what is genuinely its own (its bundler plugins, its CSS
- * toolchain, its public assets). The Vite path's counterpart is the `surfaceApp()`
- * plugin in `./vite`; both stamp the same commit via `resolveCommit`.
+ * names them. Producing that layout — hashed `/assets/*` filenames, the build
+ * commit published on the shell global (`SHELL_COMMIT_GLOBAL`, via
+ * `injectShellCommit` — in the `no-store` shell, NEVER a `define` into the
+ * hashed bundle; kolu#1319), and the shell rewritten to point at the hashed
+ * URLs — is the build half of the contract, and it was being hand-rolled per
+ * consumer (drishti's `build.ts`). `buildSurfaceClient` owns it so a Bun-built
+ * app *composes* the build instead of re-deriving it; the app supplies only
+ * what is genuinely its own (its bundler plugins, its CSS toolchain, its
+ * public assets). The Vite path's counterpart is the `surfaceApp()` plugin in
+ * `./vite`; both stamp the same commit via `resolveCommit`.
  *
  * This is a Bun-runtime entry: it calls `Bun.build`/`Bun.file`/`Bun.write`/
  * `Bun.hash` (filesystem dir ops use `node:fs/promises`, which works identically
@@ -24,7 +26,7 @@
 import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { ASSET_DIR } from "./index";
+import { ASSET_DIR, injectShellCommit } from "./index";
 import { resolveCommit } from "./vite";
 
 // --- minimal structural view of the Bun runtime (see module header) ----------
@@ -115,10 +117,12 @@ export interface SurfaceClientBuildOptions {
 
 /** Build a surface-app client bundle that satisfies the freshness contract:
  *  content-hashed `/assets/*` (the prerequisite for `immutable` caching), the
- *  build commit stamped into `__SURFACE_APP_COMMIT__`, and a `no-store` shell
- *  rewritten to name the hashed assets. Returns the hashed hrefs (the JS entry
- *  plus one per extra asset, keyed by `name`) — the same URLs written into the
- *  shell, exposed for callers that also template the HTML elsewhere. */
+ *  build commit published on the shell global (`window.__SURFACE_APP_COMMIT__`
+ *  in the `no-store` `index.html` — never inside a hashed asset; kolu#1319),
+ *  and the shell rewritten to name the hashed assets. Returns the hashed hrefs
+ *  (the JS entry plus one per extra asset, keyed by `name`) — the same URLs
+ *  written into the shell, exposed for callers that also template the HTML
+ *  elsewhere. */
 export async function buildSurfaceClient(
   opts: SurfaceClientBuildOptions,
 ): Promise<{ jsHref: string; assetHrefs: Record<string, string> }> {
@@ -131,8 +135,11 @@ export async function buildSurfaceClient(
   // `/assets/<name>-<hash>.js` — a content hash is the prerequisite for the
   // server's `immutable` pin: the byte-identical bundle keeps its URL across
   // rebuilds, a changed one gets a new URL, so an installed client pins assets
-  // for a year yet always converges after a deploy. The define stamps the build
-  // commit into the client, the same value `buildInfoServer()` reads server-side.
+  // for a year yet always converges after a deploy. NO commit define: the
+  // bundle must stay commit-independent (same name ⇒ same bytes), or a
+  // stamp-only rebuild silently changes an `immutable` file's content and
+  // strands returning browsers on the old stamp (kolu#1319). The commit rides
+  // the shell instead — `injectShellCommit` below.
   const jsResult = await Bun.build({
     entrypoints: [resolve(opts.entrypoint)],
     outdir: assetsDir,
@@ -142,7 +149,6 @@ export async function buildSurfaceClient(
     splitting: false,
     minify: opts.minify ?? true,
     sourcemap: "linked",
-    define: { __SURFACE_APP_COMMIT__: JSON.stringify(commit) },
     plugins: opts.plugins,
   });
   if (!jsResult.success) {
@@ -202,6 +208,10 @@ export async function buildSurfaceClient(
       `href="${assetHrefs[asset.name]}"`,
     );
   }
+  // Publish the commit on the shell global — the `no-store` shell is re-fetched
+  // on every load, so the identity a client reports is always the deployed one
+  // (kolu#1319; `shellCommit()` is the page-side reader).
+  html = injectShellCommit(html, commit);
   await Bun.write(resolve(distDir, "index.html"), html);
 
   // Static public assets (icons, etc.) shipped verbatim to the dist root, OUTSIDE

@@ -10,15 +10,16 @@
 import { describe, expect, it } from "vitest";
 import {
   ASSET_MISS_CACHE_CONTROL,
-  CACHE_BUST_PARAM,
-  cacheBustedShellUrl,
   cacheControlFor,
   clientIsStale,
+  injectShellCommit,
   isCleanRef,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
   rejectStaleProcess,
   SHELL_CACHE_CONTROL,
+  SHELL_COMMIT_GLOBAL,
+  shellCommitScript,
   SW_MESSAGE_TYPE,
   SW_SOURCE,
 } from "./index";
@@ -73,23 +74,42 @@ describe("cacheControlFor", () => {
   });
 });
 
-describe("cacheBustedShellUrl", () => {
-  it("appends the cache-bust param to a bare shell URL (the key the poisoned `/` entry can't satisfy)", () => {
-    const url = cacheBustedShellUrl("https://zest:7692/", "t1");
-    expect(url).toBe(`https://zest:7692/?${CACHE_BUST_PARAM}=t1`);
-    // The whole point: the busted key is NOT the poisoned bare-`/` key.
-    expect(url).not.toBe("https://zest:7692/");
+describe("injectShellCommit", () => {
+  const shell = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script type="module" crossorigin src="/assets/index-D85Q74Rn.js"></script>
+  </head>
+  <body></body>
+</html>`;
+
+  it("injects the commit script after <head>, BEFORE the module bundle reads it", () => {
+    const out = injectShellCommit(shell, "0fab0cc");
+    const script = shellCommitScript("0fab0cc");
+    expect(out).toContain(script);
+    expect(out.indexOf(script)).toBeLessThan(
+      out.indexOf("/assets/index-D85Q74Rn.js"),
+    );
+    // The script publishes the SHELL global — the one `shellCommit()` reads.
+    expect(script).toContain(`window.${SHELL_COMMIT_GLOBAL}=`);
   });
 
-  it("replaces an existing token so repeated busts keep a single param (no unbounded growth)", () => {
-    expect(
-      cacheBustedShellUrl(`https://zest:7692/?${CACHE_BUST_PARAM}=old`, "new"),
-    ).toBe(`https://zest:7692/?${CACHE_BUST_PARAM}=new`);
+  it("leaves the hashed asset references byte-identical (identity rides the shell, never the bundle — kolu#1319)", () => {
+    const out = injectShellCommit(shell, "0fab0cc");
+    expect(out).toContain('src="/assets/index-D85Q74Rn.js"');
   });
 
-  it("preserves the path and any unrelated query params", () => {
-    expect(cacheBustedShellUrl("https://zest:7692/app?theme=dark", "t2")).toBe(
-      `https://zest:7692/app?theme=dark&${CACHE_BUST_PARAM}=t2`,
+  it("escapes the commit so an arbitrary string can't break out of the script element", () => {
+    // A sha is [0-9a-f], but the helper must not rely on that: `</script>`
+    // inside the literal would terminate the element mid-string.
+    const script = shellCommitScript("</script><script>alert(1)");
+    expect(script.toLowerCase()).not.toContain("</script><script>alert");
+  });
+
+  it("throws on a template with no <head> — a shell with no identity must not build", () => {
+    expect(() => injectShellCommit("<html><body></body></html>", "x")).toThrow(
+      /<head>/,
     );
   });
 });

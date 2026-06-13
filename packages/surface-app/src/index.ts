@@ -66,29 +66,43 @@ export function cacheControlFor(
   return null;
 }
 
-/** The query param a cache-busting reload appends to escape a *poisoned* shell
- *  cache entry. `SHELL_CACHE_CONTROL` (above) stops NEW poisoning, but a browser
- *  that cached `/` in a pre-`no-store` era keeps serving that stale entry on a
- *  normal reload (years of heuristic freshness) WITHOUT revalidating — so a plain
- *  `location.reload()` can never reach the `no-store` shell and the update prompt
- *  loops forever (see `docs/cache-bug.md`). The value is irrelevant to
- *  correctness: its only job is to make the URL a key the poisoned bare-`/` entry
- *  can't satisfy. Namespaced (not a bare `v`) so it can't silently overwrite a
- *  consumer's own route state — `@kolu/surface-app` is shared (kolu, drishti),
- *  and a bare `?v=` already carries meaning elsewhere in kolu (preview cache
- *  keys), so the surface-app cache-bust param is given a collision-proof name. */
-export const CACHE_BUST_PARAM = "__surface_app_fresh";
+/** The global the no-store shell publishes the build commit on
+ *  (`window.__SURFACE_APP_COMMIT__`). Build identity rides the SHELL, never a
+ *  hashed `/assets/*` file: a commit stamped INSIDE the bundle rewrites the
+ *  bytes of a file whose NAME — and so whose year-long `immutable` cache
+ *  entry — doesn't change whenever two deploys differ only outside the client
+ *  build (a docs-only commit), so every returning browser stays pinned on the
+ *  old stamp, looks permanently stale, and the update prompt loops forever
+ *  (kolu#1319). The shell is `no-store` — re-fetched on every load — so a
+ *  commit carried here is always the deployed one, and the hashed bundle the
+ *  shell names is paired with it by content, not by stamp. Read it via
+ *  `shellCommit()` (`./lifecycle`). */
+export const SHELL_COMMIT_GLOBAL = "__SURFACE_APP_COMMIT__";
 
-/** `href` with `CACHE_BUST_PARAM` set to `token` — the navigation target that
- *  forces a poisoned browser past its stale `/` entry to the network (→ the
- *  `no-store` shell → the current bundle). `set` (not `append`) so a tab that
- *  busts repeatedly keeps a single param. Pure, so the navigation decision is
- *  unit-tested without a DOM; `reloadForUpdate` supplies a fresh token and applies
- *  the result with `location.replace`. */
-export function cacheBustedShellUrl(href: string, token: string): string {
-  const url = new URL(href);
-  url.searchParams.set(CACHE_BUST_PARAM, token);
-  return url.href;
+/** The inline `<script>` that publishes `commit` on `SHELL_COMMIT_GLOBAL` —
+ *  what `injectShellCommit` (and the `surfaceApp()` Vite plugin) puts in the
+ *  shell, and what a Nix post-build stamp rewrites (kolu seds its placeholder
+ *  in `dist/index.html` ONLY — never in `dist/assets/`). JSON-encoded with
+ *  `<` escaped so an arbitrary commit string can't terminate the element. */
+export function shellCommitScript(commit: string): string {
+  const literal = JSON.stringify(commit).replace(/</g, "\\u003c");
+  return `<script>window.${SHELL_COMMIT_GLOBAL}=${literal}</script>`;
+}
+
+/** Inject the shell-commit script into an HTML shell, right after `<head>` so
+ *  it runs before the module bundle reads it. Pure — the Bun builder
+ *  (`./bun`) applies it to the template it rewrites; the Vite path injects the
+ *  same tag through `transformIndexHtml`. Throws when the template has no
+ *  `<head>` rather than silently emitting a shell with no build identity. */
+export function injectShellCommit(html: string, commit: string): string {
+  const head = /<head[^>]*>/i.exec(html);
+  if (!head) {
+    throw new Error(
+      "injectShellCommit: the HTML template has no <head> — the shell would carry no build identity",
+    );
+  }
+  const at = head.index + head[0].length;
+  return html.slice(0, at) + shellCommitScript(commit) + html.slice(at);
 }
 
 /** A clean, comparable git ref: a real SHA — not `dev`, not a `-dirty` tree.

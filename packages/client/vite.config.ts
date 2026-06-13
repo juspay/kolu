@@ -35,8 +35,13 @@ export default defineConfig({
   // intentionally absent under `just dev` — `registerServiceWorker()` simply
   // no-ops there (registration fails → falls back to retiring any legacy worker).
   //
-  // `surfaceApp()` stamps `__SURFACE_APP_COMMIT__` from kolu's `KOLU_COMMIT_HASH`
-  // env (→ git → "dev"), the single commit source shared with the server cell.
+  // `surfaceApp()` injects the commit onto the `no-store` shell as
+  // `window.__SURFACE_APP_COMMIT__` from kolu's `KOLU_COMMIT_HASH` env (→ git →
+  // "dev"), the single commit source shared with the server cell. It rides the
+  // shell, never a hashed-asset define: a define would bake the sha into an
+  // `immutable` bundle whose name doesn't change on a stamp-only deploy, so
+  // `koluStamped` (default.nix) seds `dist/index.html` and returning browsers
+  // would stay pinned on the old stamp forever (kolu#1319).
   plugins: [
     solid(),
     tailwindcss(),

@@ -550,3 +550,76 @@ so future bare-`/` launches stay clean too. (Distinct from the launchd crash-loo
 server restarting under
 `KeepAlive` flaps `status` to `"restarted"`, which renders the *same* "App updated"
 card with no stale asset involved; see juspay/kolu#1275.)
+
+## The fifth re-litigation — it was the *commit stamp* poisoning an immutable bundle (juspay/kolu#1319)
+
+> The #1278 chapter above was **wrong about the mechanism**, and its cache-busting
+> `?__surface_app_fresh` reload was reverted in #1319. The loop reported "still
+> unfixed" on `zest` and `pureintent` after #1278 shipped, and a clean-room
+> reproduction (a `pu` box, a fresh browser profile, the two real deployed builds)
+> finally caught the actual cause. Keep this section as the **corrected, evidence-backed**
+> root cause; treat the heuristic-`/`-poison theory above as a refuted hypothesis.
+
+**The real poison was created by kolu's own build, not the browser.** `koluStamped`
+(`default.nix`) builds the client with a placeholder commit (so a docs-only commit
+reuses the cached derivation), then `sed`s the real sha into the built JS — i.e. it
+**rewrote the bytes of a content-hashed `/assets/index-*.js` file without changing
+its name**, and that path is served `Cache-Control: public, max-age=31536000, immutable`.
+So whenever two consecutive deploys differed only *outside* the client build fileset
+(docs, `packages/tests`, website — e.g. `7deb397 → 0fab0cc`, a `docs/atlas`-only diff),
+both shipped a bundle named `index-D85Q74Rn.js` whose bytes were **identical except the
+embedded sha**. A returning browser holds the old-stamped copy pinned `immutable` for a
+year; every Reload fetches a fresh `no-store` shell that names the same filename, and the
+browser correctly serves the year-cached old bundle from disk with zero network bytes.
+`clientIsStale` compares the stamps, sees a difference, and re-shows the card. Forever.
+
+**Why the #1278 theory was impossible here** (all verified, so it isn't re-derived a
+sixth time):
+
+- **Hono's `serveStatic` has never sent `Last-Modified`/`ETag`** (checked byte-for-byte
+  in the vendored source of old and current build closures) — so a heuristically-fresh
+  poisoned `/` entry had *no creation mechanism* in any Hono-era kolu. The only era that
+  sent mtime-based `Last-Modified` + 304s was the 3-day Rust/Axum era (2026-03-19…21),
+  on default port 7681, not the `:7692`/tailnet origins the PWAs use.
+- **The affected browser's HTTP cache held no entry for the bare shell URL** on either
+  origin (782 + 259 entries enumerated — all `/api/terminals/.../file/*` previews and
+  `immutable` `/assets/*`).
+- **A normal reload always revalidates the main document** in Chromium
+  (`LOAD_VALIDATE_CACHE` → `VALIDATION_SYNCHRONOUS`); heuristic freshness is never
+  consulted on reload. And a `no-store` 200 *dooms* a stored entry — so even a real
+  poison is durably cured by one plain reload. Demonstrated empirically by manufacturing
+  a 1970-`Last-Modified` shell (a `python -m http.server` over the nix dist): it served
+  stale on *navigations* (`transferSize: 0, deliveryType: "cache"`) but one normal reload
+  went to network and converged.
+
+**The reproduction that nailed it** (on a `pu` box, two real builds, a clean profile):
+load `7deb397` → bundle fetched (2.5 MB) and pinned `immutable`; deploy stamp-sibling
+`0fab0cc` on the same port → "App updated" card; click Reload → URL gains
+`?__surface_app_fresh=…`, the shell transfers from network but the **bundle transfers 0
+bytes (`deliveryType: "cache"`)**, the rail reads `SRV 0fab0cc · CLIENT 7deb397 · ≠ srv`,
+and the card returns. Repeated clicks never converge. It also explains the saga's oldest
+clue — "a hard reload fixed it for exactly one load" — a hard reload refetches the asset
+and replaces the cached stamp, until the *next* stamp-only deploy re-poisons it by
+construction.
+
+**The fix (#1319): build identity rides the `no-store` shell, never an `immutable` asset.**
+The `surfaceApp()` Vite plugin injects `window.__SURFACE_APP_COMMIT__` into `index.html`
+(via `transformIndexHtml`, `head-prepend`) instead of a bundler `define`; the client reads
+it with `shellCommit()` (`@kolu/surface-app/lifecycle`); `koluStamped` `sed`s the
+placeholder in `dist/index.html` **only** (and asserts it appears there and *not* under
+`dist/assets/`, failing the build loud if a future change moves it). Because the shell is
+re-fetched on every load, the stamp it carries is always the deployed one; the hashed
+bundle it names is paired with the deploy by *content*, not by an in-band sha. Stamp-only
+deploys now produce **no skew at all** (the card never shows — server and client report the
+same sha), and a real code deploy converges on one plain `location.reload()` (new code ⇒
+new hash ⇒ new filename ⇒ network fetch). #1278's cache-bust navigation was reverted with
+it: it targeted a layer that was never stale, and by landing on a different cache key it
+actually *skipped* revalidating the bare-`/` entry it claimed to escape.
+
+**Learning (the one that finally held):** `immutable` is a *contract* — a URL pinned
+`immutable` promises its bytes never change. A post-build stamp that rewrites a hashed
+file's content under an unchanged name **breaks that contract**, and the browser honoring
+it (serving the year-cached copy) is correct, not buggy. Build identity is volatile by
+nature, so it must live on the one resource that is never cached — the `no-store` shell —
+and never inside a resource you've promised the browser is permanent. Every earlier chapter
+chased the *browser's* cache; the poison was in *our* build the whole time.

@@ -15,7 +15,7 @@ import {
   deadTransportError,
   SURFACE_TRANSPORT_RETIRED,
 } from "@kolu/surface/client";
-import { cacheBustedShellUrl } from "./index";
+import { SHELL_COMMIT_GLOBAL } from "./index";
 
 /** Permanently retire a transport the server rejected as stale (a tab bound to a
  *  previous process). The app's reload affordance is now the only way forward, so
@@ -97,16 +97,35 @@ export function registerServiceWorker(
   return navigator.serviceWorker.register(path);
 }
 
-/** Apply the latest build by navigating to a cache-busting URL. A plain
- *  `location.reload()` issues a *normal* reload, which a browser still satisfies
- *  from a heuristically-fresh *poisoned* `/` entry (cached in a pre-`no-store`
- *  era) WITHOUT revalidating — so the stale bundle, and the update prompt, return
- *  on every reload: an infinite loop (see `docs/cache-bug.md`). Navigating to
- *  `/?<CACHE_BUST_PARAM>=<token>` is a key that entry can't satisfy → the network → the `no-store`
- *  shell → the current bundle, and it inoculates the tab (a `no-store` document is
- *  never written to the cache, so subsequent reloads stay fresh). A unique token
- *  (`Date.now()`) guarantees the key differs even if the same stale state
- *  re-prompts. `location.replace` (not `assign`) keeps the bust out of history. */
+/** Apply the latest build with a plain `location.reload()`. A normal reload
+ *  always REVALIDATES the `no-store` shell with the server (browsers bypass
+ *  cache freshness for the main document on reload), so the reloaded page IS
+ *  the deployed shell — and the hashed `/assets/*` bundle it names is the
+ *  deployed bundle, identical-by-content wherever the `immutable` cache serves
+ *  it. The infinite "App updated" loop this call was once blamed for was never
+ *  the reload's fault: the commit stamp used to ride INSIDE the immutable
+ *  bundle, so a stamp-only deploy changed the bytes under an unchanged
+ *  filename and returning browsers stayed pinned on the old stamp
+ *  (kolu#1319). Identity now rides the shell (`SHELL_COMMIT_GLOBAL`), making a
+ *  plain reload sufficient; the cache-busting `?__surface_app_fresh`
+ *  navigation (#1278) targeted a layer that was never stale — and, by landing
+ *  on a different cache key, skipped revalidating the bare-`/` entry it meant
+ *  to escape — so it is retired (`lifecycle.test.ts` pins the plain reload). */
 export function reloadForUpdate(): void {
-  location.replace(cacheBustedShellUrl(location.href, String(Date.now())));
+  location.reload();
+}
+
+/** This client's build commit, read off the shell global the build injected
+ *  (`SHELL_COMMIT_GLOBAL` — see `./index` for why identity rides the
+ *  `no-store` shell and never a hashed asset; kolu#1319). Falls back to
+ *  `"dev"` when the shell carries no stamp (a dev server, a test DOM):
+ *  `clientIsStale` treats `"dev"` as never-stale, so a missing stamp can't
+ *  false-positive the update prompt. Pass it to the provider —
+ *  `clientCommit={shellCommit()}`. */
+export function shellCommit(): string {
+  if (typeof window === "undefined") return "dev";
+  const commit = (window as unknown as Record<string, unknown>)[
+    SHELL_COMMIT_GLOBAL
+  ];
+  return typeof commit === "string" && commit !== "" ? commit : "dev";
 }

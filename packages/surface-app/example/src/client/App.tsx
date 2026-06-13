@@ -6,6 +6,7 @@
  * chrome and drishti's; only the pixels differ.
  */
 
+import { shellCommit } from "@kolu/surface-app/lifecycle";
 import {
   type ConnectionStatus,
   SurfaceAppProvider,
@@ -139,7 +140,7 @@ export default function App() {
   return (
     <SurfaceAppProvider<ExampleBuildInfo>
       controlPlane={clients.surfaceApp}
-      clientCommit={__SURFACE_APP_COMMIT__}
+      clientCommit={shellCommit()}
       buildInfo={buildInfo}
       ws={ws}
       // The probe rides the SCOPED `surfaceApp` client: its `.rpc` is the

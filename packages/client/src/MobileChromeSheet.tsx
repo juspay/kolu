@@ -69,9 +69,10 @@ const MobileChromeSheet: Component<{
       </div>
 
       {/* Client out of sync with the server — the actionable mobile form of the
-       *  desktop rail's `≠ srv` signal: a one-tap reload onto the freshly-deployed
-       *  build (surface-app's `reload()` — see its `reloadForUpdate` for how it
-       *  reaches a no-store shell past a poisoned cache). */}
+       *  desktop rail's `≠ srv` signal: a one-tap reload onto the deployed build
+       *  (surface-app's `reload()` is a plain location.reload() — kolu has no
+       *  caching service worker — landing fresh because the shell is no-store
+       *  and carries the build identity; kolu#1319). */}
       <Show when={clientStale()}>
         <button
           type="button"

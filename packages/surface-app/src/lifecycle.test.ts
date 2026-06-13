@@ -1,40 +1,63 @@
 /**
- * Lifecycle navigation — the one production-critical action worth pinning down
- * in isolation: `reloadForUpdate`. The pure URL kernel (`cacheBustedShellUrl`)
- * is covered in `index.test.ts`; here we assert the *entry point* the update
- * prompt actually calls navigates with a cache-busting URL via
- * `location.replace` — NOT a plain `location.reload()`, which is exactly the
- * regression that re-opens the infinite-reload loop (see `docs/cache-bug.md`).
+ * Lifecycle — the two halves of the freshness contract that run in the page:
+ *
+ * - `reloadForUpdate` must be a PLAIN `location.reload()`. A normal reload
+ *   always revalidates the `no-store` shell with the server, so the reloaded
+ *   page IS the deployed shell. The cache-busting `?__surface_app_fresh`
+ *   navigation (#1278) targeted a layer that was never stale — the loop it
+ *   chased was the commit stamp riding inside an `immutable` hashed asset
+ *   (kolu#1319) — and is retired; pin the plain reload so it doesn't creep back.
+ * - `shellCommit` reads the build identity off the shell global the build
+ *   injected, falling back to `"dev"` (never-stale) when absent.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cacheBustedShellUrl } from "./index";
-import { reloadForUpdate } from "./lifecycle";
+import { SHELL_COMMIT_GLOBAL } from "./index";
+import { reloadForUpdate, shellCommit } from "./lifecycle";
 
 describe("reloadForUpdate", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.useRealTimers();
   });
 
-  it("navigates to the cache-busted shell URL with a fresh token (not a plain reload)", () => {
-    const replace = vi.fn();
+  it("reloads in place — a normal reload revalidates the no-store shell (kolu#1319)", () => {
     const reload = vi.fn();
-    const href = "https://zest:7692/";
-    vi.stubGlobal("location", { href, replace, reload });
-    // Pin Date.now so the token — and thus the expected URL — is deterministic.
-    vi.useFakeTimers();
-    const now = 1_700_000_000_000;
-    vi.setSystemTime(now);
+    const replace = vi.fn();
+    const assign = vi.fn();
+    vi.stubGlobal("location", {
+      href: "https://zest:7692/",
+      reload,
+      replace,
+      assign,
+    });
 
     reloadForUpdate();
 
-    // A *normal* reload is the bug: a poisoned `/` entry would re-serve the
-    // stale shell and re-open the loop. The fix must navigate to a busted key.
-    expect(reload).not.toHaveBeenCalled();
-    expect(replace).toHaveBeenCalledTimes(1);
-    expect(replace).toHaveBeenCalledWith(
-      cacheBustedShellUrl(href, String(now)),
-    );
+    expect(reload).toHaveBeenCalledTimes(1);
+    // No cache-busting navigation: the shell was never the stale layer, and a
+    // busted URL would skip revalidating (and so curing) the bare-`/` entry.
+    expect(replace).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+  });
+});
+
+describe("shellCommit", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reads the commit the shell carries", () => {
+    vi.stubGlobal("window", { [SHELL_COMMIT_GLOBAL]: "0fab0cc" });
+    expect(shellCommit()).toBe("0fab0cc");
+  });
+
+  it('falls back to "dev" (never-stale) when the shell carries no stamp', () => {
+    vi.stubGlobal("window", {});
+    expect(shellCommit()).toBe("dev");
+  });
+
+  it('falls back to "dev" on an empty stamp', () => {
+    vi.stubGlobal("window", { [SHELL_COMMIT_GLOBAL]: "" });
+    expect(shellCommit()).toBe("dev");
   });
 });

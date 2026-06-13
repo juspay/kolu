@@ -58,7 +58,7 @@ The buildInfo cell's async boot axis (kolu's `system.version`, the example's
 now fires **automatically** once the cell ctx is built. There is no app-visible
 `connect` call and no hand-written seed→`ctx.set` dance.
 
-The commit is **resolved once** — `SURFACE_APP_COMMIT` env → `git rev-parse --short HEAD` → `"dev"` (which `clientIsStale` treats as never-stale) — and fed to both the client define and the server cell. **No app writes a sha.** If your build system names the env var otherwise (kolu's `KOLU_COMMIT_HASH`), pass it: `resolveCommit("KOLU_COMMIT_HASH")` / `surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" })` — or just export `SURFACE_APP_COMMIT` in your build (simpler).
+The commit is **resolved once** — `SURFACE_APP_COMMIT` env → `git rev-parse --short HEAD` → `"dev"` (which `clientIsStale` treats as never-stale) — and fed to both the client shell and the server cell. The client value rides the **`no-store` shell** as `window.__SURFACE_APP_COMMIT__` (read via `shellCommit()`), **never a bundler define** baked into a content-hashed asset — a define puts the sha inside a file pinned `immutable` for a year, so a post-build stamp that rewrites it under an unchanged filename strands returning browsers on the old stamp (kolu#1319). **No app writes a sha.** If your build system names the env var otherwise (kolu's `KOLU_COMMIT_HASH`), pass it: `resolveCommit("KOLU_COMMIT_HASH")` / `surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" })` — or just export `SURFACE_APP_COMMIT` in your build (simpler).
 
 ## Install
 
@@ -100,15 +100,15 @@ extension-carrying package would impose.
 
 | Entry | Exports | Side |
 |---|---|---|
-| `@kolu/surface-app` | `cacheControlFor`, `isImmutableAssetPath`, `clientIsStale`, `isCleanRef`, `SW_SOURCE`, `NOTIFICATION_SW_SOURCE`, `SERVER_PROCESS_ID_PARAM`, `STALE_PROCESS_CLOSE_CODE`, `rejectStaleProcess` — the pure, framework-free kernels (incl. the stale-tab handshake wire contract) | core |
+| `@kolu/surface-app` | `cacheControlFor`, `isImmutableAssetPath`, `clientIsStale`, `isCleanRef`, `SHELL_COMMIT_GLOBAL`, `shellCommitScript`, `injectShellCommit`, `SW_SOURCE`, `NOTIFICATION_SW_SOURCE`, `SERVER_PROCESS_ID_PARAM`, `STALE_PROCESS_CLOSE_CODE`, `rejectStaleProcess` — the pure, framework-free kernels (incl. the shell-carried commit and the stale-tab handshake wire contract) | core |
 | `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer`, `serverIdentity`, `surfaceAppServer` (Hono; `serverIdentity`/`surfaceAppServer` expose the minted `processId` for the gate), `gateStaleSocket` (the WS-upgrade handshake gate — error-handler-first, `rejectStaleProcess`, close `4001` — in the one correct order) | server |
 | `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo`, `surfaceAppSurface`, `surfaceAppSurfaceWith`, `ServerProbeSchema` — the standalone surface | common |
 | `@kolu/surface-app/solid` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider` (turnkey `{ ws, probe }` source handles the whole stale-tab handshake), `useSurfaceApp`, `createServerLifecycle` (with `onProcessId` / `onStaleRestart` / `restartCloseCode`), `retireSocket` | client |
 | `@kolu/surface-app/connect` | `createProcessIdEcho`, `createSurfaceSocket`, `retireOnStaleClose` — framework-free client transport: the shared `pid`-echo, the `new PartySocket(...)` construction with that echo'd URL thunk, and the per-socket stale-close self-retire. The link + clients + lifecycle stay with the consumer (they differ per app) | client |
-| `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate`, `retireSocket` — framework-free, for root setup before any component (`retireSocket` is the stale-tab transport teardown the `/solid` lifecycle's `onStaleRestart` calls; it lives here because it's pure transport manipulation, no SolidJS) | client |
+| `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate`, `shellCommit`, `retireSocket` — framework-free, for root setup before any component (`shellCommit()` reads the shell-carried build commit; `retireSocket` is the stale-tab transport teardown the `/solid` lifecycle's `onStaleRestart` calls; it lives here because it's pure transport manipulation, no SolidJS) | client |
 | `@kolu/surface-app/vite` | `surfaceApp()` plugin, `resolveCommit()` | build (Vite) |
 | `@kolu/surface-app/bun` | `buildSurfaceClient()`, `ASSET_DIR` — the content-hashed Bun client build | build (Bun) |
-| `@kolu/surface-app/client` | the `__SURFACE_APP_COMMIT__` type, via `/// <reference>` | client types |
+| `@kolu/surface-app/client` | the `window.__SURFACE_APP_COMMIT__` shell-global type, via `/// <reference>` | client types |
 
 ## Usage — composition at each layer
 
@@ -195,7 +195,7 @@ export default defineConfig({ plugins: [solid(), surfaceApp()] });
 /// <reference types="@kolu/surface-app/client" />
 ```
 
-A nix-built client stamps the same value into `SURFACE_APP_COMMIT`. The Vite plugin above is the Vite path; the Bun path is `@kolu/surface-app/bun` below. One resolver (`resolveCommit`), one source of truth.
+The plugin injects the commit onto the **`no-store` shell** as `window.__SURFACE_APP_COMMIT__`; read it with `shellCommit()` from `@kolu/surface-app/lifecycle`. It is deliberately *not* a bundler define — see "the commit rides the shell" above (kolu#1319). A nix-built client stamps the same value into `SURFACE_APP_COMMIT`. The Vite plugin above is the Vite path; the Bun path is `@kolu/surface-app/bun` below. One resolver (`resolveCommit`), one source of truth.
 
 **Nix consumers** — don't hardcode the env-var name or the rev logic. `nix/commit-stamp.nix` is the upstream single source (the name is kept equal to `resolveCommit`'s `DEFAULT_COMMIT_ENV_VAR`); import it from the pinned surface-app tree and compose:
 
@@ -210,7 +210,7 @@ The client bundle and the server cell then read the same var from one place — 
 
 #### Bun.build consumers — `buildSurfaceClient`
 
-The freshness contract's load-bearing property is **content-hashed asset filenames** — `immutable` is only correct because a changed bundle gets a new URL. With Vite that's automatic (the plugin above). For a `Bun.build` client, **don't hand-roll it** — compose `buildSurfaceClient` from `@kolu/surface-app/bun`, which owns the hash-naming, the `__SURFACE_APP_COMMIT__` define (via `resolveCommit`), content-hashing of extra assets, and the no-store shell rewrite. You supply only what's genuinely yours — bundler plugins, your CSS toolchain, your public dir:
+The freshness contract's load-bearing property is **content-hashed asset filenames** — `immutable` is only correct because a changed bundle gets a new URL (and, conversely, an identical bundle keeps its URL: so the commit must stay *out* of it, or a stamp-only rebuild changes an `immutable` file's bytes under an unchanged name — kolu#1319). With Vite that's automatic (the plugin above). For a `Bun.build` client, **don't hand-roll it** — compose `buildSurfaceClient` from `@kolu/surface-app/bun`, which owns the hash-naming, injecting the commit onto the **shell** (`window.__SURFACE_APP_COMMIT__`, via `resolveCommit` — never a bundle define), content-hashing of extra assets, and the no-store shell rewrite. You supply only what's genuinely yours — bundler plugins, your CSS toolchain, your public dir:
 
 ```ts
 // build.ts
@@ -229,7 +229,7 @@ await buildSurfaceClient({
 });
 ```
 
-It emits the hashed JS + extra assets under `/assets/` (the `ASSET_DIR` the server pins `immutable`), stamps the commit, and rewrites `index.html` to the hashed URLs — the shell itself stays unhashed at the root and is served `no-store`. The drishti adoption (PR #47) is the reference consumer. `resolveCommit` and `ASSET_DIR` are exported if you need to compose more by hand.
+It emits the hashed JS + extra assets under `/assets/` (the `ASSET_DIR` the server pins `immutable`), stamps the commit onto the shell, and rewrites `index.html` to the hashed URLs — the shell itself stays unhashed at the root, carries the commit global, and is served `no-store`. The drishti adoption (PR #47) is the reference consumer. `resolveCommit` and `ASSET_DIR` are exported if you need to compose more by hand.
 
 ### client — the headless model; you render the chrome
 
@@ -241,8 +241,9 @@ import { appSurface } from "../common/surface";
 import { surfaceAppSurface } from "@kolu/surface-app/surface";
 
 // retireServiceWorker() runs at root setup, before any component — import it from
-// the framework-free /lifecycle subpath (re-exported from /solid for convenience):
-import { retireServiceWorker } from "@kolu/surface-app/lifecycle";
+// the framework-free /lifecycle subpath (re-exported from /solid for convenience).
+// shellCommit() reads the build commit the shell carries (window.__SURFACE_APP_COMMIT__):
+import { retireServiceWorker, shellCommit } from "@kolu/surface-app/lifecycle";
 retireServiceWorker();   // unregister any worker an earlier build left + drop its caches
 
 // One client per sibling surface, scoped by key over the one link. Each client's
@@ -266,7 +267,7 @@ const probeIdentity = (): Promise<ServerProbe> =>
 // at the root — surface-app derives the connection lifecycle from the transport:
 <SurfaceAppProvider
   controlPlane={clients.surfaceApp}                // typed: must carry the buildInfo cell
-  clientCommit={__SURFACE_APP_COMMIT__}
+  clientCommit={shellCommit()}                     // the commit the no-store shell carries
   ws={ws}                                          // open/close → connecting/live/down
   probe={probeIdentity}                            // { processId } → reconnected vs restarted
   // isStale={(srv, cli) => …}                      // optional: override the predicate per section

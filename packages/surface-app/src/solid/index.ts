@@ -433,8 +433,10 @@ export type SurfaceAppProviderProps<
    *  client whose surface carries `buildInfo`, so the wrong client is a compile
    *  error rather than a silent runtime read. */
   controlPlane: ControlPlane<T>;
-  /** This client's baked-in commit (your bundler define — e.g. injected by the
-   *  surface-app commit stamp as `__SURFACE_APP_COMMIT__`). */
+  /** This client's build commit — read off the shell global the build injected
+   *  (`shellCommit()` from `@kolu/surface-app/lifecycle`, reading
+   *  `window.__SURFACE_APP_COMMIT__`). It rides the `no-store` shell, never a
+   *  hashed-asset define (kolu#1319). */
   clientCommit: string;
   /** The build-identity fragment — defaults to `{ commit }`. Pass your extended
    *  one (e.g. kolu's pty-host axis) to drive `stale` off it. */

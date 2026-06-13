@@ -3,6 +3,7 @@
 import {
   registerServiceWorker,
   retireServiceWorker,
+  shellCommit,
 } from "@kolu/surface-app/lifecycle";
 import { SurfaceAppProvider } from "@kolu/surface-app/solid";
 import { MetaProvider } from "@solidjs/meta";
@@ -52,7 +53,7 @@ render(
     // StaleBadge, TransportOverlay, the mobile sheet).
     <SurfaceAppProvider
       controlPlane={surfaceApp}
-      clientCommit={__SURFACE_APP_COMMIT__}
+      clientCommit={shellCommit()}
       buildInfo={koluBuildInfo}
       status={status}
       onError={(err) => toast.error(`Build identity error: ${err.message}`)}

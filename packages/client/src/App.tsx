@@ -7,6 +7,7 @@
 
 import Dialog from "@corvu/dialog";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
+import { shellCommit } from "@kolu/surface-app/lifecycle";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
@@ -498,10 +499,7 @@ const App: Component = () => {
             </p>
             <p>
               Commit:{" "}
-              <Commit
-                sha={__SURFACE_APP_COMMIT__}
-                class="text-accent hover:underline"
-              />
+              <Commit sha={shellCommit()} class="text-accent hover:underline" />
             </p>
             <p>
               Server:{" "}
