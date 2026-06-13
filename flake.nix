@@ -28,23 +28,9 @@
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
       koluBySystem = eachSystem (pkgs: import ./default.nix { inherit pkgs commitHash; });
-      websiteBySystem = eachSystem (pkgs:
-        # Synthesized website source tree: website/ with the canonical assets
-        # copied in where the working tree has symlinks pointing outside it
-        # (favicon → ../../packages/client/favicon.svg, kaval logo →
-        # ../../packages/kaval/logo.svg). One SVG each on disk; the Nix sandbox
-        # still sees a self-contained website/ with real bytes.
-        let
-          websiteSrc = pkgs.runCommand "kolu-website-src" { } ''
-            cp -r ${./website} $out
-            chmod -R u+w $out
-            rm -f $out/public/favicon.svg
-            cp ${./packages/client/favicon.svg} $out/public/favicon.svg
-            rm -f $out/public/kaval-logo.svg
-            cp ${./packages/kaval/logo.svg} $out/public/kaval-logo.svg
-          '';
-        in
-        import ./website { inherit pkgs; src = websiteSrc; });
+      # website/default.nix is self-contained — it resolves its own public/
+      # asset symlinks (favicon, kaval logo), so the flake just imports it.
+      websiteBySystem = eachSystem (pkgs: import ./website { inherit pkgs; });
     in
     {
       # The module proper is platform-agnostic; the flake closes over it to
