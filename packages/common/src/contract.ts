@@ -133,6 +133,10 @@ export const ServerInfoSchema = z.object({
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
+/** `daemon.restart` targets one host's daemon by id — `"local"` today; the field
+ *  is there so R-2's per-host restart needs no contract change. */
+export const DaemonRestartInputSchema = z.object({ hostId: z.string() });
+
 // ── The contract ──────────────────────────────────────────────────────
 
 export const contract = oc.router({
@@ -183,5 +187,13 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
+  },
+  daemon: {
+    /** Supervised restart of a host's kaval daemon — capture the live session,
+     *  recycle the daemon to the current build, restore. The recycle is
+     *  serialized and reported as `restarting` on the `daemonStatus` collection;
+     *  the saved session is preserved so terminals reconnect from the restore
+     *  card. Idempotent under concurrent triggers (they coalesce onto one). */
+    restart: oc.input(DaemonRestartInputSchema).output(z.void()),
   },
 });

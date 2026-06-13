@@ -20,7 +20,6 @@ import {
   createEndpoint,
   type Endpoint,
   type EndpointStatus,
-  restart,
 } from "@kolu/surface-daemon-supervisor";
 import type {
   PtyHostClient,
@@ -97,6 +96,35 @@ export function currentPtyHostIdentity(): PtyHostIdentity | undefined {
   return endpoint?.current()?.identity;
 }
 
+/** The local daemon's endpoint, for the boot reconciliation and the supervised
+ *  `daemon.restart` RPC (both in `reattach.ts`, kept out of this module to avoid
+ *  a `ptyHost ↔ terminalBackend` import cycle). Undefined before
+ *  `ensureLocalEndpoint`. */
+export function getLocalEndpoint():
+  | Endpoint<PtyHostClient, Identity>
+  | undefined {
+  return endpoint;
+}
+
+/** Reset the cached `system.info` so the NEXT spawn re-reads host facts from the
+ *  daemon currently connected — called after a supervised restart reconnects to a
+ *  freshly-spawned daemon. For a local recycle the host facts are stable, so this
+ *  is cheap insurance that discharges B0's "revisit when connections become real"
+ *  note; it becomes load-bearing once a respawn can target a different host (R-2). */
+export function resetHostInfoCache(): void {
+  infoPromise = undefined;
+}
+
+/** The kaval build id baked into the on-disk `KOLU_KAVAL_BIN` closure the running
+ *  server points at — the server's EXPECTED daemon build. The currency check is
+ *  `connectedDaemon.identity.staleKey !== this`: a survivor a build behind (only
+ *  reachable once B3 adopts one across a deploy) is "update pending". Empty when
+ *  the env var is unset (dev, no nix wrapper), which the client reads as "no
+ *  update check available". */
+export function expectedKavalBuildId(): string {
+  return process.env.KAVAL_BUILD_ID ?? "";
+}
+
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
  *  Resolves whether or not the daemon came up — a boot failure reports `dead`
  *  via `onStatus` and leaves `ptyHostClient` throwing, so the server can still
@@ -120,14 +148,13 @@ export async function ensureLocalEndpoint(opts: {
   });
   endpoint = ep;
   try {
-    // The boot recycle, expressed as a restart with degenerate steps — B2 makes
-    // no survival promise, so there is nothing to capture/drain/reattach. B3
-    // fills the same steps with session capture + adoption.
-    await restart(ep, {
-      capture: async () => undefined,
-      drain: async () => {},
-      reattach: async () => {},
-    });
+    // B3 survival boot: adopt a live, compatible survivor (keeping its PTYs
+    // across a server-only redeploy) or recycle an absent/dead/skewed one. The
+    // session reconciliation that follows — adopt the survivors, restore-card the
+    // rest, reap orphans — runs in `reattach.ts` (called by the server entry
+    // after this resolves), kept out of this module to avoid a
+    // `ptyHost ↔ terminalBackend` import cycle.
+    await ep.adoptOrEnsure();
   } catch (err) {
     // The endpoint already reported `dead`; don't crash the server boot.
     log.error({ err }, "kaval endpoint failed to come up at boot");

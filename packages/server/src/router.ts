@@ -25,6 +25,7 @@ import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
+import { restartDaemon } from "./ptyHost/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import {
@@ -295,6 +296,14 @@ export const appRouter = t.router({
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       log.info({ worktree: input.worktreePath }, "worktree remove");
       unwrapGit(await worktreeRemove(input.worktreePath, log));
+    }),
+  },
+  daemon: {
+    restart: t.daemon.restart.handler(async ({ input }) => {
+      // `hostId` is "local" today (the only endpoint); R-2 routes by it. The
+      // recycle is serialized by the spine, so a double-click coalesces.
+      log.info({ hostId: input.hostId }, "daemon.restart requested");
+      await restartDaemon();
     }),
   },
 });

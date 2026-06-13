@@ -33,6 +33,7 @@ import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint } from "./ptyHost/index.ts";
+import { bootReconcile } from "./ptyHost/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
@@ -298,6 +299,12 @@ const { host, port } = argv.flags;
 // endpoint; a boot failure reports `dead` (not a crash), so the server still
 // listens and the UI honestly shows the down state.
 await ensureLocalEndpoint({ port, onStatus: publishDaemonStatus });
+
+// B3 survival: now that the endpoint is connected (whether it ADOPTED a live
+// survivor across a server-only redeploy or recycled an absent/skewed one),
+// reconcile the saved session against the daemon's PTYs — adopt the survivors
+// (process + scrollback + agent intact), restore-card the rest, reap orphans.
+await bootReconcile();
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);
