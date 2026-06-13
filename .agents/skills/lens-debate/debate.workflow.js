@@ -492,6 +492,11 @@ if (apply && fixes.length) {
   applied = fixes.map((f) => {
     const a = byId[f.id] || {}
     const sha = (a.commit || '').trim()
+    // Mirror codex-debate's mismatch log: surface a fix the agent reported as
+    // changed-but-uncommitted instead of silently recording commit: null.
+    if (!sha && (a.filesChanged ?? []).length > 0) {
+      log(`Apply ${f.id}: agent changed ${a.filesChanged.length} file(s) but returned no commit SHA`)
+    }
     return { id: f.id, title: f.title, files: a.filesChanged ?? [], commit: sha || null }
   })
   applied.forEach((a) => log(`Applied ${a.id}: ${a.files.length} file(s)${a.commit ? `, committed ${a.commit.slice(0, 9)}` : ' (uncommitted)'}`))
