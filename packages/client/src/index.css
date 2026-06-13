@@ -292,7 +292,10 @@ body {
  *    backdrop is the neutral minimap panel (not a themed tile bg), so the
  *    semantic colours read fine there and give a consistent at-a-glance state
  *    scan; motion still encodes state — working steady, waiting pulses, alert
- *    blinks. */
+ *    blinks. The bar renders only working / waiting / alert: parked tiles are
+ *    the recessive ghost (no bar), and the only stale tier — `waiting-stale` —
+ *    is by definition parked, so it never reaches this surface (no rule for
+ *    it here). */
 .aura-bar {
   position: absolute;
   top: 0;
@@ -314,11 +317,6 @@ body {
 [data-aura="alert"] .aura-bar {
   background: var(--color-alert);
   animation: aura-blink 1.2s ease-in-out infinite;
-}
-[data-aura="waiting-stale"] .aura-bar {
-  right: auto;
-  width: 55%;
-  background: color-mix(in oklch, var(--color-alert) 42%, transparent);
 }
 @keyframes aura-pulse {
   0%,
