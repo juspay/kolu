@@ -1,44 +1,104 @@
 /** Default placement policy for newly created canvas tiles.
  *
- *  A tile opens at the viewport center. If that snapped position already
- *  hosts another tile, it cascades diagonally until a free spot is found —
- *  opening two terminals without panning produces a staircase, not a stack.
+ *  Two modes:
  *
- *  `CASCADE_STEP` is a multiple of `GRID_SIZE` so `snapToGrid` can't collapse
- *  successive cascade steps onto the same coordinate. */
+ *  1. **Reference-tile mode** (active tile exists): inherit its size, place
+ *     directly below it. If that position overlaps another tile, cascade
+ *     downward by `h + GAP` until a free spot is found. This keeps same-
+ *     project terminals stacked in a predictable column without hiding
+ *     existing content — floating-window feel on an infinite canvas.
+ *
+ *  2. **Viewport-center fallback** (no active tile): center on the viewport
+ *     with default dimensions, cascading diagonally if taken. Same as the
+ *     legacy behavior — first tile, or orphan tile with no reference.
+ *
+ *  `GAP` matches `TILE_GAP` in `repoIslands.ts` (`GRID_SIZE`) so the visual
+ *   spacing between auto-placed tiles and arranged islands is consistent. */
 
-import { GRID_SIZE, snapToGrid } from "./viewport/transforms";
+import { GRID_SIZE } from "./viewport/transforms";
+import type { TileLayout } from "./TileLayout";
 
-/** Default tile dimensions — 800×540 fits ~88 cols × 27 rows at the default
- *  font, safely above the legacy 80×24 baseline. */
 export const DEFAULT_TILE_W = 800;
 export const DEFAULT_TILE_H = 540;
 
-const CASCADE_STEP = GRID_SIZE * 2;
+const GAP = GRID_SIZE;
 const MAX_CASCADE_ITERATIONS = 50;
 
-/** Find a free top-left for a new default-sized tile, starting at the viewport
- *  center and cascading diagonally if the spot is already taken. `existing`
- *  is the set of already-positioned tiles (saved + pending); only their
- *  top-left is compared, so callers must pass tiles of the same default
- *  dimensions for collision detection to be accurate.
+/** Find a free layout for a new tile. With a reference tile, inherits its
+ *  size and places below it (cascading on overlap). Without, falls back
+ *  to viewport-center placement at default size.
+ *
+ *  `placed` is every tile already positioned (saved + pending + newly
+ *  placed in the same batch). Full rect intersection — not just top-left
+ *  equality — so tiles of different widths are detected correctly.
  *
  *  Viewport-relative — only correct for one-shot placement at create time.
- *  A future continuous tiler must compute placement in a viewport-independent
- *  frame (canvas-origin or the existing tiles' bounding box); pan would
- *  otherwise re-place tiles every frame. */
+ *  A future continuous tiler must compute placement in a viewport-
+ *  independent frame; pan would otherwise re-place tiles every frame. */
 export function findFreeTilePosition(
-  viewportCenterX: number,
-  viewportCenterY: number,
-  existing: ReadonlyArray<{ x: number; y: number }>,
-): { x: number; y: number } {
-  const occupied = new Set(existing.map((l) => `${l.x},${l.y}`));
-  const baseX = viewportCenterX - DEFAULT_TILE_W / 2;
-  const baseY = viewportCenterY - DEFAULT_TILE_H / 2;
-  for (let i = 0; i < MAX_CASCADE_ITERATIONS; i++) {
-    const x = snapToGrid(baseX + i * CASCADE_STEP);
-    const y = snapToGrid(baseY + i * CASCADE_STEP);
-    if (!occupied.has(`${x},${y}`)) return { x, y };
+  reference: TileLayout | undefined,
+  placed: ReadonlyArray<TileLayout>,
+  viewportCenterX?: number,
+  viewportCenterY?: number,
+): TileLayout {
+  if (reference) {
+    return placeBelowReference(reference, placed);
   }
-  return { x: snapToGrid(baseX), y: snapToGrid(baseY) };
+  return placeAtViewportCenter(
+    placed,
+    viewportCenterX ?? 0,
+    viewportCenterY ?? 0,
+  );
+}
+
+function placeBelowReference(
+  reference: TileLayout,
+  placed: ReadonlyArray<TileLayout>,
+): TileLayout {
+  let y = reference.y + reference.h + GAP;
+  const candidate: TileLayout = {
+    x: reference.x,
+    y,
+    w: reference.w,
+    h: reference.h,
+  };
+  for (let i = 0; i < MAX_CASCADE_ITERATIONS; i++) {
+    candidate.y = y;
+    if (!placed.some((p) => rectsOverlap(candidate, p))) {
+      return { ...candidate };
+    }
+    y += candidate.h + GAP;
+  }
+  return { ...candidate };
+}
+
+function placeAtViewportCenter(
+  placed: ReadonlyArray<TileLayout>,
+  cx: number,
+  cy: number,
+): TileLayout {
+  const baseX = cx - DEFAULT_TILE_W / 2;
+  const baseY = cy - DEFAULT_TILE_H / 2;
+  const step = GRID_SIZE * 2;
+  for (let i = 0; i < MAX_CASCADE_ITERATIONS; i++) {
+    const candidate: TileLayout = {
+      x: baseX + i * step,
+      y: baseY + i * step,
+      w: DEFAULT_TILE_W,
+      h: DEFAULT_TILE_H,
+    };
+    if (!placed.some((p) => rectsOverlap(candidate, p))) {
+      return candidate;
+    }
+  }
+  return { x: baseX, y: baseY, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
+}
+
+function rectsOverlap(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): boolean {
+  return (
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+  );
 }
