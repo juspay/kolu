@@ -621,11 +621,16 @@ const CodeTab: Component<{
   // any view (the scope switcher annotates the Branch segment even from
   // Local/Browse). `undefined` while pending; `null` once loaded with no
   // resolvable base (a remote-less repo, #1244, degrades to an empty diff
-  // rather than erroring); a `{ ref, sha }` object otherwise. Callers that
-  // need "no base" *only when Branch is the active view* (the empty-state
-  // copy) gate on `view()` themselves at the use site.
+  // rather than erroring); a `{ ref, sha }` object otherwise.
   const branchBase = () => branchStatus()?.base;
   const branchRef = (): string | null => branchBase()?.ref ?? null;
+  // The *actionable* no-base case: Branch is the active view AND it has no
+  // resolvable base (so the empty tree is "nothing to compare against", not
+  // "clean"). The bare `branchBase() === null` question is view-independent —
+  // the badge asks it directly — but the empty-state copy must re-AND the
+  // view, so the compound predicate lives here once instead of at each caller.
+  const branchViewHasNoBase = () =>
+    view() === "branch" && branchBase() === null;
 
   // Change-count badges on the Local / Branch segments. `0` until the
   // always-on status streams land; the segment hides the pill at 0.
@@ -810,15 +815,10 @@ const CodeTab: Component<{
                       {(() => {
                         const m = diffMode();
                         if (!m) return "Empty repository";
-                        // Branch mode with no resolvable base (remote-less
-                        // repo, #1244): there's nothing to compare against, so
-                        // "No changes vs base" would be a false clean signal.
-                        // Gate on the active view here — `branchBase()` reads
-                        // the always-on branch stream, which is meaningful in
-                        // any view, but this copy must only show in Branch.
-                        if (m === "branch" && branchBase() === null) {
-                          return NO_BRANCH_BASE;
-                        }
+                        // No resolvable base (remote-less repo, #1244): there's
+                        // nothing to compare against, so "No changes vs base"
+                        // would be a false clean signal.
+                        if (branchViewHasNoBase()) return NO_BRANCH_BASE;
                         return EMPTY_STATE[m];
                       })()}
                     </div>
