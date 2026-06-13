@@ -25,6 +25,8 @@ import {
 } from "./input/actions";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
+import { restartDaemon } from "./useDaemonRestart";
+import { daemonWarming } from "./useDaemonStatus";
 import { recentAgents, recentRepos } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures
@@ -411,13 +413,31 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       name: "Debug",
       section: "help",
       description: "Internal diagnostics and scaffolding",
-      children: [
+      children: (): PaletteItem[] => [
         {
           kind: "action",
           name: "Diagnostic info",
           description: "Runtime state — renderer, WS, terminals",
           onSelect: () => deps.setDiagnosticInfoOpen(true),
         },
+        // Restart kaval — recycle the terminal daemon, capturing the session
+        // first and offering it for restore on the fresh daemon (B3.2). The
+        // kaval rail dialog and the degraded canvas are the primary,
+        // state-contextual surfaces; this is the keyboard/search path (the
+        // palette flattens leaves, so typing "restart"/"kaval" finds it).
+        // Hidden while the daemon is already warming (a restart in flight or
+        // booting) so the palette never offers what would be a no-op.
+        ...(!daemonWarming()
+          ? [
+              {
+                kind: "action" as const,
+                name: "Restart kaval",
+                description:
+                  "Recycle the terminal daemon and restore your session",
+                onSelect: () => void restartDaemon(),
+              },
+            ]
+          : []),
         {
           kind: "action",
           name: "Simulate activity alert",
