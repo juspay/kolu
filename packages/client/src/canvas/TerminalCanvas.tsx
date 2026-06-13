@@ -45,11 +45,7 @@ import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
-import {
-  DEFAULT_TILE_H,
-  DEFAULT_TILE_W,
-  findFreeTilePosition,
-} from "./tilePlacement";
+import { findFreeTilePosition } from "./tilePlacement";
 import { useCanvasFocus } from "./useCanvasFocus";
 import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileTheme } from "./useTileTheme";
@@ -172,11 +168,12 @@ const TerminalCanvas: Component<{
     on(
       () => props.tileIds,
       (ids) => {
-        const center = viewport.viewportCenter();
-        // Container not mounted yet — defer placement; the effect re-runs when
-        // the tile list next changes (post-mount, with real dimensions).
-        if (!center) return;
-        const { x: cx, y: cy } = center;
+        const { width, height } = viewport.viewportSize();
+        const zoom = viewport.zoom();
+        const cx = viewport.panX() + width / (2 * zoom);
+        const cy = viewport.panY() + height / (2 * zoom);
+        const activeId = store.activeId();
+        const referenceLayout = activeId ? layoutOf(activeId) : undefined;
         const placed: {
           id: TileId;
           layout: TileLayout;
@@ -188,15 +185,12 @@ const TerminalCanvas: Component<{
             placed.push({ id, layout: existing, isNew: false });
             continue;
           }
-          const defaultLayout: TileLayout = {
-            ...findFreeTilePosition(
-              cx,
-              cy,
-              placed.map((p) => p.layout),
-            ),
-            w: DEFAULT_TILE_W,
-            h: DEFAULT_TILE_H,
-          };
+          const defaultLayout: TileLayout = findFreeTilePosition(
+            referenceLayout,
+            placed.map((p) => p.layout),
+            cx,
+            cy,
+          );
           setPendingLayout(id, defaultLayout);
           props.onLayoutChange(id, defaultLayout);
           placed.push({ id, layout: defaultLayout, isNew: true });
@@ -207,7 +201,7 @@ const TerminalCanvas: Component<{
         // job here is bumping the centering signal once the new tile's
         // pending layout exists. Same mechanism the `focus.request`
         // effect below uses for every other system-driven activation.
-        const activeId = tileStore.activeId();
+
         if (activeId && placed.some((p) => p.isNew && p.id === activeId)) {
           tileStore.activate(activeId);
         }
