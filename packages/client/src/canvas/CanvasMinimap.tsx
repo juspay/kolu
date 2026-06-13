@@ -340,8 +340,6 @@ const CanvasMinimap: Component<{
             // when `parked()` flips instead of popping.
             const parked = () => state().parked;
             const isActive = () => store.activeId() === id;
-            const hasAgent = () => state().bucket !== "none";
-            const badgeVisible = () => hasAgent() && !parked();
             // Same aura tier the full canvas tile paints — one mapper, two
             // scales. Parked tiles render as ghosts (no bar), so the stale
             // ember tier never surfaces here; a fresh awaiter pulses, a worker
@@ -408,7 +406,7 @@ const CanvasMinimap: Component<{
                         paints (index.css `.aura-bar`, coloured via the rect's
                         `data-aura`), at minimap scale. Only for live, non-parked
                         tiles; parked tiles are already the recessive ghost. */}
-                    <Show when={badgeVisible() && auraTier() !== "none"}>
+                    <Show when={!parked() && auraTier() !== "none"}>
                       <div
                         data-testid="minimap-tile-aura"
                         class="aura-bar aura-bar--mini"
