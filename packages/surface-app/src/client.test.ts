@@ -20,9 +20,9 @@ describe("client.d.ts Window augmentation", () => {
     // Indexing `Window` by the constant resolves to the augmented
     // `string | undefined` ONLY if the constant equals the literal property
     // name the augmentation declares. If the two drift, this index is an error.
-    expectTypeOf<
-      Window[typeof SHELL_COMMIT_GLOBAL]
-    >().toEqualTypeOf<string | undefined>();
+    expectTypeOf<Window[typeof SHELL_COMMIT_GLOBAL]>().toEqualTypeOf<
+      string | undefined
+    >();
 
     // And an object keyed by the constant is assignable to the augmented shape —
     // a second proof the names are the same string.

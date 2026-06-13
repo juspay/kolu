@@ -106,7 +106,11 @@ export function shellCommitScriptBody(commit: string): string {
  *  same tag through `transformIndexHtml`. Throws when the template has no
  *  `<head>` rather than silently emitting a shell with no build identity. */
 export function injectShellCommit(html: string, commit: string): string {
-  const head = /<head[^>]*>/i.exec(html);
+  // Require a real `head` start tag with a tag-name boundary — `<head>` or
+  // `<head …>` but NOT `<header>`/`<headless>`. A loose `/<head[^>]*>/` would
+  // match `<header>` and inject at the wrong spot, defeating the fail-loud
+  // contract for a shell that has no real `<head>`.
+  const head = /<head(?:\s[^>]*)?>/i.exec(html);
   if (!head) {
     throw new Error(
       "injectShellCommit: the HTML template has no <head> — the shell would carry no build identity",

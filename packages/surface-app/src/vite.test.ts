@@ -12,7 +12,11 @@
 
 import { execSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
-import { DEV_COMMIT, SHELL_COMMIT_GLOBAL, shellCommitScriptBody } from "./index";
+import {
+  DEV_COMMIT,
+  SHELL_COMMIT_GLOBAL,
+  shellCommitScriptBody,
+} from "./index";
 import { resolveCommit, surfaceApp } from "./vite";
 
 vi.mock("node:child_process", () => ({ execSync: vi.fn() }));

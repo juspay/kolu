@@ -112,6 +112,28 @@ describe("injectShellCommit", () => {
       /<head>/,
     );
   });
+
+  it("does NOT mistake <header> for <head> — that would inject at the wrong spot and silently build a no-<head> shell", () => {
+    // `<head[^>]*>` would match `<header>`; the boundary'd regex must not, so a
+    // shell whose only `head`-prefixed tag is a body `<header>` fails loud.
+    expect(() =>
+      injectShellCommit(
+        "<html><body><header>nav</header></body></html>",
+        "0fab0cc",
+      ),
+    ).toThrow(/<head>/);
+  });
+
+  it("matches a <head> carrying attributes", () => {
+    const out = injectShellCommit(
+      '<html><head lang="en"><title>x</title></head><body></body></html>',
+      "0fab0cc",
+    );
+    const script = shellCommitScript("0fab0cc");
+    expect(out).toContain(script);
+    // Injected right after the (attribute-bearing) head open tag.
+    expect(out.indexOf(script)).toBeLessThan(out.indexOf("<title>"));
+  });
 });
 
 describe("isImmutableAssetPath", () => {
