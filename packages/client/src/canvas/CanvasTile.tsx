@@ -97,9 +97,9 @@ const CanvasTile: Component<{
 
   const bg = () => props.theme.bg;
 
-  // Active stays full-strength regardless of dimmed — the user is looking
-  // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
-  // so a parked tile recedes without disappearing.
+  // Active stays full-strength regardless of dimmed — the user is looking right
+  // at it. Inactive defaults to 0.92; a dimmed/parked tile drops to 0.55 so it
+  // recedes without disappearing.
   const inactiveOpacity = () => (props.dimmed ? 0.55 : 0.92);
 
   // While maximized: ignore drag transform and pin to viewport. While
@@ -122,15 +122,20 @@ const CanvasTile: Component<{
       // terminal theme (see the `.tile-aura` rules in index.css).
       "--aura-c": props.theme.fg,
       // Border is repo identity (all four edges); the agent-status ring owns the
-      // animated border on top. Focus is NOT a border treatment — it lives on
-      // the title bar (accent) + the lift below — so it can't compete with the
-      // status ring.
+      // animated border on top. Focus is NOT a border treatment — it's the
+      // mode-aware lift below, so it can't compete with the status ring.
       "border-color": props.repoColor,
       "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
       opacity: props.active ? 1 : inactiveOpacity(),
-      // Active tile lifts (a deeper drop shadow) — depth, not an accent ring.
+      // Focus = lift. The active tile floats above the canvas via a drop shadow
+      // that reads as depth only when it contrasts the CANVAS — whose colour is
+      // set by app mode, independent of the tile's theme. So the lift is
+      // mode-aware (`--focus-lift`, per-mode in index.css): a dark drop shadow on
+      // the light canvas, a bright glow on the dark one. A light-themed tile
+      // (e.g. Gruvbox Material Light) on the dark canvas still lifts — the glow
+      // lands on the dark canvas around it, not on the tile.
       "box-shadow": props.active
-        ? `0 8px 32px rgba(0,0,0,0.4)`
+        ? `var(--focus-lift)`
         : `0 2px 8px rgba(0,0,0,0.2)`,
       "transform-origin": "0 0",
       transform: tileTransformCSS(
@@ -233,17 +238,8 @@ const CanvasTile: Component<{
           "cursor-grab active:cursor-grabbing": !isMaximized(),
         }}
         style={{
-          // Focused tile: the title bar lights up in the accent — a tint plus
-          // an accent underline. This is the active indicator (a channel apart
-          // from the agent-status border ring); the border keeps repo identity.
-          // The underline is a box-shadow (no layout shift on focus change).
-          "background-color": props.active
-            ? `color-mix(in oklch, var(--color-accent) 22%, ${props.theme.bg})`
-            : tileTitleBarBg(props.theme),
-          "border-bottom": `1px solid ${props.active ? "var(--color-accent)" : tileTitleBarBorder(props.theme)}`,
-          "box-shadow": props.active
-            ? "inset 0 -2px 0 var(--color-accent)"
-            : undefined,
+          "background-color": tileTitleBarBg(props.theme),
+          "border-bottom": `1px solid ${tileTitleBarBorder(props.theme)}`,
           // Scope theme-derived foreground tiers to the title bar so
           // chrome buttons read sensible defaults via var(--color-fg-3,
           // currentColor) without leaking the override into the tile body

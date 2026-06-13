@@ -1,8 +1,8 @@
 ---
 title: The active-tile indicator — a channel apart from agent status
-description: Now that the tile border is owned by the animated agent-status ring (+ repo identity), the focused-tile indicator must move off the border to a completely separate channel. The current teal right-edge competes with the ring; here are live prototypes of where focus should live instead — chrome, depth, or an outer glow.
+description: The focused-tile cue must live off the border (owned by repo identity + the animated agent-status ring) AND stay visible across every app-mode × terminal-theme combination — including a light-themed tile on the dark canvas, the case that broke the first three attempts. A wide menu of distinct mechanisms, each shown in both modes against a light active tile.
 kind: feature
-status: implemented
+status: proposed
 maturity: seedling
 parents: [canvas-tile-state-borders]
 updated: 2026-06-13
@@ -13,149 +13,271 @@ import Pill from "../../components/Pill.astro";
 import Cite from "../../components/Cite.astro";
 import PrLink from "../../components/PrLink.astro";
 
-The canvas tile now carries an **animated agent-status ring** on its border
-(marching ants / sweeping comet, in the terminal's theme colour — see
-[canvas-tile-state-borders](/canvas-tile-state-borders.html)). That ring, plus
-the repo-identity border colour, means the **border is spoken for**. But the
-*active / focused* tile is still marked the old way — a teal `--color-accent`
-right-edge + a 1px accent ring — which now sits right on top of the status ring
-and reads as a second, competing border.
+The canvas tile carries an **animated agent-status ring** on its border (marching
+ants / sweeping comet, in the terminal's own theme colour — see
+[canvas-tile-state-borders](/canvas-tile-state-borders.html)). That ring + the
+repo-identity border colour mean the **border is spoken for**. The *active /
+focused* tile must be marked on a **completely separate channel** — never another
+coloured border.
 
-<Callout kind="note" title="The ask">
-The **active** indicator should be **completely different** from the agent-status
-thing — its own channel, not another coloured border. (And the teal right-edge
-has to go.)
+<Callout kind="note" title="Two hard constraints (both learned the hard way)">
+1. **Off the border.** Focus cannot be a ring, an edge accent, or anything that
+   sits on the border the status comet travels — it reads as a second, competing
+   border.
+2. **Visible in every environment.** App mode (dark / light) and terminal theme
+   (dark / light) flip *independently* → four combinations. The cue must survive
+   all four — most punishingly a **light-themed tile (e.g. Gruvbox Material
+   Light) on the dark canvas**, which is where the lift's black drop-shadow and
+   then a faint white glow each disappeared.
+</Callout>
+
+<Callout kind="warning" title="The insight that should drive the choice">
+An **absolute** cue — a mark that must be legible *on its own* (a shadow, a glow,
+a strip in a fixed colour) — faces the four-combo contrast problem head-on and
+has to be made *mode-aware* (read the app mode) or *theme-locked* (derived from
+the tile) to survive. A **relative** cue — active simply *differs* from inactive
+(the others dim, desaturate, or shrink) — sidesteps the problem entirely, because
+within any single environment the two states only have to differ from each other,
+which they always do. The relative options below (**D**, **G**, and the "recede"
+half of **B**) are robust *by construction*.
 </Callout>
 
 export const AiStyles = () => (
   <style>{`
-  .ai-canvas{background:#0c0c0e;border:1px solid #27272c;border-radius:12px;padding:1.3rem 1rem 1.05rem;margin:1.2rem 0;--accent:#5a9ea0}
-  .ai-lead{font:600 .67rem/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;margin:0 0 1.05rem .1rem;text-align:center}
-  .ai-row{display:flex;gap:1.6rem;justify-content:center;align-items:center;flex-wrap:wrap;min-height:104px}
-  .ai-tile{position:relative;width:152px;height:92px;border-radius:10px;border:1.5px solid var(--repo);background:#161618;overflow:hidden;transition:transform .2s,opacity .2s,box-shadow .2s}
-  .ai-tb{display:flex;align-items:center;gap:.4rem;padding:.4rem .55rem;background:rgba(228,228,232,.06);border-bottom:1px solid rgba(228,228,232,.09);font:600 .56rem/1 ui-monospace,monospace;color:#9aa0aa;transition:background .15s,color .15s,box-shadow .15s}
+  .ai-canvas{position:relative;border-radius:12px;padding:1.2rem 1rem .95rem;margin:1rem 0 .35rem;
+    --accent:#5a9ea0;
+    --lift:0 12px 30px rgba(0,0,0,.6),0 0 22px 1px rgba(255,255,255,.32);
+    --pool:rgba(255,255,255,.20);
+    --recede:.42;
+    background:#0c0c0e;border:1px solid #27272c}
+  .ai-canvas.light{--accent:#3d8486;--lift:0 12px 30px rgba(0,0,0,.34);--pool:rgba(0,0,0,.16);--recede:.5;
+    background:#e9e9ec;border-color:#cfcfd6}
+  .ai-lead{font:600 .6rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;margin:0 0 .85rem .1rem;text-align:center}
+  .ai-canvas.light .ai-lead{color:#7f7f8b}
+  .ai-row{display:flex;gap:1.5rem;justify-content:center;align-items:center;flex-wrap:wrap;min-height:100px}
+  .ai-slot{position:relative;display:inline-flex}
+  .ai-tile{position:relative;width:148px;height:88px;border-radius:10px;border:1.5px solid var(--repo);background:var(--tbg);overflow:hidden;z-index:1;transition:transform .2s,opacity .2s,box-shadow .2s,filter .2s}
+  .ai-tb{display:flex;align-items:center;gap:.4rem;padding:.38rem .55rem;background:color-mix(in srgb,var(--tfg) 9%,var(--tbg));border-bottom:1px solid color-mix(in srgb,var(--tfg) 16%,var(--tbg));font:600 .55rem/1 ui-monospace,monospace;color:var(--tfg);transition:background .15s,color .15s,box-shadow .15s}
   .ai-dot{width:7px;height:7px;border-radius:50%;background:var(--repo);flex:none}
-  .ai-body{padding:.45rem .55rem;font:.6rem/1.3 ui-monospace,monospace;color:#8a909a}
-  .ai-cap{font:600 .64rem/1.35 ui-sans-serif,system-ui;color:#8b929d;text-align:center;max-width:34rem;margin:.2rem auto 0}
+  .ai-body{padding:.42rem .55rem;font:.58rem/1.3 ui-monospace,monospace;color:color-mix(in srgb,var(--tfg) 78%,transparent)}
+  .ai-cap{font:600 .63rem/1.4 ui-sans-serif,system-ui;color:#8b929d;text-align:center;max-width:36rem;margin:.15rem auto 1.4rem}
   .ai-cap b{color:#c7ccd6}
 
-  /* agent-status ring — CONTEXT: every tile has one, so the focus signal must
-     NOT compete with it. A theme-coloured comet via a fixed mask + spun child. */
+  /* agent-status ring — CONTEXT: every tile wears one, so the focus cue must NOT
+     compete with it. Theme-coloured comet via a fixed mask + a spun child. */
   .ai-ring{position:absolute;inset:0;border-radius:10px;z-index:3;pointer-events:none;padding:2px;overflow:hidden;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
-  .ai-ring::before{content:"";position:absolute;inset:-50%;background:conic-gradient(from 0deg,var(--fg) 0deg,color-mix(in oklch,var(--fg) 30%,transparent) 30deg,transparent 78deg,transparent 360deg);animation:ai-spin 2.4s linear infinite}
+  .ai-ring::before{content:"";position:absolute;inset:-50%;background:conic-gradient(from 0deg,var(--repo) 0deg,color-mix(in oklch,var(--repo) 30%,transparent) 30deg,transparent 78deg,transparent 360deg);animation:ai-spin 2.6s linear infinite}
   @keyframes ai-spin{to{transform:rotate(1turn)}}
 
-  /* ── TODAY (rejected): teal right-edge + teal ring — a second border, on top of the status ring ── */
-  .opt-today .ai-tile.active{border-right-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 6px 18px rgba(0,0,0,.4)}
+  /* ── TODAY (rejected): teal right-edge + teal ring — a second border ── */
+  .opt-today .ai-slot.active .ai-tile{border-right-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 6px 18px rgba(0,0,0,.4)}
 
-  /* ── A · accent title bar — focus lives in the chrome ── */
-  .opt-titlebar .ai-tile.active .ai-tb{background:color-mix(in oklch,var(--accent) 30%,#161618);color:#e9f4f4;box-shadow:inset 0 -2px 0 var(--accent)}
-  .opt-titlebar .ai-tile.active .ai-dot{background:var(--accent)}
+  /* ── A · accent title bar — focus in the chrome (tint + underline) ── */
+  .opt-titlebar .ai-slot.active .ai-tb{background:color-mix(in oklch,var(--accent) 30%,var(--tbg));box-shadow:inset 0 -2px 0 var(--accent)}
+  .opt-titlebar .ai-slot.active .ai-dot{background:var(--accent)}
 
-  /* ── B · lift / elevation — pure depth, no colour ── */
-  .opt-lift .ai-tile:not(.active){opacity:.5}
-  .opt-lift .ai-tile.active{transform:translateY(-5px);box-shadow:0 14px 30px rgba(0,0,0,.62)}
+  /* ── B · lift / elevation — MODE-AWARE depth: dark drop-shadow on light
+     canvas, bright glow on dark canvas; inactive tiles recede ── */
+  .opt-lift .ai-slot:not(.active) .ai-tile{opacity:var(--recede)}
+  .opt-lift .ai-slot.active .ai-tile{transform:translateY(-4px);box-shadow:var(--lift)}
 
-  /* ── C · outer accent glow — a soft halo OUTSIDE the tile ── */
-  .opt-glow .ai-tile.active{box-shadow:0 0 0 3px color-mix(in oklch,var(--accent) 15%,transparent),0 0 22px -1px var(--accent)}
+  /* ── C · outer accent glow — a tight accent halo hugging the edge ── */
+  .opt-glow .ai-slot.active .ai-tile{box-shadow:0 0 0 2px color-mix(in oklch,var(--accent) 35%,transparent),0 0 20px 0 var(--accent)}
+
+  /* ── D · spotlight — the INACTIVE tiles dim + desaturate; active stays crisp.
+     Relative cue → robust in every mode/theme by construction ── */
+  .opt-dim .ai-slot:not(.active) .ai-tile{opacity:.4;filter:grayscale(.75) brightness(.82)}
+
+  /* ── E · canvas pool — a soft MODE-AWARE radial light on the CANVAS behind the
+     active tile (bright in dark mode, dark in light mode); never on the tile ── */
+  .opt-pool .ai-slot.active::before{content:"";position:absolute;inset:-26px;z-index:0;pointer-events:none;border-radius:26px;background:radial-gradient(closest-side,var(--pool),transparent 80%)}
+
+  /* ── F · corner brackets — a viewfinder reticle just outside the corners, in
+     the accent. On the canvas (not the tile), so no theme clash ── */
+  .opt-bracket .ai-slot.active::before{content:"";position:absolute;inset:-5px;z-index:2;pointer-events:none;
+    background:
+      linear-gradient(var(--accent),var(--accent)) top left/13px 2px no-repeat,
+      linear-gradient(var(--accent),var(--accent)) top left/2px 13px no-repeat,
+      linear-gradient(var(--accent),var(--accent)) top right/13px 2px no-repeat,
+      linear-gradient(var(--accent),var(--accent)) top right/2px 13px no-repeat,
+      linear-gradient(var(--accent),var(--accent)) bottom left/13px 2px no-repeat,
+      linear-gradient(var(--accent),var(--accent)) bottom left/2px 13px no-repeat,
+      linear-gradient(var(--accent),var(--accent)) bottom right/13px 2px no-repeat,
+      linear-gradient(var(--accent),var(--accent)) bottom right/2px 13px no-repeat}
+
+  /* ── G · scale hierarchy — active pops larger, inactive shrink + dim.
+     Relative cue → robust by construction ── */
+  .opt-scale .ai-slot.active .ai-tile{transform:scale(1.06);box-shadow:0 10px 24px rgba(0,0,0,.45)}
+  .opt-scale .ai-slot:not(.active) .ai-tile{transform:scale(.92);opacity:.62}
+
+  /* ── H · accent top rail — a 3px accent strip at the title bar's top edge ── */
+  .opt-rail .ai-slot.active .ai-tb{box-shadow:inset 0 3px 0 var(--accent)}
+  .opt-rail .ai-slot.active .ai-dot{background:var(--accent)}
 
   @media (prefers-reduced-motion:reduce){.ai-ring::before{animation:none}}
   `}</style>
 );
 
 export const AiTile = (props) => (
-  <div
-    class={`ai-tile${props.active ? " active" : ""}`}
-    style={`--repo:${props.repo};--fg:${props.fg}`}
-  >
-    <div class="ai-ring" />
-    <div class="ai-tb"><span class="ai-dot" /><span>{props.name}</span></div>
-    <div class="ai-body">{props.sub}</div>
-  </div>
-);
-
-export const AiGallery = (props) => (
-  <div class={`ai-canvas opt-${props.opt}`}>
-    <div class="ai-lead">{props.lead}</div>
-    <div class="ai-row">
-      <AiTile repo="#6cc070" fg="#bfe6c8" name="blog · codex" sub="◐ working" />
-      <AiTile active repo="#a98bd6" fg="#d8caf0" name="argh · claude" sub="⏵ waiting" />
-      <AiTile repo="#d6a35c" fg="#e8d3a3" name="odu · claude" sub="◐ working" />
+  <div class={`ai-slot${props.active ? " active" : ""}`}>
+    <div
+      class="ai-tile"
+      style={`--repo:${props.repo};--tbg:${props.bg};--tfg:${props.fg}`}
+    >
+      <div class="ai-ring" />
+      <div class="ai-tb"><span class="ai-dot" /><span>{props.name}</span></div>
+      <div class="ai-body">{props.sub}</div>
     </div>
   </div>
 );
 
+export const AiRow = (props) => (
+  <div class={`ai-canvas opt-${props.opt}${props.mode === "light" ? " light" : ""}`}>
+    <div class="ai-lead">{props.mode === "light" ? "app light mode" : "app dark mode"}</div>
+    <div class="ai-row">
+      <AiTile repo="#6cc070" bg="#161618" fg="#bfe6c8" name="blog · codex" sub="◐ working" />
+      <AiTile active repo="#a98bd6" bg="#fbf1c7" fg="#654735" name="argh · claude" sub="⏵ waiting" />
+      <AiTile repo="#d6a35c" bg="#161618" fg="#e8d3a3" name="odu · claude" sub="◐ working" />
+    </div>
+  </div>
+);
+
+export const AiPair = (props) => (
+  <>
+    <AiRow opt={props.opt} mode="dark" />
+    <AiRow opt={props.opt} mode="light" />
+  </>
+);
+
 <AiStyles />
 
-Every tile below wears its **agent-status comet** (the spinning border light). The
-**middle** tile is the focused one. The question is only how *focus* is marked.
+Every tile wears its **agent-status comet** (the spinning border light). The
+**middle** tile is the focused one — and it is deliberately a **light-themed
+terminal** (Gruvbox-Material-Light-ish: cream bg, brown fg) so each option is
+judged in the hard case. Both rows are the *same* option: **dark app mode** on
+top, **light app mode** below.
 
 ## Today — and why it's out
 
-<Pill variant="run">rejected</Pill> The focused tile gets a teal accent on its
-right edge + a 1px accent ring. Sitting on the same border the status comet
-travels, it reads as a **second border** fighting the first — exactly the clash
-you flagged.
+<Pill variant="run">rejected</Pill> The focused tile got a teal accent on its
+right edge + a 1px accent ring — sitting on the same border the status comet
+travels, so it read as a **second border** fighting the first.
 
-<AiGallery opt="today" lead="Today · teal right-edge + accent ring (competes with the status ring)" />
+<AiRow opt="today" mode="dark" />
+<p class="ai-cap">The teal edge + ring overlap the spinning comet — the exact clash that started this.</p>
 
 ## The options
 
-All three move focus **off the border** entirely, so the border belongs to repo
-identity + agent status alone.
-
 ### A — Accent title bar
 
-<Pill variant="good">Recommended</Pill> The focused tile's **title bar** lights
-up in the accent (a tint + a thin accent underline). Focus lives in the *chrome*;
-the border is never touched. Unmistakable, and it can't be confused with the
-status ring because it's a different part of the tile. Bonus: the title bar is
-where you read the tile's identity anyway, so the eye is already there.
+Focus lives in the **chrome**: the title bar tints toward the accent + gains a
+thin accent underline. Never touches the border. *Shipped first (<PrLink pr={1335}
+/>) — then pulled:* the fixed accent tint **clashes** on themed tiles (it looked
+wrong on a light tile and on Iceberg), and a tint over a light terminal bg barely
+reads. An **absolute** cue with a theme-clash problem.
 
-<AiGallery opt="titlebar" lead="A · accent title bar — focus in the chrome (recommended)" />
+<AiPair opt="titlebar" />
+<p class="ai-cap"><b>A</b> · accent title bar — clean separation, but a fixed accent on a themed/light tile clashes or washes out.</p>
 
-### B — Lift / elevation
+### B — Lift / elevation (mode-aware)
 
-No colour at all: the focused tile **raises** (a stronger drop shadow) and the
-others **recede** (dim). Pure depth — nothing can compete with the border because
-focus isn't a border treatment at all. Calmest and most physical, but more subtle
-across a busy canvas, and it leans on the inactive tiles dimming to read.
+The focused tile **raises** and the others **recede** (dim). The lift is now
+**mode-aware**: a dark drop-shadow on the light canvas, a bright glow on the dark
+canvas (a black shadow is invisible on near-black). The *recede* half is relative
+and always reads; the *lift* half is the absolute part that needed the mode-aware
+fix. Calmest and most physical.
 
-<AiGallery opt="lift" lead="B · lift + recede — depth only, no colour" />
+<AiPair opt="lift" />
+<p class="ai-cap"><b>B</b> · lift + recede — depth, no colour. The glow/shadow flips with app mode so it survives the dark canvas.</p>
 
 ### C — Outer accent glow
 
-A soft accent **halo outside** the tile (plus a faint lift). Different geometry
-from the on-border comet (it bleeds outward, not on the edge), so it doesn't
-*overlap* the ring — but it still puts the accent colour near the border, so on a
-dense canvas it can read as busy next to the comet. The middle ground.
+A tight accent **halo** hugging the tile edge. Different geometry from the
+on-border comet, but it still puts the accent colour *right next to* the border,
+so on a dense canvas it reads busy beside the comet — and the accent can clash
+with the terminal theme. An absolute, accent-coloured cue.
 
-<AiGallery opt="glow" lead="C · outer accent glow — accent, but off the edge" />
+<AiPair opt="glow" />
+<p class="ai-cap"><b>C</b> · outer accent glow — accent off the edge, but busy next to the comet and theme-clash prone.</p>
 
-## Recommendation
+### D — Spotlight (dim the rest)
 
-<Callout kind="good" title="A — accent title bar, optionally with a hint of B">
-**A** is the cleanest separation: the **border** = repo identity + agent status;
-the **title bar** = focus. Two different surfaces, zero overlap, and the accent
-colour never appears on the border. Pair it with a *gentle* version of **B** (the
-focused tile lifts a touch, inactive tiles dim to ~0.92 as they already do) for
-depth, and drop the teal right-edge and the accent ring from
-<Cite file="packages/client/src/canvas/CanvasTile.tsx" /> entirely. **C** is the
-fallback if you want the accent *somewhere* near the tile, but it's the most
-likely to read busy beside the comet.
+The inverse: **don't** mark the active tile — instead **dim + desaturate every
+inactive tile**. The focused one is simply the only crisp, full-colour tile.
+Nothing is ever added to the border, and because it's a **relative** cue it
+survives every mode × theme with no tuning. Strongest on a busy canvas; subtle
+when only one or two tiles exist.
+
+<AiPair opt="dim" />
+<p class="ai-cap"><b>D</b> · spotlight — inactive tiles fade to grey; the active one is the only one in colour. Robust by construction.</p>
+
+### E — Canvas spotlight pool
+
+A soft **radial pool of light on the canvas** behind the active tile — like a
+spotlight from above. It's drawn on the **canvas**, whose colour is fixed by app
+mode alone, so it's mode-aware (bright pool in dark mode, a dark pool in light
+mode) and **completely independent of the tile's theme**. The tile sits *in* the
+light rather than wearing a mark.
+
+<AiPair opt="pool" />
+<p class="ai-cap"><b>E</b> · canvas pool — the focus cue lives on the canvas, never on the tile, so the terminal theme can't break it.</p>
+
+### F — Corner brackets (viewfinder)
+
+Four accent **L-brackets** at the tile's outer corners — a targeting reticle, not
+a continuous ring. Distinct geometry from the comet (corners only, and *outside*
+the edge), and because the brackets sit on the **canvas** they only need to
+contrast the (mode-known) canvas, not the theme. Crisp and unmistakable;
+slightly more "UI chrome" in feel.
+
+<AiPair opt="bracket" />
+<p class="ai-cap"><b>F</b> · corner brackets — a viewfinder reticle outside the corners; reads as "targeted", off the border, off the theme.</p>
+
+### G — Scale hierarchy
+
+The active tile **pops larger** (scale ~1.06); inactive tiles **shrink + dim**. A
+relative, physical size hierarchy — the focused tile is literally the biggest.
+Robust by construction (no colour, no absolute mark), but it nudges layout, so
+it's best as a *small* scale paired with the recede.
+
+<AiPair opt="scale" />
+<p class="ai-cap"><b>G</b> · scale hierarchy — the active tile is the largest; the rest step back. Pure relative size.</p>
+
+### H — Accent top rail
+
+A minimal cousin of A: just a **3px accent rail along the title bar's top edge**
+(plus the accent dot), instead of tinting the whole bar. Lighter touch than A, so
+it clashes less, but it's still an absolute accent mark and can fight a
+warm-themed tile.
+
+<AiPair opt="rail" />
+<p class="ai-cap"><b>H</b> · accent top rail — a thin accent strip on the chrome; A's idea at lower volume.</p>
+
+## How they sort
+
+<Callout kind="note" title="Absolute vs relative — pick the axis first">
+- **Relative (robust by construction):** **D** spotlight · **G** scale · the
+  recede half of **B**. They only need active ≠ inactive, so no combo can break
+  them. **D** is the cleanest of these on a busy canvas.
+- **Off-tile absolute (mode-aware, theme-independent):** **E** canvas pool · **F**
+  corner brackets. Drawn on the canvas, so they dodge the theme entirely and only
+  need to track app mode — which we already know.
+- **On-tile absolute (need care):** **A** title-bar tint · **C** accent glow ·
+  **H** accent rail. All carry a fixed accent that can clash with the terminal
+  theme; **A** and **H** also wash out on light tiles. **B**'s lift is on-tile but
+  neutralised by going mode-aware.
 </Callout>
 
-<Callout kind="good" title="Chosen: A — accent title bar">
-Shipped in <PrLink pr={1335} />. <Cite file="packages/client/src/canvas/CanvasTile.tsx" />
-drops the teal `border-right-color` and the `0 0 0 1px var(--color-accent)`
-box-shadow ring; the focused tile's title bar now tints `--color-accent` (a 22%
-mix over the theme bg) with an accent underline. The active tile keeps its
-existing lift (deeper drop shadow) for depth — the "hint of B". The border is
-left to repo identity + the agent-status ring.
+<Callout kind="good" title="Where to look first">
+If the cue should be **impossible to break across themes**, start with **D**
+(spotlight the active by dimming the rest) or **E** (canvas pool) — both
+sidestep the theme. If you want **depth without colour**, **B** (mode-aware lift)
+or **G** (scale). The accent-on-chrome family (**A** / **H** / **C**) is the most
+likely to clash and the reason the first attempt was pulled.
 </Callout>
 
 ---
 
-*Status: `implemented` in <PrLink pr={1335} /> — option **A** (accent title bar);
-a follow-on to the agent-status ring
-([canvas-tile-state-borders](/canvas-tile-state-borders.html)).*
+*Status: `proposed` — reopened after **A** (accent title bar, <PrLink pr={1335}
+/>) failed the visibility/clash bar in live testing. A follow-on to the
+agent-status ring ([canvas-tile-state-borders](/canvas-tile-state-borders.html)).*

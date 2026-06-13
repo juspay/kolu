@@ -82,6 +82,23 @@ body {
   --color-busy: #c4623e;
 }
 
+/* ── Active-tile lift ────────────────────────────────────────
+ * Focus cue for the active canvas tile: it floats above the canvas. A drop
+ * shadow only reads as "lifted" when it's darker than the surface it falls on
+ * — true on the light canvas, false on the dark one (nothing is darker than a
+ * near-black canvas, so a black shadow is invisible there). So dark mode lifts
+ * with a bright ambient glow instead of a shadow. Both are cast onto the
+ * CANVAS, whose colour depends only on app mode — never on the tile's own
+ * terminal theme — so a light-themed tile (e.g. Gruvbox Material Light) in
+ * dark mode still lifts: the glow lands on the dark canvas around it. */
+:root {
+  --focus-lift:
+    0 10px 34px rgba(0, 0, 0, 0.55), 0 0 22px 1px rgba(255, 255, 255, 0.32);
+}
+:root:not(.dark) {
+  --focus-lift: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
 /* ── Pill border channels ────────────────────────────────────
  * Two visual channels live on the pill border:
  *
@@ -288,8 +305,8 @@ body {
   --aura-period: 4s;
   opacity: 0.65;
 }
-/* active tile: you're already here — dim its aura so focus (the accent ring)
- * dominates and the louder borders stay on the tiles you're NOT in. */
+/* active tile: you're already here — dim its aura so the focused tile (scaled
+ * up) dominates and the louder borders stay on the tiles you're NOT in. */
 [data-active="true"] .tile-aura {
   opacity: 0.4;
 }
