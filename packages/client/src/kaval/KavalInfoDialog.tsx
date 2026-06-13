@@ -19,10 +19,10 @@ import {
   formatUptime,
   toneDot,
 } from "./useDaemonStatus";
-import Commit from "./ui/Commit";
-import { CloseIcon } from "./ui/Icons";
-import ModalDialog from "./ui/ModalDialog";
-import { surface } from "./ui/Surface";
+import Commit from "../ui/Commit";
+import { CloseIcon } from "../ui/Icons";
+import ModalDialog from "../ui/ModalDialog";
+import { surface } from "../ui/Surface";
 
 const Cmd: Component<{ children: string; note: string }> = (props) => (
   <div class="flex items-baseline justify-between gap-3 py-1">

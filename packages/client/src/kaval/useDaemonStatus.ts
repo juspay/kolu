@@ -10,7 +10,7 @@
 
 import type { DaemonState, DaemonStatus } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { app } from "./wire";
+import { app } from "../wire";
 
 /** The one host today; R-2's ssh hosts add more keys to the same collection. */
 export const LOCAL_HOST = "local";

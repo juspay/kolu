@@ -16,7 +16,7 @@ import type { DaemonStatus } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { isWarming } from "./useDaemonStatus";
-import { client } from "./wire";
+import { client } from "../wire";
 
 // True from the click until the restart RPC settles — closes the visible click
 // window immediately (before the surface state flips) so a double-click can't

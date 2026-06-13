@@ -25,8 +25,8 @@ import {
 } from "./input/actions";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
-import { restartDaemon } from "./useDaemonRestart";
-import { daemonWarming } from "./useDaemonStatus";
+import { restartDaemon } from "./kaval/useDaemonRestart";
+import { daemonWarming } from "./kaval/useDaemonStatus";
 import { recentAgents, recentRepos } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures

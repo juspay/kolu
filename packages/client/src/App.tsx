@@ -40,7 +40,7 @@ import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher, supportsSpatialCanvas } from "./capabilities";
 import { createCommands } from "./commands";
-import DegradedCanvas from "./DegradedCanvas";
+import DegradedCanvas from "./kaval/DegradedCanvas";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
@@ -77,7 +77,7 @@ import {
   daemonWarming,
   downState,
   localDaemonStatus,
-} from "./useDaemonStatus";
+} from "./kaval/useDaemonStatus";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";

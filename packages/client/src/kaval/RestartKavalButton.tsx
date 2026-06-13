@@ -16,7 +16,7 @@
 import type { DaemonStatus } from "kolu-common/surface";
 import { type Component, createSignal, Show } from "solid-js";
 import { restartInFlight } from "./useDaemonRestart";
-import { RestartIcon } from "./ui/Icons";
+import { RestartIcon } from "../ui/Icons";
 
 /** Per-tone accent for the trigger + the confirm's Restart button. */
 const ACCENT: Record<"neutral" | "danger", string> = {

@@ -28,13 +28,13 @@ import {
   Show,
 } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
-import KavalInfoDialog from "../KavalInfoDialog";
+import KavalInfoDialog from "../kaval/KavalInfoDialog";
 import {
   DAEMON_STATE_PRESENTATION,
   formatUptime,
   localDaemonStatus,
   toneDot,
-} from "../useDaemonStatus";
+} from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
 import { clientStale, StaleBadge } from "./StaleBadge";

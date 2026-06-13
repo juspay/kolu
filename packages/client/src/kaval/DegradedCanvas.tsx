@@ -18,7 +18,7 @@ import { type Component, Show } from "solid-js";
 import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import { localDaemonStatus } from "./useDaemonStatus";
-import { WarningIcon } from "./ui/Icons";
+import { WarningIcon } from "../ui/Icons";
 
 /** The daemon's down-sub-union — the only states that render this surface.
  *  `downState()` in useDaemonStatus.ts is the single source that narrows the
