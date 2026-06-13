@@ -159,9 +159,25 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
   const socketPollMs = spec.socketPollMs ?? 50;
   let conn: DaemonConnection<C, I> | undefined;
   let restartInFlight: Promise<void> | undefined;
+  // True for the whole span of a serialized restart. While set, the inner
+  // recycle's `connecting` emit is swallowed so the endpoint stays `restarting`
+  // until it reaches a terminal state (`connected` / `dead` / `degraded`). Without
+  // this the sequence is `restarting → connecting → connected`, and a client that
+  // treats `connecting` as "not down" detaches its restart/degraded surface the
+  // instant the recycle starts dialing — flashing the empty canvas while kaval is
+  // still unavailable.
+  let restarting = false;
 
-  const emit = (state: EndpointState, identity?: I, startedAt?: number): void =>
+  const emit = (
+    state: EndpointState,
+    identity?: I,
+    startedAt?: number,
+  ): void => {
+    // Coalesce the recycle's transient `connecting` into the surrounding
+    // `restarting` so the not-ready surface holds until the daemon is back.
+    if (restarting && state === "connecting") return;
     spec.onStatus(spec.hostId, { state, identity, startedAt });
+  };
 
   /** Hold `next` as the current connection: wire its mid-session close to a
    *  `degraded` flip (guarding against a stale predecessor's close stomping a
@@ -312,14 +328,20 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       }
       // A real restart (we hold a connection) flips to `restarting` so the UI
       // shows the recycle; the boot path uses `adoptOrEnsure`, not this, so a
-      // cold start never emits `restarting`.
-      if (conn) emit("restarting", conn.identity, conn.startedAt);
+      // cold start never emits `restarting`. `restarting` stays on for the whole
+      // recycle (see the `emit` guard) so the inner `connecting` can't briefly
+      // expose the empty/restore canvas before the daemon is actually back.
+      if (conn) {
+        restarting = true;
+        emit("restarting", conn.identity, conn.startedAt);
+      }
       const p = run();
       restartInFlight = p;
       try {
         await p;
       } finally {
         if (restartInFlight === p) restartInFlight = undefined;
+        restarting = false;
       }
     },
   };

@@ -18,45 +18,75 @@ import { type Component, Show } from "solid-js";
 import RestartKavalButton from "./RestartKavalButton";
 import { WarningIcon } from "./ui/Icons";
 
-/** The daemon's down-sub-union — the only states that render this surface.
+/** The daemon's not-serving union — the only states that render this surface.
  *  `downState()` in useDaemonStatus.ts is the single source that narrows the
- *  4-state `DaemonState` to exactly these. */
-const DegradedCanvas: Component<{ state: "dead" | "degraded" }> = (props) => {
+ *  `DaemonState` to exactly these. `restarting` keeps the surface up through the
+ *  whole recycle so the empty canvas never flashes before kaval is back. */
+const DegradedCanvas: Component<{
+  state: "dead" | "degraded" | "restarting";
+}> = (props) => {
   const isDead = () => props.state === "dead";
+  const isRestarting = () => props.state === "restarting";
   return (
     <div
       data-testid="degraded-canvas"
       data-daemon-state={props.state}
       class="relative flex-1 min-h-0 flex items-center justify-center canvas-grid-bg"
     >
-      <div class="mx-6 max-w-md rounded-xl border border-danger/50 bg-danger/5 px-6 py-5">
-        <div class="flex items-start gap-3">
-          <WarningIcon class="mt-0.5 h-6 w-6 shrink-0 text-danger" />
-          <div class="min-w-0">
-            <h2 class="text-sm font-semibold text-fg">
-              {isDead()
-                ? "kaval didn’t start"
-                : "kaval — your terminal daemon — stopped"}
-            </h2>
-            <p class="mt-1.5 text-sm leading-relaxed text-fg-2">
-              <span class="font-mono text-fg">kaval</span> is the process that
-              owns your shells.{" "}
-              <Show
-                when={isDead()}
-                fallback="It went away, so the terminals it was running ended."
-              >
-                It couldn’t be started, so no terminals can run yet.
-              </Show>{" "}
-              This isn’t an empty workspace — it’s a daemon that needs to come
-              back.
-            </p>
-            <p class="mt-2 text-xs leading-relaxed text-fg-3">
-              Your saved session is preserved — restart kaval to bring it back,
-              and your terminals are offered for restore once it’s healthy.
-            </p>
-            <RestartKavalButton testId="degraded-restart" class="mt-3" />
+      {/* While restarting, this is a neutral "coming back" surface, not the
+          danger-toned down card — the recycle is expected, not a failure. */}
+      <div
+        class={`mx-6 max-w-md rounded-xl border px-6 py-5 ${
+          isRestarting()
+            ? "border-warning/50 bg-warning/5"
+            : "border-danger/50 bg-danger/5"
+        }`}
+      >
+        <Show
+          when={isRestarting()}
+          fallback={
+            <div class="flex items-start gap-3">
+              <WarningIcon class="mt-0.5 h-6 w-6 shrink-0 text-danger" />
+              <div class="min-w-0">
+                <h2 class="text-sm font-semibold text-fg">
+                  {isDead()
+                    ? "kaval didn’t start"
+                    : "kaval — your terminal daemon — stopped"}
+                </h2>
+                <p class="mt-1.5 text-sm leading-relaxed text-fg-2">
+                  <span class="font-mono text-fg">kaval</span> is the process
+                  that owns your shells.{" "}
+                  <Show
+                    when={isDead()}
+                    fallback="It went away, so the terminals it was running ended."
+                  >
+                    It couldn’t be started, so no terminals can run yet.
+                  </Show>{" "}
+                  This isn’t an empty workspace — it’s a daemon that needs to
+                  come back.
+                </p>
+                <p class="mt-2 text-xs leading-relaxed text-fg-3">
+                  Your saved session is preserved — restart kaval to bring it
+                  back, and your terminals are offered for restore once it’s
+                  healthy.
+                </p>
+                <RestartKavalButton testId="degraded-restart" class="mt-3" />
+              </div>
+            </div>
+          }
+        >
+          <div class="flex items-start gap-3">
+            <WarningIcon class="mt-0.5 h-6 w-6 shrink-0 text-warning animate-pulse" />
+            <div class="min-w-0">
+              <h2 class="text-sm font-semibold text-fg">Restarting kaval…</h2>
+              <p class="mt-1.5 text-sm leading-relaxed text-fg-2">
+                Recycling your terminal daemon to the current build. Your saved
+                session is preserved — terminals are offered for restore once
+                it’s back.
+              </p>
+            </div>
           </div>
-        </div>
+        </Show>
       </div>
     </div>
   );

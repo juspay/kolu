@@ -133,9 +133,16 @@ export const ServerInfoSchema = z.object({
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
-/** `daemon.restart` targets one host's daemon by id — `"local"` today; the field
- *  is there so R-2's per-host restart needs no contract change. */
-export const DaemonRestartInputSchema = z.object({ hostId: z.string() });
+/** `daemon.restart` targets one host's daemon by id. Only `"local"` exists today,
+ *  and the handler only restarts the local endpoint — so the schema is pinned to
+ *  `z.literal("local")` rather than a bare string: a stray/other host id is a
+ *  wrong-target request and must be rejected at the boundary, not silently
+ *  re-routed to local. R-2 widens this to a host union when per-host routing lands
+ *  (a contract change is the correct place to gate that — the field shape is
+ *  already here). */
+export const DaemonRestartInputSchema = z.object({
+  hostId: z.literal("local"),
+});
 
 // ── The contract ──────────────────────────────────────────────────────
 

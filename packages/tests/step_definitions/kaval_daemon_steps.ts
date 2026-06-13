@@ -42,11 +42,20 @@ Then(
   "kaval reconnects and the degraded canvas clears",
   async function (this: KoluWorld) {
     // restart → capture → recycle (spawn a fresh daemon: a tsx cold start, so
-    // allow generous time) → reattach → `connected`. The daemonStatus flips and
-    // the DegradedCanvas unmounts. Detachment IS the recovery proof.
+    // allow generous time) → reattach → `connected`. The supervisor holds the
+    // daemon at `restarting` (the inner `connecting` is coalesced) so the
+    // degraded canvas stays up THROUGH the whole recycle and only detaches once
+    // kaval is actually `connected` again — so detachment alone no longer races
+    // ahead of reconnection. Assert detachment, THEN prove the daemon is truly
+    // back by waiting for the healthy canvas surface to mount (a `connected`
+    // daemon serving the empty/restore canvas), not just that the degraded card
+    // went away.
     await this.page.waitForSelector('[data-testid="degraded-canvas"]', {
       state: "detached",
       timeout: 45_000,
+    });
+    await this.page.waitForSelector('[data-testid="canvas-container"]', {
+      timeout: 15_000,
     });
   },
 );

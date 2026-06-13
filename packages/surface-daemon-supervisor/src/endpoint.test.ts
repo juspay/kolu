@@ -451,4 +451,83 @@ describe("serializeRestart — restart serialization", () => {
     // After the restart settles, the endpoint is connected again.
     expect(endpoint.current()?.identity).toEqual({ staleKey: "k2" });
   });
+
+  it("holds `restarting` through the recycle — the inner `connecting` is suppressed", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    let connectCalls = 0;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: async () => {} },
+      connect: async () => {
+        connectCalls += 1;
+        return {
+          client: `C${connectCalls}`,
+          identity: { staleKey: `k${connectCalls}` },
+          startedAt: connectCalls,
+          dispose() {},
+          onClose() {},
+        };
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await endpoint.ensure(); // → connecting, connected
+    statuses.length = 0;
+
+    // The recycle inside `restart` calls `ensure()`, which would normally emit
+    // `connecting`. While a restart is in flight the endpoint must STAY at
+    // `restarting` until it reaches `connected`, so a client that treats
+    // `connecting` as "not down" can't flash the empty canvas mid-recycle (F4).
+    await restart(endpoint, {
+      capture: async () => {},
+      drain: async () => {},
+      reattach: async () => {},
+    });
+
+    expect(statuses.map((s) => s.state)).toEqual(["restarting", "connected"]);
+    // The transient `connecting` from the recycle's `ensure()` was swallowed.
+    expect(statuses.some((s) => s.state === "connecting")).toBe(false);
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "k2" });
+  });
+
+  it("a cold boot still emits `connecting` (the suppression is scoped to restart)", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: () => fake.listen() },
+      connect: async () => ({
+        client: "C",
+        identity: { staleKey: "k" },
+        startedAt: 1,
+        dispose() {},
+        onClose() {},
+      }),
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await endpoint.ensure();
+    // No restart in flight → the boot's `connecting` is reported as before.
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
+  });
 });

@@ -37,17 +37,26 @@ export function daemonStatusPending(): boolean {
   return sub.byKey(LOCAL_HOST)?.pending() ?? true;
 }
 
-/** The single projection of "is the daemon down, and which kind" — `dead`
- *  (never came up) or `degraded` (died mid-session), or `undefined` when it's
- *  up (or still loading, so a brief load never flashes the degraded surface).
- *  Drives the DegradedCanvas gate AND its `state` prop, so the down-sub-union
- *  is named in one place rather than re-derived by an inline ternary. */
-export function downState(): "dead" | "degraded" | undefined {
+/** The single projection of "the daemon is not serving terminals, and which
+ *  kind" — `dead` (never came up), `degraded` (died mid-session), or `restarting`
+ *  (a supervised recycle is in flight). `undefined` when it's `connected` (or
+ *  still loading, so a brief load never flashes the surface). Drives the
+ *  DegradedCanvas gate AND its `state` prop, so the not-serving union is named in
+ *  one place rather than re-derived by an inline ternary.
+ *
+ *  `restarting` is included so the honest surface holds through the WHOLE recycle:
+ *  the supervisor keeps the daemon at `restarting` until it reaches `connected`
+ *  (the inner `connecting` is coalesced), so without this the empty/restore canvas
+ *  would flash the instant the recycle started while kaval is still unavailable. */
+export function downState(): "dead" | "degraded" | "restarting" | undefined {
   const state = localDaemonStatus()?.state;
-  return state === "dead" || state === "degraded" ? state : undefined;
+  return state === "dead" || state === "degraded" || state === "restarting"
+    ? state
+    : undefined;
 }
 
-/** True when the daemon is down. The DegradedCanvas gate. */
+/** True when the daemon is not serving terminals (down or mid-restart). The
+ *  DegradedCanvas gate. */
 export function daemonDown(): boolean {
   return downState() !== undefined;
 }
@@ -94,7 +103,11 @@ export async function restartKaval(): Promise<void> {
   const id = toast.loading("Restarting kaval…");
   try {
     await client.daemon.restart({ hostId: LOCAL_HOST });
-    toast.success("kaval restarted — terminals reconnecting", { id });
+    // A forced recycle spawns a FRESH (empty) daemon — the captured session is
+    // not auto-adopted (that's the boot path's survivor case), it's offered on the
+    // restore card. Say "ready to restore", not "reconnecting", so the copy
+    // matches what the server actually leaves the user.
+    toast.success("kaval restarted — your session is ready to restore", { id });
   } catch (err) {
     toast.error(`Failed to restart kaval: ${(err as Error).message}`, { id });
   }

@@ -300,8 +300,10 @@ export const appRouter = t.router({
   },
   daemon: {
     restart: t.daemon.restart.handler(async ({ input }) => {
-      // `hostId` is "local" today (the only endpoint); R-2 routes by it. The
-      // recycle is serialized by the spine, so a double-click coalesces.
+      // `hostId` is pinned to "local" by the contract (`z.literal`), so any other
+      // target is rejected at the boundary rather than silently restarting local —
+      // R-2 widens the schema when per-host routing lands. The recycle is
+      // serialized by the spine, so a double-click coalesces.
       log.info({ hostId: input.hostId }, "daemon.restart requested");
       await restartDaemon();
     }),
