@@ -108,8 +108,10 @@ const TerminalCanvas: Component<{
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
   const isStale = useStaleCheck();
-  // Single id→aura socket: gathers agent bucket + unread + staleness once so
-  // this surface and the minimap don't hand-wire the same three classifiers.
+  // Aura tier per tile, via the shared `useTileAura()` helper. Both this
+  // surface and the minimap call it (each its own instance) rather than
+  // hand-wiring agentBucket + unread + staleness, so the gather rule lives in
+  // one module instead of being copied per surface.
   const auraFor = useTileAura();
 
   /** Pending per-tile layout overrides — bridges the gap between local

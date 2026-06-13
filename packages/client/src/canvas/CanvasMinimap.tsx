@@ -116,8 +116,9 @@ const CanvasMinimap: Component<{
   // dock-row bucket classifier and the badge gate, so a user who
   // shortens the window in one place shortens it everywhere.
   const isParked = useStaleCheck();
-  // Same id→aura socket the full canvas tile reads — gathers agent bucket +
-  // unread + staleness once instead of re-assembling the three classifiers.
+  // Aura tier per marker, via the same `useTileAura()` helper the full canvas
+  // tile uses — an independent instance here, but the gather rule (agentBucket
+  // + unread + staleness) lives in one module, not re-assembled per surface.
   const auraFor = useTileAura();
 
   // ── Bounding box of all tiles ──
