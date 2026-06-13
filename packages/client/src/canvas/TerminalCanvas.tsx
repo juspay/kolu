@@ -31,7 +31,6 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { savedSessionSub } from "../wire";
 import CanvasMinimap from "./CanvasMinimap";
@@ -107,11 +106,12 @@ const TerminalCanvas: Component<{
   const focus = useCanvasFocus();
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
-  const isStale = useStaleCheck();
-  // Aura tier per tile, via the shared `useTileAura()` helper. Both this
-  // surface and the minimap call it (each its own instance) rather than
+  // Per-tile classification via the shared `useTileAura()` socket. Both this
+  // surface and the minimap read it (each its own instance) rather than
   // hand-wiring agentBucket + unread + staleness, so the gather rule lives in
-  // one module instead of being copied per surface.
+  // one module instead of being copied per surface. The tile projects `aura`
+  // for its state ring and `stale` for `dimmed` off this one gather — no
+  // separate useStaleCheck() read.
   const auraFor = useTileAura();
 
   /** Pending per-tile layout overrides — bridges the gap between local
@@ -415,6 +415,11 @@ const TerminalCanvas: Component<{
                   : active()
                     ? "maximized"
                     : "covered";
+              // One read of the shared aura socket — the tile's state ring
+              // (`aura`) and its stale-dim (`dimmed`) both project from the
+              // same gather, so staleness is read once here, not a second time
+              // via a local useStaleCheck.
+              const socket = createMemo(() => auraFor(id));
               return (
                 <Show when={store.getDisplayInfo(id)}>
                   {(info) => (
@@ -422,10 +427,8 @@ const TerminalCanvas: Component<{
                       id={id}
                       active={active()}
                       mode={mode()}
-                      dimmed={isStale(
-                        store.getMetadata(id)?.lastActivityAt ?? 0,
-                      )}
-                      aura={auraFor(id).aura}
+                      dimmed={socket().stale}
+                      aura={socket().aura}
                       theme={tileTheme(id)}
                       repoColor={info().repoColor}
                       onSelect={() => props.onSelect(id)}
