@@ -337,8 +337,10 @@ body {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-aura="waiting"] .aura-bar,
-  [data-aura="alert"] .aura-bar {
+  /* Broad reset (mirrors the ring's `[data-aura] .tile-aura` reset above): a
+   * new bar tier is covered by default and only opts INTO motion, instead of
+   * each animated tier remembering to opt out here by hand. */
+  [data-aura] .aura-bar {
     animation: none;
     opacity: 1;
   }
