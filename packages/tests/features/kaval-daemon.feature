@@ -11,3 +11,17 @@ Feature: kaval daemon lifecycle (B2 — the door)
     Given the terminal is ready
     When the kaval daemon is killed
     Then the degraded canvas is shown
+
+  # B3 — survival: the degraded canvas is now self-healing. "Restart kaval"
+  # recycles the daemon (capture → recycle → reattach over the daemon.restart RPC)
+  # and the honest surface clears once it reconnects. (Adopting a SURVIVING daemon
+  # across a server-only redeploy, and the staleKey-skew update nudge, are the
+  # staged-prod gate — CI can't redeploy over a live daemon; see pty-daemon.mdx
+  # "The gate — the second deploy".)
+  @kaval-restart
+  Scenario: Restarting kaval from the degraded canvas brings it back
+    Given the terminal is ready
+    When the kaval daemon is killed
+    Then the degraded canvas is shown
+    When I click restart kaval on the degraded canvas
+    Then kaval reconnects and the degraded canvas clears

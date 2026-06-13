@@ -28,3 +28,25 @@ Then("the degraded canvas is shown", async function (this: KoluWorld) {
     timeout: POLL_TIMEOUT,
   });
 });
+
+When(
+  "I click restart kaval on the degraded canvas",
+  async function (this: KoluWorld) {
+    // The B3 one-click affordance — fires the `daemon.restart` RPC over the live
+    // client↔server WS (the SERVER is still up; only the daemon died).
+    await this.page.click('[data-testid="degraded-restart"]');
+  },
+);
+
+Then(
+  "kaval reconnects and the degraded canvas clears",
+  async function (this: KoluWorld) {
+    // restart → capture → recycle (spawn a fresh daemon: a tsx cold start, so
+    // allow generous time) → reattach → `connected`. The daemonStatus flips and
+    // the DegradedCanvas unmounts. Detachment IS the recovery proof.
+    await this.page.waitForSelector('[data-testid="degraded-canvas"]', {
+      state: "detached",
+      timeout: 45_000,
+    });
+  },
+);
