@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@kolu/solid-browser": "workspace:*",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.1",
     "hono": "^4.12.21",
     "ts-pattern": "^5.9.0"
   },
