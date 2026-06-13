@@ -8,7 +8,7 @@
  * terminals" (B2, the empty-canvas-lie fix).
  */
 
-import type { DaemonStatus } from "kolu-common/surface";
+import type { DaemonState, DaemonStatus } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { app, client } from "./wire";
 
@@ -50,6 +50,26 @@ export function downState(): "dead" | "degraded" | undefined {
 /** True when the daemon is down. The DegradedCanvas gate. */
 export function daemonDown(): boolean {
   return downState() !== undefined;
+}
+
+/** The one `DaemonState → status-dot` Tailwind mapping, shared by every surface
+ *  that paints the daemon's health (the rail's kaval dot, the info dialog). A
+ *  live transport says nothing about the daemon behind it, so this is distinct
+ *  from the WebSocket dot. `undefined` (status still loading) is grey, not red —
+ *  we don't claim "dead" before the first yield. */
+export function daemonStateDot(state: DaemonState | undefined): string {
+  switch (state) {
+    case "connected":
+      return "bg-ok";
+    case "connecting":
+    case "restarting":
+      return "bg-warning animate-pulse";
+    case "degraded":
+    case "dead":
+      return "bg-danger";
+    default:
+      return "bg-fg-3/50";
+  }
 }
 
 /** Is the connected daemon a build behind the server's expected kaval build?

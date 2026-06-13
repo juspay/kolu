@@ -12,7 +12,7 @@ import Dialog from "@corvu/dialog";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
-import { restartKaval, updatePending } from "./useDaemonStatus";
+import { daemonStateDot, restartKaval, updatePending } from "./useDaemonStatus";
 import Commit from "./ui/Commit";
 import { CloseIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
@@ -24,14 +24,6 @@ const STATE_LABEL: Record<DaemonStatus["state"], string> = {
   restarting: "recycling…",
   degraded: "stopped (session preserved)",
   dead: "not running",
-};
-
-const STATE_DOT: Record<DaemonStatus["state"], string> = {
-  connecting: "bg-warning animate-pulse",
-  connected: "bg-ok",
-  restarting: "bg-warning animate-pulse",
-  degraded: "bg-danger",
-  dead: "bg-danger",
 };
 
 function uptime(startedAt: number): string {
@@ -108,7 +100,7 @@ const KavalInfoDialog: Component<{
               <div class="space-y-1.5">
                 <div class="flex items-center gap-2">
                   <span
-                    class={`inline-block h-[7px] w-[7px] rounded-full ${STATE_DOT[s().state]}`}
+                    class={`inline-block h-[7px] w-[7px] rounded-full ${daemonStateDot(s().state)}`}
                   />
                   <span class="text-fg">{STATE_LABEL[s().state]}</span>
                   <Show when={s().startedAt}>
