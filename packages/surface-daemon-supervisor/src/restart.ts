@@ -38,17 +38,25 @@ export interface RestartSteps<C, I, Ctx> {
 
 /** Run the composed restart: capture, drain, recycle the endpoint, reattach.
  *  Throws if the recycle leaves no connection (a failed boot already reported
- *  `dead`/`degraded` via the endpoint's status). */
+ *  `dead`/`degraded` via the endpoint's status).
+ *
+ *  The whole sequence runs under `endpoint.serializeRestart`, which flips the
+ *  endpoint to `restarting` and coalesces concurrent triggers onto the one in
+ *  flight — so a user double-click, a palette command, and a forced skew restart
+ *  racing at once produce a single recycle (one session capture, not two), and
+ *  every caller observes `restarting` rather than a torn sequence. */
 export async function restart<C, I, Ctx>(
   endpoint: Endpoint<C, I>,
   steps: RestartSteps<C, I, Ctx>,
 ): Promise<void> {
-  const ctx = await steps.capture();
-  await steps.drain(ctx);
-  await endpoint.ensure();
-  const connection = endpoint.current();
-  if (!connection) {
-    throw new Error("restart: no connection after recycle");
-  }
-  await steps.reattach(ctx, connection);
+  await endpoint.serializeRestart(async () => {
+    const ctx = await steps.capture();
+    await steps.drain(ctx);
+    await endpoint.ensure();
+    const connection = endpoint.current();
+    if (!connection) {
+      throw new Error("restart: no connection after recycle");
+    }
+    await steps.reattach(ctx, connection);
+  });
 }

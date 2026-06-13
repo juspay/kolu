@@ -14,6 +14,12 @@
 export const ENDPOINT_STATES = [
   "connecting",
   "connected",
+  // A supervised restart is in flight (capture → drain → recycle → reattach). A
+  // transient, non-terminal state the endpoint holds between an existing
+  // connection and the fresh one, so the UI shows "recycling" rather than either
+  // a stale "connected" or a false "dead"/"degraded". Concurrent restart triggers
+  // coalesce onto the one in flight (they observe `restarting`).
+  "restarting",
   "degraded",
   "dead",
 ] as const;

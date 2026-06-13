@@ -9,6 +9,7 @@ import {
   type DaemonConnection,
   type EndpointStatus,
 } from "./endpoint.ts";
+import { restart } from "./restart.ts";
 
 const silentLog = {
   debug() {},
@@ -285,5 +286,169 @@ describe("createEndpoint — boot, status, death", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(strangerSignalled).toBe(false);
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
+  });
+});
+
+describe("adoptOrEnsure — survival boot", () => {
+  it("adopts a live serving survivor: no kill, no fresh spawn", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    // A live "survivor" whose pid sits in the gate AND whose socket answers — a
+    // compatible daemon a server-only redeploy should ADOPT, keeping its PTYs.
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const survivorPid = survivor.pid as number;
+    children.push(survivorPid);
+    writeFileSync(gatePath, `${survivorPid}\n`);
+    let survivorSignalled = false;
+    survivor.on("exit", () => {
+      survivorSignalled = true;
+    });
+
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen(); // the survivor's socket is up before the boot
+
+    let spawned = false;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const adopted: DaemonConnection<string, Identity> = {
+      client: "ADOPTED",
+      identity: { staleKey: "survivor" },
+      startedAt: 7,
+      dispose() {},
+      onClose() {},
+    };
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: {
+        spawn: async () => {
+          spawned = true;
+        },
+      },
+      connect: async () => adopted,
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await endpoint.adoptOrEnsure();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(survivorSignalled).toBe(false); // adopted, never killed
+    expect(spawned).toBe(false); // no fresh daemon spawned
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
+    expect(endpoint.current()).toBe(adopted);
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "survivor" });
+  });
+
+  it("recycles a survivor whose handshake fails (skew): kills it, spawns fresh", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const survivorPid = survivor.pid as number;
+    children.push(survivorPid);
+    writeFileSync(gatePath, `${survivorPid}\n`);
+    const survivorExited = new Promise<void>((r) =>
+      survivor.on("exit", () => r()),
+    );
+
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    let spawned = false;
+    let connectCalls = 0;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: {
+        spawn: async () => {
+          spawned = true;
+        },
+      },
+      connect: async () => {
+        connectCalls += 1;
+        // First connect is the adopt attempt — reject it as an incompatible
+        // survivor; the second is the post-recycle fresh daemon.
+        if (connectCalls === 1) throw new Error("contract skew");
+        return {
+          client: "FRESH",
+          identity: { staleKey: "fresh" },
+          startedAt: 9,
+          dispose() {},
+          onClose() {},
+        };
+      },
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    await endpoint.adoptOrEnsure();
+    await survivorExited; // the skewed survivor was recycled
+    expect(spawned).toBe(true);
+    expect(connectCalls).toBe(2);
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
+  });
+});
+
+describe("serializeRestart — restart serialization", () => {
+  it("coalesces concurrent restarts: one recycle, restarting observed once", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen(); // socket up; driver.spawn is a no-op
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    let connectCalls = 0;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: async () => {} },
+      connect: async () => {
+        connectCalls += 1;
+        return {
+          client: `C${connectCalls}`,
+          identity: { staleKey: `k${connectCalls}` },
+          startedAt: connectCalls,
+          dispose() {},
+          onClose() {},
+        };
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await endpoint.ensure(); // → connecting, connected (connectCalls = 1)
+    statuses.length = 0;
+
+    let captures = 0;
+    const steps = {
+      capture: async () => {
+        captures += 1;
+      },
+      drain: async () => {},
+      reattach: async () => {},
+    };
+    // Two restarts fired in the same tick — the second must coalesce onto the
+    // first (one recycle, one capture), and only the first emits `restarting`.
+    const r1 = restart(endpoint, { ...steps });
+    const r2 = restart(endpoint, { ...steps });
+    await Promise.all([r1, r2]);
+
+    expect(statuses.filter((s) => s.state === "restarting")).toHaveLength(1);
+    expect(captures).toBe(1); // the second trigger did not run its own capture
+    expect(connectCalls).toBe(2); // one recycle (boot + a single restart), not two
+    // After the restart settles, the endpoint is connected again.
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "k2" });
   });
 });
