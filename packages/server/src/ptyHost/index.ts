@@ -103,14 +103,17 @@ export function currentPtyHostIdentity(): PtyHostIdentity | undefined {
  *  listen and the UI honestly shows the dead/degraded state (never a crash, never
  *  an import-time throw). */
 export async function ensureLocalEndpoint(opts: {
+  /** This server's HTTP listen port — namespaces the kaval socket per instance
+   *  (`kaval-<port>`), so a second kolu-server never recycles this one's daemon. */
+  port: number;
   onStatus: (hostId: string, status: EndpointStatus<Identity>) => void;
 }): Promise<void> {
-  const socketPath = kavalSocketPath();
+  const socketPath = kavalSocketPath(opts.port);
   const ep = createEndpoint<PtyHostClient, Identity>({
     hostId: "local",
     gatePath: kavalGatePath(socketPath),
     socketPath,
-    driver: localKavalDriver(),
+    driver: localKavalDriver(socketPath),
     connect: () => connectKaval(socketPath),
     log,
     onStatus: opts.onStatus,

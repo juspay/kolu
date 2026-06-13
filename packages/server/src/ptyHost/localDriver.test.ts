@@ -1,20 +1,24 @@
 /**
- * The per-instance socket-isolation escape hatch (`KOLU_KAVAL_SOCKET`).
+ * Per-instance kaval daemon isolation — the fix for the prod incident where a
+ * second kolu-server killed the first's daemon (and every terminal with it).
  *
- * The boot policy is ALWAYS-RECYCLE: a server SIGTERMs whatever daemon holds its
- * socket's gate before spawning fresh. So two kolu instances on the default
- * `kaval` namespace (a `just dev` beside a production `kolu.service`, a second
- * worktree) would have the newcomer kill the incumbent's daemon and drop its
- * terminals. `KOLU_KAVAL_SOCKET` overrides BOTH the path the server dials AND the
- * `--socket` the spawned kaval serves, so an isolated instance owns its own
- * daemon. These lock that the override flows to both sides (and that its absence
- * keeps the no-flag default that lets `kaval-tui` reach the daemon).
+ * The boot policy is ALWAYS-RECYCLE: a starting server SIGTERMs whatever daemon
+ * holds its socket's gate before spawning fresh. With a SHARED `kaval` namespace
+ * that recycle reached ACROSS instances — a `just dev`, a second worktree, or a
+ * bug-repro `kolu` on another port beside a production `kolu.service` would find
+ * the production daemon at the shared gate and kill it. Keying the namespace by
+ * the server's LISTEN PORT (`kaval-<port>`) makes each instance own a private
+ * daemon by construction (two servers can't share a port), so the recycle can
+ * only reach this instance's own daemon. `KOLU_KAVAL_SOCKET` still overrides the
+ * whole path (the e2e harness pins it). `resolveKavalLaunch` ALWAYS forwards the
+ * resolved path to the spawned kaval via `--socket`, so the daemon serves exactly
+ * what the server dials. These lock all three.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { kavalSocketPath, resolveKavalLaunch } from "./localDriver.ts";
 
-describe("KOLU_KAVAL_SOCKET — per-instance daemon isolation", () => {
+describe("per-instance kaval daemon isolation", () => {
   let savedSocket: string | undefined;
   let savedBin: string | undefined;
 
@@ -28,27 +32,39 @@ describe("KOLU_KAVAL_SOCKET — per-instance daemon isolation", () => {
     restore("KOLU_KAVAL_BIN", savedBin);
   });
 
-  it("override sets the dialed socket path AND is forwarded to the spawned kaval via --socket", () => {
-    const sock = "/run/user/1000/kolu-dev-7700/pty-host.sock";
-    process.env.KOLU_KAVAL_SOCKET = sock;
-    process.env.KOLU_KAVAL_BIN = "/nix/store/abc/bin/kaval";
+  it("namespaces the socket by listen port, so two servers never collide", () => {
+    delete process.env.KOLU_KAVAL_SOCKET;
 
-    expect(kavalSocketPath()).toBe(sock);
-    // Production wrapper path: the override is the only arg, so the daemon serves
-    // exactly the socket the server will dial.
-    expect(resolveKavalLaunch()).toEqual({
-      binPath: "/nix/store/abc/bin/kaval",
-      args: ["--socket", sock],
-    });
+    const a = kavalSocketPath(7681);
+    const b = kavalSocketPath(18331);
+
+    // Distinct per-port namespaces — the whole fix: a repro server on 18331
+    // can never land on (and recycle) a production server's 7681 daemon.
+    expect(a).not.toBe(b);
+    expect(a).toContain("/kaval-7681/");
+    expect(b).toContain("/kaval-18331/");
+    expect(a.endsWith("/pty-host.sock")).toBe(true);
   });
 
-  it("absent override passes NO --socket so kaval keeps its own default namespace", () => {
-    delete process.env.KOLU_KAVAL_SOCKET;
-    process.env.KOLU_KAVAL_BIN = "/nix/store/abc/bin/kaval";
+  it("KOLU_KAVAL_SOCKET overrides the per-port default (the explicit pin)", () => {
+    const sock = "/run/user/1000/kr-isolated/kaval/pty-host.sock";
+    process.env.KOLU_KAVAL_SOCKET = sock;
 
-    // Default `kaval` namespace under $XDG_RUNTIME_DIR (or /tmp), never empty.
-    expect(kavalSocketPath().endsWith("/pty-host.sock")).toBe(true);
-    expect(resolveKavalLaunch().args).toEqual([]);
+    // Override wins regardless of port.
+    expect(kavalSocketPath(7681)).toBe(sock);
+    expect(kavalSocketPath(18331)).toBe(sock);
+  });
+
+  it("always forwards the resolved socket to the spawned kaval via --socket", () => {
+    process.env.KOLU_KAVAL_BIN = "/nix/store/abc/bin/kaval";
+    const socketPath = kavalSocketPath(7681);
+
+    // The daemon is told to serve exactly the path the server dials — never its
+    // own bare default namespace.
+    expect(resolveKavalLaunch(socketPath)).toEqual({
+      binPath: "/nix/store/abc/bin/kaval",
+      args: ["--socket", socketPath],
+    });
   });
 });
 

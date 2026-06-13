@@ -22,7 +22,11 @@ import { homedir } from "node:os";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
 import { cli, command } from "cleye";
-import { getPtyHostSocketPath, PTY_HOST_CONTRACT_VERSION } from "kaval";
+import {
+  discoverPtyHostSockets,
+  getPtyHostSocketPath,
+  PTY_HOST_CONTRACT_VERSION,
+} from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { isValidEscapeChar } from "./escape.ts";
@@ -107,6 +111,27 @@ function writeOut(text: string): Promise<void> {
 function fail(message: string): never {
   process.stderr.write(`kaval-tui: ${message}\n`);
   process.exit(1);
+}
+
+/** The socket to dial. An explicit `--socket` wins (verbatim). Otherwise
+ *  discover the running daemon: kolu-server now namespaces its daemon by listen
+ *  port (`kaval-<port>/`), so there is no single fixed path to assume. Exactly
+ *  one found → use it (the common case: one kolu on the box). More than one →
+ *  bail asking for `--socket`, since we can't guess which kolu you mean. None →
+ *  the bare `kaval` default, so the connect error names a sensible path. */
+function resolveSocketPath(override: string | undefined): string {
+  if (override) return getPtyHostSocketPath(override);
+  const found = discoverPtyHostSockets();
+  const [first, ...rest] = found;
+  if (first !== undefined && rest.length === 0) return first;
+  if (rest.length > 0) {
+    fail(
+      `more than one kaval daemon is running:\n  ${found.join(
+        "\n  ",
+      )}\nPass --socket <path> to pick one.`,
+    );
+  }
+  return getPtyHostSocketPath(undefined, "kaval");
 }
 
 async function cmdList(conn: Connection, json: boolean): Promise<void> {
@@ -265,7 +290,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const socketPath = getPtyHostSocketPath(argv.flags.socket, "kaval");
+  const socketPath = resolveSocketPath(argv.flags.socket);
   const conn = await connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
     // The kolu-server hint names the SAME path kolu computes — and the

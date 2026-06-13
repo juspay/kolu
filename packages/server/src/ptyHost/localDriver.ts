@@ -32,24 +32,27 @@ import {
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
 
-/** The socket kaval serves and the server dials — kaval's OWN default namespace
- *  (`$XDG_RUNTIME_DIR/kaval/pty-host.sock`), NOT a kolu-served one. That is the
- *  whole flip: the server no longer serves a socket; it spawns kaval, which
- *  serves this path, and `kaval-tui` (whose default is the same `kaval`
- *  namespace) reaches kolu's terminals with no `--socket` flag.
+/** The socket kaval serves and the server dials, namespaced **per kolu-server
+ *  instance by its listen port** — `$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`.
+ *  The server no longer serves a socket; it spawns kaval, tells it (via
+ *  `--socket`) to serve exactly this path, and dials it.
  *
- *  `KOLU_KAVAL_SOCKET` overrides the path entirely — the per-instance escape
- *  hatch. The boot policy is ALWAYS-RECYCLE: a server SIGTERMs whatever daemon
- *  holds its socket's gate before spawning fresh. So two kolu instances sharing
- *  the default namespace (a `just dev` beside a production `kolu.service`, a
- *  second worktree, a standalone kaval) would have the newcomer kill the
- *  incumbent's daemon and drop its terminals. An instance that must NOT own the
- *  default namespace points this at a private socket dir (the dev `server` recipe
- *  and the e2e per-worker `XDG_RUNTIME_DIR` both do exactly this), and the
- *  override is forwarded to the spawned kaval via `--socket` (`resolveKavalLaunch`)
- *  so the daemon serves the very path the server dials. */
-export function kavalSocketPath(): string {
-  return getPtyHostSocketPath(process.env.KOLU_KAVAL_SOCKET, "kaval");
+ *  Why per-port, not a single shared `kaval` namespace: the boot policy is
+ *  ALWAYS-RECYCLE — a starting server SIGTERMs whatever daemon holds its socket's
+ *  gate before spawning fresh. A *shared* namespace makes that recycle reach
+ *  ACROSS instances: a second kolu-server (a `just dev`, a second worktree, a
+ *  bug-repro `kolu` on another port beside a production `kolu.service`) would find
+ *  the production daemon at the shared gate, kill it, and drop every one of its
+ *  terminals — exactly the prod incident this keying fixes. Two servers can't
+ *  share a listen port, so keying the namespace by port makes each instance own a
+ *  private daemon by construction; the recycle can only ever reach this instance's
+ *  own daemon.
+ *
+ *  `KOLU_KAVAL_SOCKET` still overrides the whole path (an explicit escape hatch
+ *  for a fully pinned rendezvous — the e2e harness uses it); when set it wins over
+ *  the per-port default. */
+export function kavalSocketPath(port: number): string {
+  return getPtyHostSocketPath(process.env.KOLU_KAVAL_SOCKET, `kaval-${port}`);
 }
 
 /** The single-instance gate kaval claims, beside its socket — the same path
@@ -62,15 +65,16 @@ export function kavalGatePath(socketPath: string): string {
 /** Resolve how to launch kaval: the built wrapper in production, or the
  *  from-source `node --import <tsx loader> bin.ts` shape in dev/e2e.
  *
- *  When `KOLU_KAVAL_SOCKET` is set, the daemon is told to serve THAT path via
- *  `--socket` so it lands on the exact socket the server dials (`kavalSocketPath`)
- *  — the per-instance isolation that keeps a `just dev` / second worktree from
- *  recycling another instance's daemon. Absent the override kaval picks its own
- *  default (`kaval` namespace), so no flag is passed and `kaval-tui` reaches it
- *  with no `--socket` either. */
-export function resolveKavalLaunch(): { binPath: string; args: string[] } {
-  const socketOverride = process.env.KOLU_KAVAL_SOCKET;
-  const socketArgs = socketOverride ? ["--socket", socketOverride] : [];
+ *  The daemon is ALWAYS told to serve `socketPath` via `--socket` — the server's
+ *  per-port (or `KOLU_KAVAL_SOCKET`-overridden) path — so the spawned daemon lands
+ *  on the exact socket the server dials, and never on kaval's bare default
+ *  namespace. This is the per-instance isolation: each server owns its own daemon
+ *  at its own socket. */
+export function resolveKavalLaunch(socketPath: string): {
+  binPath: string;
+  args: string[];
+} {
+  const socketArgs = ["--socket", socketPath];
 
   const wrapper = process.env.KOLU_KAVAL_BIN;
   if (wrapper) return { binPath: wrapper, args: socketArgs };
@@ -128,8 +132,8 @@ function daemonEnv(): Record<string, string> {
  *  launched from source: no `KOLU_KAVAL_BIN` wrapper means dev/source, and
  *  `KOLU_KAVAL_SPAWN=detached` lets e2e force the same. That single boolean is
  *  all the spine needs — it owns the launch-path decision. */
-export function localKavalDriver(): DaemonDriver {
-  const { binPath, args } = resolveKavalLaunch();
+export function localKavalDriver(socketPath: string): DaemonDriver {
+  const { binPath, args } = resolveKavalLaunch(socketPath);
   const fromSource =
     !process.env.KOLU_KAVAL_BIN || process.env.KOLU_KAVAL_SPAWN === "detached";
   return survivableSpawnDriver({
