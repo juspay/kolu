@@ -24,19 +24,45 @@ type DaemonTone = "ok" | "warming" | "down";
  *  One row per state, keyed by `DaemonState`, so a new state is a compile-forced
  *  row instead of N independent edits across the dialog, rail, and gate. Every
  *  presentation a consumer needs is derived from this table: the dot class from
- *  `tone` (via {@link toneDot}), the dialog/rail label from `label`, and the
- *  DegradedCanvas narrowing from `down`. The table is client-only — the tones,
- *  labels, and Tailwind classes are projections of the state, not part of the
- *  wire `DaemonStatusSchema`. */
+ *  `tone` (via {@link toneDot}), the dialog/rail label from `label`, the App.tsx
+ *  warming-canvas message from `canvasLabel`, and the DegradedCanvas narrowing
+ *  from `down`. The table is client-only — the tones, labels, and Tailwind
+ *  classes are projections of the state, not part of the wire
+ *  `DaemonStatusSchema`. */
 export const DAEMON_STATE_PRESENTATION: Record<
   DaemonState,
-  { tone: DaemonTone; label: string; down: boolean }
+  { tone: DaemonTone; label: string; canvasLabel: string; down: boolean }
 > = {
-  connecting: { tone: "warming", label: "starting…", down: false },
-  connected: { tone: "ok", label: "running", down: false },
-  restarting: { tone: "warming", label: "restarting…", down: false },
-  degraded: { tone: "down", label: "stopped (session preserved)", down: true },
-  dead: { tone: "down", label: "not running", down: true },
+  connecting: {
+    tone: "warming",
+    label: "starting…",
+    canvasLabel: "Connecting…",
+    down: false,
+  },
+  connected: {
+    tone: "ok",
+    label: "running",
+    canvasLabel: "Connected",
+    down: false,
+  },
+  restarting: {
+    tone: "warming",
+    label: "restarting…",
+    canvasLabel: "Restarting kaval…",
+    down: false,
+  },
+  degraded: {
+    tone: "down",
+    label: "stopped (session preserved)",
+    canvasLabel: "Stopped",
+    down: true,
+  },
+  dead: {
+    tone: "down",
+    label: "not running",
+    canvasLabel: "Not running",
+    down: true,
+  },
 };
 
 /** A tone → status-dot class. The one place `warming`==`animate-pulse` etc. is

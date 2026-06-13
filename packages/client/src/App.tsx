@@ -72,6 +72,7 @@ import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import {
+  DAEMON_STATE_PRESENTATION,
   daemonStatusPending,
   daemonWarming,
   downState,
@@ -602,9 +603,10 @@ const App: Component = () => {
                 data-daemon-state={localDaemonStatus()?.state}
                 class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
               >
-                {localDaemonStatus()?.state === "restarting"
-                  ? "Restarting kaval…"
-                  : "Connecting…"}
+                {
+                  DAEMON_STATE_PRESENTATION[localDaemonStatus()!.state]
+                    .canvasLabel
+                }
               </div>
             </Match>
             <Match when={showEmpty()}>
