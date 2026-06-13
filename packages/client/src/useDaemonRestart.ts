@@ -30,7 +30,15 @@ const [restarting, setRestarting] = createSignal(false);
  *  mid-transition ({@link isWarming} — `restarting`/`connecting`) — the latter arm
  *  catches a restart another client kicked off, which the local signal can't see.
  *  Both the kaval dialog and the DegradedCanvas disable on this, so the two
- *  buttons can't disagree on what counts as in flight. */
+ *  buttons can't disagree on what counts as in flight.
+ *
+ *  The `isWarming(status?.state)` arm is exactly `daemonWarming()`'s body (both
+ *  project from the shared `isWarming`); the extra leading `restarting()` arm is
+ *  the local-click signal the daemon surface can't yet see (it closes the click
+ *  window before the state flips). So `restartInFlight` is the stronger gate —
+ *  `daemonWarming()` plus the local click — and the three consumers that read
+ *  the weaker `daemonWarming()` (App.tsx, useTerminalCrud, commands) are the
+ *  ones without their own click signal to fold in. */
 export function restartInFlight(status: DaemonStatus | undefined): boolean {
   return restarting() || isWarming(status?.state);
 }

@@ -427,6 +427,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         // palette flattens leaves, so typing "restart"/"kaval" finds it).
         // Hidden while the daemon is already warming (a restart in flight or
         // booting) so the palette never offers what would be a no-op.
+        // Intentionally gates on the weaker `daemonWarming()` — not the button's
+        // `restartInFlight()`, which also folds in the local-click signal the
+        // palette has no access to. So in the click-but-not-yet-warming window a
+        // palette-then-button double-fire isn't caught here; the server's
+        // restart coalescer is the backstop for that race.
         ...(!daemonWarming()
           ? [
               {
