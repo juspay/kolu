@@ -55,6 +55,21 @@ not just the obviously visual ones.
    optional `subtitle` in the frontmatter — one plain line that decrypts the
    metaphor into what the reader will learn; it renders as a deck under the title.
 
+   **Get the pronouns right: "I" is the author, "the agent" is the agent.** A
+   kolu post is written first-person as the human author, so the pronouns carry
+   real claims about who did what. "I" / "we" / "my" means the person who
+   *directed* the work — who saw the symptom, made the calls, supplied the
+   decisive fact, and shipped the PR. The AI agent that did the hands-on work —
+   built the repro, ran the investigation, wrote the wrong-then-right conclusion,
+   implemented the fix — is "the agent" (or its name), and it gets the credit for
+   what it actually did. Never launder the agent's work into "I": write "the
+   agent built a repro", not "I built a repro"; "the agent's repro converged",
+   not "my repro converged". This is a fact-check, not a stylistic nicety — go
+   back through every "I", "we", and "my" and verify it against the logs for who
+   actually performed that action, exactly as you verify numbers, dates, and
+   quotes. Getting it wrong both misreports the work and blurs the human/agent
+   line these posts usually exist to draw.
+
 4. **Wire it into the site.** Posts live in `website/src/content/blog/` under a
    short, stable slug (the filename is the URL). Use the site's components for
    callouts, GitHub PR/issue references, and the table of contents; cite the real

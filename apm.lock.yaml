@@ -315,7 +315,7 @@ local_deployed_file_hashes:
   .agents/skills/atlas/SKILL.md: sha256:f47500c2738a00d15f996ba9f56a33442195c74b6300b73cf167b30b058c1ef1
   .agents/skills/be-review/SKILL.md: sha256:32926b02ad8c4731c04989eec0b68502fa394053f7d6b7c199d130147bb1d59b
   .agents/skills/be/SKILL.md: sha256:c9d23a783bab82a358ffe9a3753352100805be34de3cae6d1e5baff11089533c
-  .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
+  .agents/skills/blog-post/SKILL.md: sha256:dd2b9bd5ecc4ee17efbfb6ab8d8d263ffa7e444e3d0cbcdc5dd0b43488c42d36
   .agents/skills/codex-debate/SKILL.md: sha256:058fcc61f9773ce1b9547b844c3fbf87a0f2d4517be5721d2e4fbdcb84c7f75d
   .agents/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
   .agents/skills/codex-debate/debate.workflow.js: sha256:1624c71d0acfd839b88c25ad01fd953d0f431c455bc8e67d399a67a04f93b07d
@@ -349,7 +349,7 @@ local_deployed_file_hashes:
   .claude/skills/atlas/SKILL.md: sha256:f47500c2738a00d15f996ba9f56a33442195c74b6300b73cf167b30b058c1ef1
   .claude/skills/be-review/SKILL.md: sha256:32926b02ad8c4731c04989eec0b68502fa394053f7d6b7c199d130147bb1d59b
   .claude/skills/be/SKILL.md: sha256:c9d23a783bab82a358ffe9a3753352100805be34de3cae6d1e5baff11089533c
-  .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
+  .claude/skills/blog-post/SKILL.md: sha256:dd2b9bd5ecc4ee17efbfb6ab8d8d263ffa7e444e3d0cbcdc5dd0b43488c42d36
   .claude/skills/codex-debate/SKILL.md: sha256:058fcc61f9773ce1b9547b844c3fbf87a0f2d4517be5721d2e4fbdcb84c7f75d
   .claude/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
   .claude/skills/codex-debate/debate.workflow.js: sha256:1624c71d0acfd839b88c25ad01fd953d0f431c455bc8e67d399a67a04f93b07d
