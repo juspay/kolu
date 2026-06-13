@@ -65,14 +65,14 @@ decisions, and it ships on the <code>throbborder</code> branch.</p>
   .lang-runsweep .tb-tile{border-color:color-mix(in oklch,var(--tile-c) 42%,#161618)}
   .lang-runsweep .tb-dot{background:var(--tile-c)}
   .lang-runsweep .tb-name{color:color-mix(in oklch,var(--tile-c) 62%,#9aa0aa)}
-  .lang-runsweep .tb-working::after,.lang-runsweep .tb-waiting::after,.lang-runsweep .tb-waitingstale::after,.lang-runsweep .tb-alert::after{content:"";position:absolute;inset:0;border-radius:9px;padding:1.7px;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;pointer-events:none}
-  /* working — RUNS: long soft arc, calm fixed pace, tile colour as-is */
-  .lang-runsweep .tb-working::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 80deg,color-mix(in oklch,var(--tile-c) 55%,transparent) 150deg,transparent 215deg,transparent 360deg);animation:tb-spin 3.2s linear infinite}
-  /* alert — SWEEPS fastest: tight bright comet */
+  /* working — RUNS as MARCHING ANTS: a dashed outline streams round all four
+     edges (4 edge-gradients whose background-position animates), tile colour. */
+  @keyframes tb-ants{to{background-position:10px 0,-10px 100%,0 -10px,100% 10px}}
+  .lang-runsweep .tb-working::after{content:"";position:absolute;inset:0;border-radius:9px;pointer-events:none;background-image:linear-gradient(90deg,var(--tile-c) 50%,transparent 0),linear-gradient(90deg,var(--tile-c) 50%,transparent 0),linear-gradient(0deg,var(--tile-c) 50%,transparent 0),linear-gradient(0deg,var(--tile-c) 50%,transparent 0);background-repeat:repeat-x,repeat-x,repeat-y,repeat-y;background-size:10px 1.6px,10px 1.6px,1.6px 10px,1.6px 10px;background-position:0 0,0 100%,0 0,100% 0;animation:tb-ants .6s linear infinite}
+  /* needs-you — SWEEPS: a sharp comet via the conic-mask ring; SPEED = urgency */
+  .lang-runsweep .tb-waiting::after,.lang-runsweep .tb-waitingstale::after,.lang-runsweep .tb-alert::after{content:"";position:absolute;inset:0;border-radius:9px;padding:1.7px;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;pointer-events:none}
   .lang-runsweep .tb-alert::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 30deg,transparent 80deg,transparent 360deg);filter:brightness(1.6) saturate(1.7);animation:tb-spin 1s linear infinite}
-  /* waiting (fresh) — SWEEPS medium */
   .lang-runsweep .tb-waiting::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 36deg,transparent 92deg,transparent 360deg);filter:brightness(1.3) saturate(1.35);animation:tb-spin 2.1s linear infinite}
-  /* waiting (stale) — SWEEPS slow + cooled: the longer it waits, the slower it scans */
   .lang-runsweep .tb-waitingstale::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 34deg,transparent 90deg,transparent 360deg);filter:brightness(.95) saturate(.85);animation:tb-spin 3.8s linear infinite}
 
   /* ── D · TOP BAR — a thin status bar on the top edge; reads at any zoom (canvas + minimap) ── */
@@ -104,8 +104,7 @@ decisions, and it ships on the <code>throbborder</code> branch.</p>
     .lang-halo .tb-alert{box-shadow:0 0 0 1.5px var(--violet),0 0 0 5px color-mix(in oklch,var(--violet) 18%,transparent)}
     .lang-border .tb-waiting{border-color:var(--violet)}
     .lang-border .tb-alert{border-color:var(--violet);box-shadow:0 0 0 2px color-mix(in oklch,var(--violet) 24%,transparent)}
-    .lang-runsweep .tb-working::after,.lang-runsweep .tb-waiting::after,.lang-runsweep .tb-waitingstale::after,.lang-runsweep .tb-alert::after{display:none}
-    .lang-runsweep .tb-working{box-shadow:0 0 0 1px color-mix(in oklch,var(--tile-c) 65%,transparent)}
+    .lang-runsweep .tb-waiting::after,.lang-runsweep .tb-waitingstale::after,.lang-runsweep .tb-alert::after{display:none}
     .lang-runsweep .tb-waiting{box-shadow:0 0 0 1px var(--tile-c),0 0 9px -4px var(--tile-c)}
     .lang-runsweep .tb-waitingstale{box-shadow:0 0 0 1px color-mix(in oklch,var(--tile-c) 45%,transparent)}
     .lang-runsweep .tb-alert{box-shadow:0 0 0 1.5px var(--tile-c),0 0 13px -3px var(--tile-c)}
@@ -347,8 +346,9 @@ aging ladder.</p>
 forced a fixed hue. Both objections fall away once <strong>the <em>type</em> and <em>speed</em> of
 motion carry the state — which frees the colour to be the terminal’s own</strong>:</p>
 <ul>
-<li><strong>Working → it <em>runs</em>.</strong> A long, soft light circulates the border at a calm,
-fixed pace — “this machine is busy,” steady, asking for nothing.</li>
+<li><strong>Working → it <em>runs</em>: marching ants.</strong> A dashed outline streams steadily
+around all four edges — a selection-marquee “ants run,” continuous and calm —
+“this machine is busy,” asking for nothing.</li>
 <li><strong>Needs-you → it <em>sweeps</em>.</strong> A sharp comet scans around the border, and its
 <strong>speed is the urgency</strong>: <strong>alert</strong> sweeps fastest, <strong>fresh-waiting</strong> slower,
 and a waiting tile <strong>keeps slowing as it goes stale</strong> — the decay you asked for,
@@ -361,14 +361,25 @@ one runs amber, and the border always harmonises with the tile instead of
 fighting its theme. That’s the answer to “why orange and purple?”</p>
 
 
-<div class="tb-canvas lang-runsweep" style="--tile-c:#5a9ea0"><div class="lead">C · run vs sweep — one terminal colour (teal); motion-type + speed carry the state</div><div class="tb-grid" style="grid-template-columns:repeat(5,1fr)"><div class="tb-cell"><div class="tb-tile tb-alert"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Awaiting input</div></div><div class="tb-caption"><b>Alert</b><br/>sweep · fastest</div></div><div class="tb-cell"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting for input</div></div><div class="tb-caption"><b>Waiting · fresh</b><br/>sweep · medium</div></div><div class="tb-cell"><div class="tb-tile tb-waitingstale"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting · 6h</div></div><div class="tb-caption"><b>Waiting · stale</b><br/>sweep · slow</div></div><div class="tb-cell"><div class="tb-tile tb-working"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">◐ Thinking…</div></div><div class="tb-caption"><b>Working</b><br/>runs</div></div><div class="tb-cell"><div class="tb-tile tb-idle"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">$ ▏</div></div><div class="tb-caption"><b>Idle</b><br/>static</div></div></div></div>
-<p>State is read from <strong>how it moves</strong>: run vs sweep splits working from needs-you;
-sweep speed splits alert (fastest) → fresh (medium) → stale (slowest). And the
-colour is whatever the terminal is — here the same <em>waiting · sweep</em> across five
-themes:</p>
+<div class="tb-canvas lang-runsweep" style="--tile-c:#5a9ea0"><div class="lead">C · run vs sweep — one terminal colour (teal); motion-type + speed carry the state</div><div class="tb-grid" style="grid-template-columns:repeat(5,1fr)"><div class="tb-cell"><div class="tb-tile tb-alert"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Awaiting input</div></div><div class="tb-caption"><b>Alert</b><br/>sweep · fastest</div></div><div class="tb-cell"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting for input</div></div><div class="tb-caption"><b>Waiting · fresh</b><br/>sweep · medium</div></div><div class="tb-cell"><div class="tb-tile tb-waitingstale"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting · 6h</div></div><div class="tb-caption"><b>Waiting · stale</b><br/>sweep · slow</div></div><div class="tb-cell"><div class="tb-tile tb-working"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">◐ Thinking…</div></div><div class="tb-caption"><b>Working</b><br/>marching ants</div></div><div class="tb-cell"><div class="tb-tile tb-idle"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">$ ▏</div></div><div class="tb-caption"><b>Idle</b><br/>static</div></div></div></div>
+<p>State is read from <strong>how it moves</strong>: marching ants vs sweeping comet splits
+working from needs-you; sweep speed splits alert (fastest) → fresh (medium) →
+stale (slowest). And the colour is whatever the terminal is — here the same
+<em>waiting · sweep</em> across five themes:</p>
 
 
 <div class="tb-canvas lang-runsweep"><div class="lead">…and the colour is the terminal&#39;s own — same waiting · sweep, five themes</div><div class="tb-grid" style="grid-template-columns:repeat(5,1fr)"><div class="tb-cell" style="--tile-c:#5a9ea0"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">teal · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>teal</b></div></div><div class="tb-cell" style="--tile-c:#d6a35c"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">amber · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>amber</b></div></div><div class="tb-cell" style="--tile-c:#6cc070"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">green · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>green</b></div></div><div class="tb-cell" style="--tile-c:#6ea8e0"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">blue · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>blue</b></div></div><div class="tb-cell" style="--tile-c:#c98aa8"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">rose · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>rose</b></div></div></div></div>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Contrast: derive the colour, don&#39;t take it raw</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Because the light <strong>is</strong> the terminal’s colour and rides on the terminal’s own
+themed background, a low-contrast theme — a hue close to its bg — would let it
+vanish. So the implementation can’t use the raw theme bg/hue; it derives a
+<strong>contrast-locked accent</strong>: take the theme’s existing accent / foreground (which
+already contrast the bg by construction), or nudge the chosen hue’s <strong>lightness
+away from the bg’s luminance</strong> — lighten it on dark themes, darken it on light
+ones — keeping enough chroma to read. The louder-state brightness boosts ride on
+top of that safe base. Each tile already carries two safe anchors: the vivid
+<code>repoColor</code> and the theme <code>fg</code>.</p></div> </aside>
+
+<div class="tb-canvas lang-runsweep"><div class="lead">Contrast — the same teal theme, colour locked against each tile&#39;s own bg</div><div class="tb-pair"><div class="tb-cell"><div class="tb-tile tb-working" style="--tile-c:#79d2d4;background:#0e1316"><div class="tb-titlebar" style="background:rgba(255,255,255,.06)"><span class="tb-dot"></span><span class="tb-name">dark theme</span></div><div class="tb-body">◐ working</div></div><div class="tb-caption"><b>Dark bg</b> → accent lightened</div></div><div class="tb-cell"><div class="tb-tile tb-working" style="--tile-c:#0c6275;background:#f3efe4"><div class="tb-titlebar" style="background:rgba(0,0,0,.05)"><span class="tb-dot"></span><span class="tb-name" style="color:#42606a">light theme</span></div><div class="tb-body" style="color:#5b6470">◐ working</div></div><div class="tb-caption"><b>Light bg</b> → accent darkened</div></div></div></div>
 <p>The trade vs the shipped top-bar (<strong>D</strong>): this is the most <em>alive</em> and the most
 <em>theme-native</em> of the set, and it sidesteps the fixed-colour question entirely.
 The costs are real, though — a moving light on <strong>every</strong> busy tile (busier with a
