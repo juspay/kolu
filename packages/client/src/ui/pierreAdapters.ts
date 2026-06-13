@@ -37,7 +37,7 @@ function navEntryLabel(target: CodeTabView): string {
     : `Open ${viewLabel(target)} diff`;
 }
 
-/** Canonical view order, matching the mode picker's `modeOptions` ordering.
+/** Canonical view order, matching the scope switcher's `scopeSegments` ordering.
  *  `navEntriesFor` derives its entries from this list, so adding a view is a
  *  one-line edit and "exactly the other views, in canonical order" stays
  *  mechanical instead of hand-tabulated. */

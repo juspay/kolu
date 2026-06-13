@@ -6,9 +6,9 @@
  *   - Branch: working tree vs `merge-base(origin/<default>)` — same, with a
  *     branch base. Forge-agnostic "what this branch will ship".
  *
- * The toolbar combines two independent filter axes — mode picker
- * (`ModeChipPicker`) and filename input (`FileSearchInput`) — in one
- * row. Pierre's built-in tree-header search is disabled so the
+ * The toolbar combines two independent filter axes — the scope
+ * switcher (`ScopeSegments`) and filename input (`FileSearchInput`) —
+ * in one row. Pierre's built-in tree-header search is disabled so the
  * `FileSearchInput` is the single source of filter state, forwarded
  * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
  * Pierre lifecycle; this component is just data flow + chrome. */
@@ -65,7 +65,7 @@ import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
-import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
+import ScopeSegments, { type ScopeSegment } from "./ScopeSegments";
 import {
   type OpenInCodeTabRequest,
   openInCodeTab,
@@ -258,16 +258,59 @@ const CodeTab: Component<{
   // value is already correct without writing through. slotKey effect now
   // only clears `searchQuery`, which is genuinely shared across slots.)
 
-  const status = app.streams.gitStatus.use(
+  // Both git-status layers stay subscribed whenever there's a repo,
+  // independent of the active view. One source per mode feeds three
+  // readers: the active diff view's file list (`status` below), the
+  // browse-mode tree decoration (`treeGitStatus`), and the Local/Branch
+  // change-count badges on the scope switcher. Keeping both warm also
+  // collapses the old duplication (each diff mode subscribed only for
+  // itself; browse re-subscribed both as a separate pair) and lets a
+  // switch into the other mode read its already-loaded status with no
+  // pending flash.
+  const localStatus = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
-      const m = diffMode();
-      return p && m ? { repoPath: p, mode: m } : null;
+      return p ? { repoPath: p, mode: "local" as const } : null;
     },
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
   );
+  // Branch status carries an *expected* failure: a repo whose `origin`
+  // default branch isn't fetched errors with BASE_BRANCH_NOT_FOUND
+  // (review.ts `resolveBase`). That's only actionable ("run git fetch")
+  // when the user is actually *in* Branch view; as the passive source
+  // for the badge and the browse overlay it's swallowed so it never
+  // toasts from Local or Browse. A remote-less repo (#1244) degrades to
+  // an empty branch status (no error), so the badge just reads 0 there.
+  const branchStatus = app.streams.gitStatus.use(
+    () => {
+      const p = repoPath();
+      return p ? { repoPath: p, mode: "branch" as const } : null;
+    },
+    {
+      onError: (err) => {
+        if (view() === "branch") {
+          toast.error(`Git status stream: ${err.message}`);
+        }
+      },
+    },
+  );
+
+  // The active diff view reads whichever always-on status stream matches
+  // the current mode; browse reads neither (it's a file tree, not a
+  // diff). `status`/`statusPending`/`statusError` preserve the shape the
+  // rest of the component consumed off the old single subscription.
+  const activeStatus = createMemo(() =>
+    view() === "local"
+      ? localStatus
+      : view() === "branch"
+        ? branchStatus
+        : null,
+  );
+  const status = () => activeStatus()?.();
+  const statusPending = () => activeStatus()?.pending() ?? false;
+  const statusError = () => activeStatus()?.error();
 
   const allPaths = app.streams.fsListAll.use(
     () => {
@@ -276,41 +319,6 @@ const CodeTab: Component<{
     },
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
-    },
-  );
-
-  // Browse decorates the full-repo tree with git status too — overlaying local
-  // status (primary) on branch status (fallback) in `treeGitStatus` below.
-  // Both inert outside browse (input fn → null), so Local/Branch modes — which
-  // read decoration straight off the `status` stream — pay nothing for these.
-  const browseLocalStatus = app.streams.gitStatus.use(
-    () => {
-      const p = repoPath();
-      return p && view() === "browse"
-        ? { repoPath: p, mode: "local" as const }
-        : null;
-    },
-    {
-      onError: (err) => toast.error(`Git status stream: ${err.message}`),
-    },
-  );
-  // Best-effort branch layer: a repo with an `origin` remote whose default
-  // branch isn't fetched errors with BASE_BRANCH_NOT_FOUND (review.ts
-  // `resolveBase`) — an expected, not broken, state in this passive overlay.
-  // Swallow it (no toast): the merge falls back to the always-available local
-  // layer. The explicit Branch *mode* still surfaces the same error via its
-  // own `status` subscription, where it's actionable ("run git fetch"). A
-  // remote-less repo (#1244) degrades to an empty branch status instead of
-  // erroring, so it never reaches this handler.
-  const browseBranchStatus = app.streams.gitStatus.use(
-    () => {
-      const p = repoPath();
-      return p && view() === "browse"
-        ? { repoPath: p, mode: "branch" as const }
-        : null;
-    },
-    {
-      onError: () => {},
     },
   );
 
@@ -488,7 +496,7 @@ const CodeTab: Component<{
       () => {
         const s = selectedPath();
         const sk = slotKey();
-        const isPending = isDiffView() ? status.pending() : allPaths.pending();
+        const isPending = isDiffView() ? statusPending() : allPaths.pending();
         const paths = treePaths();
         return { s, sk, pathExists: !s || isPending || paths.includes(s) };
       },
@@ -504,8 +512,8 @@ const CodeTab: Component<{
     // Browse overlays both layers (local primary, branch fallback). Outside
     // browse, decoration comes straight off the active mode's `status` stream.
     if (view() === "browse") {
-      const local = browseLocalStatus()?.files ?? [];
-      const branch = browseBranchStatus()?.files ?? [];
+      const local = localStatus()?.files ?? [];
+      const branch = branchStatus()?.files ?? [];
       return mergeGitStatusEntries(local, branch);
     }
     const s = status();
@@ -604,23 +612,30 @@ const CodeTab: Component<{
   };
 
   const treeError = (): Error | undefined =>
-    isDiffView() ? status.error() : allPaths.error();
+    isDiffView() ? statusError() : allPaths.error();
   const treeReady = () => (isDiffView() ? status() : allPaths());
-  const branchRef = (): string | null => status()?.base?.ref ?? null;
-  // True only while Branch mode is the active view *and* its status has
-  // loaded with no resolvable base (remote-less repo, #1244). `status`
-  // only subscribes for the current view, so this can't be read in
-  // browse/local view — there, `status()?.base` reflects local mode (always
-  // null) and would falsely claim Branch has no base.
-  const branchHasNoBase = (): boolean =>
-    view() === "branch" && status()?.base === null;
+  // Branch base, read off the always-on `branchStatus` so it's correct in
+  // any view (the scope switcher annotates the Branch segment even from
+  // Local/Browse). `undefined` while pending; `null` once loaded with no
+  // resolvable base (a remote-less repo, #1244, degrades to an empty diff
+  // rather than erroring); a `{ ref, sha }` object otherwise. Callers that
+  // need "no base" *only when Branch is the active view* (the empty-state
+  // copy) gate on `view()` themselves at the use site.
+  const branchBase = () => branchStatus()?.base;
+  const branchRef = (): string | null => branchBase()?.ref ?? null;
 
-  // Mode catalog — owns the list of views, their labels, hints, and
-  // test IDs. Adding a new mode (e.g. "stash") happens here, plus the
-  // data-source switch above. ModeChipPicker is purely a presenter.
-  const modeOptions = createMemo<ModeOption[]>(() => {
+  // Change-count badges on the Local / Branch segments. `0` until the
+  // always-on status streams land; the segment hides the pill at 0.
+  const localCount = (): number => localStatus()?.files.length ?? 0;
+  const branchCount = (): number => branchStatus()?.files.length ?? 0;
+
+  // Scope catalog — owns the list of views, their labels, tooltips,
+  // icons, change counts, and grouping. Adding a new view (e.g. "stash")
+  // happens here, plus the data-source switch above. ScopeSegments is
+  // purely a presenter.
+  const scopeSegments = createMemo<ScopeSegment[]>(() => {
     const ref = branchRef();
-    const noBase = branchHasNoBase();
+    const noBase = branchBase() === null;
     return [
       {
         view: "browse",
@@ -628,26 +643,30 @@ const CodeTab: Component<{
         hint: "Browse the whole repo",
         testId: "diff-mode-browse",
         icon: FileBrowseIcon,
+        group: "files",
       },
       {
         view: "local",
-        group: "Git",
         label: viewLabel("local"),
         hint: "Working tree vs HEAD",
         testId: "diff-mode-local",
         icon: GitBranchIcon,
+        count: localCount(),
+        group: "git",
       },
       {
         view: "branch",
-        group: "Git",
         label: viewLabel("branch"),
         hint: ref
-          ? `vs ${ref}`
+          ? `Working tree vs ${ref}`
           : noBase
             ? NO_BRANCH_BASE
             : "Working tree vs branch base",
         testId: "diff-mode-branch",
         icon: GitBranchIcon,
+        // No base ⇒ nothing to count; suppress the pill rather than show 0.
+        count: noBase ? undefined : branchCount(),
+        group: "git",
       },
     ];
   });
@@ -717,10 +736,10 @@ const CodeTab: Component<{
               <ChevronRightIcon class="h-3.5 w-3.5" />
             </button>
           </div>
-          <ModeChipPicker
+          <ScopeSegments
             view={view()}
             onViewChange={setView}
-            modes={modeOptions()}
+            segments={scopeSegments()}
           />
           <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
         </div>
@@ -784,7 +803,10 @@ const CodeTab: Component<{
                         // Branch mode with no resolvable base (remote-less
                         // repo, #1244): there's nothing to compare against, so
                         // "No changes vs base" would be a false clean signal.
-                        if (branchHasNoBase()) {
+                        // Gate on the active view here — `branchBase()` reads
+                        // the always-on branch stream, which is meaningful in
+                        // any view, but this copy must only show in Branch.
+                        if (m === "branch" && branchBase() === null) {
                           return NO_BRANCH_BASE;
                         }
                         return EMPTY_STATE[m];

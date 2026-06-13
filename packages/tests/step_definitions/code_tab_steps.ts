@@ -94,17 +94,14 @@ When(
 When(
   "I click the Code tab mode {string}",
   async function (this: KoluWorld, mode: string) {
-    // The mode picker is a chip + popover: open the chip, then pick
-    // the option. The chip closes itself after a selection. The chip is
-    // Code-tab chrome that only appears once the repo view has hydrated —
-    // hydration budget (see waitTreeReady); the popover option below is
-    // instant once the chip is clicked, so it stays on POLL_TIMEOUT.
-    const chip = this.page.locator(`[data-testid="diff-filter-chip"]`);
-    await waitTreeReady(this, `[data-testid="diff-filter-chip"]`);
-    await chip.click();
-    const opt = this.page.locator(`[data-testid="diff-mode-${mode}"]`);
-    await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await opt.click();
+    // The scope switcher is a segmented control: every view is a visible
+    // segment, so switching is a single click — no popover to open. The
+    // segments are Code-tab chrome that only paint once the repo view has
+    // hydrated, so the first appearance gets the hydration budget (see
+    // waitTreeReady).
+    const seg = this.page.locator(`[data-testid="diff-mode-${mode}"]`);
+    await waitTreeReady(this, `[data-testid="diff-mode-${mode}"]`);
+    await seg.click();
     await this.waitForFrame();
   },
 );
@@ -414,13 +411,45 @@ Then(
 Then(
   "the Code tab mode should be {string}",
   async function (this: KoluWorld, mode: string) {
-    // The chip carries `data-mode` reflecting the current view, so the
-    // assertion doesn't need to open the popover (where the per-mode
-    // testids live).
-    const chip = this.page.locator(
-      `[data-testid="diff-filter-chip"][data-mode="${mode}"]`,
+    // The segmented control carries `data-mode` reflecting the active
+    // view, so the assertion is a single read with no interaction.
+    const segments = this.page.locator(
+      `[data-testid="code-scope-segments"][data-mode="${mode}"]`,
     );
-    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await segments.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Code tab {string} segment should show a change count of {string}",
+  async function (this: KoluWorld, mode: string, count: string) {
+    // The segmented control paints as soon as the repo resolves; the
+    // count badge follows once the always-on gitStatus stream for that
+    // mode lands (working-tree watcher → server → SSE). Give the badge
+    // the hydration budget — under darwin CI load the status round-trip
+    // shares the slow first-population axis the tree does.
+    const badge = this.page.locator(`[data-testid="diff-mode-${mode}-count"]`);
+    await pollFor({
+      observe: async () =>
+        (await badge.count()) === 0
+          ? null
+          : ((await badge.first().textContent())?.trim() ?? null),
+      isDone: (v) => v === count,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Code tab "${mode}" count badge: expected "${count}", last saw "${last}" after ${ms}ms`,
+        ),
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
+  },
+);
+
+Then(
+  "the Code tab {string} segment should show no change count",
+  async function (this: KoluWorld, mode: string) {
+    await this.page
+      .locator(`[data-testid="diff-mode-${mode}-count"]`)
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -1313,17 +1342,14 @@ async function activateCodeTabMode(
   await tab.click();
   await world.waitForFrame();
   // The Code tab now defaults to "browse" (DEFAULT_RIGHT_PANEL_PER_TERMINAL),
-  // so every mode — including local — must be selected explicitly via the
-  // chip; there is no implicit default to short-circuit on.
-  // The mode chip is Code-tab chrome that only paints once the repo view has
-  // hydrated — hydration budget so a loaded runner doesn't lose the switch
+  // so every mode — including local — must be selected explicitly; there is
+  // no implicit default to short-circuit on.
+  // The scope segments are Code-tab chrome that only paint once the repo view
+  // has hydrated — hydration budget so a loaded runner doesn't lose the switch
   // before the tree-readiness gate downstream even runs (see waitTreeReady).
-  const chip = world.page.locator(`[data-testid="diff-filter-chip"]`);
-  await waitTreeReady(world, `[data-testid="diff-filter-chip"]`);
-  await chip.click();
-  const opt = world.page.locator(`[data-testid="diff-mode-${mode}"]`);
-  await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await opt.click();
+  const seg = world.page.locator(`[data-testid="diff-mode-${mode}"]`);
+  await waitTreeReady(world, `[data-testid="diff-mode-${mode}"]`);
+  await seg.click();
   await world.waitForFrame();
 }
 
