@@ -8,12 +8,45 @@
  * terminals" (B2, the empty-canvas-lie fix).
  */
 
-import type { DaemonStatus } from "kolu-common/surface";
+import type { DaemonState, DaemonStatus } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { app } from "./wire";
 
 /** The one host today; R-2's ssh hosts add more keys to the same collection. */
 export const LOCAL_HOST = "local";
+
+/** A daemon state's coarse tone — the warming-up/up/down bucket every display
+ *  site shares. `restarting` and `connecting` are both `warming` (transient,
+ *  coming up), declared once here rather than re-collapsed at each dot map. */
+type DaemonTone = "ok" | "warming" | "down";
+
+/** The single source of truth for "what does daemon state X mean visually."
+ *  One row per state, keyed by `DaemonState`, so a new state is a compile-forced
+ *  row instead of N independent edits across the dialog, rail, and gate. Every
+ *  presentation a consumer needs is derived from this table: the dot class from
+ *  `tone` (via {@link toneDot}), the dialog/rail label from `label`, and the
+ *  DegradedCanvas narrowing from `down`. The table is client-only — the tones,
+ *  labels, and Tailwind classes are projections of the state, not part of the
+ *  wire `DaemonStatusSchema`. */
+export const DAEMON_STATE_PRESENTATION: Record<
+  DaemonState,
+  { tone: DaemonTone; label: string; down: boolean }
+> = {
+  connecting: { tone: "warming", label: "starting…", down: false },
+  connected: { tone: "ok", label: "running", down: false },
+  restarting: { tone: "warming", label: "restarting…", down: false },
+  degraded: { tone: "down", label: "stopped (session preserved)", down: true },
+  dead: { tone: "down", label: "not running", down: true },
+};
+
+/** A tone → status-dot class. The one place `warming`==`animate-pulse` etc. is
+ *  spelled, so the dot is derived from {@link DAEMON_STATE_PRESENTATION}'s tone
+ *  rather than re-tabulated per display. */
+export const toneDot: Record<DaemonTone, string> = {
+  ok: "bg-ok",
+  warming: "bg-warning animate-pulse",
+  down: "bg-danger",
+};
 
 const sub = app.collections.daemonStatus.use({
   keys: () => [LOCAL_HOST],
@@ -44,7 +77,14 @@ export function daemonStatusPending(): boolean {
  *  is named in one place rather than re-derived by an inline ternary. */
 export function downState(): "dead" | "degraded" | undefined {
   const state = localDaemonStatus()?.state;
-  return state === "dead" || state === "degraded" ? state : undefined;
+  if (!state) return undefined;
+  // The down-sub-union is whichever states the presentation table marks `down`.
+  // Today that is exactly `dead`/`degraded`; the cast holds because no non-down
+  // state is flagged `down`, and keeping the narrow return type means a future
+  // `down` state must be added to this union deliberately, not silently widened.
+  return DAEMON_STATE_PRESENTATION[state].down
+    ? (state as "dead" | "degraded")
+    : undefined;
 }
 
 /** True when the daemon is down. The DegradedCanvas gate. */

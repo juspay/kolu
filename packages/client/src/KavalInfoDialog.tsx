@@ -13,26 +13,11 @@ import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
 import { daemonRestarting, restartDaemon } from "./useDaemonRestart";
+import { DAEMON_STATE_PRESENTATION, toneDot } from "./useDaemonStatus";
 import Commit from "./ui/Commit";
 import { CloseIcon, RestartIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
-
-const STATE_LABEL: Record<DaemonStatus["state"], string> = {
-  connecting: "starting…",
-  connected: "running",
-  restarting: "restarting…",
-  degraded: "stopped (session preserved)",
-  dead: "not running",
-};
-
-const STATE_DOT: Record<DaemonStatus["state"], string> = {
-  connecting: "bg-warning animate-pulse",
-  connected: "bg-ok",
-  restarting: "bg-warning animate-pulse",
-  degraded: "bg-danger",
-  dead: "bg-danger",
-};
 
 function uptime(startedAt: number): string {
   const s = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
@@ -103,9 +88,11 @@ const KavalInfoDialog: Component<{
               <div class="space-y-1.5">
                 <div class="flex items-center gap-2">
                   <span
-                    class={`inline-block h-[7px] w-[7px] rounded-full ${STATE_DOT[s().state]}`}
+                    class={`inline-block h-[7px] w-[7px] rounded-full ${toneDot[DAEMON_STATE_PRESENTATION[s().state].tone]}`}
                   />
-                  <span class="text-fg">{STATE_LABEL[s().state]}</span>
+                  <span class="text-fg">
+                    {DAEMON_STATE_PRESENTATION[s().state].label}
+                  </span>
                   <Show when={s().startedAt}>
                     {(t) => (
                       <span class="text-fg-3 tabular-nums">

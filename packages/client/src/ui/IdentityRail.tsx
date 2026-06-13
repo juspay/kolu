@@ -29,7 +29,11 @@ import {
 } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import KavalInfoDialog from "../KavalInfoDialog";
-import { localDaemonStatus } from "../useDaemonStatus";
+import {
+  DAEMON_STATE_PRESENTATION,
+  localDaemonStatus,
+  toneDot,
+} from "../useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
 import { clientStale, StaleBadge } from "./StaleBadge";
@@ -44,21 +48,12 @@ const srvDot: Record<WsStatus, string> = {
 
 /** The daemon's honest state → the `kaval` dot. Distinct from the WebSocket dot:
  *  a live WS link says nothing about whether the daemon behind the server is up.
- *  Undefined (status still loading) is grey, not red — we don't claim "dead"
- *  before the first yield. */
+ *  The per-state tone is the shared `DAEMON_STATE_PRESENTATION` projection (so
+ *  the rail and the dialog can't drift); undefined (status still loading) is
+ *  grey, not red — we don't claim "dead" before the first yield. */
 function kavalDot(state: DaemonState | undefined): string {
-  switch (state) {
-    case "connected":
-      return "bg-ok";
-    case "connecting":
-    case "restarting":
-      return "bg-warning animate-pulse";
-    case "degraded":
-    case "dead":
-      return "bg-danger";
-    default:
-      return "bg-fg-3/50";
-  }
+  if (!state) return "bg-fg-3/50";
+  return toneDot[DAEMON_STATE_PRESENTATION[state].tone];
 }
 
 /** Short-form a build id for display: a nix store hash's leading 7 chars, or a
