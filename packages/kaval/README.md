@@ -1,7 +1,10 @@
 # kaval
 
-The **multi-client PTY-owner primitive** (and the standalone `kaval` daemon
-built on it). One `PtyHost` owns any number of
+<img src="./logo.svg" width="128" align="right" alt="kaval — a watch over your terminals: three PTYs owned by one daemon, above காவல்" />
+
+**kaval** (Tamil காவல், _kāval_ — "watch, guard"; pronounced **_KAH_-val**, the
+first _a_ long, as in _father_) is the **multi-client PTY-owner primitive** (and
+the standalone `kaval` daemon built on it). One `PtyHost` owns any number of
 PTYs; each PTY is a `node-pty` child paired with an `@xterm/headless` screen
 mirror and a set of VT-derived event taps, fanned out to any number of
 consumers through a bounded broadcast `Channel`.

@@ -285,17 +285,21 @@ if (clientDist) {
   installFreshStatic(app, { root: clientDist, serviceWorker: "notify" });
 }
 
+const { host, port } = argv.flags;
+
 // --- pty-host daemon (kaval) endpoint, B2 "the door" ---
 // Flip the topology: instead of running the pty-host in-process and serving it
 // on a socket, the server SPAWNS a `kaval` daemon (always-recycle boot policy)
-// and becomes its client. Awaited before the HTTP server starts so no terminal
-// RPC can race an unready endpoint; a boot failure reports `dead` (not a crash),
-// so the server still listens and the UI honestly shows the down state. `kaval`
-// serves its own socket, which `kaval-tui` now reaches with no `--socket` flag.
-await ensureLocalEndpoint({ onStatus: publishDaemonStatus });
+// and becomes its client. The daemon's socket is namespaced by THIS server's
+// listen port (`kaval-<port>`), so a second kolu-server — a dev instance, a
+// second worktree, a bug-repro `kolu` on another port — owns a separate daemon
+// and the boot recycle can never reach across instances to kill this one's.
+// Awaited before the HTTP server starts so no terminal RPC can race an unready
+// endpoint; a boot failure reports `dead` (not a crash), so the server still
+// listens and the UI honestly shows the down state.
+await ensureLocalEndpoint({ port, onStatus: publishDaemonStatus });
 
 // --- TLS setup ---
-const { host, port } = argv.flags;
 const tlsOptions = await resolveTlsOptions(argv.flags);
 
 // --- Start server ---

@@ -5,21 +5,33 @@
 #
 # Imported from the root flake.nix and exposed as packages.${system}.website.
 # Reuses the root's npins-pinned nixpkgs (via ../nix/nixpkgs.nix) so there's
-# no duplicate pin to keep in sync. `src` is optional — when omitted, a
-# self-contained fileset is built from ./; the root flake passes a
-# synthesized src that resolves the favicon symlink.
+# no duplicate pin to keep in sync. `src` is optional and self-contained — it
+# resolves the public/ asset symlinks (see below), so the root flake just does
+# `import ./website { inherit pkgs; }` with no synthesis of its own.
 { pkgs ? import ../nix/nixpkgs.nix { }
-, src ? pkgs.lib.fileset.toSource {
-    root = ./.;
-    fileset = pkgs.lib.fileset.unions [
-      ./package.json
-      ./pnpm-lock.yaml
-      ./tsconfig.json
-      ./astro.config.mjs
-      ./src
-      ./public
-    ];
-  }
+, src ? # Self-contained website source for the Nix sandbox. The working tree keeps
+  # public/{favicon,kaval-logo}.svg as symlinks into packages/ (one SVG each
+  # on disk, no duplicated bytes) — but those dangle once copied into the
+  # store, so resolve them to real bytes here. Astro/Vite then sees a
+  # complete tree. Add a line per new out-of-tree public/ asset.
+  pkgs.runCommand "kolu-website-src" { } ''
+    cp -r ${pkgs.lib.fileset.toSource {
+      root = ./.;
+      fileset = pkgs.lib.fileset.unions [
+        ./package.json
+        ./pnpm-lock.yaml
+        ./tsconfig.json
+        ./astro.config.mjs
+        ./src
+        ./public
+      ];
+    }} $out
+    chmod -R u+w $out
+    rm -f $out/public/favicon.svg
+    cp ${../packages/client/favicon.svg} $out/public/favicon.svg
+    rm -f $out/public/kaval-logo.svg
+    cp ${../packages/kaval/logo.svg} $out/public/kaval-logo.svg
+  ''
 }:
 let
   # Single source for the website version — its own package.json (no literal to

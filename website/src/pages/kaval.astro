@@ -1,0 +1,295 @@
+---
+/**
+ * kolu.dev/kaval — quick reference for kaval (the PTY daemon) and kaval-tui
+ * (its terminal client), beta.
+ *
+ * Deliberately UNLISTED: linked from nowhere on the site, excluded from the
+ * sitemap (astro.config.mjs), and noindex'd below — it's a URL you hand to
+ * someone trying the beta, not a navigation destination. Flip those three
+ * switches together when the pair graduates.
+ *
+ * /tui redirects here (see astro.config.mjs) — the old name from before the
+ * daemon (kaval) and its client (kaval-tui) were named apart.
+ */
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const commands = [
+  {
+    cmd: "kaval-tui list",
+    flags: "--json",
+    what: "One row per live terminal — id · pid · idle · cmd · cwd. --json emits a top-level array for jq.",
+  },
+  {
+    cmd: "kaval-tui snapshot <id>",
+    flags: "",
+    what: "Print a terminal's current scrollback as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean).",
+  },
+  {
+    cmd: "kaval-tui attach <id>",
+    flags: "--escape <char>",
+    what: "Take the terminal over, full screen. Raw passthrough — every keystroke and chord reaches the inner program; your window size follows along. Detach with the escape below.",
+  },
+];
+
+const escapes = [
+  { keys: "~.", what: "detach — kaval-tui exits, the daemon keeps the terminal; re-attach anytime" },
+  { keys: "~~", what: "send one literal ~ to the shell" },
+  { keys: "~?", what: "show this escape help" },
+];
+---
+
+<BaseLayout
+  title="kaval"
+  description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, snapshot, and attach to your terminals from the shell."
+>
+  <meta name="robots" content="noindex" slot="head" />
+
+  <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-10">
+    {/* Warning orange (--color-brand-amber), NOT the site accent: the
+        `amber` token is the purple brand accent, and an alpha warning must
+        read as a warning. */}
+    <div
+      class="mb-8 flex items-start gap-3 border border-brand-amber/50 bg-brand-amber/10 rounded-lg px-4 py-3 max-w-xl"
+    >
+      <svg
+        class="mt-0.5 h-5 w-5 shrink-0 text-brand-amber"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+        ></path>
+        <line x1="12" y1="9" x2="12" y2="13"></line>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+      <p class="mono text-sm text-ink leading-relaxed">
+        <span class="text-brand-amber font-semibold">alpha</span> — kaval and
+        kaval-tui are an early preview. Commands, flags, and output formats{" "}
+        <span class="text-ink">will change</span> before they're finalized for
+        production use; don't script against them yet.
+      </p>
+    </div>
+    <div class="flex items-start justify-between gap-6">
+      <div>
+        <p class="eyebrow mb-4">the PTY daemon &amp; its client · alpha</p>
+        <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
+          a watch over<br />your <span class="text-amber">terminals</span>.
+        </h1>
+      </div>
+      <img
+        src="/kaval-logo.svg"
+        width="120"
+        height="120"
+        alt="kaval — a watch over your terminals: three PTYs owned by one daemon, above காவல் (Tamil: watch, guard)"
+        class="hidden md:block w-28 shrink-0 rounded-2xl"
+      />
+    </div>
+    <p class="mt-6 text-ink-dim max-w-xl leading-relaxed">
+      <code class="mono text-ink">kaval</code> (Tamil <em>kāval</em> — watch,
+      guard; said <span class="text-ink">KAH-val</span>, the first <em>a</em>{" "}
+      long, as in <em>father</em>) is a small, standalone PTY daemon: it owns
+      your shells, mirrors
+      their screens, and serves them over a local unix socket — outliving the
+      clients that come and go.{" "}
+      <code class="mono text-ink">kaval-tui</code> is its terminal client: list
+      your shells, dump their scrollback, or attach and type. Run the pair on a
+      box where kolu has never been installed — a tmux/zellij-shaped duo, minus
+      the multiplexer's session model.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">run the pair</p>
+    <ol class="space-y-6 max-w-xl">
+      <li class="grid grid-cols-[1.6rem_1fr] gap-3">
+        <span class="mono text-amber text-sm pt-0.5">1</span>
+        <div>
+          <p class="text-ink-dim text-sm leading-relaxed">
+            Start the daemon. It claims its socket and stands watch — leave it
+            running in a pane, a service, wherever.
+          </p>
+          <p class="mono text-ink-faint text-sm leading-relaxed mt-2">
+            <code class="text-ink">nix run github:juspay/kolu#kaval</code>
+          </p>
+        </div>
+      </li>
+      <li class="grid grid-cols-[1.6rem_1fr] gap-3">
+        <span class="mono text-amber text-sm pt-0.5">2</span>
+        <div>
+          <p class="text-ink-dim text-sm leading-relaxed">
+            Drive it from any other shell. kaval-tui finds the running daemon on
+            its own — no socket path to remember.
+          </p>
+          <p class="mono text-ink-faint text-sm leading-relaxed mt-2">
+            <code class="text-ink"
+              >nix run github:juspay/kolu#kaval-tui -- list</code
+            >
+            <br />
+            <code class="text-ink"
+              >nix run github:juspay/kolu#kaval-tui -- attach &lt;id&gt;</code
+            >
+          </p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">drive a running kolu</p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+      kolu doesn't run terminals in-process anymore — it spawns a kaval daemon
+      of its own and is just another client of it. So the same{" "}
+      <code class="mono text-ink">kaval-tui</code> reaches the terminals you have
+      open in kolu, from the shell, with <span class="text-ink">no flags</span>:
+    </p>
+    <p class="mono text-ink-faint text-sm leading-relaxed mt-4 max-w-xl">
+      <code class="text-ink">kaval-tui list</code>
+      <span class="text-ink-faint"> # the terminals open in your kolu</span>
+      <br />
+      <code class="text-ink">kaval-tui snapshot &lt;id&gt; | grep BUILD-</code>
+    </p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mt-4">
+      kaval-tui discovers the daemon by scanning the per-user runtime dir — both
+      a standalone <code class="mono text-ink">kaval</code> and every kolu (each
+      kolu-server namespaces its daemon by listen port). One running → it's
+      picked automatically. More than one → kaval-tui lists them and asks you to
+      choose with <code class="mono text-ink">--socket &lt;path&gt;</code>.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">what kaval owns</p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+      Under the daemon sits a single primitive — a multi-client PTY owner. One
+      host owns any number of PTYs; each PTY is a real shell child paired with a
+      headless screen mirror, fanned out to any number of consumers. It owns{" "}
+      <span class="text-ink">only</span> the PTY: it knows nothing about git,
+      pull requests, agent detection, or any wire protocol — those compose on
+      top. The same primitive backs kolu's terminals; kaval just serves it over
+      a socket.
+    </p>
+    <div class="mt-5 grid sm:grid-cols-2 gap-x-8 gap-y-5">
+      <div>
+        <p class="mono text-ink text-sm mb-1.5">race-free attach</p>
+        <p class="text-ink-dim text-sm leading-relaxed">
+          A late-joining client gets a screen snapshot and then live deltas with
+          no gap and no overlap — every byte lands in exactly one of the two, so
+          the screen reconstructs perfectly and then streams.
+        </p>
+      </div>
+      <div>
+        <p class="mono text-ink text-sm mb-1.5">drop-slow-subscriber</p>
+        <p class="text-ink-dim text-sm leading-relaxed">
+          A wedged client that stops draining its output is dropped rather than
+          pinning the daemon's memory without bound — kaval-tui then transparently
+          re-subscribes and gets a fresh snapshot.
+        </p>
+      </div>
+    </div>
+    <div class="mt-6 grid grid-cols-[7rem_1fr] gap-x-6 gap-y-2.5 max-w-xl">
+      <p class="eyebrow !mb-0 col-span-2">taps kaval surfaces per terminal</p>
+      <code class="mono text-ink text-sm">screen</code>
+      <p class="text-ink-dim text-sm leading-relaxed">snapshot + live deltas</p>
+      <code class="mono text-ink text-sm">cwd</code>
+      <p class="text-ink-dim text-sm leading-relaxed">from OSC 7 reports</p>
+      <code class="mono text-ink text-sm">title</code>
+      <p class="text-ink-dim text-sm leading-relaxed">from OSC 0/2 changes</p>
+      <code class="mono text-ink text-sm">command</code>
+      <p class="text-ink-dim text-sm leading-relaxed">from OSC 633 preexec</p>
+      <code class="mono text-ink text-sm">exit</code>
+      <p class="text-ink-dim text-sm leading-relaxed">the child's exit code</p>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">commands · kaval-tui</p>
+    {
+      commands.map((c) => (
+        <div class="border-t border-rule py-5 grid md:grid-cols-[16rem_1fr] gap-2 md:gap-8">
+          <div>
+            <code class="mono text-ink text-sm">{c.cmd}</code>
+            {c.flags && (
+              <div class="mono text-ink-faint text-xs mt-1">{c.flags}</div>
+            )}
+          </div>
+          <p class="text-ink-dim text-sm leading-relaxed">{c.what}</p>
+        </div>
+      ))
+    }
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">detaching — the ssh model</p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+      While attached, <em>nothing</em> is intercepted except a{" "}
+      <code class="mono text-ink">~</code> typed at the start of a line
+      (right after Enter — session start counts too). Mid-line tildes, every
+      Ctrl chord, and pasted text all pass straight through, so the program
+      inside never loses a key.
+    </p>
+    <div class="mt-5">
+      {
+        escapes.map((e) => (
+          <div class="border-t border-rule py-3.5 grid grid-cols-[5rem_1fr] gap-6">
+            <code class="mono text-amber text-sm">{e.keys}</code>
+            <p class="text-ink-dim text-sm leading-relaxed">{e.what}</p>
+          </div>
+        ))
+      }
+    </div>
+    <p class="mono text-ink-faint text-sm leading-relaxed mt-5">
+      // ~ clashes (nested ssh?) — rebind it:{" "}
+      <code class="text-ink">kaval-tui attach &lt;id&gt; --escape %</code>
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-24">
+    <p class="eyebrow mb-5">fine print</p>
+    <ul class="text-ink-dim text-sm leading-relaxed max-w-xl space-y-3">
+      <li>
+        A standalone kaval's socket lives at{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR/kaval/pty-host.sock</code>{" "}
+        (or{" "}
+        <code class="mono text-ink">/tmp/kaval-$UID/pty-host.sock</code> when{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR</code> is unset) and appears
+        when the daemon boots. <code class="mono text-ink">--socket</code> goes{" "}
+        <span class="text-ink">after the subcommand</span> (
+        <code class="mono text-ink">kaval-tui list --socket …</code>).
+      </li>
+      <li>
+        kolu's daemon is namespaced by listen port —{" "}
+        <code class="mono text-ink">$XDG_RUNTIME_DIR/kaval-&lt;port&gt;/pty-host.sock</code>{" "}
+        — so two kolus on one box never collide. kaval-tui's auto-discovery walks
+        all of them; pass <code class="mono text-ink">--socket</code> only to
+        disambiguate when several daemons are up.
+      </li>
+      <li>
+        Detach is <span class="text-ink">client-side</span>: kaval-tui can come
+        and go while the daemon holds the terminal. Restarting the daemon
+        itself still ends its terminals — that persistence is later work.
+      </li>
+      <li>
+        When the program inside exits, kaval-tui exits with the same code.
+        An unreachable daemon is a one-line error, never a hang.
+      </li>
+      <li>
+        Next up: <code class="mono text-ink">spawn</code> and{" "}
+        <code class="mono text-ink">kill</code> — creating and ending
+        terminals from the shell.
+      </li>
+      <li>
+        The full design — architecture, phasing, and the decisions behind the
+        escape model — lives in the{" "}
+        <a
+          href="https://htmlpreview.github.io/?https://github.com/juspay/kolu/blob/master/docs/atlas/dist/pty-daemon.html"
+          class="text-amber hover:underline"
+          rel="noopener">kaval atlas note</a
+        >.
+      </li>
+    </ul>
+  </section>
+</BaseLayout>

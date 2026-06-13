@@ -91,4 +91,10 @@ export {
 // The well-known unix-socket path the pty-host is served on (kolu-server) and
 // connected to (kaval-tui) — one resolver both packages share so the default
 // path can never drift between them.
-export { getPtyHostSocketPath } from "./socketPath.ts";
+export {
+  discoverPtyHostSockets,
+  getPtyHostSocketPath,
+  KAVAL_NS_PREFIX,
+  kavalNamespace,
+  PTY_HOST_SOCK_FILE,
+} from "./socketPath.ts";

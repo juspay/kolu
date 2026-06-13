@@ -14,7 +14,7 @@
 import { dirname, join } from "node:path";
 import { type DaemonExit, daemonMain, type Logger } from "@kolu/surface-daemon";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
-import { getPtyHostSocketPath } from "./socketPath.ts";
+import { getPtyHostSocketPath, KAVAL_NS_PREFIX } from "./socketPath.ts";
 
 export interface KavalDaemonOptions {
   /** Override the default socket path (`--socket`). The gate and rcDir are
@@ -37,7 +37,7 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   // default (`getPtyHostSocketPath(undefined, "kaval")`) reaches it with no
   // flags. The gate and the per-PTY init-file dir sit beside the socket in the
   // same private (0700) directory.
-  const socketPath = getPtyHostSocketPath(opts.socketOverride, "kaval");
+  const socketPath = getPtyHostSocketPath(opts.socketOverride, KAVAL_NS_PREFIX);
   const dir = dirname(socketPath);
   const gatePath = join(dir, "kaval.pid");
   const rcDir = join(dir, "rc");

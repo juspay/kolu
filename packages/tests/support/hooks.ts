@@ -580,6 +580,11 @@ async function startServerChild(koluServer: string): Promise<void> {
           // Per-worker runtime dir → an isolated kaval socket + gate, so
           // parallel workers' daemons never collide on the shared path.
           XDG_RUNTIME_DIR: runtimeDir,
+          // Pin the kaval rendezvous explicitly (the override wins over the
+          // server's per-port default), so the harness owns the exact gate path
+          // `killKavalDaemon` reaps — `runtimeDir/kaval/{pty-host.sock,kaval.pid}`
+          // — independent of the listen port or the default keying scheme.
+          KOLU_KAVAL_SOCKET: path.join(runtimeDir, "kaval", "pty-host.sock"),
           // Force a detached kaval spawn: e2e reaps the daemon itself and may
           // run on a box with no systemd user session (where the production
           // `systemd-run --user` path would fail).

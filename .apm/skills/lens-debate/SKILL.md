@@ -157,10 +157,12 @@ three phases the user can watch via `/workflows`:
   means both lenses agree on the disposition *and* the plan — if they both say
   `fix` but propose different changes, the finding stays open until the plans
   converge too (so Apply never picks one lens's plan arbitrarily).
-- **Apply** — one `apply:<finding-id>` per agreed `fix`, each followed (unless
-  `--no-commit`) by a `commit:<finding-id>` that commits **exactly** that fix's
-  changed files with a message carrying the debate context. Skipped wholesale
-  under `--no-apply` — the plans come back in `fixes` for the caller to apply.
+- **Apply** — a single `apply:all` agent implements **every** agreed `fix` in one
+  session and (unless `--no-commit`) commits each one individually, staging
+  **exactly** that fix's changed files with a message carrying the debate context.
+  One orientation for all fixes instead of a fresh implement+commit agent per
+  finding. Skipped wholesale under `--no-apply` — the plans come back in `fixes`
+  for the caller to apply.
 
 When `rationale` is set, pull it from the PR/issue description (the deliberate
 design decisions the author wants the lenses to respect, e.g. a deliberate
@@ -171,11 +173,12 @@ Ephemeral scratch (commit-message files) lives under the gitignored, per-worktre
 collide and the scratch never shows up in the diff the lenses review. It returns:
 
 ```
-{ status: "consensus" | "unresolved" | "clean",
+{ status: "consensus" | "apply-incomplete" | "unresolved" | "clean",
   rounds, base, withPolice,
   settled,     // per-finding: id, origin, title, location, agreed disposition, plan, both reasonings
   unresolved,  // findings still contested at the backstop (empty on consensus)
   applied,     // [{ id, title, files, commit }] (empty under --no-apply)
+  applyGaps,   // [{ id, reason }] agreed fixes that didn't cleanly land — empty unless status is "apply-incomplete"
   fixes,       // the agreed `fix` findings with converged plans — the caller's change requests under --no-apply
   reviews,     // each lens's independent findings
   history,     // per-round dispositions
@@ -184,6 +187,14 @@ collide and the scratch never shows up in the diff the lenses review. It returns
 
 - **consensus** — every finding settled (the normal outcome).
 - **clean** — every lens found nothing worth raising.
+- **apply-incomplete** — the lenses *converged*, but the Apply phase didn't land
+  every agreed fix cleanly: a fix was **missing from the apply agent's output**
+  (so we can't confirm it was applied) or, in commit mode, was **changed but
+  returned no commit SHA** (its per-fix commit didn't land). The offending fixes
+  are in `applyGaps`. Any edits present stay in the working tree, but this is
+  **not** a clean consensus — surface the gap and reconcile it (re-apply or commit
+  the outstanding fix) before relying on the per-fix history. Do **not** report it
+  as a plain consensus.
 - **unresolved** — the backstop was hit with findings still contested. Rare;
   needs a human. This is NOT a deadlock — the lenses simply didn't converge in
   the round budget; raise `--max-rounds` or adjudicate the listed findings.
@@ -205,7 +216,7 @@ branch for the human to review):
   `comment`** verbatim — write it to a file and `gh pr comment <pr> -F <file>`:
 
   ```bash
-  mkdir -p "$repoPath/.lens-debate"   # clean/all-drop/--no-commit runs never hit commitFix, so the dir may not exist yet
+  mkdir -p "$repoPath/.lens-debate"   # clean/all-drop/--no-commit runs never run the Apply commit step, so the dir may not exist yet
   printf '%s' "$comment" > "$repoPath/.lens-debate/comment.md"
   gh pr comment <pr> -F "$repoPath/.lens-debate/comment.md"
   ```
@@ -222,7 +233,8 @@ branch for the human to review):
 
 - **The lenses are read-only reviewers; only the Apply phase writes.** lowy and
   hickey never edit code — they only emit dispositions. The sole writes to the
-  tree come from the `apply:` agents implementing the *agreed* fixes.
+  tree come from the single `apply:all` agent implementing the *agreed* fixes
+  (one session, one commit per finding) — not one agent per fix.
 - **Commits, but never pushes or merges.** Each agreed fix is committed locally
   (unless `--no-commit`) so the PR history reads as the debate's conclusions, but
   the skill never pushes or merges. Consensus means "both lenses agree on the
