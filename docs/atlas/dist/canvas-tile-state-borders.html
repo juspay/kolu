@@ -1,0 +1,501 @@
+<!DOCTYPE html><html lang="en" data-theme="light"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Canvas tiles that show their state — border prototypes · the kolu Atlas</title><meta name="description" content="Five terminals on the canvas; which one needs you? Surface each session's run-state on the tile border itself — a loudness ladder ranked by attention (alert ▸ fresh-waiting ▸ working ▸ stale-waiting ▸ idle), where &quot;waiting&quot; cools with last-activity age via kolu's existing activity-window. Four live, animated visual languages to choose from."><meta name="generator" content="Astro v6.4.3"><meta name="color-scheme" content="light"><style>:root{--paper: #f6f7f9;--surface: #ffffff;--ink: #1a1c20;--ink-dim: #3f444b;--ink-muted: #6b7178;--ink-faint: #9aa0a6;--rule: #e3e6ea;--rule-soft: #eceef1;--amber: #b4690e;--amber-soft: #f0e2c8;--teal: #0b6478;--green: #1b7a3a;--gold: #8a5200;--alert: #b42318;--code-bg: #eef1f4;--sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0}.atlas-title{font-family:var(--serif);font-size:clamp(2.6rem,6vw,3.6rem);line-height:1.05;letter-spacing:-.01em;font-weight:600;margin:.6rem 0 0}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;font-family:var(--mono);font-size:.66rem;color:var(--ink-muted);margin:.7rem 0 0}.legend-item{display:inline-flex;align-items:center;gap:.4em}.legend-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.cat{margin:2.4rem 0 0}.cat-bug{--cat-color: var(--alert)}.cat-feature{--cat-color: var(--teal)}.cat-analysis{--cat-color: var(--gold)}.cat-reference{--cat-color: var(--ink-muted)}.cat-head{display:flex;align-items:baseline;gap:.55rem;padding-bottom:.45rem;border-bottom:1px solid var(--rule)}.cat-bar{align-self:center;flex:none;width:9px;height:9px;border-radius:3px;background:var(--cat-color)}.cat-title{font-family:var(--serif);font-size:1.35rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin:0}.cat-count{font-family:var(--mono);font-size:.7rem;color:var(--ink-faint)}.cat-blurb{margin-left:auto;font-size:.8rem;color:var(--ink-muted)}.cat .moc{margin-top:.55rem}.moc{list-style:none;margin:1.5rem 0 0;padding:0}.moc-sub{list-style:none;margin:.05rem 0 .2rem .55rem;padding-left:.8rem;border-left:1px solid var(--rule)}.row{display:flex;align-items:center;gap:.5rem;padding:.22rem .45rem;border-radius:6px;line-height:1.3}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{flex:none;width:7px;height:7px;border-radius:50%}.row-t{color:var(--ink);font-weight:600;font-size:.95rem;white-space:nowrap;flex:none}.row-d{color:var(--ink-muted);font-size:.84rem;flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row-rel{margin:.02rem 0 .18rem 1.55rem;font-family:var(--mono);font-size:.64rem;color:var(--ink-faint)}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);font-size:.56rem;letter-spacing:.08em;text-transform:uppercase;flex:none}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;color:var(--ink-muted)}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);font-size:clamp(2.1rem,5vw,3rem);line-height:1.08;letter-spacing:-.01em;font-weight:600;margin:1.6rem 0 0}.meta-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-top:1.1rem}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{display:flex;justify-content:space-between;margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule)}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);font-size:1.6rem;color:var(--ink);font-weight:600;letter-spacing:-.01em;margin:2.6rem 0 .8rem}.prose h3{font-family:var(--serif);font-size:1.25rem;color:var(--ink);font-weight:600;margin:2rem 0 .6rem}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.prose code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;margin:0 0 1.3rem}.prose pre code{background:none;border:0;padding:0;font-size:.82rem}.prose blockquote{margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem;border-left:3px solid var(--amber-soft);color:var(--ink-dim)}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 1.4rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;padding:.55rem .7rem;border:1px solid var(--rule);vertical-align:top}.prose th{background:var(--rule-soft);font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-weight:600}.pill[data-astro-cid-2qeywk4b]{display:inline-block;font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;padding:.1em .5em;border-radius:999px;vertical-align:middle}.toc[data-astro-cid-6t6zfk7k]{margin:1.8rem 0;padding:.9rem 1.1rem;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}.toc-title[data-astro-cid-6t6zfk7k]{margin:0 0 .5rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted)}.d2[data-astro-cid-ildmikun]{margin:1.75rem 0;text-align:center}.d2[data-astro-cid-ildmikun] svg{max-width:100%;height:auto}.d2[data-astro-cid-ildmikun] figcaption[data-astro-cid-ildmikun]{margin-top:.5rem;font-size:.8rem;color:var(--faint, #7a8089);font-family:var(--sans, ui-sans-serif, system-ui)}.toc-list[data-astro-cid-lht5lwky]{list-style:none;margin:0;padding:0}.toc-item[data-astro-cid-lht5lwky]{margin:.2rem 0}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{color:var(--ink-dim);text-decoration:none;font-size:.92rem}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]:hover{color:var(--amber)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky]{margin:.15rem 0 .35rem .2rem;padding-left:.8rem;border-left:1px solid var(--rule)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{font-size:.85rem;color:var(--ink-muted)}.cite[data-astro-cid-lwmcem6b]{font-family:var(--mono);font-size:.85em;color:var(--ink);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.04em .35em;text-decoration:none;white-space:nowrap}.cite[data-astro-cid-lwmcem6b]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-mrmim4ef]{margin:1.4rem 0;padding:.85rem 1.1rem;border:1px solid var(--rule);border-left-width:3px;border-radius:8px;background:var(--surface)}.callout-title[data-astro-cid-mrmim4ef]{margin:0 0 .4rem;font-weight:650;font-size:.82rem;letter-spacing:.02em;color:var(--ink)}.callout-body[data-astro-cid-mrmim4ef]>:first-child{margin-top:0}.callout-body[data-astro-cid-mrmim4ef]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-mrmim4ef]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-mrmim4ef]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-mrmim4ef]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-mrmim4ef]{border-left-color:#b8860b;background:#fbf6e8}.callout-danger[data-astro-cid-mrmim4ef]{border-left-color:var(--alert);background:#fcf0ef}</style></head> <body>  <article class="wrap"> <header> <a class="backlink" href="./index.html">← the Atlas</a> <h1 class="note-h1">Canvas tiles that show their state — border prototypes</h1> <div class="meta-row"> <span>feature</span> <span class="meta-sep">·</span> <span>seedling</span> <span class="meta-sep">·</span><span>implemented</span>  <span class="meta-sep">·</span><time datetime="2026-06-13T00:00:00.000Z">JUN 13, 2026</time> </div> <p class="note-sub">Five terminals on the canvas; which one needs you? Surface each session&#39;s run-state on the tile border itself — a loudness ladder ranked by attention (alert ▸ fresh-waiting ▸ working ▸ stale-waiting ▸ idle), where &quot;waiting&quot; cools with last-activity age via kolu&#39;s existing activity-window. Four live, animated visual languages to choose from.</p> <nav class="toc" aria-label="Table of contents" data-astro-cid-6t6zfk7k><p class="toc-title" data-astro-cid-6t6zfk7k>Contents</p><ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-attention-ladder" data-astro-cid-lht5lwky>The attention ladder</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#waiting-cools-as-it-ages" data-astro-cid-lht5lwky>Waiting cools as it ages</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-active-tile--where-focus-meets-the-ladder" data-astro-cid-lht5lwky>The active tile — where focus meets the ladder</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#prototypes" data-astro-cid-lht5lwky>Prototypes</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#a--halo-recommended" data-astro-cid-lht5lwky>A — Halo (recommended)</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#b--live-border" data-astro-cid-lht5lwky>B — Live border</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#c--run--sweep-refined-motion-is-the-state-colour-is-the-terminal" data-astro-cid-lht5lwky>C — Run / sweep (refined): motion is the state, colour is the terminal</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#d--top-bar-reads-at-any-zoom" data-astro-cid-lht5lwky>D — Top bar (reads at any zoom)</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#open-decisions" data-astro-cid-lht5lwky>Open decisions</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#working-color--rust-not-teal" data-astro-cid-lht5lwky>Working color — rust, not teal</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#motion--needs-you-working-stays-steady" data-astro-cid-lht5lwky>Motion = needs-you (working stays steady)</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-decay-curve--threshold" data-astro-cid-lht5lwky>The decay curve &amp; threshold</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-active-tiles-aura--mute-or-suppress" data-astro-cid-lht5lwky>The active tile’s aura — mute or suppress</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#idle--done-settings-reduced-motion" data-astro-cid-lht5lwky>Idle / done, settings, reduced motion</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#how-it-wires-in" data-astro-cid-lht5lwky>How it wires in</a>  </li> </ul></nav> </header> <div class="prose"> <p>With five terminals open on the canvas it’s hard to tell at a glance which one is
+<em>thinking</em>, which is <em>waiting for you</em>, and which just <em>pinged you and you missed
+it</em>. That state already exists — it shows as a label in each tile’s title bar
+(<code>Thinking</code>, <code>Waiting for input</code>, <code>Running in background</code>) and as colored dots in
+the dock. But reading a title bar isn’t a glance, and you’re looking at the
+<strong>terminals</strong>, not the dock. So put the signal on the <strong>tile border</strong>, where
+peripheral vision can catch it across the whole canvas.</p>
+<aside class="callout callout-note" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>The ask</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Make running terminals visually distinct on the canvas. An <strong>animating border</strong>
+for ones that are working, a <strong>throbbing border</strong> for ones with a fresh alert,
+and <strong>some other border</strong> for ones that are waiting on you — so a sweep of the
+eye tells you the state of the fleet without reading anything.</p></div> </aside>
+<p>This note is a <strong>chooser</strong>: four animated border languages rendered live below,
+each across the full attention ladder — which is <em>ranked</em> (some tiles matter more
+than others) and <em>time-aware</em> (a “waiting” tile cools as it ages) — plus the
+secondary decisions (color, motion, decay, settings). Pick a language and the open
+decisions, and it ships on the <code>throbborder</code> branch.</p>
+
+
+
+<style>
+  .tb-canvas{background:#0c0c0e;border:1px solid #27272c;border-radius:12px;padding:1.15rem 1rem .95rem;margin:1.2rem 0;--rust:#d97757;--violet:#a78bfa;--teal:#5a9ea0;--repo:#5b6470;}
+  .tb-canvas .lead{font:600 .68rem/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;margin:0 0 .85rem .1rem}
+  .tb-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.9rem}
+  @media (max-width:640px){.tb-grid{grid-template-columns:repeat(2,1fr)}}
+  .tb-cell{display:flex;flex-direction:column;gap:.45rem}
+  .tb-tile{position:relative;height:82px;border-radius:9px;border:1.5px solid var(--repo);background:#161618;overflow:hidden;transition:box-shadow .2s}
+  .tb-titlebar{display:flex;align-items:center;gap:.4rem;padding:.34rem .52rem;background:rgba(228,228,232,.06);border-bottom:1px solid rgba(228,228,232,.08)}
+  .tb-dot{width:7px;height:7px;border-radius:50%;background:var(--repo);flex:none}
+  .tb-name{font:600 .56rem/1 ui-monospace,monospace;color:#9aa0aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tb-body{padding:.5rem .55rem;font:.62rem/1.35 ui-monospace,monospace;color:#9aa0aa}
+  .tb-caption{font:600 .62rem/1.25 ui-sans-serif,system-ui;color:#8b929d;text-align:center}
+  .tb-caption b{color:#c7ccd6}
+
+  /* title dot/name carry the state tone, in every language */
+  .tb-working .tb-dot{background:var(--rust)} .tb-working .tb-name{color:#c69b86}
+  .tb-waiting .tb-dot,.tb-alert .tb-dot{background:var(--violet)}
+  .tb-waiting .tb-name,.tb-alert .tb-name{color:#b3a8d6}
+
+  /* ── A · HALO — outer glow; loudness tracks the attention rank, motion = "needs you" ── */
+  /* rank 3 · working — steady rust hum, no motion */
+  .lang-halo .tb-working{box-shadow:0 0 0 1px color-mix(in oklch,var(--rust) 38%,transparent),0 0 13px -4px color-mix(in oklch,var(--rust) 72%,transparent)}
+  /* rank 2 · waiting (fresh) — brighter violet, gentle slow breathe */
+  .lang-halo .tb-waiting{animation:tb-wait-breathe 2.4s ease-in-out infinite}
+  @keyframes tb-wait-breathe{0%,100%{box-shadow:0 0 0 1px color-mix(in oklch,var(--violet) 52%,transparent),0 0 14px -4px color-mix(in oklch,var(--violet) 58%,transparent)}50%{box-shadow:0 0 0 1.5px color-mix(in oklch,var(--violet) 88%,transparent),0 0 23px -2px var(--violet)}}
+  /* rank 4 · waiting (stale / parked) — dim violet ember, static, below the working hum */
+  .lang-halo .tb-waitingstale{box-shadow:0 0 0 1px color-mix(in oklch,var(--violet) 20%,transparent),0 0 8px -5px color-mix(in oklch,var(--violet) 36%,transparent)}
+  /* rank 1 · alert — fast throb + expanding halo, brightest */
+  .lang-halo .tb-alert{animation:tb-halo-throb 1.2s ease-in-out infinite}
+  @keyframes tb-halo-throb{0%,100%{box-shadow:0 0 0 1px var(--violet),0 0 0 0 color-mix(in oklch,var(--violet) 55%,transparent),0 0 14px -3px var(--violet)}50%{box-shadow:0 0 0 1.5px var(--violet),0 0 0 6px color-mix(in oklch,var(--violet) 16%,transparent),0 0 26px -1px var(--violet)}}
+
+  /* ── B · LIVE BORDER — the border line itself takes the state color ── */
+  .lang-border .tb-working{border-color:var(--rust)}
+  .lang-border .tb-waiting{animation:tb-bord-wait 2.4s ease-in-out infinite}
+  @keyframes tb-bord-wait{0%,100%{border-color:color-mix(in oklch,var(--violet) 55%,#161618)}50%{border-color:var(--violet)}}
+  .lang-border .tb-alert{animation:tb-bord-throb 1.2s ease-in-out infinite}
+  @keyframes tb-bord-throb{0%,100%{border-color:color-mix(in oklch,var(--violet) 50%,#161618);box-shadow:0 0 0 0 transparent}50%{border-color:var(--violet);box-shadow:0 0 0 2px color-mix(in oklch,var(--violet) 24%,transparent)}}
+
+  /* ── C · RUN / SWEEP (refined) — motion TYPE + SPEED carry the state, so the
+     COLOUR is the terminal's own (--tile-c). Working "runs" (a long soft glow
+     circulates, calm); needs-you "sweeps" (a sharp comet orbits) and its SPEED is
+     the urgency: fastest on alert, slower on fresh-waiting, slower still as it
+     goes stale. Louder states also brighten/saturate the SAME tile colour. Ring
+     via the conic-mask trick. ── */
+  @keyframes tb-spin{to{transform:rotate(1turn)}}
+  .lang-runsweep .tb-tile{border-color:color-mix(in oklch,var(--tile-c) 42%,#161618)}
+  .lang-runsweep .tb-dot{background:var(--tile-c)}
+  .lang-runsweep .tb-name{color:color-mix(in oklch,var(--tile-c) 62%,#9aa0aa)}
+  /* working — RUNS as MARCHING ANTS: a dashed outline streams round all four
+     edges (4 edge-gradients whose background-position animates), tile colour. */
+  @keyframes tb-ants{to{background-position:10px 0,-10px 100%,0 -10px,100% 10px}}
+  .lang-runsweep .tb-working::after{content:"";position:absolute;inset:0;border-radius:9px;pointer-events:none;background-image:linear-gradient(90deg,var(--tile-c) 50%,transparent 0),linear-gradient(90deg,var(--tile-c) 50%,transparent 0),linear-gradient(0deg,var(--tile-c) 50%,transparent 0),linear-gradient(0deg,var(--tile-c) 50%,transparent 0);background-repeat:repeat-x,repeat-x,repeat-y,repeat-y;background-size:10px 1.6px,10px 1.6px,1.6px 10px,1.6px 10px;background-position:0 0,0 100%,0 0,100% 0;animation:tb-ants .6s linear infinite}
+  /* needs-you — SWEEPS: a sharp comet via the conic-mask ring; SPEED = urgency */
+  .lang-runsweep .tb-waiting::after,.lang-runsweep .tb-waitingstale::after,.lang-runsweep .tb-alert::after{content:"";position:absolute;inset:0;border-radius:9px;padding:1.7px;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;pointer-events:none}
+  .lang-runsweep .tb-alert::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 30deg,transparent 80deg,transparent 360deg);filter:brightness(1.6) saturate(1.7);animation:tb-spin 1s linear infinite}
+  .lang-runsweep .tb-waiting::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 36deg,transparent 92deg,transparent 360deg);filter:brightness(1.3) saturate(1.35);animation:tb-spin 2.1s linear infinite}
+  .lang-runsweep .tb-waitingstale::after{background:conic-gradient(from 0deg,transparent 0deg,var(--tile-c) 34deg,transparent 90deg,transparent 360deg);filter:brightness(.95) saturate(.85);animation:tb-spin 3.8s linear infinite}
+
+  /* ── D · TOP BAR — a thin status bar on the top edge; reads at any zoom (canvas + minimap) ── */
+  .lang-bar .tb-tile::after{content:"";position:absolute;top:0;left:0;height:2.5px;width:100%;pointer-events:none;background:transparent}
+  .lang-bar .tb-working::after{background:var(--rust)}                                          /* rank 3 — steady rust hum */
+  .lang-bar .tb-waiting::after{background:var(--violet);animation:tb-bar-pulse 2.4s ease-in-out infinite}  /* rank 2 — gentle pulse */
+  @keyframes tb-bar-pulse{0%,100%{opacity:.55}50%{opacity:1}}
+  .lang-bar .tb-alert::after{background:var(--violet);animation:tb-bar-blink 1.2s ease-in-out infinite}    /* rank 1 — sharper blink */
+  @keyframes tb-bar-blink{0%,100%{opacity:1}50%{opacity:.28}}
+
+  /* the same top-bar language at MINIMAP scale — markers carry a top edge, not a corner dot */
+  .mm-panel{position:relative;width:248px;height:150px;margin:.2rem auto 0;background:#0c0c0e;border:1px solid #27272c;border-radius:9px;overflow:hidden;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:20px 20px}
+  .mm-tile{position:absolute;border-radius:3px;background:#1b1b1f;border:1px solid #2d2d34;overflow:hidden}
+  .mm-tile::after{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:transparent}
+  .mm-working::after{background:var(--rust)}
+  .mm-waiting::after{background:var(--violet);animation:tb-bar-pulse 2.4s ease-in-out infinite}
+  .mm-stale::after{background:color-mix(in oklch,var(--violet) 40%,transparent);width:55%}
+  .mm-alert::after{background:var(--violet);animation:tb-bar-blink 1.2s ease-in-out infinite}
+  .mm-active{box-shadow:0 0 0 1.5px var(--teal);z-index:2}
+  .mm-view{position:absolute;border:1px dashed rgba(255,255,255,.22);border-radius:3px;pointer-events:none}
+
+  /* focus-vs-working demo: focus = teal inner ring, state = outer treatment */
+  .tb-focus{box-shadow:inset 0 0 0 1.5px var(--teal)}
+  .tb-pair{display:grid;grid-template-columns:1fr 1fr;gap:.9rem;max-width:24rem}
+
+  @media (prefers-reduced-motion:reduce){
+    .tb-canvas *{animation:none!important}
+    .lang-halo .tb-waiting{box-shadow:0 0 0 1.5px color-mix(in oklch,var(--violet) 80%,transparent),0 0 18px -3px var(--violet)}
+    .lang-halo .tb-alert{box-shadow:0 0 0 1.5px var(--violet),0 0 0 5px color-mix(in oklch,var(--violet) 18%,transparent)}
+    .lang-border .tb-waiting{border-color:var(--violet)}
+    .lang-border .tb-alert{border-color:var(--violet);box-shadow:0 0 0 2px color-mix(in oklch,var(--violet) 24%,transparent)}
+    .lang-runsweep .tb-waiting::after,.lang-runsweep .tb-waitingstale::after,.lang-runsweep .tb-alert::after{display:none}
+    .lang-runsweep .tb-waiting{box-shadow:0 0 0 1px var(--tile-c),0 0 9px -4px var(--tile-c)}
+    .lang-runsweep .tb-waitingstale{box-shadow:0 0 0 1px color-mix(in oklch,var(--tile-c) 45%,transparent)}
+    .lang-runsweep .tb-alert{box-shadow:0 0 0 1.5px var(--tile-c),0 0 13px -3px var(--tile-c)}
+    .lang-bar .tb-waiting::after,.lang-bar .tb-alert::after,.mm-waiting::after,.mm-alert::after{opacity:1}
+  }
+  </style>
+<h2 id="the-attention-ladder">The attention ladder</h2>
+<p>The signal isn’t a handful of flat colors — it’s a <strong>loudness ladder ordered by
+who needs you</strong>: <code>alert ▸ fresh-waiting ▸ working ▸ stale-waiting ▸ idle</code>. And
+one rung isn’t fixed — <strong>“waiting” slides down the ladder as it ages</strong>. A tile
+that started waiting a minute ago should outrank a busy one; the same tile six
+hours later has cooled below it. kolu already ranks and ages exactly this, so the
+border reuses the machinery rather than inventing a parallel scheme:</p>
+<figure class="d2" data-astro-cid-ildmikun> <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" data-d2-version="v0.7.1" preserveAspectRatio="xMinYMin meet" viewBox="0 0 1641 764"><svg class="d2-3775438693 d2-svg" width="1641" height="764" viewBox="-17 -17 1641 764"><rect x="-17.000000" y="-17.000000" width="1641.000000" height="764.000000" rx="0.000000" fill="#FFFFFF" class=" fill-N7" stroke-width="0" /><style type="text/css"><![CDATA[
+.d2-3775438693 .text-bold {
+	font-family: "d2-3775438693-font-bold";
+}
+@font-face {
+	font-family: d2-3775438693-font-bold;
+	src: url("data:application/font-woff;base64,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");
+}]]></style><style type="text/css"><![CDATA[.shape {
+  shape-rendering: geometricPrecision;
+  stroke-linejoin: round;
+}
+.connection {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.blend {
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+		.d2-3775438693 .fill-N1{fill:#0A0F25;}
+		.d2-3775438693 .fill-N2{fill:#676C7E;}
+		.d2-3775438693 .fill-N3{fill:#9499AB;}
+		.d2-3775438693 .fill-N4{fill:#CFD2DD;}
+		.d2-3775438693 .fill-N5{fill:#DEE1EB;}
+		.d2-3775438693 .fill-N6{fill:#EEF1F8;}
+		.d2-3775438693 .fill-N7{fill:#FFFFFF;}
+		.d2-3775438693 .fill-B1{fill:#0D32B2;}
+		.d2-3775438693 .fill-B2{fill:#0D32B2;}
+		.d2-3775438693 .fill-B3{fill:#E3E9FD;}
+		.d2-3775438693 .fill-B4{fill:#E3E9FD;}
+		.d2-3775438693 .fill-B5{fill:#EDF0FD;}
+		.d2-3775438693 .fill-B6{fill:#F7F8FE;}
+		.d2-3775438693 .fill-AA2{fill:#4A6FF3;}
+		.d2-3775438693 .fill-AA4{fill:#EDF0FD;}
+		.d2-3775438693 .fill-AA5{fill:#F7F8FE;}
+		.d2-3775438693 .fill-AB4{fill:#EDF0FD;}
+		.d2-3775438693 .fill-AB5{fill:#F7F8FE;}
+		.d2-3775438693 .stroke-N1{stroke:#0A0F25;}
+		.d2-3775438693 .stroke-N2{stroke:#676C7E;}
+		.d2-3775438693 .stroke-N3{stroke:#9499AB;}
+		.d2-3775438693 .stroke-N4{stroke:#CFD2DD;}
+		.d2-3775438693 .stroke-N5{stroke:#DEE1EB;}
+		.d2-3775438693 .stroke-N6{stroke:#EEF1F8;}
+		.d2-3775438693 .stroke-N7{stroke:#FFFFFF;}
+		.d2-3775438693 .stroke-B1{stroke:#0D32B2;}
+		.d2-3775438693 .stroke-B2{stroke:#0D32B2;}
+		.d2-3775438693 .stroke-B3{stroke:#E3E9FD;}
+		.d2-3775438693 .stroke-B4{stroke:#E3E9FD;}
+		.d2-3775438693 .stroke-B5{stroke:#EDF0FD;}
+		.d2-3775438693 .stroke-B6{stroke:#F7F8FE;}
+		.d2-3775438693 .stroke-AA2{stroke:#4A6FF3;}
+		.d2-3775438693 .stroke-AA4{stroke:#EDF0FD;}
+		.d2-3775438693 .stroke-AA5{stroke:#F7F8FE;}
+		.d2-3775438693 .stroke-AB4{stroke:#EDF0FD;}
+		.d2-3775438693 .stroke-AB5{stroke:#F7F8FE;}
+		.d2-3775438693 .background-color-N1{background-color:#0A0F25;}
+		.d2-3775438693 .background-color-N2{background-color:#676C7E;}
+		.d2-3775438693 .background-color-N3{background-color:#9499AB;}
+		.d2-3775438693 .background-color-N4{background-color:#CFD2DD;}
+		.d2-3775438693 .background-color-N5{background-color:#DEE1EB;}
+		.d2-3775438693 .background-color-N6{background-color:#EEF1F8;}
+		.d2-3775438693 .background-color-N7{background-color:#FFFFFF;}
+		.d2-3775438693 .background-color-B1{background-color:#0D32B2;}
+		.d2-3775438693 .background-color-B2{background-color:#0D32B2;}
+		.d2-3775438693 .background-color-B3{background-color:#E3E9FD;}
+		.d2-3775438693 .background-color-B4{background-color:#E3E9FD;}
+		.d2-3775438693 .background-color-B5{background-color:#EDF0FD;}
+		.d2-3775438693 .background-color-B6{background-color:#F7F8FE;}
+		.d2-3775438693 .background-color-AA2{background-color:#4A6FF3;}
+		.d2-3775438693 .background-color-AA4{background-color:#EDF0FD;}
+		.d2-3775438693 .background-color-AA5{background-color:#F7F8FE;}
+		.d2-3775438693 .background-color-AB4{background-color:#EDF0FD;}
+		.d2-3775438693 .background-color-AB5{background-color:#F7F8FE;}
+		.d2-3775438693 .color-N1{color:#0A0F25;}
+		.d2-3775438693 .color-N2{color:#676C7E;}
+		.d2-3775438693 .color-N3{color:#9499AB;}
+		.d2-3775438693 .color-N4{color:#CFD2DD;}
+		.d2-3775438693 .color-N5{color:#DEE1EB;}
+		.d2-3775438693 .color-N6{color:#EEF1F8;}
+		.d2-3775438693 .color-N7{color:#FFFFFF;}
+		.d2-3775438693 .color-B1{color:#0D32B2;}
+		.d2-3775438693 .color-B2{color:#0D32B2;}
+		.d2-3775438693 .color-B3{color:#E3E9FD;}
+		.d2-3775438693 .color-B4{color:#E3E9FD;}
+		.d2-3775438693 .color-B5{color:#EDF0FD;}
+		.d2-3775438693 .color-B6{color:#F7F8FE;}
+		.d2-3775438693 .color-AA2{color:#4A6FF3;}
+		.d2-3775438693 .color-AA4{color:#EDF0FD;}
+		.d2-3775438693 .color-AA5{color:#F7F8FE;}
+		.d2-3775438693 .color-AB4{color:#EDF0FD;}
+		.d2-3775438693 .color-AB5{color:#F7F8FE;}.appendix text.text{fill:#0A0F25}.md{--color-fg-default:#0A0F25;--color-fg-muted:#676C7E;--color-fg-subtle:#9499AB;--color-canvas-default:#FFFFFF;--color-canvas-subtle:#EEF1F8;--color-border-default:#0D32B2;--color-border-muted:#0D32B2;--color-neutral-muted:#EEF1F8;--color-accent-fg:#0D32B2;--color-accent-emphasis:#0D32B2;--color-attention-subtle:#676C7E;--color-danger-fg:red;}.sketch-overlay-B1{fill:url(#streaks-darker-d2-3775438693);mix-blend-mode:lighten}.sketch-overlay-B2{fill:url(#streaks-darker-d2-3775438693);mix-blend-mode:lighten}.sketch-overlay-B3{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-B4{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-B5{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-B6{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-AA2{fill:url(#streaks-dark-d2-3775438693);mix-blend-mode:overlay}.sketch-overlay-AA4{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-AA5{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-AB4{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-AB5{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-N1{fill:url(#streaks-darker-d2-3775438693);mix-blend-mode:lighten}.sketch-overlay-N2{fill:url(#streaks-dark-d2-3775438693);mix-blend-mode:overlay}.sketch-overlay-N3{fill:url(#streaks-normal-d2-3775438693);mix-blend-mode:color-burn}.sketch-overlay-N4{fill:url(#streaks-normal-d2-3775438693);mix-blend-mode:color-burn}.sketch-overlay-N5{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-N6{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.sketch-overlay-N7{fill:url(#streaks-bright-d2-3775438693);mix-blend-mode:darken}.light-code{display: block}.dark-code{display: none}]]></style><g class="c3RhdGU="><g class="shape" ><rect x="964.000000" y="0.000000" width="643.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="1285.500000" y="38.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">AgentInfo.state — thinking · tool_use · waiting · awaiting_user · running_background</text></g><g class="YnVja2V0"><g class="shape" ><rect x="984.000000" y="166.000000" width="603.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="1285.500000" y="204.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">agentBucket() — working | awaiting | none (never idle: that&#39;s entryBucket&#39;s job)</text></g><g class="dW5yZWFk"><g class="shape" ><rect x="562.000000" y="166.000000" width="362.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="743.000000" y="204.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">isUnread(id) — fresh + missed (useViewState)</text></g><g class="c3RhbGU="><g class="shape" ><rect x="24.000000" y="166.000000" width="478.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="263.000000" y="204.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">lastActivityAt vs activity window — useStaleCheck() / isStale()</text></g><g class="dGlsZUF1cmE="><g class="shape" ><rect x="500.000000" y="332.000000" width="503.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="751.500000" y="370.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">tileAura(bucket, unread, stale) — canvas-only pure mapper → tier</text></g><g class="c29ja2V0"><g class="shape" ><rect x="569.000000" y="498.000000" width="365.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="751.500000" y="536.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">useTileAura() — gathers the three inputs once</text></g><g class="dGlsZQ=="><g class="shape" ><rect x="123.000000" y="664.000000" width="267.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="256.500000" y="702.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">canvas tile aura bar (data-aura)</text></g><g class="bWluaQ=="><g class="shape" ><rect x="659.000000" y="664.000000" width="226.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="772.000000" y="702.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">minimap marker aura bar</text></g><g class="YWN0aXZl"><g class="shape" ><rect x="0.000000" y="498.000000" width="509.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="254.500000" y="536.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">store.activeId() — focus ring (teal); clears unread; mutes own aura</text></g><g class="KHN0YXRlIC0mZ3Q7IGJ1Y2tldClbMF0="><marker id="mk-d2-3775438693-3488378134" markerWidth="10.000000" markerHeight="12.000000" refX="7.000000" refY="6.000000" viewBox="0.000000 0.000000 10.000000 12.000000" orient="auto" markerUnits="userSpaceOnUse"> <polygon points="0.000000,0.000000 10.000000,6.000000 0.000000,12.000000" fill="#0D32B2" class="connection fill-B1" stroke-width="2" /> </marker><path d="M 1285.500000 68.000000 C 1285.500000 106.000000 1285.500000 126.000000 1285.500000 162.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3775438693-3488378134)" mask="url(#d2-3775438693)" /></g><g class="KGJ1Y2tldCAtJmd0OyB0aWxlQXVyYSlbMF0="><path d="M 1285.500000 234.000000 C 1285.500000 272.000000 1221.099976 292.000000 967.452631 331.386237" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3775438693-3488378134)" mask="url(#d2-3775438693)" /></g><g class="KHVucmVhZCAtJmd0OyB0aWxlQXVyYSlbMF0="><path d="M 743.000000 234.000000 C 743.000000 272.000000 744.000000 292.000000 747.601985 328.019851" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3775438693-3488378134)" mask="url(#d2-3775438693)" /></g><g class="KHN0YWxlIC0mZ3Q7IHRpbGVBdXJhKVswXQ=="><path d="M 263.000000 234.000000 C 263.000000 272.000000 321.799988 292.000000 553.056621 331.329357" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3775438693-3488378134)" mask="url(#d2-3775438693)" /></g><g class="KHRpbGVBdXJhIC0mZ3Q7IHNvY2tldClbMF0="><path d="M 751.500000 400.000000 C 751.500000 438.000000 751.500000 458.000000 751.500000 494.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3775438693-3488378134)" mask="url(#d2-3775438693)" /></g><g class="KHNvY2tldCAtJmd0OyB0aWxlKVswXQ=="><path d="M 751.500000 566.000000 C 751.500000 604.000000 679.099976 626.200012 393.444391 674.335337" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3775438693-3488378134)" mask="url(#d2-3775438693)" /></g><g class="KHNvY2tldCAtJmd0OyBtaW5pKVswXQ=="><path d="M 759.966745 565.944775 C 769.099976 604.000000 771.500000 624.000000 771.500000 660.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3775438693-3488378134)" mask="url(#d2-3775438693)" /></g><g class="KGFjdGl2ZSAtJmd0OyB0aWxlKVswXQ=="><path d="M 254.500000 566.000000 C 254.500000 604.000000 254.699997 624.000000 255.420016 660.000800" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-3775438693-3488378134)" mask="url(#d2-3775438693)" /></g><mask id="d2-3775438693" maskUnits="userSpaceOnUse" x="-17" y="-17" width="1641" height="764">
+<rect x="-17" y="-17" width="1641" height="764" fill="white"></rect>
+
+</mask></svg></svg>
+ <figcaption data-astro-cid-ildmikun>Reuse the upstream classifiers, add a canvas-only mapper. AgentInfo.state collapses to a bucket (agentBucket); the orthogonal unread flag marks a fresh, missed alert; lastActivityAt vs the user&#39;s activity window (useStaleCheck/isStale) ages a waiter — the same three signals the dock already reads. As shipped, the canvas does NOT share the dock&#39;s pipVariant: it gets its own pure tileAura(bucket, unread, stale) → tier mapper, gathered once by the useTileAura socket that the canvas tile and minimap marker both plug into. The tile also reads store.activeId(): focus paints the teal ring, clears unread, and mutes the tile&#39;s own aura — so the loudest border is always elsewhere. No new state logic, no new clock.</figcaption> </figure>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Rank</th><th>State</th><th>When</th><th>Color</th><th>Border</th></tr></thead><tbody><tr><td><strong>1 · Alert</strong></td><td><code>unread</code> — flipped to needing you <strong>while you weren’t looking</strong></td><td>violet <code>--color-alert</code></td><td>fast <strong>throb</strong> + halo (~1.2s); <strong>self-clears on focus</strong></td><td></td></tr><tr><td><strong>2 · Waiting · fresh</strong></td><td><code>awaiting</code> and recent — within your activity window (esp. &lt; 4h)</td><td>violet <code>--color-alert</code></td><td>gentle slow <strong>breathe</strong>, bright</td><td></td></tr><tr><td><strong>3 · Working</strong></td><td>thinking / running tools / background workflow</td><td>rust <code>--color-busy</code></td><td><strong>steady</strong> hum — no motion</td><td></td></tr><tr><td><strong>4 · Waiting · stale</strong></td><td><code>awaiting</code> but older than your activity window (parked)</td><td>violet <code>--color-alert</code></td><td>dim <strong>ember</strong>, static — cooled <em>below</em> the working hum</td><td></td></tr><tr><td><strong>5 · Idle / done</strong></td><td>no agent, finished, or acknowledged</td><td>repo identity</td><td>none</td><td></td></tr></tbody></table>
+<aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Two refinements the priority order forces</p> <div class="callout-body" data-astro-cid-mrmim4ef><p><strong>1 · “Waiting” splits in two and <em>decays.</em></strong> A fresh waiter outranks a working
+tile; the same tile, hours later, has cooled below it. The crossover is your
+<strong>activity window</strong> — the <code>4h / 12h / 24h / All</code> control already in the sidebar
+(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/activityWindow.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/terminal/activityWindow.ts</a>, default <code>24h</code>).
+Pick <code>4h</code> and a waiter drops below the working hum after four hours; <code>All</code>
+disables decay so every waiter stays fresh. The loudest rung (alert) still clears
+itself the instant you focus the tile.</p><p><strong>2 · Motion means “needs you,” not “busy.”</strong> Because alert (1) and fresh-waiting
+(2) outrank working (3), the strongest attention cue — <em>motion</em> — is reserved for
+the top of the ladder. Working is a <strong>steady</strong> glow; only the rungs that want you
+actually move. This flips the first instinct (an <em>animating</em> border for working);
+see <strong>Open decisions</strong> below.</p></div> </aside>
+<h2 id="waiting-cools-as-it-ages">Waiting cools as it ages</h2>
+<p>This is the new axis. The same waiting tile, rendered at four ages — its violet
+glow dims monotonically and stops moving as <code>lastActivityAt</code> recedes, crossing
+<em>below</em> the rust working hum at your activity-window threshold and settling near
+idle once it parks. The clock is kolu’s existing <code>useStaleCheck()</code> /
+<code>activityWindow</code> — the very signal that already parks dock rows and fades minimap
+tiles, now cooling the canvas border too. One vocabulary, one persisted choice.</p>
+
+
+<div class="tb-canvas lang-halo"><div class="lead">Waiting · cooling with last-activity age — your activity window is the crossover</div><div class="tb-grid"><div class="tb-cell"><div class="tb-tile tb-waiting" style="animation:tb-wait-breathe 2.4s ease-in-out infinite"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting · just now</div></div><div class="tb-caption"><b>just now</b><br/>rank 2 — loud</div></div><div class="tb-cell"><div class="tb-tile tb-waiting" style="animation:none;box-shadow:0 0 0 1px color-mix(in oklch,var(--violet) 58%,transparent),0 0 16px -3px color-mix(in oklch,var(--violet) 68%,transparent)"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting · ~2h</div></div><div class="tb-caption"><b>~2h</b><br/>still above the hum</div></div><div class="tb-cell"><div class="tb-tile tb-waiting" style="animation:none;box-shadow:0 0 0 1px color-mix(in oklch,var(--violet) 36%,transparent),0 0 11px -4px color-mix(in oklch,var(--violet) 46%,transparent)"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting · ~4h</div></div><div class="tb-caption"><b>~4h</b><br/>crossing your window</div></div><div class="tb-cell"><div class="tb-tile tb-waiting" style="animation:none;box-shadow:0 0 0 1px color-mix(in oklch,var(--violet) 18%,transparent),0 0 7px -5px color-mix(in oklch,var(--violet) 30%,transparent)"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting · stale · parked</div></div><div class="tb-caption"><b>stale · parked</b><br/>rank 4 — ember</div></div></div></div>
+<p>The first tile is the live rank-2 breathe; the rest are the same state cooling.
+The crossover (where waiting dips under working) lands wherever you set the
+activity window — so the decay is <em>yours to tune</em>, not a hard-coded curve.</p>
+<h2 id="the-active-tile--where-focus-meets-the-ladder">The active tile — where focus meets the ladder</h2>
+<p>The ladder ranks <em>attention demand</em> — which tile to look at <strong>next</strong>. Focus marks
+where you <strong>are</strong>. Different axes, and the active tile is where they meet, so make
+the composition explicit:</p>
+<ul>
+<li><strong>Focus is its own channel, already built.</strong> The active tile carries a teal
+inner ring + a right-edge accent (<code>store.activeId()</code> → the existing
+<code>0 0 0 1px var(--color-accent)</code>). Teal = “you are here”; the rust/violet aura =
+“this wants you.” Two colors, two geometries — inner ring vs outer glow — so
+they don’t collide, and rust-for-working keeps the hues apart.</li>
+<li><strong>The active tile is never <em>alert.</em></strong> Focusing a tile clears its <code>unread</code>
+(existing behavior — sound, OS badge, and pip all reset). So the loudest rung
+only ever lights an <em>inactive</em> tile: the eye-grab always points you somewhere
+<strong>new</strong>, never back at yourself.</li>
+<li><strong>Focus mutes the tile’s own aura.</strong> You’re already attending to it, so it
+shouldn’t compete — as shipped, <code>[data-active=&quot;true&quot;] .tile-aura</code> drops to a
+fixed <code>opacity: 0.4</code>. An active working tile keeps its marching-ants ring
+dialed to a whisper; an active waiting tile a faint sweeping comet (you can
+still see it wants input) while the focus accent dominates.</li>
+</ul>
+
+<div class="tb-canvas lang-halo"><div class="lead">One active tile (teal · &quot;you are here&quot;) among the ladder — the loudest border is never the active one</div><div class="tb-grid"><div class="tb-cell"><div class="tb-tile tb-working" style="animation:none;box-shadow:inset 0 0 0 1.5px var(--teal),0 0 0 1px color-mix(in oklch,var(--rust) 20%,transparent),0 0 9px -5px color-mix(in oklch,var(--rust) 38%,transparent)"><div class="tb-titlebar"><span class="tb-dot" style="background:var(--teal)"></span><span class="tb-name" style="color:#8fc3c4">argh · claude</span></div><div class="tb-body">◐ Thinking…</div></div><div class="tb-caption"><b>Active</b> · working — focus wins, aura muted</div></div><div class="tb-cell"><div class="tb-tile tb-alert"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">kaval · codex</span></div><div class="tb-body">⏵ Awaiting input</div></div><div class="tb-caption"><b>Alert</b> — loudest, always inactive</div></div><div class="tb-cell"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">blog · claude</span></div><div class="tb-body">⏵ Waiting · fresh</div></div><div class="tb-caption"><b>Waiting</b> · fresh — inactive</div></div><div class="tb-cell"><div class="tb-tile tb-working"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">odu · claude</span></div><div class="tb-body">◐ Running tools</div></div><div class="tb-caption"><b>Working</b> — inactive hum</div></div></div></div>
+<p><strong>One compositional rule.</strong> A tile’s effective border loudness is
+<strong><code>state-tier × age-decay × presence</code></strong>. As shipped this falls out of three
+independent moves: the tier (<code>tileAura</code>) picks the bar’s colour and motion;
+age-decay is folded into the tier itself (a stale waiter drops to the
+<code>waiting-stale</code> ember, a stale worker to <code>none</code>); and presence is the active
+mute — <code>[data-active=&quot;true&quot;] .tile-aura</code> at <code>opacity: 0.4</code>. The result
+guarantees the <strong>brightest border on the canvas is always an inactive, fresh,
+attention-class tile</strong> — precisely where the eye should land. Focus and the
+ladder reinforce each other instead of fighting.</p>
+<h2 id="prototypes">Prototypes</h2>
+<p>Four border languages, each rendered live across the ladder (waiting shown
+<em>fresh</em>). They differ in <em>which channel</em> carries state and <em>how energetic</em> it
+reads — and two tiebreakers now matter: which can express a <strong>continuous loudness
+ramp</strong> (so a waiter can dim), and which <strong>survives scaling</strong> to the minimap so the
+canvas and its map speak one language.</p>
+<h3 id="a--halo-recommended">A — Halo (recommended)</h3>
+<p><span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>Recommended</span> A soft outer <strong>glow</strong> carries state; the
+border line stays the repo identity color. A glow has a <em>continuous</em> brightness
+axis, so it’s the only language that renders the whole ranked, aging ladder
+cleanly — alert throbs brightest, fresh-waiting breathes a bright violet, working
+sits as a steady rust hum, and a stale waiter just <strong>dims</strong> toward an ember (the
+decay strip above is literally this language turned down). It also leaves the two
+existing border meanings — repo identity and the focus ring — untouched.</p>
+<div class="tb-canvas lang-halo"><div class="lead">A · Halo — glow (idle ▸ working ▸ waiting·fresh ▸ alert)</div><div class="tb-grid"><div class="tb-cell"><div class="tb-tile tb-idle"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">$ ▏</div></div><div class="tb-caption"><b>Idle</b> / done</div></div><div class="tb-cell"><div class="tb-tile tb-working"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">◐ Thinking…</div></div><div class="tb-caption"><b>Working</b> </div></div><div class="tb-cell"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting for input</div></div><div class="tb-caption"><b>Waiting</b> · fresh</div></div><div class="tb-cell"><div class="tb-tile tb-alert"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Awaiting input</div></div><div class="tb-caption"><b>Alert</b> (unread)</div></div></div></div>
+<h3 id="b--live-border">B — Live border</h3>
+<p>The <strong>border line itself</strong> takes the state color — the most literal reading of
+“animated border.” It <em>can</em> honor the rank (steady rust for working, a breathing
+violet for fresh-waiting, a throb for alert), but two problems: it overwrites the
+repo-identity color while an agent is busy (most of the time), and a solid line
+has nowhere to <strong>dim</strong> to — a faint border reads as a rendering bug, not a cooled
+waiter, so the decay ramp has no room. Fine for a binary; awkward for a ranked,
+aging ladder.</p>
+<div class="tb-canvas lang-border"><div class="lead">B · Live border — the line carries state</div><div class="tb-grid"><div class="tb-cell"><div class="tb-tile tb-idle"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">$ ▏</div></div><div class="tb-caption"><b>Idle</b> / done</div></div><div class="tb-cell"><div class="tb-tile tb-working"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">◐ Thinking…</div></div><div class="tb-caption"><b>Working</b> </div></div><div class="tb-cell"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting for input</div></div><div class="tb-caption"><b>Waiting</b> · fresh</div></div><div class="tb-cell"><div class="tb-tile tb-alert"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Awaiting input</div></div><div class="tb-caption"><b>Alert</b> (unread)</div></div></div></div>
+<h3 id="c--run--sweep-refined-motion-is-the-state-colour-is-the-terminal">C — Run / sweep (refined): motion is the state, colour is the terminal</h3>
+<p>The first cut of C put its loudest motion on <em>working</em> (inverting the rank) and
+forced a fixed hue. Both objections fall away once <strong>the <em>type</em> and <em>speed</em> of
+motion carry the state — which frees the colour to be the terminal’s own</strong>:</p>
+<ul>
+<li><strong>Working → it <em>runs</em>: marching ants.</strong> A dashed outline streams steadily
+around all four edges — a selection-marquee “ants run,” continuous and calm —
+“this machine is busy,” asking for nothing.</li>
+<li><strong>Needs-you → it <em>sweeps</em>.</strong> A sharp comet scans around the border, and its
+<strong>speed is the urgency</strong>: <strong>alert</strong> sweeps fastest, <strong>fresh-waiting</strong> slower,
+and a waiting tile <strong>keeps slowing as it goes stale</strong> — the decay you asked for,
+read as a comet winding down instead of a bar dimming.</li>
+</ul>
+<p>Because motion does the semantic work, the running/sweeping light is drawn from
+<strong>the tile’s own theme colour</strong> — just brightened + saturated more for the louder
+states. Nothing is hard-coded rust or violet: a teal terminal runs teal, an amber
+one runs amber, and the border always harmonises with the tile instead of
+fighting its theme. That’s the answer to “why orange and purple?”</p>
+
+
+<div class="tb-canvas lang-runsweep" style="--tile-c:#5a9ea0"><div class="lead">C · run vs sweep — one terminal colour (teal); motion-type + speed carry the state</div><div class="tb-grid" style="grid-template-columns:repeat(5,1fr)"><div class="tb-cell"><div class="tb-tile tb-alert"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Awaiting input</div></div><div class="tb-caption"><b>Alert</b><br/>sweep · fastest</div></div><div class="tb-cell"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting for input</div></div><div class="tb-caption"><b>Waiting · fresh</b><br/>sweep · medium</div></div><div class="tb-cell"><div class="tb-tile tb-waitingstale"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting · 6h</div></div><div class="tb-caption"><b>Waiting · stale</b><br/>sweep · slow</div></div><div class="tb-cell"><div class="tb-tile tb-working"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">◐ Thinking…</div></div><div class="tb-caption"><b>Working</b><br/>marching ants</div></div><div class="tb-cell"><div class="tb-tile tb-idle"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">$ ▏</div></div><div class="tb-caption"><b>Idle</b><br/>static</div></div></div></div>
+<p>State is read from <strong>how it moves</strong>: marching ants vs sweeping comet splits
+working from needs-you; sweep speed splits alert (fastest) → fresh (medium) →
+stale (slowest). And the colour is whatever the terminal is — here the same
+<em>waiting · sweep</em> across five themes:</p>
+
+
+<div class="tb-canvas lang-runsweep"><div class="lead">…and the colour is the terminal&#39;s own — same waiting · sweep, five themes</div><div class="tb-grid" style="grid-template-columns:repeat(5,1fr)"><div class="tb-cell" style="--tile-c:#5a9ea0"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">teal · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>teal</b></div></div><div class="tb-cell" style="--tile-c:#d6a35c"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">amber · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>amber</b></div></div><div class="tb-cell" style="--tile-c:#6cc070"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">green · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>green</b></div></div><div class="tb-cell" style="--tile-c:#6ea8e0"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">blue · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>blue</b></div></div><div class="tb-cell" style="--tile-c:#c98aa8"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">rose · agent</span></div><div class="tb-body">⏵ Waiting</div></div><div class="tb-caption"><b>rose</b></div></div></div></div>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Contrast: derive the colour, don&#39;t take it raw</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Because the light <strong>is</strong> the terminal’s colour and rides on the terminal’s own
+themed background, a low-contrast theme — a hue close to its bg — would let it
+vanish. So the implementation can’t use the raw theme bg/hue; it derives a
+<strong>contrast-locked accent</strong>: take the theme’s existing accent / foreground (which
+already contrast the bg by construction), or nudge the chosen hue’s <strong>lightness
+away from the bg’s luminance</strong> — lighten it on dark themes, darken it on light
+ones — keeping enough chroma to read. The louder-state brightness boosts ride on
+top of that safe base. Each tile already carries two safe anchors: the vivid
+<code>repoColor</code> and the theme <code>fg</code>.</p></div> </aside>
+
+<div class="tb-canvas lang-runsweep"><div class="lead">Contrast — the same teal theme, colour locked against each tile&#39;s own bg</div><div class="tb-pair"><div class="tb-cell"><div class="tb-tile tb-working" style="--tile-c:#79d2d4;background:#0e1316"><div class="tb-titlebar" style="background:rgba(255,255,255,.06)"><span class="tb-dot"></span><span class="tb-name">dark theme</span></div><div class="tb-body">◐ working</div></div><div class="tb-caption"><b>Dark bg</b> → accent lightened</div></div><div class="tb-cell"><div class="tb-tile tb-working" style="--tile-c:#0c6275;background:#f3efe4"><div class="tb-titlebar" style="background:rgba(0,0,0,.05)"><span class="tb-dot"></span><span class="tb-name" style="color:#42606a">light theme</span></div><div class="tb-body" style="color:#5b6470">◐ working</div></div><div class="tb-caption"><b>Light bg</b> → accent darkened</div></div></div></div>
+<p>The trade vs the shipped top-bar (<strong>D</strong>): this is the most <em>alive</em> and the most
+<em>theme-native</em> of the set, and it sidesteps the fixed-colour question entirely.
+The costs are real, though — a moving light on <strong>every</strong> busy tile (busier with a
+full canvas of working agents), and a thin orbiting comet doesn’t shrink to a
+legible <strong>minimap</strong> marker the way a flat bar does, so at minimap scale you’d
+likely still fall back to D’s top edge. State here is read from <em>how it moves</em>,
+not a learned hue.</p>
+<h3 id="d--top-bar-reads-at-any-zoom">D — Top bar (reads at any zoom)</h3>
+<p>A thin status <strong>bar on the top edge</strong> — steady rust for working, a gentle violet
+pulse for fresh-waiting, a sharper blink for alert, nothing for idle. It rings
+nothing and stays out of the title bar, so it’s the calmest of the four. Its real
+edge is <strong>scale-invariance</strong>: a colored top edge is the same legible shape on a
+full canvas tile <em>or</em> a 40px minimap marker — which the others can’t claim (a glow
+or a marching comet dissolves when the tile is tiny).</p>
+<div class="tb-canvas lang-bar"><div class="lead">D · Top bar — top-edge status strip</div><div class="tb-grid"><div class="tb-cell"><div class="tb-tile tb-idle"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">$ ▏</div></div><div class="tb-caption"><b>Idle</b> / done</div></div><div class="tb-cell"><div class="tb-tile tb-working"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">◐ Thinking…</div></div><div class="tb-caption"><b>Working</b> </div></div><div class="tb-cell"><div class="tb-tile tb-waiting"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Waiting for input</div></div><div class="tb-caption"><b>Waiting</b> · fresh</div></div><div class="tb-cell"><div class="tb-tile tb-alert"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">⏵ Awaiting input</div></div><div class="tb-caption"><b>Alert</b> (unread)</div></div></div></div>
+<p>And the minimap already wants a state signal: today it paints a <strong>corner dot</strong>
+(<code>bucketDescriptor().accentVar</code>). Language D <strong>unifies</strong> the two surfaces — the
+same top edge, scaled down — so the canvas and its map speak one language:</p>
+
+<div class="tb-canvas"><div class="lead">D in the minimap — the same top-edge bar, scaled down (replaces today&#39;s corner dot)</div><div class="mm-panel"><div class="mm-tile mm-active mm-working" style="left:20px;top:22px;width:66px;height:44px"></div><div class="mm-tile mm-alert" style="left:104px;top:16px;width:58px;height:40px"></div><div class="mm-tile mm-waiting" style="left:168px;top:62px;width:60px;height:40px"></div><div class="mm-tile mm-working" style="left:34px;top:84px;width:56px;height:38px"></div><div class="mm-tile mm-stale" style="left:112px;top:98px;width:52px;height:34px"></div><div class="mm-view" style="left:14px;top:14px;width:158px;height:112px"></div></div><div class="tb-caption" style="margin-top:.55rem">teal ring = active · rust = working · violet pulse = waiting · dim/short violet = stale · blink = alert</div></div>
+<p>Decay survives here too — dim the bar’s opacity and shrink its width as a waiter
+ages (the short, faint violet marker above is a stale one): a draining gauge
+instead of a fading glow. The honest cost vs Halo is <strong>expressive range</strong> — a
+2.5px bar carries less nuance than a continuous glow, and a top edge is easier to
+miss peripherally / when a tile is overlapped. You trade richness for
+one-shape-everywhere coherence.</p>
+<h2 id="open-decisions">Open decisions</h2>
+<p>Independent of the language, a few choices shape how loud and how broad this gets.
+These were the deliberation at proposal time; this section is preserved as the
+design record. <strong>What shipped:</strong> refined Language <strong>C</strong> on the tile (marching
+ants / sweeping comet, in the terminal’s own theme colour) with <strong>D</strong>’s flat bar
+kept at minimap scale; decay folded into the
+tier as a discrete fresh → stale-ember → parked split (not a continuous
+<code>--aura-intensity</code> curve); the persisted <code>activityWindow</code> as the threshold; a
+stale waiter cooling to the violet ember while a stale worker parks to <code>none</code>;
+working a steady hum; and the active tile <strong>muted</strong> (<code>opacity: 0.4</code>), not
+suppressed.</p>
+<h3 id="working-color--rust-not-teal">Working color — rust, not teal</h3>
+<p>The active/focused tile already owns <strong>teal</strong> (<code>--color-accent</code>: the focus ring +
+the right-edge accent). If “working” is <em>also</em> teal, a focused-and-working tile is
+teal-on-teal — is it busy, or is it the one I’m looking at? Coloring working
+<strong>rust</strong> (<code>--color-busy</code>) keeps the two apart, and it matches the rust “Thinking”
+icon already sitting in that tile’s title bar. Three legible hues:
+<strong>teal = you’re here · rust = it’s busy · violet = it wants you.</strong></p>
+
+<div class="tb-canvas lang-halo"><div class="lead">Focused + working — teal ring (focus) vs the working glow</div><div class="tb-pair"><div class="tb-cell"><div class="tb-tile tb-working tb-focus"><div class="tb-titlebar"><span class="tb-dot"></span><span class="tb-name">argh · claude</span></div><div class="tb-body">◐ Thinking…</div></div><div class="tb-caption"><b>Rust</b> glow — clearly distinct</div></div><div class="tb-cell"><div class="tb-tile tb-focus" style="box-shadow:inset 0 0 0 1.5px var(--teal),0 0 14px -3px var(--teal)"><div class="tb-titlebar"><span class="tb-dot" style="background:var(--teal)"></span><span class="tb-name" style="color:#8fc3c4">argh · claude</span></div><div class="tb-body">◐ Thinking…</div></div><div class="tb-caption"><b>Teal</b> glow — reads ambiguous</div></div></div></div>
+<aside class="callout callout-note" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Note: the dock uses teal for working</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>The dock pip colors working <strong>teal</strong> today, so rust-on-canvas is a deliberate
+divergence (it dodges the focus collision the dock never has). Worth a follow-up
+to reconcile — either align the dock to rust, or accept the two surfaces reading
+working differently because only the canvas has a teal focus ring competing.</p></div> </aside>
+<h3 id="motion--needs-you-working-stays-steady">Motion = needs-you (working stays steady)</h3>
+<p>The priority order mostly <em>answers</em> the earlier “should working animate?”
+question: no — if a busy tile out-pulses a blocked one, the eye lands in the
+wrong place. So motion is reserved for the rungs that want you (alert throbs,
+fresh-waiting breathes) and <strong>working is a steady hum</strong> (as shown). The remaining
+lever is taste: fully static working, or a <em>barely-there</em> breath so it still
+reads “alive” — as long as it stays clearly quieter than fresh-waiting.</p>
+<h3 id="the-decay-curve--threshold">The decay curve &amp; threshold</h3>
+<p>How “waiting” cools is its own decision:</p>
+<ul>
+<li><strong>Continuous vs banded.</strong> A smooth <code>--aura-intensity</code> from <code>age / threshold</code>
+(the strip above is hand-stepped to fake it), or reuse the existing <strong>age
+bands</strong> — <code>idleBucketFor()</code> already cuts <code>4h-12h / 12h-24h / 24h-48h / 48h+</code>
+(<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/activityWindow.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/terminal/activityWindow.ts</a>) for discrete
+steps with zero new math.</li>
+<li><strong>Which window.</strong> Reuse the persisted, user-chosen <code>activityWindow</code> (default
+<code>24h</code>); honor <code>All</code> = no decay. The one control already in the sidebar drives
+dock, minimap, <em>and</em> this.</li>
+<li><strong>Where stale lands.</strong> A dim violet ember (still legibly “waiting”), or fully
+demote to idle/parked to match how the dock and minimap already treat parked
+rows. Ember keeps the “it wanted you” memory; parked is quieter.</li>
+</ul>
+<h3 id="the-active-tiles-aura--mute-or-suppress">The active tile’s aura — mute or suppress</h3>
+<p>The active tile already wins via the teal ring and can’t be <code>alert</code> (focus clears
+unread). The open call is the <em>rest</em> of the ladder on it: <strong>mute to a whisper</strong>
+(~25–35% intensity, so you still glimpse working/waiting on the tile you’re in),
+or <strong>fully suppress</strong> (focus ring only, zero aura — calmest, leans hardest on
+“borders are for the tiles you’re <em>not</em> in”). Default: mute.</p>
+<h3 id="idle--done-settings-reduced-motion">Idle / done, settings, reduced motion</h3>
+<ul>
+<li><strong>Idle / done</strong> stays bare (repo border only) — don’t add noise to the quiet
+ones. A separate “just finished” pulse is possible but is arguably the <code>alert</code>
+rung’s job already.</li>
+<li><strong>Reduced motion</strong> follows the existing convention — every gallery above
+collapses to a static high-opacity state under
+<code>prefers-reduced-motion: reduce</code>; nothing depends on motion alone to be
+readable.</li>
+<li><strong>Settings</strong> — likely on by default (reduced-motion covers the calm case); a
+<code>PreferencesSchema</code> toggle is a small add if an explicit off-switch is wanted.</li>
+</ul>
+<h2 id="how-it-wires-in">How it wires in</h2>
+<p>Small and contained — no new state machinery, because the upstream classifiers
+already exist and are the single source of truth. What actually shipped — refined
+Language <strong>C</strong> on the canvas tile, with Language <strong>D</strong>’s flat bar kept at minimap
+scale:</p>
+<ul>
+<li><strong>A pure tier mapper, not a generalized dock mapper.</strong> Rather than fold the
+decision into the dock’s <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/canvas/dock/pipVariant.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/canvas/dock/pipVariant.ts</a>, the canvas got its own pure classifier <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/canvas/tileAura.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/canvas/tileAura.ts</a>: <code>tileAura(bucket, unread, stale) → TileAura</code> (<code>alert | waiting | waiting-stale | working | none</code>). It <em>reuses</em> the same upstream inputs the dock reads (<code>agentBucket</code>, the unread flag, <code>useStaleCheck</code>) but maps to the canvas’s own vocabulary — a top bar with a fresh/stale split on <code>waiting</code>. Kept a pure function so it’s unit-tested without a Solid harness (<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/canvas/tileAura.test.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/canvas/tileAura.test.ts</a>), the way <code>pipVariant</code> is.</li>
+<li><strong>Stale folds into the tier — consistently.</strong> A stale <code>waiting</code> tile cools to the static <code>waiting-stale</code> ember; a stale <code>working</code> tile is <em>parked</em> and drops to <code>none</code> (no bar), so the canvas agrees with the dock’s <code>parked</code> bucket (<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/canvas/dock/dockRowRanking.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/canvas/dock/dockRowRanking.ts</a>) and the minimap’s parked ghost rather than advertising a bright working hum on a tile the dock has already quieted.</li>
+<li><strong>One reactive socket, two surfaces.</strong> <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/canvas/useTileAura.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/canvas/useTileAura.ts</a> closes over the terminal store and one <code>useStaleCheck()</code> instance and turns an id into its tier; the canvas tile (via <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/canvas/TerminalCanvas.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/canvas/TerminalCanvas.tsx</a>) and the minimap marker (<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/canvas/CanvasMinimap.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/canvas/CanvasMinimap.tsx</a>) both read it, so they can’t drift. Age comes from the same reactive, 60s-ticking staleness the dock and minimap already use (<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/staleness.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/terminal/staleness.ts</a>, <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/activityWindow.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/terminal/activityWindow.ts</a>) — no new threshold, no new timer.</li>
+<li><strong>The tile renders a border <em>ring</em>.</strong> <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/canvas/CanvasTile.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/canvas/CanvasTile.tsx</a> takes the tier as a prop, sets <code>data-aura</code> on its root and <code>--aura-c</code> — the tile’s own theme foreground — as a CSS variable, and paints an absolutely-positioned <code>.tile-aura</code> ring (skipped when maximized or <code>none</code>). <strong>Motion</strong> carries the state: working <em>marches ants</em> (a crawling dashed conic ring); needs-you <em>sweeps</em> a comet whose rotation <strong>speed is the urgency</strong> (alert fastest → fresh → stale slowest). <strong>Colour</strong> is <code>--aura-c</code>, contrast-safe against any theme bg by construction (it’s the foreground). The active tile dims its own ring (<code>[data-active=&quot;true&quot;] .tile-aura { opacity: 0.4 }</code>) so the focus accent dominates.</li>
+<li><strong>Geometry is fixed; only a child spins.</strong> The masked ring stays put on <code>.tile-aura</code>; the moving paint is an oversized centered <code>::before</code> (200% of the tile via <code>inset: -50%</code>, so it covers the rectangle at any angle) spun with <code>transform: rotate</code>. Rotating the <em>masked element itself</em> would tilt the whole rectangular ring on a non-square tile (800×540), throwing the band off the border and clipping it against <code>overflow-hidden</code>; spinning only the child behind a fixed ring mask keeps the band welded to all four edges while the comet/ants travel round it.</li>
+<li><strong>Performance is deliberate.</strong> The spin is <code>transform: rotate</code> on that child — <strong>GPU-composited</strong>, so the conic is rasterized once and only transforms run per frame: <strong>no per-frame repaint or layout</strong>, the trap that both a <code>background-position</code> marquee <em>and</em> an animated gradient-angle would hit across a whole canvas of tiles. The ring exists only for live-agent tiles (idle/parked render nothing, costing no compositor layer), there is no <code>will-change</code> pinning a layer per tile, and <code>prefers-reduced-motion</code> stops every animation (sweeps fall back to a static ring).</li>
+<li><strong>CSS + the minimap fallback.</strong> The <code>.tile-aura</code> ring rules and the <code>aura-spin</code> keyframe (which rotates the <code>::before</code>) live in <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/index.css" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/index.css</a> beside the existing <code>pill-*</code> / <code>dock-chip-*</code> animations. The <strong>minimap</strong> keeps a flat <code>.aura-bar</code> top-edge bar (<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/canvas/CanvasMinimap.tsx" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/canvas/CanvasMinimap.tsx</a>): a comet/ants ring doesn’t shrink to a ~40px marker, and the marker sits on the neutral minimap panel (not a themed tile bg), so its semantic colours read fine and give a consistent at-a-glance state scan.</li>
+</ul>
+<p>No new state or timing machinery — a CSS block, a small pure mapper plus its
+reactive socket, and the prop wiring on the tile and minimap. (No tip was added;
+the bar is self-evident enough that discoverability didn’t warrant a tips-registry
+entry.)</p>
+<hr/>
+<p><em>Status: <code>implemented</code> in <a href="https://github.com/juspay/kolu/pull/1335" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1335 </a> — refined Language <strong>C</strong> on the
+canvas tile (marching ants for working, a sweeping comet for needs-you whose
+speed is the urgency, in the terminal’s own theme colour), with Language <strong>D</strong>’s
+flat bar kept at minimap scale; fresh-vs-stale decay via <code>useStaleCheck</code>; a muted
+active ring; a fixed masked ring with an oversized <code>::before</code> spun by
+<code>transform: rotate</code> (GPU-composited — no per-frame repaint — and the band stays
+welded to the border because only the child rotates), with
+<code>prefers-reduced-motion</code> resetting to a static ring. Shipped on <code>throbborder</code>.</em></p> </div> <footer class="note-foot"> <a class="backlink" href="./index.html">← the Atlas</a> <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a> </footer> </article> </body></html>
