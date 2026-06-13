@@ -26,7 +26,7 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { getPtyHostSocketPath } from "kaval";
+import { getPtyHostSocketPath, kavalNamespace } from "kaval";
 import {
   type DaemonDriver,
   survivableSpawnDriver,
@@ -52,7 +52,10 @@ import {
  *  for a fully pinned rendezvous — the e2e harness uses it); when set it wins over
  *  the per-port default. */
 export function kavalSocketPath(port: number): string {
-  return getPtyHostSocketPath(process.env.KOLU_KAVAL_SOCKET, `kaval-${port}`);
+  return getPtyHostSocketPath(
+    process.env.KOLU_KAVAL_SOCKET,
+    kavalNamespace(port),
+  );
 }
 
 /** The single-instance gate kaval claims, beside its socket — the same path
