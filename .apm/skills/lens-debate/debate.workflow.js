@@ -302,12 +302,20 @@ const posMap = (res) => Object.fromEntries((res?.positions ?? []).map((p) => [p.
 // { kind: 'handed-off', items } when apply:false returned the plans to the
 // caller — one param, so "at most one of applied/handed-off" holds by
 // construction instead of by convention.
-function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, withPolice, base, clean }) {
-  const badge = clean
-    ? '✅ **Clean** — every lens found nothing worth raising'
-    : unresolved.length === 0
-      ? '✅ **Consensus**'
-      : `⚠️ **${unresolved.length} unresolved**`
+// `applyGaps` (agreed fixes the Apply phase did not cleanly land) is rendered
+// HERE, not just in the machine `status`: the SKILL posts this comment verbatim,
+// so an apply-incomplete run must surface a warning badge and a dedicated gap
+// section instead of advertising `✅ Consensus` and listing the gapped fix as
+// `Applied`. Keep this consistent with the status downgrade in Phase 3.
+function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, withPolice, base, clean, applyGaps = [] }) {
+  const gapIds = new Set(applyGaps.map((g) => g.id))
+  const badge = applyGaps.length
+    ? `⚠️ **Apply incomplete** — ${applyGaps.length} agreed fix(es) not cleanly applied`
+    : clean
+      ? '✅ **Clean** — every lens found nothing worth raising'
+      : unresolved.length === 0
+        ? '✅ **Consensus**'
+        : `⚠️ **${unresolved.length} unresolved**`
   const counts = Object.entries(reviewByLens)
     .map(([lens, fs]) => `${lens}=${fs.length}`)
     .join(', ')
@@ -323,9 +331,25 @@ function renderComment({ rounds, settledOut, unresolved, outcome, reviewByLens, 
     `Independent findings: ${counts}`,
   ]
   const drops = settledOut.filter((s) => s.agreed && s.disposition === 'drop')
-  if (outcome.kind === 'applied' && outcome.items.length) {
-    lines.push('', `### Applied (${outcome.items.length})`)
-    outcome.items.forEach((a) => lines.push(`- \`${a.id}\` ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
+  if (outcome.kind === 'applied') {
+    // Only CLEANLY-landed fixes go under `Applied`; a fix in `applyGaps` (missing
+    // from the apply output, or changed-but-uncommitted) is NOT applied work and
+    // must not be advertised as such under what would otherwise be a consensus
+    // badge — it gets its own gap section below.
+    const cleanlyApplied = outcome.items.filter((a) => !gapIds.has(a.id))
+    if (cleanlyApplied.length) {
+      lines.push('', `### Applied (${cleanlyApplied.length})`)
+      cleanlyApplied.forEach((a) => lines.push(`- \`${a.id}\` ${a.title}${a.commit ? ` — commit \`${a.commit.slice(0, 9)}\`` : ' — (uncommitted)'}`))
+    }
+    if (applyGaps.length) {
+      lines.push('', `### Apply incomplete — needs reconcile (${applyGaps.length})`)
+      const reasonText = { 'missing-from-output': 'not confirmed applied (absent from apply output)', uncommitted: 'changed but not committed (per-fix commit missing)' }
+      applyGaps.forEach((g) => {
+        const item = outcome.items.find((a) => a.id === g.id)
+        const title = item?.title ? ` ${item.title}` : ''
+        lines.push(`- \`${g.id}\`${title} — ${reasonText[g.reason] ?? g.reason}`)
+      })
+    }
   }
   // apply:false runs hand the agreed plans to the caller instead of implementing
   // them; the comment records the handoff so the trail still shows what was agreed
@@ -549,5 +573,5 @@ return {
   fixes,
   reviews: reviewByLens,
   history,
-  comment: renderComment({ rounds, settledOut, unresolved, outcome: apply ? { kind: 'applied', items: applied } : { kind: 'handed-off', items: fixes }, reviewByLens, withPolice, base }),
+  comment: renderComment({ rounds, settledOut, unresolved, outcome: apply ? { kind: 'applied', items: applied } : { kind: 'handed-off', items: fixes }, reviewByLens, withPolice, base, applyGaps }),
 }

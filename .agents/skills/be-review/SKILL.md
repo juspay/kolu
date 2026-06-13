@@ -72,8 +72,8 @@ it once per step.
    rendered comment body for be-review to post after the push. Wait for its
    `Workflow` to finish before starting the codex step.
 
-   `/lens-debate` returns a `status` of `clean`, `consensus`, `unresolved`, or
-   `merge-base-error`:
+   `/lens-debate` returns a `status` of `clean`, `consensus`,
+   `apply-incomplete`, `unresolved`, or `merge-base-error`:
    - `clean` / `consensus` — the lenses agreed per-finding and applied the fixes.
    - `apply-incomplete` — the lenses agreed, but the Apply phase didn't land every
      fix cleanly (see `applyGaps`: a fix was missing from the apply output or
@@ -100,7 +100,8 @@ it once per step.
    consensus to report; skip the codex comment in that case.)
 
    **Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
-   either in `consensus` or in `reviewer-error` — the latter meaning codex never
+   in `consensus`, `commit-incomplete` (see below), or `reviewer-error` — the
+   last meaning codex never
    produced a structured verdict even after `codex-review.sh`'s built-in
    per-`codex exec` retries. That is an *infrastructure hiccup, not a debate
    outcome*: re-launch it immediately with the same args. Stop the moment an
