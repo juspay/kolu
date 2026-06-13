@@ -373,6 +373,10 @@ const CanvasMinimap: Component<{
                 width: `${t.w}px`,
                 height: `${t.h}px`,
                 "background-color": theme().bg,
+                // Same aura ring colour as the full tile — the marker is filled
+                // with the terminal's theme bg, so the theme-fg ring contrasts
+                // here by construction too.
+                "--aura-c": theme().fg,
                 border: `1px solid ${t.repoColor}`,
               };
             };
@@ -404,14 +408,15 @@ const CanvasMinimap: Component<{
                     onPointerDown={handleTilePointerDown}
                     onClick={handleTileClick}
                   >
-                    {/* State aura — the same top-edge bar the full canvas tile
-                        paints (index.css `.aura-bar`, coloured via the rect's
-                        `data-aura`), at minimap scale. Only for live, non-parked
-                        tiles; parked tiles are already the recessive ghost. */}
+                    {/* State aura — the SAME animated ring the full canvas tile
+                        paints (index.css `.tile-aura`), at minimap scale via
+                        `.tile-aura--mini`, coloured by the rect's `--aura-c` and
+                        keyed off its `data-aura`. Only live, non-parked tiles;
+                        parked tiles are already the recessive ghost. */}
                     <Show when={!parked() && auraTier() !== "none"}>
                       <div
                         data-testid="minimap-tile-aura"
-                        class="aura-bar aura-bar--mini"
+                        class="tile-aura tile-aura--mini"
                       />
                     </Show>
                   </div>

@@ -214,6 +214,11 @@ body {
 .tile-aura {
   position: absolute;
   inset: 0;
+  /* Paint OVER the tile content (title bar + opaque terminal body) — as a
+   * first child with no z-index it would sit behind them and only the
+   * semi-transparent title-bar strip would show the ring. pointer-events:none
+   * keeps the chrome underneath clickable. */
+  z-index: 4;
   border-radius: inherit;
   padding: 2.5px;
   pointer-events: none;
@@ -227,6 +232,10 @@ body {
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
   mask-composite: exclude;
+}
+/* Thinner ring for the minimap markers (the same language at ~40px). */
+.tile-aura--mini {
+  padding: 1.5px;
 }
 /* The spinning paint — an oversized centered child rotated via transform ONLY
  * (composited). `inset: -50%` guarantees it covers the tile at every angle; the
@@ -258,11 +267,14 @@ body {
 [data-aura="alert"] .tile-aura,
 [data-aura="waiting"] .tile-aura,
 [data-aura="waiting-stale"] .tile-aura {
+  /* a comet — bright head, a tail fading over ~80°, the rest transparent — so
+   * the rotation reads as one light sweeping round the border, not a uniform
+   * spin. */
   --aura-paint: conic-gradient(
     from 0deg,
-    transparent 0deg,
-    var(--aura-c) 36deg,
-    transparent 92deg,
+    var(--aura-c) 0deg,
+    color-mix(in oklch, var(--aura-c) 35%, transparent) 34deg,
+    transparent 80deg,
     transparent 360deg
   );
 }
@@ -294,64 +306,12 @@ body {
   }
 }
 
-/* ── Minimap markers keep a flat TOP-EDGE bar — the canvas tile's comet/ants
- *    don't shrink to a ~40px marker, so the minimap falls back to the bar. Its
- *    backdrop is the neutral minimap panel (not a themed tile bg), so the
- *    semantic colours read fine there and give a consistent at-a-glance state
- *    scan; motion still encodes state — working steady, waiting pulses, alert
- *    blinks. The bar renders only working / waiting / alert: parked tiles are
- *    the recessive ghost (no bar), and the only stale tier — `waiting-stale` —
- *    is by definition parked, so it never reaches this surface (no rule for
- *    it here). */
-.aura-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 5px;
-  pointer-events: none;
-}
-.aura-bar--mini {
-  height: 3px;
-}
-[data-aura="working"] .aura-bar {
-  background: var(--color-busy);
-}
-[data-aura="waiting"] .aura-bar {
-  background: var(--color-alert);
-  animation: aura-pulse 2.4s ease-in-out infinite;
-}
-[data-aura="alert"] .aura-bar {
-  background: var(--color-alert);
-  animation: aura-blink 1.2s ease-in-out infinite;
-}
-@keyframes aura-pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-@keyframes aura-blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  /* Broad reset (mirrors the ring's `.tile-aura::before` reset above): a new
-   * bar tier is covered by default and only opts INTO motion, instead of each
-   * animated tier remembering to opt out here by hand. */
-  [data-aura] .aura-bar {
-    animation: none;
-    opacity: 1;
-  }
-}
+/* The minimap markers paint the SAME `.tile-aura` ring (via `.tile-aura--mini`),
+ * in the same theme colour — so the bird's-eye view animates exactly like the
+ * tiles. Each marker is filled with its terminal's theme bg, so the theme-fg
+ * ring contrasts there by construction too. Parked tiles are the recessive ghost
+ * (no ring); the only stale tier, `waiting-stale`, is by definition parked, so
+ * it never reaches the minimap. */
 
 /* Inset highlight: marks the pill as ALSO the active terminal when
  * the border is already busy showing agent state. Sits inside the
