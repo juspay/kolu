@@ -1,0 +1,485 @@
+---
+title: Canvas tiles that show their state — border prototypes
+description: Five terminals on the canvas; which one needs you? Surface each session's run-state on the tile border itself — a loudness ladder ranked by attention (alert ▸ fresh-waiting ▸ working ▸ stale-waiting ▸ idle), where "waiting" cools with last-activity age via kolu's existing activity-window. Four live, animated visual languages to choose from.
+kind: feature
+status: proposed
+maturity: seedling
+updated: 2026-06-13
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import Cite from "../../components/Cite.astro";
+import D2 from "../../components/D2.astro";
+
+With five terminals open on the canvas it's hard to tell at a glance which one is
+*thinking*, which is *waiting for you*, and which just *pinged you and you missed
+it*. That state already exists — it shows as a label in each tile's title bar
+(`Thinking`, `Waiting for input`, `Running in background`) and as colored dots in
+the dock. But reading a title bar isn't a glance, and you're looking at the
+**terminals**, not the dock. So put the signal on the **tile border**, where
+peripheral vision can catch it across the whole canvas.
+
+<Callout kind="note" title="The ask">
+Make running terminals visually distinct on the canvas. An **animating border**
+for ones that are working, a **throbbing border** for ones with a fresh alert,
+and **some other border** for ones that are waiting on you — so a sweep of the
+eye tells you the state of the fleet without reading anything.
+</Callout>
+
+This note is a **chooser**: four animated border languages rendered live below,
+each across the full attention ladder — which is *ranked* (some tiles matter more
+than others) and *time-aware* (a "waiting" tile cools as it ages) — plus the
+secondary decisions (color, motion, decay, settings). Pick a language and the open
+decisions, and it ships on the `throbborder` branch.
+
+export const ProtoStyles = () => (
+  <style>{`
+  .tb-canvas{background:#0c0c0e;border:1px solid #27272c;border-radius:12px;padding:1.15rem 1rem .95rem;margin:1.2rem 0;--rust:#d97757;--violet:#a78bfa;--teal:#5a9ea0;--repo:#5b6470;}
+  .tb-canvas .lead{font:600 .68rem/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;margin:0 0 .85rem .1rem}
+  .tb-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.9rem}
+  @media (max-width:640px){.tb-grid{grid-template-columns:repeat(2,1fr)}}
+  .tb-cell{display:flex;flex-direction:column;gap:.45rem}
+  .tb-tile{position:relative;height:82px;border-radius:9px;border:1.5px solid var(--repo);background:#161618;overflow:hidden;transition:box-shadow .2s}
+  .tb-titlebar{display:flex;align-items:center;gap:.4rem;padding:.34rem .52rem;background:rgba(228,228,232,.06);border-bottom:1px solid rgba(228,228,232,.08)}
+  .tb-dot{width:7px;height:7px;border-radius:50%;background:var(--repo);flex:none}
+  .tb-name{font:600 .56rem/1 ui-monospace,monospace;color:#9aa0aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tb-body{padding:.5rem .55rem;font:.62rem/1.35 ui-monospace,monospace;color:#9aa0aa}
+  .tb-caption{font:600 .62rem/1.25 ui-sans-serif,system-ui;color:#8b929d;text-align:center}
+  .tb-caption b{color:#c7ccd6}
+
+  /* title dot/name carry the state tone, in every language */
+  .tb-working .tb-dot{background:var(--rust)} .tb-working .tb-name{color:#c69b86}
+  .tb-waiting .tb-dot,.tb-alert .tb-dot{background:var(--violet)}
+  .tb-waiting .tb-name,.tb-alert .tb-name{color:#b3a8d6}
+
+  /* ── A · HALO — outer glow; loudness tracks the attention rank, motion = "needs you" ── */
+  /* rank 3 · working — steady rust hum, no motion */
+  .lang-halo .tb-working{box-shadow:0 0 0 1px color-mix(in oklch,var(--rust) 38%,transparent),0 0 13px -4px color-mix(in oklch,var(--rust) 72%,transparent)}
+  /* rank 2 · waiting (fresh) — brighter violet, gentle slow breathe */
+  .lang-halo .tb-waiting{animation:tb-wait-breathe 2.4s ease-in-out infinite}
+  @keyframes tb-wait-breathe{0%,100%{box-shadow:0 0 0 1px color-mix(in oklch,var(--violet) 52%,transparent),0 0 14px -4px color-mix(in oklch,var(--violet) 58%,transparent)}50%{box-shadow:0 0 0 1.5px color-mix(in oklch,var(--violet) 88%,transparent),0 0 23px -2px var(--violet)}}
+  /* rank 4 · waiting (stale / parked) — dim violet ember, static, below the working hum */
+  .lang-halo .tb-waitingstale{box-shadow:0 0 0 1px color-mix(in oklch,var(--violet) 20%,transparent),0 0 8px -5px color-mix(in oklch,var(--violet) 36%,transparent)}
+  /* rank 1 · alert — fast throb + expanding halo, brightest */
+  .lang-halo .tb-alert{animation:tb-halo-throb 1.2s ease-in-out infinite}
+  @keyframes tb-halo-throb{0%,100%{box-shadow:0 0 0 1px var(--violet),0 0 0 0 color-mix(in oklch,var(--violet) 55%,transparent),0 0 14px -3px var(--violet)}50%{box-shadow:0 0 0 1.5px var(--violet),0 0 0 6px color-mix(in oklch,var(--violet) 16%,transparent),0 0 26px -1px var(--violet)}}
+
+  /* ── B · LIVE BORDER — the border line itself takes the state color ── */
+  .lang-border .tb-working{border-color:var(--rust)}
+  .lang-border .tb-waiting{animation:tb-bord-wait 2.4s ease-in-out infinite}
+  @keyframes tb-bord-wait{0%,100%{border-color:color-mix(in oklch,var(--violet) 55%,#161618)}50%{border-color:var(--violet)}}
+  .lang-border .tb-alert{animation:tb-bord-throb 1.2s ease-in-out infinite}
+  @keyframes tb-bord-throb{0%,100%{border-color:color-mix(in oklch,var(--violet) 50%,#161618);box-shadow:0 0 0 0 transparent}50%{border-color:var(--violet);box-shadow:0 0 0 2px color-mix(in oklch,var(--violet) 24%,transparent)}}
+
+  /* ── C · SWEEP — a comet of light marches the border (energetic "running") ── */
+  .lang-sweep .tb-working::after{content:"";position:absolute;inset:0;border-radius:9px;padding:1.5px;background:conic-gradient(from 0deg,transparent 0deg,var(--rust) 70deg,transparent 150deg,transparent 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;animation:tb-spin 2.4s linear infinite;pointer-events:none}
+  @keyframes tb-spin{to{transform:rotate(1turn)}}
+  .lang-sweep .tb-waiting{box-shadow:0 0 0 1px var(--violet),0 0 12px -3px color-mix(in oklch,var(--violet) 55%,transparent)}
+  .lang-sweep .tb-alert{animation:tb-halo-throb 1.2s ease-in-out infinite}
+
+  /* ── D · TOP BAR — a thin status bar on the top edge; reads at any zoom (canvas + minimap) ── */
+  .lang-bar .tb-tile::after{content:"";position:absolute;top:0;left:0;height:2.5px;width:100%;pointer-events:none;background:transparent}
+  .lang-bar .tb-working::after{background:var(--rust)}                                          /* rank 3 — steady rust hum */
+  .lang-bar .tb-waiting::after{background:var(--violet);animation:tb-bar-pulse 2.4s ease-in-out infinite}  /* rank 2 — gentle pulse */
+  @keyframes tb-bar-pulse{0%,100%{opacity:.55}50%{opacity:1}}
+  .lang-bar .tb-alert::after{background:var(--violet);animation:tb-bar-blink 1.2s ease-in-out infinite}    /* rank 1 — sharper blink */
+  @keyframes tb-bar-blink{0%,100%{opacity:1}50%{opacity:.28}}
+
+  /* the same top-bar language at MINIMAP scale — markers carry a top edge, not a corner dot */
+  .mm-panel{position:relative;width:248px;height:150px;margin:.2rem auto 0;background:#0c0c0e;border:1px solid #27272c;border-radius:9px;overflow:hidden;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:20px 20px}
+  .mm-tile{position:absolute;border-radius:3px;background:#1b1b1f;border:1px solid #2d2d34;overflow:hidden}
+  .mm-tile::after{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:transparent}
+  .mm-working::after{background:var(--rust)}
+  .mm-waiting::after{background:var(--violet);animation:tb-bar-pulse 2.4s ease-in-out infinite}
+  .mm-stale::after{background:color-mix(in oklch,var(--violet) 40%,transparent);width:55%}
+  .mm-alert::after{background:var(--violet);animation:tb-bar-blink 1.2s ease-in-out infinite}
+  .mm-active{box-shadow:0 0 0 1.5px var(--teal);z-index:2}
+  .mm-view{position:absolute;border:1px dashed rgba(255,255,255,.22);border-radius:3px;pointer-events:none}
+
+  /* focus-vs-working demo: focus = teal inner ring, state = outer treatment */
+  .tb-focus{box-shadow:inset 0 0 0 1.5px var(--teal)}
+  .tb-pair{display:grid;grid-template-columns:1fr 1fr;gap:.9rem;max-width:24rem}
+
+  @media (prefers-reduced-motion:reduce){
+    .tb-canvas *{animation:none!important}
+    .lang-halo .tb-waiting{box-shadow:0 0 0 1.5px color-mix(in oklch,var(--violet) 80%,transparent),0 0 18px -3px var(--violet)}
+    .lang-halo .tb-alert{box-shadow:0 0 0 1.5px var(--violet),0 0 0 5px color-mix(in oklch,var(--violet) 18%,transparent)}
+    .lang-border .tb-waiting{border-color:var(--violet)}
+    .lang-border .tb-alert{border-color:var(--violet);box-shadow:0 0 0 2px color-mix(in oklch,var(--violet) 24%,transparent)}
+    .lang-sweep .tb-working{box-shadow:0 0 0 1px var(--rust),0 0 12px -4px var(--rust)}
+    .lang-bar .tb-waiting::after,.lang-bar .tb-alert::after,.mm-waiting::after,.mm-alert::after{opacity:1}
+  }
+  `}</style>
+);
+
+export const STATES = [
+  { k: "idle",    cap: "Idle",    tail: "/ done",   sub: "$ ▏" },
+  { k: "working", cap: "Working", tail: "",         sub: "◐ Thinking…" },
+  { k: "waiting", cap: "Waiting", tail: "· fresh",  sub: "⏵ Waiting for input" },
+  { k: "alert",   cap: "Alert",   tail: "(unread)", sub: "⏵ Awaiting input" },
+];
+
+export const Gallery = (props) => (
+  <div class={`tb-canvas lang-${props.lang}`}>
+    <div class="lead">{props.lead}</div>
+    <div class="tb-grid">
+      {STATES.map((s) => (
+        <div class="tb-cell">
+          <div class={`tb-tile tb-${s.k}`}>
+            <div class="tb-titlebar"><span class="tb-dot" /><span class="tb-name">argh · claude</span></div>
+            <div class="tb-body">{s.sub}</div>
+          </div>
+          <div class="tb-caption"><b>{s.cap}</b> {s.tail}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+<ProtoStyles />
+
+## The attention ladder
+
+The signal isn't a handful of flat colors — it's a **loudness ladder ordered by
+who needs you**: `alert ▸ fresh-waiting ▸ working ▸ stale-waiting ▸ idle`. And
+one rung isn't fixed — **"waiting" slides down the ladder as it ages**. A tile
+that started waiting a minute ago should outrank a busy one; the same tile six
+hours later has cooled below it. kolu already ranks and ages exactly this, so the
+border reuses the machinery rather than inventing a parallel scheme:
+
+<D2
+  caption="One classifier, now a fourth consumer — and a time input. AgentInfo.state collapses to a bucket (agentBucket); the orthogonal unread flag marks a fresh, missed alert; lastActivityAt vs the user's activity window (useStaleCheck/isStale) ages a waiter. A shared mapper folds all three into a (tier, intensity) the dock pips, rail chips, and minimap badge already share — the canvas tile aura becomes the fourth reader. The tile also reads store.activeId(): focus paints the teal ring, clears unread, and mutes the tile's own aura — so the loudest border is always elsewhere. No new state logic, no new clock."
+  code={`direction: down
+state: "AgentInfo.state — thinking · tool_use · waiting · awaiting_user · running_background"
+bucket: "agentBucket() — working | awaiting | idle | none"
+unread: "isUnread(id) — fresh + missed (useViewState)"
+age: "lastActivityAt vs activity window — useStaleCheck() / isStale()"
+variant: "auraVariant(bucket, unread, age) — SHARED (tier + intensity), generalize pipVariant()"
+dock: "dock pips + rail chips"
+mini: "minimap badge"
+tile: "NEW: canvas tile aura"
+active: "store.activeId() — focus ring (teal); clears unread; mutes own aura"
+state -> bucket
+bucket -> variant
+unread -> variant
+age -> variant
+variant -> dock
+variant -> mini
+variant -> tile
+active -> tile`}
+/>
+
+| Rank | State | When | Color | Border |
+| --- | --- | --- | --- | --- |
+| **1 · Alert** | `unread` — flipped to needing you **while you weren't looking** | violet `--color-alert` | fast **throb** + halo (~1.2s); **self-clears on focus** |
+| **2 · Waiting · fresh** | `awaiting` and recent — within your activity window (esp. < 4h) | violet `--color-alert` | gentle slow **breathe**, bright |
+| **3 · Working** | thinking / running tools / background workflow | rust `--color-busy` | **steady** hum — no motion |
+| **4 · Waiting · stale** | `awaiting` but older than your activity window (parked) | violet `--color-alert` | dim **ember**, static — cooled *below* the working hum |
+| **5 · Idle / done** | no agent, finished, or acknowledged | repo identity | none |
+
+<Callout kind="accent" title="Two refinements the priority order forces">
+**1 · "Waiting" splits in two and *decays.*** A fresh waiter outranks a working
+tile; the same tile, hours later, has cooled below it. The crossover is your
+**activity window** — the `4h / 12h / 24h / All` control already in the sidebar
+(<Cite file="packages/client/src/terminal/activityWindow.ts" />, default `24h`).
+Pick `4h` and a waiter drops below the working hum after four hours; `All`
+disables decay so every waiter stays fresh. The loudest rung (alert) still clears
+itself the instant you focus the tile.
+
+**2 · Motion means "needs you," not "busy."** Because alert (1) and fresh-waiting
+(2) outrank working (3), the strongest attention cue — *motion* — is reserved for
+the top of the ladder. Working is a **steady** glow; only the rungs that want you
+actually move. This flips the first instinct (an *animating* border for working);
+see **Open decisions** below.
+</Callout>
+
+## Waiting cools as it ages
+
+This is the new axis. The same waiting tile, rendered at four ages — its violet
+glow dims monotonically and stops moving as `lastActivityAt` recedes, crossing
+*below* the rust working hum at your activity-window threshold and settling near
+idle once it parks. The clock is kolu's existing `useStaleCheck()` /
+`activityWindow` — the very signal that already parks dock rows and fades minimap
+tiles, now cooling the canvas border too. One vocabulary, one persisted choice.
+
+export const DECAY = [
+  { age: "just now", note: "rank 2 — loud", anim: "tb-wait-breathe 2.4s ease-in-out infinite", shadow: "" },
+  { age: "~2h",      note: "still above the hum", anim: "none", shadow: "0 0 0 1px color-mix(in oklch,var(--violet) 58%,transparent),0 0 16px -3px color-mix(in oklch,var(--violet) 68%,transparent)" },
+  { age: "~4h",      note: "crossing your window", anim: "none", shadow: "0 0 0 1px color-mix(in oklch,var(--violet) 36%,transparent),0 0 11px -4px color-mix(in oklch,var(--violet) 46%,transparent)" },
+  { age: "stale · parked", note: "rank 4 — ember", anim: "none", shadow: "0 0 0 1px color-mix(in oklch,var(--violet) 18%,transparent),0 0 7px -5px color-mix(in oklch,var(--violet) 30%,transparent)" },
+];
+
+export const DecayStrip = () => (
+  <div class="tb-canvas lang-halo">
+    <div class="lead">Waiting · cooling with last-activity age — your activity window is the crossover</div>
+    <div class="tb-grid">
+      {DECAY.map((d) => (
+        <div class="tb-cell">
+          <div class="tb-tile tb-waiting" style={`animation:${d.anim}${d.shadow ? `;box-shadow:${d.shadow}` : ""}`}>
+            <div class="tb-titlebar"><span class="tb-dot" /><span class="tb-name">argh · claude</span></div>
+            <div class="tb-body">⏵ Waiting · {d.age}</div>
+          </div>
+          <div class="tb-caption"><b>{d.age}</b><br />{d.note}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+<DecayStrip />
+
+The first tile is the live rank-2 breathe; the rest are the same state cooling.
+The crossover (where waiting dips under working) lands wherever you set the
+activity window — so the decay is *yours to tune*, not a hard-coded curve.
+
+## The active tile — where focus meets the ladder
+
+The ladder ranks *attention demand* — which tile to look at **next**. Focus marks
+where you **are**. Different axes, and the active tile is where they meet, so make
+the composition explicit:
+
+- **Focus is its own channel, already built.** The active tile carries a teal
+  inner ring + a right-edge accent (`store.activeId()` → the existing
+  `0 0 0 1px var(--color-accent)`). Teal = "you are here"; the rust/violet aura =
+  "this wants you." Two colors, two geometries — inner ring vs outer glow — so
+  they don't collide, and rust-for-working keeps the hues apart.
+- **The active tile is never *alert.*** Focusing a tile clears its `unread`
+  (existing behavior — sound, OS badge, and pip all reset). So the loudest rung
+  only ever lights an *inactive* tile: the eye-grab always points you somewhere
+  **new**, never back at yourself.
+- **Focus mutes the tile's own aura.** You're already attending to it, so it
+  shouldn't compete — the `--aura-intensity` knob simply scales down on
+  `data-active`. An active working tile is a clean teal ring with its rust aura
+  dialed to a whisper; an active waiting tile keeps a faint violet (you can still
+  see it wants input) while focus dominates.
+
+export const ActiveDemo = () => (
+  <div class="tb-canvas lang-halo">
+    <div class="lead">One active tile (teal · "you are here") among the ladder — the loudest border is never the active one</div>
+    <div class="tb-grid">
+      <div class="tb-cell">
+        <div class="tb-tile tb-working" style="animation:none;box-shadow:inset 0 0 0 1.5px var(--teal),0 0 0 1px color-mix(in oklch,var(--rust) 20%,transparent),0 0 9px -5px color-mix(in oklch,var(--rust) 38%,transparent)">
+          <div class="tb-titlebar"><span class="tb-dot" style="background:var(--teal)" /><span class="tb-name" style="color:#8fc3c4">argh · claude</span></div>
+          <div class="tb-body">◐ Thinking…</div>
+        </div>
+        <div class="tb-caption"><b>Active</b> · working — focus wins, aura muted</div>
+      </div>
+      <div class="tb-cell">
+        <div class="tb-tile tb-alert">
+          <div class="tb-titlebar"><span class="tb-dot" /><span class="tb-name">kaval · codex</span></div>
+          <div class="tb-body">⏵ Awaiting input</div>
+        </div>
+        <div class="tb-caption"><b>Alert</b> — loudest, always inactive</div>
+      </div>
+      <div class="tb-cell">
+        <div class="tb-tile tb-waiting">
+          <div class="tb-titlebar"><span class="tb-dot" /><span class="tb-name">blog · claude</span></div>
+          <div class="tb-body">⏵ Waiting · fresh</div>
+        </div>
+        <div class="tb-caption"><b>Waiting</b> · fresh — inactive</div>
+      </div>
+      <div class="tb-cell">
+        <div class="tb-tile tb-working">
+          <div class="tb-titlebar"><span class="tb-dot" /><span class="tb-name">odu · claude</span></div>
+          <div class="tb-body">◐ Running tools</div>
+        </div>
+        <div class="tb-caption"><b>Working</b> — inactive hum</div>
+      </div>
+    </div>
+  </div>
+);
+
+<ActiveDemo />
+
+**One compositional rule.** A tile's effective border loudness is
+**`state-tier × age-decay × presence`**, where presence is the existing opacity
+hierarchy (active `1.0` · inactive `0.92` · parked `0.55`) — a box-shadow aura
+fades with its element's opacity for free. Active *additionally* mutes the aura;
+parked is already dim. The product guarantees the **brightest border on the
+canvas is always an inactive, fresh, attention-class tile** — precisely where the
+eye should land. Focus and the ladder reinforce each other instead of fighting.
+
+## Prototypes
+
+Four border languages, each rendered live across the ladder (waiting shown
+*fresh*). They differ in *which channel* carries state and *how energetic* it
+reads — and two tiebreakers now matter: which can express a **continuous loudness
+ramp** (so a waiter can dim), and which **survives scaling** to the minimap so the
+canvas and its map speak one language.
+
+### A — Halo (recommended)
+
+<Pill variant="good">Recommended</Pill> A soft outer **glow** carries state; the
+border line stays the repo identity color. A glow has a *continuous* brightness
+axis, so it's the only language that renders the whole ranked, aging ladder
+cleanly — alert throbs brightest, fresh-waiting breathes a bright violet, working
+sits as a steady rust hum, and a stale waiter just **dims** toward an ember (the
+decay strip above is literally this language turned down). It also leaves the two
+existing border meanings — repo identity and the focus ring — untouched.
+
+<Gallery lang="halo" lead="A · Halo — glow (idle ▸ working ▸ waiting·fresh ▸ alert)" />
+
+### B — Live border
+
+The **border line itself** takes the state color — the most literal reading of
+"animated border." It *can* honor the rank (steady rust for working, a breathing
+violet for fresh-waiting, a throb for alert), but two problems: it overwrites the
+repo-identity color while an agent is busy (most of the time), and a solid line
+has nowhere to **dim** to — a faint border reads as a rendering bug, not a cooled
+waiter, so the decay ramp has no room. Fine for a binary; awkward for a ranked,
+aging ladder.
+
+<Gallery lang="border" lead="B · Live border — the line carries state" />
+
+### C — Sweep
+
+A comet of light **marches around the border** while working — the most "this is
+actively running right now" of the set, echoing the dock rail's orbiting glow.
+But that's the trap under the priority order: it spends the loudest channel
+(continuous motion) on the **lowest-priority** active state — working, rank 3 —
+pulling the eye to a churning tile over one that's actually blocked on you. The
+rank inverts it. Keep it only if "what's running" matters more than "what's
+waiting." (Attention states fall back to the halo throb.)
+
+<Gallery lang="sweep" lead="C · Sweep — a marching comet for working" />
+
+### D — Top bar (reads at any zoom)
+
+A thin status **bar on the top edge** — steady rust for working, a gentle violet
+pulse for fresh-waiting, a sharper blink for alert, nothing for idle. It rings
+nothing and stays out of the title bar, so it's the calmest of the four. Its real
+edge is **scale-invariance**: a colored top edge is the same legible shape on a
+full canvas tile *or* a 40px minimap marker — which the others can't claim (a glow
+or a marching comet dissolves when the tile is tiny).
+
+<Gallery lang="bar" lead="D · Top bar — top-edge status strip" />
+
+And the minimap already wants a state signal: today it paints a **corner dot**
+(`bucketDescriptor().accentVar`). Language D **unifies** the two surfaces — the
+same top edge, scaled down — so the canvas and its map speak one language:
+
+export const MiniMap = () => (
+  <div class="tb-canvas">
+    <div class="lead">D in the minimap — the same top-edge bar, scaled down (replaces today's corner dot)</div>
+    <div class="mm-panel">
+      <div class="mm-tile mm-active mm-working" style="left:20px;top:22px;width:66px;height:44px" />
+      <div class="mm-tile mm-alert" style="left:104px;top:16px;width:58px;height:40px" />
+      <div class="mm-tile mm-waiting" style="left:168px;top:62px;width:60px;height:40px" />
+      <div class="mm-tile mm-working" style="left:34px;top:84px;width:56px;height:38px" />
+      <div class="mm-tile mm-stale" style="left:112px;top:98px;width:52px;height:34px" />
+      <div class="mm-view" style="left:14px;top:14px;width:158px;height:112px" />
+    </div>
+    <div class="tb-caption" style="margin-top:.55rem">teal ring = active · rust = working · violet pulse = waiting · dim/short violet = stale · blink = alert</div>
+  </div>
+);
+
+<MiniMap />
+
+Decay survives here too — dim the bar's opacity and shrink its width as a waiter
+ages (the short, faint violet marker above is a stale one): a draining gauge
+instead of a fading glow. The honest cost vs Halo is **expressive range** — a
+2.5px bar carries less nuance than a continuous glow, and a top edge is easier to
+miss peripherally / when a tile is overlapped. You trade richness for
+one-shape-everywhere coherence.
+
+## Open decisions
+
+Independent of the language, a few choices shape how loud and how broad this gets.
+
+### Working color — rust, not teal
+
+The active/focused tile already owns **teal** (`--color-accent`: the focus ring +
+the right-edge accent). If "working" is *also* teal, a focused-and-working tile is
+teal-on-teal — is it busy, or is it the one I'm looking at? Coloring working
+**rust** (`--color-busy`) keeps the two apart, and it matches the rust "Thinking"
+icon already sitting in that tile's title bar. Three legible hues:
+**teal = you're here · rust = it's busy · violet = it wants you.**
+
+export const FocusPair = () => (
+  <div class="tb-canvas lang-halo">
+    <div class="lead">Focused + working — teal ring (focus) vs the working glow</div>
+    <div class="tb-pair">
+      <div class="tb-cell">
+        <div class="tb-tile tb-working tb-focus"><div class="tb-titlebar"><span class="tb-dot" /><span class="tb-name">argh · claude</span></div><div class="tb-body">{"◐ Thinking…"}</div></div>
+        <div class="tb-caption"><b>Rust</b> glow — clearly distinct</div>
+      </div>
+      <div class="tb-cell">
+        <div class="tb-tile tb-focus" style="box-shadow:inset 0 0 0 1.5px var(--teal),0 0 14px -3px var(--teal)"><div class="tb-titlebar"><span class="tb-dot" style="background:var(--teal)" /><span class="tb-name" style="color:#8fc3c4">argh · claude</span></div><div class="tb-body">{"◐ Thinking…"}</div></div>
+        <div class="tb-caption"><b>Teal</b> glow — reads ambiguous</div>
+      </div>
+    </div>
+  </div>
+);
+
+<FocusPair />
+
+<Callout kind="note" title="Note: the dock uses teal for working">
+The dock pip colors working **teal** today, so rust-on-canvas is a deliberate
+divergence (it dodges the focus collision the dock never has). Worth a follow-up
+to reconcile — either align the dock to rust, or accept the two surfaces reading
+working differently because only the canvas has a teal focus ring competing.
+</Callout>
+
+### Motion = needs-you (working stays steady)
+
+The priority order mostly *answers* the earlier "should working animate?"
+question: no — if a busy tile out-pulses a blocked one, the eye lands in the
+wrong place. So motion is reserved for the rungs that want you (alert throbs,
+fresh-waiting breathes) and **working is a steady hum** (as shown). The remaining
+lever is taste: fully static working, or a *barely-there* breath so it still
+reads "alive" — as long as it stays clearly quieter than fresh-waiting.
+
+### The decay curve & threshold
+
+How "waiting" cools is its own decision:
+- **Continuous vs banded.** A smooth `--aura-intensity` from `age / threshold`
+  (the strip above is hand-stepped to fake it), or reuse the existing **age
+  bands** — `idleBucketFor()` already cuts `4h-12h / 12h-24h / 24h-48h / 48h+`
+  (<Cite file="packages/client/src/terminal/activityWindow.ts" />) for discrete
+  steps with zero new math.
+- **Which window.** Reuse the persisted, user-chosen `activityWindow` (default
+  `24h`); honor `All` = no decay. The one control already in the sidebar drives
+  dock, minimap, *and* this.
+- **Where stale lands.** A dim violet ember (still legibly "waiting"), or fully
+  demote to idle/parked to match how the dock and minimap already treat parked
+  rows. Ember keeps the "it wanted you" memory; parked is quieter.
+
+### The active tile's aura — mute or suppress
+
+The active tile already wins via the teal ring and can't be `alert` (focus clears
+unread). The open call is the *rest* of the ladder on it: **mute to a whisper**
+(~25–35% intensity, so you still glimpse working/waiting on the tile you're in),
+or **fully suppress** (focus ring only, zero aura — calmest, leans hardest on
+"borders are for the tiles you're *not* in"). Default: mute.
+
+### Idle / done, settings, reduced motion
+
+- **Idle / done** stays bare (repo border only) — don't add noise to the quiet
+  ones. A separate "just finished" pulse is possible but is arguably the `alert`
+  rung's job already.
+- **Reduced motion** follows the existing convention — every gallery above
+  collapses to a static high-opacity state under
+  `prefers-reduced-motion: reduce`; nothing depends on motion alone to be
+  readable.
+- **Settings** — likely on by default (reduced-motion covers the calm case); a
+  `PreferencesSchema` toggle is a small add if an explicit off-switch is wanted.
+
+## How it wires in
+
+Small and contained — no new state machinery, because the classifier already
+exists and is the single source of truth.
+
+- **Shared mapper.** Generalize the dock's <Cite file="packages/client/src/canvas/dock/pipVariant.ts" /> `(bucket, unread)` mapper into `auraVariant(bucket, unread, age) → { tier, intensity }` consumed by the tile *and* the dock, so they can never drift. The state→tier decision lives in exactly one place.
+- **The clock is already built.** Age comes from `useStaleCheck()` / `activityWindowThresholdMs()` over `meta.lastActivityAt` (<Cite file="packages/client/src/terminal/staleness.ts" />, <Cite file="packages/client/src/terminal/activityWindow.ts" />) — the same reactive, 60s-ticking staleness the dock and minimap already use. No new threshold, no new timer.
+- **The tile.** <Cite file="packages/client/src/canvas/CanvasTile.tsx" /> reads `agentBucket(meta.agent)` + `isUnread(id)` + the stale check (all in scope), sets a `data-aura` tier and a `--aura-intensity` custom property, and paints the aura via an **outer** channel (box-shadow glow) so the existing border (repo identity) and the inner focus ring (`0 0 0 1px var(--color-accent)`) are untouched — different geometry, no collision. When `props.active`, it scales `--aura-intensity` down (focus already won — and `unread` self-clears on activation, so the active tile is never the alert), keeping the teal ring dominant.
+- **One language across surfaces (if D).** The minimap already classifies via `agentBucket` / `bucketDescriptor` (<Cite file="packages/client/src/canvas/CanvasMinimap.tsx" />) — the top-bar treatment swaps its corner dot for a top edge reading the same `auraVariant`, so the canvas tile and its minimap marker stay in lockstep off one mapper.
+- **CSS.** One `@keyframes` block in <Cite file="packages/client/src/index.css" /> beside the existing `pill-*` / `dock-chip-*` animations, with the matching `prefers-reduced-motion` fallback.
+- **Discoverability.** A tip per <Cite file=".claude/rules/conventions.md" /> (`settings/tips.ts`) so people learn the border means something.
+
+Roughly one CSS block + ~20 lines in `CanvasTile` + a tiny shared function — and zero new state or timing machinery.
+
+---
+
+*Status: `proposed` — pick a language (§Prototypes) and the open decisions
+(§Open decisions), and it ships on `throbborder`.*
