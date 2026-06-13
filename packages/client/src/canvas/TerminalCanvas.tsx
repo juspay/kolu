@@ -425,7 +425,7 @@ const TerminalCanvas: Component<{
                       dimmed={isStale(
                         store.getMetadata(id)?.lastActivityAt ?? 0,
                       )}
-                      aura={auraFor(id)}
+                      aura={auraFor(id).aura}
                       theme={tileTheme(id)}
                       repoColor={info().repoColor}
                       onSelect={() => props.onSelect(id)}

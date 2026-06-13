@@ -8,12 +8,11 @@ import {
   type JSX,
   Show,
 } from "solid-js";
-import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
+import { formatTimeAgo } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { ActivityWindowChip } from "../ui/ActivityWindowChip";
 import { GridIcon } from "../ui/Icons";
-import { agentBucket } from "./dockModel";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -112,13 +111,13 @@ const CanvasMinimap: Component<{
   const tileTheme = useTileTheme();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
-  // Shared per-device activity window — same signal consumed by the
-  // dock-row bucket classifier and the badge gate, so a user who
-  // shortens the window in one place shortens it everywhere.
-  const isParked = useStaleCheck();
-  // Aura tier per marker, via the same `useTileAura()` helper the full canvas
-  // tile uses — an independent instance here, but the gather rule (agentBucket
-  // + unread + staleness) lives in one module, not re-assembled per surface.
+  // Per-tile classification via the shared `useTileAura()` socket — one gather
+  // (agentBucket + unread + staleness) the full canvas tile uses too. The
+  // minimap projects every bit it needs off this one read: the aura tier, the
+  // `data-bucket` attribute, and the `parked` (stale) ghost gate — so neither
+  // `agentBucket` nor `useStaleCheck` runs a second time per tile on this
+  // surface. Staleness uses the same per-device activity window everywhere, so
+  // shortening the window in one place shortens it for the parked gate too.
   const auraFor = useTileAura();
 
   // ── Bounding box of all tiles ──
@@ -289,19 +288,20 @@ const CanvasMinimap: Component<{
                 repoColor: i.repoColor,
               };
             });
-            // Reactive accessor: bucket classification (awaiting / working /
-            // none) plus user-window staleness. Split from `tile()` so the
-            // minute-by-minute staleness tick doesn't invalidate the
+            // One read of the shared aura socket per tile — bucket, staleness,
+            // and the folded aura tier all come from this single gather so the
+            // classifiers don't run twice on the minimap. Split from `tile()`
+            // so the minute-by-minute staleness tick doesn't invalidate the
             // rectangle geometry — only the badge surface re-runs. Memoized
-            // because the JSX reads it 7× per tile per tick.
-            const state = createMemo(() => {
-              const i = info();
-              if (!i) return { bucket: "none" as const, parked: false };
-              return {
-                bucket: agentBucket(i.meta.agent),
-                parked: isParked(i.meta.lastActivityAt),
-              };
-            });
+            // because the JSX projects it (bucket, parked, aura) many times per
+            // tile per tick.
+            const socket = createMemo(() => auraFor(id));
+            // Reactive accessor: bucket classification (awaiting / working /
+            // none) plus user-window staleness, both projected from the socket.
+            const state = createMemo(() => ({
+              bucket: socket().bucket,
+              parked: socket().stale,
+            }));
             // Hover tooltip — repo · branch[ #suffix] + last-active duration,
             // sourced from the same identity key the workspace switcher uses.
             // Falls back to the bare id when display info hasn't arrived yet
@@ -344,9 +344,9 @@ const CanvasMinimap: Component<{
             // Same aura tier the full canvas tile paints — one mapper, two
             // scales. Parked tiles render as ghosts (no bar), so the stale
             // ember tier never surfaces here; a fresh awaiter pulses, a worker
-            // hums, an unread alert blinks. Memoized like the sibling `state()`
-            // accessor above — the JSX reads it twice per tile per tick.
-            const auraTier = createMemo<TileAura>(() => auraFor(id));
+            // hums, an unread alert blinks. Projected from the same socket read
+            // as `state()` above, so the bar renders only working/waiting/alert.
+            const auraTier = (): TileAura => socket().aura;
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
             // theme or Tailwind-color-space change flows through. Inline bg
             // is for non-parked only — `theme().bg` is a dynamic per-repo
