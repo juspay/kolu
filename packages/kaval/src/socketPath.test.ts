@@ -10,7 +10,11 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { discoverPtyHostSockets, getPtyHostSocketPath } from "./socketPath.ts";
+import {
+  discoverPtyHostSockets,
+  getPtyHostSocketPath,
+  PTY_HOST_SOCK_FILE,
+} from "./socketPath.ts";
 
 describe("getPtyHostSocketPath", () => {
   const savedXdg = process.env.XDG_RUNTIME_DIR;
@@ -58,7 +62,7 @@ describe("discoverPtyHostSockets", () => {
     const runtime = mkdtempSync(join(tmpdir(), "kdisc-"));
     for (const ns of namespaces) {
       mkdirSync(join(runtime, ns), { recursive: true });
-      writeFileSync(join(runtime, ns, "pty-host.sock"), "");
+      writeFileSync(join(runtime, ns, PTY_HOST_SOCK_FILE), "");
     }
     return runtime;
   }
@@ -69,9 +73,9 @@ describe("discoverPtyHostSockets", () => {
     const found = discoverPtyHostSockets().sort();
     expect(found).toEqual(
       [
-        join(runtime, "kaval", "pty-host.sock"),
-        join(runtime, "kaval-18331", "pty-host.sock"),
-        join(runtime, "kaval-7681", "pty-host.sock"),
+        join(runtime, "kaval", PTY_HOST_SOCK_FILE),
+        join(runtime, "kaval-18331", PTY_HOST_SOCK_FILE),
+        join(runtime, "kaval-7681", PTY_HOST_SOCK_FILE),
       ].sort(),
     );
   });
@@ -81,7 +85,7 @@ describe("discoverPtyHostSockets", () => {
     mkdirSync(join(runtime, "kaval-9999")); // dir but no pty-host.sock
     process.env.XDG_RUNTIME_DIR = runtime;
     expect(discoverPtyHostSockets()).toEqual([
-      join(runtime, "kaval-7681", "pty-host.sock"),
+      join(runtime, "kaval-7681", PTY_HOST_SOCK_FILE),
     ]);
   });
 
