@@ -15,7 +15,8 @@
  */
 
 import { type Component, Show } from "solid-js";
-import { daemonRestarting, restartDaemon } from "./useDaemonRestart";
+import { restartDaemon, restartInFlight } from "./useDaemonRestart";
+import { localDaemonStatus } from "./useDaemonStatus";
 import { RestartIcon, WarningIcon } from "./ui/Icons";
 
 /** The daemon's down-sub-union — the only states that render this surface.
@@ -24,6 +25,10 @@ import { RestartIcon, WarningIcon } from "./ui/Icons";
  *  not down, so it never renders here). */
 const DegradedCanvas: Component<{ state: "dead" | "degraded" }> = (props) => {
   const isDead = () => props.state === "dead";
+  // The same "a restart is underway" predicate the kaval dialog disables on —
+  // gated on the local click signal OR the surface state, so a restart another
+  // client kicked off disables this button too, not just the local one.
+  const inFlight = (): boolean => restartInFlight(localDaemonStatus());
   return (
     <div
       data-testid="degraded-canvas"
@@ -58,12 +63,12 @@ const DegradedCanvas: Component<{ state: "dead" | "degraded" }> = (props) => {
             <button
               type="button"
               data-testid="restart-kaval"
-              disabled={daemonRestarting()}
+              disabled={inFlight()}
               onClick={() => void restartDaemon()}
               class="mt-3 inline-flex items-center gap-2 rounded-lg border border-danger/40 bg-danger/10 px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RestartIcon class="h-3.5 w-3.5" />
-              {daemonRestarting() ? "Restarting…" : "Restart kaval"}
+              {inFlight() ? "Restarting…" : "Restart kaval"}
             </button>
           </div>
         </div>

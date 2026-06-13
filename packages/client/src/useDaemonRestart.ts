@@ -12,6 +12,7 @@
  * and canvas reflect progress without this hook tracking it.
  */
 
+import type { DaemonStatus } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { client } from "./wire";
@@ -22,6 +23,21 @@ const [restarting, setRestarting] = createSignal(false);
  *  double-click can't fire a second recycle (the server coalesces too, but this
  *  closes the visible click window immediately, before the surface state flips). */
 export const daemonRestarting = restarting;
+
+/** The one "a restart is underway, disable the button" predicate, read by every
+ *  affordance that triggers `restartDaemon`. It is in flight while the local
+ *  click is being serviced (`daemonRestarting`) OR while the daemon surface is
+ *  mid-transition (`restarting`/`connecting`) — the latter arm catches a restart
+ *  another client kicked off, which the local signal can't see. Both the kaval
+ *  dialog and the DegradedCanvas disable on this, so the two buttons can't
+ *  disagree on what counts as in flight. */
+export function restartInFlight(status: DaemonStatus | undefined): boolean {
+  return (
+    daemonRestarting() ||
+    status?.state === "restarting" ||
+    status?.state === "connecting"
+  );
+}
 
 /** Restart the local kaval daemon, preserving the session. Safe to call from
  *  multiple affordances; re-entrant calls while one is in flight are ignored. */

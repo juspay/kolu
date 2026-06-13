@@ -12,7 +12,7 @@ import Dialog from "@corvu/dialog";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
-import { daemonRestarting, restartDaemon } from "./useDaemonRestart";
+import { restartDaemon, restartInFlight } from "./useDaemonRestart";
 import { DAEMON_STATE_PRESENTATION, toneDot } from "./useDaemonStatus";
 import Commit from "./ui/Commit";
 import { CloseIcon, RestartIcon } from "./ui/Icons";
@@ -44,13 +44,10 @@ const KavalInfoDialog: Component<{
   status: DaemonStatus | undefined;
 }> = (props) => {
   const chrome = surface({ portalled: true });
-  // In flight while the click is being serviced (`daemonRestarting`) or while
-  // the daemon is mid-transition — the restart button stays disabled so a second
-  // click can't stack a recycle.
-  const inFlight = (): boolean =>
-    daemonRestarting() ||
-    props.status?.state === "restarting" ||
-    props.status?.state === "connecting";
+  // The shared "a restart is underway" predicate — disabled while the click is
+  // being serviced or the daemon surface is mid-transition, so a second click
+  // can't stack a recycle. DegradedCanvas reads the same predicate.
+  const inFlight = (): boolean => restartInFlight(props.status);
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
       <Dialog.Content
