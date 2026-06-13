@@ -32,3 +32,16 @@ export function publishDaemonStatus(
   store.set(hostId, status);
   surfaceCtx.collections.daemonStatus.upsert(hostId, status);
 }
+
+/** Fold the boot's adopted-terminal count (B3.3) onto the host's CURRENT status
+ *  and re-publish, so the client's "N reattached" toast reads it off the same
+ *  `daemonStatus` collection the rail uses. Separate from `publishDaemonStatus`
+ *  because the count is kolu's soul, computed by `reconcile` AFTER the endpoint
+ *  has already reported `connected` (the spine's `onStatus` knows nothing of
+ *  terminals). A no-op if the host has no recorded status yet (it always does by
+ *  the time adoption runs — the connect emitted one). */
+export function setAdoptedCount(hostId: string, adopted: number): void {
+  const current = store.get(hostId);
+  if (!current) return;
+  publishDaemonStatus(hostId, { ...current, adopted });
+}

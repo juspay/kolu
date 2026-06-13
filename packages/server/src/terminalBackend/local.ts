@@ -23,6 +23,7 @@
 import type { ForegroundSample, PtyHostClient } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
+  SavedTerminal,
   TerminalId,
   TerminalInfo,
   TerminalMetadata,
@@ -286,6 +287,20 @@ interface TerminalLifecycle {
   stopProviders: () => void;
 }
 
+/** The whole-record adoption mapping (B3.3): a `SavedTerminal`'s persisted fields
+ *  become a live `TerminalMetadata` as a UNIT — `createMetadata` seeds the
+ *  live-field defaults (pr/agent/foreground, re-derived by the providers against
+ *  the surviving taps), then the persisted record is spread on **whole**, never
+ *  reconstructed field-by-field (the #1275 lossy-adoption class that dropped
+ *  `parentId` and `lastAgentCommand`). Pure + exported so the class is closed by
+ *  a schema-key round-trip test: a new persisted field rides the spread for free;
+ *  a field-by-field rewrite that dropped one would fail it. `id` is the registry
+ *  key, not a `meta` field, so it is split off. */
+export function adoptedMeta(record: SavedTerminal): TerminalMetadata {
+  const { id: _id, ...persisted } = record;
+  return { ...createMetadata(record.cwd), ...persisted };
+}
+
 // ── Backend implementation ─────────────────────────────────────────────
 
 class LocalTerminalBackend implements TerminalBackend {
@@ -335,6 +350,56 @@ class LocalTerminalBackend implements TerminalBackend {
 
     void this.spawnAndWire(id, opts, proxy, entry, tlog);
     return entry.info;
+  }
+
+  /** Adopt a SURVIVING PTY (B3.3): the kaval daemon outlived a kolu-server
+   *  restart, so its PTY for `record.id` is already alive at `liveEntry.pid`.
+   *  Re-establish kolu's side WITHOUT spawning — register the terminal from the
+   *  WHOLE saved record (its live fields pr/agent/foreground are re-derived by
+   *  the providers, the freshness guarantee; the record is consumed as a UNIT,
+   *  never reconstructed field-by-field — the #1275 lossy-adoption class),
+   *  release the handle at the live pid, and re-run the provider DAG against the
+   *  surviving taps. The sibling of `spawnPty`/`spawnAndWire` minus the spawn
+   *  RPC: both converge on `startProviderLayer`, and a wiring failure reaps the
+   *  orphaned PTY through the shared `killHalfWiredPty` (the F2 receptacle). */
+  adoptTerminal(record: SavedTerminal, liveEntry: { pid: number }): void {
+    const id = record.id as TerminalId;
+    const tlog = log.child({ terminal: id });
+    const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
+    // Whole-record adoption (see `adoptedMeta`): the live fields are re-derived
+    // below by the providers; the persisted record rides through as a unit.
+    const meta = adoptedMeta(record);
+    const entry: TerminalProcess = {
+      info: { id, pid: liveEntry.pid },
+      meta,
+      handle: proxy,
+    };
+    registerTerminal(id, entry);
+    // The PTY already exists on the survivor — release the handle's queued /
+    // awaited verbs at the live pid with no spawn RPC (the sole structural
+    // difference from `spawnAndWire`).
+    proxy.markReady(liveEntry.pid);
+    try {
+      this.startProviderLayer(id, entry, liveEntry.pid);
+    } catch (err) {
+      // Provider wiring failed against the survivor — the same reap policy as a
+      // failed fresh spawn (the F2 receptacle): tear down partials, kill the
+      // now-orphaned PTY, unwind the entry.
+      this.killHalfWiredPty(
+        id,
+        tlog,
+        err,
+        "provider wiring failed while adopting a surviving PTY; killing the orphan",
+      );
+      return;
+    }
+    // Refresh the live `terminalList` cell so the client renders the adopted
+    // tile. Deliberately NO `emitTerminalsDirty()`: the saved session already
+    // holds this terminal, and the boot converges the session explicitly once
+    // all survivors are adopted — arming an autosave here could persist a
+    // half-adopted set (or a not-yet-restored active marker).
+    emitTerminalListChanged();
+    tlog.info({ pid: liveEntry.pid }, "adopted surviving PTY");
   }
 
   /** The pty-host spawn RPC + the killed-during-spawn race check. Returns the
@@ -632,4 +697,16 @@ class LocalTerminalBackend implements TerminalBackend {
   }
 }
 
-export const localTerminalBackend: TerminalBackend = new LocalTerminalBackend();
+const localBackendImpl = new LocalTerminalBackend();
+export const localTerminalBackend: TerminalBackend = localBackendImpl;
+
+/** Adopt a surviving local PTY at boot (B3.3). Exposed as a standalone entry
+ *  rather than on the cross-backend `TerminalBackend` interface because adoption
+ *  is local-only today — R-2's remote-host adoption is an additive sibling, not
+ *  a retrofit of the shared interface. */
+export function adoptLocalTerminal(
+  record: SavedTerminal,
+  liveEntry: { pid: number },
+): void {
+  localBackendImpl.adoptTerminal(record, liveEntry);
+}

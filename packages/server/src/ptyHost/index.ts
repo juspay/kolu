@@ -20,7 +20,6 @@ import {
   createEndpoint,
   type Endpoint,
   type EndpointStatus,
-  restart,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
@@ -117,6 +116,11 @@ export async function ensureLocalEndpoint(opts: {
    *  (`kaval-<port>`), so a second kolu-server never recycles this one's daemon. */
   port: number;
   onStatus: (hostId: string, status: EndpointStatus<Identity>) => void;
+  /** Run after the boot ADOPTS a surviving daemon (B3.3) — reconcile its live
+   *  PTYs against the saved session. Injected (not imported) so this composition
+   *  root stays free of the terminal-backend layer, which imports back from
+   *  here. Skipped on a fresh / recycled boot (no survivors to reconcile). */
+  onAdopted?: () => Promise<void>;
 }): Promise<void> {
   const socketPath = kavalSocketPath(opts.port);
   const ep = createEndpoint<PtyHostClient, Identity>({
@@ -131,14 +135,13 @@ export async function ensureLocalEndpoint(opts: {
   endpoint = ep;
   triggerRestart = serializeRestart(ep);
   try {
-    // The boot recycle, expressed as a restart with degenerate steps — B2 makes
-    // no survival promise, so there is nothing to capture/drain/reattach. B3
-    // fills the same steps with session capture + adoption.
-    await restart(ep, {
-      capture: async () => undefined,
-      drain: async () => {},
-      reattach: async () => {},
-    });
+    // The boot, B3.3: adopt-or-recycle. A surviving daemon (a redeploy that did
+    // not change kaval's source) is ADOPTED — its PTYs preserved — and the
+    // caller reconciles its live PTYs against the saved session via `onAdopted`.
+    // A fresh / recycled boot has no survivors, so the saved session is left for
+    // the existing restore-card path (B2-unchanged) and `onAdopted` is skipped.
+    const adopted = await ep.adoptOrEnsure();
+    if (adopted && opts.onAdopted) await opts.onAdopted();
   } catch (err) {
     // The endpoint already reported `dead`; don't crash the server boot.
     log.error({ err }, "kaval endpoint failed to come up at boot");

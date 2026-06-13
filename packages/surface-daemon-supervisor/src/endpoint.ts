@@ -11,13 +11,15 @@
  *   connecting → dead                 (couldn't recycle / spawn / connect)
  *   connected  → degraded             (the daemon died mid-session)
  *
- * **Boot policy is always-recycle** (B2, "the door"): on `ensure()` a live
- * survivor is *killed*, not adopted, then a fresh daemon is spawned — so no
- * survival hazard can open (no orphan, no skew older than one boot). Every boot
- * therefore exercises kill → `waitForPidGone` → spawn → connect, the exact race
- * #1034 lost, but with zero sessions at stake. Adoption and the supervised
- * restart that *preserve* a session are B3; this endpoint only requires the
- * composed `restart` type, invoking its recycle path.
+ * **Two boot policies.** `ensure()` is always-recycle (B2, "the door"): a live
+ * survivor is *killed*, then a fresh daemon is spawned — every boot exercises
+ * kill → `waitForPidGone` → spawn → connect, the exact race #1034 lost, but with
+ * zero sessions at stake. `adoptOrEnsure()` (B3.3) is adopt-or-recycle: a live,
+ * handshake-compatible survivor is *adopted* (connected to, never killed) so the
+ * PTYs it holds — and the session they carry — survive a supervisor restart;
+ * only an absent / dead / skewed survivor is recycled. The B3.2 supervised
+ * restart that *preserves* a session across a deliberate recycle is the composed
+ * `restart` type's job, invoking the recycle path.
  *
  * The endpoint is **spine**: generic over the client `C` and the identity `I`,
  * it interprets neither. The contract handshake, the surface shape, and what
@@ -89,6 +91,15 @@ export interface Endpoint<C, I> {
   /** Take the daemon to a live connection under the always-recycle boot policy.
    *  Throws (after reporting `dead`) if it cannot. */
   ensure(): Promise<void>;
+  /** Take the daemon to a live connection under the **adopt-or-recycle** boot
+   *  policy (B3.3): a live, handshake-compatible survivor is ADOPTED (connected
+   *  to, never killed) so its PTYs survive a supervisor restart; an absent /
+   *  dead / skewed survivor is recycled. Resolves `true` iff it adopted a
+   *  surviving daemon — the caller then reconciles that daemon's live PTYs
+   *  against its saved session; `false` on a fresh / recycled boot, where there
+   *  are no survivors to reconcile. Throws (after reporting `dead`) if it cannot
+   *  bring a daemon up at all. */
+  adoptOrEnsure(): Promise<boolean>;
   /** The live connection, or `undefined` before `ensure()` or after the daemon
    *  died (`degraded`). */
   current(): DaemonConnection<C, I> | undefined;
@@ -222,6 +233,30 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
     }
   };
 
+  // Hold a freshly-established connection: record it, wire its mid-session close
+  // → `degraded` (guarded so a disposed predecessor's late close can't stomp a
+  // newer `connected`), and report `connected`. Shared by the two paths that
+  // establish a connection — `spawnConnectHold` (a fresh spawn) and
+  // `adoptOrEnsure` (a survivor connected to WITHOUT a spawn) — so an adopted
+  // daemon reports `connected` identically to a fresh one and neither path
+  // re-implements the close→degrade wiring.
+  const holdConnection = (next: DaemonConnection<C, I>): void => {
+    conn = next;
+    next.onClose(() => {
+      // Only the CURRENT connection's close demotes us — a stale close from a
+      // disposed predecessor must not stomp a fresh `connected`.
+      if (conn === next) {
+        conn = undefined;
+        spec.log.warn(
+          { hostId: spec.hostId },
+          "daemon connection closed mid-session — degraded",
+        );
+        emit("degraded");
+      }
+    });
+    emit("connected", next.identity, next.startedAt);
+  };
+
   // Spawn a fresh daemon, wait for its socket, run the injected handshake, and
   // hold the connection (wiring its mid-session close → `degraded`). Reports
   // `dead` before throwing on any failure (launch, socket-never-up, or a failed
@@ -261,20 +296,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       throw err;
     }
 
-    conn = next;
-    next.onClose(() => {
-      // Only the CURRENT connection's close demotes us — a stale close from a
-      // disposed predecessor must not stomp a fresh `connected`.
-      if (conn === next) {
-        conn = undefined;
-        spec.log.warn(
-          { hostId: spec.hostId },
-          "daemon connection closed mid-session — degraded",
-        );
-        emit("degraded");
-      }
-    });
-    emit("connected", next.identity, next.startedAt);
+    holdConnection(next);
   };
 
   return {
@@ -322,6 +344,49 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       const holder = await liveServingHolder();
       if (holder !== undefined) await killLiveHolder(holder);
       await spawnConnectHold();
+    },
+
+    async adoptOrEnsure(): Promise<boolean> {
+      emit("connecting");
+      // ADOPT-OR-RECYCLE (B3.3): unlike `ensure`'s always-kill, a live serving
+      // survivor that is handshake-COMPATIBLE is ADOPTED — we connect to it and
+      // hold it, never killing it, so the PTYs it holds (and the session they
+      // carry) survive a kolu-server redeploy that did not change the daemon's
+      // source. Only an absent / dead / skewed survivor is recycled. Reuses the
+      // same `liveServingHolder` probe and `holdConnection` tail as the boot
+      // recycle, so an adopted daemon reports `connected` identically to a fresh
+      // one — with the SURVIVOR's older `startedAt`, the uptime that did not
+      // reset being the honest signal that the daemon was reused.
+      const holder = await liveServingHolder();
+      if (holder !== undefined) {
+        let adopted: DaemonConnection<C, I>;
+        try {
+          adopted = await spec.connect();
+        } catch (err) {
+          // The survivor answered its socket but FAILED the handshake — a skewed
+          // (incompatible-contract) daemon, e.g. one from a deploy that changed
+          // the wire. It cannot be adopted, so recycle it: kill, then spawn
+          // fresh. This is the deliberate OPPOSITE of `spawnConnectHold`'s
+          // connect-failure handling — there a failed connect is a fresh spawn's
+          // genuine `dead` boot; here it is a survivor we kill and replace.
+          spec.log.warn(
+            { hostId: spec.hostId, pid: holder, err: String(err) },
+            "live daemon survivor failed the handshake (skew) — recycling it",
+          );
+          await killLiveHolder(holder);
+          await spawnConnectHold();
+          return false;
+        }
+        spec.log.info(
+          { hostId: spec.hostId, pid: holder, startedAt: adopted.startedAt },
+          "adopted a surviving daemon (its PTYs are preserved)",
+        );
+        holdConnection(adopted);
+        return true;
+      }
+      // No live survivor — a fresh boot, identical to `ensure` minus the kill.
+      await spawnConnectHold();
+      return false;
     },
   };
 }

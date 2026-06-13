@@ -9,6 +9,7 @@
  */
 
 import type { DaemonState, DaemonStatus } from "kolu-common/surface";
+import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { app } from "../wire";
 
@@ -184,3 +185,27 @@ export function refuseIfWarming(): boolean {
   }
   return false;
 }
+
+// B3.3: a one-shot "N terminals reattached" confirmation when the boot ADOPTED a
+// surviving daemon (a redeploy that didn't change kaval's source — the daemon and
+// its PTYs outlived the server restart). Adoption is otherwise invisible: the
+// terminals are simply still there, no restore card. The server folds the count
+// onto the first `connected` daemon status (`DaemonStatusSchema.adopted`, kolu's
+// soul); this watches for it and toasts exactly once. The detached `createRoot`
+// owns the effect for the app's life (like the module `sub` above), so a
+// consumer's teardown can't freeze it. Guards: a module latch fires it once —
+// `localDaemonStatus()` re-emits on every transition (the rail ticks uptime,
+// restarting→connected) — and the `> 0` test skips cold boots, which carry no
+// `adopted` field.
+let reattachToastFired = false;
+createRoot(() => {
+  createEffect(() => {
+    if (reattachToastFired) return;
+    const status = localDaemonStatus();
+    const n = status?.state === "connected" ? (status.adopted ?? 0) : 0;
+    if (n > 0) {
+      reattachToastFired = true;
+      toast.info(`${n} terminal${n === 1 ? "" : "s"} reattached`);
+    }
+  });
+});

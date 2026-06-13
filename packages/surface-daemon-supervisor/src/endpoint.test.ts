@@ -452,3 +452,148 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     expect(endpoint.current()?.identity).toEqual({ staleKey: "k1" });
   });
 });
+
+describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
+  it("ADOPTS a live, handshake-compatible survivor: no kill, no spawn, holds it", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    // A real live survivor: its pid sits in the gate AND its socket answers — the
+    // adopt candidate. Unlike `ensure`, `adoptOrEnsure` must connect to it, not
+    // kill it.
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const survivorPid = survivor.pid as number;
+    children.push(survivorPid);
+    writeFileSync(gatePath, `${survivorPid}\n`);
+    let survivorExited = false;
+    survivor.on("exit", () => {
+      survivorExited = true;
+    });
+
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen(); // the survivor is serving before the boot
+
+    let spawnCalled = false;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: {
+        spawn: async () => {
+          spawnCalled = true;
+        },
+      },
+      // The handshake succeeds → the survivor is compatible → adopt it.
+      connect: async () => ({
+        client: "SURVIVOR",
+        identity: { staleKey: "survivor" },
+        startedAt: 99,
+        dispose() {},
+        onClose() {},
+      }),
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    const adopted = await endpoint.adoptOrEnsure();
+    // Give any (erroneous) SIGTERM a tick to land.
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(adopted).toBe(true);
+    expect(spawnCalled).toBe(false); // never spawned a fresh daemon
+    expect(survivorExited).toBe(false); // never killed the survivor
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "survivor" });
+    // The survivor's OLD startedAt survives — the uptime that did NOT reset is
+    // the honest "this daemon was reused" signal.
+    expect(statuses.find((s) => s.state === "connected")?.startedAt).toBe(99);
+  });
+
+  it("RECYCLES a skewed survivor: kills it, spawns fresh, returns false", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const survivorPid = survivor.pid as number;
+    children.push(survivorPid);
+    writeFileSync(gatePath, `${survivorPid}\n`);
+    const survivorExited = new Promise<void>((r) =>
+      survivor.on("exit", () => r()),
+    );
+
+    // In-process net server (unrelated to the sleep pid), so killing the survivor
+    // leaves the socket up for the post-recycle spawn's socket wait + connect.
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    let spawned = false;
+    let connectCount = 0;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: {
+        spawn: async () => {
+          spawned = true;
+        },
+      },
+      connect: async () => {
+        connectCount += 1;
+        // The survivor's handshake skews; the post-recycle fresh spawn connects.
+        if (connectCount === 1) throw new Error("pty-host contract skew");
+        return {
+          client: "FRESH",
+          identity: { staleKey: "fresh" },
+          startedAt: 2,
+          dispose() {},
+          onClose() {},
+        };
+      },
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    const adopted = await endpoint.adoptOrEnsure();
+    await survivorExited; // the skewed survivor was killed before the fresh spawn
+
+    expect(adopted).toBe(false); // recycled, not adopted
+    expect(spawned).toBe(true); // a fresh daemon was spawned after the kill
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
+  });
+
+  it("with NO survivor: spawns fresh and returns false (a cold boot)", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid"); // no gate file → no survivor
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: () => fake.listen() },
+      connect: async () => ({
+        client: "FRESH",
+        identity: { staleKey: "fresh" },
+        startedAt: 1,
+        dispose() {},
+        onClose() {},
+      }),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    const adopted = await endpoint.adoptOrEnsure();
+    expect(adopted).toBe(false);
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
+  });
+});

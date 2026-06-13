@@ -208,6 +208,15 @@ export function setActiveTerminalId(id: TerminalId | null): void {
   if (id !== null) terminalsDirtyChannel.publish({});
 }
 
+/** Restore the active-terminal marker from a session being adopted at boot
+ *  (B3.3), WITHOUT firing `terminals:dirty` — unlike `setActiveTerminalId`, the
+ *  client-reported setter. The boot converges the saved session explicitly right
+ *  after, so this must not arm a competing autosave; it only seeds the value
+ *  `snapshotSession()` will read so the adopted session keeps its active tile. */
+export function restoreActiveTerminalId(id: TerminalId | null): void {
+  activeTerminalId = id;
+}
+
 /** Set the theme name for a terminal (stored in metadata, published to clients). */
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = getTerminal(id);
