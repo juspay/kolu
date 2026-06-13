@@ -55,21 +55,25 @@ function placeBelowReference(
   reference: TileLayout,
   placed: ReadonlyArray<TileLayout>,
 ): TileLayout {
-  let y = reference.y + reference.h + GAP;
-  const candidate: TileLayout = {
+  const refBottom = reference.y + reference.h + GAP;
+  const step = reference.h + GAP;
+  for (let i = 0; i < MAX_CASCADE_ITERATIONS; i++) {
+    const candidate: TileLayout = {
+      x: reference.x,
+      y: refBottom + step * i,
+      w: reference.w,
+      h: reference.h,
+    };
+    if (!placed.some((p) => rectsOverlap(candidate, p))) {
+      return candidate;
+    }
+  }
+  return {
     x: reference.x,
-    y,
+    y: refBottom,
     w: reference.w,
     h: reference.h,
   };
-  for (let i = 0; i < MAX_CASCADE_ITERATIONS; i++) {
-    candidate.y = y;
-    if (!placed.some((p) => rectsOverlap(candidate, p))) {
-      return { ...candidate };
-    }
-    y += candidate.h + GAP;
-  }
-  return { ...candidate };
 }
 
 function placeAtViewportCenter(
