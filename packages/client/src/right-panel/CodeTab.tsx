@@ -102,6 +102,31 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
   </div>
 );
 
+// Browser-style back/forward toolbar button. The back and forward variants are
+// identical save for direction, so the shared hit-target class string (and its
+// touch sizing, driven by the toolbar row's `data-touch` via the group variant)
+// lives here once rather than in two hand-synced copies.
+const NavButton: Component<{
+  direction: "back" | "forward";
+  disabled: boolean;
+  onClick: () => void;
+}> = (props) => {
+  const back = props.direction === "back";
+  return (
+    <button
+      type="button"
+      data-testid={`code-tab-${props.direction}-button`}
+      aria-label={back ? "Go back" : "Go forward"}
+      title={back ? "Go back (Alt+←)" : "Go forward (Alt+→)"}
+      disabled={props.disabled}
+      onClick={props.onClick}
+      class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+    >
+      <ChevronRightIcon class={`h-3.5 w-3.5${back ? " rotate-180" : ""}`} />
+    </button>
+  );
+};
+
 const CodeTab: Component<{
   terminalId: TerminalId | null;
   meta: TerminalMetadata | null;
@@ -753,28 +778,16 @@ const CodeTab: Component<{
           class="group/toolbar flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
         >
           <div class="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              data-testid="code-tab-back-button"
-              aria-label="Go back"
-              title="Go back (Alt+←)"
+            <NavButton
+              direction="back"
               disabled={!rightPanel.canNavigateBack()}
               onClick={goBack}
-              class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              <ChevronRightIcon class="h-3.5 w-3.5 rotate-180" />
-            </button>
-            <button
-              type="button"
-              data-testid="code-tab-forward-button"
-              aria-label="Go forward"
-              title="Go forward (Alt+→)"
+            />
+            <NavButton
+              direction="forward"
               disabled={!rightPanel.canNavigateForward()}
               onClick={goForward}
-              class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              <ChevronRightIcon class="h-3.5 w-3.5" />
-            </button>
+            />
           </div>
           <SegmentedControl
             options={scopeSegments()}
