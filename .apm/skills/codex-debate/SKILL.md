@@ -153,12 +153,14 @@ different worktrees never collide** and the scratch never shows up in the diff
 codex reviews. It returns:
 
 ```
-{ status: "consensus" | "reviewer-error",
-  rounds, base, finalVerdict, filesChanged, transcript,
+{ status: "consensus" | "commit-incomplete" | "reviewer-error",
+  rounds, base, finalVerdict, filesChanged, commitGaps, transcript,
   comment }    // the deterministically rendered PR comment body — post it VERBATIM (step 3)
 ```
 
-(each `transcript[]` round also carries a `commit` SHA when that round committed.)
+(each `transcript[]` round also carries a `commit` SHA when that round committed;
+`commitGaps` lists the round numbers whose author edited files but returned no
+commit SHA — empty unless `status === "commit-incomplete"`.)
 The debate is recorded as **one small Markdown file per round** —
 `<workDir>/section-NNN.md` (zero-padded). Those section files are the **Claude
 author's cross-round memory** (so each round builds on the last instead of
@@ -175,6 +177,14 @@ warm session, so re-feeding it the sections would just duplicate its context.
   with no round cap and no deadlock exit. (The harness's own
   per-workflow agent backstop is the sole hard ceiling; if you ever need to stop
   a debate by hand, interrupt it via `/workflows` or `TaskStop`.)
+- **commit-incomplete** — the debate *converged* (codex approved, nothing open),
+  but a round's author edited files yet returned **no commit SHA**, so its
+  in-session commit didn't land and the "one commit per round" contract broke for
+  the round(s) in `commitGaps`. The edits are **not lost** — they stay in the
+  working tree and the next reviewer diffs them against the base — but this is
+  **not** a clean consensus: a human must reconcile the uncommitted round(s)
+  (e.g. commit the outstanding tree) before relying on the per-round history. Do
+  **not** report it as a plain consensus (see step 3).
 - **reviewer-error** — the one *abnormal* terminus: codex itself failed to
   produce a verdict (broken/unavailable CLI), so the workflow synthesized an
   error verdict and aborted rather than spin forever on a dead reviewer. This is
@@ -195,6 +205,13 @@ so the user sees codex was broken/unavailable, and tell them to fix codex (e.g.
 `codex login`, check the CLI) and re-run. Do **not** post a consensus badge or a
 `## Codex ⇄ Claude debate` PR comment for this path — there is no agreement to
 report. Skip the rest of this section.
+
+If `status === "commit-incomplete"`, the debate converged but at least one round
+left its edits **uncommitted** (the round numbers are in `commitGaps`). Report it
+as **converged-but-not-clean**: post the `comment` (its header already shows a
+`⚠️` badge, not the consensus check), then tell the user which round(s) are
+uncommitted and that the outstanding tree must be committed before the per-round
+history can be trusted. Do **not** call it a clean consensus.
 
 Otherwise (`status === "consensus"`) report in chat (do **not** push or merge —
 the per-round commits sit on the local branch for the human to review):

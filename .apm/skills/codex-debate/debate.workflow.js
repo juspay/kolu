@@ -324,6 +324,14 @@ const transcript = []
 let status = 'consensus'
 let finalVerdict = null
 let lastClaude = null
+// Rounds where the author edited files (commit mode on) but returned no SHA —
+// the in-session commit it was told to make didn't land. The edits aren't lost
+// (they stay in the tree and the next reviewer still diffs them against base),
+// but the "one commit per round" contract was broken for that round, so the run
+// is NOT a clean consensus: we downgrade the terminal status below rather than
+// report success over a missed commit. Not a hard abort: a transient SHA omission
+// shouldn't nuke a multi-round debate whose edits are all present in the tree.
+const commitGaps = []
 
 // ---------------------------------------------------------------------------
 // The loop — runs until consensus. No round cap, no deadlock exit.
@@ -434,8 +442,16 @@ for (let round = 1; ; round++) {
   // if it reported changes but no commit rather than silently dropping it.
   if (commit && (response.filesChanged || []).length > 0) {
     entry.commit = (response.commitSha || '').trim()
-    if (entry.commit) log(`Round ${round}: committed ${entry.commit}`)
-    else log(`Round ${round}: author changed ${response.filesChanged.length} file(s) but returned no commit SHA`)
+    if (entry.commit) {
+      log(`Round ${round}: committed ${entry.commit}`)
+    } else {
+      // The author edited the tree but didn't return a SHA: its in-session commit
+      // didn't land. Record the gap so the terminal status reflects it instead of
+      // reporting a clean consensus over a round that broke the one-commit-per-round
+      // contract. The edits themselves remain in the tree for the next reviewer.
+      commitGaps.push(round)
+      log(`Round ${round}: author changed ${response.filesChanged.length} file(s) but returned no commit SHA — round left uncommitted`)
+    }
   }
 
   // Write this round's section so the NEXT round's author can read the full
@@ -447,6 +463,20 @@ for (let round = 1; ; round++) {
 const filesChanged = Array.from(
   new Set(transcript.flatMap((e) => (e.claude && e.claude.filesChanged) || [])),
 )
+
+// Downgrade a would-be consensus when any round's in-session commit didn't land.
+// The debate may have converged (codex approved, nothing open), but with the
+// "one commit per round" contract broken we must NOT advertise a clean consensus:
+// /be-review keys off this status (and the SKILL's status table) to decide whether
+// the step settled cleanly. 'commit-incomplete' is a distinct, non-consensus
+// terminus — the edits are all in the tree (the next reviewer diffs them), but a
+// human/caller must reconcile the uncommitted round(s). We don't touch a status
+// that's already abnormal (reviewer-error), which is strictly more severe.
+if (status === 'consensus' && commitGaps.length) {
+  status = 'commit-incomplete'
+  log(`Round(s) ${commitGaps.join(', ')} left uncommitted despite changing files — downgrading consensus to commit-incomplete.`)
+}
+
 log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged.length} file(s) changed.`)
 
 // Section the terminal round — it broke out of the loop before the in-loop
@@ -467,6 +497,9 @@ return {
   base,
   finalVerdict,
   filesChanged,
+  // Rounds whose author-side commit didn't land (empty unless status is
+  // 'commit-incomplete'). Lets the caller pinpoint and reconcile the gap.
+  commitGaps,
   transcript,
   comment: renderLedger(transcript, { status, rounds: transcript.length, base, reasoningEffort: REASONING_EFFORT }),
 }

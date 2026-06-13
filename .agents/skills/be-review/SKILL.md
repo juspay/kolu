@@ -75,6 +75,12 @@ it once per step.
    `/lens-debate` returns a `status` of `clean`, `consensus`, `unresolved`, or
    `merge-base-error`:
    - `clean` / `consensus` — the lenses agreed per-finding and applied the fixes.
+   - `apply-incomplete` — the lenses agreed, but the Apply phase didn't land every
+     fix cleanly (see `applyGaps`: a fix was missing from the apply output or
+     changed-but-uncommitted). **Reconcile before moving on:** for each gap, apply
+     or commit the outstanding fix yourself (staging only its files), then fold the
+     reconciliation into the deferred lens comment. Never report "lens consensus"
+     for an `apply-incomplete` run.
    - `unresolved` — the debate hit its round backstop with findings still
      contested. `/be` §4 requires you to **adjudicate every unresolved lens
      finding yourself before moving on**: surface them in the report, decide drop
@@ -101,6 +107,14 @@ it once per step.
    attempt reaches `consensus`. Only if **all 3** come back `reviewer-error` do
    you give up on codex — report the persistent reviewer-error honestly (no false
    consensus comment) and move on to the simplify step.
+
+   **On `commit-incomplete`,** the debate converged but a round's author left its
+   edits uncommitted (round numbers in `commitGaps`). The edits are still in the
+   tree, but the per-round commit didn't land — **commit the outstanding tree
+   yourself** (staging only the files that round changed, message
+   `fix: codex review — debate round N`) before the simplify step, and note the
+   reconciliation in the deferred codex comment. Don't report it as a clean
+   consensus.
 
 3. **simplify** — invoke `/simplify` (Skill tool), scoped to the change vs `MB`.
    It applies its fixes to the working tree. When it finishes, **commit** what it

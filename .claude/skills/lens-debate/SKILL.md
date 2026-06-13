@@ -173,11 +173,12 @@ Ephemeral scratch (commit-message files) lives under the gitignored, per-worktre
 collide and the scratch never shows up in the diff the lenses review. It returns:
 
 ```
-{ status: "consensus" | "unresolved" | "clean",
+{ status: "consensus" | "apply-incomplete" | "unresolved" | "clean",
   rounds, base, withPolice,
   settled,     // per-finding: id, origin, title, location, agreed disposition, plan, both reasonings
   unresolved,  // findings still contested at the backstop (empty on consensus)
   applied,     // [{ id, title, files, commit }] (empty under --no-apply)
+  applyGaps,   // [{ id, reason }] agreed fixes that didn't cleanly land — empty unless status is "apply-incomplete"
   fixes,       // the agreed `fix` findings with converged plans — the caller's change requests under --no-apply
   reviews,     // each lens's independent findings
   history,     // per-round dispositions
@@ -186,6 +187,14 @@ collide and the scratch never shows up in the diff the lenses review. It returns
 
 - **consensus** — every finding settled (the normal outcome).
 - **clean** — every lens found nothing worth raising.
+- **apply-incomplete** — the lenses *converged*, but the Apply phase didn't land
+  every agreed fix cleanly: a fix was **missing from the apply agent's output**
+  (so we can't confirm it was applied) or, in commit mode, was **changed but
+  returned no commit SHA** (its per-fix commit didn't land). The offending fixes
+  are in `applyGaps`. Any edits present stay in the working tree, but this is
+  **not** a clean consensus — surface the gap and reconcile it (re-apply or commit
+  the outstanding fix) before relying on the per-fix history. Do **not** report it
+  as a plain consensus.
 - **unresolved** — the backstop was hit with findings still contested. Rare;
   needs a human. This is NOT a deadlock — the lenses simply didn't converge in
   the round budget; raise `--max-rounds` or adjudicate the listed findings.

@@ -90,7 +90,7 @@ if (withPolice) REVIEWERS.push({ lens: 'code-police', framework: 'code quality, 
 // The result shape's empty collections, shared by the two EARLY returns
 // (merge-base-error, clean) so adding a result field is one edit, not a mirror
 // edit per return site. The final return carries real values and stays literal.
-const EMPTY_RESULT = { settled: [], unresolved: [], applied: [], fixes: [], reviews: {}, history: [] }
+const EMPTY_RESULT = { settled: [], unresolved: [], applied: [], applyGaps: [], fixes: [], reviews: {}, history: [] }
 
 // Resolve the diff base to the merge-base of (base, HEAD) BEFORE building DIFF
 // (which interpolates `base` eagerly), so the lenses review only what this branch
@@ -482,6 +482,15 @@ log(`Debate ended: ${status} after ${rounds} round(s); ${settledOut.length - unr
 // ---------------------------------------------------------------------------
 const fixes = settledOut.filter((s) => s.agreed && s.disposition === 'fix')
 let applied = []
+// Agreed fixes the Apply phase did not cleanly land. Two failure shapes, both of
+// which would otherwise be rendered as "applied" and reported under a consensus:
+//  - missing: the agent dropped the fix from its output entirely (no entry, no
+//    files) — we can't tell if it was applied, so it must not be reported as done.
+//  - uncommitted: in commit mode the agent changed files for the fix but returned
+//    no SHA — its per-fix commit didn't land, breaking "one commit per fix".
+// The edits (when present) stay in the tree, so this is a status downgrade, not a
+// hard abort: the caller reconciles the gap rather than losing a converged debate.
+const applyGaps = []
 if (apply && fixes.length) {
   phase('Apply')
   const res = await agent(applyAllBrief(fixes, commit), { label: 'apply:all', phase: 'Apply', model, schema: APPLY_SCHEMA })
@@ -490,16 +499,34 @@ if (apply && fixes.length) {
   // dropped from its output still surfaces — as 0 files / uncommitted — instead
   // of vanishing from `applied` and the PR comment.
   applied = fixes.map((f) => {
-    const a = byId[f.id] || {}
+    const entry = byId[f.id]
+    const a = entry || {}
     const sha = (a.commit || '').trim()
-    // Mirror codex-debate's mismatch log: surface a fix the agent reported as
-    // changed-but-uncommitted instead of silently recording commit: null.
-    if (!sha && (a.filesChanged ?? []).length > 0) {
-      log(`Apply ${f.id}: agent changed ${a.filesChanged.length} file(s) but returned no commit SHA`)
+    const files = a.filesChanged ?? []
+    if (!entry) {
+      // The agent never reported this agreed fix. We can't confirm it was applied,
+      // so flag it rather than render a phantom 0-file "applied" row as success.
+      applyGaps.push({ id: f.id, reason: 'missing-from-output' })
+      log(`Apply ${f.id}: agreed fix absent from apply-agent output — not confirmed applied`)
+    } else if (commit && !sha && files.length > 0) {
+      // Reported changed-but-uncommitted in commit mode: the per-fix commit the
+      // agent was told to make didn't land. Surface it as a gap, not a clean apply.
+      applyGaps.push({ id: f.id, reason: 'uncommitted' })
+      log(`Apply ${f.id}: agent changed ${files.length} file(s) but returned no commit SHA`)
     }
-    return { id: f.id, title: f.title, files: a.filesChanged ?? [], commit: sha || null }
+    return { id: f.id, title: f.title, files, commit: sha || null }
   })
   applied.forEach((a) => log(`Applied ${a.id}: ${a.files.length} file(s)${a.commit ? `, committed ${a.commit.slice(0, 9)}` : ' (uncommitted)'}`))
+  // A converged debate whose fixes didn't cleanly land is NOT a clean consensus:
+  // downgrade so /be-review (which keys off this status) and the comment don't
+  // advertise success over an unconfirmed/uncommitted fix. Only touch a status
+  // that was otherwise clean ('consensus'/'clean'); 'unresolved' already signals
+  // the human must act.
+  if (applyGaps.length && (status === 'consensus' || status === 'clean')) {
+    const prior = status
+    status = 'apply-incomplete'
+    log(`Apply incomplete: ${applyGaps.map((g) => `${g.id} (${g.reason})`).join(', ')} — downgrading ${prior} to apply-incomplete.`)
+  }
 } else if (fixes.length) {
   log(`Apply skipped (apply: false) — returning ${fixes.length} agreed fix plan(s) to the caller.`)
 }
@@ -512,6 +539,10 @@ return {
   settled: settledOut,
   unresolved,
   applied,
+  // Agreed fixes that didn't cleanly land (missing from the apply output, or
+  // changed-but-uncommitted). Empty unless status is 'apply-incomplete'; lets the
+  // caller pinpoint which fix to reconcile.
+  applyGaps,
   // The agreed `fix` findings with their converged plans — the caller's
   // change-request payload under `apply: false` (redundant with `settled` when
   // the Apply phase ran, but always present so consumers need not re-filter).
