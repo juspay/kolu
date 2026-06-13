@@ -52,20 +52,29 @@ function writeSession(next: SavedSession | null): void {
   surfaceCtx.cells.session.set(next);
 }
 
-/** Save a session snapshot. Clears the session when no terminals remain. */
-export function saveSession(snapshot: {
+/** A live snapshot of the terminal set — the shape autosave and the B3 reattach
+ *  paths persist, and the unit the snapshot→`SavedSession` rule maps. */
+interface SessionSnapshot {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
-}): void {
-  if (snapshot.terminals.length === 0) {
-    writeSession(null);
-    return;
-  }
-  writeSession({
+}
+
+/** The one snapshot→`SavedSession` rule: no terminals clears the session
+ *  (returns null); otherwise stamp `savedAt`. Both the autosave path
+ *  (`saveSession`) and the reattach path (`setSavedSessionFromSnapshot`) map
+ *  through here, so the empty→null guard lives in exactly one place. */
+function toSavedSession(snapshot: SessionSnapshot): SavedSession | null {
+  if (snapshot.terminals.length === 0) return null;
+  return {
     terminals: snapshot.terminals,
     activeTerminalId: snapshot.activeTerminalId,
     savedAt: Date.now(),
-  });
+  };
+}
+
+/** Save a session snapshot. Clears the session when no terminals remain. */
+export function saveSession(snapshot: SessionSnapshot): void {
+  writeSession(toSavedSession(snapshot));
 }
 
 /** Get the saved session, or null if none exists. */
@@ -96,6 +105,17 @@ export function setSavedSession(session: SavedSession | null): void {
   writeSession(session);
 }
 
+/** Persist a snapshot as the saved session via `setSavedSession` — so, unlike
+ *  the autosave path's `saveSession`, it CANCELS any pending autosave first.
+ *  The B3 reattach paths (the restart capture and the boot reconcile's restore
+ *  card) build a snapshot under a daemon recycle and must win the race against a
+ *  stale empty-snapshot autosave tick that would otherwise null the session out
+ *  from under them; they funnel through here rather than re-inlining the
+ *  mapping, keeping the empty→null guard (`toSavedSession`) in one place. */
+export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
+  setSavedSession(toSavedSession(snapshot));
+}
+
 // --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
 
 /** Wire up throttled session save from terminal change events. Called once at startup.
@@ -111,12 +131,7 @@ export function setSavedSession(session: SavedSession | null): void {
  *  Assumes `saveSession` is synchronous (it is — `writeSession` does sync
  *  `store.set` + sync publish). If anyone makes it async, add an in-flight
  *  guard so a new schedule can't race an unfinished write. */
-export function initSessionAutoSave(
-  snapshot: () => {
-    terminals: SavedTerminal[];
-    activeTerminalId: string | null;
-  },
-): void {
+export function initSessionAutoSave(snapshot: () => SessionSnapshot): void {
   void (async () => {
     try {
       for await (const _ of terminalsDirtyChannel.subscribe(undefined)) {

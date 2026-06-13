@@ -400,17 +400,12 @@ class LocalTerminalBackend implements TerminalBackend {
     try {
       this.startProviderLayer(id, entry, res.pid);
     } catch (err) {
-      tlog.error(
-        { err },
+      this.killHalfWiredPty(
+        id,
+        tlog,
+        err,
         "pty-host provider wiring failed after spawn; killing the orphaned PTY",
       );
-      this.teardownProviders(id);
-      void ptyHostClient.surface.terminal
-        .kill({ id })
-        .catch((killErr) =>
-          tlog.error({ err: killErr }, "kill of partially-wired PTY failed"),
-        );
-      this.unwindSpawnShadow(id);
       return;
     }
     tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
@@ -423,6 +418,28 @@ class LocalTerminalBackend implements TerminalBackend {
     unregisterTerminal(id);
     emitTerminalsDirty();
     emitTerminalListChanged();
+  }
+
+  /** Recover from "the PTY exists on the daemon but provider wiring failed":
+   *  log the wiring error under `reason`, tear down any partial providers, kill
+   *  the orphaned PTY (a kill failure is logged, not thrown — there's nothing
+   *  left to do), and unwind the sync shadow. Extracted as the one reap policy
+   *  so B3.3's survivor-adoption path can share it — one place to change how a
+   *  half-wired PTY is reaped; `reason` distinguishes the call site. */
+  private killHalfWiredPty(
+    id: TerminalId,
+    tlog: typeof log,
+    err: unknown,
+    reason: string,
+  ): void {
+    tlog.error({ err }, reason);
+    this.teardownProviders(id);
+    void ptyHostClient.surface.terminal
+      .kill({ id })
+      .catch((killErr) =>
+        tlog.error({ err: killErr }, "kill of half-wired PTY failed"),
+      );
+    this.unwindSpawnShadow(id);
   }
 
   /** Start the per-terminal provider DAG against the pty-host's tap streams.
