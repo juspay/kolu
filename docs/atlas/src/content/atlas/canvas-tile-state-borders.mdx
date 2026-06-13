@@ -170,7 +170,7 @@ border reuses the machinery rather than inventing a parallel scheme:
   caption="Reuse the upstream classifiers, add a canvas-only mapper. AgentInfo.state collapses to a bucket (agentBucket); the orthogonal unread flag marks a fresh, missed alert; lastActivityAt vs the user's activity window (useStaleCheck/isStale) ages a waiter — the same three signals the dock already reads. As shipped, the canvas does NOT share the dock's pipVariant: it gets its own pure tileAura(bucket, unread, stale) → tier mapper, gathered once by the useTileAura socket that the canvas tile and minimap marker both plug into. The tile also reads store.activeId(): focus paints the teal ring, clears unread, and mutes the tile's own aura — so the loudest border is always elsewhere. No new state logic, no new clock."
   code={`direction: down
 state: "AgentInfo.state — thinking · tool_use · waiting · awaiting_user · running_background"
-bucket: "agentBucket() — working | awaiting | idle | none"
+bucket: "agentBucket() — working | awaiting | none (never idle: that's entryBucket's job)"
 unread: "isUnread(id) — fresh + missed (useViewState)"
 stale: "lastActivityAt vs activity window — useStaleCheck() / isStale()"
 tileAura: "tileAura(bucket, unread, stale) — canvas-only pure mapper → tier"
@@ -524,7 +524,7 @@ kept at minimap scale; decay folded into the
 tier as a discrete fresh → stale-ember → parked split (not a continuous
 `--aura-intensity` curve); the persisted `activityWindow` as the threshold; a
 stale waiter cooling to the violet ember while a stale worker parks to `none`;
-working a steady hum; and the active tile **muted** (`opacity: 0.35`), not
+working a steady hum; and the active tile **muted** (`opacity: 0.4`), not
 suppressed.
 
 ### Working color — rust, not teal

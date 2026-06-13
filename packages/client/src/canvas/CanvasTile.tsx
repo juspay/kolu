@@ -56,10 +56,12 @@ const CanvasTile: Component<{
   theme: TileTheme;
   /** Per-repo identity color; drives the tile border. */
   repoColor: string;
-  /** Agent-state aura tier — paints a top-edge bar so the tile's state is
-   *  legible at a glance across the canvas. Computed by the caller from the
-   *  same classifiers the dock uses (`agentBucket` + unread + staleness);
-   *  the tile shell only renders the bar. `"none"` paints nothing. */
+  /** Agent-state aura tier — paints a border ring (motion encodes the state,
+   *  colour is the tile's own theme fg) so the tile's state is legible at a
+   *  glance across the canvas. Computed by the caller from the same classifiers
+   *  the dock uses (`agentBucket` + unread + staleness); the tile shell only
+   *  renders the ring. `"none"` paints nothing. (The minimap marker renders the
+   *  same tier as a flat top-edge bar — see `CanvasMinimap`.) */
   aura: TileAura;
   onSelect: () => void;
   onClose: () => void;

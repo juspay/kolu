@@ -200,13 +200,26 @@ body {
  *    ring (marching ants); needs-you "sweeps" as a single comet whose rotation
  *    SPEED is the urgency: alert fastest, fresh slower, stale slowest.
  *
- *    PERFORMANCE (deliberate): every state animates ONLY `transform: rotate` on
- *    one masked pseudo — GPU-composited, so no per-frame layout or repaint, the
- *    trap a `background-position` marquee would hit on a canvas of tiles. The
- *    `.tile-aura` element is rendered ONLY for tiles with a live agent (the
- *    caller gates it on the tier), so idle/parked tiles cost nothing. No
- *    `will-change` — that would pin a compositor layer per tile; the browser
- *    promotes a layer only while animating. Reduced-motion stops all of it. */
+ *    GEOMETRY (deliberate): the masked rectangle is FIXED — we animate the
+ *    conic gradient's start angle (`--aura-angle`, registered below via
+ *    `@property` so it can be interpolated) instead of `transform: rotate` on
+ *    the element. Rotating the element itself would tilt the whole masked
+ *    rectangular ring on a non-square tile (800×540), throwing the band off the
+ *    border and clipping it against the tile's `overflow-hidden`. Spinning only
+ *    the gradient's `from` angle keeps the ring welded to all four edges while
+ *    the paint sweeps round it.
+ *
+ *    PERFORMANCE: the `.tile-aura` element is rendered ONLY for tiles with a
+ *    live agent (the caller gates it on the tier), so idle/parked tiles cost
+ *    nothing. A registered-property angle animation repaints the gradient each
+ *    frame, but only inside one small masked ring per live tile; no layout, and
+ *    the `repeating-conic-gradient` marquee trap (`background-position` on a
+ *    full-bleed image) is avoided. No `will-change`. Reduced-motion stops it. */
+@property --aura-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
 .tile-aura {
   position: absolute;
   inset: 0;
@@ -223,50 +236,50 @@ body {
     linear-gradient(#000 0 0);
   mask-composite: exclude;
 }
-@keyframes aura-spin {
+@keyframes aura-sweep {
   to {
-    transform: rotate(1turn);
+    --aura-angle: 360deg;
   }
 }
 /* working — marching ants: a dense dashed ring crawls slowly round the border */
 [data-aura="working"] .tile-aura {
   background: repeating-conic-gradient(
-    from 0deg,
+    from var(--aura-angle),
     var(--aura-c) 0deg 4deg,
     transparent 4deg 11deg
   );
-  animation: aura-spin 9s linear infinite;
+  animation: aura-sweep 9s linear infinite;
 }
 /* needs-you — a single sweeping comet; rotation SPEED is the urgency */
 [data-aura="alert"] .tile-aura {
   background: conic-gradient(
-    from 0deg,
+    from var(--aura-angle),
     transparent 0deg,
     var(--aura-c) 34deg,
     transparent 86deg,
     transparent 360deg
   );
-  animation: aura-spin 1s linear infinite;
+  animation: aura-sweep 1s linear infinite;
 }
 [data-aura="waiting"] .tile-aura {
   background: conic-gradient(
-    from 0deg,
+    from var(--aura-angle),
     transparent 0deg,
     var(--aura-c) 40deg,
     transparent 98deg,
     transparent 360deg
   );
-  animation: aura-spin 2.2s linear infinite;
+  animation: aura-sweep 2.2s linear infinite;
 }
 [data-aura="waiting-stale"] .tile-aura {
   background: conic-gradient(
-    from 0deg,
+    from var(--aura-angle),
     transparent 0deg,
     var(--aura-c) 38deg,
     transparent 94deg,
     transparent 360deg
   );
-  animation: aura-spin 4s linear infinite;
+  animation: aura-sweep 4s linear infinite;
   opacity: 0.65;
 }
 /* active tile: you're already here — dim its aura so focus (the accent ring)
