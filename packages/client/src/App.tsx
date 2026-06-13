@@ -248,7 +248,14 @@ const App: Component = () => {
     activate: store.activate,
     mruOrder: store.mruOrder,
     activeMeta: store.activeMeta,
-    handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
+    // Fire-and-forget: `handleCreate` surfaces its own errors via toast — a
+    // warning when the daemon is warming, an error on spawn failure — and
+    // re-throws so the *awaited* restore loop aborts cleanly. This void caller
+    // (keyboard shortcut, palette, Dock `+`) has nothing to await it, so swallow
+    // the rejection rather than leak an unhandled promise rejection (the same
+    // reason `useWorktreeOps.handleCreateWorktree` doesn't rethrow). Without it a
+    // `Cmd+T` during a restart's warming window trips the e2e page-error guard.
+    handleCreate: (cwd?: string) => void crud.handleCreate(cwd).catch(() => {}),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
