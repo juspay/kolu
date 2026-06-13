@@ -193,13 +193,106 @@ body {
   }
 }
 
-/* Canvas tile + minimap state aura — a thin bar on a tile's TOP edge whose
- * colour + motion encode the attention rank (see canvas/tileAura.ts). One
- * language at two scales: a full canvas tile and a minimap marker both set
- * `data-aura` on their root and contain an `.aura-bar`, so these rules paint
- * both. Motion is reserved for the rungs that want you — alert blinks,
- * fresh-waiting pulses; working is a steady rust hum, stale-waiting a static
- * ember. Rust (busy) for working keeps it distinct from the teal focus ring. */
+/* ── Canvas tile state aura: a border RING whose MOTION encodes the agent state
+ *    and whose COLOUR is the tile's own theme foreground (--aura-c) — contrast-
+ *    safe against any theme bg by construction (it's the text colour, derived in
+ *    CanvasTile from the per-tile theme). Working "runs" as a crawling dashed
+ *    ring (marching ants); needs-you "sweeps" as a single comet whose rotation
+ *    SPEED is the urgency: alert fastest, fresh slower, stale slowest.
+ *
+ *    PERFORMANCE (deliberate): every state animates ONLY `transform: rotate` on
+ *    one masked pseudo — GPU-composited, so no per-frame layout or repaint, the
+ *    trap a `background-position` marquee would hit on a canvas of tiles. The
+ *    `.tile-aura` element is rendered ONLY for tiles with a live agent (the
+ *    caller gates it on the tier), so idle/parked tiles cost nothing. No
+ *    `will-change` — that would pin a compositor layer per tile; the browser
+ *    promotes a layer only while animating. Reduced-motion stops all of it. */
+.tile-aura {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2.5px;
+  pointer-events: none;
+  /* mask to a border ring — only the padding band paints */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+@keyframes aura-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+/* working — marching ants: a dense dashed ring crawls slowly round the border */
+[data-aura="working"] .tile-aura {
+  background: repeating-conic-gradient(
+    from 0deg,
+    var(--aura-c) 0deg 4deg,
+    transparent 4deg 11deg
+  );
+  animation: aura-spin 9s linear infinite;
+}
+/* needs-you — a single sweeping comet; rotation SPEED is the urgency */
+[data-aura="alert"] .tile-aura {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--aura-c) 34deg,
+    transparent 86deg,
+    transparent 360deg
+  );
+  animation: aura-spin 1s linear infinite;
+}
+[data-aura="waiting"] .tile-aura {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--aura-c) 40deg,
+    transparent 98deg,
+    transparent 360deg
+  );
+  animation: aura-spin 2.2s linear infinite;
+}
+[data-aura="waiting-stale"] .tile-aura {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--aura-c) 38deg,
+    transparent 94deg,
+    transparent 360deg
+  );
+  animation: aura-spin 4s linear infinite;
+  opacity: 0.65;
+}
+/* active tile: you're already here — dim its aura so focus (the accent ring)
+ * dominates and the louder borders stay on the tiles you're NOT in. */
+[data-active="true"] .tile-aura {
+  opacity: 0.4;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-aura] .tile-aura {
+    animation: none;
+  }
+  /* The sweeps collapse to a static full ring (a frozen comet reads odd);
+   * working keeps its static dashed ring, which is legible as-is. */
+  [data-aura="alert"] .tile-aura,
+  [data-aura="waiting"] .tile-aura,
+  [data-aura="waiting-stale"] .tile-aura {
+    background: var(--aura-c);
+  }
+}
+
+/* ── Minimap markers keep a flat TOP-EDGE bar — the canvas tile's comet/ants
+ *    don't shrink to a ~40px marker, so the minimap falls back to the bar. Its
+ *    backdrop is the neutral minimap panel (not a themed tile bg), so the
+ *    semantic colours read fine there and give a consistent at-a-glance state
+ *    scan; motion still encodes state — working steady, waiting pulses, alert
+ *    blinks. */
 .aura-bar {
   position: absolute;
   top: 0;
@@ -227,13 +320,6 @@ body {
   width: 55%;
   background: color-mix(in oklch, var(--color-alert) 42%, transparent);
 }
-/* The active tile is where you already are — mute its bar to a whisper (and
- * still it, so the focus ring dominates and the loud bars stay on tiles you're
- * NOT in). Placed after the colour rules so equal specificity resolves here. */
-[data-active="true"] .aura-bar {
-  animation: none;
-  opacity: 0.35;
-}
 @keyframes aura-pulse {
   0%,
   100% {
@@ -252,19 +338,11 @@ body {
     opacity: 0.3;
   }
 }
-/* Reduced motion: drop the pulse/blink but keep each tier legible by colour. */
 @media (prefers-reduced-motion: reduce) {
   [data-aura="waiting"] .aura-bar,
   [data-aura="alert"] .aura-bar {
     animation: none;
     opacity: 1;
-  }
-  /* Re-assert the active mute *after* the opacity reset above: equal
-   * specificity to the `[data-aura] .aura-bar` rules, so without this an
-   * active waiting/alert tile would lose its muted whisper under reduced
-   * motion and read as loud as the tiles you're not in. */
-  [data-active="true"] .aura-bar {
-    opacity: 0.35;
   }
 }
 

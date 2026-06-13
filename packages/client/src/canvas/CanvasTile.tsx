@@ -115,6 +115,10 @@ const CanvasTile: Component<{
       width: `${l.w}px`,
       height: `${l.h}px`,
       "background-color": bg(),
+      // Aura colour for the state ring — the tile's own theme foreground, which
+      // contrasts the theme bg by construction, so the ring stays legible on any
+      // terminal theme (see the `.tile-aura` rules in index.css).
+      "--aura-c": props.theme.fg,
       "border-color": props.repoColor,
       // Active tile's right edge points at the inspector panel — repoColor
       // on the other three edges, accent on the right. Longhand wins after
@@ -200,13 +204,16 @@ const CanvasTile: Component<{
       style={tileStyle()}
       onMouseDown={() => props.onSelect()}
     >
-      {/* State aura — a top-edge bar coloured + animated by agent state
-       *  (canvas/tileAura.ts + the `.aura-bar` rules in index.css). Styled via
-       *  the root's `data-aura`; the active tile mutes its own bar so focus
-       *  stays dominant. Skipped when maximized (the bar would stripe the
-       *  whole viewport) and when `"none"` (idle / no agent). */}
+      {/* State aura — a border ring whose motion encodes agent state and whose
+       *  colour is the tile's own theme fg (`--aura-c`): working marches ants,
+       *  needs-you sweeps a comet (speed = urgency). Styled via the root's
+       *  `data-aura` (canvas/tileAura.ts + the `.tile-aura` rules in index.css);
+       *  the active tile dims its own ring so focus stays dominant. Rendered
+       *  ONLY for live-agent tiles (skipped on `"none"`) so idle tiles cost no
+       *  compositor layer, and skipped when maximized (the ring would frame the
+       *  whole viewport). */}
       <Show when={!isMaximized() && props.aura !== "none"}>
-        <div data-testid="canvas-tile-aura" class="aura-bar" />
+        <div data-testid="canvas-tile-aura" class="tile-aura" />
       </Show>
 
       {/* Title bar — uses tile foreground at low opacity for guaranteed

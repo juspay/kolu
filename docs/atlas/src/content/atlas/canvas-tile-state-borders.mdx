@@ -267,10 +267,10 @@ the composition explicit:
   only ever lights an *inactive* tile: the eye-grab always points you somewhere
   **new**, never back at yourself.
 - **Focus mutes the tile's own aura.** You're already attending to it, so it
-  shouldn't compete — as shipped, `[data-active="true"] .aura-bar` drops to a
-  fixed `opacity: 0.35`. An active working tile is a clean teal ring with its
-  rust bar dialed to a whisper; an active waiting tile keeps a faint violet (you
-  can still see it wants input) while focus dominates.
+  shouldn't compete — as shipped, `[data-active="true"] .tile-aura` drops to a
+  fixed `opacity: 0.4`. An active working tile keeps its marching-ants ring
+  dialed to a whisper; an active waiting tile a faint sweeping comet (you can
+  still see it wants input) while the focus accent dominates.
 
 export const ActiveDemo = () => (
   <div class="tb-canvas lang-halo">
@@ -315,7 +315,7 @@ export const ActiveDemo = () => (
 independent moves: the tier (`tileAura`) picks the bar's colour and motion;
 age-decay is folded into the tier itself (a stale waiter drops to the
 `waiting-stale` ember, a stale worker to `none`); and presence is the active
-mute — `[data-active="true"] .aura-bar` at `opacity: 0.35`. The result
+mute — `[data-active="true"] .tile-aura` at `opacity: 0.4`. The result
 guarantees the **brightest border on the canvas is always an inactive, fresh,
 attention-class tile** — precisely where the eye should land. Focus and the
 ladder reinforce each other instead of fighting.
@@ -518,7 +518,9 @@ one-shape-everywhere coherence.
 
 Independent of the language, a few choices shape how loud and how broad this gets.
 These were the deliberation at proposal time; this section is preserved as the
-design record. **What shipped:** Language **D** (top bar); decay folded into the
+design record. **What shipped:** refined Language **C** on the tile (marching
+ants / sweeping comet, in the terminal's own theme colour) with **D**'s flat bar
+kept at minimap scale; decay folded into the
 tier as a discrete fresh → stale-ember → parked split (not a continuous
 `--aura-intensity` curve); the persisted `activityWindow` as the threshold; a
 stale waiter cooling to the violet ember while a stale worker parks to `none`;
@@ -606,15 +608,17 @@ or **fully suppress** (focus ring only, zero aura — calmest, leans hardest on
 ## How it wires in
 
 Small and contained — no new state machinery, because the upstream classifiers
-already exist and are the single source of truth. What actually shipped (Language
-**D**, the top bar):
+already exist and are the single source of truth. What actually shipped — refined
+Language **C** on the canvas tile, with Language **D**'s flat bar kept at minimap
+scale:
 
 - **A pure tier mapper, not a generalized dock mapper.** Rather than fold the
   decision into the dock's <Cite file="packages/client/src/canvas/dock/pipVariant.ts" />, the canvas got its own pure classifier <Cite file="packages/client/src/canvas/tileAura.ts" />: `tileAura(bucket, unread, stale) → TileAura` (`alert | waiting | waiting-stale | working | none`). It *reuses* the same upstream inputs the dock reads (`agentBucket`, the unread flag, `useStaleCheck`) but maps to the canvas's own vocabulary — a top bar with a fresh/stale split on `waiting`. Kept a pure function so it's unit-tested without a Solid harness (<Cite file="packages/client/src/canvas/tileAura.test.ts" />), the way `pipVariant` is.
 - **Stale folds into the tier — consistently.** A stale `waiting` tile cools to the static `waiting-stale` ember; a stale `working` tile is *parked* and drops to `none` (no bar), so the canvas agrees with the dock's `parked` bucket (<Cite file="packages/client/src/canvas/dock/dockRowRanking.ts" />) and the minimap's parked ghost rather than advertising a bright working hum on a tile the dock has already quieted.
 - **One reactive socket, two surfaces.** <Cite file="packages/client/src/canvas/useTileAura.ts" /> closes over the terminal store and one `useStaleCheck()` instance and turns an id into its tier; the canvas tile (via <Cite file="packages/client/src/canvas/TerminalCanvas.tsx" />) and the minimap marker (<Cite file="packages/client/src/canvas/CanvasMinimap.tsx" />) both read it, so they can't drift. Age comes from the same reactive, 60s-ticking staleness the dock and minimap already use (<Cite file="packages/client/src/terminal/staleness.ts" />, <Cite file="packages/client/src/terminal/activityWindow.ts" />) — no new threshold, no new timer.
-- **The tile renders the bar.** <Cite file="packages/client/src/canvas/CanvasTile.tsx" /> takes the tier as a prop, sets `data-aura` on its root, and paints an absolutely-positioned **top-edge** `.aura-bar` (skipped when maximized or `none`). Colour + motion live entirely in CSS keyed off `data-aura` — there is no `--aura-intensity` custom property and no box-shadow glow; the active tile is muted by a fixed `opacity: 0.35` on `[data-active="true"] .aura-bar`, not a scaled intensity.
-- **CSS.** The `.aura-bar` rules, `aura-pulse` / `aura-blink` keyframes, and the `prefers-reduced-motion` fallback live in <Cite file="packages/client/src/index.css" /> beside the existing `pill-*` / `dock-chip-*` animations. The minimap reuses them at a thinner scale via `.aura-bar--mini`.
+- **The tile renders a border *ring*.** <Cite file="packages/client/src/canvas/CanvasTile.tsx" /> takes the tier as a prop, sets `data-aura` on its root and `--aura-c` — the tile's own theme foreground — as a CSS variable, and paints an absolutely-positioned `.tile-aura` ring (skipped when maximized or `none`). **Motion** carries the state: working *marches ants* (a crawling dashed conic ring); needs-you *sweeps* a comet whose rotation **speed is the urgency** (alert fastest → fresh → stale slowest). **Colour** is `--aura-c`, contrast-safe against any theme bg by construction (it's the foreground). The active tile dims its own ring (`[data-active="true"] .tile-aura { opacity: 0.4 }`) so the focus accent dominates.
+- **Performance is deliberate.** Every state animates *only* `transform: rotate` on one masked pseudo — GPU-composited, so no per-frame repaint or layout (the trap a `background-position` marquee would hit across a whole canvas of tiles). The ring exists only for live-agent tiles (idle/parked render nothing, costing no compositor layer), there is no `will-change` pinning a layer per tile, and `prefers-reduced-motion` stops every animation (sweeps fall back to a static ring).
+- **CSS + the minimap fallback.** The `.tile-aura` ring rules and the `aura-spin` keyframe live in <Cite file="packages/client/src/index.css" /> beside the existing `pill-*` / `dock-chip-*` animations. The **minimap** keeps a flat `.aura-bar` top-edge bar (<Cite file="packages/client/src/canvas/CanvasMinimap.tsx" />): a comet/ants ring doesn't shrink to a ~40px marker, and the marker sits on the neutral minimap panel (not a themed tile bg), so its semantic colours read fine and give a consistent at-a-glance state scan.
 
 No new state or timing machinery — a CSS block, a small pure mapper plus its
 reactive socket, and the prop wiring on the tile and minimap. (No tip was added;
@@ -623,6 +627,8 @@ entry.)
 
 ---
 
-*Status: `implemented` in <PrLink pr={1335} /> — Language **D** (top bar),
-fresh-vs-stale decay (reusing `useStaleCheck`), and a muted active-tile bar.
-Shipped on `throbborder`.*
+*Status: `implemented` in <PrLink pr={1335} /> — refined Language **C** on the
+canvas tile (marching ants for working, a sweeping comet for needs-you whose
+speed is the urgency, in the terminal's own theme colour), with Language **D**'s
+flat bar kept at minimap scale; fresh-vs-stale decay via `useStaleCheck`; a muted
+active ring; transform-only animations. Shipped on `throbborder`.*
