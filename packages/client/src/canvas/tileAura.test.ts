@@ -15,9 +15,10 @@ const cases: Array<[Bucket, boolean, boolean, TileAura]> = [
   // cools to the ember below the working hum.
   ["awaiting", false, false, "waiting"],
   ["awaiting", false, true, "waiting-stale"],
-  // working ignores staleness (a busy agent is active now, never parked).
+  // a fresh working tile hums; once it goes stale it is parked — drops to
+  // `none`, matching the dock's `parked` bucket and the minimap ghost.
   ["working", false, false, "working"],
-  ["working", false, true, "working"],
+  ["working", false, true, "none"],
   // no agent → no bar.
   ["none", false, false, "none"],
   ["none", false, true, "none"],

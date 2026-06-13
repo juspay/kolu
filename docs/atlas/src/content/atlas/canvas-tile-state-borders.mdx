@@ -468,17 +468,21 @@ or **fully suppress** (focus ring only, zero aura — calmest, leans hardest on
 
 ## How it wires in
 
-Small and contained — no new state machinery, because the classifier already
-exists and is the single source of truth.
+Small and contained — no new state machinery, because the upstream classifiers
+already exist and are the single source of truth. What actually shipped (Language
+**D**, the top bar):
 
-- **Shared mapper.** Generalize the dock's <Cite file="packages/client/src/canvas/dock/pipVariant.ts" /> `(bucket, unread)` mapper into `auraVariant(bucket, unread, age) → { tier, intensity }` consumed by the tile *and* the dock, so they can never drift. The state→tier decision lives in exactly one place.
-- **The clock is already built.** Age comes from `useStaleCheck()` / `activityWindowThresholdMs()` over `meta.lastActivityAt` (<Cite file="packages/client/src/terminal/staleness.ts" />, <Cite file="packages/client/src/terminal/activityWindow.ts" />) — the same reactive, 60s-ticking staleness the dock and minimap already use. No new threshold, no new timer.
-- **The tile.** <Cite file="packages/client/src/canvas/CanvasTile.tsx" /> reads `agentBucket(meta.agent)` + `isUnread(id)` + the stale check (all in scope), sets a `data-aura` tier and a `--aura-intensity` custom property, and paints the aura via an **outer** channel (box-shadow glow) so the existing border (repo identity) and the inner focus ring (`0 0 0 1px var(--color-accent)`) are untouched — different geometry, no collision. When `props.active`, it scales `--aura-intensity` down (focus already won — and `unread` self-clears on activation, so the active tile is never the alert), keeping the teal ring dominant.
-- **One language across surfaces (if D).** The minimap already classifies via `agentBucket` / `bucketDescriptor` (<Cite file="packages/client/src/canvas/CanvasMinimap.tsx" />) — the top-bar treatment swaps its corner dot for a top edge reading the same `auraVariant`, so the canvas tile and its minimap marker stay in lockstep off one mapper.
-- **CSS.** One `@keyframes` block in <Cite file="packages/client/src/index.css" /> beside the existing `pill-*` / `dock-chip-*` animations, with the matching `prefers-reduced-motion` fallback.
-- **Discoverability.** A tip per <Cite file=".claude/rules/conventions.md" /> (`settings/tips.ts`) so people learn the border means something.
+- **A pure tier mapper, not a generalized dock mapper.** Rather than fold the
+  decision into the dock's <Cite file="packages/client/src/canvas/dock/pipVariant.ts" />, the canvas got its own pure classifier <Cite file="packages/client/src/canvas/tileAura.ts" />: `tileAura(bucket, unread, stale) → TileAura` (`alert | waiting | waiting-stale | working | none`). It *reuses* the same upstream inputs the dock reads (`agentBucket`, the unread flag, `useStaleCheck`) but maps to the canvas's own vocabulary — a top bar with a fresh/stale split on `waiting`. Kept a pure function so it's unit-tested without a Solid harness (<Cite file="packages/client/src/canvas/tileAura.test.ts" />), the way `pipVariant` is.
+- **Stale folds into the tier — consistently.** A stale `waiting` tile cools to the static `waiting-stale` ember; a stale `working` tile is *parked* and drops to `none` (no bar), so the canvas agrees with the dock's `parked` bucket (<Cite file="packages/client/src/canvas/dock/dockRowRanking.ts" />) and the minimap's parked ghost rather than advertising a bright working hum on a tile the dock has already quieted.
+- **One reactive socket, two surfaces.** <Cite file="packages/client/src/canvas/useTileAura.ts" /> closes over the terminal store and one `useStaleCheck()` instance and turns an id into its tier; the canvas tile (via <Cite file="packages/client/src/canvas/TerminalCanvas.tsx" />) and the minimap marker (<Cite file="packages/client/src/canvas/CanvasMinimap.tsx" />) both read it, so they can't drift. Age comes from the same reactive, 60s-ticking staleness the dock and minimap already use (<Cite file="packages/client/src/terminal/staleness.ts" />, <Cite file="packages/client/src/terminal/activityWindow.ts" />) — no new threshold, no new timer.
+- **The tile renders the bar.** <Cite file="packages/client/src/canvas/CanvasTile.tsx" /> takes the tier as a prop, sets `data-aura` on its root, and paints an absolutely-positioned **top-edge** `.aura-bar` (skipped when maximized or `none`). Colour + motion live entirely in CSS keyed off `data-aura` — there is no `--aura-intensity` custom property and no box-shadow glow; the active tile is muted by a fixed `opacity: 0.35` on `[data-active="true"] .aura-bar`, not a scaled intensity.
+- **CSS.** The `.aura-bar` rules, `aura-pulse` / `aura-blink` keyframes, and the `prefers-reduced-motion` fallback live in <Cite file="packages/client/src/index.css" /> beside the existing `pill-*` / `dock-chip-*` animations. The minimap reuses them at a thinner scale via `.aura-bar--mini`.
 
-Roughly one CSS block + ~20 lines in `CanvasTile` + a tiny shared function — and zero new state or timing machinery.
+No new state or timing machinery — a CSS block, a small pure mapper plus its
+reactive socket, and the prop wiring on the tile and minimap. (No tip was added;
+the bar is self-evident enough that discoverability didn't warrant a tips-registry
+entry.)
 
 ---
 

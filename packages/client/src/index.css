@@ -259,6 +259,13 @@ body {
     animation: none;
     opacity: 1;
   }
+  /* Re-assert the active mute *after* the opacity reset above: equal
+   * specificity to the `[data-aura] .aura-bar` rules, so without this an
+   * active waiting/alert tile would lose its muted whisper under reduced
+   * motion and read as loud as the tiles you're not in. */
+  [data-active="true"] .aura-bar {
+    opacity: 0.35;
+  }
 }
 
 /* Inset highlight: marks the pill as ALSO the active terminal when
