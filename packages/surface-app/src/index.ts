@@ -85,8 +85,19 @@ export const SHELL_COMMIT_GLOBAL = "__SURFACE_APP_COMMIT__";
  *  in `dist/index.html` ONLY — never in `dist/assets/`). JSON-encoded with
  *  `<` escaped so an arbitrary commit string can't terminate the element. */
 export function shellCommitScript(commit: string): string {
+  return `<script>${shellCommitScriptBody(commit)}</script>`;
+}
+
+/** The inner text of `shellCommitScript` — `window.${SHELL_COMMIT_GLOBAL}=<literal>`,
+ *  the `<script>`-less body both the Bun/Nix shell (via `shellCommitScript`) and
+ *  the `/vite` plugin need. This is the ONE authoritative copy of the
+ *  assignment shape and the `<`-escape that stops an arbitrary commit string
+ *  from closing the element. `vite.ts` can't import it across Node's ESM
+ *  boundary (see its header), so it carries a byte-identical inline copy that
+ *  `vite.test.ts` pins to this function across adversarial commits. */
+export function shellCommitScriptBody(commit: string): string {
   const literal = JSON.stringify(commit).replace(/</g, "\\u003c");
-  return `<script>window.${SHELL_COMMIT_GLOBAL}=${literal}</script>`;
+  return `window.${SHELL_COMMIT_GLOBAL}=${literal}`;
 }
 
 /** Inject the shell-commit script into an HTML shell, right after `<head>` so
