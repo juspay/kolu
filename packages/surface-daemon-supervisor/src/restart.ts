@@ -79,7 +79,10 @@ export function serializeRestart<C, I>(
 ): <Ctx>(steps: RestartSteps<C, I, Ctx>) => Promise<void> {
   let inFlight: Promise<void> | undefined;
   return <Ctx>(steps: RestartSteps<C, I, Ctx>): Promise<void> => {
-    if (inFlight) return inFlight;
+    // Presence of the promise IS the in-flight flag — a concurrent caller rides
+    // it rather than starting a second recycle. (`!== undefined`, not a bare
+    // truthiness check, so it reads as "is one running", not a misused await.)
+    if (inFlight !== undefined) return inFlight;
     inFlight = endpoint
       .holdRestarting(() => restart(endpoint, steps))
       .finally(() => {
