@@ -20,6 +20,44 @@ import { surfaceCtx } from "./surfaceCtx.ts";
  *  on `cancelPendingAutosave` for the race). */
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** Restore-card terminals that have NO live PTY but must NOT be lost — the
+ *  remainder of a PARTIAL boot-adopt reconcile (a server-only redeploy kept
+ *  some PTYs but not all). They live only on the restore card, which the client
+ *  surfaces from the empty-canvas state; while adopted survivors occupy the
+ *  canvas they are hidden, and the survivors' own `terminals:dirty` autosaves
+ *  would otherwise re-snapshot only the LIVE terminals and delete these from
+ *  disk. The autosave loop unions this set into every snapshot so it can never
+ *  drop them, and the next session write (a successful restore clears the
+ *  session; a restart capture replaces it) clears the set. This is the
+ *  fail-closed guard that keeps the partial remainder durable until a
+ *  non-empty-canvas restore affordance lands (R-2). */
+let pendingRestoreCard: SavedTerminal[] = [];
+
+/** Register the partial-reconcile remainder so autosave can't delete it (see
+ *  `pendingRestoreCard`). Replaces any prior set — each reconcile recomputes the
+ *  whole remainder. An empty array clears it. */
+export function setPendingRestoreCard(terminals: SavedTerminal[]): void {
+  pendingRestoreCard = terminals;
+}
+
+/** Merge the live snapshot with the pending restore-card remainder, keeping the
+ *  live entry when a terminal appears in both (a restored survivor is live and
+ *  authoritative). The result is what autosave persists, so the partial
+ *  remainder rides every autosave instead of being snapshotted away. */
+function unionWithPendingRestore(snapshot: {
+  terminals: SavedTerminal[];
+  activeTerminalId: string | null;
+}): { terminals: SavedTerminal[]; activeTerminalId: string | null } {
+  if (pendingRestoreCard.length === 0) return snapshot;
+  const liveIds = new Set(snapshot.terminals.map((t) => t.id));
+  const survivingPending = pendingRestoreCard.filter((t) => !liveIds.has(t.id));
+  if (survivingPending.length === 0) return snapshot;
+  return {
+    terminals: [...snapshot.terminals, ...survivingPending],
+    activeTerminalId: snapshot.activeTerminalId,
+  };
+}
+
 /** Cancel any pending `saveSession([])` autosave callback that's been
  *  armed by a recent `terminalsDirtyChannel` event but hasn't fired yet.
  *
@@ -93,6 +131,14 @@ export function clearSavedSession(): void {
  *  the restore card disappears mid-scenario. */
 export function setSavedSession(session: SavedSession | null): void {
   cancelPendingAutosave();
+  // An explicit write supersedes the partial-reconcile remainder: a successful
+  // restore writes `null` (the remainder is no longer pending), and a restart
+  // capture writes the freshly captured session (a new authoritative set). In
+  // both cases the old pending set is stale, so drop it — leaving it would let
+  // it leak back into a later autosave union. `reconcileSession` re-registers a
+  // fresh set AFTER its own `setSavedSessionFromSnapshot` write when the new
+  // reconcile is still partial.
+  pendingRestoreCard = [];
   writeSession(session);
 }
 
@@ -138,7 +184,10 @@ export function initSessionAutoSave(
         if (saveTimer) continue;
         saveTimer = setTimeout(() => {
           saveTimer = undefined;
-          saveSession(snapshot());
+          // Union in the partial-reconcile remainder so a survivors-only
+          // snapshot can't delete the restore-card terminals that have no live
+          // PTY (see `pendingRestoreCard`).
+          saveSession(unionWithPendingRestore(snapshot()));
         }, 500);
       }
     } catch (err) {

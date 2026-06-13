@@ -21,10 +21,11 @@
  * `waitForPidGone` → spawn → connect race when it does recycle.
  *
  * **Restart serialization.** `serializeRestart()` flips the endpoint to
- * `restarting` (when a connection is held) and coalesces concurrent restart
- * triggers onto the one in flight — so a double-click, a palette command, and a
- * forced skew restart racing at once produce a single recycle, and every caller
- * observes `restarting` rather than a torn sequence.
+ * `restarting` for the whole recycle — including a restart fired from the
+ * degraded/dead surface, where no connection is held — and coalesces concurrent
+ * restart triggers onto the one in flight, so a double-click, a palette command,
+ * and a forced skew restart racing at once produce a single recycle, and every
+ * caller observes `restarting` rather than a torn sequence.
  *
  * The endpoint is **spine**: generic over the client `C` and the identity `I`,
  * it interprets neither. The contract handshake, the surface shape, and what
@@ -103,9 +104,10 @@ export interface Endpoint<C, I> {
    *  across a server-only redeploy); recycle only an absent, dead, or skewed
    *  survivor. Throws (after reporting `dead`) if it cannot. */
   adoptOrEnsure(): Promise<void>;
-  /** Run `run` as a supervised restart: flip to `restarting` (when a connection
-   *  is held) and coalesce concurrent triggers onto the one in flight — a second
-   *  caller awaits the first and returns without starting its own recycle. */
+  /** Run `run` as a supervised restart: flip to `restarting` (always, even with
+   *  no connection held — the degraded/dead restart path) and coalesce concurrent
+   *  triggers onto the one in flight — a second caller awaits the first and
+   *  returns without starting its own recycle. */
   serializeRestart(run: () => Promise<void>): Promise<void>;
   /** The live connection, or `undefined` before a boot or after the daemon died
    *  (`degraded`). */
@@ -326,15 +328,22 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
         await inFlight;
         return;
       }
-      // A real restart (we hold a connection) flips to `restarting` so the UI
-      // shows the recycle; the boot path uses `adoptOrEnsure`, not this, so a
-      // cold start never emits `restarting`. `restarting` stays on for the whole
-      // recycle (see the `emit` guard) so the inner `connecting` can't briefly
-      // expose the empty/restore canvas before the daemon is actually back.
-      if (conn) {
-        restarting = true;
-        emit("restarting", conn.identity, conn.startedAt);
-      }
+      // EVERY supervised restart flips to `restarting`, with or without a held
+      // connection. A restart fired from the degraded/dead surface has `conn ===
+      // undefined` (the close handler cleared it on the demotion) — but that is
+      // exactly the path the DegradedCanvas drives, and it MUST stay covered: if
+      // we skipped `restarting` here, the inner recycle's `connecting` would
+      // surface, a client that treats `connecting` as "not down" would detach the
+      // degraded/restart surface, and the empty canvas would flash while kaval is
+      // still being respawned (F4). The cold-boot path never reaches here — it
+      // calls `adoptOrEnsure`/`ensure` directly, not `serializeRestart` — so
+      // emitting `restarting` unconditionally can't leak into a fresh boot.
+      // `restarting` stays on for the whole recycle (see the `emit` guard) so the
+      // inner `connecting` can't briefly expose the empty/restore canvas before
+      // the daemon is actually back. Identity/startedAt are carried only when we
+      // still hold the dying connection; from a degraded restart there is none.
+      restarting = true;
+      emit("restarting", conn?.identity, conn?.startedAt);
       const p = run();
       restartInFlight = p;
       try {

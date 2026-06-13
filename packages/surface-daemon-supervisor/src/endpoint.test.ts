@@ -501,6 +501,65 @@ describe("serializeRestart — restart serialization", () => {
     expect(endpoint.current()?.identity).toEqual({ staleKey: "k2" });
   });
 
+  it("holds `restarting` even when restarted from `degraded` (no connection held)", async () => {
+    // F4 regression: a restart fired from the DegradedCanvas runs with `conn ===
+    // undefined` (the mid-session close already demoted us to `degraded` and
+    // cleared the connection). `restarting` must STILL be emitted and held, or
+    // the inner recycle's `connecting` surfaces and a client that treats
+    // `connecting` as "not down" flashes the empty canvas while kaval respawns.
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    let connectCalls = 0;
+    let closeCb: (() => void) | undefined;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: async () => {} },
+      connect: async () => {
+        connectCalls += 1;
+        return {
+          client: `C${connectCalls}`,
+          identity: { staleKey: `k${connectCalls}` },
+          startedAt: connectCalls,
+          dispose() {},
+          onClose(cb) {
+            closeCb = cb;
+          },
+        };
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await endpoint.ensure(); // → connecting, connected (conn held)
+    closeCb?.(); // the daemon dies mid-session → degraded, conn cleared
+    expect(endpoint.current()).toBeUndefined();
+    statuses.length = 0;
+
+    // Restart from the degraded surface — there is no held connection.
+    await restart(endpoint, {
+      capture: async () => {},
+      drain: async () => {},
+      reattach: async () => {},
+    });
+
+    // `restarting` is still emitted (no identity, since none was held), and the
+    // inner recycle's `connecting` stays suppressed until the daemon is back.
+    expect(statuses.map((s) => s.state)).toEqual(["restarting", "connected"]);
+    const restartingStatus = statuses.find((s) => s.state === "restarting");
+    expect(restartingStatus?.identity).toBeUndefined();
+    expect(statuses.some((s) => s.state === "connecting")).toBe(false);
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "k2" });
+  });
+
   it("a cold boot still emits `connecting` (the suppression is scoped to restart)", async () => {
     const d = dir();
     const socketPath = join(d, "x.sock");

@@ -20,7 +20,11 @@ import type { PtyHostListEntry } from "kaval";
 import type { SavedTerminal } from "kolu-common/surface";
 import { restart } from "@kolu/surface-daemon-supervisor";
 import { log } from "../log.ts";
-import { getSavedSession, setSavedSessionFromSnapshot } from "../session.ts";
+import {
+  getSavedSession,
+  setPendingRestoreCard,
+  setSavedSessionFromSnapshot,
+} from "../session.ts";
 import {
   adoptLocalTerminal,
   localTerminalBackend,
@@ -94,29 +98,41 @@ async function reconcileSession(phase: "boot" | "restart"): Promise<void> {
   // PARTIAL reconcile — some survivors adopted (live, on screen) AND some saved
   // terminals left on the restore card. The restore card is only presented from
   // the EMPTY-canvas state (`store.terminalIds().length === 0`), so with adopted
-  // survivors on screen the user can't see it until they close those, and the
-  // survivors' own dirty autosaves will eventually overwrite this restore set.
+  // survivors on screen the user can't SEE it until they close those — but it
+  // must not be LOST in the meantime. The survivors' own `terminals:dirty`
+  // events arm an autosave that re-snapshots only the live terminals, which would
+  // overwrite the saved session and delete the restore-card remainder. Register
+  // that remainder as the pending restore card (AFTER the write above, which
+  // clears any prior pending set) so the autosave loop unions it back into every
+  // snapshot — the terminals stay durable on disk until the user closes the
+  // survivors and the empty-canvas restore card offers the whole set.
   //
-  // This is only reachable on the BOOT-ADOPT path of a real server-only redeploy
-  // that kept SOME but not all PTYs — the staged-prod gate the feature file +
-  // changelog already name (CI can't redeploy over a live daemon; the shipped
-  // restart-from-degraded path always recycles to a FRESH empty daemon, so every
-  // terminal lands on an empty-canvas restore card, never a partial one). The
-  // non-empty-canvas restore affordance + autosave protection that closes this
-  // window is the R-2 follow-up; until then, surface it LOUDLY rather than let it
-  // pass silently.
+  // This fail-closed guard is only exercised on the BOOT-ADOPT path of a real
+  // server-only redeploy that kept SOME but not all PTYs (CI can't redeploy over
+  // a live daemon; the restart-from-degraded path always recycles to a FRESH
+  // empty daemon, so every terminal lands on an empty-canvas restore card, never
+  // a partial one). The non-empty-canvas restore affordance that lets the user
+  // act on the remainder WITHOUT closing the survivors is the R-2 follow-up;
+  // until then the data is preserved, just not yet directly clickable.
   if (adopted > 0 && restoreCard.length > 0) {
+    setPendingRestoreCard(restoreCard);
     log.warn(
       {
         phase,
         adopted,
         onRestoreCard: restoreCard.map((t) => t.id),
       },
-      "reattach: PARTIAL reconcile — restore-card terminals are not surfaced while " +
-        "survivors occupy the canvas and may be overwritten by autosave (R-2: " +
-        "non-empty-canvas restore affordance). Only reachable on a partial-survivor " +
-        "redeploy (staged-prod gate), never the restart-from-degraded path.",
+      "reattach: PARTIAL reconcile — restore-card terminals are held in the " +
+        "pending restore set (durable across autosave) but not surfaced while " +
+        "survivors occupy the canvas; the user sees them after closing the " +
+        "survivors (R-2: non-empty-canvas restore affordance). Only reachable on " +
+        "a partial-survivor redeploy (staged-prod gate).",
     );
+  } else {
+    // Non-partial reconcile (everything adopted, or everything on the card from a
+    // fresh recycle): no remainder to protect. Clear any stale pending set from a
+    // prior partial reconcile so it can't leak into a later autosave union.
+    setPendingRestoreCard([]);
   }
 
   log.info(

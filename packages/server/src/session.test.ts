@@ -1,13 +1,24 @@
 import * as assert from "node:assert";
 import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { confStore } from "@kolu/surface/server";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { terminalsDirtyChannel } from "./publisher.ts";
 import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
 import { store } from "./state.ts";
 import {
   clearSavedSession,
   getSavedSession,
+  initSessionAutoSave,
   saveSession,
+  setPendingRestoreCard,
   setSavedSession,
 } from "./session.ts";
 
@@ -158,5 +169,89 @@ describe("session persistence", () => {
     expect(getSavedSession()).not.toBeNull();
     clearSavedSession();
     expect(getSavedSession()).toBeNull();
+  });
+
+  // F3 fail-closed guard: the partial-reconcile remainder (restore-card
+  // terminals with no live PTY, hidden behind the empty-canvas restore gate)
+  // must survive the survivors' `terminals:dirty` autosaves, which otherwise
+  // re-snapshot only the LIVE terminals and delete the remainder from disk.
+  // Nested here so it shares the outer `beforeAll` surfaceCtx (the autosave
+  // loop's `saveSession` → `writeSession` needs the session cell).
+  describe("partial-reconcile remainder survives autosave", () => {
+    // `initSessionAutoSave` registers a PERMANENT `terminals:dirty` subscriber
+    // (production calls it once at startup), so arm it ONCE here over a mutable
+    // live ref — calling it per-test would leave each prior test's subscriber
+    // alive and racing the next test's dirty event with a stale closure.
+    let live: {
+      terminals: SavedTerminal[];
+      activeTerminalId: string | null;
+    } = { terminals: [], activeTerminalId: null };
+    beforeAll(() => {
+      initSessionAutoSave(() => live);
+    });
+    afterEach(() => {
+      setPendingRestoreCard([]);
+      clearSavedSession();
+      vi.useRealTimers();
+    });
+
+    /** Drive one autosave cycle: set the live snapshot the single subscriber
+     *  reads, fire `terminals:dirty`, and let the 500ms throttle fire. */
+    async function runAutosaveOnce(next: {
+      terminals: SavedTerminal[];
+      activeTerminalId: string | null;
+    }): Promise<void> {
+      live = next;
+      vi.useFakeTimers();
+      terminalsDirtyChannel.publish({});
+      // Let the subscriber's async iterator deliver the published event, then
+      // advance the throttle to fire the save.
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(500);
+    }
+
+    it("autosave unions the pending restore card into a survivors-only snapshot", async () => {
+      // Adopted survivors A, B are live; C survived only on the restore card.
+      const live: SavedTerminal[] = [
+        { id: "a", cwd: "/a", git: null, lastActivityAt: 1 },
+        { id: "b", cwd: "/b", git: null, lastActivityAt: 2 },
+      ];
+      const remainder: SavedTerminal[] = [
+        { id: "c", cwd: "/c", git: null, lastActivityAt: 3 },
+      ];
+      setPendingRestoreCard(remainder);
+
+      await runAutosaveOnce({ terminals: live, activeTerminalId: "a" });
+
+      const session = getSavedSession();
+      assert.ok(session !== null, "autosave dropped the whole session");
+      // C is NOT deleted — it rides the autosave union alongside live A, B.
+      expect(session.terminals.map((t) => t.id).sort()).toEqual([
+        "a",
+        "b",
+        "c",
+      ]);
+    });
+
+    it("an explicit session write clears the pending set (no stale leak)", async () => {
+      setPendingRestoreCard([
+        { id: "c", cwd: "/c", git: null, lastActivityAt: 3 },
+      ]);
+      // A successful restore writes null; this must drop the pending remainder
+      // so it can't reappear in a later autosave union.
+      setSavedSession(null);
+
+      await runAutosaveOnce({
+        terminals: [{ id: "a", cwd: "/a", git: null, lastActivityAt: 1 }],
+        activeTerminalId: "a",
+      });
+
+      const session = getSavedSession();
+      assert.ok(
+        session !== null,
+        "autosave should have persisted the live set",
+      );
+      expect(session.terminals.map((t) => t.id)).toEqual(["a"]);
+    });
   });
 });
