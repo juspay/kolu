@@ -6,7 +6,7 @@
  * `@kolu/surface`'s `unix-socket.test.ts`; what would break kolu-server ↔
  * kaval-tui rendezvous from HERE is only a drift in these names.
  */
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -92,5 +92,46 @@ describe("discoverPtyHostSockets", () => {
   it("returns [] when the runtime root is unreadable / absent", () => {
     process.env.XDG_RUNTIME_DIR = join(tmpdir(), "kdisc-does-not-exist-xyz");
     expect(discoverPtyHostSockets()).toEqual([]);
+  });
+
+  // The off-XDG `/tmp/<ns>-$UID/` branch is the historically buggy macOS/launchd
+  // fallback (see socketPath.ts's module doc), and discovery's `bareName` /
+  // `portedRe` must agree with construction's `-$UID` suffix there. Pin it
+  // directly: seed the real `/tmp` namespaces this user owns and prove the
+  // `-$UID` anchor both matches our own and rejects another uid's sibling.
+  describe.runIf(process.getuid)("off-XDG /tmp fallback", () => {
+    const uid = process.getuid?.();
+    const dirs: string[] = [];
+
+    /** Seed `/tmp/<ns>/pty-host.sock` and remember the dir for cleanup. */
+    function seedTmp(ns: string): string {
+      const dir = `/tmp/${ns}`;
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, PTY_HOST_SOCK_FILE), "");
+      dirs.push(dir);
+      return dir;
+    }
+
+    afterEach(() => {
+      for (const dir of dirs.splice(0))
+        rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("matches the kaval-<port> family by uid and rejects another uid's sibling", () => {
+      delete process.env.XDG_RUNTIME_DIR;
+      const bare = seedTmp(`kaval-${uid}`);
+      const ported = seedTmp(`kaval-7681-${uid}`);
+      // A sibling owned by (named for) a different uid must NOT match the
+      // `-$UID`-anchored grammar — that anchor is the only thing keeping one
+      // user's daemon out of another's discovery.
+      seedTmp(`kaval-7681-${(uid ?? 0) + 1}`);
+
+      expect(discoverPtyHostSockets().sort()).toEqual(
+        [
+          join(bare, PTY_HOST_SOCK_FILE),
+          join(ported, PTY_HOST_SOCK_FILE),
+        ].sort(),
+      );
+    });
   });
 });
