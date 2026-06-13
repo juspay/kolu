@@ -200,32 +200,24 @@ body {
  *    ring (marching ants); needs-you "sweeps" as a single comet whose rotation
  *    SPEED is the urgency: alert fastest, fresh slower, stale slowest.
  *
- *    GEOMETRY (deliberate): the masked rectangle is FIXED — we animate the
- *    conic gradient's start angle (`--aura-angle`, registered below via
- *    `@property` so it can be interpolated) instead of `transform: rotate` on
- *    the element. Rotating the element itself would tilt the whole masked
- *    rectangular ring on a non-square tile (800×540), throwing the band off the
- *    border and clipping it against the tile's `overflow-hidden`. Spinning only
- *    the gradient's `from` angle keeps the ring welded to all four edges while
- *    the paint sweeps round it.
- *
- *    PERFORMANCE: the `.tile-aura` element is rendered ONLY for tiles with a
- *    live agent (the caller gates it on the tier), so idle/parked tiles cost
- *    nothing. A registered-property angle animation repaints the gradient each
- *    frame, but only inside one small masked ring per live tile; no layout, and
- *    the `repeating-conic-gradient` marquee trap (`background-position` on a
- *    full-bleed image) is avoided. No `will-change`. Reduced-motion stops it. */
-@property --aura-angle {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
-}
+ *    GEOMETRY + PERFORMANCE (both, deliberately): the masked ring is FIXED on
+ *    `.tile-aura`; the moving paint is an oversized centered `::before` (200% of
+ *    the tile via `inset: -50%`, so it covers the rectangle at every angle) that
+ *    we spin with `transform: rotate`. That is GPU-composited — one conic raster
+ *    then free per-frame transforms — so there is NO per-frame repaint or layout
+ *    (the trap that both a `background-position` marquee AND an animated
+ *    gradient-`from`-angle would hit across a canvas of tiles). Because only the
+ *    child spins while the ring mask stays put, nothing tilts or clips on a
+ *    non-square tile (800×540). The element is rendered ONLY for live-agent tiles
+ *    (the caller gates it on the tier), so idle/parked tiles cost nothing; no
+ *    `will-change` pins a layer; reduced-motion stops it. */
 .tile-aura {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   padding: 2.5px;
   pointer-events: none;
+  overflow: hidden;
   /* mask to a border ring — only the padding band paints */
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
@@ -236,50 +228,61 @@ body {
     linear-gradient(#000 0 0);
   mask-composite: exclude;
 }
-@keyframes aura-sweep {
+/* The spinning paint — an oversized centered child rotated via transform ONLY
+ * (composited). `inset: -50%` guarantees it covers the tile at every angle; the
+ * fixed ring mask above slices it to the border band. Per-state rules set the
+ * gradient (`--aura-paint`) and the rotation period (`--aura-period`). */
+.tile-aura::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background: var(--aura-paint);
+  animation: aura-spin var(--aura-period) linear infinite;
+}
+@keyframes aura-spin {
   to {
-    --aura-angle: 360deg;
+    transform: rotate(1turn);
   }
 }
 /* working — marching ants: a dense dashed ring crawls slowly round the border */
 [data-aura="working"] .tile-aura {
-  background: repeating-conic-gradient(
-    from var(--aura-angle),
+  --aura-paint: repeating-conic-gradient(
+    from 0deg,
     var(--aura-c) 0deg 4deg,
     transparent 4deg 11deg
   );
-  animation: aura-sweep 9s linear infinite;
+  --aura-period: 9s;
 }
 /* needs-you — a single sweeping comet; rotation SPEED is the urgency */
 [data-aura="alert"] .tile-aura {
-  background: conic-gradient(
-    from var(--aura-angle),
+  --aura-paint: conic-gradient(
+    from 0deg,
     transparent 0deg,
     var(--aura-c) 34deg,
     transparent 86deg,
     transparent 360deg
   );
-  animation: aura-sweep 1s linear infinite;
+  --aura-period: 1s;
 }
 [data-aura="waiting"] .tile-aura {
-  background: conic-gradient(
-    from var(--aura-angle),
+  --aura-paint: conic-gradient(
+    from 0deg,
     transparent 0deg,
     var(--aura-c) 40deg,
     transparent 98deg,
     transparent 360deg
   );
-  animation: aura-sweep 2.2s linear infinite;
+  --aura-period: 2.2s;
 }
 [data-aura="waiting-stale"] .tile-aura {
-  background: conic-gradient(
-    from var(--aura-angle),
+  --aura-paint: conic-gradient(
+    from 0deg,
     transparent 0deg,
     var(--aura-c) 38deg,
     transparent 94deg,
     transparent 360deg
   );
-  animation: aura-sweep 4s linear infinite;
+  --aura-period: 4s;
   opacity: 0.65;
 }
 /* active tile: you're already here — dim its aura so focus (the accent ring)
@@ -288,14 +291,14 @@ body {
   opacity: 0.4;
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-aura] .tile-aura {
+  .tile-aura::before {
     animation: none;
   }
   /* The sweeps collapse to a static full ring (a frozen comet reads odd);
    * working keeps its static dashed ring, which is legible as-is. */
-  [data-aura="alert"] .tile-aura,
-  [data-aura="waiting"] .tile-aura,
-  [data-aura="waiting-stale"] .tile-aura {
+  [data-aura="alert"] .tile-aura::before,
+  [data-aura="waiting"] .tile-aura::before,
+  [data-aura="waiting-stale"] .tile-aura::before {
     background: var(--aura-c);
   }
 }
