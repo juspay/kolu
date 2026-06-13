@@ -4,7 +4,7 @@
  *
  *  1. **Reference-tile mode** (active tile exists): inherit its size, place
  *     directly below it. If that position overlaps another tile, cascade
- *     downward by `h + GAP` until a free spot is found. This keeps same-
+ *     downward by `h + CANVAS_TILE_GAP` until a free spot is found. This keeps same-
  *     project terminals stacked in a predictable column without hiding
  *     existing content — floating-window feel on an infinite canvas.
  *
@@ -12,8 +12,8 @@
  *     with default dimensions, cascading diagonally if taken. Same as the
  *     legacy behavior — first tile, or orphan tile with no reference.
  *
- *  `GAP` matches `TILE_GAP` in `repoIslands.ts` (`GRID_SIZE`) so the visual
- *   spacing between auto-placed tiles and arranged islands is consistent. */
+ *  `CANVAS_TILE_GAP` is the single source of truth for tile-to-tile
+ *   spacing across create-time placement and repo-island auto-arrange. */
 
 import { GRID_SIZE } from "./viewport/transforms";
 import type { TileLayout } from "./TileLayout";
@@ -21,7 +21,10 @@ import type { TileLayout } from "./TileLayout";
 export const DEFAULT_TILE_W = 800;
 export const DEFAULT_TILE_H = 540;
 
-const GAP = GRID_SIZE;
+/** Visual spacing between canvas tiles — shared by create-time placement
+ *  and repo-island auto-arrange so a design change to canvas breathing
+ *  room updates every tile-to-tile gap uniformly. */
+export const CANVAS_TILE_GAP = GRID_SIZE;
 const MAX_CASCADE_ITERATIONS = 50;
 
 /** Find a free layout for a new tile. With a reference tile, inherits its
@@ -55,8 +58,8 @@ function placeBelowReference(
   reference: TileLayout,
   placed: ReadonlyArray<TileLayout>,
 ): TileLayout {
-  const refBottom = reference.y + reference.h + GAP;
-  const step = reference.h + GAP;
+  const refBottom = reference.y + reference.h + CANVAS_TILE_GAP;
+  const step = reference.h + CANVAS_TILE_GAP;
   for (let i = 0; i < MAX_CASCADE_ITERATIONS; i++) {
     const candidate: TileLayout = {
       x: reference.x,

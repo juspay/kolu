@@ -6,13 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  CANVAS_TILE_GAP,
   DEFAULT_TILE_H,
   DEFAULT_TILE_W,
   findFreeTilePosition,
 } from "./tilePlacement";
 import type { TileLayout } from "./TileLayout";
 
-const GAP = 24;
+const GAP = CANVAS_TILE_GAP;
 
 function tile(x: number, y: number, w: number, h: number): TileLayout {
   return { x, y, w, h };
