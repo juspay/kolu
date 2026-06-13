@@ -335,19 +335,21 @@ let
 
   # odu — the CI runner that grew out of the mini-ci example (Atlas:
   # mini-ci-vs-justci) and graduated to github.com/juspay/odu. kolu consumes
-  # it back via npins (`npins update odu` to bump) and RE-EXPORTS its two
-  # packages, so `nix run .#odu` and the coordinator's
-  # `nix eval .#packages.<platform>.odu-runner.drvPath` keep working from
-  # this repo. odu is built with its own pinned nixpkgs + kolu pin (it
-  # consumes @kolu/surface upstream, the drishti pattern) — the import here
-  # threads only the system.
+  # it back via npins (`npins update odu` to bump) and re-exports `odu` so
+  # `nix run .#odu` runs this repo's pinned coordinator. The lane runner is no
+  # longer re-exported: odu resolves it from its OWN flake (juspay/odu#30), so
+  # we thread `selfFlake = oduSources.odu` to bake ODU_RUNNER_FLAKE onto the
+  # wrapper — the same value a flake build derives from `self.outPath`. odu is
+  # built with its own pinned nixpkgs + kolu pin (it consumes @kolu/surface
+  # upstream, the drishti pattern) — the import threads the system + self-flake.
   oduSources = import ./npins;
   oduUpstream = import oduSources.odu {
     pkgs = import (oduSources.odu + "/nix/nixpkgs.nix") {
       system = pkgs.stdenv.hostPlatform.system;
     };
+    selfFlake = oduSources.odu;
   };
-  oduPackages = { inherit (oduUpstream) odu odu-runner; };
+  oduPackages = { inherit (oduUpstream) odu; };
 
   # @kolu/solid-browser docsite — a standalone second consumer of createBrowser
   # (the history electricity), built so CI proves the reuse claim doesn't rot.
