@@ -2,7 +2,7 @@
 title: Canvas tiles that show their state — border prototypes
 description: Five terminals on the canvas; which one needs you? Surface each session's run-state on the tile border itself — a loudness ladder ranked by attention (alert ▸ fresh-waiting ▸ working ▸ stale-waiting ▸ idle), where "waiting" cools with last-activity age via kolu's existing activity-window. Four live, animated visual languages to choose from.
 kind: feature
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-06-13
 ---
@@ -11,6 +11,7 @@ import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
 import Cite from "../../components/Cite.astro";
 import D2 from "../../components/D2.astro";
+import PrLink from "../../components/PrLink.astro";
 
 With five terminals open on the canvas it's hard to tell at a glance which one is
 *thinking*, which is *waiting for you*, and which just *pinged you and you missed
@@ -481,5 +482,6 @@ Roughly one CSS block + ~20 lines in `CanvasTile` + a tiny shared function — a
 
 ---
 
-*Status: `proposed` — pick a language (§Prototypes) and the open decisions
-(§Open decisions), and it ships on `throbborder`.*
+*Status: `implemented` in <PrLink pr={1335} /> — Language **D** (top bar),
+fresh-vs-stale decay (reusing `useStaleCheck`), and a muted active-tile bar.
+Shipped on `throbborder`.*
