@@ -8,9 +8,9 @@
  *  *was* duplicated: `useAnchoredPopover` + `Portal` + the option list
  *  with selected-state highlighting + close-on-select.
  *
- *  Unrelated to the CodeTab's scope switcher (`right-panel/
- *  ScopeSegments`): that's an always-visible segmented control, not a
- *  popover, so it shares no chrome with this panel. The panel-chrome
+ *  Unrelated to the CodeTab's scope switcher (the shared
+ *  `ui/SegmentedControl`): that's an always-visible segmented control,
+ *  not a popover, so it shares no chrome with this panel. The panel-chrome
  *  itself is shared via `surface()`. */
 
 import { For, Show } from "solid-js";

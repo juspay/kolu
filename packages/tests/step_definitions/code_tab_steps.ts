@@ -414,7 +414,7 @@ Then(
     // The segmented control carries `data-mode` reflecting the active
     // view, so the assertion is a single read with no interaction.
     const segments = this.page.locator(
-      `[data-testid="code-scope-segments"][data-mode="${mode}"]`,
+      `[data-testid="diff-mode-toggle"][data-mode="${mode}"]`,
     );
     await segments.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },

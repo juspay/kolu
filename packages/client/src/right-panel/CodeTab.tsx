@@ -7,8 +7,8 @@
  *     branch base. Forge-agnostic "what this branch will ship".
  *
  * The toolbar combines two independent filter axes — the scope
- * switcher (`ScopeSegments`) and filename input (`FileSearchInput`) —
- * in one row. Pierre's built-in tree-header search is disabled so the
+ * switcher (the shared `SegmentedControl`) and filename input
+ * (`FileSearchInput`) — in one row. Pierre's built-in tree-header search is disabled so the
  * `FileSearchInput` is the single source of filter state, forwarded
  * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
  * Pierre lifecycle; this component is just data flow + chrome. */
@@ -52,6 +52,9 @@ import {
 import { resolveLineRefPath } from "../ui/lineRef";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
+import SegmentedControl, {
+  type SegmentedControlOption,
+} from "../ui/SegmentedControl";
 import {
   pierreIconConfig,
   pierreTreesShadowCss,
@@ -65,7 +68,6 @@ import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
-import ScopeSegments, { type ScopeSegment } from "./ScopeSegments";
 import {
   type OpenInCodeTabRequest,
   openInCodeTab,
@@ -631,45 +633,43 @@ const CodeTab: Component<{
 
   // Scope catalog — owns the list of views, their labels, tooltips,
   // icons, change counts, and grouping. Adding a new view (e.g. "stash")
-  // happens here, plus the data-source switch above. ScopeSegments is
-  // purely a presenter.
-  const scopeSegments = createMemo<ScopeSegment[]>(() => {
-    const ref = branchRef();
-    const noBase = branchBase() === null;
-    return [
-      {
-        view: "browse",
-        label: viewLabel("browse"),
-        hint: "Browse the whole repo",
-        testId: "diff-mode-browse",
-        icon: FileBrowseIcon,
-        group: "files",
-      },
-      {
-        view: "local",
-        label: viewLabel("local"),
-        hint: "Working tree vs HEAD",
-        testId: "diff-mode-local",
-        icon: GitBranchIcon,
-        count: localCount(),
-        group: "git",
-      },
-      {
-        view: "branch",
-        label: viewLabel("branch"),
-        hint: ref
-          ? `Working tree vs ${ref}`
-          : noBase
-            ? NO_BRANCH_BASE
-            : "Working tree vs branch base",
-        testId: "diff-mode-branch",
-        icon: GitBranchIcon,
-        // No base ⇒ nothing to count; suppress the pill rather than show 0.
-        count: noBase ? undefined : branchCount(),
-        group: "git",
-      },
-    ];
-  });
+  // happens here, plus the data-source switch above. The shared
+  // `SegmentedControl` is purely a presenter.
+  const scopeSegments = createMemo<SegmentedControlOption<CodeTabView>[]>(
+    () => {
+      const ref = branchRef();
+      const noBase = branchBase() === null;
+      return [
+        {
+          value: "browse",
+          label: viewLabel("browse"),
+          hint: "Browse the whole repo",
+          icon: FileBrowseIcon,
+        },
+        {
+          value: "local",
+          label: viewLabel("local"),
+          hint: "Working tree vs HEAD",
+          icon: GitBranchIcon,
+          badge: localCount(),
+          // First git segment — set apart from the whole-repo browse tree.
+          dividerBefore: true,
+        },
+        {
+          value: "branch",
+          label: viewLabel("branch"),
+          hint: ref
+            ? `Working tree vs ${ref}`
+            : noBase
+              ? NO_BRANCH_BASE
+              : "Working tree vs branch base",
+          icon: GitBranchIcon,
+          // No base ⇒ nothing to count; suppress the pill rather than show 0.
+          badge: noBase ? undefined : branchCount(),
+        },
+      ];
+    },
+  );
 
   /** Diff value narrowed to "this is a pure-rename" (no hunks, both old +
    *  new file names present and different). Returning the full diff so the
@@ -736,10 +736,14 @@ const CodeTab: Component<{
               <ChevronRightIcon class="h-3.5 w-3.5" />
             </button>
           </div>
-          <ScopeSegments
-            view={view()}
-            onViewChange={setView}
-            segments={scopeSegments()}
+          <SegmentedControl
+            options={scopeSegments()}
+            value={view()}
+            onChange={setView}
+            testIdPrefix="diff-mode"
+            ariaRole="toolbar"
+            ariaLabel="File scope"
+            dataMode
           />
           <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
         </div>
