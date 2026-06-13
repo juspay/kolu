@@ -1,15 +1,18 @@
 import * as assert from "node:assert";
-import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { confStore } from "@kolu/surface/server";
+import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
-import { store } from "./state.ts";
+import { terminalsDirtyChannel } from "./publisher.ts";
 import {
   clearSavedSession,
   getSavedSession,
+  initSessionAutoSave,
   saveSession,
   setSavedSession,
+  setSavedSessionFromSnapshot,
 } from "./session.ts";
+import { store } from "./state.ts";
+import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json to route
 // conf state into $TMPDIR, keeping ~/.config clean. state.ts reads it at
@@ -158,5 +161,103 @@ describe("session persistence", () => {
     expect(getSavedSession()).not.toBeNull();
     clearSavedSession();
     expect(getSavedSession()).toBeNull();
+  });
+});
+
+// The F1 receptacle (B3.2): a snapshot-shaped saved-session write that also
+// cancels any pending autosave, so the restart-capture path can persist the
+// session before the daemon is killed without a stale `terminals:dirty` timer
+// clobbering it.
+describe("setSavedSessionFromSnapshot — the F1 receptacle", () => {
+  beforeAll(() => {
+    const sessionStore = confStore<SavedSession | null>(store, "session");
+    setSurfaceCtx({
+      cells: new Proxy({} as never, {
+        get: (_, key) =>
+          key === "session"
+            ? sessionStore
+            : { get: () => undefined, set: () => {}, patch: () => {} },
+      }),
+      collections: new Proxy({} as never, {
+        get: () => ({
+          upsert: () => {},
+          remove: () => {},
+          readAll: () => new Map(),
+          readOne: () => undefined,
+        }),
+      }),
+      events: new Proxy({} as never, { get: () => ({ publish: () => {} }) }),
+    } as never);
+  });
+
+  afterAll(() => {
+    clearSavedSession();
+    __resetSurfaceCtxForTest();
+  });
+
+  it("PRESERVES an existing saved session when the snapshot is empty (F1)", () => {
+    // The restart-capture path on a `dead`/empty registry: the live snapshot has
+    // no terminals, but a saved session from a prior run is still on disk and is
+    // the only restore data the user has. Capturing must NOT clear it — routing
+    // an empty snapshot through `saveSession` (empty→null) would erase the
+    // restore data before the recycle, the kill-then-pray data loss F1 guards.
+    saveSession({ terminals: [terminal], activeTerminalId: null });
+    expect(getSavedSession()).not.toBeNull();
+    setSavedSessionFromSnapshot({ terminals: [], activeTerminalId: null });
+    const session = getSavedSession();
+    assert.ok(
+      session !== null,
+      "empty capture clobbered the pre-existing session",
+    );
+    expect(session.terminals[0]?.id).toBe("term-1");
+  });
+
+  it("leaves a null session null when the snapshot is empty (no spurious write)", () => {
+    clearSavedSession();
+    expect(getSavedSession()).toBeNull();
+    setSavedSessionFromSnapshot({ terminals: [], activeTerminalId: null });
+    expect(getSavedSession()).toBeNull();
+  });
+
+  it("persists a non-empty snapshot with its active id", () => {
+    setSavedSessionFromSnapshot({
+      terminals: [terminal],
+      activeTerminalId: "term-1",
+    });
+    const session = getSavedSession();
+    assert.ok(session !== null, "snapshot capture lost the saved value");
+    expect(session.terminals).toHaveLength(1);
+    expect(session.activeTerminalId).toBe("term-1");
+    expect(session.savedAt).toBeTypeOf("number");
+  });
+
+  it("cancels a pending autosave so the capture isn't clobbered (the race)", async () => {
+    // The autosave loop here snapshots an EMPTY terminal set — the stale
+    // post-`killAll` state of a drain. Arm it with a `terminals:dirty` event,
+    // then capture a real session via the receptacle BEFORE the 500ms autosave
+    // fires. The receptacle must cancel the pending timer; otherwise the empty
+    // autosave overwrites the capture with `null` ~500ms later — exactly the
+    // mid-restart data-loss the F1 guard exists to prevent.
+    const tick = () => new Promise((r) => setTimeout(r, 10));
+    let autosaveFired = 0;
+    initSessionAutoSave(() => {
+      autosaveFired += 1;
+      return { terminals: [], activeTerminalId: null };
+    });
+    await tick(); // let the subscription register
+    terminalsDirtyChannel.publish({}); // arm the stale autosave
+    await tick(); // let the loop schedule the 500ms timer
+
+    setSavedSessionFromSnapshot({
+      terminals: [terminal],
+      activeTerminalId: null,
+    });
+    expect(getSavedSession()).not.toBeNull();
+
+    await new Promise((r) => setTimeout(r, 650)); // past the autosave window
+    // The cancel held: the autosave's snapshot callback never ran, and the
+    // captured session survived rather than being clobbered to null.
+    expect(autosaveFired).toBe(0);
+    expect(getSavedSession()?.terminals[0]?.id).toBe("term-1");
   });
 });
