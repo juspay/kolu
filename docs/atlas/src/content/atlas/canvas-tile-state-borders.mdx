@@ -150,24 +150,24 @@ hours later has cooled below it. kolu already ranks and ages exactly this, so th
 border reuses the machinery rather than inventing a parallel scheme:
 
 <D2
-  caption="One classifier, now a fourth consumer — and a time input. AgentInfo.state collapses to a bucket (agentBucket); the orthogonal unread flag marks a fresh, missed alert; lastActivityAt vs the user's activity window (useStaleCheck/isStale) ages a waiter. A shared mapper folds all three into a (tier, intensity) the dock pips, rail chips, and minimap badge already share — the canvas tile aura becomes the fourth reader. The tile also reads store.activeId(): focus paints the teal ring, clears unread, and mutes the tile's own aura — so the loudest border is always elsewhere. No new state logic, no new clock."
+  caption="Reuse the upstream classifiers, add a canvas-only mapper. AgentInfo.state collapses to a bucket (agentBucket); the orthogonal unread flag marks a fresh, missed alert; lastActivityAt vs the user's activity window (useStaleCheck/isStale) ages a waiter — the same three signals the dock already reads. As shipped, the canvas does NOT share the dock's pipVariant: it gets its own pure tileAura(bucket, unread, stale) → tier mapper, gathered once by the useTileAura socket that the canvas tile and minimap marker both plug into. The tile also reads store.activeId(): focus paints the teal ring, clears unread, and mutes the tile's own aura — so the loudest border is always elsewhere. No new state logic, no new clock."
   code={`direction: down
 state: "AgentInfo.state — thinking · tool_use · waiting · awaiting_user · running_background"
 bucket: "agentBucket() — working | awaiting | idle | none"
 unread: "isUnread(id) — fresh + missed (useViewState)"
-age: "lastActivityAt vs activity window — useStaleCheck() / isStale()"
-variant: "auraVariant(bucket, unread, age) — SHARED (tier + intensity), generalize pipVariant()"
-dock: "dock pips + rail chips"
-mini: "minimap badge"
-tile: "NEW: canvas tile aura"
+stale: "lastActivityAt vs activity window — useStaleCheck() / isStale()"
+tileAura: "tileAura(bucket, unread, stale) — canvas-only pure mapper → tier"
+socket: "useTileAura() — gathers the three inputs once"
+tile: "canvas tile aura bar (data-aura)"
+mini: "minimap marker aura bar"
 active: "store.activeId() — focus ring (teal); clears unread; mutes own aura"
 state -> bucket
-bucket -> variant
-unread -> variant
-age -> variant
-variant -> dock
-variant -> mini
-variant -> tile
+bucket -> tileAura
+unread -> tileAura
+stale -> tileAura
+tileAura -> socket
+socket -> tile
+socket -> mini
 active -> tile`}
 />
 
@@ -250,10 +250,10 @@ the composition explicit:
   only ever lights an *inactive* tile: the eye-grab always points you somewhere
   **new**, never back at yourself.
 - **Focus mutes the tile's own aura.** You're already attending to it, so it
-  shouldn't compete — the `--aura-intensity` knob simply scales down on
-  `data-active`. An active working tile is a clean teal ring with its rust aura
-  dialed to a whisper; an active waiting tile keeps a faint violet (you can still
-  see it wants input) while focus dominates.
+  shouldn't compete — as shipped, `[data-active="true"] .aura-bar` drops to a
+  fixed `opacity: 0.35`. An active working tile is a clean teal ring with its
+  rust bar dialed to a whisper; an active waiting tile keeps a faint violet (you
+  can still see it wants input) while focus dominates.
 
 export const ActiveDemo = () => (
   <div class="tb-canvas lang-halo">
@@ -294,12 +294,14 @@ export const ActiveDemo = () => (
 <ActiveDemo />
 
 **One compositional rule.** A tile's effective border loudness is
-**`state-tier × age-decay × presence`**, where presence is the existing opacity
-hierarchy (active `1.0` · inactive `0.92` · parked `0.55`) — a box-shadow aura
-fades with its element's opacity for free. Active *additionally* mutes the aura;
-parked is already dim. The product guarantees the **brightest border on the
-canvas is always an inactive, fresh, attention-class tile** — precisely where the
-eye should land. Focus and the ladder reinforce each other instead of fighting.
+**`state-tier × age-decay × presence`**. As shipped this falls out of three
+independent moves: the tier (`tileAura`) picks the bar's colour and motion;
+age-decay is folded into the tier itself (a stale waiter drops to the
+`waiting-stale` ember, a stale worker to `none`); and presence is the active
+mute — `[data-active="true"] .aura-bar` at `opacity: 0.35`. The result
+guarantees the **brightest border on the canvas is always an inactive, fresh,
+attention-class tile** — precisely where the eye should land. Focus and the
+ladder reinforce each other instead of fighting.
 
 ## Prototypes
 
@@ -387,6 +389,13 @@ one-shape-everywhere coherence.
 ## Open decisions
 
 Independent of the language, a few choices shape how loud and how broad this gets.
+These were the deliberation at proposal time; this section is preserved as the
+design record. **What shipped:** Language **D** (top bar); decay folded into the
+tier as a discrete fresh → stale-ember → parked split (not a continuous
+`--aura-intensity` curve); the persisted `activityWindow` as the threshold; a
+stale waiter cooling to the violet ember while a stale worker parks to `none`;
+working a steady hum; and the active tile **muted** (`opacity: 0.35`), not
+suppressed.
 
 ### Working color — rust, not teal
 
