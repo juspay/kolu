@@ -165,14 +165,14 @@ r1: "B3.1 · refactor\\nspine: extract ensure() helpers" {style.fill: "#dbeafe"}
 r2: "B3.2 · refactor\\nserver: F1/F2 helpers (tested)" {style.fill: "#dbeafe"}
 f3: "B3.3 · supervised restart\\n✓ CI-testable · finishes B2's button" {style.fill: "#dcfce7"}
 f4: "B3.4 · adoption (HEADLINE)\\nstaged-prod" {style.fill: "#fef9c3"}
-f5: "B3.5 · partial remainder\\nquarantined autosave swamp" {style.fill: "#fee2e2"}
+f5: "B3.5 · partial remainder (OPTIONAL)\\nquarantined autosave swamp" {style.fill: "#fee2e2"; style.stroke-dash: 3}
 f6: "B3.6 · currency nudge\\n✓ CI-gated" {style.fill: "#dcfce7"}
 r1 -> f3
 r1 -> f4
 r2 -> f3
 r2 -> f4
 f3 -> f4: "reuse recycle+restore"
-f4 -> f5: "upgrade partial"
+f4 -> f5: "upgrade partial (optional)" {style.stroke-dash: 3}
 f3 -> f6: "click target"
 f4 -> f6: "reachability"
 `}
@@ -182,10 +182,12 @@ f4 -> f6: "reachability"
 | --- | --- | --- | --- | --- | --- |
 | **B3.1** | refactor | *none* | extract `ensure()` helpers (`liveServingHolder` · `killLiveHolder` · `spawnConnectHold`); `ensure()` still always-recycles | byte-identical — existing `endpoint.test.ts` is the gate | — |
 | **B3.2** | refactor | *none* | *(server)* extract `killHalfWiredPty` + `setSavedSessionFromSnapshot` (the **F1** empty→null guard, tested in isolation) | F1 receptacle centralized + tested before any consumer | B3.1 |
-| **B3.3** | feature | one click recovers a dead/degraded daemon; session offered for restore — **finishes B2's deferred "Restart kaval" button** | `restarting` + `serializeRestart` + emit-guard | **F1 · F4 · F5 · F6**; fully **CI/e2e-testable** (recycle→fresh) | B3.1–2 |
-| **B3.4** | feature | live PTYs — process + scrollback + running agent — **survive a server-only redeploy** | `adoptOrEnsure` — reconcile **before** wiring | **#1275** whole-record adopt + **F2** fold-back; lazy-adopt impossible (eager boot reconcile only) | B3.2–3 |
-| **B3.5** | feature | in a partial redeploy, survivors stay live **and** non-survivors aren't lost | *none (server autosave)* | **F3** — the isolated ~104-line `session.ts` cluster; tests must fail against pre-fix code | B3.4 |
+| **B3.3** | feature | **session-preserving restart of kaval** — works on a **running** daemon (pick up a new build · user-initiated) *and* a dead/degraded one (recover); finishes B2's deferred "Restart kaval" button | `restarting` + `serializeRestart` + emit-guard | **F1 · F4 · F5 · F6**; fully **CI/e2e-testable** (recycle→fresh) | B3.1–2 |
+| **B3.4** | feature | live PTYs — process + scrollback + running agent — **survive a server-only redeploy** *(partial redeploy → a clean recycle + full restore via B3.3)* | `adoptOrEnsure` — reconcile **before** wiring | **#1275** whole-record adopt + **F2** fold-back; lazy-adopt impossible (eager boot reconcile only) | B3.2–3 |
+| **B3.5** | feature · **optional** | only in the *rare* partial redeploy: the **survivors keep their live process** instead of re-spawning with the rest (B3.4 already loses nothing — this just spares the survivors a recycle) | *none (server autosave)* | **F3** — the isolated ~104-line `session.ts` cluster; tests must fail against pre-fix code | B3.4 |
 | **B3.6** | feature | amber **⬆ update pending** when kaval is a build behind → one-click recycle | *none (reads existing `identity.staleKey`)* | **#1034** over-prompting (keyed on closure hash only); **CI gate**: build-id reaches the server | B3.3–4 |
+
+*Why B3.6 stands alone:* it's a distinct capability (the nudge + currency derivation) with its own hazard (**#1034** over-prompting — never nudge on a server-only deploy) and its own Nix gate, and it depends on **both** B3.3 (the restart it fires) and B3.4 (reachability — a build-behind daemon only exists once adoption keeps one alive; under always-recycle there's nothing to nudge about).
 
 **The crux — the partial-survivor case, decided here, not in review.** Every #1326 bug and the `session.ts` doubling lived here:
 
@@ -194,11 +196,17 @@ f4 -> f6: "reachability"
 | Collapse-to-recycle | ❌ **not free** — by boot, `adoptOrEnsure()` has already adopted the survivors *live*; recycling-on-partial **force-kills the running agents it just adopted** and needs a new boot-recycle path. |
 | Fail-closed → durable *(two-step)* | ✅ **B3.4** reconciles *before* wiring; on a partial set it recycles-and-fully-restores (lossless of the session, re-spawns survivors only in the rare partial case). **B3.5** then upgrades it to keep survivors live, paying the durability machinery **once, in isolation.** |
 
-**Every PR carries (the #1326 failures, inverted):**
+#### What upstreams to the spine libraries
 
-- **Spine designed up front** — one named symbol per PR, shipped *with* its consumer (#1326's spine doubled mid-flight; never again).
-- **Nix from day 1** — each `surface-*` PR carries its `default.nix` fileset + `ci::flake-check` + the zero-`kolu-*` dep-allowlist. **B3.4** asserts `KAVAL_BUILD_ID` is bit-identical (zero daemon code → no forced restart on the B3 deploy — the survival promise, CI-checked). **B3.6**'s comparand *already exists* (`default.nix` sets `KAVAL_BUILD_ID` on the server wrapper) — the gap #1326 mislabeled "stranded nix" was a missing **CI assertion**, not missing wiring.
-- **No stranded infra, no dead code** — "follow-up / degrades gracefully / flagged for review" is banned; each PR ships self-demonstrating, with its slice of #1034/#1275/F1–F6 mapped to a type- or test-level fact.
+`@kolu/surface-daemon` / `@kolu/surface-daemon-supervisor` are **our** libraries with **our** consumers (kolu today; [`odu serve`](odu-runner.html) next). We change them freely — **no backwards-compat tax, and one consumer today is never a reason to keep mechanism in kolu.** Program-agnostic mechanism upstreams; only kolu's session/terminal *policy* stays soul. The split is the same line every PR draws: **the spine adopts / recycles / serializes a *connection*; kolu reconciles that connection's *contents*.**
+
+| Upstreams → `@kolu/surface-daemon-supervisor` (mechanism) | Stays in kolu-server (soul — session/terminal policy) |
+| --- | --- |
+| **B3.4** `adoptOrEnsure()` — adopt a live, handshake-compatible survivor; recycle only an absent / dead / skewed one. Generic: it adopts-or-recycles via the injected `connect`, knowing nothing of PTYs | `reconcile.ts` — *which* daemon PTYs map to *which* saved terminals; `adoptTerminal` / `wireTerminal` whole-record adoption |
+| **B3.3** `restarting` state + `serializeRestart` (coalesce concurrent triggers) + the emit-guard (hold `restarting` across the inner recycle) | `setSavedSessionFromSnapshot`, the B3.5 partial-remainder durability, the `daemon.restart` RPC, the currency comparison vs the *expected* build |
+| **B3.1** `ensure()` helper extraction · *already there from B2:* composed `restart`, `waitForPidGone`, the driver, per-transition `identity` reporting | — |
+
+**Every PR also:** names its spine symbol up front and ships it **with** its consumer (#1326's spine doubled mid-flight); carries its Nix wiring day-1 — `default.nix` fileset + `ci::flake-check` + zero-`kolu-*` dep-allowlist, **B3.4** asserting `KAVAL_BUILD_ID` bit-identical (no forced restart) and **B3.6** the build-id-reaches-server CI gate (#1326's "stranded nix" was a missing assertion, not missing wiring); and maps its slice of #1034 / #1275 / F1–F6 to a type- or test-level fact. No "follow-up / degrades gracefully / flagged for review."
 
 ### The gate — the second deploy (not a PR)
 
