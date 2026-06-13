@@ -121,18 +121,16 @@ const CanvasTile: Component<{
       // contrasts the theme bg by construction, so the ring stays legible on any
       // terminal theme (see the `.tile-aura` rules in index.css).
       "--aura-c": props.theme.fg,
+      // Border is repo identity (all four edges); the agent-status ring owns the
+      // animated border on top. Focus is NOT a border treatment — it lives on
+      // the title bar (accent) + the lift below — so it can't compete with the
+      // status ring.
       "border-color": props.repoColor,
-      // Active tile's right edge points at the inspector panel — repoColor
-      // on the other three edges, accent on the right. Longhand wins after
-      // shorthand in the same declaration block.
-      "border-right-color":
-        props.active && !isMaximized()
-          ? "var(--color-accent)"
-          : props.repoColor,
       "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
       opacity: props.active ? 1 : inactiveOpacity(),
+      // Active tile lifts (a deeper drop shadow) — depth, not an accent ring.
       "box-shadow": props.active
-        ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
+        ? `0 8px 32px rgba(0,0,0,0.4)`
         : `0 2px 8px rgba(0,0,0,0.2)`,
       "transform-origin": "0 0",
       transform: tileTransformCSS(
@@ -235,8 +233,17 @@ const CanvasTile: Component<{
           "cursor-grab active:cursor-grabbing": !isMaximized(),
         }}
         style={{
-          "background-color": tileTitleBarBg(props.theme),
-          "border-bottom": `1px solid ${tileTitleBarBorder(props.theme)}`,
+          // Focused tile: the title bar lights up in the accent — a tint plus
+          // an accent underline. This is the active indicator (a channel apart
+          // from the agent-status border ring); the border keeps repo identity.
+          // The underline is a box-shadow (no layout shift on focus change).
+          "background-color": props.active
+            ? `color-mix(in oklch, var(--color-accent) 22%, ${props.theme.bg})`
+            : tileTitleBarBg(props.theme),
+          "border-bottom": `1px solid ${props.active ? "var(--color-accent)" : tileTitleBarBorder(props.theme)}`,
+          "box-shadow": props.active
+            ? "inset 0 -2px 0 var(--color-accent)"
+            : undefined,
           // Scope theme-derived foreground tiers to the title bar so
           // chrome buttons read sensible defaults via var(--color-fg-3,
           // currentColor) without leaking the override into the tile body

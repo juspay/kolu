@@ -2,7 +2,7 @@
 title: The active-tile indicator — a channel apart from agent status
 description: Now that the tile border is owned by the animated agent-status ring (+ repo identity), the focused-tile indicator must move off the border to a completely separate channel. The current teal right-edge competes with the ring; here are live prototypes of where focus should live instead — chrome, depth, or an outer glow.
 kind: feature
-status: proposed
+status: implemented
 maturity: seedling
 parents: [canvas-tile-state-borders]
 updated: 2026-06-13
@@ -11,6 +11,7 @@ updated: 2026-06-13
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
 import Cite from "../../components/Cite.astro";
+import PrLink from "../../components/PrLink.astro";
 
 The canvas tile now carries an **animated agent-status ring** on its border
 (marching ants / sweeping comet, in the terminal's theme colour — see
@@ -144,10 +145,17 @@ fallback if you want the accent *somewhere* near the tile, but it's the most
 likely to read busy beside the comet.
 </Callout>
 
-Pick one (or "A + a hint of B") and I'll wire it into the tile — `border-right-color`
-and the accent `box-shadow` ring come out; the chosen channel goes in.
+<Callout kind="good" title="Chosen: A — accent title bar">
+Shipped in <PrLink pr={1335} />. <Cite file="packages/client/src/canvas/CanvasTile.tsx" />
+drops the teal `border-right-color` and the `0 0 0 1px var(--color-accent)`
+box-shadow ring; the focused tile's title bar now tints `--color-accent` (a 22%
+mix over the theme bg) with an accent underline. The active tile keeps its
+existing lift (deeper drop shadow) for depth — the "hint of B". The border is
+left to repo identity + the agent-status ring.
+</Callout>
 
 ---
 
-*Status: `proposed` — a follow-on to the shipped agent-status ring
+*Status: `implemented` in <PrLink pr={1335} /> — option **A** (accent title bar);
+a follow-on to the agent-status ring
 ([canvas-tile-state-borders](/canvas-tile-state-borders.html)).*
