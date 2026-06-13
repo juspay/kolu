@@ -52,3 +52,39 @@ export async function restart<C, I, Ctx>(
   }
   await steps.reattach(ctx, connection);
 }
+
+/**
+ * Bind a **serialized** session-preserving restart to one endpoint.
+ *
+ * Where the bare `restart()` is the composed sequence (and the boot recycle's
+ * one shape), `serializeRestart` adds the two things a *user-initiated* restart
+ * needs over a boot:
+ *
+ *   - **Coalescing.** Returns a trigger that runs at most one restart at a time.
+ *     A double-click, or two clients both hitting the restart button, ride the
+ *     *same* in-flight run instead of each launching a kill→spawn — a second
+ *     recycle over a half-restarted daemon is exactly the kind of race #1034
+ *     lost. The trigger resolves all callers when that single run settles.
+ *   - **The emit-guard.** Wraps the run in `endpoint.holdRestarting`, so the
+ *     whole sequence reports as one `restarting` rather than the recycle's
+ *     internal degraded→connecting→connected flicker (see `endpoint.ts`'s
+ *     `emit`). The terminal `connected`/`dead` ends the hold.
+ *
+ * The composed steps (capture → drain → recycle → reattach) and what they mean
+ * stay the caller's soul, exactly as for `restart()`; this only governs *when*
+ * a restart may run and *how* it is reported.
+ */
+export function serializeRestart<C, I>(
+  endpoint: Endpoint<C, I>,
+): <Ctx>(steps: RestartSteps<C, I, Ctx>) => Promise<void> {
+  let inFlight: Promise<void> | undefined;
+  return <Ctx>(steps: RestartSteps<C, I, Ctx>): Promise<void> => {
+    if (inFlight) return inFlight;
+    inFlight = endpoint
+      .holdRestarting(() => restart(endpoint, steps))
+      .finally(() => {
+        inFlight = undefined;
+      });
+    return inFlight;
+  };
+}

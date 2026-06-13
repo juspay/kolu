@@ -28,3 +28,22 @@ Then("the degraded canvas is shown", async function (this: KoluWorld) {
     timeout: POLL_TIMEOUT,
   });
 });
+
+// B3.2 — the supervised restart. The degraded canvas' "Restart kaval" button
+// fires `daemon.restart`: capture the session, drain, recycle (spawn fresh +
+// connect). The same button lives in the kaval rail dialog for a running daemon.
+When(
+  "I restart kaval from the degraded canvas",
+  async function (this: KoluWorld) {
+    await this.page.locator('[data-testid="restart-kaval"]').click();
+  },
+);
+
+Then("the daemon returns to running", async function (this: KoluWorld) {
+  // The recycle spawns a FRESH daemon (the dead one's stale gate is reaped by
+  // its `acquirePidGate`), so the supervisor's endpoint reports `connected`
+  // again on the rail. A fresh spawn under CI load can be slow — be generous.
+  await this.page.waitForSelector('[data-daemon-state="connected"]', {
+    timeout: 45_000,
+  });
+});

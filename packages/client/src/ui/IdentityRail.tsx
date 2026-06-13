@@ -51,6 +51,7 @@ function kavalDot(state: DaemonState | undefined): string {
     case "connected":
       return "bg-ok";
     case "connecting":
+    case "restarting":
       return "bg-warning animate-pulse";
     case "degraded":
     case "dead":

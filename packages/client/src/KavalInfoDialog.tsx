@@ -12,14 +12,16 @@ import Dialog from "@corvu/dialog";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
+import { daemonRestarting, restartDaemon } from "./useDaemonRestart";
 import Commit from "./ui/Commit";
-import { CloseIcon } from "./ui/Icons";
+import { CloseIcon, RestartIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 
 const STATE_LABEL: Record<DaemonStatus["state"], string> = {
   connecting: "starting…",
   connected: "running",
+  restarting: "restarting…",
   degraded: "stopped (session preserved)",
   dead: "not running",
 };
@@ -27,6 +29,7 @@ const STATE_LABEL: Record<DaemonStatus["state"], string> = {
 const STATE_DOT: Record<DaemonStatus["state"], string> = {
   connecting: "bg-warning animate-pulse",
   connected: "bg-ok",
+  restarting: "bg-warning animate-pulse",
   degraded: "bg-danger",
   dead: "bg-danger",
 };
@@ -56,6 +59,13 @@ const KavalInfoDialog: Component<{
   status: DaemonStatus | undefined;
 }> = (props) => {
   const chrome = surface({ portalled: true });
+  // In flight while the click is being serviced (`daemonRestarting`) or while
+  // the daemon is mid-transition — the restart button stays disabled so a second
+  // click can't stack a recycle.
+  const inFlight = (): boolean =>
+    daemonRestarting() ||
+    props.status?.state === "restarting" ||
+    props.status?.state === "connecting";
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
       <Dialog.Content
@@ -118,6 +128,25 @@ const KavalInfoDialog: Component<{
               </div>
             )}
           </Show>
+        </div>
+
+        {/* Restart — recycle the daemon to pick up a new build or recover a
+            stopped one; the session is captured first and offered for restore. */}
+        <div class="mt-3">
+          <button
+            type="button"
+            data-testid="restart-kaval"
+            disabled={inFlight()}
+            onClick={() => void restartDaemon()}
+            class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-surface-3/60 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RestartIcon class="h-3.5 w-3.5" />
+            {inFlight() ? "Restarting…" : "Restart kaval"}
+          </button>
+          <p class="mt-1.5 text-[11px] leading-relaxed text-fg-3">
+            Picks up a new build or recovers a stopped daemon. Your terminals
+            are captured first and offered for restore on the fresh daemon.
+          </p>
         </div>
 
         {/* kaval-tui */}

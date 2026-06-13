@@ -92,6 +92,14 @@ export interface Endpoint<C, I> {
   /** The live connection, or `undefined` before `ensure()` or after the daemon
    *  died (`degraded`). */
   current(): DaemonConnection<C, I> | undefined;
+  /** Run `body` (a session-preserving restart's inner sequence) with the status
+   *  **held at `restarting`** — the emit-guard. While held, the transient
+   *  transitions the recycle would otherwise surface (the old connection's
+   *  `degraded` close, the fresh daemon's `connecting`) are reported as
+   *  `restarting`, so an observer sees one honest "restarting" rather than a
+   *  degraded→connecting→connected flicker; only the terminal `connected` /
+   *  `dead` pass through to end the hold. Used by `serializeRestart`. */
+  holdRestarting(body: () => Promise<void>): Promise<void>;
 }
 
 /** Poll until a connection to `socketPath` is accepted, or the ceiling passes.
@@ -141,8 +149,26 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
   const socketPollMs = spec.socketPollMs ?? 50;
   let conn: DaemonConnection<C, I> | undefined;
 
-  const emit = (state: EndpointState, identity?: I, startedAt?: number): void =>
-    spec.onStatus(spec.hostId, { state, identity, startedAt });
+  // The emit-guard flag: true only while `holdRestarting` is running a
+  // supervised restart's inner sequence. See `emit` for what it coerces.
+  let restartHold = false;
+
+  const emit = (
+    state: EndpointState,
+    identity?: I,
+    startedAt?: number,
+  ): void => {
+    // While a restart is held, the recycle's transient transitions — the old
+    // connection closing (`degraded`) and the fresh daemon coming up
+    // (`connecting`) — are both part of one "restarting", not separate states a
+    // consumer should render. Coerce them; let the terminal `connected`/`dead`
+    // (and the explicit `restarting` from `holdRestarting`) report honestly.
+    const reported: EndpointState =
+      restartHold && (state === "connecting" || state === "degraded")
+        ? "restarting"
+        : state;
+    spec.onStatus(spec.hostId, { state: reported, identity, startedAt });
+  };
 
   // The gate-holder check shared by every boot policy: return the live holder
   // whose socket is *accepting* (a real daemon — the adopt-or-kill candidate),
@@ -247,6 +273,20 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
 
   return {
     current: () => conn,
+
+    async holdRestarting(body: () => Promise<void>): Promise<void> {
+      // Emit `restarting` up front so the status flips the instant the restart
+      // begins (before the capture/drain the caller runs inside `body`), then
+      // hold it across the recycle. Cleared in `finally` so a failed restart's
+      // `dead` (emitted by the inner recycle, never coerced) is the last word.
+      restartHold = true;
+      emit("restarting");
+      try {
+        await body();
+      } finally {
+        restartHold = false;
+      }
+    },
 
     async ensure(): Promise<void> {
       emit("connecting");

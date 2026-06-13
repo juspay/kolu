@@ -103,6 +103,26 @@ export function setSavedSession(session: SavedSession | null): void {
   writeSession(session);
 }
 
+/** Persist a captured snapshot as the saved session, for the restart-capture
+ *  path (B3.2's supervised restart). The **F1 receptacle**: it is `saveSession`
+ *  (the empty→null guard + `savedAt` stamp) preceded by an *unconditional*
+ *  `cancelPendingAutosave()`.
+ *
+ *  Why the explicit cancel, given the surface session cell's `onWrite` hook
+ *  already cancels autosave on every write: the cell **dedups** byte-identical
+ *  writes (`equals`), so a capture that happens to re-persist the current
+ *  session would be short-circuited and its `onWrite` cancel skipped — leaving a
+ *  pending `terminals:dirty` timer armed *before* the restart free to fire ~500
+ *  ms later with an empty snapshot and clobber the just-captured session to
+ *  null. Cancelling first makes the snapshot durable through the kill regardless
+ *  of dedup. (The restart's own drain — `killAllTerminals` — fires no
+ *  `terminals:dirty`, so it arms no new timer; this guards only the
+ *  pre-existing one.) */
+export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
+  cancelPendingAutosave();
+  saveSession(snapshot);
+}
+
 // --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
 
 /** Wire up throttled session save from terminal change events. Called once at startup.

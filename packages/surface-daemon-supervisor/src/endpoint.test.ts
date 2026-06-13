@@ -9,6 +9,7 @@ import {
   type DaemonConnection,
   type EndpointStatus,
 } from "./endpoint.ts";
+import { serializeRestart } from "./restart.ts";
 
 const silentLog = {
   debug() {},
@@ -285,5 +286,127 @@ describe("createEndpoint — boot, status, death", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(strangerSignalled).toBe(false);
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
+  });
+});
+
+describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
+  /** An endpoint over a persistent fake daemon (already listening, no gate
+   *  file), so a restart's recycle is spawn(no-op) → connect — the kill path is
+   *  covered by the boot-policy tests above; here we isolate the restart
+   *  mechanism. `connect` hands back a fresh connection each call so a restart's
+   *  re-connect is observable. */
+  async function bootedEndpoint(): Promise<{
+    endpoint: ReturnType<typeof createEndpoint<string, Identity>>;
+    statuses: EndpointStatus<Identity>[];
+    connectCount: () => number;
+  }> {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid"); // no file → recycle skips the kill path
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    let connects = 0;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: async () => {} }, // the fake is already serving
+      connect: async () => {
+        connects += 1;
+        return {
+          client: `C${connects}`,
+          identity: { staleKey: `k${connects}` },
+          startedAt: connects,
+          dispose() {},
+          onClose() {},
+        };
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+    await endpoint.ensure(); // boot: connecting → connected
+    statuses.length = 0; // focus the assertions on the restart
+    return { endpoint, statuses, connectCount: () => connects };
+  }
+
+  const noopSteps = {
+    capture: async () => {},
+    drain: async () => {},
+    reattach: async () => {},
+  };
+
+  it("reports one `restarting` across the recycle then `connected` — never a bare `connecting`", async () => {
+    const { endpoint, statuses } = await bootedEndpoint();
+
+    await serializeRestart(endpoint)(noopSteps);
+
+    const seq = statuses.map((s) => s.state);
+    // The emit-guard coerced the recycle's `connecting` to `restarting`.
+    expect(seq).not.toContain("connecting");
+    expect(seq[0]).toBe("restarting");
+    expect(seq.at(-1)).toBe("connected");
+    // A fresh connection replaced the old one.
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "k2" });
+  });
+
+  it("coalesces concurrent triggers into a single recycle", async () => {
+    const { endpoint, statuses, connectCount } = await bootedEndpoint();
+
+    const trigger = serializeRestart(endpoint);
+    // Two callers fire in the same tick — the second must ride the first's
+    // in-flight restart, not launch a second recycle.
+    await Promise.all([trigger(noopSteps), trigger(noopSteps)]);
+
+    // boot connected once; the coalesced restart connected exactly once more.
+    expect(connectCount()).toBe(2);
+    // One restarting, one connected — not two of each.
+    expect(statuses.filter((s) => s.state === "connected")).toHaveLength(1);
+  });
+
+  it("a failed recycle ends the hold at `dead` (a real failure is not coerced)", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    let connects = 0;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: { spawn: async () => {} },
+      connect: async () => {
+        connects += 1;
+        if (connects === 1) {
+          return {
+            client: "C",
+            identity: { staleKey: "k1" },
+            startedAt: 1,
+            dispose() {},
+            onClose() {},
+          };
+        }
+        throw new Error("skew");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+    await endpoint.ensure(); // boot ok
+    statuses.length = 0;
+
+    await expect(serializeRestart(endpoint)(noopSteps)).rejects.toThrow("skew");
+
+    const seq = statuses.map((s) => s.state);
+    expect(seq[0]).toBe("restarting");
+    // `dead` passes through the guard — a failed recycle is not "still restarting".
+    expect(seq.at(-1)).toBe("dead");
   });
 });
