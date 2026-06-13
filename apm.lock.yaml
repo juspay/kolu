@@ -314,7 +314,7 @@ local_deployed_files:
 local_deployed_file_hashes:
   .agents/skills/atlas/SKILL.md: sha256:f47500c2738a00d15f996ba9f56a33442195c74b6300b73cf167b30b058c1ef1
   .agents/skills/be-review/SKILL.md: sha256:32926b02ad8c4731c04989eec0b68502fa394053f7d6b7c199d130147bb1d59b
-  .agents/skills/be/SKILL.md: sha256:c9d23a783bab82a358ffe9a3753352100805be34de3cae6d1e5baff11089533c
+  .agents/skills/be/SKILL.md: sha256:989c795e9f4281ed2ef6819c5da77a2538dacffb998258d14a6d0e47038e5ead
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .agents/skills/codex-debate/SKILL.md: sha256:058fcc61f9773ce1b9547b844c3fbf87a0f2d4517be5721d2e4fbdcb84c7f75d
   .agents/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
@@ -324,8 +324,8 @@ local_deployed_file_hashes:
   .agents/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
   .agents/skills/codex-debate/scripts/codex-review.sh: sha256:ffb3da606a74e2fbd2d56a66ca456fae889049c6882f56ef05f856e30257d53b
   .agents/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
-  .agents/skills/dev-server/SKILL.md: sha256:925026a0764d3330f5369192420f4f6c1fe3bb650017f5f784a9358955cf8acb
-  .agents/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
+  .agents/skills/dev-server/SKILL.md: sha256:43f15c5dfd07ef6eb96882ff538dc7d3cd452c9c69350302fed17f051c80a769
+  .agents/skills/evidence/SKILL.md: sha256:2afa8c13e1aa929d46b8f4c6aaacba3a1f2fb438ae32cde2c2a2f25871069df3
   .agents/skills/lens-debate/SKILL.md: sha256:07972d265dc9845f6f0c848b1511768ef0183b66bb2d707e305d06b5f407fbeb
   .agents/skills/lens-debate/debate.workflow.js: sha256:73f8ad4f76b3da5b398aceed8a26f2079933773804ef75071876fb7fe928cc90
   .agents/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
@@ -348,7 +348,7 @@ local_deployed_file_hashes:
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .claude/skills/atlas/SKILL.md: sha256:f47500c2738a00d15f996ba9f56a33442195c74b6300b73cf167b30b058c1ef1
   .claude/skills/be-review/SKILL.md: sha256:32926b02ad8c4731c04989eec0b68502fa394053f7d6b7c199d130147bb1d59b
-  .claude/skills/be/SKILL.md: sha256:c9d23a783bab82a358ffe9a3753352100805be34de3cae6d1e5baff11089533c
+  .claude/skills/be/SKILL.md: sha256:989c795e9f4281ed2ef6819c5da77a2538dacffb998258d14a6d0e47038e5ead
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .claude/skills/codex-debate/SKILL.md: sha256:058fcc61f9773ce1b9547b844c3fbf87a0f2d4517be5721d2e4fbdcb84c7f75d
   .claude/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
@@ -358,8 +358,8 @@ local_deployed_file_hashes:
   .claude/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
   .claude/skills/codex-debate/scripts/codex-review.sh: sha256:ffb3da606a74e2fbd2d56a66ca456fae889049c6882f56ef05f856e30257d53b
   .claude/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
-  .claude/skills/dev-server/SKILL.md: sha256:925026a0764d3330f5369192420f4f6c1fe3bb650017f5f784a9358955cf8acb
-  .claude/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
+  .claude/skills/dev-server/SKILL.md: sha256:43f15c5dfd07ef6eb96882ff538dc7d3cd452c9c69350302fed17f051c80a769
+  .claude/skills/evidence/SKILL.md: sha256:2afa8c13e1aa929d46b8f4c6aaacba3a1f2fb438ae32cde2c2a2f25871069df3
   .claude/skills/lens-debate/SKILL.md: sha256:07972d265dc9845f6f0c848b1511768ef0183b66bb2d707e305d06b5f407fbeb
   .claude/skills/lens-debate/debate.workflow.js: sha256:73f8ad4f76b3da5b398aceed8a26f2079933773804ef75071876fb7fe928cc90
   .claude/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45

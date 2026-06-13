@@ -101,7 +101,9 @@ production or unrelated processes. Match the remembered ports only.
 
 - Two **random** ports, both remembered in `.dev-server/ports.json` and reused
   across the session (no re-grepping, no guessing).
-- Production `kolu.service` **provably untouched** — `systemctl --user status
-  kolu` shows the same PID/uptime before and after your run.
+- Production `kolu.service` **provably untouched** — bracket the session with
+  `just prod-guard snapshot` (before) and `just prod-guard check` (after); it
+  fails loudly if the live unit's PID, restart count, or start time moved, instead
+  of relying on you to eyeball `systemctl --user status kolu`.
 - Teardown removes **only** the dev instance (the remembered PIDs); production
   keeps running.

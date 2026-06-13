@@ -96,6 +96,20 @@ reflects a clean, CI-like build of the PR's own commit and nothing touches the u
 machine. The box has its own loopback, so the harness binds plain ports there with zero
 risk to anything the user is running.
 
+> **Production safety — the pu-box rule is not optional, and it's now machine-checked.**
+> The whole reason capture runs off-machine is that the user's live `kolu.service` shares
+> the host: an agent that ran a bare `just dev`/`just test-quick` *locally* for evidence
+> bound production's fixed ports and knocked it over (#1109), and even heavy local work
+> alongside it is a contention risk (#1334). So: **the e2e harness (§B) and the
+> still-from-clip path (§A1) run on the `pu` box — full stop.** Never run `just
+> test-quick` / `just dev` on the user's machine for evidence. The *only* sanctioned
+> local step is the live chrome-devtools path (§A2), and even then you launch via the
+> **dev-server** skill (`just dev-auto`, two random free ports) — never the fixed
+> defaults. To prove the rule held, bracket the capture with the production-health gate:
+> `just prod-guard snapshot` before you start, `just prod-guard check` after the box is
+> torn down — it fails loudly if the live unit bounced (a no-op where there's no live
+> instance, e.g. on the box itself).
+
 **Prefer the project's existing Cucumber + Playwright e2e harness — record an existing scenario by
 name.** It drives every UI surface through a maintained step library, so the clip is produced by the
 same code CI exercises and the `.feature` files stay pristine. That's why it's the default.

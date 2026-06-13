@@ -1,6 +1,6 @@
 # /do config
 
-`/do` reads this file at the steps that need a project-defined command (check, fmt, test, ci, docs) and at the evidence step.
+`/do` reads this file at the steps that need a project-defined command (check, fmt, test, ci, docs) and at the evidence step. The **ci** and **evidence** steps additionally bracket their heavy local work with the [Production health gate](#production-health-gate) so they can't disrupt the user's live `kolu.service` unnoticed.
 
 ## Check command
 
@@ -96,7 +96,21 @@ To capture each stage's stderr for the excerpt above, tee it when you invoke `pu
 
 **Flake → comment on [#320](https://github.com/juspay/kolu/issues/320)** with scenario/platform/error excerpt/PR.
 
+**Guard production while CI runs.** CI fans most work out to remote pool/rasam boxes, but the orchestration, fix→fmt→commit loop, and any local builds still run on the user's host alongside the live `kolu.service`. Bracket the CI step with the [Production health gate](#production-health-gate) (`just prod-guard snapshot` before, `just prod-guard check` after) so a bounced production instance never hides behind a green pipeline.
+
 **Evidence required → all GitHub status checks green per `odu protect`.** `/do` is done only when every required status check is green on the PR's current `HEAD`. Source the required list from `nix run .#odu -- protect --dry-run` — it prints the `<recipe>@<platform>` contexts the canonical DAG produces, which are exactly the contexts branch protection gates on. Verify with `gh pr checks`; a green from a positional retry counts (final state matters).
+
+## Production health gate
+
+These steps run heavy local work — `nix develop` builds, biome/tsc, e2e, chromium launches — on the **same host** as the user's live `kolu.service` (systemd `--user`). That has disrupted production before: a stray local `just dev` bound its fixed ports (#1109), and sheer host contention can make the live instance bounce mid-session (#1334). Bracket the **ci** and **evidence** steps with the machine check so a disruption can't pass as a clean run:
+
+```sh
+just prod-guard snapshot   # before kicking off CI / evidence — records the live unit's identity
+# … run CI and capture evidence …
+just prod-guard check      # after — exits non-zero + prints a banner if the unit's PID/restarts/start-time moved
+```
+
+`prod-guard` is a no-op success on a host with no live `kolu.service` (a pu/CI box, a fresh dev machine), so it costs nothing where there's nothing to protect. If `check` reports a disruption, **surface it immediately** — don't report the run green while the user's instance bounced.
 
 ## Documentation
 
@@ -114,6 +128,8 @@ Post a `## Evidence` PR comment when **any** of these holds — the trigger is "
 1. **Visible UI impact** — capture screenshots, or **video** when the change is about motion (an animation, a transition, a multi-step interaction a still can't convey). Use judgment — server-only diffs sometimes ripple into rendering.
 2. **Behavioral / round-trip changes** — the diff touches a persistence, restore, session, autosave, debounce/coalesce, or reconnect path, and the proof is *"state survives an interaction or a restart,"* not a pixel change. Capture the before→after **behavior** — often with **zero visual diff** (e.g. resize → stop kolu → start → restore session → the panel returns at the resized width). A video of the round-trip is the proof the fix didn't break recoverability.
 3. **Bug fixes generally** — the default for a fix is *"demonstrate the fixed behavior."* The bug was often a storm, a lost write, or a hang, so a before/after or survives-restart clip is the evidence **even when nothing looks different**. Don't skip evidence just because a fix has no visual diff; skip only when the behavior genuinely can't be observed (e.g. a pure internal refactor with no externally visible effect).
+
+**Bracket capture with the production health gate** (`just prod-guard snapshot` before, `just prod-guard check` after) — see [Production health gate](#production-health-gate). Evidence runs off-machine on a `pu` box precisely so it can't disrupt the user's live `kolu.service`; the gate proves it didn't.
 
 **Capture by recording an e2e scenario — the [`evidence`](../.apm/skills/evidence/SKILL.md) skill owns the procedure** (it builds on the [`pu`](../.apm/skills/pu/SKILL.md) skill; everything runs on an ephemeral `pu` box, off-machine, the way CI runs e2e). Kolu's e2e suite (`@cucumber/cucumber` + Playwright) already drives every UI surface through a maintained step library, so you capture a clip by *recording a scenario* — selected **by name**, with no edit to the feature file — never a hand-rolled Playwright script. Pick the scenario that exercises the change (or author a tiny one reusing existing steps); on the box the skill runs it with `KOLU_EVIDENCE=1`, which makes `packages/tests/support/hooks.ts` record the `.webm` (recordVideo + slowMo, animations left on), then transcodes (ffmpeg → GIF/mp4), uploads to the `evidence-assets` release, and links the shared Pages player.
 

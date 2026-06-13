@@ -71,6 +71,12 @@ summary), so no comment advertises a local-only commit.
 other captures on-screen behavior — so **run them concurrently**; don't wait for
 green before capturing.
 
+**Snapshot production health first.** This step runs the heaviest local work of the
+whole flow (repeated `nix develop` builds, biome/tsc, gauntlet subagents, chromium
+launches) on the *same host* as the user's live `kolu.service` — which has disrupted
+production before (#1334, #1109). Before kicking anything off, run `just prod-guard
+snapshot` to record the live unit's identity (a no-op on a host without one).
+
 1. **Kick off `/ci` first, backgrounded** — start the pipeline (background;
    consume `--progress json`) so it churns while you capture evidence. React to
    streamed `failed`/`errored` nodes the moment they land: fix→fmt→commit→retry
@@ -82,10 +88,12 @@ green before capturing.
    absent).
 3. **Join before Done** — confirm CI is green on the final `HEAD` **and** evidence
    is posted. If a CI fix-commit changed visible behavior *after* capture,
-   re-capture so the evidence matches what actually merges.
+   re-capture so the evidence matches what actually merges. Then run `just
+   prod-guard check`: if it reports the live unit bounced, **the run is not clean** —
+   say so in Done instead of finishing green, and don't bury it.
 
 ## Done
 
-Report the PR URL, the gauntlet outcome (lens-debate consensus + fixes applied, codex consensus or reviewer-error, police findings actioned), and CI status. Never merge — the human reviews the commits and merges when satisfied.
+Report the PR URL, the gauntlet outcome (lens-debate consensus + fixes applied, codex consensus or reviewer-error, police findings actioned), CI status, and the **production-health verdict** from `just prod-guard check` (untouched, or — if it bounced — call it out first, not as a footnote). Never merge — the human reviews the commits and merges when satisfied.
 
 ARGUMENTS: $ARGUMENTS

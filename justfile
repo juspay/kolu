@@ -57,6 +57,78 @@ dev-auto:
     # to the param, not the value.
     exec just dev "$SERVER_PORT" "$CLIENT_PORT"
 
+# Guard the live production kolu.service against agent-run disruption.
+# A long autonomous agent session shares the host with the user's running
+# `kolu.service` (systemd --user). Heavy local work (nix builds, biome, tsc,
+# chromium launches) can make production sluggish enough to bounce, and a stray
+# `just dev` on the fixed ports can knock it over outright (#1109). This is the
+# machine check that proves it didn't: snapshot the unit's identity before the
+# risky steps, then verify it afterwards.
+#
+#   just prod-guard snapshot   # record MainPID / NRestarts / start-time baseline
+#   just prod-guard check      # fail loudly if any of them moved (a restart)
+#
+# A host with no production unit (a pu/CI box, a fresh dev machine) records
+# present=false and `check` is a no-op success — the guard fires only where
+# there is a live instance to protect. See issue #1334.
+prod-guard ACTION="check":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    state="${XDG_RUNTIME_DIR:-/tmp}/kolu-prod-guard.env"
+    read_unit() {
+        systemctl --user show kolu \
+            --property=LoadState,ActiveState,MainPID,NRestarts,ActiveEnterTimestampMonotonic \
+            2>/dev/null || true
+    }
+    get() { sed -n "s/^$1=//p"; }
+    case "{{ ACTION }}" in
+    snapshot)
+        unit="$(read_unit)"
+        if [ "$(get LoadState <<<"$unit")" != loaded ]; then
+            echo "present=false" > "$state"
+            echo "prod-guard: no production kolu.service on this host — nothing to protect."
+            exit 0
+        fi
+        { echo "present=true"; echo "$unit"; } > "$state"
+        echo "prod-guard: snapshot — MainPID=$(get MainPID <<<"$unit"), NRestarts=$(get NRestarts <<<"$unit")"
+        ;;
+    check)
+        if [ ! -f "$state" ]; then
+            echo "prod-guard: no snapshot — run 'just prod-guard snapshot' before the risky step." >&2
+            exit 0
+        fi
+        if grep -qx 'present=false' "$state"; then
+            echo "prod-guard: no production instance present at snapshot — nothing to verify."
+            exit 0
+        fi
+        before="$(cat "$state")"; after="$(read_unit)"
+        b_pid="$(get MainPID <<<"$before")"; a_pid="$(get MainPID <<<"$after")"
+        b_n="$(get NRestarts <<<"$before")"; a_n="$(get NRestarts <<<"$after")"
+        b_t="$(get ActiveEnterTimestampMonotonic <<<"$before")"; a_t="$(get ActiveEnterTimestampMonotonic <<<"$after")"
+        a_active="$(get ActiveState <<<"$after")"
+        if [ "$b_pid" = "$a_pid" ] && [ "$b_n" = "$a_n" ] && [ "$b_t" = "$a_t" ] && [ "$a_active" = active ]; then
+            echo "prod-guard: production kolu.service untouched (PID $a_pid, $a_n restarts)."
+            exit 0
+        fi
+        {
+            echo "┌────────────────────────────────────────────────────────────┐"
+            echo "│  ⚠  PRODUCTION kolu.service WAS DISRUPTED during this run     │"
+            echo "└────────────────────────────────────────────────────────────┘"
+            printf '  MainPID:      %s → %s\n' "$b_pid" "$a_pid"
+            printf '  NRestarts:    %s → %s\n' "$b_n" "$a_n"
+            printf '  ActiveEnter:  %s → %s\n' "$b_t" "$a_t"
+            printf '  ActiveState now: %s\n' "$a_active"
+            echo "  The user's live instance bounced while the agent ran. Surface this"
+            echo "  immediately — do NOT report the run as clean. See issue #1334."
+        } >&2
+        exit 1
+        ;;
+    *)
+        echo "prod-guard: unknown action '{{ ACTION }}' (use: snapshot | check)" >&2
+        exit 2
+        ;;
+    esac
+
 [private]
 _dev: install _dev-parallel
 
