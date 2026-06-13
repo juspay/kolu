@@ -134,17 +134,14 @@ const CodeTab: Component<{
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
 
-  // Single read of the coarse-pointer modality for the whole Code tab: the tree
-  // density, the toolbar row's `data-touch`, and the SegmentedControl `touch`
-  // prop all consume this one fact rather than each re-deriving it. Keyed on
-  // `isTouch` (input modality), not `isMobile` (viewport): roomier rows are a
-  // tap-target affordance, so a coarse-pointer tablet wider than `sm` wants them
-  // too.
-  const touch = isTouch();
-  // Pierre captures `density` once at construction (like `initialExpansion`),
-  // so snapshot the choice here rather than passing a reactive accessor in the
-  // JSX, where it would read as reactive.
-  const treeDensity = touch ? "relaxed" : undefined;
+  // Coarse-pointer modality (`isTouch`, not `isMobile`): roomier rows are a
+  // tap-target affordance, so a coarse-pointer tablet wider than `sm` wants
+  // them too. The DOM sizing reads it reactively (`(pointer: coarse)` can flip
+  // mid-mount — a 2-in-1 docking/undocking — and `data-touch` should follow),
+  // while Pierre's tree density snapshots it (below) because Pierre captures
+  // `density` once at construction (like `initialExpansion`), so a reactive
+  // accessor there would read as live when it isn't.
+  const treeDensity = isTouch() ? "relaxed" : undefined;
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -774,7 +771,7 @@ const CodeTab: Component<{
          *  +`scrollbar-none` is a clip safety net for the narrowest phones,
          *  where the segments + filter can't all fit the drawer width. */}
         <div
-          data-touch={touch || undefined}
+          data-touch={isTouch() || undefined}
           class="group/toolbar flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
         >
           <div class="flex items-center gap-0.5 shrink-0">
@@ -797,9 +794,13 @@ const CodeTab: Component<{
             ariaRole="toolbar"
             ariaLabel="File scope"
             dataMode
-            touch={touch}
+            touch={isTouch()}
           />
-          <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
+          <FileSearchInput
+            value={searchQuery()}
+            onChange={setSearchQuery}
+            touch={isTouch()}
+          />
         </div>
 
         {/* Vertical split between tree and content. Mirrors the horizontal
