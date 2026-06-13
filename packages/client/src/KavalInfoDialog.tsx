@@ -121,7 +121,14 @@ const KavalInfoDialog: Component<{
             type="button"
             data-testid="restart-kaval"
             disabled={inFlight()}
-            onClick={() => void restartDaemon()}
+            // Close this dialog before kicking off the restart — the recycle
+            // empties the canvas and surfaces the session-restore card, and a
+            // modal kaval dialog left open would overlay it (the rail dialog is
+            // an info panel, not where you'd then click Restore).
+            onClick={() => {
+              props.onOpenChange(false);
+              void restartDaemon();
+            }}
             class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-surface-3/60 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RestartIcon class="h-3.5 w-3.5" />
