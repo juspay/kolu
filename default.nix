@@ -87,9 +87,10 @@ let
   # restart would load different daemon code. Scoped to the three roots that run
   # IN the daemon — kaval, terminal-protocol, and the surface-daemon spine — so
   # server-/client-only deploys leave it unchanged (no over-prompting). The .ts
-  # filter drops `.test.ts` AND `.testlib.ts` (shared test-only helpers), and
-  # LC_ALL=C sort makes the hash byte-identical across Darwin/Linux. The set
-  # hashed here is asserted to equal the daemon's reachable closure by
+  # filter drops `.test.ts` AND `.testlib.ts` (shared test-only helpers); the id
+  # (below) is taken over this fileset's content-addressed store path, whose NAR
+  # hash is byte-identical across Darwin/Linux. The set hashed here is asserted
+  # to equal the daemon's reachable closure by
   # packages/kaval/src/buildId.closure.test.ts — keep the fileFilter and that
   # test in lockstep.
   isHashedSource =
@@ -117,12 +118,13 @@ let
     ];
   };
 
-  kavalBuildId = builtins.readFile (pkgs.runCommand "kaval-build-id"
-    { src = kavalSrc; } ''
-    cd "$src"
-    find . -type f | LC_ALL=C sort | xargs cat | sha256sum | cut -c1-64 \
-      | tr -d '\n' > $out
-  '');
+  # A content digest of kaval's daemon source closure, baked into KAVAL_BUILD_ID.
+  # kavalSrc is content-addressed (fileset.toSource adds it to the store at eval
+  # time), so its store path already changes iff any hashed file changes — hash
+  # that path to a stable, platform-independent 64-char id. Computed PURELY in
+  # Nix: no import-from-derivation, so `nix flake check` can evaluate every
+  # output without realising a build mid-eval (juspay/kolu#1317).
+  kavalBuildId = builtins.hashString "sha256" "${kavalSrc}";
 
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
