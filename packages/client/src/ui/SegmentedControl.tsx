@@ -87,7 +87,7 @@ export default function SegmentedControl<T extends string>(props: {
         role="toolbar"
         aria-label={props.ariaLabel}
         data-mode={props.dataMode ? props.value : undefined}
-        data-touch={props.touch}
+        data-touch={props.touch || undefined}
         class="flex items-center gap-0.5 data-[touch=true]:gap-1 shrink-0 rounded bg-surface-2/40 p-0.5 data-[touch=true]:p-1"
       >
         <For each={props.options}>
@@ -106,7 +106,7 @@ export default function SegmentedControl<T extends string>(props: {
                 data-active={props.value === opt.value}
                 data-mode={opt.value}
                 title={opt.hint}
-                data-touch={props.touch}
+                data-touch={props.touch || undefined}
                 class="flex items-center gap-1.5 px-2 data-[touch=true]:px-2.5 h-5 data-[touch=true]:h-7 rounded text-[10px] data-[touch=true]:text-[11px] font-mono cursor-pointer transition-colors text-fg-2 hover:text-fg hover:bg-surface-2/60 data-[active=true]:bg-surface-0 data-[active=true]:text-fg data-[active=true]:shadow-sm"
                 onClick={() => props.onChange(opt.value)}
               >
