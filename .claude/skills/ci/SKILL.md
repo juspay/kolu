@@ -19,6 +19,16 @@ process-compose, no separately-versioned socket client.
 > a run. It spawns the same coordinator but gives you structured results and the
 > fail-fast loop instead of scraping terminal output. The `nix run … -- run`
 > CLI below is the reference and the fallback when no MCP server is wired.
+>
+> **Logs are a resource, not a tool.** Don't look for a log-tail tool — there
+> isn't one. A node's output is the MCP **resource** `surface://collections/logs/{id}`
+> (`{id}` is the node, e.g. `ci::unit@aarch64-darwin`), read with
+> `ReadMcpResourceTool`: the live buffered tail while the run is up, else the
+> durable per-SHA log on disk. So when `wait_for_settle` returns a red node, the
+> "read the log" step is `ReadMcpResourceTool` on that node's
+> `surface://collections/logs/{id}` — subscribe for push updates, or just re-read
+> to poll. (`surface://streams/nodes` is the pipeline snapshot resource alongside
+> it.)
 
 ## Invoking
 
