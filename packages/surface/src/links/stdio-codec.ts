@@ -69,6 +69,37 @@ export function writeFramedMessage(
   });
 }
 
+/** A write failure whose destination is simply gone — the peer closed its end
+ *  (`EPIPE`) or our own stream was already destroyed (`ERR_STREAM_DESTROYED`).
+ *  Benign during teardown: there is nothing left to deliver. Every other write
+ *  error is a real failure and still propagates. */
+export function isBenignWriteError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null | undefined)?.code;
+  return code === "EPIPE" || code === "ERR_STREAM_DESTROYED";
+}
+
+/** The send half both peers hand to `ClientPeer` / `ServerPeer`: frame and
+ *  write a message, but treat a dead-pipe teardown write (`isBenignWriteError`)
+ *  as a no-op — the peer is gone, the frame can't be delivered, and each side's
+ *  own `write.on("error", …)` lifecycle guard has already begun tearing the
+ *  link down. Without neutralizing the un-deliverable frame here, its rejection
+ *  escapes the peer's internal send path as an unhandled rejection and crashes
+ *  the process on lane teardown after an otherwise-green run (juspay/odu#32,
+ *  the residual of #25).
+ *
+ *  This keeps the framing/lifecycle split intact: `writeFramedMessage` stays
+ *  framing-only, and the per-side teardown *response* (the client closes its
+ *  link; the server ends its serve loop) stays in each peer's stream `'error'`
+ *  handler. This only swallows the write whose destination is already gone. */
+export function framedSend(
+  write: Writable,
+  message: string | ArrayBufferLike | Uint8Array,
+): Promise<void> {
+  return writeFramedMessage(write, message).catch((err: unknown) => {
+    if (!isBenignWriteError(err)) throw err;
+  });
+}
+
 /** Read line-delimited frames off `read` until the stream ends. Each
  *  non-empty line is base64-decoded and dispatched to `onFrame`. Returns
  *  a Promise that resolves on `'end'` and rejects on `'error'`.
