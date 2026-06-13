@@ -327,7 +327,7 @@ local_deployed_file_hashes:
   .agents/skills/dev-server/SKILL.md: sha256:925026a0764d3330f5369192420f4f6c1fe3bb650017f5f784a9358955cf8acb
   .agents/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
   .agents/skills/lens-debate/SKILL.md: sha256:28632c7894663cb23496c19d733cd9c68cbefc090858e5a11ad0ea606b27e784
-  .agents/skills/lens-debate/debate.workflow.js: sha256:feb62af4f7d9ebc6c68c51102f5cc159c668efd0c755906a2bb8f34a4885504f
+  .agents/skills/lens-debate/debate.workflow.js: sha256:11bcbf482c91ea1acca05893b3012ee86b588ed6d2b0947f43788f22f5022f91
   .agents/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
   .agents/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .agents/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
@@ -361,7 +361,7 @@ local_deployed_file_hashes:
   .claude/skills/dev-server/SKILL.md: sha256:925026a0764d3330f5369192420f4f6c1fe3bb650017f5f784a9358955cf8acb
   .claude/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
   .claude/skills/lens-debate/SKILL.md: sha256:28632c7894663cb23496c19d733cd9c68cbefc090858e5a11ad0ea606b27e784
-  .claude/skills/lens-debate/debate.workflow.js: sha256:feb62af4f7d9ebc6c68c51102f5cc159c668efd0c755906a2bb8f34a4885504f
+  .claude/skills/lens-debate/debate.workflow.js: sha256:11bcbf482c91ea1acca05893b3012ee86b588ed6d2b0947f43788f22f5022f91
   .claude/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
   .claude/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .claude/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8

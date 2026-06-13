@@ -1,9 +1,11 @@
 // The Workflow runtime requires `export const meta` to be the FIRST statement
 // and a PURE LITERAL (no variable interpolation), so the primary model is
-// inlined as 'opus' in the phase entries below; commit agents within Apply run
-// on mechModel (haiku). The single `const MODEL` socket lives just after meta —
-// every other model reference in this script reads it lazily at
-// input-resolution time, well after meta is evaluated.
+// inlined as 'opus' in the phase entries below. The only Apply-phase agent is a
+// single `apply:all` on `model` (Opus) that implements and commits each agreed
+// fix in-session. Those inlined 'opus' phase entries plus the `const MODEL`
+// socket just after meta are the model bindings — every other model reference in
+// this script reads MODEL lazily at input-resolution time, well after meta is
+// evaluated.
 export const meta = {
   name: 'lens-debate',
   description:
@@ -60,8 +62,8 @@ const rationale = (a.rationale || '').trim()
 const model = a.model || MODEL
 // Mechanical tier (Haiku). The lenses' reviews + the per-finding debate + applying
 // an agreed fix all do real reasoning → `model` (Opus, load-bearing for the
-// lenses). The merge-base resolver and the per-fix committer are pure git → run
-// them on `mechModel`. Defaults match a direct invocation; /be-review passes it.
+// lenses). The merge-base resolver is pure git → run it on `mechModel`.
+// Defaults match a direct invocation; /be-review passes it.
 const mechModel = a.mechModel || 'haiku'
 // Per-worktree scratch for commit-message files; gitignored so it never shows up
 // in the diff the lenses review, and parallel debates in different worktrees
