@@ -29,7 +29,7 @@ import {
 } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import KavalInfoDialog from "../KavalInfoDialog";
-import { localDaemonStatus } from "../useDaemonStatus";
+import { localDaemonStatus, updatePending } from "../useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
 import { clientStale, StaleBadge } from "./StaleBadge";
@@ -51,6 +51,7 @@ function kavalDot(state: DaemonState | undefined): string {
     case "connected":
       return "bg-ok";
     case "connecting":
+    case "restarting":
       return "bg-warning animate-pulse";
     case "degraded":
     case "dead":
@@ -171,6 +172,16 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
               {formatUptime(clockNow() - startedAt())}
             </span>
           )}
+        </Show>
+        {/* Update-pending nudge — a connected daemon a build behind the server.
+            Amber ⬆; click the column to open the dialog and one-click restart. */}
+        <Show when={updatePending(daemon())}>
+          <span
+            class="text-warning text-[11px] leading-none"
+            title="kaval is a build behind — click to restart"
+          >
+            ⬆
+          </span>
         </Show>
       </button>
       <KavalInfoDialog

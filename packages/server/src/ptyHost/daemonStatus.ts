@@ -11,6 +11,7 @@
 
 import type { DaemonStatus } from "kolu-common/surface";
 import { surfaceCtx } from "../surfaceCtx.ts";
+import { expectedKavalBuildId } from "./index.ts";
 
 const store = new Map<string, DaemonStatus>();
 
@@ -24,11 +25,18 @@ export function readDaemonStatus(hostId: string): DaemonStatus | undefined {
   return store.get(hostId);
 }
 
-/** Record + publish a host's daemon status. The endpoint's `onStatus` sink. */
+/** Record + publish a host's daemon status. The endpoint's `onStatus` sink —
+ *  it reports `{state, identity, startedAt}` (the spine's soul-agnostic view);
+ *  here we enrich it with kolu's EXPECTED kaval build so the client can derive
+ *  "update pending" (a connected daemon a build behind the server). */
 export function publishDaemonStatus(
   hostId: string,
   status: DaemonStatus,
 ): void {
-  store.set(hostId, status);
-  surfaceCtx.collections.daemonStatus.upsert(hostId, status);
+  const enriched: DaemonStatus = {
+    ...status,
+    expectedStaleKey: expectedKavalBuildId() || undefined,
+  };
+  store.set(hostId, enriched);
+  surfaceCtx.collections.daemonStatus.upsert(hostId, enriched);
 }

@@ -237,7 +237,11 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       throw err;
     }
 
-    const up = await waitForSocket(spec.socketPath, socketReadyMs, socketPollMs);
+    const up = await waitForSocket(
+      spec.socketPath,
+      socketReadyMs,
+      socketPollMs,
+    );
     if (!up) {
       emit("dead");
       throw new Error(
@@ -302,7 +306,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       // Coalesce: a second trigger while a restart is in flight awaits it and
       // returns without starting its own recycle (one session capture, not two).
       const inFlight = restartInFlight;
-      if (inFlight) {
+      if (inFlight !== undefined) {
         await inFlight;
         return;
       }

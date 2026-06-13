@@ -12,6 +12,7 @@ import Dialog from "@corvu/dialog";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
+import { restartKaval, updatePending } from "./useDaemonStatus";
 import Commit from "./ui/Commit";
 import { CloseIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
@@ -20,6 +21,7 @@ import { surface } from "./ui/Surface";
 const STATE_LABEL: Record<DaemonStatus["state"], string> = {
   connecting: "starting…",
   connected: "running",
+  restarting: "recycling…",
   degraded: "stopped (session preserved)",
   dead: "not running",
 };
@@ -27,6 +29,7 @@ const STATE_LABEL: Record<DaemonStatus["state"], string> = {
 const STATE_DOT: Record<DaemonStatus["state"], string> = {
   connecting: "bg-warning animate-pulse",
   connected: "bg-ok",
+  restarting: "bg-warning animate-pulse",
   degraded: "bg-danger",
   dead: "bg-danger",
 };
@@ -56,6 +59,18 @@ const KavalInfoDialog: Component<{
   status: DaemonStatus | undefined;
 }> = (props) => {
   const chrome = surface({ portalled: true });
+  // Why a restart is offered (and the copy explaining it), or undefined when the
+  // daemon is healthy/current or already recycling. Update-pending (a build
+  // behind) and down (dead/degraded) both route the user here.
+  const restartReason = (): string | undefined => {
+    const s = props.status;
+    if (!s) return undefined;
+    if (updatePending(s))
+      return "kaval is a build behind the server. Restarting recycles it to the current build — a brief terminal recycle with your session restored. Optional.";
+    if (s.state === "dead" || s.state === "degraded")
+      return "Restart kaval to bring it back — your saved session is offered for restore once it’s healthy.";
+    return undefined;
+  };
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
       <Dialog.Content
@@ -119,6 +134,27 @@ const KavalInfoDialog: Component<{
             )}
           </Show>
         </div>
+
+        {/* Restart — the supervised recycle (B3). The rail's amber update nudge
+            and the degraded canvas both route here; the copy explains why/what,
+            and it's one click (the session is captured before the recycle). */}
+        <Show when={restartReason()}>
+          {(reason) => (
+            <div class="mt-4 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
+              <p class="text-xs leading-relaxed text-fg-2">{reason()}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  props.onOpenChange(false);
+                  void restartKaval();
+                }}
+                class="mt-2 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-surface-1 transition-colors hover:bg-accent/90"
+              >
+                Restart kaval
+              </button>
+            </div>
+          )}
+        </Show>
 
         {/* kaval-tui */}
         <div class="mt-4">

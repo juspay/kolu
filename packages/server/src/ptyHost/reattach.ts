@@ -20,9 +20,16 @@ import type { PtyHostListEntry } from "kaval";
 import { restart } from "@kolu/surface-daemon-supervisor";
 import { log } from "../log.ts";
 import { getSavedSession, setSavedSession } from "../session.ts";
-import { adoptLocalTerminal, localTerminalBackend } from "../terminalBackend/local.ts";
+import {
+  adoptLocalTerminal,
+  localTerminalBackend,
+} from "../terminalBackend/local.ts";
 import { snapshotSession } from "../terminals.ts";
-import { getLocalEndpoint, ptyHostClient, resetHostInfoCache } from "./index.ts";
+import {
+  getLocalEndpoint,
+  ptyHostClient,
+  resetHostInfoCache,
+} from "./index.ts";
 import { reconcile } from "./reconcile.ts";
 
 /** Join the connected daemon's live PTYs against the saved session and act on the

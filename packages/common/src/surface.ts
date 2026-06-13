@@ -609,6 +609,12 @@ export const DaemonStatusSchema = z.object({
   identity: PtyHostIdentitySchema.optional(),
   /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
   startedAt: z.number().optional(),
+  /** The build the SERVER expects the daemon to be — the staleKey baked into the
+   *  on-disk `KOLU_KAVAL_BIN` closure. The client flags "update pending" when a
+   *  `connected` daemon's `identity.staleKey` differs (a survivor a build behind,
+   *  only reachable once B3 adopts one across a deploy). Absent in dev (no nix
+   *  wrapper sets `KAVAL_BUILD_ID`), read by the client as "no update check". */
+  expectedStaleKey: z.string().optional(),
 });
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export type DaemonState = DaemonStatus["state"];

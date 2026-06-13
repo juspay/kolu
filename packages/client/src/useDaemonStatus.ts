@@ -10,7 +10,7 @@
 
 import type { DaemonStatus } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { app } from "./wire";
+import { app, client } from "./wire";
 
 /** The one host today; R-2's ssh hosts add more keys to the same collection. */
 export const LOCAL_HOST = "local";
@@ -50,4 +50,38 @@ export function downState(): "dead" | "degraded" | undefined {
 /** True when the daemon is down. The DegradedCanvas gate. */
 export function daemonDown(): boolean {
   return downState() !== undefined;
+}
+
+/** True while a supervised restart is in flight (the spine's `restarting`
+ *  state) — neither up nor down: the daemon is recycling, session preserved. */
+export function daemonRestarting(): boolean {
+  return localDaemonStatus()?.state === "restarting";
+}
+
+/** Is the connected daemon a build behind the server's expected kaval build?
+ *  The currency check, derived at the read site (never stored): a `connected`
+ *  daemon whose `identity.staleKey` differs from the server's `expectedStaleKey`.
+ *  Only reachable once B3 adopts a survivor across a deploy — a fresh boot always
+ *  matches — and only when both build ids are present (dev sets neither). */
+export function updatePending(
+  status: DaemonStatus | undefined = localDaemonStatus(),
+): boolean {
+  if (status?.state !== "connected") return false;
+  const have = status.identity?.staleKey;
+  const want = status.expectedStaleKey;
+  return have !== undefined && want !== undefined && have !== want;
+}
+
+/** Trigger a supervised daemon restart over `daemon.restart`. Recoverable by
+ *  construction: the server captures the session before the recycle, so a failed
+ *  respawn leaves the restore card, never an empty canvas. Concurrent triggers
+ *  coalesce onto one recycle (the spine serializes). */
+export async function restartKaval(): Promise<void> {
+  const id = toast.loading("Restarting kaval…");
+  try {
+    await client.daemon.restart({ hostId: LOCAL_HOST });
+    toast.success("kaval restarted — terminals reconnecting", { id });
+  } catch (err) {
+    toast.error(`Failed to restart kaval: ${(err as Error).message}`, { id });
+  }
 }

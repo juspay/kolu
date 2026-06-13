@@ -9,12 +9,13 @@
  * seemingly gone. This surface is visibly distinct: a warning-toned card naming
  * the real problem.
  *
- * B2 is honest but not yet self-healing — a one-click "Restart kaval" affordance
- * (and the session-restore it drives) is B3's supervised restart. Here we tell
- * the user what happened and that their saved session is safe.
+ * B3 makes it self-healing: a one-click "Restart kaval" recycles the daemon to
+ * the current build and restores the session (the server captured it before the
+ * recycle, so a failed respawn leaves the restore card — never an empty canvas).
  */
 
 import { type Component, Show } from "solid-js";
+import { restartKaval } from "./useDaemonStatus";
 import { WarningIcon } from "./ui/Icons";
 
 /** The daemon's down-sub-union — the only states that render this surface.
@@ -50,10 +51,17 @@ const DegradedCanvas: Component<{ state: "dead" | "degraded" }> = (props) => {
               back.
             </p>
             <p class="mt-2 text-xs leading-relaxed text-fg-3">
-              Your saved session is preserved. Restart kolu to bring kaval back;
-              your terminals are offered for restore once it’s healthy. (A
-              one-click restart lands in a later release.)
+              Your saved session is preserved — restart kaval to bring it back,
+              and your terminals are offered for restore once it’s healthy.
             </p>
+            <button
+              type="button"
+              onClick={() => void restartKaval()}
+              data-testid="degraded-restart"
+              class="mt-3 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-surface-1 transition-colors hover:bg-accent/90"
+            >
+              Restart kaval
+            </button>
           </div>
         </div>
       </div>
