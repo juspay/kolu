@@ -77,14 +77,19 @@ function formatUptime(ms: number): string {
   return `${Math.floor(hr / 24)}d ${hr % 24}h`;
 }
 
-// A coarse 30s clock so the kaval uptime advances without a per-second timer.
+// A 1s clock so the kaval uptime ticks live (`15s → 16s → …`) rather than
+// jumping in 30s steps that read as frozen — a freshly (re)started daemon's
+// sub-minute uptime would otherwise sit unchanged until the next coarse tick,
+// only "correcting" on a full reload (which re-reads `Date.now()` at mount).
 // One shared owner for the desktop + mobile rails (the `createSharedRoot`
-// singleton idiom shared with `staleness.ts`/`useDockOrder`), so the interval
-// is owned and its `onCleanup` clears it — never an orphaned module-level timer
-// that leaks under HMR or a test teardown.
+// singleton idiom shared with `staleness.ts`/`useDockOrder`), so the single
+// interval is owned and its `onCleanup` clears it — never an orphaned
+// module-level timer that leaks under HMR or a test teardown. Cost is one
+// signal tick/sec feeding one small `<span>`; above a minute `formatUptime`
+// collapses to coarser units, so the rendered text only changes when it must.
 const getClockNow = createSharedRoot<Accessor<number>>(() => {
   const [now, setNow] = createSignal(Date.now());
-  const id = setInterval(() => setNow(Date.now()), 30_000);
+  const id = setInterval(() => setNow(Date.now()), 1_000);
   onCleanup(() => clearInterval(id));
   return now;
 });
@@ -93,7 +98,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // The server's build identity (commit + the pty-host column) rides
   // surface-app's `buildInfo` cell; `clientCommit` is this bundle's baked commit.
   const pwa = useSurfaceApp<KoluBuildInfo>();
-  // The shared 30s uptime clock — owned by the app root, cleaned up with it.
+  // The shared 1s uptime clock — owned by the app root, cleaned up with it.
   const clockNow = getClockNow();
   // The kaval daemon's live status — read once per render (the column reads its
   // state, dot, identity, and uptime), not re-resolved per use.
