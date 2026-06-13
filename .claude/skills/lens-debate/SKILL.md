@@ -207,7 +207,7 @@ branch for the human to review):
   `comment`** verbatim — write it to a file and `gh pr comment <pr> -F <file>`:
 
   ```bash
-  mkdir -p "$repoPath/.lens-debate"   # clean/all-drop/--no-commit runs never hit commitFix, so the dir may not exist yet
+  mkdir -p "$repoPath/.lens-debate"   # clean/all-drop/--no-commit runs never run the Apply commit step, so the dir may not exist yet
   printf '%s' "$comment" > "$repoPath/.lens-debate/comment.md"
   gh pr comment <pr> -F "$repoPath/.lens-debate/comment.md"
   ```
