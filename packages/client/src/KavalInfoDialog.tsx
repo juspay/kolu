@@ -12,7 +12,8 @@ import Dialog from "@corvu/dialog";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
-import { daemonStateDot, restartKaval, updatePending } from "./useDaemonStatus";
+import RestartKavalButton from "./RestartKavalButton";
+import { daemonStateDot, updatePending } from "./useDaemonStatus";
 import Commit from "./ui/Commit";
 import { CloseIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
@@ -134,16 +135,10 @@ const KavalInfoDialog: Component<{
           {(reason) => (
             <div class="mt-4 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
               <p class="text-xs leading-relaxed text-fg-2">{reason()}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  props.onOpenChange(false);
-                  void restartKaval();
-                }}
-                class="mt-2 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-surface-1 transition-colors hover:bg-accent/90"
-              >
-                Restart kaval
-              </button>
+              <RestartKavalButton
+                beforeRestart={() => props.onOpenChange(false)}
+                class="mt-2"
+              />
             </div>
           )}
         </Show>

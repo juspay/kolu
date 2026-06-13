@@ -15,7 +15,7 @@
  */
 
 import { type Component, Show } from "solid-js";
-import { restartKaval } from "./useDaemonStatus";
+import RestartKavalButton from "./RestartKavalButton";
 import { WarningIcon } from "./ui/Icons";
 
 /** The daemon's down-sub-union — the only states that render this surface.
@@ -54,14 +54,7 @@ const DegradedCanvas: Component<{ state: "dead" | "degraded" }> = (props) => {
               Your saved session is preserved — restart kaval to bring it back,
               and your terminals are offered for restore once it’s healthy.
             </p>
-            <button
-              type="button"
-              onClick={() => void restartKaval()}
-              data-testid="degraded-restart"
-              class="mt-3 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-surface-1 transition-colors hover:bg-accent/90"
-            >
-              Restart kaval
-            </button>
+            <RestartKavalButton testId="degraded-restart" class="mt-3" />
           </div>
         </div>
       </div>
