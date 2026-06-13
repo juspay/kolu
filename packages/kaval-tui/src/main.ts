@@ -25,6 +25,7 @@ import { cli, command } from "cleye";
 import {
   discoverPtyHostSockets,
   getPtyHostSocketPath,
+  KAVAL_NS_PREFIX,
   PTY_HOST_CONTRACT_VERSION,
 } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
@@ -131,7 +132,7 @@ function resolveSocketPath(override: string | undefined): string {
       )}\nPass --socket <path> to pick one.`,
     );
   }
-  return getPtyHostSocketPath(undefined, "kaval");
+  return getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX);
 }
 
 async function cmdList(conn: Connection, json: boolean): Promise<void> {
