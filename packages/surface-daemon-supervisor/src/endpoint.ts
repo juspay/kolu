@@ -144,104 +144,121 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
   const emit = (state: EndpointState, identity?: I, startedAt?: number): void =>
     spec.onStatus(spec.hostId, { state, identity, startedAt });
 
+  // The gate-holder check shared by every boot policy: return the live holder
+  // whose socket is *accepting* (a real daemon — the adopt-or-kill candidate),
+  // or undefined. The gate is PID-ONLY: a hard kill (SIGKILL / power loss)
+  // leaves the pidfile behind and the OS can later reuse that pid for an
+  // UNRELATED process, so a live pid whose socket is dead/absent is a stale gate
+  // over a possibly-reused pid — log it and leave that pid alone (never SIGTERM
+  // a stranger), letting the freshly-spawned daemon's own `acquirePidGate` reap
+  // the stale gate.
+  const liveServingHolder = async (): Promise<number | undefined> => {
+    const holder = gatePid(spec.gatePath);
+    if (holder === undefined || !isHolderLive(holder)) return undefined;
+    if (await socketAccepting(spec.socketPath)) return holder;
+    spec.log.warn(
+      { hostId: spec.hostId, pid: holder, socketPath: spec.socketPath },
+      "gate names a live pid but its socket is dead — treating gate as " +
+        "stale (not killing the pid: it may be an unrelated reused pid)",
+    );
+    return undefined;
+  };
+
+  // SIGTERM a proven-live gate holder and wait for it to actually exit. Reports
+  // `dead` and throws if it does not exit within the recycle ceiling —
+  // respawning over a still-live holder would just yield to it (single
+  // instance), a silent no-op recycle, so fail loudly instead.
+  const killLiveHolder = async (holder: number): Promise<void> => {
+    spec.log.info(
+      { hostId: spec.hostId, pid: holder },
+      "recycling live daemon (boot policy = always recycle)",
+    );
+    try {
+      process.kill(holder, "SIGTERM");
+    } catch {
+      // Raced its own exit between the liveness probe and here — fine, the
+      // wait below confirms it's gone.
+    }
+    const gone = await waitForPidGone(holder);
+    if (!gone) {
+      // Respawning now would just make the new daemon yield to the still-live
+      // gate holder (single instance) — a silent no-op recycle. Fail loudly.
+      emit("dead");
+      throw new Error(
+        `daemon pid ${holder} did not exit within the recycle ceiling`,
+      );
+    }
+  };
+
+  // Spawn a fresh daemon, wait for its socket, run the injected handshake, and
+  // hold the connection (wiring its mid-session close → `degraded`). Reports
+  // `dead` before throwing on any failure (launch, socket-never-up, or a failed
+  // handshake), so the UI never sticks at `connecting`.
+  const spawnConnectHold = async (): Promise<void> => {
+    try {
+      await spec.driver.spawn();
+    } catch (err) {
+      // The launch itself failed (ENOENT/EACCES on the binary, a systemd-run
+      // that couldn't fork). The endpoint contract is "failures report `dead`
+      // before they throw" — the UI relies on it to leave the indefinite
+      // `connecting` state — so flip to `dead` before rethrowing.
+      emit("dead");
+      throw err;
+    }
+
+    const up = await waitForSocket(
+      spec.socketPath,
+      socketReadyMs,
+      socketPollMs,
+    );
+    if (!up) {
+      emit("dead");
+      throw new Error(
+        `daemon socket ${spec.socketPath} never came up within ${socketReadyMs}ms`,
+      );
+    }
+
+    let next: DaemonConnection<C, I>;
+    try {
+      next = await spec.connect();
+    } catch (err) {
+      // A fresh spawn shouldn't skew (it's the current build), so this is a
+      // genuine boot failure — never an import-time throw, just an honest
+      // `dead`.
+      emit("dead");
+      throw err;
+    }
+
+    conn = next;
+    next.onClose(() => {
+      // Only the CURRENT connection's close demotes us — a stale close from a
+      // disposed predecessor must not stomp a fresh `connected`.
+      if (conn === next) {
+        conn = undefined;
+        spec.log.warn(
+          { hostId: spec.hostId },
+          "daemon connection closed mid-session — degraded",
+        );
+        emit("degraded");
+      }
+    });
+    emit("connected", next.identity, next.startedAt);
+  };
+
   return {
     current: () => conn,
 
     async ensure(): Promise<void> {
       emit("connecting");
-
-      // ALWAYS RECYCLE: a live survivor is killed, never adopted, so no
-      // survival hazard can open. (Adoption that preserves a session is B3.)
-      //
-      // But the gate is PID-ONLY: a hard kill (SIGKILL / power loss) leaves the
-      // pidfile behind, and the OS can later reuse that pid for an UNRELATED
-      // process. SIGTERMing a live gate-pid blindly would then kill a stranger.
-      // So we kill only after PROVING the holder is actually the daemon — its
-      // socket must be accepting connections. If the gate names a live pid but
-      // the socket is dead/absent, the gate is stale (a crashed predecessor, or a
-      // recycled pid); we leave that pid alone and let the freshly-spawned
-      // daemon's own `acquirePidGate` reap the stale gate.
-      const holder = gatePid(spec.gatePath);
-      if (
-        holder !== undefined &&
-        isHolderLive(holder) &&
-        (await socketAccepting(spec.socketPath))
-      ) {
-        spec.log.info(
-          { hostId: spec.hostId, pid: holder },
-          "recycling live daemon (boot policy = always recycle)",
-        );
-        try {
-          process.kill(holder, "SIGTERM");
-        } catch {
-          // Raced its own exit between the liveness probe and here — fine, the
-          // wait below confirms it's gone.
-        }
-        const gone = await waitForPidGone(holder);
-        if (!gone) {
-          // Respawning now would just make the new daemon yield to the still-live
-          // gate holder (single instance) — a silent no-op recycle. Fail loudly.
-          emit("dead");
-          throw new Error(
-            `daemon pid ${holder} did not exit within the recycle ceiling`,
-          );
-        }
-      } else if (holder !== undefined && isHolderLive(holder)) {
-        spec.log.warn(
-          { hostId: spec.hostId, pid: holder, socketPath: spec.socketPath },
-          "gate names a live pid but its socket is dead — treating gate as " +
-            "stale (not killing the pid: it may be an unrelated reused pid)",
-        );
-      }
-
-      try {
-        await spec.driver.spawn();
-      } catch (err) {
-        // The launch itself failed (ENOENT/EACCES on the binary, a systemd-run
-        // that couldn't fork). The endpoint contract is "failures report `dead`
-        // before they throw" — the UI relies on it to leave the indefinite
-        // `connecting` state — so flip to `dead` before rethrowing.
-        emit("dead");
-        throw err;
-      }
-
-      const up = await waitForSocket(
-        spec.socketPath,
-        socketReadyMs,
-        socketPollMs,
-      );
-      if (!up) {
-        emit("dead");
-        throw new Error(
-          `daemon socket ${spec.socketPath} never came up within ${socketReadyMs}ms`,
-        );
-      }
-
-      let next: DaemonConnection<C, I>;
-      try {
-        next = await spec.connect();
-      } catch (err) {
-        // A fresh spawn shouldn't skew (it's the current build), so this is a
-        // genuine boot failure — never an import-time throw, just an honest
-        // `dead`.
-        emit("dead");
-        throw err;
-      }
-
-      conn = next;
-      next.onClose(() => {
-        // Only the CURRENT connection's close demotes us — a stale close from a
-        // disposed predecessor must not stomp a fresh `connected`.
-        if (conn === next) {
-          conn = undefined;
-          spec.log.warn(
-            { hostId: spec.hostId },
-            "daemon connection closed mid-session — degraded",
-          );
-          emit("degraded");
-        }
-      });
-      emit("connected", next.identity, next.startedAt);
+      // ALWAYS RECYCLE (B2, "the door"): a live serving survivor is killed,
+      // never adopted, so no survival hazard can open (no orphan, no skew older
+      // than one boot). `liveServingHolder` proves a holder is really the daemon
+      // before we SIGTERM it; a stale gate over a reused pid is left alone.
+      // (Adoption that *preserves* a session is B3's `adoptOrEnsure` — it reuses
+      // these same helpers but connects to the survivor instead of killing it.)
+      const holder = await liveServingHolder();
+      if (holder !== undefined) await killLiveHolder(holder);
+      await spawnConnectHold();
     },
   };
 }
