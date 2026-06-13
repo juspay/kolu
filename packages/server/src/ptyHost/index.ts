@@ -115,16 +115,6 @@ export function resetHostInfoCache(): void {
   infoPromise = undefined;
 }
 
-/** The kaval build id baked into the on-disk `KOLU_KAVAL_BIN` closure the running
- *  server points at — the server's EXPECTED daemon build. The currency check is
- *  `connectedDaemon.identity.staleKey !== this`: a survivor a build behind (only
- *  reachable once B3 adopts one across a deploy) is "update pending". Empty when
- *  the env var is unset (dev, no nix wrapper), which the client reads as "no
- *  update check available". */
-export function expectedKavalBuildId(): string {
-  return process.env.KAVAL_BUILD_ID ?? "";
-}
-
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
  *  Resolves whether or not the daemon came up — a boot failure reports `dead`
  *  via `onStatus` and leaves `ptyHostClient` throwing, so the server can still
