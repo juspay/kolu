@@ -299,6 +299,15 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
     holdConnection(next);
   };
 
+  // The kill-then-respawn recycle, defined once: SIGTERM a proven-live holder we
+  // cannot use, then spawn + connect + hold a fresh daemon in its place. Both
+  // policies that recycle — `ensure`'s always-recycle and `adoptOrEnsure`'s
+  // skew-recycle — call this, so the mechanism never drifts between them.
+  const recycle = async (holder: number): Promise<void> => {
+    await killLiveHolder(holder);
+    await spawnConnectHold();
+  };
+
   return {
     current: () => conn,
 
@@ -342,8 +351,11 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       // (Adoption that *preserves* a session is B3's `adoptOrEnsure` — it reuses
       // these same helpers but connects to the survivor instead of killing it.)
       const holder = await liveServingHolder();
-      if (holder !== undefined) await killLiveHolder(holder);
-      await spawnConnectHold();
+      if (holder !== undefined) {
+        await recycle(holder);
+      } else {
+        await spawnConnectHold();
+      }
     },
 
     async adoptOrEnsure(): Promise<boolean> {
@@ -373,8 +385,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
             { hostId: spec.hostId, pid: holder, err: String(err) },
             "live daemon survivor failed the handshake (skew) — recycling it",
           );
-          await killLiveHolder(holder);
-          await spawnConnectHold();
+          await recycle(holder);
           return false;
         }
         spec.log.info(
