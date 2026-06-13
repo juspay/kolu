@@ -8,12 +8,10 @@
  *  *was* duplicated: `useAnchoredPopover` + `Portal` + the option list
  *  with selected-state highlighting + close-on-select.
  *
- *  Distinct from `right-panel/ModeChipPicker` — that picker handles
- *  grouped, hinted, icon-labelled CodeTab modes with a baked-in chip
- *  trigger; consolidating both would mean conditionally suppressing
- *  the icon/hint/group features at every call site, which is more
- *  complecting than two focused components. The panel-chrome itself
- *  is shared via `surface()`. */
+ *  Unrelated to the CodeTab's scope switcher (the shared
+ *  `ui/SegmentedControl`): that's an always-visible segmented control,
+ *  not a popover, so it shares no chrome with this panel. The panel-chrome
+ *  itself is shared via `surface()`. */
 
 import { For, Show } from "solid-js";
 import { Portal } from "solid-js/web";

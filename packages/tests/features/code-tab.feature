@@ -55,6 +55,22 @@ Feature: Code tab (review + browse)
     Then the right panel should be visible
     And the Code tab mode should be "browse"
 
+  # The scope switcher is a segmented control, so a mode's change count
+  # rides its segment as a badge — visible without switching into it.
+  # Here the default view is browse, yet the Local segment still
+  # advertises its two uncommitted files; browse itself is never badged.
+  Scenario: A mode's change count shows on its segment without switching into it
+    When I run "git init /tmp/kolu-review-badge && cd /tmp/kolu-review-badge"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'one\n' > a.txt"
+    And I run "printf 'two\n' > b.txt"
+    And I click the Code tab
+    Then the Code tab mode should be "browse"
+    And the Code tab "local" segment should show a change count of "2"
+    And the Code tab "browse" segment should show no change count
+    When I click the Code tab mode "local"
+    Then the Code tab "local" segment should show a change count of "2"
+
   # ── Regression suites for #817/#818 ──
   # Each invariant runs in all three Code-tab modes (local, branch,
   # browse) via `Scenario Outline` + an `Examples` row per mode. The

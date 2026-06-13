@@ -6,9 +6,9 @@
  *   - Branch: working tree vs `merge-base(origin/<default>)` — same, with a
  *     branch base. Forge-agnostic "what this branch will ship".
  *
- * The toolbar combines two independent filter axes — mode picker
- * (`ModeChipPicker`) and filename input (`FileSearchInput`) — in one
- * row. Pierre's built-in tree-header search is disabled so the
+ * The toolbar combines two independent filter axes — the scope
+ * switcher (the shared `SegmentedControl`) and filename input
+ * (`FileSearchInput`) — in one row. Pierre's built-in tree-header search is disabled so the
  * `FileSearchInput` is the single source of filter state, forwarded
  * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
  * Pierre lifecycle; this component is just data flow + chrome. */
@@ -16,8 +16,10 @@
 import Resizable from "@corvu/resizable";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
+import { ORPCError } from "@orpc/client";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import {
+  CODE_TAB_VIEW_ORDER,
   type CodeTabView,
   type TerminalId,
   type TerminalMetadata,
@@ -52,6 +54,9 @@ import {
 import { resolveLineRefPath } from "../ui/lineRef";
 import { mergeGitStatusEntries } from "../ui/gitStatusEntries";
 import { makeTreeContextMenu } from "../ui/pierreAdapters";
+import SegmentedControl, {
+  type SegmentedControlOption,
+} from "../ui/SegmentedControl";
 import {
   pierreIconConfig,
   pierreTreesShadowCss,
@@ -65,7 +70,6 @@ import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
-import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import {
   type OpenInCodeTabRequest,
   openInCodeTab,
@@ -98,6 +102,31 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
   </div>
 );
 
+// Browser-style back/forward toolbar button. The back and forward variants are
+// identical save for direction, so the shared hit-target class string (and its
+// touch sizing, driven by the toolbar row's `data-touch` via the group variant)
+// lives here once rather than in two hand-synced copies.
+const NavButton: Component<{
+  direction: "back" | "forward";
+  disabled: boolean;
+  onClick: () => void;
+}> = (props) => {
+  const back = props.direction === "back";
+  return (
+    <button
+      type="button"
+      data-testid={`code-tab-${props.direction}-button`}
+      aria-label={back ? "Go back" : "Go forward"}
+      title={back ? "Go back (Alt+←)" : "Go forward (Alt+→)"}
+      disabled={props.disabled}
+      onClick={props.onClick}
+      class="grid h-5 w-5 group-data-[touch=true]/toolbar:h-7 group-data-[touch=true]/toolbar:w-7 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
+    >
+      <ChevronRightIcon class={`h-3.5 w-3.5${back ? " rotate-180" : ""}`} />
+    </button>
+  );
+};
+
 const CodeTab: Component<{
   terminalId: TerminalId | null;
   meta: TerminalMetadata | null;
@@ -105,11 +134,13 @@ const CodeTab: Component<{
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
 
-  // Pierre captures `density` once at construction (like `initialExpansion`),
-  // so snapshot the choice here rather than passing a reactive accessor in the
-  // JSX, where it would read as reactive. Keyed on `isTouch` (input modality),
-  // not `isMobile` (viewport): roomier rows are a tap-target affordance, so a
-  // coarse-pointer tablet wider than `sm` wants them too.
+  // Coarse-pointer modality (`isTouch`, not `isMobile`): roomier rows are a
+  // tap-target affordance, so a coarse-pointer tablet wider than `sm` wants
+  // them too. The DOM sizing reads it reactively (`(pointer: coarse)` can flip
+  // mid-mount — a 2-in-1 docking/undocking — and `data-touch` should follow),
+  // while Pierre's tree density snapshots it (below) because Pierre captures
+  // `density` once at construction (like `initialExpansion`), so a reactive
+  // accessor there would read as live when it isn't.
   const treeDensity = isTouch() ? "relaxed" : undefined;
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
@@ -258,7 +289,63 @@ const CodeTab: Component<{
   // value is already correct without writing through. slotKey effect now
   // only clears `searchQuery`, which is genuinely shared across slots.)
 
-  const status = app.streams.gitStatus.use(
+  // The repo's `origin` default branch isn't fetched ⇒ branch-mode status
+  // errors with BASE_BRANCH_NOT_FOUND (review.ts `resolveBase`, surfaced as
+  // an ORPCError PRECONDITION_FAILED). This is the only *expected* git-status
+  // failure, and only for the always-on passive `branchStatus` below — every
+  // other error code, and the active-view subscription, surface their errors.
+  const isUnfetchedBase = (err: Error): boolean =>
+    err instanceof ORPCError && err.code === "PRECONDITION_FAILED";
+
+  // `localStatus` and (passive) `branchStatus` stay subscribed whenever there's
+  // a repo, independent of the active view, so the scope switcher's Local /
+  // Branch change-count badges, the branch base/ref, and the browse-mode tree
+  // decoration (`treeGitStatus`) are always warm. The *active* diff view does
+  // NOT reuse these: it has its own view-keyed subscription (`activeStatus`
+  // below) so entering a mode performs a fresh read. That separation is
+  // load-bearing for Branch: a passive branch read can fail (an un-fetched
+  // base) *before* the user ever opens Branch view; were the active view to
+  // reuse that subscription it would be stuck on the stale error —
+  // `createReactiveSubscription` only re-reads when its input changes, and a
+  // later `git fetch` would never revive it because the failed initial server
+  // read tore the stream down before its repo-change watcher was installed
+  // (server.ts `pollOnEvent`).
+  const localStatus = app.streams.gitStatus.use(
+    () => {
+      const p = repoPath();
+      return p ? { repoPath: p, mode: "local" as const } : null;
+    },
+    {
+      onError: (err) => toast.error(`Git status stream: ${err.message}`),
+    },
+  );
+  // Passive branch status — feeds the Branch badge/count, branch base/ref, and
+  // the browse overlay, never the active Branch file list. The un-fetched-base
+  // case is *expected* here (the badge just reads no count / the overlay falls
+  // back to the local layer), so it's swallowed; any *other* failure
+  // (GIT_FAILED, permission, transport) is a real fault and still toasts.
+  const branchStatus = app.streams.gitStatus.use(
+    () => {
+      const p = repoPath();
+      return p ? { repoPath: p, mode: "branch" as const } : null;
+    },
+    {
+      onError: (err) => {
+        if (isUnfetchedBase(err)) return;
+        toast.error(`Git status stream: ${err.message}`);
+      },
+    },
+  );
+
+  // Active-view status: a fresh, view-keyed read for whichever diff mode is
+  // showing (browse reads neither — it's a file tree, not a diff). Keying the
+  // input on the active mode means selecting Branch always performs a fresh
+  // read — it can't inherit a stale error from the passive `branchStatus`, and
+  // it revives after a `git fetch`. Every error surfaces here (the user is
+  // actively in this mode, so even the un-fetched-base case is actionable —
+  // "run git fetch"). `status`/`statusPending`/`statusError` preserve the shape
+  // the rest of the component consumed off the old single subscription.
+  const activeStatus = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
       const m = diffMode();
@@ -268,6 +355,9 @@ const CodeTab: Component<{
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
   );
+  const status = () => activeStatus();
+  const statusPending = () => activeStatus.pending();
+  const statusError = () => activeStatus.error();
 
   const allPaths = app.streams.fsListAll.use(
     () => {
@@ -276,41 +366,6 @@ const CodeTab: Component<{
     },
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
-    },
-  );
-
-  // Browse decorates the full-repo tree with git status too — overlaying local
-  // status (primary) on branch status (fallback) in `treeGitStatus` below.
-  // Both inert outside browse (input fn → null), so Local/Branch modes — which
-  // read decoration straight off the `status` stream — pay nothing for these.
-  const browseLocalStatus = app.streams.gitStatus.use(
-    () => {
-      const p = repoPath();
-      return p && view() === "browse"
-        ? { repoPath: p, mode: "local" as const }
-        : null;
-    },
-    {
-      onError: (err) => toast.error(`Git status stream: ${err.message}`),
-    },
-  );
-  // Best-effort branch layer: a repo with an `origin` remote whose default
-  // branch isn't fetched errors with BASE_BRANCH_NOT_FOUND (review.ts
-  // `resolveBase`) — an expected, not broken, state in this passive overlay.
-  // Swallow it (no toast): the merge falls back to the always-available local
-  // layer. The explicit Branch *mode* still surfaces the same error via its
-  // own `status` subscription, where it's actionable ("run git fetch"). A
-  // remote-less repo (#1244) degrades to an empty branch status instead of
-  // erroring, so it never reaches this handler.
-  const browseBranchStatus = app.streams.gitStatus.use(
-    () => {
-      const p = repoPath();
-      return p && view() === "browse"
-        ? { repoPath: p, mode: "branch" as const }
-        : null;
-    },
-    {
-      onError: () => {},
     },
   );
 
@@ -488,7 +543,7 @@ const CodeTab: Component<{
       () => {
         const s = selectedPath();
         const sk = slotKey();
-        const isPending = isDiffView() ? status.pending() : allPaths.pending();
+        const isPending = isDiffView() ? statusPending() : allPaths.pending();
         const paths = treePaths();
         return { s, sk, pathExists: !s || isPending || paths.includes(s) };
       },
@@ -504,8 +559,8 @@ const CodeTab: Component<{
     // Browse overlays both layers (local primary, branch fallback). Outside
     // browse, decoration comes straight off the active mode's `status` stream.
     if (view() === "browse") {
-      const local = browseLocalStatus()?.files ?? [];
-      const branch = browseBranchStatus()?.files ?? [];
+      const local = localStatus()?.files ?? [];
+      const branch = branchStatus()?.files ?? [];
       return mergeGitStatusEntries(local, branch);
     }
     const s = status();
@@ -604,53 +659,72 @@ const CodeTab: Component<{
   };
 
   const treeError = (): Error | undefined =>
-    isDiffView() ? status.error() : allPaths.error();
+    isDiffView() ? statusError() : allPaths.error();
   const treeReady = () => (isDiffView() ? status() : allPaths());
-  const branchRef = (): string | null => status()?.base?.ref ?? null;
-  // True only while Branch mode is the active view *and* its status has
-  // loaded with no resolvable base (remote-less repo, #1244). `status`
-  // only subscribes for the current view, so this can't be read in
-  // browse/local view — there, `status()?.base` reflects local mode (always
-  // null) and would falsely claim Branch has no base.
-  const branchHasNoBase = (): boolean =>
-    view() === "branch" && status()?.base === null;
+  // Branch base, read off the always-on `branchStatus` so it's correct in
+  // any view (the scope switcher annotates the Branch segment even from
+  // Local/Browse). `undefined` while pending; `null` once loaded with no
+  // resolvable base (a remote-less repo, #1244, degrades to an empty diff
+  // rather than erroring); a `{ ref, sha }` object otherwise.
+  const branchBase = () => branchStatus()?.base;
+  const branchRef = (): string | null => branchBase()?.ref ?? null;
+  // The *actionable* no-base case: Branch is the active view AND it has no
+  // resolvable base (so the empty tree is "nothing to compare against", not
+  // "clean"). The bare `branchBase() === null` question is view-independent —
+  // the badge asks it directly — but the empty-state copy must re-AND the
+  // view, so the compound predicate lives here once instead of at each caller.
+  const branchViewHasNoBase = () =>
+    view() === "branch" && branchBase() === null;
 
-  // Mode catalog — owns the list of views, their labels, hints, and
-  // test IDs. Adding a new mode (e.g. "stash") happens here, plus the
-  // data-source switch above. ModeChipPicker is purely a presenter.
-  const modeOptions = createMemo<ModeOption[]>(() => {
-    const ref = branchRef();
-    const noBase = branchHasNoBase();
-    return [
-      {
-        view: "browse",
-        label: viewLabel("browse"),
-        hint: "Browse the whole repo",
-        testId: "diff-mode-browse",
-        icon: FileBrowseIcon,
-      },
-      {
-        view: "local",
-        group: "Git",
-        label: viewLabel("local"),
-        hint: "Working tree vs HEAD",
-        testId: "diff-mode-local",
-        icon: GitBranchIcon,
-      },
-      {
-        view: "branch",
-        group: "Git",
-        label: viewLabel("branch"),
-        hint: ref
-          ? `vs ${ref}`
-          : noBase
-            ? NO_BRANCH_BASE
-            : "Working tree vs branch base",
-        testId: "diff-mode-branch",
-        icon: GitBranchIcon,
-      },
-    ];
-  });
+  // Change-count badges on the Local / Branch segments. `0` until the
+  // always-on status streams land; the segment hides the pill at 0.
+  const localCount = (): number => localStatus()?.files.length ?? 0;
+  const branchCount = (): number => branchStatus()?.files.length ?? 0;
+
+  // Scope catalog — attaches each view's label, tooltip, icon, change count,
+  // and group divider to the canonical `CODE_TAB_VIEW_ORDER`. The order itself
+  // lives in `surface.ts` (shared with the right-click "jump to view" menu);
+  // this memo only supplies the per-view metadata. The shared
+  // `SegmentedControl` is purely a presenter.
+  const scopeSegments = createMemo<SegmentedControlOption<CodeTabView>[]>(
+    () => {
+      const ref = branchRef();
+      const noBase = branchBase() === null;
+      const meta: Record<
+        CodeTabView,
+        Omit<SegmentedControlOption<CodeTabView>, "value" | "label">
+      > = {
+        browse: {
+          hint: "Browse the whole repo",
+          icon: FileBrowseIcon,
+        },
+        local: {
+          hint: "Working tree vs HEAD",
+          icon: GitBranchIcon,
+          badge: localCount(),
+          // First git segment — set apart from the whole-repo browse tree.
+          dividerBefore: true,
+        },
+        branch: {
+          hint: ref
+            ? `Working tree vs ${ref}`
+            : noBase
+              ? NO_BRANCH_BASE
+              : "Working tree vs branch base",
+          icon: GitBranchIcon,
+          // No base ⇒ not badgeable, so omit the field entirely rather than
+          // carry a value the presenter has to special-case. With a base, the
+          // badge is the change count (the presenter hides it when 0).
+          ...(noBase ? {} : { badge: branchCount() }),
+        },
+      };
+      return CODE_TAB_VIEW_ORDER.map((value) => ({
+        value,
+        label: viewLabel(value),
+        ...meta[value],
+      }));
+    },
+  );
 
   /** Diff value narrowed to "this is a pure-rename" (no hunks, both old +
    *  new file names present and different). Returning the full diff so the
@@ -692,37 +766,41 @@ const CodeTab: Component<{
         data-testid="diff-tab"
         ref={attachBackForwardInputs}
       >
-        <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+        {/* Toolbar grows roomier on a coarse pointer (back/fwd + each scope
+         *  segment clear the WCAG 2.2 24px tap floor); `overflow-x-auto`
+         *  +`scrollbar-none` is a clip safety net for the narrowest phones,
+         *  where the segments + filter can't all fit the drawer width. */}
+        <div
+          data-touch={isTouch() || undefined}
+          class="group/toolbar flex items-center h-7 data-[touch=true]:h-10 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2 overflow-x-auto scrollbar-none"
+        >
           <div class="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              data-testid="code-tab-back-button"
-              aria-label="Go back"
-              title="Go back (Alt+←)"
+            <NavButton
+              direction="back"
               disabled={!rightPanel.canNavigateBack()}
               onClick={goBack}
-              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              <ChevronRightIcon class="h-3.5 w-3.5 rotate-180" />
-            </button>
-            <button
-              type="button"
-              data-testid="code-tab-forward-button"
-              aria-label="Go forward"
-              title="Go forward (Alt+→)"
+            />
+            <NavButton
+              direction="forward"
               disabled={!rightPanel.canNavigateForward()}
               onClick={goForward}
-              class="grid h-5 w-5 place-items-center rounded text-fg-3/70 transition-colors hover:bg-surface-2/60 hover:text-fg disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              <ChevronRightIcon class="h-3.5 w-3.5" />
-            </button>
+            />
           </div>
-          <ModeChipPicker
-            view={view()}
-            onViewChange={setView}
-            modes={modeOptions()}
+          <SegmentedControl
+            options={scopeSegments()}
+            value={view()}
+            onChange={setView}
+            testIdPrefix="diff-mode"
+            ariaRole="toolbar"
+            ariaLabel="File scope"
+            dataMode
+            touch={isTouch()}
           />
-          <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
+          <FileSearchInput
+            value={searchQuery()}
+            onChange={setSearchQuery}
+            touch={isTouch()}
+          />
         </div>
 
         {/* Vertical split between tree and content. Mirrors the horizontal
@@ -781,12 +859,10 @@ const CodeTab: Component<{
                       {(() => {
                         const m = diffMode();
                         if (!m) return "Empty repository";
-                        // Branch mode with no resolvable base (remote-less
-                        // repo, #1244): there's nothing to compare against, so
-                        // "No changes vs base" would be a false clean signal.
-                        if (branchHasNoBase()) {
-                          return NO_BRANCH_BASE;
-                        }
+                        // No resolvable base (remote-less repo, #1244): there's
+                        // nothing to compare against, so "No changes vs base"
+                        // would be a false clean signal.
+                        if (branchViewHasNoBase()) return NO_BRANCH_BASE;
                         return EMPTY_STATE[m];
                       })()}
                     </div>
