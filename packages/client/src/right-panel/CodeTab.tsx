@@ -16,6 +16,7 @@
 import Resizable from "@corvu/resizable";
 import { attachBackForwardMouse } from "@kolu/solid-browser";
 import { FileTree } from "@kolu/solid-pierre";
+import { ORPCError } from "@orpc/client";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   CODE_TAB_VIEW_ORDER,
@@ -261,15 +262,27 @@ const CodeTab: Component<{
   // value is already correct without writing through. slotKey effect now
   // only clears `searchQuery`, which is genuinely shared across slots.)
 
-  // Both git-status layers stay subscribed whenever there's a repo,
-  // independent of the active view. One source per mode feeds three
-  // readers: the active diff view's file list (`status` below), the
-  // browse-mode tree decoration (`treeGitStatus`), and the Local/Branch
-  // change-count badges on the scope switcher. Keeping both warm also
-  // collapses the old duplication (each diff mode subscribed only for
-  // itself; browse re-subscribed both as a separate pair) and lets a
-  // switch into the other mode read its already-loaded status with no
-  // pending flash.
+  // The repo's `origin` default branch isn't fetched ⇒ branch-mode status
+  // errors with BASE_BRANCH_NOT_FOUND (review.ts `resolveBase`, surfaced as
+  // an ORPCError PRECONDITION_FAILED). This is the only *expected* git-status
+  // failure, and only for the always-on passive `branchStatus` below — every
+  // other error code, and the active-view subscription, surface their errors.
+  const isUnfetchedBase = (err: Error): boolean =>
+    err instanceof ORPCError && err.code === "PRECONDITION_FAILED";
+
+  // `localStatus` and (passive) `branchStatus` stay subscribed whenever there's
+  // a repo, independent of the active view, so the scope switcher's Local /
+  // Branch change-count badges, the branch base/ref, and the browse-mode tree
+  // decoration (`treeGitStatus`) are always warm. The *active* diff view does
+  // NOT reuse these: it has its own view-keyed subscription (`activeStatus`
+  // below) so entering a mode performs a fresh read. That separation is
+  // load-bearing for Branch: a passive branch read can fail (an un-fetched
+  // base) *before* the user ever opens Branch view; were the active view to
+  // reuse that subscription it would be stuck on the stale error —
+  // `createReactiveSubscription` only re-reads when its input changes, and a
+  // later `git fetch` would never revive it because the failed initial server
+  // read tore the stream down before its repo-change watcher was installed
+  // (server.ts `pollOnEvent`).
   const localStatus = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
@@ -279,13 +292,11 @@ const CodeTab: Component<{
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
   );
-  // Branch status carries an *expected* failure: a repo whose `origin`
-  // default branch isn't fetched errors with BASE_BRANCH_NOT_FOUND
-  // (review.ts `resolveBase`). That's only actionable ("run git fetch")
-  // when the user is actually *in* Branch view; as the passive source
-  // for the badge and the browse overlay it's swallowed so it never
-  // toasts from Local or Browse. A remote-less repo (#1244) degrades to
-  // an empty branch status (no error), so the badge just reads 0 there.
+  // Passive branch status — feeds the Branch badge/count, branch base/ref, and
+  // the browse overlay, never the active Branch file list. The un-fetched-base
+  // case is *expected* here (the badge just reads no count / the overlay falls
+  // back to the local layer), so it's swallowed; any *other* failure
+  // (GIT_FAILED, permission, transport) is a real fault and still toasts.
   const branchStatus = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
@@ -293,27 +304,33 @@ const CodeTab: Component<{
     },
     {
       onError: (err) => {
-        if (view() === "branch") {
-          toast.error(`Git status stream: ${err.message}`);
-        }
+        if (isUnfetchedBase(err)) return;
+        toast.error(`Git status stream: ${err.message}`);
       },
     },
   );
 
-  // The active diff view reads whichever always-on status stream matches
-  // the current mode; browse reads neither (it's a file tree, not a
-  // diff). `status`/`statusPending`/`statusError` preserve the shape the
-  // rest of the component consumed off the old single subscription.
-  const activeStatus = createMemo(() =>
-    view() === "local"
-      ? localStatus
-      : view() === "branch"
-        ? branchStatus
-        : null,
+  // Active-view status: a fresh, view-keyed read for whichever diff mode is
+  // showing (browse reads neither — it's a file tree, not a diff). Keying the
+  // input on the active mode means selecting Branch always performs a fresh
+  // read — it can't inherit a stale error from the passive `branchStatus`, and
+  // it revives after a `git fetch`. Every error surfaces here (the user is
+  // actively in this mode, so even the un-fetched-base case is actionable —
+  // "run git fetch"). `status`/`statusPending`/`statusError` preserve the shape
+  // the rest of the component consumed off the old single subscription.
+  const activeStatus = app.streams.gitStatus.use(
+    () => {
+      const p = repoPath();
+      const m = diffMode();
+      return p && m ? { repoPath: p, mode: m } : null;
+    },
+    {
+      onError: (err) => toast.error(`Git status stream: ${err.message}`),
+    },
   );
-  const status = () => activeStatus()?.();
-  const statusPending = () => activeStatus()?.pending() ?? false;
-  const statusError = () => activeStatus()?.error();
+  const status = () => activeStatus();
+  const statusPending = () => activeStatus.pending();
+  const statusError = () => activeStatus.error();
 
   const allPaths = app.streams.fsListAll.use(
     () => {
