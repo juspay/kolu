@@ -14,7 +14,7 @@ import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { daemonWarming } from "../useDaemonStatus";
+import { refuseIfWarming } from "../useDaemonStatus";
 import { client, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
@@ -107,10 +107,8 @@ export function useTerminalCrud(deps: { store: TerminalStore }) {
     // momentarily-stale `current` connection). Creation must wait for
     // `connected` (F3). `throw` (not a silent return) so the restore loop
     // aborts cleanly rather than half-creating.
-    if (daemonWarming()) {
-      toast.warning("Daemon is starting — try again in a moment");
+    if (refuseIfWarming())
       throw new Error("daemon warming: terminal creation deferred");
-    }
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
     // Snapshot peer backgrounds BEFORE creating — the new terminal gets the
@@ -153,10 +151,7 @@ export function useTerminalCrud(deps: { store: TerminalStore }) {
     // Split creation reaches `client.terminal.create` directly (not via
     // `handleCreate`), so it needs the same warming guard — the split
     // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
-    if (daemonWarming()) {
-      toast.warning("Daemon is starting — try again in a moment");
-      return;
-    }
+    if (refuseIfWarming()) return;
     const info = await client.terminal
       .create({ cwd, parentId })
       .catch((err: Error) => {

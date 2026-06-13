@@ -145,3 +145,16 @@ export function isWarming(state: DaemonState | undefined): boolean {
 export function daemonWarming(): boolean {
   return isWarming(localDaemonStatus()?.state);
 }
+
+/** The single warming-refusal gate for terminal creation: if the daemon is
+ *  warming, toast the one shared message and report `true` (refused). Both
+ *  create paths in `useTerminalCrud` call this so the predicate AND the copy
+ *  live once; each caller keeps only its own throw-vs-return decision on the
+ *  boolean. */
+export function refuseIfWarming(): boolean {
+  if (daemonWarming()) {
+    toast.warning("Daemon is starting — try again in a moment");
+    return true;
+  }
+  return false;
+}
