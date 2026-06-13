@@ -189,9 +189,12 @@ export type DockModel = {
 
 /** Classify live agent metadata into the agent-state buckets. Pure — does
  *  not consider staleness. Callers that have a staleness signal should
- *  prefer `entryBucket()` so parked terminals route to the Idle column;
- *  this function stays exported for the minimap badge, which colors tiles
- *  by agent state regardless of age. */
+ *  prefer `entryBucket()` so parked terminals route to the Idle column.
+ *  This function stays exported for the age-blind clients that color tiles
+ *  by agent state regardless of age: the minimap parked badge, and the
+ *  canvas tile + minimap aura mapper (`useTileAura`), which layer staleness
+ *  in separately via `tileAura`'s third argument rather than baking it in
+ *  here. */
 export function agentBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<AgentBucketKind, "idle"> {
