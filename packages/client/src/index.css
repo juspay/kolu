@@ -205,11 +205,11 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  height: 2.5px;
+  height: 5px;
   pointer-events: none;
 }
 .aura-bar--mini {
-  height: 1.5px;
+  height: 3px;
 }
 [data-aura="working"] .aura-bar {
   background: var(--color-busy);
