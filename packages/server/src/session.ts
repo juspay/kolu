@@ -52,11 +52,18 @@ function writeSession(next: SavedSession | null): void {
   surfaceCtx.cells.session.set(next);
 }
 
-/** Save a session snapshot. Clears the session when no terminals remain. */
-export function saveSession(snapshot: {
+/** A live snapshot of the terminal set — the shape autosave persists. Exported
+ *  so the producer (`snapshotSession` in terminals.ts) and the consumers
+ *  (`saveSession` / `initSessionAutoSave`) reference one nominal contract
+ *  instead of each re-spelling the inline shape. */
+export interface SessionSnapshot {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
-}): void {
+}
+
+/** Save a session snapshot. Clears the session when no terminals remain;
+ *  otherwise stamps `savedAt`. */
+export function saveSession(snapshot: SessionSnapshot): void {
   if (snapshot.terminals.length === 0) {
     writeSession(null);
     return;
@@ -111,12 +118,7 @@ export function setSavedSession(session: SavedSession | null): void {
  *  Assumes `saveSession` is synchronous (it is — `writeSession` does sync
  *  `store.set` + sync publish). If anyone makes it async, add an in-flight
  *  guard so a new schedule can't race an unfinished write. */
-export function initSessionAutoSave(
-  snapshot: () => {
-    terminals: SavedTerminal[];
-    activeTerminalId: string | null;
-  },
-): void {
+export function initSessionAutoSave(snapshot: () => SessionSnapshot): void {
   void (async () => {
     try {
       for await (const _ of terminalsDirtyChannel.subscribe(undefined)) {

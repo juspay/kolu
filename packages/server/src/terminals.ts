@@ -35,6 +35,7 @@ import { updateClientMetadata } from "./terminalBackend/metadata.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
+import type { SessionSnapshot } from "./session.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
 // R-1: a single local backend. R-2 will route by `location.kind` per
@@ -59,10 +60,7 @@ export {
  *  `PersistedTerminalFieldsSchema` flows through here with no change.
  *  Order is `Map` insertion order — terminals appear in the sequence
  *  they were created. */
-export function snapshotSession(): {
-  terminals: SavedTerminal[];
-  activeTerminalId: string | null;
-} {
+export function snapshotSession(): SessionSnapshot {
   const snappedTerminals = [...terminalEntries()].map(
     ([id, entry]): SavedTerminal => {
       const {
