@@ -60,9 +60,13 @@ let
       || fail "terminal.sendInput RPC errored"
 
     # 4) confirm the output reached the scrollback before we restart.
+    #    Plain `grep` (output discarded), NOT `grep -q`: under `pipefail`, `-q`
+    #    exits on the first match and SIGPIPEs the `snapshot` producer, so the
+    #    pipeline can report 141 even on a real match. Plain grep drains the
+    #    producer, so the pipeline status is grep's own match/no-match.
     seen=""
     for _ in $(seq 1 60); do
-      ${kavalTui} snapshot "$id" 2>/dev/null | grep -q "${nonce}" && { seen=1; break; }
+      ${kavalTui} snapshot "$id" 2>/dev/null | grep "${nonce}" >/dev/null && { seen=1; break; }
       sleep 1
     done
     [ -n "$seen" ] || fail "command output never reached the scrollback pre-restart"
@@ -92,10 +96,14 @@ let
       newgate=$(cat "$ns/${gateFile}" 2>/dev/null || echo "")
       newpid=$(${kavalTui} list --json 2>/dev/null \
                | ${jq} -r --arg id "$id" '.[] | select(.id==$id) | .pid' 2>/dev/null || echo "")
+      # Plain `grep` (output discarded), NOT `grep -q`, in these pipes: under
+      # `pipefail`, `-q` exits on the first match and SIGPIPEs the producer, so the
+      # pipeline can report 141 on a real match and the poll would never confirm.
+      # Plain grep drains the producer, leaving grep's own match/no-match status.
       if [ "$newgate" = "$gate" ] && [ "$newpid" = "$pid" ] \
-         && ${kavalTui} snapshot "$id" 2>/dev/null | grep -q "${nonce}" \
+         && ${kavalTui} snapshot "$id" 2>/dev/null | grep "${nonce}" >/dev/null \
          && journalctl --user -u kolu --no-pager 2>/dev/null \
-              | grep -q "adopted surviving terminals after restart"; then
+              | grep "adopted surviving terminals after restart" >/dev/null; then
         echo "OK terminal $id (pid $pid) + scrollback (marker ${nonce}) survived; same daemon $gate; kolu reconciled it" \
           > /tmp/verify-result
         exit 0

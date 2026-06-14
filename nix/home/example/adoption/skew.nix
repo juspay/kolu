@@ -75,9 +75,15 @@ let
       # Boolean conditions, NOT count arithmetic: `grep -c` prints `0` AND exits 1
       # on a miss, so `grep -c ... || echo 0` over a PIPE yields `0\n0` — which a
       # `[ -ge 1 ]` test then chokes on (`integer expected`) on every poll until
-      # the condition holds. `grep -q` in the `if` is the clean predicate.
+      # the condition holds. A plain match-predicate `grep` is the clean test.
+      #
+      # NB: grep WITHOUT `-q` (output to /dev/null), not `grep -q`: under
+      # `pipefail`, `-q` exits on the first match and SIGPIPEs `journalctl`, so the
+      # pipeline reports 141 even on a real match and the poll would never succeed.
+      # Plain grep drains all of journalctl, so the pipeline status is grep's own
+      # match/no-match (0/1) — what we actually want to test here.
       if [ -n "$newgate" ] && [ "$newgate" != "$oldgate" ] \
-         && journalctl --user -u kolu-new --no-pager 2>/dev/null | grep -q "contract skew" \
+         && journalctl --user -u kolu-new --no-pager 2>/dev/null | grep "contract skew" >/dev/null \
          && grep -q "$id" "$HOME/${configFile}" 2>/dev/null; then
         echo "OK skew-recycled: daemon gate $oldgate->$newgate; contract skew logged; session for $id preserved" \
           > /tmp/skew-verify-result
@@ -85,7 +91,7 @@ let
       fi
       sleep 1
     done
-    skewseen=no; journalctl --user -u kolu-new --no-pager 2>/dev/null | grep -q "contract skew" && skewseen=yes
+    skewseen=no; journalctl --user -u kolu-new --no-pager 2>/dev/null | grep "contract skew" >/dev/null && skewseen=yes
     sessseen=no; grep -q "$id" "$HOME/${configFile}" 2>/dev/null && sessseen=yes
     {
       echo "FAIL(skew-verify): the skewed survivor was not cleanly recycled with the session preserved."
