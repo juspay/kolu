@@ -6,13 +6,16 @@
 
 import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
 import { useSubPanel } from "./useSubPanel";
+import { useTerminalCrud } from "./useTerminalCrud";
+import { useTerminalSearch } from "./useTerminalSearch";
+import { useTerminalStore } from "./useTerminalStore";
 
 const TerminalContent: Component<{
   terminalId: TerminalId;
@@ -21,24 +24,25 @@ const TerminalContent: Component<{
    *  on mobile: true only for the visible tile. */
   visible: boolean;
   /** Whether this terminal should grab keyboard focus. True only for
-   *  the selected tile on the canvas; same as `visible` on mobile. */
+   *  the selected tile on the canvas; same as `visible` on mobile. Also
+   *  gates the per-terminal find bar (only the focused terminal shows it). */
   focused: boolean;
   theme: ITheme;
-  searchOpen: boolean;
-  onSearchOpenChange: (open: boolean) => void;
-  subTerminalIds: TerminalId[];
-  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
-  onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
+  /** Close a terminal — stays a prop because closing a top-level tile pops
+   *  App's root-mounted `<CloseConfirm>` dialog (shell-owned orchestration). */
   onCloseTerminal: (id: TerminalId) => void;
-  activeMeta: TerminalMetadata | null;
   /** Called when user focuses any terminal in this pane (click, keyboard).
    *  Canvas mode uses this to set the active tile. */
   onFocus?: () => void;
 }> = (props) => {
+  const store = useTerminalStore();
+  const crud = useTerminalCrud();
   const subPanel = useSubPanel();
+  const search = useTerminalSearch();
 
+  const subTerminalIds = () => store.getSubTerminalIds(props.terminalId);
   const panelState = () => subPanel.getSubPanel(props.terminalId);
-  const hasSubs = () => props.subTerminalIds.length > 0;
+  const hasSubs = () => subTerminalIds().length > 0;
   const isExpanded = () => hasSubs() && !panelState().collapsed;
   const activeSubTab = () => panelState().activeSubTab;
   const focusTarget = () => panelState().focusTarget;
@@ -89,8 +93,8 @@ const TerminalContent: Component<{
           visible={props.visible}
           focused={shouldFocusMain()}
           theme={props.theme}
-          searchOpen={props.searchOpen}
-          onSearchOpenChange={props.onSearchOpenChange}
+          searchOpen={props.focused && search.isOpen(props.terminalId)}
+          onSearchOpenChange={(open) => search.setOpen(props.terminalId, open)}
           onFocus={handleMainFocus}
         />
       </Resizable.Panel>
@@ -131,19 +135,22 @@ const TerminalContent: Component<{
       >
         <Show when={isExpanded()}>
           <SubPanelTabBar
-            subIds={props.subTerminalIds}
+            subIds={subTerminalIds()}
             activeSubTab={activeSubTab()}
-            getMetadata={props.getMetadata}
+            getMetadata={store.getMetadata}
             onSelect={(id) => subPanel.setActiveSubTab(props.terminalId, id)}
             onClose={props.onCloseTerminal}
             onCollapse={() => subPanel.collapsePanel(props.terminalId)}
             onCreate={() =>
-              props.onCreateSubTerminal(props.terminalId, props.activeMeta?.cwd)
+              void crud.handleCreateSubTerminal(
+                props.terminalId,
+                store.activeMeta()?.cwd,
+              )
             }
           />
         </Show>
         <div class="flex-1 min-h-0">
-          <For each={props.subTerminalIds}>
+          <For each={subTerminalIds()}>
             {(subId) => (
               <Terminal
                 terminalId={subId}
