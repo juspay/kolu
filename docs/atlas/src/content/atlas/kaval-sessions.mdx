@@ -1,0 +1,233 @@
+---
+title: Kaval sessions — dial daemons, multiplex the canvas
+description: A direction reframe for R-2 now kaval ships. Dial kavals as first-class endpoints — local over a unix socket, remote over ssh (provisioned via surface-nix-host) — with hosts auto-detected from ssh config. The same substrate supports either switching one kaval at a time (tmux-style) or multiplexing several on one canvas (per-tile piggybacks on its kaval); the canvas metaphor leans multiplex. First step — kaval-tui create, then --host (reach + provision in one PR).
+kind: feature
+status: accepted
+maturity: seedling
+parents: [remote-terminals]
+updated: 2026-06-14
+---
+
+import D2 from "../../components/D2.astro";
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Terminal from "../../components/Terminal.astro";
+
+export const KavalCanvas = () => (
+  <div style="margin:1.5rem 0;max-width:35rem;border:1px solid #11131a;border-radius:11px;overflow:hidden;box-shadow:0 6px 22px rgba(0,0,0,.3);font-family:ui-sans-serif,system-ui">
+    <div style="display:flex;align-items:center;gap:.5rem;padding:.5rem .8rem;background:#1b1e27;border-bottom:1px solid #11131a">
+      <span style="font:700 .8rem/1 ui-monospace,monospace;color:#e8ecf7">kolu</span>
+      <span style="width:1px;height:14px;background:#343a48;margin:0 .1rem;display:inline-block"></span>
+      <span style="display:inline-flex;align-items:center;gap:.3rem;padding:.26rem .5rem;background:#222632;border:1px solid #3a4152;border-radius:6px;font:600 .66rem/1 ui-monospace,monospace;color:#c9d1e3">
+        <span style="width:6px;height:6px;border-radius:50%;background:#27c93f;display:inline-block"></span>local
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:.3rem;padding:.26rem .5rem;background:#222632;border:1px solid #3a4152;border-radius:6px;font:600 .66rem/1 ui-monospace,monospace;color:#c9d1e3">
+        <span style="width:6px;height:6px;border-radius:50%;background:#ffbd2e;display:inline-block"></span>prod
+        <span style="font:600 .52rem/1 ui-monospace,monospace;color:#7fb0ff;border:1px solid #38507a;border-radius:3px;padding:.06rem .22rem">ssh</span>
+      </span>
+      <span style="font:.64rem/1 ui-monospace,monospace;color:#5b6377">+ host</span>
+      <span style="flex:1"></span>
+      <span style="font:.55rem/1 ui-monospace,monospace;color:#5b6377">from ssh config</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;padding:.7rem;background:#0e1016">
+      <div style="border:1px solid #2a2f3a;border-radius:8px;background:#161922;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:.35rem;padding:.32rem .5rem;background:rgba(228,228,232,.05);border-bottom:1px solid #22262f">
+          <span style="width:6px;height:6px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+          <span style="font:600 .6rem/1 ui-monospace,monospace;color:#9aa3ba">build · ~/app</span>
+          <span style="flex:1"></span>
+          <span style="font:600 .5rem/1 ui-monospace,monospace;color:#6b7488">local</span>
+        </div>
+        <div style="padding:.45rem .5rem;font:.6rem/1.5 ui-monospace,monospace;color:#8a93a8">▸ vite build — watching…</div>
+      </div>
+      <div style="border:1px solid #2a2f3a;border-radius:8px;background:#161922;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:.35rem;padding:.32rem .5rem;background:rgba(228,228,232,.05);border-bottom:1px solid #22262f">
+          <span style="width:6px;height:6px;border-radius:50%;background:#ffbd2e;display:inline-block"></span>
+          <span style="font:600 .6rem/1 ui-monospace,monospace;color:#9aa3ba">deploy · prod</span>
+          <span style="flex:1"></span>
+          <span style="font:600 .5rem/1 ui-monospace,monospace;color:#7fb0ff">ssh</span>
+        </div>
+        <div style="padding:.45rem .5rem;font:.6rem/1.5 ui-monospace,monospace;color:#8a93a8">$ kubectl rollout status…</div>
+      </div>
+    </div>
+    <div style="padding:.5rem .8rem;background:#0e1016;border-top:1px solid #14161d;font:.62rem/1.4 ui-monospace,monospace;color:#6b7488">↳ one canvas, tiles on different kavals — <span style="color:#9aa3ba">local</span> always present, remotes added on demand</div>
+  </div>
+);
+
+export const ProcDiagram = () => (
+  <div style="margin:1.5rem 0;overflow-x:auto">
+    <svg viewBox="0 0 680 560" width="100%" style="min-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
+      <defs>
+        <marker id="pd-ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#475569" />
+        </marker>
+      </defs>
+
+      <text x="16" y="22" font-size="11" fill="#64748b">Boundaries:</text>
+      <rect x="96" y="13" width="20" height="11" rx="2" fill="none" stroke="#94a3b8" stroke-dasharray="3 2" />
+      <text x="121" y="22" font-size="11" fill="#64748b">host</text>
+      <rect x="156" y="13" width="20" height="11" rx="2" fill="#fff" stroke="#334155" />
+      <text x="181" y="22" font-size="11" fill="#64748b">process</text>
+      <text x="238" y="22" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/…</text>
+      <text x="312" y="22" font-size="11" fill="#64748b">= package</text>
+
+      <rect x="8" y="34" width="664" height="186" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
+      <text x="18" y="52" font-size="12.5" font-weight="700" fill="#475569">host · local  —  where kolu-server runs</text>
+
+      <rect x="22" y="64" width="168" height="146" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="22" y="64" width="168" height="22" rx="7" fill="#64748b" />
+      <rect x="22" y="75" width="168" height="11" fill="#64748b" />
+      <text x="32" y="79" font-size="11.5" font-weight="700" fill="#fff">process · browser</text>
+      <text x="32" y="108" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/client</text>
+      <text x="32" y="132" font-size="10" font-style="italic" fill="#64748b">the canvas (SolidJS)</text>
+
+      <rect x="204" y="64" width="452" height="146" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="204" y="64" width="452" height="22" rx="7" fill="#2563eb" />
+      <rect x="204" y="75" width="452" height="11" fill="#2563eb" />
+      <text x="214" y="79" font-size="11.5" font-weight="700" fill="#fff">process · kolu-server</text>
+      <text x="214" y="106" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/server</text>
+      <text x="214" y="124" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-daemon-supervisor</text>
+      <text x="214" y="142" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-nix-host</text>
+      <text x="214" y="160" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/integrations/git</text>
+      <text x="214" y="186" font-size="10" font-style="italic" fill="#64748b">local tiles: the provider DAG + fs/git watchers run HERE</text>
+
+      <line x1="190" y1="150" x2="204" y2="150" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
+      <text x="197" y="144" font-size="9" fill="#334155" text-anchor="middle">ws</text>
+
+      <line x1="290" y1="212" x2="174" y2="336" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
+      <text x="486" y="256" font-size="10.5" font-weight="700" fill="#7c3aed" text-anchor="middle">ssh · HostSession (stdioLink)</text>
+      <text x="486" y="272" font-size="9.5" fill="#64748b" text-anchor="middle">pty-host proxied · fs/git · metadata</text>
+
+      <rect x="8" y="306" width="664" height="248" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
+      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#475569">host · remote (prod)  —  one ssh endpoint: kolu-watcher, fronting kaval</text>
+
+      <rect x="22" y="338" width="300" height="200" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="22" y="338" width="300" height="22" rx="7" fill="#b45309" />
+      <rect x="22" y="349" width="300" height="11" fill="#b45309" />
+      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#fff">process · kolu-watcher  —  re-runs fresh  (P3)</text>
+      <text x="32" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/server   (R-1.6 provider DAG)</text>
+      <text x="32" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/integrations/git</text>
+      <text x="32" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface</text>
+      <text x="32" y="446" font-size="10" font-style="italic" fill="#64748b">fronts kaval; runs the DAG + native fs/git;</text>
+      <text x="32" y="462" font-size="10" font-style="italic" fill="#64748b">serves pty-host + fs/git over ssh</text>
+
+      <rect x="380" y="338" width="276" height="200" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="380" y="338" width="276" height="22" rx="7" fill="#15803d" />
+      <rect x="380" y="349" width="276" height="11" fill="#15803d" />
+      <text x="390" y="353" font-size="11.5" font-weight="700" fill="#fff">process · kaval  —  durable · SURVIVES</text>
+      <text x="390" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/kaval</text>
+      <text x="390" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-daemon</text>
+      <text x="390" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/terminal-protocol</text>
+      <text x="390" y="446" font-size="10" font-style="italic" fill="#64748b">fds + OSC taps; single-instance</text>
+      <text x="390" y="462" font-size="10" font-style="italic" fill="#64748b">pid-gate; serves a unix socket</text>
+
+      <line x1="322" y1="440" x2="380" y2="440" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
+      <text x="351" y="432" font-size="8.5" fill="#334155" text-anchor="middle">unix socket</text>
+      <text x="351" y="454" font-size="8" fill="#64748b" text-anchor="middle">taps + pty-host</text>
+    </svg>
+  </div>
+);
+
+**A reframe of [remote-terminals](remote-terminals.html)'s R-2, proposed now kaval ships.** Old R-2 made *remote* a heavyweight per-tile **backend** (a `RemoteTerminalBackend`, a parent-side screen mirror, a bespoke agent). This proposes a lighter substrate: **a kaval is a daemon you dial** — local over a unix socket, remote over ssh — and Kolu can put a tile on any kaval. Whether the canvas shows **one kaval at a time** (tmux-style switch) or **multiplexes several** (a tile per kaval, side by side) is a UI choice on the *same* substrate — and because kolu is a *canvas*, it leans multiplex.
+
+<KavalCanvas />
+
+## The substrate — a kaval is a daemon you dial
+
+kolu-server already keys its pty-host endpoint + status by `hostId` (a `Map`, instantiated as one — `local` — today). This instantiates more keys: a registry of kaval endpoints, each reached by a driver — unix socket (local, shipped) or ssh stdio (`HostSession`, R-2's only new transport, the same closure shipped by `@kolu/surface-nix-host`).
+
+<D2
+  caption="One substrate. kolu-server holds a registry of kaval endpoints keyed by hostId; a tile resolves to its endpoint via the R-1 seam, and each endpoint is dialed by a driver (unix socket / ssh stdio). Switch keeps one endpoint live and swaps; multiplex keeps N live at once. Remote is just the ssh driver provisioning the same kaval closure."
+  code={`direction: down
+ui: "kolu canvas — a tile lives on a kaval\\n(local + ssh, switched or multiplexed)"
+server: "kolu-server" {
+  resolve: "per tile: resolveEndpoint(location) → its kaval endpoint"
+  registry: "endpoint registry — Map<hostId, endpoint>" {
+    epLocal: "local — unix socket"
+    epProd: "prod — ssh stdio (HostSession)"
+  }
+}
+kLocal: "kaval @ local — survives deploys"
+kProd: "kaval @ prod — provisioned + dialed (R-2)"
+ui -> server.resolve: "a tile's PTY"
+server.registry.epLocal -> kLocal: "dial unix socket"
+server.registry.epProd -> kProd: "ssh: nix copy --derivation → realise → dial"
+`}
+/>
+
+**There is one backend, not many** — and one backend means one *shape*, not one host. A backend is **three surfaces bound to an endpoint** — PTY · fs · git — and local vs remote is only the transport each is dialed over. The PTY surface already works this way (kaval at a unix socket since B2, or ssh stdio); fs and git extend the **same** pattern — served at the host, mirrored over the same `HostSession` link (`mirrorRemoteCollection`, the R-1.5 remote-process-monitor pattern). **No reach-over-ssh per op, no polling.**
+
+| At the endpoint | local | remote — same `HostSession` link |
+| --- | --- | --- |
+| **PTY** — kaval (fds + OSC taps) | unix socket | ssh stdio |
+| **provider DAG + fs/git watchers** — run where the files are | in kolu-server | in **kolu-watcher** → stream metadata |
+| **Code-tab fs** — browse · read · *watch* | node fs (native) | remote fs surface · snapshot-then-delta |
+
+The **awareness** providers (cwd · title · foreground · command · agent-detection) are *tap-fed*, so they are transport-free. kaval stays the durable survivor; **kolu-watcher** — a host-resident process running the provider DAG + fs/git — **re-runs fresh** (the #1031 line, now applied remote-side). *The `kolu-` prefix is honest: kolu-watcher runs kolu's own logic — it is coupled, kolu's soul — unlike the generic, kolu-agnostic kaval (which earns a standalone name).* So R-1's `TerminalBackend` *interface* anticipated a second (remote) *implementation* the kaval model dissolves: not two backends, one backend whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` (B3.3) adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out for free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
+
+## Switch or multiplex?
+
+The open question — and the same substrate answers either, so it is a **later, reversible** UI call that the spike below does not depend on:
+
+| | switch (tmux-style) | multiplex (canvas) — leaning |
+| --- | --- | --- |
+| the canvas | one kaval in view | tiles span kavals |
+| per-tile `location` | unneeded | additive — the R-1 discriminator, finally used |
+| live endpoints | one, swapped | N concurrent |
+| host hint | one *current* pointer | a light per-tile tag; ChromeBar shows the *active* kavals |
+| why it fits kolu | simplest | the canvas is spatial + heterogeneous *by design* |
+
+The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but kolu is a *canvas* — "watch a local build beside a prod-ssh tile" is the point of a canvas, not a corner case. The cost over switch is modest and clean — per-tile `location` returns, but **additively** (no `RemoteTerminalBackend`, no screen mirror — just *which endpoint holds this tile's PTY*), and the ChromeBar shows only the kavals this canvas *actually has tiles on*.
+
+## Phases
+
+| Phase | Ships | Note |
+| --- | --- | --- |
+| **P0** · backend cleanup | collapse R-1's anticipated backend polymorphism — a backend is **PTY · fs · git surfaces bound to an endpoint** (no `RemoteTerminalBackend`); byte-identical locally, the seam P3 fills with the remote impls | kolu-server only · low-risk · grounds P3 · can lead or run in parallel |
+| **P1** · `kaval-tui create` | spawn a plain shell — the attach-needs-something prerequisite | thin over `terminal.spawn` |
+| **P2** · `kaval-tui --host` | **reach + provision in one PR** (ssh), hosts auto-detected from ssh config | **the spike** — *is* the production `sshDriver`; the validation long-pole |
+| **P3** · kolu dials remotes | N-endpoint registry + the ssh driver; the remote pair — kaval + **kolu-watcher** (provider DAG + fs/git surface) — mirrored over the `HostSession` link; `location` additive on records | builds on P0 + P2 · carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`) |
+| **P4** · the canvas UI + validate | build **multiplex** (the lean) — active-kaval strip (local always present), per-tile host hint, ssh-config picker — then **validate the feel** (does N-at-once beat tmux-switch in daily use?); fall back to switch if it doesn't earn its keep | the granularity call lands **and is validated** here |
+
+**P1–P2 — the spike — in detail.** [kaval-tui](pty-daemon-tui.html) is the minimal client; it proves the transport before any Kolu UI, and because it and kolu-server dial the same socket through the same client, the spike **is** the production driver.
+
+<Terminal title="kaval-tui · ssh nix@prod (provision + dial)" lines={[
+  "$ kaval-tui --host nix@prod",
+  "  ↳ ssh nix@prod · nix copy --derivation → realise … kaval up",
+  "  ↳ dialing the remote kaval over ssh stdio … connected · 0 terminals",
+  "",
+  "$ kaval-tui --host nix@prod create",
+  "  ↳ spawned a8f1…  plain shell on prod",
+  "$ kaval-tui --host nix@prod attach a8f1…",
+  "  ↳ ~/app on prod — remote PTY survives · detach/reattach anytime",
+]} />
+
+- **`kaval-tui create`** *(prereq)* — spawn a **plain shell** (a thin subcommand over `terminal.spawn`; B0 made spawn fully-specified, the tests already carry the minimal `spawnInput()`). kaval-tui today is `list` / `snapshot` / `attach` — its own source says *"spawn / kill land later."* A freshly-provisioned remote kaval has **zero** terminals, so `create` comes first.
+- **`kaval-tui --host <ssh>`** *(reach + provision, one PR)* — `provisionAgent` (`nix copy --derivation` → realise) **then** dial over `HostSession`'s ssh `stdioLink`. Both halves already ship in `@kolu/surface-nix-host`, so it is one PR wiring two proven primitives.
+
+<Callout kind="note" title="The spike is the substrate — and it doesn't depend on switch-vs-multiplex">
+ssh <em>reach</em> + provision is the one genuinely-new transport, shared by both granularities and R-2's biggest unknown. Proving it in kaval-tui builds the production driver and lets real feedback <em>settle</em> switch-vs-multiplex later — so it is the right validation step even though the canvas model isn't finalized. (P0 is independent kolu-server cleanup; it can land first in parallel without waiting on the spike.)
+</Callout>
+
+## The remote process model (P3)
+
+**kaval and kolu-watcher are two separate processes** — forced, not incidental. kaval is the durable survivor (it must outlive deploys); **kolu-watcher** (provider DAG + fs/git) re-runs fresh (it must be the current build's code — the #1031 line); **one process cannot be both.** Locally that role isn't even a separate process — the DAG + fs/git watchers run *inside* `kolu-server` (`local.ts`: *"the DAG runs HERE, in kolu-server"*), with kaval the separate daemon. Remotely, `kolu-server` isn't on the host, so it splits out as its own **kolu-watcher** process beside kaval.
+
+And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching it over the network needs a remote *stdio* endpoint — and a `HostSession` is one ssh subprocess per host. So the remote host exposes **one** ssh endpoint — **kolu-watcher**: `kolu-server` dials it over one `HostSession` `stdioLink`, and kolu-watcher locally **fronts kaval** (its unix socket) for PTY attach/control + taps while serving its own fs/git + metadata surface (`mirrorRemoteCollection`). The closure is shipped first via `provisionAgent` (`nix copy --derivation` → remote `realise` → pin a GC root). The diagram shows all three boundaries — **host** (dashed), **process** (boxed), **package** (`packages/…`):
+
+<ProcDiagram />
+
+**If the host already has a kaval running, it is adopted** — the same generic `adoptOrEnsure` spine (`endpoint.ts`), per endpoint, that the local boot uses. A duplicate is impossible by construction: a second launch hits the pid-gate's atomic `link(2)` EEXIST, liveness-probes the holder (`kill(pid,0)`), and exits 0 ("yielding to the live instance") **without binding a socket** — the running daemon is never disturbed. Re-provisioning is idempotent (`nix realise` no-ops if the closure is already present; an older build coexists and the moving GC root migrates to the new one). On dial:
+
+| the remote kaval is… | kolu does |
+| --- | --- |
+| absent | provision + spawn fresh (`adoptOrEnsure` → ensure) |
+| live · wire-compatible | **adopt** — connect, never kill; its PTYs reconcile in (older `startedAt`) |
+| live · a build behind | adopt **+** the B3.4 "update pending" nudge (an orthogonal axis) |
+| live · contract-skewed | recycle (kill → respawn) — only on a typed `DaemonContractSkewError`, no retry |
+| unreachable (bad dial) | bounded retry, then **degraded — never killed** (a bad dial can't cost live PTYs) |
+
+**One kaval per remote host, adopted.** Dialing a host *joins* its kaval — you reconnect to "the prod terminals" — and never clobbers it. The local per-port key (`kaval-<port>/`, <PrLink pr={1313} />), which isolates two dev servers under always-recycle, isn't needed across ssh: a remote host runs **one** shared kaval and dials *adopt* it (the table above), so two reconnects join the same terminals rather than racing to kill them. *(The pid-gate is host-local — pid + filesystem on that host — not a cross-host or cross-container lock.)*
+
+## Status
+
+**Accepted (the approach).** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. Execution starts with the transport spike (`kaval-tui create` → `kaval-tui --host`), which validates the one genuinely-new piece; P0 (backend cleanup) can land first in parallel; P4 builds **multiplex** and validates the feel against tmux-switch — the one reversible call, made on real use, not up front.
