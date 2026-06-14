@@ -20,7 +20,7 @@
  * local) shelling out to `kolu-git` directly.
  */
 
-import type { ForegroundSample, PtyHostClient } from "kaval";
+import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   SavedTerminal,
@@ -287,18 +287,64 @@ interface TerminalLifecycle {
   stopProviders: () => void;
 }
 
+/** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
+ *  (contract 2.1). The provider DAG re-derives the authoritative value from the
+ *  surviving foreground tap (which replays a snapshot on subscribe), so this is
+ *  only the pre-tap value the tile renders for the boot frame — null when the
+ *  daemon reports no foreground name. `title` is unknown to the foreground field,
+ *  so it stays null until the title tap fires. */
+function liveForeground(
+  liveEntry: PtyHostListEntry,
+): TerminalMetadata["foreground"] {
+  return liveEntry.foregroundProcess
+    ? { name: liveEntry.foregroundProcess, title: liveEntry.title ?? null }
+    : null;
+}
+
 /** The whole-record adoption mapping (B3.3): a `SavedTerminal`'s persisted fields
  *  become a live `TerminalMetadata` as a UNIT — `createMetadata` seeds the
- *  live-field defaults (pr/agent/foreground, re-derived by the providers against
- *  the surviving taps), then the persisted record is spread on **whole**, never
+ *  live-field defaults (pr/agent re-derived by the providers against the
+ *  surviving taps), then the persisted record is spread on **whole**, never
  *  reconstructed field-by-field (the #1275 lossy-adoption class that dropped
  *  `parentId` and `lastAgentCommand`). Pure + exported so the class is closed by
  *  a schema-key round-trip test: a new persisted field rides the spread for free;
  *  a field-by-field rewrite that dropped one would fail it. `id` is the registry
- *  key, not a `meta` field, so it is split off. */
-export function adoptedMeta(record: SavedTerminal): TerminalMetadata {
+ *  key, not a `meta` field, so it is split off.
+ *
+ *  The LIVE daemon snapshot (`liveEntry`) is the authority for `cwd` and
+ *  `foreground` (F2): kaval's `cwd`/`title` taps do NOT replay a snapshot on
+ *  subscribe, so a `cd` that happened while kolu-server was down — or after the
+ *  last 500ms-debounced autosave — would otherwise leave the adopted tile pinned
+ *  to the stale SAVED cwd until the next OSC 7, and the boot's
+ *  `saveSession(snapshotSession())` would persist that stale value back over the
+ *  live truth. The survivor's listed `cwd` wins; the git provider re-resolves
+ *  against it on start. */
+export function adoptedMeta(
+  record: SavedTerminal,
+  liveEntry: PtyHostListEntry,
+): TerminalMetadata {
   const { id: _id, ...persisted } = record;
-  return { ...createMetadata(record.cwd), ...persisted };
+  return {
+    ...createMetadata(liveEntry.cwd),
+    ...persisted,
+    cwd: liveEntry.cwd,
+    foreground: liveForeground(liveEntry),
+  };
+}
+
+/** Metadata for an ORPHAN survivor (B3.3): a live PTY the daemon still owns with
+ *  NO saved record (F1). A create that never reached the 500ms-debounced autosave
+ *  before the restart is the common case — exactly the redeploy window this
+ *  feature protects — so the PTY is ADOPTED (never reaped), seeded entirely from
+ *  the live daemon snapshot. Client-persisted chrome (theme/layout/intent) that
+ *  never made it to disk is gone, but the live shell and its scrollback survive,
+ *  which is the headline guarantee; the providers re-derive git/agent/pr from the
+ *  surviving taps. */
+export function orphanMeta(liveEntry: PtyHostListEntry): TerminalMetadata {
+  return {
+    ...createMetadata(liveEntry.cwd),
+    foreground: liveForeground(liveEntry),
+  };
 }
 
 // ── Backend implementation ─────────────────────────────────────────────
@@ -353,22 +399,22 @@ class LocalTerminalBackend implements TerminalBackend {
   }
 
   /** Adopt a SURVIVING PTY (B3.3): the kaval daemon outlived a kolu-server
-   *  restart, so its PTY for `record.id` is already alive at `liveEntry.pid`.
-   *  Re-establish kolu's side WITHOUT spawning — register the terminal from the
-   *  WHOLE saved record (its live fields pr/agent/foreground are re-derived by
-   *  the providers, the freshness guarantee; the record is consumed as a UNIT,
-   *  never reconstructed field-by-field — the #1275 lossy-adoption class),
-   *  release the handle at the live pid, and re-run the provider DAG against the
-   *  surviving taps. The sibling of `spawnPty`/`spawnAndWire` minus the spawn
-   *  RPC: both converge on `startProviderLayer`, and a wiring failure reaps the
-   *  orphaned PTY through the shared `killHalfWiredPty` (the F2 receptacle). */
-  adoptTerminal(record: SavedTerminal, liveEntry: { pid: number }): void {
-    const id = record.id as TerminalId;
+   *  restart, so its PTY for `id` is already alive at `liveEntry.pid`.
+   *  Re-establish kolu's side WITHOUT spawning — register the terminal under the
+   *  caller-built `meta` (a whole saved record via `adoptedMeta`, or an orphan's
+   *  live-snapshot defaults via `orphanMeta`; either way the live fields
+   *  pr/agent/foreground are re-derived by the providers, the freshness
+   *  guarantee), release the handle at the live pid, and re-run the provider DAG
+   *  against the surviving taps. The sibling of `spawnPty`/`spawnAndWire` minus
+   *  the spawn RPC: both converge on `startProviderLayer`, and a wiring failure
+   *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
+  adoptTerminal(
+    id: TerminalId,
+    meta: TerminalMetadata,
+    liveEntry: PtyHostListEntry,
+  ): void {
     const tlog = log.child({ terminal: id });
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
-    // Whole-record adoption (see `adoptedMeta`): the live fields are re-derived
-    // below by the providers; the persisted record rides through as a unit.
-    const meta = adoptedMeta(record);
     const entry: TerminalProcess = {
       info: { id, pid: liveEntry.pid },
       meta,
@@ -700,13 +746,32 @@ class LocalTerminalBackend implements TerminalBackend {
 const localBackendImpl = new LocalTerminalBackend();
 export const localTerminalBackend: TerminalBackend = localBackendImpl;
 
-/** Adopt a surviving local PTY at boot (B3.3). Exposed as a standalone entry
+/** Adopt a surviving local PTY at boot (B3.3) that HAS a saved record — its
+ *  persisted chrome rides through whole (`adoptedMeta`), with the live daemon
+ *  snapshot the authority for `cwd`/`foreground`. Exposed as a standalone entry
  *  rather than on the cross-backend `TerminalBackend` interface because adoption
  *  is local-only today — R-2's remote-host adoption is an additive sibling, not
  *  a retrofit of the shared interface. */
 export function adoptLocalTerminal(
   record: SavedTerminal,
-  liveEntry: { pid: number },
+  liveEntry: PtyHostListEntry,
 ): void {
-  localBackendImpl.adoptTerminal(record, liveEntry);
+  localBackendImpl.adoptTerminal(
+    record.id as TerminalId,
+    adoptedMeta(record, liveEntry),
+    liveEntry,
+  );
+}
+
+/** Adopt a surviving local PTY at boot (B3.3) that has NO saved record (F1) — a
+ *  create that never reached the debounced autosave before the restart. The live
+ *  shell is adopted (never reaped), seeded entirely from the daemon snapshot
+ *  (`orphanMeta`). The sibling of `adoptLocalTerminal` for the unmatched-survivor
+ *  case the reconcile partition surfaces separately. */
+export function adoptLocalOrphan(liveEntry: PtyHostListEntry): void {
+  localBackendImpl.adoptTerminal(
+    liveEntry.id as TerminalId,
+    orphanMeta(liveEntry),
+    liveEntry,
+  );
 }

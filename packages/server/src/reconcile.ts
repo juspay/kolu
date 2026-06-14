@@ -12,10 +12,15 @@
  *     `SavedTerminal` record (never field-by-field — the #1275 lossy-adoption
  *     class that dropped `parentId` and `lastAgentCommand`), to be re-wired by
  *     `adoptTerminal`.
- *   - **orphanExtras** — live daemon PTYs with NO saved record (a create that
- *     never autosaved, or a leftover from a crashed prior server). Reaped, never
- *     respawned — reaping (not respawning) is what keeps #1275's
- *     duplicate-terminals bug impossible by construction.
+ *   - **adoptOrphans** — live daemon PTYs with NO saved record (F1): a create
+ *     that never reached the 500ms-debounced autosave before the restart (the
+ *     common redeploy window), or a leftover from a crashed prior server. These
+ *     are ADOPTED too — seeded from the live daemon snapshot (`orphanMeta`) — NOT
+ *     reaped: killing a live shell merely because the debounced session lagged
+ *     behind the daemon would violate the headline "terminals survive a kolu
+ *     update" guarantee. They never carry a saved id, so re-adopting (rather than
+ *     re-spawning) them keeps #1275's duplicate-terminals bug impossible by
+ *     construction.
  *
  * A saved terminal with no live PTY is an **exited shell** — its process ended in
  * the restart window — so it appears in NEITHER list: the caller drops it exactly
@@ -35,8 +40,9 @@ import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 export interface ReconcileResult {
   /** Saved terminals whose PTY is still alive — adopt each whole-record. */
   adopt: SavedTerminal[];
-  /** Live daemon PTYs with no saved record — reap (never respawn). */
-  orphanExtras: PtyHostListEntry[];
+  /** Live daemon PTYs with no saved record — adopt from the live snapshot
+   *  (`orphanMeta`), never reap. See the module doc (F1). */
+  adoptOrphans: PtyHostListEntry[];
 }
 
 /** Join a surviving daemon's live PTYs against the saved session on terminal
@@ -51,6 +57,6 @@ export function reconcile(
   const savedIds = new Set(savedTerminals.map((terminal) => terminal.id));
   return {
     adopt: savedTerminals.filter((terminal) => liveIds.has(terminal.id)),
-    orphanExtras: live.filter((entry) => !savedIds.has(entry.id)),
+    adoptOrphans: live.filter((entry) => !savedIds.has(entry.id)),
   };
 }

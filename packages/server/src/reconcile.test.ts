@@ -17,47 +17,49 @@ function saved(...terminals: SavedTerminal[]): SavedSession {
 describe("reconcile — boot-time adoption partition (B3.3)", () => {
   it("adopts a saved terminal whose PTY is still alive, as the whole record", () => {
     const t = term("a");
-    const { adopt, orphanExtras } = reconcile([live("a")], saved(t));
+    const { adopt, adoptOrphans } = reconcile([live("a")], saved(t));
     expect(adopt).toEqual([t]); // the WHOLE record (by reference), never rebuilt
-    expect(orphanExtras).toEqual([]);
+    expect(adoptOrphans).toEqual([]);
   });
 
   it("DROPS a saved terminal with no live PTY — an exited shell, in neither list", () => {
     const a = term("a");
     const b = term("b"); // 'b' exited in the restart window — not live
-    const { adopt, orphanExtras } = reconcile([live("a")], saved(a, b));
+    const { adopt, adoptOrphans } = reconcile([live("a")], saved(a, b));
     expect(adopt.map((t) => t.id)).toEqual(["a"]); // 'b' dropped, not restore-carded
-    expect(orphanExtras).toEqual([]);
+    expect(adoptOrphans).toEqual([]);
   });
 
-  it("flags a live PTY with no saved record as an orphan (reap, never respawn)", () => {
+  it("a live PTY with no saved record is an orphan to ADOPT, not reap (F1)", () => {
+    // 'z' is live in the daemon but absent from the debounced saved session —
+    // a create that raced the restart. It must survive (adopt), never be killed.
     const a = term("a");
-    const { adopt, orphanExtras } = reconcile([live("a"), live("z")], saved(a));
+    const { adopt, adoptOrphans } = reconcile([live("a"), live("z")], saved(a));
     expect(adopt.map((t) => t.id)).toEqual(["a"]);
-    expect(orphanExtras.map((e) => e.id)).toEqual(["z"]); // 'z' has no saved record
+    expect(adoptOrphans.map((e) => e.id)).toEqual(["z"]); // adopted from the snapshot
   });
 
-  it("partial survival: adopts the live, drops the exited, reaps the orphan", () => {
-    const a = term("a"); // live → adopt
-    const b = term("b"); // exited → drop
-    const { adopt, orphanExtras } = reconcile(
-      [live("a"), live("c")], // 'c' is an orphan; 'b' is gone
+  it("partial survival: adopts the saved-live, drops the exited, adopts the orphan", () => {
+    const a = term("a"); // live + saved → adopt whole-record
+    const b = term("b"); // saved but exited → drop
+    const { adopt, adoptOrphans } = reconcile(
+      [live("a"), live("c")], // 'c' is a live orphan; 'b' is gone
       saved(a, b),
     );
     expect(adopt.map((t) => t.id)).toEqual(["a"]);
-    expect(orphanExtras.map((e) => e.id)).toEqual(["c"]);
+    expect(adoptOrphans.map((e) => e.id)).toEqual(["c"]); // adopted, not reaped
   });
 
-  it("no saved session: every live PTY is an orphan", () => {
-    const { adopt, orphanExtras } = reconcile([live("a"), live("b")], null);
+  it("no saved session: every live PTY is an orphan to adopt", () => {
+    const { adopt, adoptOrphans } = reconcile([live("a"), live("b")], null);
     expect(adopt).toEqual([]);
-    expect(orphanExtras.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(adoptOrphans.map((e) => e.id)).toEqual(["a", "b"]);
   });
 
   it("empty daemon: nothing adopted, nothing orphaned (saved shells all dropped)", () => {
-    const { adopt, orphanExtras } = reconcile([], saved(term("a")));
+    const { adopt, adoptOrphans } = reconcile([], saved(term("a")));
     expect(adopt).toEqual([]);
-    expect(orphanExtras).toEqual([]);
+    expect(adoptOrphans).toEqual([]);
   });
 
   it("keeps the SAVED order in the adopt list, not the daemon's list order", () => {

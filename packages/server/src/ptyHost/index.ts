@@ -146,7 +146,22 @@ export async function ensureLocalEndpoint(opts: {
     // A fresh / recycled boot has no survivors, so the saved session is left for
     // the existing restore-card path (B2-unchanged) and `onAdopted` is skipped.
     const adopted = await ep.adoptOrEnsure();
-    if (adopted && opts.onAdopted) await opts.onAdopted();
+    if (adopted && opts.onAdopted) {
+      try {
+        await opts.onAdopted();
+      } catch (err) {
+        // Reconciliation failed AFTER we adopted the survivor's connection — the
+        // daemon is connected but holds PTYs kolu may not have registered (F3).
+        // Fail CLOSED: recycle the daemon (kill + spawn fresh) so those hidden
+        // PTYs are destroyed and the user's saved session falls back to the
+        // restore card, rather than leaving invisible live terminals behind it.
+        log.error(
+          { err },
+          "surviving-session reconciliation failed — recycling the adopted daemon",
+        );
+        await ep.ensure();
+      }
+    }
   } catch (err) {
     // The endpoint already reported `dead`; don't crash the server boot.
     log.error({ err }, "kaval endpoint failed to come up at boot");

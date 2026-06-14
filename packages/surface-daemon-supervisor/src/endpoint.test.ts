@@ -513,7 +513,66 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     expect(statuses.find((s) => s.state === "connected")?.startedAt).toBe(99);
   });
 
-  it("RECYCLES a skewed survivor: kills it, spawns fresh, returns false", async () => {
+  it("ADOPTS a survivor whose connect fails transiently then succeeds on retry (F4)", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    // A real live survivor with live PTYs at stake. Its first connect rejects on
+    // a transient transport hiccup; the retry succeeds. The endpoint must NOT
+    // recycle on the one-off failure — that would kill the survivor's PTYs.
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const survivorPid = survivor.pid as number;
+    children.push(survivorPid);
+    writeFileSync(gatePath, `${survivorPid}\n`);
+    let survivorExited = false;
+    survivor.on("exit", () => {
+      survivorExited = true;
+    });
+
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    let spawnCalled = false;
+    let connectCount = 0;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: {
+        spawn: async () => {
+          spawnCalled = true;
+        },
+      },
+      connect: async () => {
+        connectCount += 1;
+        if (connectCount === 1) throw new Error("ECONNRESET (transient)");
+        return {
+          client: "SURVIVOR",
+          identity: { staleKey: "survivor" },
+          startedAt: 7,
+          dispose() {},
+          onClose() {},
+        };
+      },
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+      adoptConnectRetryMs: 1, // keep the test fast
+    });
+
+    const adopted = await endpoint.adoptOrEnsure();
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(adopted).toBe(true); // adopted on the retry, not recycled
+    expect(connectCount).toBe(2); // failed once, succeeded on the second attempt
+    expect(spawnCalled).toBe(false); // never spawned a fresh daemon
+    expect(survivorExited).toBe(false); // never killed the survivor
+    expect(endpoint.current()?.identity).toEqual({ staleKey: "survivor" });
+  });
+
+  it("RECYCLES a survivor that fails EVERY connect attempt (genuine skew): kills it, spawns fresh, returns false", async () => {
     const d = dir();
     const socketPath = join(d, "x.sock");
     const gatePath = join(d, "x.pid");
@@ -545,8 +604,9 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       },
       connect: async () => {
         connectCount += 1;
-        // The survivor's handshake skews; the post-recycle fresh spawn connects.
-        if (connectCount === 1) throw new Error("pty-host contract skew");
+        // A genuine skew fails EVERY survivor-connect attempt (the contract
+        // really is incompatible); only the post-recycle fresh spawn connects.
+        if (connectCount <= 2) throw new Error("pty-host contract skew");
         return {
           client: "FRESH",
           identity: { staleKey: "fresh" },
@@ -558,6 +618,8 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
+      adoptConnectAttempts: 2, // both survivor attempts skew → recycle
+      adoptConnectRetryMs: 1,
     });
 
     const adopted = await endpoint.adoptOrEnsure();
@@ -565,6 +627,7 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
 
     expect(adopted).toBe(false); // recycled, not adopted
     expect(spawned).toBe(true); // a fresh daemon was spawned after the kill
+    expect(connectCount).toBe(3); // 2 failed survivor attempts + 1 fresh connect
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
   });
 
