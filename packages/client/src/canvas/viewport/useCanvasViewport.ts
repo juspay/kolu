@@ -97,6 +97,15 @@ function discardPendingGesture() {
   pendingZoomFactor = 1;
 }
 
+/** Begin an authoritative absolute mutation: a programmatic write is the new
+ *  truth, so it must kill BOTH competing input sources — the in-flight tween
+ *  and the queued gesture delta. Every programmatic setter plugs into this one
+ *  seam so it cannot forget half the arbitration. */
+function beginAuthoritativeMutation() {
+  cancelPanAnimation();
+  discardPendingGesture();
+}
+
 // ── Public API ──
 
 export interface CanvasViewport {
@@ -207,8 +216,7 @@ function targetForPoint(
 }
 
 function startAnimatedPan(target: { panX: number; panY: number }) {
-  cancelPanAnimation();
-  discardPendingGesture();
+  beginAuthoritativeMutation();
   currentAnim = animatePan(
     { x: panX(), y: panY() },
     { x: target.panX, y: target.panY },
@@ -230,8 +238,7 @@ function panTo(x: number, y: number) {
 }
 
 function setPan(x: number, y: number) {
-  cancelPanAnimation();
-  discardPendingGesture();
+  beginAuthoritativeMutation();
   setPanX(x);
   setPanY(y);
 }
@@ -247,8 +254,7 @@ function viewportSize() {
 
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
   if (!containerEl) return;
-  cancelPanAnimation();
-  discardPendingGesture();
+  beginAuthoritativeMutation();
   const result = zoomToCenterPure(
     panX(),
     panY(),
