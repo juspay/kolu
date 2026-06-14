@@ -12,7 +12,14 @@
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, createSignal, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  Match,
+  Show,
+  Switch,
+} from "solid-js";
 import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
@@ -240,6 +247,16 @@ const App: Component = () => {
       terminalCount: () => store.terminalIds().length,
     }),
   );
+  // Narrow the tagged union for the down/warming arms. Plain functions, not
+  // memos — they don't add to the shell's reactive-primitive budget.
+  const downMode = () => {
+    const m = mode();
+    return m.kind === "down" ? m : undefined;
+  };
+  const warmingMode = () => {
+    const m = mode();
+    return m.kind === "warming" ? m : undefined;
+  };
 
   return (
     <div
@@ -336,29 +353,41 @@ const App: Component = () => {
         {/* Exactly one canvas surface, chosen by `canvasMode` — a total,
             exclusive partition whose arm ORDER is the precedence (down beats
             empty per #1034; warming beats empty per F3). The decision lives in
-            `useCanvasMode`; only the per-surface layout stays here. `match` over
-            the tagged union reads the discriminator one way and `exhaustive()`
-            compile-forces a new variant to get an arm; the down/warming payload
-            comes from the destructured handler arg, not a re-narrowing accessor. */}
-        {match(mode())
-          .with({ kind: "connecting" }, () => (
-            // Neutral connecting state until BOTH the session cell AND the
-            // daemon-status stream have produced their first value.
+            `useCanvasMode`; only the per-surface layout stays here.
+
+            `<Switch>`, NOT a ts-pattern `match(mode())`, is load-bearing: the
+            `mode` memo returns a FRESH `CanvasMode` object every recompute (any
+            daemon-status / terminal-count tick), so a `{match(mode())…}` JSX
+            expression re-runs and RE-CREATES the matched subtree on every such
+            tick — remounting `TerminalCanvas`/`TerminalContent`, which makes
+            Corvu re-fire `onCollapse` and silently collapses a just-opened
+            sub-panel (the whole `sub-terminal.feature` regressed this way).
+            `<Match when={mode().kind === "…"}>` keys on a STABLE boolean, so the
+            arm persists while the kind is unchanged and only inner props update
+            fine-grainedly. Keep this as `<Switch>`. */}
+        <Switch>
+          <Match when={mode().kind === "connecting"}>
+            {/* Neutral connecting state until BOTH the session cell AND the
+                daemon-status stream have produced their first value. */}
             <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
               Connecting...
             </div>
-          ))
-          .with({ kind: "down" }, (m) => <DegradedCanvas state={m.state} />)
-          .with({ kind: "warming" }, (m) => (
-            <div
-              data-testid="daemon-warming"
-              data-daemon-state={m.daemonState}
-              class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
-            >
-              {m.label}
-            </div>
-          ))
-          .with({ kind: "empty" }, () => (
+          </Match>
+          <Match when={downMode()}>
+            {(m) => <DegradedCanvas state={m().state} />}
+          </Match>
+          <Match when={warmingMode()}>
+            {(m) => (
+              <div
+                data-testid="daemon-warming"
+                data-daemon-state={m().daemonState}
+                class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
+              >
+                {m().label}
+              </div>
+            )}
+          </Match>
+          <Match when={mode().kind === "empty"}>
             <div
               data-testid="canvas-container"
               class="relative flex-1 min-h-0 canvas-grid-bg"
@@ -381,9 +410,9 @@ const App: Component = () => {
                 onRestore={(opts) => void session.handleRestoreSession(opts)}
               />
             </div>
-          ))
-          .with({ kind: "workspace" }, () =>
-            match(isMobile())
+          </Match>
+          <Match when={mode().kind === "workspace"}>
+            {match(isMobile())
               .with(true, () => (
                 <RightPanelDrawer
                   terminalId={store.activeId()}
@@ -509,9 +538,9 @@ const App: Component = () => {
                   </Resizable.Panel>
                 </Resizable>
               ))
-              .exhaustive(),
-          )
-          .exhaustive()}
+              .exhaustive()}
+          </Match>
+        </Switch>
       </div>
       <IntentEditorDialog
         open={intentEditor.open()}
