@@ -239,10 +239,15 @@ changes directly — <strong>per-event main-thread work</strong> — via a synch
 #1368 </a>. OpenCode’s real principle — <em>per-frame work proportional to new data</em> — applied to
 Kolu’s <strong>actual</strong> hot loop. <code>useCanvasViewport.ts</code> now accumulates the frame’s pan
 delta (sum) and zoom factor (product toward the last anchor) and applies them once
-per <code>requestAnimationFrame</code> instead of per raw wheel event. Provably feel-neutral:
-the batched apply lands on the <em>same</em> per-frame pan+zoom the per-event path
-reached (<code>applyGestureBatch</code> telescopes the math — pinned in <code>transforms.test.ts</code>,
-since canvas gestures have no e2e coverage). #1308 deferred this as latent/benign;
+per <code>requestAnimationFrame</code> instead of per raw wheel event. Feel-neutral for the
+cases that actually occur: a <strong>pure-pan</strong> or <strong>pure-zoom</strong> frame lands on the
+<em>exact</em> per-frame state the per-event path reached (<code>applyGestureBatch</code> telescopes
+the math, clamping per event). A <strong>mixed</strong> pan+zoom frame — only possible when a
+pointer-drag pan overlaps a <code>ctrl</code>+wheel zoom, since a wheel event is pan <strong>xor</strong>
+zoom — uses a canonical zoom-then-pan order: a deliberate, bounded, non-accumulating
+approximation rather than re-walking the per-event list (which is the work R4 deletes).
+All three cases are pinned in <code>transforms.test.ts</code>, since canvas gestures have no
+e2e coverage. #1308 deferred this as latent/benign;
 R3 confirmed the deferral’s exact condition. On a 16-tile canvas under throttle, a
 60-event zoom burst went from an <strong>865 ms main-thread freeze (≈52 dropped 60 Hz
 frames) at 6× → 1.3 ms</strong>, with tile writes down <strong>60×</strong> (2,880 → 48 — the
