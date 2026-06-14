@@ -2,8 +2,8 @@
 title: ChromeBar declutter — collapse the rail when it agrees
 description: The srv·client·kaval identity rail prints the same commit three times in the happy path. Collapse it to one calm health-dot + version + shared SHA at rest, and fan back out to per-source detail only when a source actually diverges — so every alarm stays loud and nothing becomes unreachable.
 kind: feature
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 parents: [pty-daemon-chrome-bar]
 updated: 2026-06-14
 ---
@@ -17,7 +17,8 @@ import Pill from "../../components/Pill.astro";
 The rail is **too crowded** — and most of it is the *same fact, repeated*. In a
 clean deploy the server, this browser's bundle, and the kaval daemon are all
 built from one HEAD, so the rail prints **`d07ea54` three times** behind three
-labels and two dividers. <Cite file="packages/client/src/ui/IdentityRail.tsx" />
+labels and two dividers. <Cite file="packages/client/src/ui/IdentityRail.tsx" />{" "}
+Shipped in <PrLink pr={1359} />.
 
 export const CbStyles = () => (
   <style>{`
