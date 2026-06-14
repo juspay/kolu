@@ -80,6 +80,11 @@ const CanvasTile: Component<{
   panX: () => number;
   panY: () => number;
   zoom: () => number;
+  /** Canvas viewport size in screen pixels. Lets the tile gate its state-aura
+   *  to on-screen tiles only: a tile panned out of view (or behind a maximized
+   *  tile) mounts no `.tile-aura` at all, so its border animation costs nothing
+   *  — CSS animations otherwise keep running for off-screen elements. */
+  viewportSize: () => { width: number; height: number };
   /** Canvas state-aura tier for this tile — drives the `data-aura` hook the
    *  border treatment reads. Optional: undefined renders nothing (treated as
    *  `"none"`). Resolved by `useTileAura`; this resolver drives only the tile
@@ -99,9 +104,35 @@ const CanvasTile: Component<{
   // each read chains through the resolver into store + staleness lookups — so
   // compute it once per reactive cycle rather than per consumer.
   const aura = createMemo((): TileAura => props.auraTier?.() ?? "none");
+  // Is this tile's screen rect within the canvas viewport (plus a margin so
+  // panning doesn't pop auras in at the very edge)? Mirrors the screen-space
+  // mapping in `tileTransformCSS`: a canvas point (l.x, l.y) lands at
+  // ((l.x - panX) * zoom, (l.y - panY) * zoom). Drag delta is ignored — a tile
+  // being dragged is on-screen by definition. Until the container has measured
+  // (size 0), don't gate — show the aura rather than briefly hiding it.
+  const onScreen = createMemo(() => {
+    const { width, height } = props.viewportSize();
+    if (width === 0 || height === 0) return true;
+    const l = layout();
+    const z = props.zoom();
+    const sx = (l.x - props.panX()) * z;
+    const sy = (l.y - props.panY()) * z;
+    const m = 200;
+    return (
+      sx + l.w * z > -m &&
+      sx < width + m &&
+      sy + l.h * z > -m &&
+      sy < height + m
+    );
+  });
   // One decision — "is the aura showing" — so the `data-aura` host attribute
-  // and the `.tile-aura` child can't drift. A maximized tile mutes its aura.
-  const showAura = () => aura() !== "none" && !isMaximized();
+  // and the `.tile-aura` child can't drift. Only TILED tiles animate: a
+  // maximized tile mutes its own aura, a covered tile (behind a maximized
+  // sibling) is hidden, and an off-screen tile is gated out — none should burn
+  // a frame animating a border nobody can see.
+  const showAura = createMemo(
+    () => aura() !== "none" && props.mode === "tiled" && onScreen(),
+  );
 
   // Active stays full-strength regardless of dimmed — the user is looking
   // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
