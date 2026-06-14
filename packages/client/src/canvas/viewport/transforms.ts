@@ -64,8 +64,14 @@ export function zoomTowardPoint(
 
 /** One animation frame's worth of coalesced wheel gestures.
  *  `panDx/panDy` is the *summed* screen-space pan delta; `zoomFactor` is the
- *  *product* of the frame's zoom factors (1 = no zoom) toward `zoomAnchor`
- *  (the last event's screen-space point). */
+ *  frame's *net effective* zoom factor (1 = no zoom) toward `zoomAnchor` (the
+ *  last event's screen-space point) — i.e. `finalZoom / startZoom`, where the
+ *  accumulator has ALREADY clamped each event's zoom to `[MIN_ZOOM, MAX_ZOOM]`
+ *  as it arrived (see `accumulateZoom`). It is NOT the raw product of factors:
+ *  multiplying factors and clamping once would let an overshoot past a bound
+ *  cancel a later reversal (e.g. at MAX_ZOOM, `[1.25, 0.8]` has product 1 and
+ *  would not move, but per-event the first clamps to the bound and the second
+ *  zooms back out). Pre-clamping per event matches the old per-event path. */
 export interface GestureBatch {
   panDx: number;
   panDy: number;
@@ -74,16 +80,47 @@ export interface GestureBatch {
   zoomAnchorY: number;
 }
 
+/** Fold one raw wheel zoom factor into a batch's accumulated net factor,
+ *  clamping per-event exactly as the old per-event path did.
+ *
+ *  `startZoom` is the viewport zoom when this frame's accumulation began. We
+ *  track the running clamped zoom as `startZoom * batch.zoomFactor`, apply the
+ *  next factor, clamp, and store the new net factor `clampedZoom / startZoom`.
+ *  Because the anchor is fixed across the frame, the per-event pan corrections
+ *  still telescope to `point/startZoom − point/clampedZoom` even when an
+ *  intermediate event clamped (the intermediate zooms cancel pairwise), so the
+ *  batch needs only this net factor — not the per-event sequence. */
+export function accumulateZoom(
+  batch: GestureBatch,
+  startZoom: number,
+  factor: number,
+): void {
+  const running = startZoom * batch.zoomFactor;
+  batch.zoomFactor = clampZoom(running * factor) / startZoom;
+}
+
 /** Apply one frame's coalesced gesture batch to a viewport state.
  *
- *  Behaviour-preserving by construction: the batched result equals applying
- *  each raw wheel event in turn within the frame. Pan is additive in canvas
- *  space, so a summed screen delta ÷ zoom equals the sum of per-event deltas.
- *  Zoom telescopes — successive `zoomTowardPoint` calls toward a fixed anchor
- *  have their `point/zoom` correction terms cancel, so the product of factors
- *  toward that anchor lands on the same pan+zoom (proven in transforms.test.ts).
- *  Zoom is applied first so the pan delta lands in the post-zoom scale, the
- *  canonical order for the rare frame that mixes both. */
+ *  Behaviour-preserving for the two regimes that actually occur per frame:
+ *  PURE pan (the summed screen delta ÷ zoom equals the sum of per-event deltas,
+ *  since pan is additive in canvas space) and PURE zoom (successive
+ *  `zoomTowardPoint` calls toward a fixed anchor telescope — their `point/zoom`
+ *  correction terms cancel — so the net effective factor lands on the same
+ *  pan+zoom; per-event clamping is folded in by `accumulateZoom`, so this holds
+ *  even when a frame crosses MIN_ZOOM/MAX_ZOOM). Both are proven in
+ *  transforms.test.ts. A wheel event is EITHER pan (plain/shift) OR zoom
+ *  (ctrl/meta), never both, so a given gesture is overwhelmingly one regime.
+ *
+ *  For the rare frame that MIXES pan and zoom (e.g. a pointer-drag pan while
+ *  ctrl+wheel zooming), this is a deliberate, bounded approximation rather than
+ *  exact per-event replay: zoom is applied first and the whole summed pan delta
+ *  divides by the POST-zoom scale, instead of each pan delta dividing by the
+ *  zoom in effect at its own event. The discrepancy is one frame's worth of
+ *  zoom change (a few percent of a sub-pixel pan offset) and does not
+ *  accumulate — the next frame's pan divides by the then-current zoom. We pick
+ *  this canonical order over preserving event sequence because exact replay
+ *  would mean storing and re-walking the per-event list, which is the
+ *  per-event work R4 exists to delete. */
 export function applyGestureBatch(
   panX: number,
   panY: number,

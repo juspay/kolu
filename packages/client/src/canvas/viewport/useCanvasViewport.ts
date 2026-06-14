@@ -14,6 +14,7 @@ import {
 } from "./coordinates";
 import { installGestures } from "./gestures";
 import {
+  accumulateZoom,
   applyGestureBatch,
   computeCenterPan,
   type GestureBatch,
@@ -49,12 +50,15 @@ function cancelPanAnimation() {
 // ever shown. #1308 measured that write-storm (a zoom fling = 9,600 tile writes)
 // and under a throttled CPU it dropped frames — p99 past 33ms, 148 dropped
 // frames at 6× (docs/perf-investigations/canvas-gesture-p99.md). We accumulate
-// the frame's pan delta (sum) and zoom factor (product, toward the last anchor)
-// and apply them ONCE per rAF. The per-frame state is identical to the per-event
-// path — `applyGestureBatch` telescopes the math — so feel is unchanged; only
-// the redundant intra-frame recomputes vanish. The per-event hot path mutates
-// fields of the existing `pending` batch (zero allocation); the single
-// `{ ...EMPTY }` clone happens only per-frame/per-discard.
+// the frame's pan delta (sum) and zoom (a per-event-clamped running factor,
+// toward the last anchor) and apply them ONCE per rAF. For a pure-pan or
+// pure-zoom frame — and a wheel event is pan XOR zoom, so a gesture is
+// overwhelmingly one — the per-frame state is identical to the per-event path
+// (`applyGestureBatch` telescopes the math, `accumulateZoom` clamps per event),
+// so feel is unchanged. A frame that mixes both is a bounded, non-accumulating
+// approximation (see `applyGestureBatch`). The per-event hot path mutates fields
+// of the existing `pending` batch (zero allocation); the single `{ ...EMPTY }`
+// clone happens only per-frame/per-discard.
 const EMPTY: GestureBatch = {
   panDx: 0,
   panDy: 0,
@@ -63,6 +67,10 @@ const EMPTY: GestureBatch = {
   zoomAnchorY: 0,
 };
 let pending: GestureBatch = { ...EMPTY };
+// Viewport zoom at the moment this frame's zoom accumulation began. Captured
+// once per batch (when `pending.zoomFactor` is still 1) so per-event clamping
+// in `accumulateZoom` is anchored to the same start the per-event path saw.
+let zoomStart = 1;
 let gestureRaf = 0;
 
 function scheduleGestureFlush() {
@@ -165,7 +173,10 @@ function setContainerRef(
       },
       onZoom: (factor, sx, sy) => {
         cancelPanAnimation();
-        pending.zoomFactor *= factor;
+        // First zoom contribution of this frame: anchor the running clamped
+        // zoom to the live signal so per-event clamping matches the old path.
+        if (pending.zoomFactor === 1) zoomStart = zoom();
+        accumulateZoom(pending, zoomStart, factor);
         pending.zoomAnchorX = sx;
         pending.zoomAnchorY = sy;
         scheduleGestureFlush();

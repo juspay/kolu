@@ -162,6 +162,22 @@ const median = (xs) => {
   }
   await sleep(2500);
   console.error(`tiles: ${tiles} (after ${attempts} Ctrl+T)`);
+  // The published table is a per-tile-count comparison: a quiet under-count
+  // understates the write-storm this harness exists to prove, and an over-count
+  // inflates it. Fail loud on under-count; warn (don't silently pass) on over.
+  if (tiles < N_TILES) {
+    throw new Error(
+      `only ${tiles}/${N_TILES} tiles after ${attempts} Ctrl+T — scene too small ` +
+        `to measure; the comparison would understate the per-tile cost. ` +
+        `Restore a denser session or lower nTiles deliberately.`,
+    );
+  }
+  if (tiles > N_TILES) {
+    console.error(
+      `WARNING: scene has ${tiles} tiles, more than the requested ${N_TILES}; ` +
+        `the table is labeled with the actual count (${tiles}).`,
+    );
+  }
 
   const ctr = JSON.parse(
     await ev(
@@ -209,7 +225,10 @@ const median = (xs) => {
   }
 
   const fmt = (v, w) => String(v).padStart(w);
-  console.error(`\n  throttle gesture   burstMs  perEventµs   writes  framesBlocked   (K=${BURST} events/burst)`);
+  console.error(
+    `\n  throttle gesture   burstMs  perEventµs   writes  framesBlocked   ` +
+      `(${tiles} tiles, K=${BURST} events/burst)`,
+  );
   console.error("  " + "-".repeat(74));
   for (const s of scenes) {
     console.error(

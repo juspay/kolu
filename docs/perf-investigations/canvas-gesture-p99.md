@@ -26,15 +26,23 @@ event, and `useCanvasViewport.ts` wrote `panX`/`panY`/`zoom` on every one. Each
 write makes **every mounted tile** recompute its `transform` (`CanvasTile.tsx`'s
 `tiledStyle()` reads the pan/zoom signals). Wheel events arrive at ~166/s — several
 per 60 Hz frame — so most of those per-event recomputes are thrown away before the
-next paint. R4 accumulates the frame's pan delta (sum) and zoom factor (product
-toward the last anchor) and applies them **once per `requestAnimationFrame`**.
+next paint. R4 accumulates the frame's pan delta (sum) and zoom (a per-event-
+clamped running factor toward the last anchor) and applies them **once per
+`requestAnimationFrame`**.
 
-The coalescing is **behaviour-preserving by construction**: a summed pan delta ÷
-zoom equals the sum of per-event pans, and a product of zoom factors toward a
-fixed anchor telescopes to the same pan+zoom the per-event chain reaches (the
-`point/zoom` terms in `zoomTowardPoint` cancel). That equivalence is pinned in
-`transforms.test.ts`, so the per-frame state is identical — only the redundant
-intra-frame recomputes vanish.
+The coalescing is **behaviour-preserving for the two regimes a frame actually
+sees** — a wheel event is *either* pan (plain/shift) *or* zoom (ctrl/meta),
+never both. A summed pan delta ÷ zoom equals the sum of per-event pans; a
+per-event-clamped zoom factor toward a fixed anchor telescopes to the same
+pan+zoom the per-event chain reaches (the `point/zoom` terms in `zoomTowardPoint`
+cancel, and clamping is applied per event so a frame that crosses MIN/MAX_ZOOM
+still matches — see [F1](#codex-review)). Both equivalences are pinned in
+`transforms.test.ts`. The only frame that is *not* an exact per-event replay is
+the rare one that **mixes** pan and zoom (e.g. a pointer-drag pan while
+ctrl+wheel zooming): there R4 applies zoom first and divides the whole summed pan
+by the post-zoom scale — a deliberate, bounded approximation (one frame's worth of
+zoom change, non-accumulating) chosen because exact replay would mean re-walking
+the per-event list, the work R4 exists to delete.
 
 ## Method: a burst microbenchmark, not an rAF-paced fling
 
@@ -122,3 +130,25 @@ bash docs/perf-investigations/scripts/gesture-p99/run.sh   # reads .dev-server/p
 Prints the throttle × gesture table above and writes `out.json`. For a
 before/after, `git stash` the `useCanvasViewport.ts` + `transforms.ts` change
 (Vite reverts the served module on the next navigation) and re-run.
+
+## Codex review {#codex-review}
+
+A codex pass on the diff caught two equivalence gaps worth recording:
+
+- **F1 — zoom clamping at a bound (fixed).** The first cut accumulated the *raw
+  product* of factors and clamped once at flush. Near MIN/MAX_ZOOM that lets an
+  overshoot past the bound cancel a later reversal — e.g. from MAX_ZOOM the
+  factors `[1.25, 0.8]` have product 1 and would not move, where the per-event
+  path clamps the first to the bound and zooms the second back out to 2.4×. The
+  fix (`accumulateZoom` in `transforms.ts`) folds each event's clamp into a
+  running clamped zoom and stores the *net effective* factor; the pan correction
+  still telescopes (fixed anchor ⇒ intermediate zooms cancel even when clamped),
+  so it stays one apply and zero per-event allocation. Pinned by the
+  bound-reversal tests in `transforms.test.ts`.
+- **F2 — mixed pan+zoom frames (documented as intentional).** A frame that mixes
+  a pan and a zoom is not an exact per-event replay — R4 applies zoom first and
+  divides the summed pan by the post-zoom scale. A wheel event is pan *xor* zoom,
+  so this only arises when a pointer-drag pan overlaps a ctrl+wheel zoom; the
+  discrepancy is one frame's bounded, non-accumulating zoom delta. We keep the
+  canonical zoom-then-pan order rather than re-walking the per-event list (the
+  work R4 deletes); the `applyGestureBatch` docstring states this explicitly.
