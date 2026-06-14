@@ -53,6 +53,80 @@ export const KavalCanvas = () => (
   </div>
 );
 
+export const ProcDiagram = () => (
+  <div style="margin:1.5rem 0;overflow-x:auto">
+    <svg viewBox="0 0 680 560" width="100%" style="min-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
+      <defs>
+        <marker id="pd-ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#475569" />
+        </marker>
+      </defs>
+
+      <text x="16" y="22" font-size="11" fill="#64748b">Boundaries:</text>
+      <rect x="96" y="13" width="20" height="11" rx="2" fill="none" stroke="#94a3b8" stroke-dasharray="3 2" />
+      <text x="121" y="22" font-size="11" fill="#64748b">host</text>
+      <rect x="156" y="13" width="20" height="11" rx="2" fill="#fff" stroke="#334155" />
+      <text x="181" y="22" font-size="11" fill="#64748b">process</text>
+      <text x="238" y="22" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/…</text>
+      <text x="312" y="22" font-size="11" fill="#64748b">= package</text>
+
+      <rect x="8" y="34" width="664" height="186" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
+      <text x="18" y="52" font-size="12.5" font-weight="700" fill="#475569">host · local  —  where kolu-server runs</text>
+
+      <rect x="22" y="64" width="168" height="146" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="22" y="64" width="168" height="22" rx="7" fill="#64748b" />
+      <rect x="22" y="75" width="168" height="11" fill="#64748b" />
+      <text x="32" y="79" font-size="11.5" font-weight="700" fill="#fff">process · browser</text>
+      <text x="32" y="108" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/client</text>
+      <text x="32" y="132" font-size="10" font-style="italic" fill="#64748b">the canvas (SolidJS)</text>
+
+      <rect x="204" y="64" width="452" height="146" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="204" y="64" width="452" height="22" rx="7" fill="#2563eb" />
+      <rect x="204" y="75" width="452" height="11" fill="#2563eb" />
+      <text x="214" y="79" font-size="11.5" font-weight="700" fill="#fff">process · kolu-server</text>
+      <text x="214" y="106" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/server</text>
+      <text x="214" y="124" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-daemon-supervisor</text>
+      <text x="214" y="142" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-nix-host</text>
+      <text x="214" y="160" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/integrations/git</text>
+      <text x="214" y="186" font-size="10" font-style="italic" fill="#64748b">local tiles: the provider DAG + fs/git watchers run HERE</text>
+
+      <line x1="190" y1="150" x2="204" y2="150" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
+      <text x="197" y="144" font-size="9" fill="#334155" text-anchor="middle">ws</text>
+
+      <line x1="290" y1="212" x2="174" y2="336" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
+      <text x="486" y="256" font-size="10.5" font-weight="700" fill="#7c3aed" text-anchor="middle">ssh · HostSession (stdioLink)</text>
+      <text x="486" y="272" font-size="9.5" fill="#64748b" text-anchor="middle">pty-host proxied · fs/git · metadata</text>
+
+      <rect x="8" y="306" width="664" height="248" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
+      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#475569">host · remote (prod)  —  one ssh endpoint: the agent, fronting kaval</text>
+
+      <rect x="22" y="338" width="300" height="200" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="22" y="338" width="300" height="22" rx="7" fill="#b45309" />
+      <rect x="22" y="349" width="300" height="11" fill="#b45309" />
+      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#fff">process · agent  —  re-runs fresh  (new · P3)</text>
+      <text x="32" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/server   (R-1.6 provider DAG)</text>
+      <text x="32" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/integrations/git</text>
+      <text x="32" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface</text>
+      <text x="32" y="446" font-size="10" font-style="italic" fill="#64748b">fronts kaval; runs the DAG + native fs/git;</text>
+      <text x="32" y="462" font-size="10" font-style="italic" fill="#64748b">serves pty-host + fs/git over ssh</text>
+
+      <rect x="380" y="338" width="276" height="200" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="380" y="338" width="276" height="22" rx="7" fill="#15803d" />
+      <rect x="380" y="349" width="276" height="11" fill="#15803d" />
+      <text x="390" y="353" font-size="11.5" font-weight="700" fill="#fff">process · kaval  —  durable · SURVIVES</text>
+      <text x="390" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/kaval</text>
+      <text x="390" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-daemon</text>
+      <text x="390" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/terminal-protocol</text>
+      <text x="390" y="446" font-size="10" font-style="italic" fill="#64748b">fds + OSC taps; single-instance</text>
+      <text x="390" y="462" font-size="10" font-style="italic" fill="#64748b">pid-gate; serves a unix socket</text>
+
+      <line x1="322" y1="440" x2="380" y2="440" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
+      <text x="351" y="432" font-size="8.5" fill="#334155" text-anchor="middle">unix socket</text>
+      <text x="351" y="454" font-size="8" fill="#64748b" text-anchor="middle">taps + pty-host</text>
+    </svg>
+  </div>
+);
+
 **A reframe of [remote-terminals](remote-terminals.html)'s R-2, proposed now kaval ships.** Old R-2 made *remote* a heavyweight per-tile **backend** (a `RemoteTerminalBackend`, a parent-side screen mirror, a bespoke agent). This proposes a lighter substrate: **a kaval is a daemon you dial** — local over a unix socket, remote over ssh — and Kolu can put a tile on any kaval. Whether the canvas shows **one kaval at a time** (tmux-style switch) or **multiplexes several** (a tile per kaval, side by side) is a UI choice on the *same* substrate — and because kolu is a *canvas*, it leans multiplex.
 
 <KavalCanvas />
@@ -136,28 +210,11 @@ ssh <em>reach</em> + provision is the one genuinely-new transport, shared by bot
 
 ## The remote process model (P3)
 
-For a remote tile, kolu-server **provisions an agent** on the host (`provisionAgent`: `nix copy --derivation` → remote `nix-store --realise` → pin a GC root) and dials it over **one** `HostSession` ssh link (the `stdioLink`). The agent is the durable **kaval** (fds + OSC taps, single-instance pid-gate, survives deploys) plus the **watcher tier** (provider DAG + fs/git surface) that **re-runs fresh** — the #1031 line, now applied remote-side. PTY attach + taps ride the link; fs/git + metadata mirror over the same link (`mirrorRemoteCollection`).
+**kaval and the watcher tier are two separate processes** — forced, not incidental. kaval is the durable survivor (it must outlive deploys); the watcher tier (provider DAG + fs/git) re-runs fresh (it must be the current build's code — the #1031 line); **one process cannot be both.** Locally the watcher tier isn't even standalone — the DAG + fs/git watchers run *inside* `kolu-server` (`local.ts`: *"the DAG runs HERE, in kolu-server"*), with kaval the separate daemon. Remotely, `kolu-server` isn't on the host, so the watcher tier becomes its own **agent** process beside kaval.
 
-<D2
-  caption="P3's process/host model. kolu-server provisions an agent on the remote host and dials it over ONE HostSession ssh link — PTY attach + taps via the stdioLink, fs/git + metadata via mirrorRemoteCollection. The agent is the durable kaval (pid-gate, survives) plus the watcher tier (provider DAG + fs/git surface, re-runs fresh). An already-running kaval is adopted, never duplicated."
-  code={`direction: down
-localhost: "local host — where kolu-server runs" {
-  browser: "browser — the canvas"
-  server: "kolu-server" {
-    ep: "endpoint(hostId) · adoptOrEnsure\\nbackend surfaces (PTY · fs · git) bound to this endpoint"
-  }
-}
-remotehost: "remote host — reached over ONE ssh link" {
-  agent: "provisioned agent (nix-realised closure)" {
-    kaval: "kaval — fds + OSC taps\\npid-gate: single instance · SURVIVES"
-    watchers: "watcher tier — provider DAG + fs/git surface\\nre-runs fresh (#1031)"
-  }
-}
-localhost.browser -> localhost.server: "websocket"
-localhost.server.ep -> remotehost.agent.kaval: "HostSession ssh stdio (stdioLink)\\nPTY attach · taps"
-localhost.server.ep -> remotehost.agent.watchers: "same link · mirrorRemoteCollection\\nfs/git · metadata"
-`}
-/>
+And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching it over the network needs a remote *stdio* endpoint — and a `HostSession` is one ssh subprocess per host. So the remote host exposes **one** ssh endpoint, the agent: `kolu-server` dials the agent over one `HostSession` `stdioLink`, and the agent locally **fronts kaval** (its unix socket) for PTY attach/control + taps while serving its own fs/git + metadata surface (`mirrorRemoteCollection`). The closure is shipped first via `provisionAgent` (`nix copy --derivation` → remote `realise` → pin a GC root). The diagram shows all three boundaries — **host** (dashed), **process** (boxed), **package** (`packages/…`):
+
+<ProcDiagram />
 
 **If the host already has a kaval running, it is adopted** — the same generic `adoptOrEnsure` spine (`endpoint.ts`), per endpoint, that the local boot uses. A duplicate is impossible by construction: a second launch hits the pid-gate's atomic `link(2)` EEXIST, liveness-probes the holder (`kill(pid,0)`), and exits 0 ("yielding to the live instance") **without binding a socket** — the running daemon is never disturbed. Re-provisioning is idempotent (`nix realise` no-ops if the closure is already present; an older build coexists and the moving GC root migrates to the new one). On dial:
 
