@@ -63,6 +63,13 @@ Feature: Right panel (Code + Inspector)
     Then the inspector should show a theme section
     And there should be no page errors
 
+  Scenario: Inspector shows the kaval-tui attach command
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector should show the kaval-tui attach command
+    And there should be no page errors
+
   Scenario: Clicking theme in inspector opens palette to Theme group
     When I press the toggle inspector shortcut
     Then the right panel should be visible
