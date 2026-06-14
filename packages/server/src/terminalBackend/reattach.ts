@@ -29,7 +29,7 @@
  * offers to re-spawn it) is left untouched — B2 behavior, unchanged.
  */
 
-import { currentBuildId } from "kaval";
+import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 import { log } from "../log.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
@@ -99,7 +99,7 @@ export async function adoptSurvivingSession(): Promise<void> {
   // nudge PREDICATE (the connected-gate + empty-guard comparison) lives in the
   // client's `kavalStale`; this is observability, not a second source of truth.
   const running = readDaemonStatus(LOCAL_HOST_ID)?.identity?.staleKey ?? "";
-  const expected = currentBuildId();
+  const expected = expectedKavalIdentity().staleKey;
   log.info(
     { running, expected },
     `kaval currency on adopt: running=${running} expected=${expected}`,
