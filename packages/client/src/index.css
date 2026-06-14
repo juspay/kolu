@@ -333,6 +333,14 @@ body {
 [data-canvas-tile][data-active="true"] .tile-aura {
   opacity: 0.4;
 }
+/* Alert's `opacity` keyframes would otherwise outrank the mute above — a
+ * running CSS animation beats normal declarations regardless of selector
+ * order — so the active-alert tile would keep throbbing 0.5↔1 instead of
+ * settling at 0.4. Cancel the pulse on the active tile so the mute wins. */
+[data-canvas-tile][data-active="true"][data-aura="alert"] .tile-aura {
+  animation: none;
+  opacity: 0.4;
+}
 
 /* Inset highlight: marks the pill as ALSO the active terminal when
  * the border is already busy showing agent state. Sits inside the

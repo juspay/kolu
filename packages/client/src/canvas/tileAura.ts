@@ -16,10 +16,10 @@
 import type { AgentBucketKind } from "./dockModel";
 
 export type TileAura =
-  | "alert" // unread: a fresh, missed "needs you" — fast throb, loudest
-  | "waiting-fresh" // awaiting + recent — gentle violet breathe
+  | "alert" // unread: a fresh, missed "needs you" — fastest, brightest sweep, loudest
+  | "waiting-fresh" // awaiting + recent — a steady repo-color comet sweeps the ring
   | "working" // thinking / tools / background — runs as marching ants; busy, asks nothing
-  | "waiting-stale" // awaiting but aged past the activity window — dim ember
+  | "waiting-stale" // awaiting but aged past the activity window — same comet, slowed and dimmed
   | "none"; // idle / parked / no agent — no glow
 
 export function tileAura(
@@ -28,7 +28,19 @@ export function tileAura(
   stale: boolean,
 ): TileAura {
   if (unread) return "alert";
-  if (bucket === "awaiting") return stale ? "waiting-stale" : "waiting-fresh";
-  if (bucket === "working") return stale ? "none" : "working";
-  return "none";
+  switch (bucket) {
+    case "awaiting":
+      return stale ? "waiting-stale" : "waiting-fresh";
+    case "working":
+      return stale ? "none" : "working";
+    case "none":
+      return "none";
+    default: {
+      // Exhaustiveness fence: if `AgentBucketKind` gains another live bucket,
+      // this stops compiling until the new state is mapped to a tier rather
+      // than silently rendering no aura.
+      const _exhaustive: never = bucket;
+      return _exhaustive;
+    }
+  }
 }
