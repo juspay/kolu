@@ -1,0 +1,239 @@
+---
+title: "App.tsx: Restore the Thin Layout Shell"
+description: A plan to decompose the 785-line App.tsx kitchen-sink into six volatility-aligned seams — pressure-tested by the lowy + hickey lenses before a line of code.
+kind: analysis
+status: proposed
+maturity: seedling
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import D2 from "../../components/D2.astro";
+
+The convention is explicit and the code drifted from it:
+
+> **State per domain**: Extract shared state into `useXxx.ts` modules (singleton
+> pattern)… **Keep App.tsx as a thin layout shell.** — `.claude/rules/solidjs.md`
+
+`packages/client/src/App.tsx` is supposed to be that shell. At 785 lines it has
+become the catch-all every feature lands a little wiring in. This is the
+plan-of-record for [#1340](https://github.com/juspay/kolu/issues/1340) — a
+**behavior-preserving** decomposition back to layout-composition-only. The issue
+suggested one cluster per PR; per the maintainer's call this lands the **whole**
+decomposition in one branch, sequenced as ordered, individually-bisectable
+commits.
+
+<Callout kind="accent" title="Verdict — six seams, one branch, gauntlet-hardened">
+The naive read of #1340 is five "kitchen-sink" clusters. A dual-lens review
+(Lowy's volatility decomposition ⇄ Hickey's *Simple Made Easy*) reshaped it into
+**six volatility-aligned seams** and killed two traps the line-count framing would
+have walked into: a `useOverlays()` god-hook and a setter-leaking `useActionContext`.
+Method: 9 agents — map ▸ dual-lens critique ▸ reconcile. Target: App.tsx **785 → ~460
+lines**, every removed line relocated to a named owner, the e2e suite as the guard.
+</Callout>
+
+## ① The drift — App.tsx became the catch-all
+
+The shell is supposed to *mount* things. Instead it **owns** them. Five kinds of
+non-layout weight have accreted, each pulling in a different direction:
+
+- **Six overlay/dialog open-state signals** — `paletteOpen`, `shortcutsHelpOpen`,
+  `aboutOpen`, `welcomeOpen`, `diagnosticInfoOpen`, plus `searchOpen` (which isn't
+  even a modal — it's per-terminal find visibility, mis-clustered by mere
+  co-location).
+- **The canvas-surface precedence** — an outer `<Show>` gate plus a four-arm
+  `<Switch>` whose *arm order* carries correctness (the #1034 "empty-canvas lie"
+  and the F3 warming-window race both edited that order), readable only by
+  rendering.
+- **The full `ActionContext` assembly** (≈40 lines) — a fan-in that references
+  *every* other domain's writer: store, crud, theme, sub-panel, right-panel,
+  posture, dock, recorder, overlays.
+- **A prop-drilled server-identity fetch** — `client.server.info()` + an
+  `identity` signal + `appTitle()` threaded into the watermark, the About dialog,
+  `<Title>`, `<Meta>`, and `MobileTileView`.
+- **Two imperative escapes** — `window.__koluSimulateAlert = …` (an e2e bridge App
+  neither produces nor consumes) and a `document.querySelector("[data-corvu-dialog-content]…")`
+  DOM probe standing in for state App already owns reactively.
+
+A thin shell is **not an empty file**. Its legitimate, irreducible job stays:
+the root container + safe-area + visual-viewport frame, the document title/meta,
+the dialog *mount points*, the chrome/overlay siblings, the canvas `<Switch>`'s
+per-surface **layout markup**, and the desktop `<Resizable>` split (whose
+load-bearing comments encode the full-viewport-width invariant ChromeBar leans
+on). That floor is ~330 lines of genuine layout. The goal is to shed everything
+that *isn't* that.
+
+## ② Six seams, six axes of change
+
+Each seam encapsulates **one volatility** — one reason-to-change — behind a stable
+interface, mirroring an established singleton (`useIntentEditor` for reactive
+dialog controllers via `createSharedRoot`; `useSubPanel` for per-terminal keyed
+state). The shell then *composes* named owners instead of *holding* their state.
+
+<D2 caption="After the decomposition: App.tsx composes six named owners on the terminal-store/crud foundation. Only the precedence decision, open-state, and wiring leave — the per-surface layout markup stays." code={`
+direction: down
+
+shell: "App.tsx — thin layout shell (frame · canvas <Switch> · dialog mounts)" {
+  style.fill: "#dbeafe"
+}
+
+mode: "useCanvasMode — surface precedence" {
+  style.fill: "#e6f4ea"
+  order: "connecting ▸ down ▸ warming ▸ empty ▸ workspace"
+}
+
+identity: "useServerIdentity — info fetch · appTitle" {
+  style.fill: "#e6f4ea"
+}
+
+dialogs: "Dialog open-state — per-dialog, NOT a god-hook" {
+  style.fill: "#f1e9fb"
+  palette: "useCommandPalette — real controller"
+  disc: "createDisclosure × 4 — trivial toggles"
+  stack: "useDialogStack — focus arbitration"
+}
+
+search: "useTerminalSearch — per-terminal find" {
+  style.fill: "#e1f0f3"
+}
+
+handlers: "Domain handlers go home" {
+  style.fill: "#e1f0f3"
+  a: "centerActive ▸ useCanvasArrange"
+  b: "toggleOrCreate ▸ useSubPanel"
+}
+
+actions: "useActionContext — composes verbs · deferred" {
+  style.fill: "#fbf1dc"
+  style.stroke-dash: 4
+}
+
+modal: "ModalDialog.refocusOnClose" {
+  style.fill: "#f1e9fb"
+}
+
+foundation: "useTerminalStore + useTerminalCrud (singleton)" {
+  style.fill: "#eef0f2"
+}
+
+shell -> mode: reads
+shell -> identity: reads
+shell -> dialogs: mounts
+shell -> search: reads
+shell -> handlers: delegates
+shell -> actions: "keys + palette"
+dialogs.palette -> modal
+dialogs.stack -> modal: "open count"
+actions -> foundation
+handlers -> foundation
+search -> foundation
+`} />
+
+| # | Seam → owner | Axis of change it encapsulates | App.tsx sheds | ~lines |
+| --- | --- | --- | --- | --- |
+| 1 | **`useCanvasMode`** (new, `kaval/`) | *Which* canvas surface wins, in what order — a pure 5-way total function, finally unit-testable without a DOM | `showEmpty`, the outer `<Show>`, the 4 `<Switch>` conditions → one `switch` over `canvasMode().kind` | 12–20 |
+| 2 | **Dialog controllers** — `useCommandPalette` + `createDisclosure`×4 + `useDialogStack` | Five *independent* dialog visibilities + one shared focus-arbitration concern | 5 modal signals, `withRefocus`, `handlePaletteOpenChange`, the DOM probe | 55–70 |
+| 3 | **`useTerminalSearch`** (new, `terminal/`) | Per-active-terminal find-bar visibility (terminal lifecycle, not modal) | `searchOpen` + its `on(activeId)` reset effect + prop threading | 8–12 |
+| 4 | **Handlers go home** — `useCanvasArrange.centerActive`, `useSubPanel.toggleOrCreate`, `TerminalContent` self-reads | Domain behavior belongs to the domain that owns the state | `handleToggleSubPanel`, `handleCanvasCenterActive`, 6 re-threaded tile props | 45–60 |
+| 5 | **`useServerIdentity`** (new) | How the server name / theme-color / PWA chrome is fetched + exposed | the `info()` fetch, the `identity` signal, the `appTitle` prop-drill | ~12 |
+| 6 | **`useActionContext`** (new, `input/`) — *deferred* | Binding the key-dispatch + palette surfaces to one wiring object | the ~40-line `ActionContext` literal — *only if the residual still reads as non-layout* | 0–45 |
+
+Two cross-cutting moves enable the table. **`useTerminalCrud` is promoted from a
+`{store}`-factory to a `createSharedRoot` singleton** (mirroring the shipped
+`useIntentEditor` de-deps) so `TerminalContent`/`TileTitleActions` can read it
+directly instead of receiving crud-derived closures — this is the load-bearing
+prerequisite for seam 4. And the **`__koluSimulateAlert` test-hook folds into its
+producer** (`useTerminalAlerts`), which already owns the `window`/`navigator` test
+surface.
+
+## ③ What the review gauntlet changed
+
+The plan you're reading already survived the structural debate it would otherwise
+face in review. Three corrections matter, because each is a place the
+"fewer-lines-in-one-file" instinct would have made the code *worse*:
+
+<Callout kind="good" title="✅ Refuse the useOverlays() god-hook — the single best call">
+Bundling five unrelated dialogs behind one growing interface re-complects exactly
+what #1340 wants apart: six independent visibility volatilities forced to change
+together. Both lenses flagged a `useOverlays()` as a blocker. Instead: **per-dialog
+controllers**, with the four trivial toggles sharing **one `createDisclosure()`
+factory** (not four near-empty bespoke hooks — that just multiplies the same
+concept under four names), and only `useCommandPalette` earning a real controller
+(it has genuine logic: `initialGroup` reset + the refocus probe).
+<Pill variant="new">Lowy: six axes</Pill> <Pill variant="new">Hickey: de-dup the disclosure</Pill>
+</Callout>
+
+<Callout kind="good" title="🔌 Give 'is any dialog open?' one small owner — a counter, not a god-hook">
+The DOM probe (`querySelector` for an open Corvu dialog) is the close-refocus
+policy reading the rendered DOM as a backchannel. The naive replacement — a
+`createMemo` OR-ing every dialog's `open()` — must *enumerate every dialog and stay
+in sync forever* (miss one, like `KavalInfoDialog`, and refocus steals focus). The
+simpler owner is a **`useDialogStack` mount-counter**: each dialog self-registers
+on open/close through the shared `ModalDialog` boundary, refocus reads
+`openCount() === 0`. Self-healing like the DOM probe, but reactive and with **zero
+enumeration to maintain**. The refocus-on-close policy itself hoists once into
+`ModalDialog.refocusOnClose`, retiring the *three* hand-duplicated copies (App's
+`withRefocus`, `handlePaletteOpenChange`, and DiagnosticInfo's inline block).
+</Callout>
+
+<Callout kind="warn" title="⚡ useActionContext consumes VERBS, not setters — and may not need to exist">
+The original sketch threaded raw `Setter<boolean>` fields through a deps arg —
+which re-opens the very signal-API leak seam 2 just sealed. Corrected:
+`useActionContext` calls the controllers' **stable verbs**
+(`commandPalette.toggle()`, `terminalSearch.toggleActive()`) and sources the
+singletons itself, so it takes **zero deps**. Hickey went further: this cluster
+mostly *relocates* the file's most-entangled fan-in. The real reduction comes from
+the **other** seams removing their own fields at the source — after which the
+residual literal is legitimate shell coordination that may not warrant its own
+module. Hence <Pill variant="md">deferred</Pill>: extract last, and only if it
+still reads as non-layout.
+</Callout>
+
+The fourth change is an *addition*: Lowy caught that the **server-identity fetch**
+(seam 5) was a real volatility the five-cluster framing missed entirely — the one
+stray fetch never migrated to the `useXxx` pattern, prop-drilled through the shell.
+A small bonus rides seam 1: delete the dead `daemonDown()` export (zero live
+importers) while rewriting that region.
+
+## ④ Order, guardrails, and the behavior bar
+
+**Sequence (commit order within the one branch).** The seams aren't peers in the
+dependency graph; this order keeps every commit behavior-preserving and bisectable:
+
+1. **`useTerminalCrud` → singleton** — the enabling prerequisite; unblocks seam 4. <Pill variant="hi">highest risk</Pill> (instantiation/disposal change — verify owner semantics the way `useTerminalStore` was).
+2. **In parallel, all leaves:** `useCanvasMode` ∥ `useServerIdentity` ∥ `ModalDialog.refocusOnClose` + `useDialogStack` ∥ the `__koluSimulateAlert` fold-in.
+3. **Dialog controllers** (`useCommandPalette` + `createDisclosure`×4, DOM-probe → `useDialogStack`) ∥ **`useTerminalSearch`** (its own commit — highest behavior risk in seam 2, crosses the `terminal/` boundary).
+4. **Handlers go home** (`centerActive`, `toggleOrCreate`, `TerminalContent` prop-shedding).
+5. **`useActionContext`** — last, consuming verbs, if it earns its module.
+
+<Callout kind="danger" title="Do NOT extract — the over-extraction traps">
+The thin shell keeps real work. **`closeTerminal` stays** (dialog-orchestration glue
+that pops the root-mounted `<CloseConfirm>`; keep `onCloseTerminal` as the one
+drilled prop). **The export/screenshot closures stay** (single-caller active-id
+resolvers — wrapping them violates *no-thin-wrapper-functions*). **`dockPalette` and
+the `createCommands` palette-deps spread stay** (binding two surfaces to one wiring
+object *is* the shell's coordination role). **The canvas-arm JSX and the
+`<Resizable>` split stay** — only the *precedence decision* leaves, never the
+layout markup with its load-bearing invariants. And **don't eagerly hoist
+`useRecorder()`** — preserve the lazy `() => useRecorder().togglePause()` shape.
+</Callout>
+
+**The behavior bar.** This is a refactor with **no UI change**, so the e2e suite is
+the guard — every removed line's effect is already exercised: `kaval-daemon.feature`
+(the down-beats-empty / warming-beats-empty precedence, seam 1), `command-palette`
++ `keyboard-shortcuts` + `welcome` (dialog open/close + refocus, seam 2),
+`terminal.feature` find-in-terminal (seam 3), `terminal`/`sub-terminal`/`kill`
+(seam 4), `activity-alerts` (the test-hook fold-in). The one genuinely *new* test is
+a sibling unit test on `canvasMode` — asserting the tier precedence
+(connecting ▸ down ▸ warming ▸ empty ▸ workspace) and the down/warming payloads
+without rendering, which is the whole point of pulling the decision out of the JSX.
+
+When it lands, this note flips to `status: implemented` and links the PR with
+`<PrLink pr={0} />`.
+
+---
+
+*Method · 9 subagents over a 2-phase workflow: 5 cluster mappers + an idiom/sequencing
+pass → independent Lowy + Hickey structural lenses → reconciled synthesis. Source:
+`packages/client/src`, branch `refactor/app-thin-shell`, 2026-06-13.*
