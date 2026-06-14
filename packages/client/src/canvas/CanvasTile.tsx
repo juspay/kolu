@@ -13,7 +13,7 @@
  *    so chrome reflects state and double-click toggles it. */
 
 import { createDraggable } from "@thisbeyond/solid-dnd";
-import { type Component, For, type JSX, Show } from "solid-js";
+import { type Component, createMemo, For, type JSX, Show } from "solid-js";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import {
   Z_CANVAS_TILE_ACTIVE,
@@ -95,7 +95,10 @@ const CanvasTile: Component<{
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
 
   const bg = () => props.theme.bg;
-  const aura = (): TileAura => props.auraTier?.() ?? "none";
+  // Memoized: `showAura` and the `data-aura` attribute both read the tier, and
+  // each read chains through the resolver into store + staleness lookups — so
+  // compute it once per reactive cycle rather than per consumer.
+  const aura = createMemo((): TileAura => props.auraTier?.() ?? "none");
   // One decision — "is the aura showing" — so the `data-aura` host attribute
   // and the `.tile-aura` child can't drift. A maximized tile mutes its aura.
   const showAura = () => aura() !== "none" && !isMaximized();
