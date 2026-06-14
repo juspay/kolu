@@ -1,7 +1,7 @@
 ---
 name: be-review
 description: Run /be's review gauntlet SERIALLY — /lens-debate (lowy ⇄ hickey), then /codex-debate, then /simplify, then code-police, each editing and committing on the live branch in turn. Use from /be §4, or when the user asks to "run the review gauntlet". Requires Claude Code's Skill tool.
-argument-hint: "[--base <branch>] [--rationale <note>] [--tracks lens,codex,simplify,police]"
+argument-hint: "[--base <branch>] [--rationale <note>] [--context <note>] [--tracks lens,codex,simplify,police]"
 ---
 
 # Review gauntlet (serial)
@@ -92,7 +92,10 @@ it once per step.
 
 2. **codex** — follow `/codex-debate` (Skill tool). `repoPath` = the live
    worktree, `base` = `MB`, **`--no-comment`** (so it doesn't advertise its
-   local-only round commits before be-review pushes). Its step-2 `Workflow` runs
+   local-only round commits before be-review pushes), and thread both `context`
+   (the task / main-agent context, so the codex **author inherits what you know —
+   not just the diff** — every round) and `rationale` (so codex doesn't flag
+   deliberate decisions at the source) straight through. Its step-2 `Workflow` runs
    in the background; **wait for it to finish** before starting the simplify step.
    It commits its rounds and **returns** its rendered comment body — hold onto it
    to post after the final push. (On persistent `reviewer-error` there is **no
