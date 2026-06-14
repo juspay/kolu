@@ -127,45 +127,45 @@ body {
   background: oklch(from var(--card-color) l c h / 0.8);
 }
 
+/* The breathing ring paints its color-mix background ONCE and animates only
+ * `opacity` (compositor-accelerated) — animating the `background` color-mix
+ * repainted the masked ring every frame (#1308). The trough opacities
+ * (.22 ≈ 20/90, .44 ≈ 35/80) preserve the original dim-to-bright range. */
 .pill-border-awaiting::before {
+  background: color-mix(
+    in oklch,
+    var(--pill-state-color, var(--color-alert)) 90%,
+    transparent
+  );
   animation: pill-awaiting-breathe 1.6s ease-in-out infinite;
+  will-change: opacity;
 }
 @keyframes pill-awaiting-breathe {
   0%,
   100% {
-    background: color-mix(
-      in oklch,
-      var(--pill-state-color, var(--color-alert)) 20%,
-      transparent
-    );
+    opacity: 0.22;
   }
   50% {
-    background: color-mix(
-      in oklch,
-      var(--pill-state-color, var(--color-alert)) 90%,
-      transparent
-    );
+    opacity: 1;
   }
 }
 
 .pill-border-working::before {
+  background: color-mix(
+    in oklch,
+    var(--pill-state-color, var(--color-accent)) 80%,
+    transparent
+  );
   animation: pill-working-pulse 2.4s ease-in-out infinite;
+  will-change: opacity;
 }
 @keyframes pill-working-pulse {
   0%,
   100% {
-    background: color-mix(
-      in oklch,
-      var(--pill-state-color, var(--color-accent)) 35%,
-      transparent
-    );
+    opacity: 0.44;
   }
   50% {
-    background: color-mix(
-      in oklch,
-      var(--pill-state-color, var(--color-accent)) 80%,
-      transparent
-    );
+    opacity: 1;
   }
 }
 
@@ -175,21 +175,16 @@ body {
  * to a dim-and-static state visually indistinguishable from idle
  * + working when reduce-motion is requested. */
 @media (prefers-reduced-motion: reduce) {
+  /* Base background already sits on the `::before` at full strength; hold a
+   * static opacity that matches the old reduced-motion strengths
+   * (0.89 ≈ 80/90, 0.75 = 60/80) so awaiting still reads strongly. */
   .pill-border-awaiting::before {
     animation: none;
-    background: color-mix(
-      in oklch,
-      var(--pill-state-color, var(--color-alert)) 80%,
-      transparent
-    );
+    opacity: 0.89;
   }
   .pill-border-working::before {
     animation: none;
-    background: color-mix(
-      in oklch,
-      var(--pill-state-color, var(--color-accent)) 60%,
-      transparent
-    );
+    opacity: 0.75;
   }
 }
 
@@ -525,11 +520,9 @@ body {
 }
 .dock-rail-chip[data-bucket="awaiting"] {
   border-color: var(--color-alert);
-  animation: dock-chip-breathe 1.6s ease-in-out infinite;
 }
 .dock-rail-chip[data-bucket="working"] {
   border-color: var(--color-accent);
-  animation: dock-chip-spin-glow 2.4s linear infinite;
 }
 .dock-rail-chip[data-bucket="none"] {
   opacity: 0.5;
@@ -539,36 +532,46 @@ body {
 .dock-rail-chip[data-bucket="none"][data-active] {
   opacity: 1;
 }
+/* The state glow lives on a child element (`.dock-rail-chip-glow`) so it can
+ * animate opacity/transform on the COMPOSITOR instead of repainting the chip's
+ * box-shadow every frame. Animating box-shadow per chip was the dominant
+ * rail-mode cost in #1308 (a busy rail turned a few paints/6s into tens of
+ * thousands, ~150x the GPU work at idle). The glow's box-shadow is now
+ * rasterized ONCE; only opacity+scale (awaiting "breath") or transform:rotate
+ * (working "orbit", carrying the directional glow around the perimeter)
+ * animate. The child keeps the chip's own `::before` (active halo) and
+ * `::after` (unread badge) pseudos free. */
+.dock-rail-chip-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.dock-rail-chip[data-bucket="awaiting"] .dock-rail-chip-glow {
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-alert) 70%, transparent);
+  will-change: opacity, transform;
+  animation: dock-chip-breathe 1.6s ease-in-out infinite;
+}
 @keyframes dock-chip-breathe {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-alert) 70%, transparent);
+    opacity: 0.45;
+    transform: scale(0.985);
   }
   50% {
-    box-shadow: 0 0 0 3px
-      color-mix(in oklch, var(--color-alert) 35%, transparent);
+    opacity: 1;
+    transform: scale(1);
   }
 }
+.dock-rail-chip[data-bucket="working"] .dock-rail-chip-glow {
+  box-shadow: 2px 0 6px
+    color-mix(in oklch, var(--color-accent) 55%, transparent);
+  will-change: transform;
+  animation: dock-chip-spin-glow 2.4s linear infinite;
+}
 @keyframes dock-chip-spin-glow {
-  0% {
-    box-shadow: 2px 0 6px
-      color-mix(in oklch, var(--color-accent) 55%, transparent);
-  }
-  25% {
-    box-shadow: 0 2px 6px
-      color-mix(in oklch, var(--color-accent) 55%, transparent);
-  }
-  50% {
-    box-shadow: -2px 0 6px
-      color-mix(in oklch, var(--color-accent) 55%, transparent);
-  }
-  75% {
-    box-shadow: 0 -2px 6px
-      color-mix(in oklch, var(--color-accent) 55%, transparent);
-  }
-  100% {
-    box-shadow: 2px 0 6px
-      color-mix(in oklch, var(--color-accent) 55%, transparent);
+  to {
+    transform: rotate(1turn);
   }
 }
 /* Active halo — same accent treatment cards mode uses for the active
@@ -636,10 +639,9 @@ body {
   margin-top: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  .dock-rail-chip[data-bucket="awaiting"],
-  .dock-rail-chip[data-bucket="working"] {
+  /* Freeze the glow to a static themed ring (it still reads as state). */
+  .dock-rail-chip-glow {
     animation: none;
-    box-shadow: none;
   }
   .dock-rail-chip[data-unread]::after {
     animation: none;
