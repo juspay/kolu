@@ -4,8 +4,8 @@
  * glue that fetches over the contract and prints these.
  */
 import { basename } from "node:path";
-import type { PtyHostListEntry } from "kaval";
 import columnify from "columnify";
+import type { PtyHostListEntry } from "kaval";
 
 /** Compact relative age of `ms` (an epoch from `lastActivity`) against `now`,
  *  e.g. `3s` / `5m` / `2h` / `4d`. Never negative (clock skew floors at 0s). */
@@ -72,6 +72,11 @@ export type ResolveResult =
  *  pasted upper-case prefix should still land. Zero matches → `none`; more than
  *  one → `ambiguous` with the full ids so the caller can ask for more chars. */
 export function resolveTerminalId(query: string, ids: string[]): ResolveResult {
+  // An empty query is a prefix of EVERY id (`"".startsWith("")` is true for all
+  // strings), so with one live terminal it would silently resolve to it — a
+  // wrong-terminal footgun when `$id` is accidentally empty (`attach "$id"`).
+  // Reject it as a no-match so the caller fails loud instead.
+  if (query === "") return { kind: "none" };
   const q = query.toLowerCase();
   // An exact id wins outright, so a full id never reads as ambiguous against a
   // longer id that happens to share its prefix (UUIDs can't nest, but this is

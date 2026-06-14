@@ -185,4 +185,11 @@ describe("resolveTerminalId", () => {
   it("reports no match against an empty inventory", () => {
     expect(resolveTerminalId("anything", [])).toEqual({ kind: "none" });
   });
+
+  it("rejects an empty query even with one live terminal (no footgun)", () => {
+    // "" is a prefix of every id, so without the guard a single live terminal
+    // would resolve — an accidentally-empty `$id` must fail loud instead.
+    expect(resolveTerminalId("", [ID_A])).toEqual({ kind: "none" });
+    expect(resolveTerminalId("", ids)).toEqual({ kind: "none" });
+  });
 });

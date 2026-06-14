@@ -116,15 +116,38 @@ Then(
   "the inspector should show the kaval-tui attach command",
   async function (this: KoluWorld) {
     // The Attach section renders a copy button carrying the short-form
-    // `kaval-tui attach <id>` command for the active terminal.
+    // `kaval-tui attach <id>` command for the active terminal. We assert the
+    // whole deliberate contract: the button SHOWS the short id, its `title`
+    // carries the FULL command (the on-hover disambiguator), and CLICKING it
+    // copies the short form (WYSIWYG-copy) — not just that some text matches.
     const attach = this.page.locator(
       '[data-testid="inspector-attach-command"]',
     );
     await attach.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const text = await attach.textContent();
+
+    const visible = (await attach.textContent())?.trim() ?? "";
+    const shortId = visible.match(/kaval-tui attach (\S+)/)?.[1] ?? "";
+    // The displayed id is the short form (8 hex chars), not the full uuid.
     assert.ok(
-      text?.includes("kaval-tui attach "),
-      `Expected inspector to show the kaval-tui attach command, got "${text}"`,
+      /^[0-9a-f]{8}$/.test(shortId),
+      `Expected the shown command to carry an 8-char short id, got "${visible}"`,
+    );
+
+    // The hover/title fallback carries the FULL command — its id starts with
+    // the shown short id and is the full-length uuid (longer than 8 chars).
+    const title = (await attach.getAttribute("title")) ?? "";
+    const fullId = title.match(/^kaval-tui attach (\S+)$/)?.[1] ?? "";
+    assert.ok(
+      fullId.startsWith(shortId) && fullId.length > 8,
+      `Expected the title to carry the full attach command, got "${title}"`,
+    );
+
+    // Clicking copies the SHORT command (the deliberate WYSIWYG-copy decision).
+    await attach.click();
+    await this.page.waitForFunction(
+      (exp) => navigator.clipboard.readText().then((t) => t === exp),
+      `kaval-tui attach ${shortId}`,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
