@@ -13,7 +13,7 @@
  * deliberately does not — a plain `$SHELL` is the point.
  */
 import { randomUUID } from "node:crypto";
-import type { PtyHostSpawnInput } from "kaval";
+import { DEFAULT_SPAWN_SHELL, type PtyHostSpawnInput } from "kaval";
 import { commandName, shortId, tildeify } from "./render.ts";
 
 /** The pty-host's spawn result — `{ id, pid, cwd }` (TerminalSpawnOutputSchema). */
@@ -23,15 +23,12 @@ export interface CreateResult {
   cwd: string;
 }
 
-/** The default shell when the environment names none — the same fallback the
- *  contract tests use, so a bare environment still spawns something usable. */
-const DEFAULT_SHELL = "/bin/bash";
-
 /** Compose the fully-specified spawn input. Pure: `id`, `cwd`, `env`, and an
  *  optional `command` are passed in (`main.ts` supplies `randomUUID()` /
  *  `process.cwd()` / `process.env` / the `[command…]` positional) so the result
  *  is deterministic and testable. `argv` is the given `command`, or `[$SHELL]`
- *  (falling back to `/bin/bash`) when none is passed — a plain login shell. There
+ *  (falling back to `DEFAULT_SPAWN_SHELL`, the host-agreeing `/bin/sh`) when none
+ *  is passed — a plain login shell. There
  *  are no rcfiles, and the env is the caller's own with `undefined` values
  *  dropped: the host writes nothing of its own. */
 export function buildCreateInput(opts: {
@@ -47,7 +44,7 @@ export function buildCreateInput(opts: {
   const argv =
     opts.command && opts.command.length > 0
       ? [...opts.command]
-      : [env.SHELL || DEFAULT_SHELL];
+      : [env.SHELL || DEFAULT_SPAWN_SHELL];
   return {
     id: opts.id,
     argv,

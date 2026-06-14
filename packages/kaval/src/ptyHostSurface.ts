@@ -280,3 +280,10 @@ export type PtyHostSystemVersion = z.infer<typeof SystemVersionOutputSchema>;
 export type PtyHostSystemInfo = z.infer<typeof SystemInfoOutputSchema>;
 export type PtyHostInitFile = z.infer<typeof InitFileSchema>;
 export type PtyHostSpawnInput = z.infer<typeof TerminalSpawnInputSchema>;
+
+/** The last-resort spawn shell when a client composing `spawn`'s `argv` finds
+ *  no `$SHELL` to name. Matches the host's own terminal fallback
+ *  (`inProcessPtyHost`'s `hostShell` ends in `/bin/sh`), so the bare client and
+ *  the host agree on the same answer. One literal, shared by every composer that
+ *  needs it (kaval-tui's `create`, the contract corpus) — so it can't drift. */
+export const DEFAULT_SPAWN_SHELL = "/bin/sh";

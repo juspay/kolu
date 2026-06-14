@@ -22,6 +22,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PtyHostClient } from "./inProcessPtyHost.ts";
 import {
+  DEFAULT_SPAWN_SHELL,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSpawnInput,
 } from "./ptyHostSurface.ts";
@@ -61,7 +62,7 @@ export function spawnInput(cwd: string): PtyHostSpawnInput {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v;
   return {
-    argv: [process.env.SHELL || "/bin/bash"],
+    argv: [process.env.SHELL || DEFAULT_SPAWN_SHELL],
     cwd,
     env,
     initFiles: [],

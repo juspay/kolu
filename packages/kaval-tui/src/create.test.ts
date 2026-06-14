@@ -28,9 +28,9 @@ describe("buildCreateInput", () => {
     });
   });
 
-  it("falls back to /bin/bash when the env names no SHELL", () => {
+  it("falls back to /bin/sh when the env names no SHELL", () => {
     const input = buildCreateInput({ id: "x", cwd: "/", env: { FOO: "bar" } });
-    expect(input.argv).toEqual(["/bin/bash"]);
+    expect(input.argv).toEqual(["/bin/sh"]);
   });
 
   it("runs the given command verbatim instead of $SHELL", () => {
