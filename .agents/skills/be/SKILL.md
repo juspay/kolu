@@ -56,8 +56,10 @@ applies its own fixes directly — no snapshot, no apply pass. be-review pushes 
 at the end and *then* posts the PR comments (lens, codex, and a code-police
 summary), so no comment advertises a local-only commit.
 
-- Pass `base` and the change **`rationale`** (so the lenses don't flag deliberate
-  decisions). Preflight is a non-empty diff and (since codex runs) `codex login
+- Pass `base`, the change **`rationale`** (so the lenses don't flag deliberate
+  decisions), and **`context`** — the task intent and key decisions you hold from
+  this run, so the codex author **inherits what you know instead of re-deriving it
+  from the diff**. Preflight is a non-empty diff and (since codex runs) `codex login
   status`.
 - Lens-debate commits its agreed fixes; codex's rounds commit `fix(…)`; simplify
   and code-police commit `refactor:` / `fix(police):`. Confirm the post-push PR

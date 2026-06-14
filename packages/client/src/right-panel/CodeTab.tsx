@@ -405,13 +405,25 @@ const CodeTab: Component<{
     ),
   );
 
-  // Consume-once record for the latest pendingOpen tick. Holds the
-  // full request object (reference identity discriminates two
-  // structurally-identical clicks — `openInCodeTab` mints a fresh
-  // object per call) alongside the resolved path. Storing the
-  // request here lets `selectedRange` derive its value without
-  // re-running `resolveLineRefPath` (single resolution site per
-  // request).
+  // Consume-once guard for the resolution effect below, keyed on request
+  // identity. Kept SEPARATE from the `handled` highlight session: a manual
+  // tree-click resets `handled` to end the line-highlight, but that reset
+  // must not re-arm this effect. `pendingOpen` is a never-cleared module
+  // singleton ("latest request wins; callers don't clear it"), so a later
+  // terminal round-trip re-runs the effect with the same stale `req`; were
+  // the guard still riding on `handled`, the resurrected request would
+  // re-select the clicked file and clobber the user's manual pick. A plain
+  // (non-reactive) variable: it is only read/written inside the effect and
+  // must survive the effect's re-runs, so it is not a tracked dependency.
+  let consumedRequest: OpenInCodeTabRequest | null = null;
+
+  // Highlight-session record for the latest handled pendingOpen tick. Holds
+  // the full request object (reference identity discriminates two
+  // structurally-identical clicks — `openInCodeTab` mints a fresh object per
+  // call) alongside the resolved path. Storing the request here lets
+  // `selectedRange` derive its value without re-running `resolveLineRefPath`
+  // (single resolution site per request). Reset by a manual tree-click to a
+  // different file so navigating back doesn't resurrect the line range.
   const [handled, setHandled] = createSignal<{
     request: OpenInCodeTabRequest;
     resolvedPath: string | null;
@@ -434,9 +446,14 @@ const CodeTab: Component<{
       },
       ({ req, repo, paths, isPending }) => {
         if (!req) return;
-        if (handled()?.request === req) return;
+        if (consumedRequest === req) return;
         if (repo === null || repo !== req.repoRoot) return;
         if (view() !== req.targetMode || isPending) return;
+        // Committed to handling this request on this tick — mark it consumed
+        // before resolution so any re-run (terminal round-trip, treePaths
+        // settling) can't reprocess it, even after a manual tree-click has
+        // reset `handled`.
+        consumedRequest = req;
         const rel = resolveLineRefPath({
           rawPath: req.ref.path,
           repoRoot: repo,
