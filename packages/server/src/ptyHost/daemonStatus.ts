@@ -14,6 +14,12 @@ import { surfaceCtx } from "../surfaceCtx.ts";
 
 const store = new Map<string, DaemonStatus>();
 
+/** The local kaval's unix socket path (from `kavalSocketPath(port)`), set once at
+ *  boot and constant for the daemon's life. Folded onto every published status so
+ *  the kaval dialog can show where the daemon listens — a server fact the client
+ *  can't construct (it doesn't know the server's `XDG_RUNTIME_DIR`). */
+let localSocketPath: string | undefined;
+
 /** Every host's current daemon status (for the collection's `readAll`). */
 export function readDaemonStatuses(): Map<string, DaemonStatus> {
   return store;
@@ -24,13 +30,24 @@ export function readDaemonStatus(hostId: string): DaemonStatus | undefined {
   return store.get(hostId);
 }
 
-/** Record + publish a host's daemon status. The endpoint's `onStatus` sink. */
+/** Record the local kaval's socket path at boot (before the endpoint publishes
+ *  its first status), so every publish carries it for the dialog. */
+export function setLocalSocketPath(path: string): void {
+  localSocketPath = path;
+}
+
+/** Record + publish a host's daemon status. The endpoint's `onStatus` sink. Folds
+ *  the local socket path on (a constant server fact) so the client need not — and
+ *  can't — derive it. */
 export function publishDaemonStatus(
   hostId: string,
   status: DaemonStatus,
 ): void {
-  store.set(hostId, status);
-  surfaceCtx.collections.daemonStatus.upsert(hostId, status);
+  const full = localSocketPath
+    ? { ...status, socketPath: localSocketPath }
+    : status;
+  store.set(hostId, full);
+  surfaceCtx.collections.daemonStatus.upsert(hostId, full);
 }
 
 /** Fold the boot's adopted-terminal count (B3.3) onto the host's CURRENT status

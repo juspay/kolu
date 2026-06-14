@@ -34,6 +34,7 @@ import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
 import { log } from "../log.ts";
 import { connectKaval } from "./connect.ts";
+import { setLocalSocketPath } from "./daemonStatus.ts";
 import {
   kavalGatePath,
   kavalSocketPath,
@@ -121,6 +122,9 @@ export async function ensureLocalEndpoint(opts: {
   onAdopted?: () => Promise<void>;
 }): Promise<void> {
   const socketPath = kavalSocketPath(opts.port);
+  // Surface where this kaval listens, so the dialog can show it (and `kaval-tui`
+  // users can target it explicitly). Set before the endpoint's first status emit.
+  setLocalSocketPath(socketPath);
   const ep = createEndpoint<PtyHostClient, Identity>({
     hostId: LOCAL_HOST_ID,
     gatePath: kavalGatePath(socketPath),

@@ -9,11 +9,12 @@
  */
 
 import Dialog from "@corvu/dialog";
+import { isCleanRef } from "@kolu/surface-app";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
 import { kavalStale } from "./kavalCurrency";
-import { expectedKavalStaleKey } from "./KavalUpdateBadge";
+import { expectedKaval } from "./KavalUpdateBadge";
 import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
@@ -21,7 +22,7 @@ import {
   formatUptime,
   toneDot,
 } from "./useDaemonStatus";
-import Commit from "../ui/Commit";
+import Commit, { REPO_URL } from "../ui/Commit";
 import { CloseIcon } from "../ui/Icons";
 import ModalDialog from "../ui/ModalDialog";
 import { surface } from "../ui/Surface";
@@ -43,8 +44,8 @@ const KavalInfoDialog: Component<{
   const chrome = surface({ portalled: true });
   // The build the server WOULD spawn — the `expected` operand of the currency
   // nudge (the `reported` operand is `props.status.identity`), read through the
-  // shared `expectedKavalStaleKey` accessor so the surface path is named once;
-  // it drives the running-vs-expected display.
+  // shared `expectedKaval` accessor so the surface path is named once; it drives
+  // the running-vs-expected commit links + the "what changed in kaval" history link.
   //
   // Derive the nudge predicate from the `props.status` the dialog already holds
   // (the same `kavalStale` the rail uses), rather than `kavalUpdatePending()`
@@ -54,7 +55,7 @@ const KavalInfoDialog: Component<{
   // singleton.
   const pending = (): boolean =>
     kavalStale(
-      expectedKavalStaleKey(),
+      expectedKaval()?.staleKey,
       props.status?.identity?.staleKey,
       props.status?.state,
     );
@@ -127,6 +128,21 @@ const KavalInfoDialog: Component<{
                     </div>
                   )}
                 </Show>
+                {/* Where this kaval listens — the unix socket `kaval-tui`
+                    auto-discovers; a server fact surfaced on the status. */}
+                <Show when={s().socketPath}>
+                  {(sock) => (
+                    <div class="flex items-center gap-2 text-fg-3">
+                      <span>socket</span>
+                      <span
+                        class="font-mono text-[11px] truncate"
+                        title={sock()}
+                      >
+                        {sock()}
+                      </span>
+                    </div>
+                  )}
+                </Show>
               </div>
             )}
           </Show>
@@ -147,10 +163,27 @@ const KavalInfoDialog: Component<{
               <p class="text-xs font-medium text-warning">
                 ⬆ A newer kaval is available
               </p>
-              <p class="mt-1 font-mono text-[11px] text-fg-3">
-                running {props.status?.identity?.staleKey?.slice(0, 12) ?? "—"}{" "}
-                · expected {expectedKavalStaleKey()?.slice(0, 12) ?? "—"}
+              {/* The two builds' git COMMITS (clickable), not the closure
+                  staleKeys — those are nix content hashes, not GitHub-navigable. */}
+              <p class="mt-1 flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] text-fg-3">
+                <span>running</span>
+                <Commit sha={props.status?.identity?.navigableCommit} />
+                <span>· expected</span>
+                <Commit sha={expectedKaval()?.navigableCommit} />
               </p>
+              {/* GitHub can't path-filter a compare DIFF, but it CAN a commit
+                  HISTORY (commits/<ref>/<path>) — so link kaval's history at the
+                  expected build. Guarded like the commit links (a clean ref only). */}
+              <Show when={isCleanRef(expectedKaval()?.navigableCommit)}>
+                <a
+                  href={`${REPO_URL}/commits/${expectedKaval()?.navigableCommit}/packages/kaval`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="mt-1 inline-block text-[11px] text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                >
+                  What changed in kaval&nbsp;↗
+                </a>
+              </Show>
               <p class="mt-1 text-[11px] text-fg-3">
                 Restart to pick it up — your terminals are captured first and
                 offered for restore on the fresh daemon.

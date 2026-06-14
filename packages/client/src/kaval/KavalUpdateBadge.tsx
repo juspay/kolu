@@ -20,13 +20,13 @@ import type { KoluBuildInfo } from "kolu-common/surface";
 import { kavalStale } from "./kavalCurrency";
 import { localDaemonStatus } from "./useDaemonStatus";
 
-/** The `expected` operand of the currency nudge — the staleKey of the kaval the
- *  server would spawn (`buildInfo.expectedKaval.staleKey`). Named once here so
- *  every read site (the `kavalUpdatePending` predicate and the dialog's
- *  running-vs-expected display) joins the surface path through one accessor.
- *  Must be called under `<SurfaceAppProvider>`. */
-export const expectedKavalStaleKey = (): string | undefined =>
-  useSurfaceApp<KoluBuildInfo>().server()?.expectedKaval?.staleKey;
+/** The server's *expected* kaval identity — the build it would spawn
+ *  (`buildInfo.expectedKaval`: closure `staleKey` + git `navigableCommit`). Named
+ *  once here so every read site (the `kavalUpdatePending` predicate and the
+ *  dialog's running-vs-expected commit links + "what changed" history link) joins
+ *  the surface path through one accessor. Must be called under `<SurfaceAppProvider>`. */
+export const expectedKaval = (): KoluBuildInfo["expectedKaval"] =>
+  useSurfaceApp<KoluBuildInfo>().server()?.expectedKaval;
 
 /** True when the running kaval daemon is provably a build behind the server's
  *  expected build. Reads the surface-app model (`buildInfo.expectedKaval`) and
@@ -35,7 +35,7 @@ export const expectedKavalStaleKey = (): string | undefined =>
 export const kavalUpdatePending = (): boolean => {
   const status = localDaemonStatus();
   return kavalStale(
-    expectedKavalStaleKey(),
+    expectedKaval()?.staleKey,
     status?.identity?.staleKey,
     status?.state,
   );

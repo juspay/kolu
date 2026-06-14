@@ -8,7 +8,11 @@
 import { isCleanRef } from "@kolu/surface-app";
 import { type Component, Show } from "solid-js";
 
-const REPO_URL = "https://github.com/juspay/kolu";
+/** The GitHub base for every kolu source link (commit pages, path histories).
+ *  Exported so the kaval dialog's "what changed in kaval" link builds a
+ *  `commits/<ref>/packages/kaval` URL against the same base this component uses
+ *  for `/commit/<sha>` — one repo base, no drift. */
+export const REPO_URL = "https://github.com/juspay/kolu";
 
 const Commit: Component<{ sha: string | undefined; class?: string }> = (
   props,

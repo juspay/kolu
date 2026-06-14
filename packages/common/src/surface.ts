@@ -627,6 +627,12 @@ export const DaemonStatusSchema = z.object({
    *  it; the server folds it onto this kolu-owned status after reconciling.
    *  Optional + additive, so it forces no contract bump. */
   adopted: z.number().optional(),
+  /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
+   *  — surfaced for the kaval dialog to show where this daemon listens (the path
+   *  `kaval-tui` auto-discovers). kolu's soul (a server fact the client can't
+   *  construct — it doesn't know the server's `XDG_RUNTIME_DIR`); set once at
+   *  boot, constant for the daemon's life. Optional + additive. */
+  socketPath: z.string().optional(),
 });
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export type DaemonState = DaemonStatus["state"];
