@@ -68,6 +68,13 @@ export default defineConfig({
   define: {
     __XTERM_VERSION__: JSON.stringify(xtermVersion),
   },
+  // Pierre's syntax-highlight worker (@pierre/diffs/worker, spawned by
+  // @kolu/solid-pierre's CodeView as a `{ type: "module" }` worker) code-splits
+  // its Shiki grammars via dynamic import, which Vite's default `iife` worker
+  // format can't emit. Module workers need the `es` format.
+  worker: {
+    format: "es",
+  },
   build: {
     target: "esnext",
   },

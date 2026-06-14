@@ -30,6 +30,7 @@ import {
   onMount,
 } from "solid-js";
 import { safeApply } from "./safeApply";
+import { getCodeViewWorkerPool } from "./workerPool";
 
 export type CodeViewProps = {
   /** The items to render — files, diffs, or a mix. Pierre virtualizes across
@@ -164,6 +165,10 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     themeType: props.theme,
     diffStyle: props.diffStyle ?? "unified",
     overflow: props.overflow ?? "wrap",
+    // Use Shiki's JS regex engine instead of the Oniguruma WASM one; matches
+    // the worker pool's engine (see workerPool.ts) so any main-thread path
+    // tokenizes the same way.
+    preferredHighlighter: "shiki-js",
     lineHoverHighlight: "both",
     enableLineSelection: props.enableLineSelection ?? false,
     onSelectedLinesChange: (s) => props.onSelectedLinesChange?.(s),
@@ -174,7 +179,10 @@ export const CodeView: Component<CodeViewProps> = (props) => {
 
   onMount(() => {
     safeApply(() => {
-      instance = new CodeViewClass(buildOptions());
+      // The shared worker pool moves syntax tokenization off the UI thread;
+      // it is a session-lived singleton, so `cleanUp()` below tears down this
+      // CodeView's instances but never the pool.
+      instance = new CodeViewClass(buildOptions(), getCodeViewWorkerPool());
       // `setup(root)` ends with an internal `render(true)` against zero
       // items, then `setItems(...)` queues a *separate* render for the
       // next frame. On a slow host that one-frame gap stretches and the
