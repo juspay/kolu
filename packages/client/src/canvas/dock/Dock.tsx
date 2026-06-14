@@ -592,6 +592,15 @@ const RailChip: Component<{
                 {labels().sub}
               </span>
             </span>
+            {/* Agent-state glow on its own child so it animates opacity/transform
+             *  (compositor) rather than repainting the chip's box-shadow every
+             *  frame — see #1308. Only the two live buckets render it; the CSS
+             *  in index.css picks breath (awaiting) vs orbit (working). */}
+            <Show
+              when={props.bucket === "awaiting" || props.bucket === "working"}
+            >
+              <div class="dock-rail-chip-glow" aria-hidden="true" />
+            </Show>
           </button>
         );
       }}
