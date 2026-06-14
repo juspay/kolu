@@ -135,7 +135,7 @@ export interface ProviderHooks {
   trackRecentAgent?: (cmd: string) => void;
   /** Optional — read the terminal's current rendered screen as VT-resolved
    *  plain text. Provided by hosts that can reach the PTY screen buffer (the
-   *  local backend, via pty-host's `getScreenText`); omitted by hosts that
+   *  local endpoint, via pty-host's `getScreenText`); omitted by hosts that
    *  can't. Async + host-supplied, so the DAG keeps its zero *synchronous*
    *  dependency on the PTY host — a remote ssh pty-host serves the same read
    *  over the wire. Drives `AgentProvider.screenScrape` promotion (Claude's
