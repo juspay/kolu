@@ -20,15 +20,25 @@ import type { KoluBuildInfo } from "kolu-common/surface";
 import { kavalStale } from "./kavalCurrency";
 import { localDaemonStatus } from "./useDaemonStatus";
 
+/** The `expected` operand of the currency nudge — the staleKey of the kaval the
+ *  server would spawn (`buildInfo.expectedKaval.staleKey`). Named once here so
+ *  every read site (the `kavalUpdatePending` predicate and the dialog's
+ *  running-vs-expected display) joins the surface path through one accessor.
+ *  Must be called under `<SurfaceAppProvider>`. */
+export const expectedKavalStaleKey = (): string | undefined =>
+  useSurfaceApp<KoluBuildInfo>().server()?.expectedKaval?.staleKey;
+
 /** True when the running kaval daemon is provably a build behind the server's
  *  expected build. Reads the surface-app model (`buildInfo.expectedKaval`) and
  *  the live `daemonStatus` — must be called under `<SurfaceAppProvider>`. Gate
  *  the nudge on this: `<Show when={kavalUpdatePending()}><KavalUpdateBadge /></Show>`. */
 export const kavalUpdatePending = (): boolean => {
-  const expected =
-    useSurfaceApp<KoluBuildInfo>().server()?.expectedKaval?.staleKey;
   const status = localDaemonStatus();
-  return kavalStale(expected, status?.identity?.staleKey, status?.state);
+  return kavalStale(
+    expectedKavalStaleKey(),
+    status?.identity?.staleKey,
+    status?.state,
+  );
 };
 
 /** The compact amber "⬆ update" nudge chip — kolu's own chrome. Passive: the

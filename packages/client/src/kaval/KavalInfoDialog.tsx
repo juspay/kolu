@@ -9,11 +9,10 @@
  */
 
 import Dialog from "@corvu/dialog";
-import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
-import type { DaemonStatus, KoluBuildInfo } from "kolu-common/surface";
-import { kavalUpdatePending } from "./KavalUpdateBadge";
+import type { DaemonStatus } from "kolu-common/surface";
+import { expectedKavalStaleKey, kavalUpdatePending } from "./KavalUpdateBadge";
 import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
@@ -42,11 +41,10 @@ const KavalInfoDialog: Component<{
 }> = (props) => {
   const chrome = surface({ portalled: true });
   // The build the server WOULD spawn — the `expected` operand of the currency
-  // nudge (the `reported` operand is `props.status.identity`). `kavalUpdatePending`
-  // gates the banner; both are read here so the dialog shows running-vs-expected.
-  const pwa = useSurfaceApp<KoluBuildInfo>();
-  const expectedKey = (): string | undefined =>
-    pwa.server()?.expectedKaval?.staleKey;
+  // nudge (the `reported` operand is `props.status.identity`), read through the
+  // shared `expectedKavalStaleKey` accessor so the surface path is named once.
+  // `kavalUpdatePending` gates the banner; this drives the running-vs-expected
+  // display.
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
       <Dialog.Content
@@ -138,7 +136,7 @@ const KavalInfoDialog: Component<{
               </p>
               <p class="mt-1 font-mono text-[11px] text-fg-3">
                 running {props.status?.identity?.staleKey?.slice(0, 12) ?? "—"}{" "}
-                · expected {expectedKey()?.slice(0, 12) ?? "—"}
+                · expected {expectedKavalStaleKey()?.slice(0, 12) ?? "—"}
               </p>
               <p class="mt-1 text-[11px] text-fg-3">
                 Restart to pick it up — your terminals are captured first and
