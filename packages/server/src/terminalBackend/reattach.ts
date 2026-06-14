@@ -98,8 +98,20 @@ export async function adoptSurvivingSession(): Promise<void> {
   // build-skew VM gate) can read "running X, would spawn Y" in the journal. The
   // nudge PREDICATE (the connected-gate + empty-guard comparison) lives in the
   // client's `kavalStale`; this is observability, not a second source of truth.
-  const running = readDaemonStatus(LOCAL_HOST_ID)?.identity?.staleKey ?? "";
+  const status = readDaemonStatus(LOCAL_HOST_ID);
+  const running = status?.identity?.staleKey ?? "";
   const expected = expectedKavalIdentity().staleKey;
+  // By the time adoption runs the endpoint has already reported `connected` WITH
+  // an identity, so a present-status-but-missing-staleKey here is an anomaly (a
+  // status-propagation bug) — distinct from the benign off-nix empty, where
+  // `expected` is also "". Surface it rather than let `running=""` masquerade as
+  // current (which would read as "up to date" against an equally-empty expected).
+  if (status && !running && expected) {
+    log.warn(
+      { status },
+      "kaval currency: adopted daemon status has no staleKey",
+    );
+  }
   log.info(
     { running, expected },
     `kaval currency on adopt: running=${running} expected=${expected}`,
