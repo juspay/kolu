@@ -27,7 +27,7 @@ and all of it has now shipped: **R1** (bump `@pierre/diffs` 1.2.1 → 1.2.10 + S
 to 4.2.0) <PrLink pr={1360} />, **R2** (move diff/file highlighting to a worker
 pool, off the UI thread) <PrLink pr={1363} />, and **R3+R4** — a CPU-throttle
 gesture harness that proved the canvas pan/zoom write-storm freezes a weak client,
-and the rAF-coalesce that fixes it (this PR).
+and the rAF-coalesce that fixes it <PrLink pr={1368} />.
 </Callout>
 
 <Callout kind="good" title="Update — R1 shipped (#1360)">
@@ -62,7 +62,7 @@ anchored, and worker-highlighted — it's the whole game.
 Kolu's perf-relevant surfaces, colored by verdict — green = done / already
 covered / N-A, teal = the live agent stream:
 
-<D2 caption="Kolu's perf surfaces, all wins now green. R1 (#1360) + R2 (#1363) the diff path; R3+R4 the canvas-gesture harness + rAF-coalesce (this PR). Teal = the live agent stream (no consumer for the streaming-list techniques)." code={`
+<D2 caption="Kolu's perf surfaces, all wins now green. R1 (#1360) + R2 (#1363) the diff path; R3+R4 the canvas-gesture harness + rAF-coalesce (#1368). Teal = the live agent stream (no consumer for the streaming-list techniques)." code={`
 direction: down
 
 shiki: "shiki 4.2.0 ✓ #1360" {
@@ -117,8 +117,8 @@ tracer -> codeview: "large-diff render"
 |---|---|---|---|---|
 | **R1** | Upgrade `@pierre/diffs` 1.2.1 → 1.2.10 (+ Shiki 4.2.0) | <Pill variant="hi">high</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="done">shipped · #1360</Pill> |
 | **R2** | Pierre worker pool + `shiki-js` engine for the diff path | <Pill variant="hi">high</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="done">shipped · #1363</Pill> |
-| **R3** | CPU-throttle gesture work harness (per-event burst) | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="done">shipped · this PR</Pill> |
-| **R4** | rAF-coalesce the canvas wheel pan/zoom write-storm | <Pill variant="md">medium</Pill> | <Pill variant="ok">low</Pill> | <Pill variant="done">shipped · this PR</Pill> |
+| **R3** | CPU-throttle gesture work harness (per-event burst) | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="done">shipped · #1368</Pill> |
+| **R4** | rAF-coalesce the canvas wheel pan/zoom write-storm | <Pill variant="md">medium</Pill> | <Pill variant="ok">low</Pill> | <Pill variant="done">shipped · #1368</Pill> |
 
 <Finding sev="low" title="R1 — Bump @pierre/diffs to 1.2.10 + Shiki 4.2.0 — SHIPPED (#1360)">
 Done <PrLink pr={1360} />. `^1.2.1 → ^1.2.10` across `solid-pierre`, `client`,
@@ -149,8 +149,8 @@ transitive `@shikijs/transformers@3` duplicate (a `@shikijs/core@3.23.0` beside
 the 4.x engine) remains Pierre's choice — worth watching if it regresses.
 </Finding>
 
-<Finding sev="low" title="R3 — CPU-throttle gesture-work harness — SHIPPED (this PR)">
-Shipped as [`scripts/gesture-p99/`](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/scripts/gesture-p99/)
+<Finding sev="low" title="R3 — CPU-throttle gesture-work harness — SHIPPED (#1368)">
+Done <PrLink pr={1368} />. Shipped as [`scripts/gesture-p99/`](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/scripts/gesture-p99/)
 (dependency-free CDP over Node's built-in WebSocket). It drives the **real** canvas
 and gates R4. Two findings turned the methodology: (1) a headless/CDP Chrome's rAF
 isn't vsync-capped — it fires ~1:1 with input dispatch (verified: gesture intents
@@ -162,8 +162,8 @@ changes directly — **per-event main-thread work** — via a synchronous burst 
 [`canvas-gesture-p99.md`](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/canvas-gesture-p99.md).
 </Finding>
 
-<Finding sev="medium" title="R4 — rAF-coalesce the canvas wheel write-storm — SHIPPED (this PR)">
-OpenCode's real principle — *per-frame work proportional to new data* — applied to
+<Finding sev="medium" title="R4 — rAF-coalesce the canvas wheel write-storm — SHIPPED (#1368)">
+Done <PrLink pr={1368} />. OpenCode's real principle — *per-frame work proportional to new data* — applied to
 Kolu's **actual** hot loop. `useCanvasViewport.ts` now accumulates the frame's pan
 delta (sum) and zoom factor (product toward the last anchor) and applies them once
 per `requestAnimationFrame` instead of per raw wheel event. Provably feel-neutral:
