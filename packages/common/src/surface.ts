@@ -627,6 +627,15 @@ export const DaemonStatusSchema = z.object({
    *  it; the server folds it onto this kolu-owned status after reconciling.
    *  Optional + additive, so it forces no contract bump. */
   adopted: z.number().optional(),
+  /** B3.3: the ms-epoch the server stamped when it surfaced THIS adoption — a
+   *  per-adoption identity the client dedupes the one-shot toast against. Set with
+   *  `adopted` (omitted on cold boots). The `adopted`/`adoptedAt` pair is sticky
+   *  server-side and replayed to every fresh subscription, so without an identity
+   *  a reconnect after a page reload re-fired the toast though nothing was
+   *  re-adopted (juspay/kolu#1365); the client keeps the greatest announced
+   *  `adoptedAt` in localStorage and only toasts a strictly newer one. A later
+   *  update mints a greater `adoptedAt` and announces again. Optional + additive. */
+  adoptedAt: z.number().optional(),
   /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
    *  — surfaced for the kaval dialog to show where this daemon listens (the path
    *  `kaval-tui` auto-discovers). kolu's soul (a server fact the client can't
