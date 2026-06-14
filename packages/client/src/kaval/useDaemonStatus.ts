@@ -101,9 +101,9 @@ export function localDaemonStatus(): DaemonStatus | undefined {
 /** True until the daemon-status stream has produced its FIRST value — i.e. the
  *  status is genuinely unknown, not "up". The canvas gates on this so a `dead`
  *  boot never flashes the normal empty workspace before the first status lands
- *  (#1034): if `daemonDown()` (false while pending) drove the gate alone and the
- *  session cell resolved to zero terminals first, the empty-state would paint and
- *  then snap to DegradedCanvas. `pending` is undefined before `byKey` has a
+ *  (#1034): if `downState()` (undefined while pending) drove the gate alone and
+ *  the session cell resolved to zero terminals first, the empty-state would paint
+ *  and then snap to DegradedCanvas. `pending` is undefined before `byKey` has a
  *  subscription, which is itself the pre-first-value state, so treat that as
  *  pending too. */
 export function daemonStatusPending(): boolean {
@@ -125,11 +125,6 @@ export function downState(): "dead" | "degraded" | undefined {
   return DAEMON_STATE_PRESENTATION[state].down
     ? (state as "dead" | "degraded")
     : undefined;
-}
-
-/** True when the daemon is down. The DegradedCanvas gate. */
-export function daemonDown(): boolean {
-  return downState() !== undefined;
 }
 
 /** Is a daemon state in the transient "warming" bucket — `connecting` (boot) or

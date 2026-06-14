@@ -12,7 +12,8 @@ import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import { writeTextToClipboard } from "./ui/clipboard";
-import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
+import { createDisclosure } from "./ui/createDisclosure";
+import ModalDialog from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
 import { surface } from "./ui/Surface";
@@ -423,17 +424,17 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   );
 };
 
+/** Diagnostic-info open-state — the component owns it. Opened from the
+ *  command palette's Debug group. */
+export const diagnosticDialog = createDisclosure();
+
 const DiagnosticInfo: Component<{
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   activeId: TerminalId | null;
 }> = (props) => (
   <ModalDialog
-    open={props.open}
-    onOpenChange={(open) => {
-      props.onOpenChange(open);
-      if (!open) refocusTerminal();
-    }}
+    open={diagnosticDialog.open()}
+    onOpenChange={diagnosticDialog.onOpenChange}
+    refocusOnClose
     size="md"
   >
     <Dialog.Content>

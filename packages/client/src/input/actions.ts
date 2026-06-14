@@ -12,7 +12,7 @@
 
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
-import type { Accessor, Setter } from "solid-js";
+import type { Accessor } from "solid-js";
 import type { PaletteAction, SectionId } from "../CommandPalette";
 import { type Keybind, matchesKeybind } from "./keyboard";
 
@@ -37,9 +37,13 @@ export interface ActionContext {
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   openNewTerminalMenu: () => void;
   openWorkspaceSwitcher: () => void;
-  setPaletteOpen: Setter<boolean>;
-  setShortcutsHelpOpen: Setter<boolean>;
-  setSearchOpen: Setter<boolean>;
+  /** Flip the command palette (`Cmd+K`). A stable verb, not the raw signal
+   *  setter — the palette controller owns the open-state. */
+  togglePalette: () => void;
+  /** Flip the shortcuts-help overlay (`Cmd+/`). */
+  toggleShortcutsHelp: () => void;
+  /** Flip the active terminal's find bar (`Cmd+F`). */
+  toggleSearch: () => void;
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
@@ -183,7 +187,7 @@ const _ACTIONS = {
   commandPalette: {
     label: "Command palette",
     keybind: { key: "k", mod: true },
-    handler: (ctx) => ctx.setPaletteOpen((v) => !v),
+    handler: (ctx) => ctx.togglePalette(),
   },
   openWorkspaceSwitcher: {
     label: "Workspace switcher",
@@ -193,7 +197,7 @@ const _ACTIONS = {
   shortcutsHelp: {
     label: "Shortcuts help",
     keybind: { key: "/", mod: true },
-    handler: (ctx) => ctx.setShortcutsHelpOpen((v) => !v),
+    handler: (ctx) => ctx.toggleShortcutsHelp(),
   },
   findInTerminal: {
     label: "Find in terminal",
@@ -208,7 +212,7 @@ const _ACTIONS = {
     // `data-kolu-terminal-search`; the dispatcher does the `closest()` check and
     // claims the chord only when focus is inside it (useShortcuts.ts).
     focusScopeMarker: TERMINAL_SEARCH_MARKER,
-    handler: (ctx) => ctx.setSearchOpen((v) => !v),
+    handler: (ctx) => ctx.toggleSearch(),
   },
   zoomIn: {
     label: "Zoom in",
