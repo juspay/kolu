@@ -186,7 +186,7 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
 | **P1** · `kaval-tui create` | spawn a plain shell — the attach-needs-something prerequisite | thin over `terminal.spawn` |
 | **P2** · `kaval-tui --host` | **reach + provision in one PR** (ssh), hosts auto-detected from ssh config | **the spike** — *is* the production `sshDriver`; the validation long-pole |
 | **P3** · kolu dials remotes | N-endpoint registry + the ssh driver; the remote pair — kaval + **kolu-watcher** (provider DAG + fs/git surface) — mirrored over the `HostSession` link; `location` additive on records | builds on P0 + P2 · carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`) |
-| **P4** · the canvas UI | multiplex (or switch) — the active-kaval strip (local always present), per-tile host hint, ssh-config picker | the granularity call lands here |
+| **P4** · the canvas UI + validate | build **multiplex** (the lean) — active-kaval strip (local always present), per-tile host hint, ssh-config picker — then **validate the feel** (does N-at-once beat tmux-switch in daily use?); fall back to switch if it doesn't earn its keep | the granularity call lands **and is validated** here |
 
 **P1–P2 — the spike — in detail.** [kaval-tui](pty-daemon-tui.html) is the minimal client; it proves the transport before any Kolu UI, and because it and kolu-server dial the same socket through the same client, the spike **is** the production driver.
 
@@ -226,16 +226,8 @@ And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching i
 | live · contract-skewed | recycle (kill → respawn) — only on a typed `DaemonContractSkewError`, no retry |
 | unreachable (bad dial) | bounded retry, then **degraded — never killed** (a bad dial can't cost live PTYs) |
 
-<Callout kind="warning" title="Two host-local caveats — open for P3">
-(1) The pid-gate arbitrates by <strong>pid + filesystem on that host</strong> — it is not a cross-host or cross-container lock. (2) The <strong>remote namespace key is open</strong>: locally kaval is keyed by the server's listen port (<code>kaval-&lt;port&gt;/</code>, <PrLink pr={1313} />), which does not cross ssh — two kolu-servers reaching the <em>same remote user</em> resolve to one namespace, and under always-recycle the second would SIGTERM the first's daemon. R-2 must either pick an isolating key, or deliberately <strong>share one kaval per remote host with an adopt-not-recycle policy</strong> (host-level multiplexing — arguably the feature: you reconnect to "the prod terminals").
-</Callout>
+**One kaval per remote host, adopted.** Dialing a host *joins* its kaval — you reconnect to "the prod terminals" — and never clobbers it. The local per-port key (`kaval-<port>/`, <PrLink pr={1313} />), which isolates two dev servers under always-recycle, isn't needed across ssh: a remote host runs **one** shared kaval and dials *adopt* it (the table above), so two reconnects join the same terminals rather than racing to kill them. *(The pid-gate is host-local — pid + filesystem on that host — not a cross-host or cross-container lock.)*
 
-## Open questions & status
+## Status
 
-- **Resolved — host source:** auto-detected from ssh config; no registry to curate.
-- **Leaning multiplex,** but validate the *feel* with a prototype once the substrate lands (does N-at-once actually beat tmux-switch in daily use?).
-- **Resolved — fs/git/providers:** surfaces at the host, mirrored over the `HostSession` link — `kolu-watcher` runs them on the host, awareness is tap-fed, no reach-over-ssh per op (see the substrate table). The one inherent cost is remote file *bytes* crossing ssh (physics), and they ride snapshot-then-delta.
-- **Open — the remote namespace key** (see *The remote process model*): kaval's local per-port key (`kaval-<port>/`) does not cross ssh, so R-2 must either isolate per (server, host) or deliberately share one kaval per remote host with an adopt-not-recycle policy.
-- **Open — resize arbitration** across a remote hop, and the multiplex *feel* (does N-at-once beat tmux-switch in daily use?). *([herdr vs. kolu](herdr-vs-kolu.html) flagged multi-client resize as already-latent.)*
-
-**Status — accepted (the approach).** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. Execution starts with the transport spike (`kaval-tui create` → `kaval-tui --host`), which validates the one genuinely-new piece; P0 (backend cleanup) can land first in parallel; the switch-vs-multiplex UI is a later, reversible call.
+**Accepted (the approach).** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. Execution starts with the transport spike (`kaval-tui create` → `kaval-tui --host`), which validates the one genuinely-new piece; P0 (backend cleanup) can land first in parallel; P4 builds **multiplex** and validates the feel against tmux-switch — the one reversible call, made on real use, not up front.
