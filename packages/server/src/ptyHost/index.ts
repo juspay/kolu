@@ -104,13 +104,6 @@ function makeForwardingClient(getRoot: () => PtyHostClient): PtyHostClient {
  *  stable facade over the endpoint's current daemon connection. */
 export const ptyHostClient: PtyHostClient = makeForwardingClient(liveClient);
 
-/** The connected daemon's self-declared identity (staleKey + navigableCommit),
- *  or undefined before connect / while down. Read at the surface's `buildInfo`
- *  time for the rail's commit + closure-hash column. */
-export function currentPtyHostIdentity(): PtyHostIdentity | undefined {
-  return endpoint?.current()?.identity;
-}
-
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
  *  Resolves whether or not the daemon came up — a boot failure reports `dead`
  *  via `onStatus` and leaves `ptyHostClient` throwing, so the server can still

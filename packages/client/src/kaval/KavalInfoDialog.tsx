@@ -9,9 +9,11 @@
  */
 
 import Dialog from "@corvu/dialog";
+import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
-import type { DaemonStatus } from "kolu-common/surface";
+import type { DaemonStatus, KoluBuildInfo } from "kolu-common/surface";
+import { kavalUpdatePending } from "./KavalUpdateBadge";
 import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
@@ -39,6 +41,12 @@ const KavalInfoDialog: Component<{
   status: DaemonStatus | undefined;
 }> = (props) => {
   const chrome = surface({ portalled: true });
+  // The build the server WOULD spawn — the `expected` operand of the currency
+  // nudge (the `reported` operand is `props.status.identity`). `kavalUpdatePending`
+  // gates the banner; both are read here so the dialog shows running-vs-expected.
+  const pwa = useSurfaceApp<KoluBuildInfo>();
+  const expectedKey = (): string | undefined =>
+    pwa.server()?.expectedKaval?.staleKey;
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
       <Dialog.Content
@@ -120,6 +128,24 @@ const KavalInfoDialog: Component<{
             restore card, and a modal kaval dialog left open would overlay it
             (the rail dialog is an info panel, not where you'd click Restore). */}
         <div class="mt-3">
+          {/* B3.4: when the running daemon is a build behind what the server
+              would spawn, surface the running-vs-expected detail right above the
+              restart that picks it up (the read-site nudge's call-to-action). */}
+          <Show when={kavalUpdatePending()}>
+            <div class="mb-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 leading-relaxed">
+              <p class="text-xs font-medium text-warning">
+                ⬆ A newer kaval is available
+              </p>
+              <p class="mt-1 font-mono text-[11px] text-fg-3">
+                running {props.status?.identity?.staleKey?.slice(0, 12) ?? "—"}{" "}
+                · expected {expectedKey()?.slice(0, 12) ?? "—"}
+              </p>
+              <p class="mt-1 text-[11px] text-fg-3">
+                Restart to pick it up — your terminals are captured first and
+                offered for restore on the fresh daemon.
+              </p>
+            </div>
+          </Show>
           <RestartKavalButton
             status={props.status}
             tone="neutral"
@@ -128,10 +154,12 @@ const KavalInfoDialog: Component<{
               void restartDaemon();
             }}
           />
-          <p class="mt-1.5 text-[11px] leading-relaxed text-fg-3">
-            Picks up a new build or recovers a stopped daemon. Your terminals
-            are captured first and offered for restore on the fresh daemon.
-          </p>
+          <Show when={!kavalUpdatePending()}>
+            <p class="mt-1.5 text-[11px] leading-relaxed text-fg-3">
+              Picks up a new build or recovers a stopped daemon. Your terminals
+              are captured first and offered for restore on the fresh daemon.
+            </p>
+          </Show>
         </div>
 
         {/* kaval-tui */}

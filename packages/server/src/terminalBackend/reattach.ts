@@ -29,8 +29,9 @@
  * offers to re-spawn it) is left untouched — B2 behavior, unchanged.
  */
 
+import { currentBuildId } from "kaval";
 import { log } from "../log.ts";
-import { setAdoptedCount } from "../ptyHost/daemonStatus.ts";
+import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
 import { getSavedSession, saveSession } from "../session.ts";
@@ -87,4 +88,20 @@ export async function adoptSurvivingSession(): Promise<void> {
       "adopted surviving terminals after restart",
     );
   }
+
+  // Currency diagnostic (B3.4): the adopted daemon's REPORTED build vs the kaval
+  // this server WOULD spawn (its own baked `KAVAL_BUILD_ID`). When they differ
+  // the survivor is a build behind — adoption (B3.3) kept a wire-compatible-but-
+  // older daemon alive, so the rail's read-site `kavalStale` nudge fires ("update
+  // pending") and a restart picks up the new build. Logged here — the one place
+  // adoption is confirmed — as the two RAW staleKeys, so operators (and the
+  // build-skew VM gate) can read "running X, would spawn Y" in the journal. The
+  // nudge PREDICATE (the connected-gate + empty-guard comparison) lives in the
+  // client's `kavalStale`; this is observability, not a second source of truth.
+  const running = readDaemonStatus(LOCAL_HOST_ID)?.identity?.staleKey ?? "";
+  const expected = currentBuildId();
+  log.info(
+    { running, expected },
+    `kaval currency on adopt: running=${running} expected=${expected}`,
+  );
 }

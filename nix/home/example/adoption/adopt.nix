@@ -89,22 +89,31 @@ let
 
   # Verify (after the server restart). POLL until adoption is FULLY confirmed —
   # never a single-shot read, which could pass on a transient mid-recycle state
-  # (the race the mutation check exposed). All four must hold at once: the SAME
+  # (the race the mutation check exposed). All FIVE must hold at once: the SAME
   # daemon (gate pid unchanged), the SAME PTY (id+pid still listed), its
-  # scrollback (the command output), AND kolu's own reconcile log. A recycle
-  # changes the gate, drops the PTY, and never logs an adoption — so it can NEVER
-  # satisfy these and the loop times out, writing FAIL. Writes OK / FAIL to
-  # /tmp/verify-result.
+  # scrollback (the command output), kolu's own reconcile log, AND no update
+  # pending (B3.4 — running == expected, since this is the same build: the #1034
+  # no-op-deploy-no-nudge proof). A recycle changes the gate, drops the PTY, and
+  # never logs an adoption — so it can NEVER satisfy these and the loop times out,
+  # writing FAIL. Writes OK / FAIL to /tmp/verify-result.
   verify = pkgs.writeShellScript "kolu-adopt-verify" ''
     set -uo pipefail
     ns="${ns}"
     id=$(cat /tmp/adopt-id); pid=$(cat /tmp/adopt-pid); gate=$(cat /tmp/adopt-gate)
 
-    newgate=""; newpid=""
+    newgate=""; newpid=""; crun=""; cexp=""
     for _ in $(seq 1 60); do
       newgate=$(cat "$ns/${gateFile}" 2>/dev/null || echo "")
       newpid=$(${kavalTui} list --json 2>/dev/null \
                | ${jq} -r --arg id "$id" '.[] | select(.id==$id) | .pid' 2>/dev/null || echo "")
+      # B3.4 — the no-op-deploy-no-nudge proof (#1034 over-prompting): this restart
+      # is the SAME build, so the adopt-time currency log must show running ==
+      # expected (the rail stays silent). Same drain-the-pipe `grep -o` for the
+      # pipefail/SIGPIPE reason below; parse the last `running=<X> expected=<Y>`.
+      curline=$(journalctl --user -u kolu --no-pager 2>/dev/null \
+                | grep -o 'kaval currency on adopt: running=[0-9a-f]* expected=[0-9a-f]*' | tail -1)
+      crun=$(echo "$curline" | sed -n 's/.*running=\([0-9a-f]*\) .*/\1/p')
+      cexp=$(echo "$curline" | sed -n 's/.*expected=\([0-9a-f]*\)$/\1/p')
       # Plain `grep` (output discarded), NOT `grep -q`, in these pipes: under
       # `pipefail`, `-q` exits on the first match and SIGPIPEs the producer, so the
       # pipeline can report 141 on a real match and the poll would never confirm.
@@ -112,8 +121,9 @@ let
       if [ "$newgate" = "$gate" ] && [ "$newpid" = "$pid" ] \
          && ${kavalTui} snapshot "$id" 2>/dev/null | grep "${nonce}" >/dev/null \
          && journalctl --user -u kolu --no-pager 2>/dev/null \
-              | grep "adopted surviving terminals after restart" >/dev/null; then
-        echo "OK terminal $id (pid $pid) + scrollback (marker ${nonce}) survived; same daemon $gate; kolu reconciled it" \
+              | grep "adopted surviving terminals after restart" >/dev/null \
+         && [ -n "$crun" ] && [ "$crun" = "$cexp" ]; then
+        echo "OK terminal $id (pid $pid) + scrollback (marker ${nonce}) survived; same daemon $gate; kolu reconciled it; no update pending (running=$crun == expected)" \
           > ${verifyResultFile}
         exit 0
       fi
@@ -123,6 +133,7 @@ let
       echo "FAIL(verify): adoption not confirmed within 60s — a recycle, not an adoption."
       echo "  daemon gate pid: $gate -> $newgate (must be unchanged)"
       echo "  pty $id pid: $pid -> [$newpid] (must still be listed)"
+      echo "  currency: running=[$crun] expected=[$cexp] (must be equal — no nudge on a same-build redeploy)"
       echo "  list: $(${kavalTui} list --json 2>&1 | tr -d '\n' | head -c 300)"
       echo "  adoption logs: $(journalctl --user -u kolu --no-pager 2>/dev/null | grep -c 'adopted surviving' || echo 0)"
     } > ${verifyResultFile}

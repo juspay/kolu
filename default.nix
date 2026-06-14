@@ -16,6 +16,19 @@
   # the skew can only be produced at build time. `null` (the default) is a no-op,
   # so the real build is untouched.
 , contractVersionOverride ? null
+  # TEST-ONLY hook: when set, FORCE this build's KAVAL_BUILD_ID to the given
+  # value instead of the source-closure hash. Used by the adoption build-skew VM
+  # test (B3.4) to build a "newer kolu" whose `expectedKaval.staleKey` differs
+  # from a surviving DEFAULT-built daemon's reported staleKey — a genuine
+  # *build*-behind survivor with a COMPATIBLE wire contract, so it's adopted (not
+  # recycled) and the read-site currency nudge fires. The same value is `--set`
+  # onto BOTH this build's koluBin wrapper and its kaval bin, so the build stays
+  # internally consistent (its expected == what it would spawn). `null` (the
+  # default) computes the real source hash, so the real build is untouched. This
+  # is the nix-value analog of `contractVersionOverride` (which seds a source
+  # constant); KAVAL_BUILD_ID is nix-injected, so this overrides the value, not a
+  # source file.
+, kavalBuildIdOverride ? null
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -132,7 +145,12 @@ let
   # that path to a stable, platform-independent 64-char id. Computed PURELY in
   # Nix: no import-from-derivation, so `nix flake check` can evaluate every
   # output without realising a build mid-eval (juspay/kolu#1317).
-  kavalBuildId = builtins.hashString "sha256" "${kavalSrc}";
+  # `kavalBuildIdOverride` (TEST-ONLY, default null) forces this value for the
+  # build-skew VM test (B3.4); the real build always takes the source hash.
+  kavalBuildId =
+    if kavalBuildIdOverride != null
+    then kavalBuildIdOverride
+    else builtins.hashString "sha256" "${kavalSrc}";
 
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";

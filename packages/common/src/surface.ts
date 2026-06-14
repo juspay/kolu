@@ -582,23 +582,26 @@ export function applyPreferencesPatch(
 //
 // surface-app's `buildInfo` cell carries "what build is the server?" as
 // reactive server state (server-pushed, read with `{ authority: "server" }`).
-// The library default is `{ commit }`; kolu EXTENDS it with the pty-host's
-// identity (its own closure `staleKey` + git-navigable commit), the
-// `srv · pty` rail's second column. `defineBuildInfo` is generic over the
-// schema, so the extra axis is type-checked end to end.
+// The library default is `{ commit }`; kolu EXTENDS it with `expectedKaval` —
+// the identity of the kaval the server WOULD spawn (its own baked
+// `KAVAL_BUILD_ID`/`KAVAL_COMMIT_HASH`: closure `staleKey` + git-navigable
+// commit). `defineBuildInfo` is generic over the schema, so the extra axis is
+// type-checked end to end.
 //
-// As of B2 the pty-host (kaval) is an out-of-process daemon with its OWN
-// identity, reported over the wire via the supervisor — so its commit CAN
-// diverge from the server's. `ptyHost` is optional: the supervisor may not
-// have a connected daemon yet (boot/restart window).
+// `expectedKaval` is the SERVER'S OWN constant (the build it bundles), NOT the
+// connected daemon's reported identity — that rides `DaemonStatus.identity` on
+// the `daemonStatus` collection, which the rail reads directly. So expected (one
+// server fact, here) and reported (a per-host daemon fact, there) read distinctly.
 //
-// That commit nonetheless stays DISPLAY-ONLY: `isStale` remains the library
-// default — the clean-ref-guarded COMMIT comparison — because kolu's staleness
-// signal (`≠ srv`) is purely the client-vs-server commit divergence. Folding
-// kaval's commit into staleness buys little today: the always-recycle policy
-// tears down and respawns kaval on every server boot, so a kaval skew older
-// than one boot is already precluded; the rail surfaces the column for
-// observability rather than as a third staleness input.
+// B3.4 — currency: kaval's `staleKey` is a staleness input now. B3.3 adoption
+// keeps a wire-compatible-but-older daemon ALIVE across a redeploy (the
+// always-recycle premise that once made this display-only is gone), so the read
+// site compares `expectedKaval.staleKey !== daemonStatus.identity.staleKey` to
+// nudge "update pending" on the `kaval` column — a SEPARATE signal, deliberately
+// NOT folded into `isStale` (which stays the library-default clean-ref COMMIT
+// comparison driving the client's `≠ srv`). Keyed on the closure-hash staleKey,
+// never the per-deploy commit, so a server-/client-only deploy never nudges
+// (#1034); off-nix the id is "" on both sides, so the read-site guard stays silent.
 export const PtyHostIdentitySchema = z.object({
   staleKey: z.string(),
   navigableCommit: z.string(),
@@ -634,14 +637,19 @@ export interface KoluBuildInfo extends BuildInfo {
    *  the async buildInfo patch resolves it's always present — `pkg.version`,
    *  even in dev. */
   version?: string;
-  ptyHost?: z.infer<typeof PtyHostIdentitySchema>;
+  /** The identity of the kaval the server would spawn — its own baked closure
+   *  `staleKey` + commit (B3.4). Optional only in the library-seeded `{ commit }`
+   *  default and off-nix (no baked id); under nix it's always present. The
+   *  read-site currency nudge compares its `staleKey` against the connected
+   *  daemon's reported `DaemonStatus.identity.staleKey`. */
+  expectedKaval?: z.infer<typeof PtyHostIdentitySchema>;
 }
 
 export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
   schema: z.object({
     commit: z.string(),
     version: z.string().optional(),
-    ptyHost: PtyHostIdentitySchema.optional(),
+    expectedKaval: PtyHostIdentitySchema.optional(),
   }),
   default: { commit: "" },
 });

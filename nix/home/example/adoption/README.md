@@ -1,9 +1,11 @@
-# B3.3 kaval-adoption VM tests
+# B3.3 / B3.4 kaval-adoption VM tests
 
 End-to-end coverage for **kaval adoption** (#1344): terminals — shells,
 scrollback, running agents — survive a kolu-server redeploy when the kaval
 daemon outlives it. The daemon keeps running in its own `systemd-run --user`
 transient cgroup; on boot kolu *adopts* its live PTYs instead of recycling them.
+B3.4 adds the **currency** path: an adopted daemon that is a *build behind* the
+kaval the new server would spawn is detected so the rail can nudge "update pending".
 
 These tests exist because this is the **one path the Playwright e2e harness
 can't reach** — it has no systemd, runs one server per worker, and forces the
@@ -15,11 +17,12 @@ non-survivable detached spawn. A NixOS VM has *real* systemd, so the production
 | File | Role |
 | --- | --- |
 | `lib.nix` | The shared scaffold — `mkAdoptionTest` + the survival VM node, boot polls, `machinectl`+result-file run/assert helpers, the jq/curl bindings, and the runtime-layout literals. **One** domain concept (a VM adoption probe); both tests are it with two outcomes. |
-| `adopt.nix` | **Positive** path → check `adoption-adopt`. |
-| `skew.nix` | **Negative** path → check `adoption-skew`. |
-| `default.nix` | Aggregator — pins the `port` + `kavalTui` once, imports `lib.nix`, returns both checks. |
+| `adopt.nix` | **Positive** path → check `adoption-adopt` (also asserts NO update-pending — the #1034 no-op-deploy-no-nudge proof). |
+| `skew.nix` | **Contract-skew negative** path → check `adoption-skew`. |
+| `currency.nix` | **Build-skew** path (B3.4) → check `adoption-currency`. |
+| `default.nix` | Aggregator — pins the `port` + `kavalTui` once, imports `lib.nix`, returns the three checks. |
 
-`../flake.nix` spreads both into `checks.x86_64-linux`, so they ride
+`../flake.nix` spreads all three into `checks.x86_64-linux`, so they ride
 `ci::home-manager` with no new CI recipe (see [Running](#running)).
 
 ## The two paths
@@ -52,6 +55,30 @@ daemon survives), then starts the bumped (9.0) server on the same port and
 asserts the survivor was **recycled** (gate pid *changed*), the **skew was
 logged**, *and* the session is **preserved**.
 
+### `adoption-currency` — a build-behind survivor is adopted + nudged (B3.4)
+
+When a redeploy changes kaval's **build** (its source closure) but *not* its
+wire contract, the surviving daemon is still **compatible** — so it is
+**adopted** (terminals survive), the deliberate opposite of `adoption-skew`. But
+its reported `staleKey` differs from the kaval the new server would spawn, so
+the server surfaces the divergence (`buildInfo.expectedKaval` ≠
+`daemonStatus.identity`) and the rail's read-site `kavalStale` nudge fires
+"update pending"; a restart would pick up the new build.
+
+`KAVAL_BUILD_ID` is a **nix-injected value** (not a source constant), so the
+"newer kolu" is a second build via the test-only **`kavalBuildIdOverride`** arg
+in the root `default.nix` — the nix-value analog of `contractVersionOverride`,
+forcing a distinct build id (`null` = the real source hash, real builds
+untouched). Because the override only changes the wrapper's `--set` (not the
+`kolu` derivation), `koluNew` **shares the kolu closure** — this is the *cheap*
+skew check (no second full build). The test seeds a terminal on the old
+(default-built) daemon, stops the old server, then starts the build-bumped server
+on the same port and asserts the survivor was **adopted** (gate pid *unchanged*)
+and the adopt-time **currency log shows `running` ≠ `expected`** with `expected`
+== the override — i.e. the build-id reached the server and the build-skew is
+detected (the nudge fires). The headless VM observes the two **operands** (a
+journal `running=<X> expected=<Y>` breadcrumb), not the rendered chip.
+
 ## Running
 
 Linux-only (NixOS VM tests). A **KVM-capable** host runs them in ~seconds; a
@@ -62,16 +89,19 @@ headroom for it).
 # from this directory's parent (nix/home/example/), build kolu from the repo root:
 nix build .#checks.x86_64-linux.adoption-adopt \
           .#checks.x86_64-linux.adoption-skew \
+          .#checks.x86_64-linux.adoption-currency \
   --override-input kolu /path/to/kolu/repo -L
 ```
 
 In CI this is automatic: `ci::home-manager` runs `devour-flake` over this example
 flake (`--override-input flake/kolu .`), which realizes every
-`checks.x86_64-linux.*` — so both VM tests build and run on the Linux lane.
+`checks.x86_64-linux.*` — so all three VM tests build and run on the Linux lane.
 
 > `adoption-skew` forces a **second full kolu build** (the contract-bumped
-> `koluNew`), so it is the slow check. That cost is inherent — there is no
-> cheaper way to produce a genuinely skewed wire.
+> `koluNew` `postPatch`-seds a source constant), so it is the slow check. That
+> cost is inherent — there is no cheaper way to produce a genuinely skewed wire.
+> `adoption-currency` is the *cheap* skew: `kavalBuildIdOverride` only rewrites the
+> wrapper's `--set`, so `koluNew` shares the `kolu` closure.
 
 ## Why the scaffold looks the way it does
 

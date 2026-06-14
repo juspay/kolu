@@ -8,11 +8,12 @@
  *  `srv` and stayed commented out. B2 makes kaval a separate, spawned daemon, so
  *  the column is live: its **dot** is the supervisor's honest daemon state
  *  (`connected`/`degraded`/`dead` — not the WebSocket's), its **uptime** is
- *  derived from the daemon's `startedAt`, and its commit + closure-hash come from
- *  surface-app's `buildInfo.ptyHost` axis (the staleKey the B-phase "update
- *  pending" derivation will read). The daemon state rides the `daemonStatus`
- *  surface collection (`useDaemonStatus`), not a prop, so desktop and mobile
- *  chrome read the same source.
+ *  derived from the daemon's `startedAt`, and its commit + closure-hash are the
+ *  daemon's REPORTED identity, read from the `daemonStatus` surface collection
+ *  (`useDaemonStatus`), not a prop, so desktop and mobile chrome read the same
+ *  source. B3.4 adds an amber **⬆ update** chip when that reported `staleKey`
+ *  differs from `buildInfo.expectedKaval` (the build the server would spawn) —
+ *  the read-site currency nudge ({@link kavalUpdatePending}).
  *
  *  The `client` column is the commit this browser's JS was built from; when both
  *  refs are clean and disagree it flags `≠ srv` (a stale bundle served from
@@ -29,6 +30,10 @@ import {
 } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import KavalInfoDialog from "../kaval/KavalInfoDialog";
+import {
+  KavalUpdateBadge,
+  kavalUpdatePending,
+} from "../kaval/KavalUpdateBadge";
 import {
   DAEMON_STATE_PRESENTATION,
   formatUptime,
@@ -130,16 +135,21 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         </Show>
       </span>
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
-      {/* The kaval column reads its identity from the SAME daemonStatus source
-          as the dot + uptime (not buildInfo.ptyHost — that's the pre-B2
-          in-process axis the out-of-process daemon doesn't populate). The whole
-          column is a button: click it for the daemon details + how to reach
+      {/* The kaval column reads the daemon's REPORTED identity (dot · commit ·
+          staleKey · uptime) from the `daemonStatus` collection. `buildInfo`
+          carries the server's EXPECTED kaval (`expectedKaval`) instead — the
+          amber update-pending chip below compares the two. The whole column is a
+          button: click it for the daemon details, the restart, and how to reach
           these terminals from `kaval-tui`. */}
       <button
         type="button"
         onClick={() => setKavalDialogOpen(true)}
         class="inline-flex items-center gap-1.5 rounded px-2 py-0.5 transition-colors hover:bg-surface-3/50"
-        title="kaval daemon — click for details and how to attach with kaval-tui"
+        title={
+          kavalUpdatePending()
+            ? "kaval — a newer build is available; click to restart and pick it up"
+            : "kaval daemon — click for details and how to attach with kaval-tui"
+        }
       >
         <span class="text-[9px] uppercase tracking-wide text-fg-3">kaval</span>
         <span
@@ -162,6 +172,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
               {formatUptime(clockNow() - startedAt())}
             </span>
           )}
+        </Show>
+        {/* B3.4: the running daemon is a build behind what the server would
+            spawn. A passive amber chip (not a nested button) — the column's own
+            click opens the dialog where the restart lives. */}
+        <Show when={kavalUpdatePending()}>
+          <KavalUpdateBadge />
         </Show>
       </button>
       <KavalInfoDialog

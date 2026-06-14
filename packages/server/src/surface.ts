@@ -74,8 +74,12 @@ import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
-import { currentPtyHostIdentity } from "./ptyHost/index.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+// kaval's OWN identity assembler — read in the SERVER process it returns the
+// server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
+// spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
+// *reported* identity, which rides `daemonStatus.identity`, not buildInfo.
+import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
 
@@ -318,25 +322,25 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     {
       // ── surface-app's server deps (sibling under `surfaceApp`) ───────────
       // The build-identity cell's server fragment (skew axis), extended with
-      // kolu's pty-host column, PLUS the `identity.info` restart probe pinned to
-      // kolu's boot UUID. `commit` is kolu's single source (`serverCommit` ←
-      // `KOLU_COMMIT_HASH`); the pty-host axis is the boot-time-async source — the
-      // in-process pty-host reports its identity async (via `system.version`), so
-      // it lands as a `Partial<KoluBuildInfo>` patch after the cell is seeded with
-      // `{ commit }`. A failed probe leaves `ptyHost` undefined (the fragment
-      // swallows it); the rail's column shows `—`. Per-key deps are typed against
-      // the surface's own spec, so this needs no cast.
+      // kolu's `expectedKaval` axis, PLUS the `identity.info` restart probe
+      // pinned to kolu's boot UUID. `commit` is kolu's single source
+      // (`serverCommit` ← `KOLU_COMMIT_HASH`); `expectedKaval` is a build
+      // CONSTANT (the server's own baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH — the
+      // build it would spawn), so it lands as a `Partial<KoluBuildInfo>` patch
+      // over the library-seeded `{ commit }`. The connected daemon's *reported*
+      // identity is NOT here — it rides `daemonStatus.identity`. Per-key deps are
+      // typed against the surface's own spec, so this needs no cast.
       surfaceApp: surfaceAppServer<KoluBuildInfo>({
         buildInfo: async () => {
-          // The connected kaval daemon's self-declared identity, read at
-          // buildInfo time (the endpoint is connected by the time a client reads
-          // the rail). Undefined while the daemon is down → the rail's column
-          // shows `—`. `version` is the bundled app version (always present);
-          // both land as a patch over the library-seeded `{ commit }`.
-          const identity = currentPtyHostIdentity();
+          // The kaval the server WOULD spawn — its OWN baked identity (a build
+          // constant), the *expected* operand of B3.4's read-site currency nudge
+          // (`expectedKaval.staleKey !== daemonStatus.identity.staleKey`). Off-nix
+          // the id is "" — omit it then (nix-first, no dev identity), so the rail
+          // shows no expected and the nudge stays silent.
+          const expectedKaval = expectedKavalIdentity();
           return {
             version: serverVersion,
-            ...(identity ? { ptyHost: identity } : {}),
+            ...(expectedKaval.staleKey ? { expectedKaval } : {}),
           };
         },
         commit: serverCommit,
@@ -345,13 +349,12 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         // (`serverProcessId`) so the value is stable within a process and
         // changes on restart. Composed, not hand-written.
         processId: serverProcessId,
-        // Surface a failed buildInfo read — `ptyHost` legitimately stays
-        // undefined when the daemon is down, but a *rejection* is a fault we log
-        // rather than swallow (the rail's column shows `—` either way).
+        // `expectedKaval` is a build constant — this read can't fail — but keep
+        // the fragment's error sink for the cell's contract.
         onError: (err) =>
           log.error(
             { err: err instanceof Error ? err.message : String(err) },
-            "buildInfo pty-host axis failed",
+            "buildInfo expectedKaval axis failed",
           ),
       }),
 
