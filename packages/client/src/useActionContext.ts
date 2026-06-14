@@ -44,7 +44,11 @@ export function useActionContext(): ActionContext {
     // palette / Dock `+`) has nothing to await, so swallow the rejection rather
     // than leak an unhandled promise rejection — a `Cmd+T` during a restart's
     // warming window would otherwise trip the e2e page-error guard.
-    handleCreate: (cwd?: string) => void crud.handleCreate(cwd).catch(() => {}),
+    handleCreate: (cwd?: string) =>
+      void crud.handleCreate(cwd).catch(() => {
+        /* error already surfaced by handleCreate's own toast; this catch only
+           absorbs the re-throw so the void caller leaks no unhandled rejection */
+      }),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => commandPalette.openGroup("New terminal"),
