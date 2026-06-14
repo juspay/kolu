@@ -40,7 +40,7 @@
 #     OWN prior review + reasoning across rounds.
 set -uo pipefail
 
-base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort]}"
+base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort] [rationale-file|-]}"
 rebuttal_file="${2:?missing rebuttal-file (use - for none)}"
 out="${3:?missing out-json path}"
 # The debate workflow owns this value (its REASONING_EFFORT constant) and passes
