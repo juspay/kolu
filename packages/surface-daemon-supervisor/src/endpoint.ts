@@ -386,7 +386,12 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
   // socket stays up across the retries (we never killed it), so each retry
   // re-dials the SAME daemon.
   const connectSurvivor = async (holder: number): Promise<SurvivorConnect> => {
-    let lastErr: unknown;
+    // Seeded so a misconfigured `adoptConnectAttempts <= 0` (the loop never runs)
+    // surfaces a loud, meaningful `unreachable` error rather than a bare
+    // `undefined` — fail loud over fail silent.
+    let lastErr: unknown = new Error(
+      `survivor connect made no attempts (adoptConnectAttempts=${adoptConnectAttempts})`,
+    );
     for (let attempt = 1; attempt <= adoptConnectAttempts; attempt++) {
       try {
         return { kind: "adopted", conn: await spec.connect() };
