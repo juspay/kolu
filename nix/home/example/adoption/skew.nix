@@ -72,21 +72,26 @@ let
     newgate=""
     for _ in $(seq 1 90); do
       newgate=$(cat "$ns/${gateFile}" 2>/dev/null || echo "")
-      skewlog=$(journalctl --user -u kolu-new --no-pager 2>/dev/null | grep -c "contract skew" || echo 0)
-      sess=$(grep -c "$id" "$HOME/${configFile}" 2>/dev/null || echo 0)
+      # Boolean conditions, NOT count arithmetic: `grep -c` prints `0` AND exits 1
+      # on a miss, so `grep -c ... || echo 0` over a PIPE yields `0\n0` — which a
+      # `[ -ge 1 ]` test then chokes on (`integer expected`) on every poll until
+      # the condition holds. `grep -q` in the `if` is the clean predicate.
       if [ -n "$newgate" ] && [ "$newgate" != "$oldgate" ] \
-         && [ "$skewlog" -ge 1 ] && [ "$sess" -ge 1 ]; then
+         && journalctl --user -u kolu-new --no-pager 2>/dev/null | grep -q "contract skew" \
+         && grep -q "$id" "$HOME/${configFile}" 2>/dev/null; then
         echo "OK skew-recycled: daemon gate $oldgate->$newgate; contract skew logged; session for $id preserved" \
           > /tmp/skew-verify-result
         exit 0
       fi
       sleep 1
     done
+    skewseen=no; journalctl --user -u kolu-new --no-pager 2>/dev/null | grep -q "contract skew" && skewseen=yes
+    sessseen=no; grep -q "$id" "$HOME/${configFile}" 2>/dev/null && sessseen=yes
     {
       echo "FAIL(skew-verify): the skewed survivor was not cleanly recycled with the session preserved."
       echo "  daemon gate pid: $oldgate -> $newgate (must CHANGE — the survivor is recycled, not adopted)"
-      echo "  kolu-new 'contract skew' log count: $(journalctl --user -u kolu-new --no-pager 2>/dev/null | grep -c 'contract skew' || echo 0) (must be >= 1)"
-      echo "  session $id in config.json: $(grep -c "$id" "$HOME/${configFile}" 2>/dev/null || echo 0) (must be >= 1 — preserved for restore)"
+      echo "  kolu-new 'contract skew' logged: $skewseen (must be yes)"
+      echo "  session $id in config.json: $sessseen (must be yes — preserved for restore)"
     } > /tmp/skew-verify-result
     exit 1
   '';
