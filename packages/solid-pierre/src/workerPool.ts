@@ -19,7 +19,11 @@
  *  (transcript-html's static export consumes `@pierre/diffs` directly, not this
  *  wrapper). */
 
-import { DEFAULT_THEMES, type HighlighterTypes } from "@pierre/diffs";
+import {
+  DEFAULT_THEMES,
+  type HighlighterTypes,
+  type ThemesType,
+} from "@pierre/diffs";
 import {
   getOrCreateWorkerPoolSingleton,
   type WorkerPoolManager,
@@ -40,9 +44,12 @@ import {
  *  place: a future engine or theme change is a one-line edit here that cannot
  *  drift between the synchronous and worker paths. */
 export const HIGHLIGHTER_CONTRACT = {
-  preferredHighlighter: "shiki-js" as HighlighterTypes,
+  preferredHighlighter: "shiki-js",
   theme: DEFAULT_THEMES,
-} as const;
+} as const satisfies {
+  preferredHighlighter: HighlighterTypes;
+  theme: ThemesType;
+};
 
 /** Web workers in the pool. Kolu views one diff/file CodeView at a time, but a
  *  single CodeView holds *many* items that highlight as they scroll in, so a
