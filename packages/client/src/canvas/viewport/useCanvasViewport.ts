@@ -16,6 +16,7 @@ import { installGestures } from "./gestures";
 import {
   applyGestureBatch,
   computeCenterPan,
+  type GestureBatch,
   normalizeDelta as normalizeDeltaPure,
   snapToGrid as snapToGridPure,
   zoomToCenter as zoomToCenterPure,
@@ -51,13 +52,17 @@ function cancelPanAnimation() {
 // the frame's pan delta (sum) and zoom factor (product, toward the last anchor)
 // and apply them ONCE per rAF. The per-frame state is identical to the per-event
 // path — `applyGestureBatch` telescopes the math — so feel is unchanged; only
-// the redundant intra-frame recomputes vanish. Mutable scalars (not an object)
-// keep the per-event hot path allocation-free.
-let pendingDx = 0;
-let pendingDy = 0;
-let pendingZoomFactor = 1;
-let zoomAnchorX = 0;
-let zoomAnchorY = 0;
+// the redundant intra-frame recomputes vanish. The per-event hot path mutates
+// fields of the existing `pending` batch (zero allocation); the single
+// `{ ...EMPTY }` clone happens only per-frame/per-discard.
+const EMPTY: GestureBatch = {
+  panDx: 0,
+  panDy: 0,
+  zoomFactor: 1,
+  zoomAnchorX: 0,
+  zoomAnchorY: 0,
+};
+let pending: GestureBatch = { ...EMPTY };
 let gestureRaf = 0;
 
 function scheduleGestureFlush() {
@@ -67,16 +72,8 @@ function scheduleGestureFlush() {
 
 function flushGesture() {
   gestureRaf = 0;
-  const result = applyGestureBatch(panX(), panY(), zoom(), {
-    panDx: pendingDx,
-    panDy: pendingDy,
-    zoomFactor: pendingZoomFactor,
-    zoomAnchorX,
-    zoomAnchorY,
-  });
-  pendingDx = 0;
-  pendingDy = 0;
-  pendingZoomFactor = 1;
+  const result = applyGestureBatch(panX(), panY(), zoom(), pending);
+  pending = { ...EMPTY };
   // Equal-value writes are no-ops (SolidJS skips on Object.is), so a pure-pan
   // frame never notifies zoom dependents and vice versa.
   setPanX(result.panX);
@@ -92,9 +89,7 @@ function discardPendingGesture() {
     cancelAnimationFrame(gestureRaf);
     gestureRaf = 0;
   }
-  pendingDx = 0;
-  pendingDy = 0;
-  pendingZoomFactor = 1;
+  pending = { ...EMPTY };
 }
 
 /** Begin an authoritative absolute mutation: a programmatic write is the new
@@ -164,15 +159,15 @@ function setContainerRef(
       // in-flight tween on the very first event, not a frame later.
       onPan: (dx, dy) => {
         cancelPanAnimation();
-        pendingDx += dx;
-        pendingDy += dy;
+        pending.panDx += dx;
+        pending.panDy += dy;
         scheduleGestureFlush();
       },
       onZoom: (factor, sx, sy) => {
         cancelPanAnimation();
-        pendingZoomFactor *= factor;
-        zoomAnchorX = sx;
-        zoomAnchorY = sy;
+        pending.zoomFactor *= factor;
+        pending.zoomAnchorX = sx;
+        pending.zoomAnchorY = sy;
         scheduleGestureFlush();
       },
     },
