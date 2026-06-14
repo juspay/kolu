@@ -318,7 +318,7 @@ local_deployed_file_hashes:
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .agents/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .agents/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
-  .agents/skills/codex-debate/debate.workflow.js: sha256:ce2e7c8e77d5260bf767aefcc8647ad2b6457349924006f6b93b9d8d9d091d17
+  .agents/skills/codex-debate/debate.workflow.js: sha256:8e912895e33937c661393efecde373ec10a0f3d0a6015fea21d065b7b3a16acd
   .agents/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
   .agents/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
   .agents/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
@@ -352,7 +352,7 @@ local_deployed_file_hashes:
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .claude/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .claude/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
-  .claude/skills/codex-debate/debate.workflow.js: sha256:ce2e7c8e77d5260bf767aefcc8647ad2b6457349924006f6b93b9d8d9d091d17
+  .claude/skills/codex-debate/debate.workflow.js: sha256:8e912895e33937c661393efecde373ec10a0f3d0a6015fea21d065b7b3a16acd
   .claude/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
   .claude/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
   .claude/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5

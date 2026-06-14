@@ -332,21 +332,27 @@ function renderLedger(transcript, meta) {
 // (section-002 before section-010) for both the author's read and the assembly.
 const sectionFile = (round) => `${workDir}/section-${String(round).padStart(3, '0')}.md`
 
-// Write ONE round's section to its own small file — the author reads these as its
-// cross-round memory, and the orchestrator cats them into the posted comment. A
-// thin mechanical agent (the workflow can't do file I/O), but the payload is just
-// this round, so it stays small and Haiku-safe — no whole-ledger retype, and
-// rewriting a round's own file is idempotent (safe on a resume).
-async function writeSection(entry) {
-  const text = roundLedgerSection(entry)
-  const path = sectionFile(entry.round)
+// Drop a string to a scratch file via a mechanical Haiku writer — the single home
+// for the "write this content to this path" idiom (the workflow can't do file I/O
+// itself, and Claude isn't headless, so a tiny agent does it). Both the per-round
+// section writer and the one-shot rationale writer route through here; payloads are
+// small (one round / one note) so Haiku is safe, and overwriting is idempotent
+// (safe on a resume).
+function writeFileAgent(path, content, label) {
   const prompt = `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
 
 1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
 2. Using the Write tool, create \`${path}\` with EXACTLY this content, overwriting any existing file:
 
-${text}`
-  return agent(prompt, { label: `ledger:round${entry.round}`, phase: 'Debate', model: mechModel })
+${content}`
+  return agent(prompt, { label, phase: 'Debate', model: mechModel })
+}
+
+// Write ONE round's section to its own small file — the author reads these as its
+// cross-round memory, and the orchestrator cats them into the posted comment. No
+// whole-ledger retype: the payload is just this round.
+async function writeSection(entry) {
+  return writeFileAgent(sectionFile(entry.round), roundLedgerSection(entry), `ledger:round${entry.round}`)
 }
 
 const transcript = []
@@ -424,17 +430,8 @@ await agent(
 // codex-review.sh can inject it into codex's round-1 prompt; codex's warm session
 // then carries the note across later rounds without re-injection. Only when a
 // rationale was passed — otherwise rationaleFileArg is `-` and no file is needed.
-// A thin mechanical writer (the workflow can't do file I/O); the payload is small.
 if (rationale) {
-  await agent(
-    `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
-
-1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
-2. Using the Write tool, create \`${rationaleFile}\` with EXACTLY this content, overwriting any existing file:
-
-${rationale}`,
-    { label: 'rationale:write', phase: 'Debate', model: mechModel },
-  )
+  await writeFileAgent(rationaleFile, rationale, 'rationale:write')
 }
 
 for (let round = 1; ; round++) {
