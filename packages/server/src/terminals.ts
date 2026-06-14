@@ -1,16 +1,15 @@
 /**
  * Terminal lifecycle façade — `createTerminal` / `killTerminal` /
- * `killAllTerminals` resolve to a `TerminalBackend` via
- * `getTerminalBackendFor(location)` and delegate. The backend owns
- * PTY spawn, per-terminal provider startup, registry insert/remove,
- * autosave-trigger signalling.
+ * `killAllTerminals` delegate to the local `TerminalEndpoint`. The
+ * endpoint owns PTY spawn, per-terminal provider startup, registry
+ * insert/remove, autosave-trigger signalling.
  *
  * Client-facing per-terminal metadata setters (`setTerminalParent`,
  * `setCanvasLayout`, `setSubPanelState`, `setRightPanelState`,
  * `setTerminalTheme`, `setTerminalIntent`) live here because they're
- * location-agnostic — they mutate the in-registry entry through the
+ * endpoint-agnostic — they mutate the in-registry entry through the
  * narrowed `updateClientMetadata` helper, which publishes through the
- * same metadata channel regardless of which backend owns the terminal.
+ * same metadata channel regardless of which endpoint owns the terminal.
  *
  * Re-exports the registry surface for callers that used to import
  * state-reads + lifecycle from this file as a single module.
@@ -23,24 +22,24 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
-// Load-order is cycle-sensitive: importing `terminalBackend/metadata.ts`
-// before `terminalBackend/index.ts` is what makes the surface cycle
-// converge with `localTerminalBackend` already initialized by the time
-// line 33 below calls `getTerminalBackendFor`. Reversing these two
-// (biome's alphabetical preference) puts the cycle entry-point at the
+// Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
+// before `terminalEndpoint/local.ts` is what makes the surface cycle
+// converge with `localTerminalEndpoint` already initialized by the time
+// the top-level `localEndpoint` reference below reads it. Reversing these
+// two (biome's alphabetical preference) puts the cycle entry-point at the
 // deeper `activity.ts → surface.ts` branch and trips a TDZ on
-// `localTerminalBackend`.
+// `localTerminalEndpoint`.
 // biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
-import { updateClientMetadata } from "./terminalBackend/metadata.ts";
-import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
+import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import type { SessionSnapshot } from "./session.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
-// R-1: a single local backend. R-2 will route by `location.kind` per
-// call site via `getTerminalBackendForCreate` — this const goes away then.
-const localBackend = getTerminalBackendFor({ kind: "local" });
+// A single local endpoint today. P3 will select the endpoint per call
+// site (e.g. a sub-terminal inheriting its parent's endpoint).
+const localEndpoint = localTerminalEndpoint;
 
 // Re-export registry accessors + type so external callers (router.ts,
 // diagnostics.ts, index.ts) keep a single import path.
@@ -75,9 +74,9 @@ export function snapshotSession(): SessionSnapshot {
   return { terminals: snappedTerminals, activeTerminalId };
 }
 
-/** Create a new terminal. The backend owns PTY spawn, provider
- *  startup, and registry insert; this wrapper just resolves the
- *  backend, mints an id, and forwards. `initial` seeds client-owned
+/** Create a new terminal. The endpoint owns PTY spawn, provider
+ *  startup, and registry insert; this wrapper just mints an id and
+ *  forwards. `initial` seeds client-owned
  *  metadata before providers run — see #642 (avoids racing post-hoc
  *  `setCanvasLayout` / `setTheme` / `setSubPanel` RPCs against the
  *  client's canvas-cascade effect). */
@@ -87,19 +86,23 @@ export function createTerminal(
   initial?: InitialTerminalMetadata,
 ): TerminalInfo {
   const id = crypto.randomUUID();
-  // R-2's `getTerminalBackendForCreate` will read `parentId` to inherit
-  // the parent's location — at that point `localBackend` goes away.
-  return localBackend.spawnPty(id, { cwd, parentId, initialMetadata: initial });
+  // P3 will select the endpoint per create — e.g. a sub-terminal
+  // inheriting its parent's endpoint; today every terminal is local.
+  return localEndpoint.spawnPty(id, {
+    cwd,
+    parentId,
+    initialMetadata: initial,
+  });
 }
 
 /** Kill a terminal. Returns final info, or undefined if not found. Async
- *  since #951 R4c: the local backend awaits the daemon's kill confirmation
+ *  since #951 R4c: the local endpoint awaits the daemon's kill confirmation
  *  over the socket before unregistering (so a failed kill can't orphan the
  *  PTY). */
 export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
-  return localBackend.killTerminal(id);
+  return localEndpoint.killTerminal(id);
 }
 
 /** Set or clear a terminal's parent relationship. */
@@ -138,7 +141,7 @@ export function setCanvasLayout(
  *  Equality-gated: the client RPCs this on every drag tick of the
  *  resizable handle, so without a guard each mouse-move would fan a
  *  full per-key metadata publish to every connected client. Same shape
- *  as the `lastAgentCommand` gate inside `LocalTerminalBackend`'s
+ *  as the `lastAgentCommand` gate inside `LocalTerminalEndpoint`'s
  *  agent-command tracker. */
 export function setSubPanelState(
   id: TerminalId,
@@ -247,5 +250,5 @@ export function setTerminalIntent(id: TerminalId, intent: string): void {
  *  scenarios. Async since #951 R4c (awaits the daemon's killAll over the
  *  socket before draining the registry). */
 export async function killAllTerminals(): Promise<void> {
-  await localBackend.killAllTerminals();
+  await localEndpoint.killAllTerminals();
 }

@@ -22,9 +22,9 @@
  *     parentId, canvasLayout, subPanel, rightPanel, intent). Every
  *     client field is persisted, so this fires `terminals:dirty`.
  *
- * Used by both `LocalTerminalBackend`'s internal providers and by
+ * Used by both `LocalTerminalEndpoint`'s internal providers and by
  * `terminals.ts`'s client-facing metadata setters. Lives next to the
- * backend implementation because the publish path is intrinsic to "how
+ * endpoint implementation because the publish path is intrinsic to "how
  * a terminal's metadata becomes visible".
  */
 

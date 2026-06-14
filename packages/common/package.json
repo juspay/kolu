@@ -7,7 +7,7 @@
   "sideEffects": false,
   "exports": {
     "./surface": "./src/surface.ts",
-    "./terminalBackend": "./src/terminalBackend.ts",
+    "./terminalEndpoint": "./src/terminalEndpoint.ts",
     "./contract": "./src/contract.ts",
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",

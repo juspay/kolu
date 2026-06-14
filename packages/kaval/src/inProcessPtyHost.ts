@@ -9,7 +9,7 @@
  * the surface link family — so `client.surface.terminal.spawn(...)` is a
  * direct (microtask-deferred) call into the host, no serialization.
  *
- * The consumer (kolu-server's `terminalBackend/local.ts`) holds the returned
+ * The consumer (kolu-server's `terminalEndpoint/local.ts`) holds the returned
  * `PtyHostClient` and is written against that type alone. A later phase swaps
  * only the link — this same `implementSurface` body is served over a unix
  * socket by the surviving `kolu --stdio` daemon (`serveOverStdio`), and the

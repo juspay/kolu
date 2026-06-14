@@ -8,7 +8,7 @@
  *   - The typed `cells / collections / events` mutation map (`surfaceCtx`)
  *     is built here and registered into `./surfaceCtx.ts` via
  *     `setSurfaceCtx(...)`. Domain modules (`activity.ts`, `session.ts`,
- *     `terminalBackend/local.ts`, `terminalBackend/metadata.ts`) import
+ *     `terminalEndpoint/local.ts`, `terminalEndpoint/metadata.ts`) import
  *     `surfaceCtx` from `./surfaceCtx.ts` — not from here — and call
  *     `surfaceCtx.cells.X.set(...)`, `.collections.X.upsert(k, v)`,
  *     `.events.X.publish(i, p)`. The framework owns the apply+publish
@@ -74,14 +74,14 @@ import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
-import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
 // kaval's OWN identity assembler — read in the SERVER process it returns the
 // server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
 // spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
 // *reported* identity, which rides `daemonStatus.identity`, not buildInfo.
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 
-const localBackend = getTerminalBackendFor({ kind: "local" });
+const localEndpoint = localTerminalEndpoint;
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -187,7 +187,7 @@ const koluDeps: Omit<
       // Server-internal collection: clients can't write. The `upsert`/
       // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`
       // publish without re-mutating the registry (the registry is the
-      // store; `terminalBackend/metadata.ts` mutates entry.meta in place before
+      // store; `terminalEndpoint/metadata.ts` mutates entry.meta in place before
       // calling ctx.upsert).
       upsert: () => {},
       remove: () => {},
@@ -205,39 +205,39 @@ const koluDeps: Omit<
   },
 
   streams: {
-    // fs/git streams are per-host one-shot ops; R-1 has only the
-    // local backend, but every read/install dispatches through the
-    // resolver so R-2 can branch on a `location` input without
-    // touching this block again.
+    // fs/git streams are per-host one-shot ops bound to this endpoint.
+    // P3 adds remote-endpoint impls behind the same TerminalEndpointFs /
+    // TerminalEndpointGit seam — this block reads them off `localEndpoint`
+    // and never names a host.
     gitStatus: {
       read: async (input) =>
-        localBackend.git.getStatus(input.repoPath, input.mode),
+        localEndpoint.git.getStatus(input.repoPath, input.mode),
       install: (input, cb) =>
-        localBackend.fs.subscribeRepoChange(input.repoPath, cb),
+        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
       isEqual: gitStatusOutputEqual,
     },
     gitDiff: {
       read: async (input) =>
-        localBackend.git.getDiff(
+        localEndpoint.git.getDiff(
           input.repoPath,
           input.filePath,
           input.mode,
           input.oldPath,
         ),
       install: (input, cb) =>
-        localBackend.fs.subscribeRepoChange(input.repoPath, cb),
+        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
       isEqual: gitDiffOutputEqual,
     },
     fsListAll: {
-      read: async (input) => localBackend.fs.listAll(input.repoPath),
+      read: async (input) => localEndpoint.fs.listAll(input.repoPath),
       install: (input, cb) =>
-        localBackend.fs.subscribeRepoChange(input.repoPath, cb),
+        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
       isEqual: fsListAllOutputEqual,
     },
     fsReadFile: {
       read: async (input): Promise<FsReadFileOutput> => {
         if (isBinaryPreviewable(input.filePath)) {
-          const mtimeMs = await localBackend.fs.statFileMtimeMs(
+          const mtimeMs = await localEndpoint.fs.statFileMtimeMs(
             input.repoPath,
             input.filePath,
           );
@@ -250,14 +250,18 @@ const koluDeps: Omit<
             ),
           };
         }
-        const { content, truncated } = await localBackend.fs.readFile(
+        const { content, truncated } = await localEndpoint.fs.readFile(
           input.repoPath,
           input.filePath,
         );
         return { kind: "text", content, truncated };
       },
       install: (input, cb) =>
-        localBackend.fs.subscribeFileChange(input.repoPath, input.filePath, cb),
+        localEndpoint.fs.subscribeFileChange(
+          input.repoPath,
+          input.filePath,
+          cb,
+        ),
       isEqual: fsReadFileOutputEqual,
     },
   },

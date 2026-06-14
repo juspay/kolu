@@ -7,7 +7,7 @@
  * survivor, spawn fresh, connect + handshake) through the supervisor spine
  * (`@kolu/surface-daemon-supervisor`), and `ptyHostClient` is a **stable
  * forwarding facade** over whatever connection the endpoint currently holds — so
- * `LocalTerminalBackend` keeps one import-time reference while the live socket
+ * `LocalTerminalEndpoint` keeps one import-time reference while the live socket
  * client is established asynchronously (no module-global host, no import-time
  * RPC). The spawn *policy* stays here, kolu's soul: `buildTerminalSpawnInput`
  * composes the env/identity/rcfile layers against the daemon's `system.info`,
@@ -101,7 +101,7 @@ function makeForwardingClient(getRoot: () => PtyHostClient): PtyHostClient {
   return build([]) as PtyHostClient;
 }
 
-/** The pty-host client `LocalTerminalBackend` (and this module) consume — a
+/** The pty-host client `LocalTerminalEndpoint` (and this module) consume — a
  *  stable facade over the endpoint's current daemon connection. */
 export const ptyHostClient: PtyHostClient = makeForwardingClient(liveClient);
 

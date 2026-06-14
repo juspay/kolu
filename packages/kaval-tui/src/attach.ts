@@ -247,7 +247,7 @@ export async function runAttach(
         );
         const iter = stream[Symbol.asyncIterator]();
         // First-frame guard — same fail-loud stance as the web path
-        // (terminalBackend/local.ts): a non-snapshot first frame is a
+        // (terminalEndpoint/local.ts): a non-snapshot first frame is a
         // contract violation, not something to paint.
         const first = await iter.next();
         if (!first.done) {

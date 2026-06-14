@@ -2,12 +2,11 @@
  * Terminal registry — the `Map<TerminalId, TerminalProcess>` and the
  * pure read/write accessors around it.
  *
- * Backend-agnostic: every `TerminalBackend` (local in R-1, remote in
- * R-2) writes to the same registry so consumers downstream (router,
- * surface) iterate one place regardless of where the terminal lives.
- * Per-backend internal state (PTY handle, provider cleanups for
- * `LocalTerminalBackend`) stays inside the backend itself, not on
- * `TerminalProcess`.
+ * Endpoint-agnostic: the `TerminalEndpoint` writes to the same registry
+ * so consumers downstream (router, surface) iterate one place regardless
+ * of which endpoint owns the terminal. Per-endpoint internal state (PTY
+ * handle, provider cleanups for `LocalTerminalEndpoint`) stays inside the
+ * endpoint itself, not on `TerminalProcess`.
  */
 
 import { ORPCError } from "@orpc/server";
@@ -16,14 +15,14 @@ import type {
   TerminalInfo,
   TerminalMetadata,
 } from "kolu-common/surface";
-import type { TerminalHandle } from "kolu-common/terminalBackend";
+import type { TerminalHandle } from "kolu-common/terminalEndpoint";
 
 /** Server-side terminal state. `info` is the wire shape sent in the
  *  `terminalList` cell snapshot; `meta` is mutated in place by the
- *  owning backend's providers and published via the
- *  `terminalMetadata` collection from `terminalBackend/metadata.ts`;
+ *  owning endpoint's providers and published via the
+ *  `terminalMetadata` collection from `terminalEndpoint/metadata.ts`;
  *  `handle` is the abstract control surface (write / resize / screen
- *  state — NO `dispose()`, the backend's `killTerminal` is the sole
+ *  state — NO `dispose()`, the endpoint's `killTerminal` is the sole
  *  termination path). */
 export interface TerminalProcess {
   info: TerminalInfo;
@@ -76,7 +75,7 @@ export const terminalCount = (): number => terminals.size;
 
 /** Number of terminals currently hosting a Claude Code session. Derived
  *  from `entry.meta.agent` — the agent detectors inside
- *  `LocalTerminalBackend` (driven by `claudeCodeProvider` from
+ *  `LocalTerminalEndpoint` (driven by `claudeCodeProvider` from
  *  `kolu-claude-code`) set it on session match and clear it on
  *  teardown. Exported for diagnostics. */
 export function countActiveClaudeSessions(): number {

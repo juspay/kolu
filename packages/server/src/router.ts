@@ -33,7 +33,7 @@ import {
   terminalNotFound,
   type TerminalProcess,
 } from "./terminal-registry.ts";
-import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
 import {
@@ -148,9 +148,10 @@ export const appRouter = t.router({
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
-      const { snapshot, deltas } = await getTerminalBackendFor({
-        kind: "local",
-      }).attach(input.id, signal);
+      const { snapshot, deltas } = await localTerminalEndpoint.attach(
+        input.id,
+        signal,
+      );
       if (snapshot) yield snapshot;
       for await (const data of deltas) yield data;
     }),

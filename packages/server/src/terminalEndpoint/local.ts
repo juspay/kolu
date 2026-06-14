@@ -1,9 +1,9 @@
 /**
- * `LocalTerminalBackend` — this kolu process. It does **not** own `kaval`:
+ * `LocalTerminalEndpoint` — this kolu process. It does **not** own `kaval`:
  * `kolu-server` is a client of a separately spawned kaval daemon, and reaches
  * it through the typed `ptyHostSurface` contract via the stable `ptyHostClient`
  * forwarding facade (`../ptyHost/index.ts`) over that daemon's own socket. This
- * backend forwards spawn/kill/write/resize/attach through that client AND
+ * endpoint forwards spawn/kill/write/resize/attach through that client AND
  * **runs the per-terminal provider DAG** (`./providers.ts`) against the
  * pty-host's raw tap streams (cwd · title · command-run · foreground).
  *
@@ -16,8 +16,9 @@
  * one host, and nothing in this file changes for it. See
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
- * `TerminalBackend.fs/git` stay on this side, abstracted per-location and (for
- * local) shelling out to `kolu-git` directly.
+ * `TerminalEndpoint.fs/git` stay on this side — the local surfaces shell out to
+ * `kolu-git` directly; a remote endpoint (P3) mirrors the same surfaces over the
+ * link.
  */
 
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
@@ -31,11 +32,11 @@ import type {
 import type {
   PtySpawnOpts,
   TerminalAttachment,
-  TerminalBackend,
-  TerminalBackendFs,
-  TerminalBackendGit,
+  TerminalEndpoint,
+  TerminalEndpointFs,
+  TerminalEndpointGit,
   TerminalHandle,
-} from "kolu-common/terminalBackend";
+} from "kolu-common/terminalEndpoint";
 import {
   type FsListAllOutput,
   type GitDiffOutput,
@@ -94,7 +95,7 @@ function emitTerminalListChanged(): void {
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
 
-const localFs: TerminalBackendFs = {
+const localFs: TerminalEndpointFs = {
   async listAll(repoPath: string): Promise<FsListAllOutput> {
     return { paths: unwrapGit(await listAll(repoPath, log)) };
   },
@@ -112,7 +113,7 @@ const localFs: TerminalBackendFs = {
   },
 };
 
-const localGit: TerminalBackendGit = {
+const localGit: TerminalEndpointGit = {
   async getStatus(repoPath, mode: GitDiffMode): Promise<GitStatusOutput> {
     return unwrapGit(await getStatus(repoPath, mode, log));
   },
@@ -347,9 +348,9 @@ export function orphanMeta(liveEntry: PtyHostListEntry): TerminalMetadata {
   };
 }
 
-// ── Backend implementation ─────────────────────────────────────────────
+// ── Endpoint implementation ────────────────────────────────────────────
 
-class LocalTerminalBackend implements TerminalBackend {
+class LocalTerminalEndpoint implements TerminalEndpoint {
   readonly fs = localFs;
   readonly git = localGit;
 
@@ -361,7 +362,7 @@ class LocalTerminalBackend implements TerminalBackend {
     const tlog = log.child({ terminal: id });
 
     // Sync shadow: register a connecting entry (proxy handle + default
-    // metadata) so the tile renders immediately — the `TerminalBackend.
+    // metadata) so the tile renders immediately — the `TerminalEndpoint.
     // spawnPty` sync-shadow contract. The pty-host resolves the authoritative
     // cwd / pid on the async tail below; the provider DAG starts there too.
     //
@@ -743,20 +744,20 @@ class LocalTerminalBackend implements TerminalBackend {
   }
 }
 
-const localBackendImpl = new LocalTerminalBackend();
-export const localTerminalBackend: TerminalBackend = localBackendImpl;
+const localEndpointImpl = new LocalTerminalEndpoint();
+export const localTerminalEndpoint: TerminalEndpoint = localEndpointImpl;
 
 /** Adopt a surviving local PTY at boot (B3.3) that HAS a saved record — its
  *  persisted chrome rides through whole (`adoptedMeta`), with the live daemon
  *  snapshot the authority for `cwd`/`foreground`. Exposed as a standalone entry
- *  rather than on the cross-backend `TerminalBackend` interface because adoption
- *  is local-only today — R-2's remote-host adoption is an additive sibling, not
+ *  rather than on the shared `TerminalEndpoint` interface because adoption
+ *  is local-only today — P3's remote-host adoption is an additive sibling, not
  *  a retrofit of the shared interface. */
 export function adoptLocalTerminal(
   record: SavedTerminal,
   liveEntry: PtyHostListEntry,
 ): void {
-  localBackendImpl.adoptTerminal(
+  localEndpointImpl.adoptTerminal(
     record.id as TerminalId,
     adoptedMeta(record, liveEntry),
     liveEntry,
@@ -769,7 +770,7 @@ export function adoptLocalTerminal(
  *  (`orphanMeta`). The sibling of `adoptLocalTerminal` for the unmatched-survivor
  *  case the reconcile partition surfaces separately. */
 export function adoptLocalOrphan(liveEntry: PtyHostListEntry): void {
-  localBackendImpl.adoptTerminal(
+  localEndpointImpl.adoptTerminal(
     liveEntry.id as TerminalId,
     orphanMeta(liveEntry),
     liveEntry,

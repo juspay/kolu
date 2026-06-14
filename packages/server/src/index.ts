@@ -33,7 +33,7 @@ import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint } from "./ptyHost/index.ts";
-import { adoptSurvivingSession } from "./terminalBackend/reattach.ts";
+import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";

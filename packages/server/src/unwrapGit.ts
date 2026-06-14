@@ -1,10 +1,10 @@
 /**
  * Unwrap a `GitResult` into the success value or throw an `ORPCError`
  * for the client. Pure helper shared by `router.ts`'s raw git handlers
- * and `terminalBackend/local.ts`'s fs/git surfaces.
+ * and `terminalEndpoint/local.ts`'s fs/git surfaces.
  *
  * Lives in its own file (rather than `surface.ts`) so importing it from
- * `terminalBackend/local.ts` does not tug `local.ts` into a cycle with
+ * `terminalEndpoint/local.ts` does not tug `local.ts` into a cycle with
  * `surface.ts`. See #1005.
  */
 

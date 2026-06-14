@@ -3,8 +3,8 @@
  *
  * `surface.ts` calls `setSurfaceCtx(built)` once at startup, right after
  * `implementSurface(...)` returns its `{ router, ctx }` pair. Domain
- * modules — `activity.ts`, `session.ts`, `terminalBackend/local.ts`,
- * `terminalBackend/metadata.ts` — import `surfaceCtx` from here instead
+ * modules — `activity.ts`, `session.ts`, `terminalEndpoint/local.ts`,
+ * `terminalEndpoint/metadata.ts` — import `surfaceCtx` from here instead
  * of from `surface.ts`. The bidirectional edge that used to form between
  * `surface.ts` and every domain module collapses to a one-way arrow
  * (`surface.ts → domain`) plus a one-way registration
@@ -13,8 +13,8 @@
  * Without this holder, biome's `noImportCycles` flags every domain
  * module's `surfaceCtx` import, and the production Node ESM loader can
  * land on an import order where `surface.ts`'s top-level
- * `getTerminalBackendFor({ kind: "local" })` runs while
- * `localTerminalBackend` is still in TDZ — production crashes that
+ * `localTerminalEndpoint` reference runs while that binding is still in
+ * TDZ — production crashes that
  * vite-node's evaluation order does not reproduce in unit tests (#1005).
  *
  * The Proxy throws on access before `setSurfaceCtx` has been called.
