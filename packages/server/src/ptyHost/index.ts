@@ -117,7 +117,7 @@ export async function ensureLocalEndpoint(opts: {
   onStatus: (hostId: string, status: EndpointStatus<Identity>) => void;
   /** Run after the boot ADOPTS a surviving daemon (B3.3) — reconcile its live
    *  PTYs against the saved session. Injected (not imported) so this composition
-   *  root stays free of the terminal-backend layer, which imports back from
+   *  root stays free of the terminal-endpoint layer, which imports back from
    *  here. Skipped on a fresh / recycled boot (no survivors to reconcile). */
   onAdopted?: () => Promise<void>;
 }): Promise<void> {
