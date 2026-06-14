@@ -82,8 +82,9 @@ const CanvasTile: Component<{
   zoom: () => number;
   /** Canvas state-aura tier for this tile — drives the `data-aura` hook the
    *  border treatment reads. Optional: undefined renders nothing (treated as
-   *  `"none"`). Resolved once by `useTileAura` so the tile and the minimap
-   *  marker share one tier. */
+   *  `"none"`). Resolved by `useTileAura`; this resolver drives only the tile
+   *  border. The minimap derives its own bucket→color independently via
+   *  `bucketDescriptor` and does not share this tier. */
   auraTier?: () => TileAura;
 }> = (props) => {
   const isMaximized = () => props.mode === "maximized";

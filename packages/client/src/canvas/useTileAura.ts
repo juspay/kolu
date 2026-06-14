@@ -2,9 +2,10 @@
  *  same upstream classifiers the dock reads (`agentBucket`, the unread flag,
  *  `useStaleCheck`) so the canvas border and the dock can't drift. Called once;
  *  the returned resolver is read per-tile inside a tracking context (JSX /
- *  `createMemo`) by both the canvas tile and the minimap marker, so they share
- *  one tier and the 60s staleness tick re-runs them together. No new state, no
- *  new clock — just a fold of the three existing inputs into `tileAura`. */
+ *  `createMemo`) by the canvas tile border, and the 60s staleness tick re-runs
+ *  it. The minimap is NOT a consumer — it derives its marker independently via
+ *  `bucketDescriptor` (and its own `isParked` staleness). No new state, no new
+ *  clock — just a fold of the three existing inputs into `tileAura`. */
 
 import type { TerminalId } from "kolu-common/surface";
 import { useStaleCheck } from "../terminal/staleness";
