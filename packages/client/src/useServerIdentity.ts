@@ -1,8 +1,11 @@
-/** Server identity — singleton. One cosmetic `client.server.info()` fetch
- *  feeding the document title, the canvas watermark, the About dialog, and the
- *  PWA `<Meta theme-color>`. Migrated out of App.tsx (the one stray fetch the
- *  shell still owned) so the layout shell stops carrying a non-layout fetch and
- *  drilling `appTitle` through every consumer. */
+/** Server NAME + theme-color — singleton. One cosmetic `client.server.info()`
+ *  fetch providing the server's name (the document title, the canvas watermark,
+ *  and the About dialog's title) and the PWA `<Meta theme-color>`. This is NOT
+ *  the whole "server identity" — the About/Diagnostic "Server:" line reads
+ *  `serverProcessId` from `rpc/rpc` (a live restart probe, different volatility
+ *  than this one-shot cosmetic fetch). Migrated out of App.tsx (the one stray
+ *  fetch the shell still owned) so the layout shell stops carrying a non-layout
+ *  fetch and drilling `appTitle` through every consumer. */
 
 import type { ServerIdentity } from "kolu-common/contract";
 import { createSignal } from "solid-js";
