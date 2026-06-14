@@ -113,6 +113,53 @@ Then(
 );
 
 Then(
+  "the inspector should show the kaval-tui attach command",
+  async function (this: KoluWorld) {
+    // The Attach section renders a copy button carrying the short-form
+    // `kaval-tui attach <id>` command for the active terminal. We assert the
+    // whole deliberate contract: the button SHOWS the short id, its `title`
+    // carries the FULL command (the on-hover disambiguator), and CLICKING it
+    // copies the short form (WYSIWYG-copy) — not just that some text matches.
+    const attach = this.page.locator(
+      '[data-testid="inspector-attach-command"]',
+    );
+    await attach.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+
+    // The SHOWN command (the idle affordance is an icon with no text, so the
+    // button's textContent is exactly the command — incl. any `--socket <path>`
+    // the inspector pins after the id).
+    const shown = (await attach.textContent())?.trim() ?? "";
+    // The id token is the 8-char short form, not the full uuid.
+    const shortId = shown.match(/^kaval-tui attach ([0-9a-f]{8})\b/)?.[1] ?? "";
+    assert.ok(
+      /^[0-9a-f]{8}$/.test(shortId),
+      `Expected the shown command to start with an 8-char short id, got "${shown}"`,
+    );
+
+    // The hover/title carries the FULL command (the on-hover disambiguator):
+    // same shape, but its id token is the full-length uuid that the short id
+    // prefixes.
+    const title = (await attach.getAttribute("title")) ?? "";
+    const fullId = title.match(/^kaval-tui attach ([0-9a-f-]+)/)?.[1] ?? "";
+    assert.ok(
+      fullId.startsWith(shortId) && fullId.length >= 36,
+      `Expected the title to carry the full-uuid attach command, got "${title}"`,
+    );
+
+    // Clicking copies EXACTLY what's shown (WYSIWYG) — short id and, when the
+    // daemon socket is known, the `--socket` that pins the command to THIS
+    // server's kaval. Comparing to the shown text keeps the assertion correct
+    // whether or not the socket has resolved in the fixture.
+    await attach.click();
+    await this.page.waitForFunction(
+      (exp) => navigator.clipboard.readText().then((t) => t === exp),
+      shown,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the inspector toggle should not be active",
   async function (this: KoluWorld) {
     // The header toggle drops its `data-active` marker when the panel isn't

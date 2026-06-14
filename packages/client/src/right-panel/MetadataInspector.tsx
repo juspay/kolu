@@ -4,6 +4,7 @@
 import { prValue } from "anyforge/schemas";
 import {
   prUnavailableSource,
+  type TerminalId,
   type TerminalMetadata,
 } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
@@ -19,9 +20,11 @@ import {
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
+import KavalAttachCommand from "./KavalAttachCommand";
 
 const MetadataInspector: Component<{
   meta: TerminalMetadata | null;
+  terminalId: TerminalId | null;
   themeName?: string;
   onThemeClick?: () => void;
 }> = (props) => {
@@ -252,6 +255,16 @@ const MetadataInspector: Component<{
                 >
                   {name()}
                 </button>
+              </Section>
+            )}
+          </Show>
+
+          {/* Attach — the shell-side handle on this terminal via kaval-tui;
+           *  copy the command and grab it from any shell. */}
+          <Show when={props.terminalId}>
+            {(id) => (
+              <Section title="Attach">
+                <KavalAttachCommand terminalId={id()} />
               </Section>
             )}
           </Show>

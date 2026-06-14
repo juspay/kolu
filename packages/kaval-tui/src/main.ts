@@ -9,6 +9,11 @@
  *   kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
  *   kaval-tui attach <id>       take over a terminal from the shell; `~.` detaches
  *
+ * `list` prints a short id (the leading chars of the full uuid); `<id>` in
+ * `snapshot`/`attach` is that short form or any unique prefix of the full id —
+ * resolved against the live inventory client-side (see `resolveOne`), so a
+ * pasted full uuid keeps working. `--json` always carries the full id.
+ *
  * By default it reaches a standalone `kaval` daemon. To drive a running
  * kolu-server's in-process terminals instead (until B2 flips kolu onto the
  * daemon), point `--socket` at kolu's socket
@@ -31,7 +36,12 @@ import {
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { isValidEscapeChar } from "./escape.ts";
-import { formatList, formatListJson } from "./render.ts";
+import {
+  formatList,
+  formatListJson,
+  resolveTerminalId,
+  shortId,
+} from "./render.ts";
 
 // Declared on each subcommand (cleye binds flags only AFTER the subcommand —
 // it does not inherit a parent flag — so `--socket` goes after the command:
@@ -67,7 +77,10 @@ const argv = cli({
     command({
       name: "snapshot",
       parameters: ["<id>"],
-      help: { description: "Print a terminal's current rendered scrollback." },
+      help: {
+        description:
+          "Print a terminal's current rendered scrollback. <id> is the short id from `list` or any unique prefix.",
+      },
       flags: { ...socketFlag },
     }),
     command({
@@ -75,7 +88,7 @@ const argv = cli({
       parameters: ["<id>"],
       help: {
         description:
-          "Take over a terminal: raw passthrough until a line-start `~.` detaches (the daemon keeps the terminal). `~?` lists the escapes.",
+          "Take over a terminal: raw passthrough until a line-start `~.` detaches (the daemon keeps the terminal). `~?` lists the escapes. <id> is the short id from `list` or any unique prefix.",
       },
       flags: {
         ...socketFlag,
@@ -112,6 +125,31 @@ function writeOut(text: string): Promise<void> {
 function fail(message: string): never {
   process.stderr.write(`kaval-tui: ${message}\n`);
   process.exit(1);
+}
+
+/** Resolve a user-typed id-or-prefix to a full terminal id against the live
+ *  inventory, failing loudly on no-match or ambiguity. `attach`/`snapshot` run
+ *  this first so a short id (the form `list` prints) or any unique prefix
+ *  reaches the contract — which validates a full uuid — as the real id. The
+ *  list round-trip is cheap and the inventory is the only truth for what's
+ *  live; an ambiguous prefix names the matches so the user can add characters. */
+async function resolveOne(conn: Connection, query: string): Promise<string> {
+  const { entries } = await conn.client.surface.terminal.list({});
+  const result = resolveTerminalId(
+    query,
+    entries.map((e) => e.id),
+  );
+  if (result.kind === "found") return result.id;
+  if (result.kind === "none") {
+    fail(
+      `no terminal matching "${query}" — \`kaval-tui list\` shows the live ones.`,
+    );
+  }
+  fail(
+    `"${query}" matches ${result.matches.length} terminals — type more characters:\n  ${result.matches
+      .map(shortId)
+      .join("\n  ")}`,
+  );
 }
 
 /** The socket to dial. An explicit `--socket` wins (verbatim). Otherwise
@@ -159,7 +197,9 @@ async function cmdSnapshot(conn: Connection, id: string): Promise<void> {
   // Trailer to stderr so stdout stays clean, scriptable scrollback — derived
   // from the text we already hold, no second round-trip to decorate it.
   const lines = text ? text.replace(/\n+$/, "").split("\n").length : 0;
-  process.stderr.write(`— ${id} · ${lines} line${lines === 1 ? "" : "s"}\n`);
+  process.stderr.write(
+    `— ${shortId(id)} · ${lines} line${lines === 1 ? "" : "s"}\n`,
+  );
 }
 
 async function cmdAttach(
@@ -234,11 +274,15 @@ async function cmdAttach(
   restore();
   switch (outcome.kind) {
     case "detached":
-      process.stderr.write(`— detached · ${id} stays live in the daemon\n`);
+      process.stderr.write(
+        `— detached · ${shortId(id)} stays live in the daemon\n`,
+      );
       process.exit(0);
       break;
     case "exited":
-      process.stderr.write(`— ${id} exited (code ${outcome.exitCode})\n`);
+      process.stderr.write(
+        `— ${shortId(id)} exited (code ${outcome.exitCode})\n`,
+      );
       // Mirror the child where possible; anything unrepresentable (negative /
       // >255 — node clamps modulo 256) degrades to the generic failure 1.
       process.exit(
@@ -246,7 +290,9 @@ async function cmdAttach(
       );
       break;
     case "not-found":
-      fail(`no terminal ${id} — \`kaval-tui list\` shows the live ones.`);
+      fail(
+        `no terminal ${shortId(id)} — \`kaval-tui list\` shows the live ones.`,
+      );
       break;
     case "error":
       fail(outcome.message);
@@ -316,9 +362,14 @@ async function main(): Promise<void> {
     // silently fall through into another command's handler. (cleye already
     // exits on commands not in its registry; this guards OUR omissions.)
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
-    else if (argv.command === "snapshot") await cmdSnapshot(conn, argv._.id);
+    else if (argv.command === "snapshot")
+      await cmdSnapshot(conn, await resolveOne(conn, argv._.id));
     else if (argv.command === "attach")
-      await cmdAttach(conn, argv._.id, argv.flags.escape);
+      await cmdAttach(
+        conn,
+        await resolveOne(conn, argv._.id),
+        argv.flags.escape,
+      );
     else fail("unhandled command — add a dispatch branch for it");
   } finally {
     conn.dispose();

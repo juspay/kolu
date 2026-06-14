@@ -16,6 +16,24 @@ kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches
 ```
 
+## Short ids
+
+Terminal ids are uuids, so `list` prints just the first 8 characters — enough to
+tell your handful of terminals apart, short enough to type:
+
+```
+ID        PID    IDLE  CMD                CWD
+a1b2c3d4  12843  5s    claude: implement  ~/code/kolu
+7f3e0a91  12044  2m    vim                ~/code/kolu
+```
+
+`snapshot` and `attach` take that short id, **or any unique prefix of it** —
+type only as many characters as you need to disambiguate (`kaval-tui attach
+a1`). An ambiguous prefix lists the matches so you can add a character; a full
+uuid pasted from `list --json` (which keeps the full id) or from kolu's
+Inspector still works, since an id is a prefix of itself. Resolution happens in
+kaval-tui against the live inventory — the daemon only ever sees a full id.
+
 ## Running it
 
 Start the daemon, then drive it from any other shell — kaval-tui finds the

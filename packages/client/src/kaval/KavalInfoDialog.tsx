@@ -10,11 +10,15 @@
 
 import Dialog from "@corvu/dialog";
 import { isCleanRef } from "@kolu/surface-app";
+import type { DaemonStatus } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
-import type { DaemonStatus } from "kolu-common/surface";
-import { kavalStale } from "./kavalCurrency";
+import Commit, { REPO_URL } from "../ui/Commit";
+import { CloseIcon } from "../ui/Icons";
+import ModalDialog from "../ui/ModalDialog";
+import { surface } from "../ui/Surface";
 import { expectedKaval } from "./KavalUpdateBadge";
+import { kavalStale } from "./kavalCurrency";
 import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
@@ -22,10 +26,6 @@ import {
   formatUptime,
   toneDot,
 } from "./useDaemonStatus";
-import Commit, { REPO_URL } from "../ui/Commit";
-import { CloseIcon } from "../ui/Icons";
-import ModalDialog from "../ui/ModalDialog";
-import { surface } from "../ui/Surface";
 
 const Cmd: Component<{ children: string; note: string }> = (props) => (
   <div class="flex items-baseline justify-between gap-3 py-1">
@@ -216,7 +216,7 @@ const KavalInfoDialog: Component<{
             terminals — no <code class="font-mono">--socket</code> flag needed.
           </p>
           <div class="mt-2 rounded-lg border border-edge bg-surface-2 px-3 py-2 divide-y divide-edge/60">
-            <Cmd note="every live terminal — id · pid · cwd">
+            <Cmd note="every live terminal — prints a short id">
               kaval-tui list
             </Cmd>
             <Cmd note="take one over (raw passthrough; ~. detaches)">
@@ -226,6 +226,11 @@ const KavalInfoDialog: Component<{
               kaval-tui snapshot &lt;id&gt;
             </Cmd>
           </div>
+          <p class="mt-2 text-[11px] leading-relaxed text-fg-3">
+            <code class="font-mono text-fg-2">&lt;id&gt;</code> is the short id
+            from <code class="font-mono text-fg-2">list</code> — or any unique
+            prefix of the full one.
+          </p>
           <p class="mt-2 text-[11px] leading-relaxed text-fg-3">
             Not installed?{" "}
             <code class="font-mono text-fg-2">

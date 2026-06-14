@@ -10,9 +10,8 @@ import type { PrUnavailableSource } from "kolu-common/surface";
 import { reasonForSource } from "kolu-common/surface";
 import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { writeTextToClipboard } from "../ui/clipboard";
+import CopyCommandButton from "../ui/CopyCommandButton";
 import { WarningIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -31,18 +30,6 @@ export const ProviderUnavailableContent: Component<{
 const GhUnavailableContent: Component<{ code: GhUnavailableCode }> = (
   props,
 ) => {
-  const [copied, setCopied] = createSignal(false);
-
-  const copy = async (text: string) => {
-    try {
-      await writeTextToClipboard(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      toast.error(`Couldn't copy: ${(err as Error).message}`);
-    }
-  };
-
   return match(props.code)
     .with("not-authenticated", () => (
       <>
@@ -51,10 +38,9 @@ const GhUnavailableContent: Component<{ code: GhUnavailableCode }> = (
           Kolu reads PRs via <code class="font-mono">gh</code>. Run this once in
           any terminal:
         </p>
-        <CopyCommand
+        <CopyCommandButton
           command={AUTH_COMMAND}
-          copied={copied()}
-          onCopy={() => copy(AUTH_COMMAND)}
+          testId="pr-unavailable-copy"
         />
         <p class="text-fg-3 leading-relaxed">
           Scopes <code class="font-mono">repo</code> and{" "}
@@ -139,24 +125,6 @@ const PrUnavailablePopover: Component<{
     </Show>
   );
 };
-
-const CopyCommand: Component<{
-  command: string;
-  copied: boolean;
-  onCopy: () => void;
-}> = (props) => (
-  <button
-    type="button"
-    onClick={props.onCopy}
-    class="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 font-mono text-[11px] text-fg cursor-pointer transition-colors"
-    data-testid="pr-unavailable-copy"
-  >
-    <span class="truncate">{props.command}</span>
-    <span class="shrink-0 text-fg-3 text-[10px]">
-      {props.copied ? "copied" : "copy"}
-    </span>
-  </button>
-);
 
 /** ⚠ button + its popover, one component per render site. Owns its own
  *  open-state signal and trigger ref — canvas tile chrome and mobile
