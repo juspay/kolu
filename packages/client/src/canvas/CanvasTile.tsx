@@ -116,15 +116,15 @@ const CanvasTile: Component<{
       width: `${l.w}px`,
       height: `${l.h}px`,
       "background-color": bg(),
-      // One colour throughout: the repo's identity colour. The border, the
-      // active "you are here" ring, and the state aura all use it — nothing
-      // else competes. Active reads via a brighter ring + full opacity, not a
-      // second hue.
+      // One colour throughout: the repo's identity colour drives the border and
+      // the state aura — nothing else competes. The active tile reads via
+      // ELEVATION (a stronger drop shadow + full opacity), not a second hue or a
+      // focus ring, so the border stays 100% the state aura.
       "border-color": props.repoColor,
       "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
       opacity: props.active ? 1 : inactiveOpacity(),
       "box-shadow": props.active
-        ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px ${props.repoColor}`
+        ? `0 16px 44px -6px rgba(0,0,0,0.55)`
         : `0 2px 8px rgba(0,0,0,0.2)`,
       "transform-origin": "0 0",
       transform: tileTransformCSS(
@@ -192,7 +192,6 @@ const CanvasTile: Component<{
         absolute: true,
         "inset-0 z-40": isMaximized(),
         "rounded-xl": !isMaximized(),
-        "shadow-xl": props.active && !isMaximized(),
         "border-transparent": isMaximized(),
       }}
       style={tileStyle()}
