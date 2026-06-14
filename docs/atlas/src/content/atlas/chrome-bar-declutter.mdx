@@ -125,17 +125,26 @@ The whole switch rides accessors that **already exist** — no new derivation,
 no wire change:
 
 ```ts
-// calm vs. needs-attention — a pure OR of existing pure accessors
-const diverged = () =>
-  props.status !== "open" || clientStale() || kavalUpdatePending() ||
-  !!downState() || daemonWarming();
+// the resting dot: worst-of, reusing the existing wsDot / kavalDot tables.
+// Branch order IS the priority: a down link wins (identity is untrustworthy
+// with no server to read), then an unknown daemon stays grey — never a
+// false-green before the first status yield — then a down/warming daemon,
+// then the amber currency nudge, else all-clear.
+const unifiedDot = (): string => {
+  if (props.status !== "open") return wsDot(props.status);
+  const state = daemon()?.state;
+  if (!state) return kavalDot(undefined);           // grey-not-red trap kept
+  if (downState() || daemonWarming()) return kavalDot(state);
+  if (stale() || kavalUpdatePending()) return nudgeDot;
+  return toneDot.ok;
+};
 
-// the resting dot: worst-of, reusing the existing srvDot / kavalDot tables
-const unifiedDot = () =>
-  props.status !== "open"            ? srvDot[props.status]
-  : (!!downState() || daemonWarming()) ? kavalDot(daemon()?.state) // grey-not-red trap kept
-  : (clientStale() || kavalUpdatePending()) ? "bg-warning"
-  : "bg-ok";
+// No aggregate `diverged()` predicate: each source decides for itself whether
+// to fan back out, via its own <Show>. The kaval source is the one that needs
+// a named test (behind, or not cleanly running); ws (props.status !== "open")
+// and client (stale()) are <Show> guards inline.
+const kavalDiverged = (): boolean =>
+  kavalUpdatePending() || !!downState() || daemonWarming();
 ```
 
 ## Fan out on divergence
@@ -198,24 +207,24 @@ daemon-down stay **distinct** reds (server-unreachable ≠ daemon-dead).
 ## What moves where — nothing is lost
 
 <D2
-  caption="The same pure accessors the rail reads today (props.status/srvDot, clientStale, kavalUpdatePending, downState/daemonWarming, the three commits) feed one diverged() predicate. False (the ~95% case) → the resting row: a worst-of unifiedDot + version + one shared SHA + the ▸ affordance. True → the diverging source fans back out inline with its own dot, SHA and chip. Every detail stripped from the resting strip stays reachable in the deep store — the hover Tip's three-way split, KavalInfoDialog, and the About dialog. No new derivation, no wire change."
+  caption="The same pure accessors the rail reads today (props.status/wsDot, clientStale, kavalUpdatePending, downState/daemonWarming, the three commits) feed the one worst-of unifiedDot + the resting row, and — independently, no aggregate predicate — each source's own <Show> fan-out. All green (the ~95% case) → the resting row: the dot + version + one shared SHA + the ▸ affordance. Any source non-green → just that source fans back out inline with its own dot, SHA and chip. Every detail stripped from the resting strip stays reachable in the deep store — the hover Tip's three-way split, KavalInfoDialog, and the About dialog. No new derivation, no wire change."
   code={`direction: down
 inputs: "accessors — already exist" {
-  ws: "props.status -> srvDot"
+  ws: "props.status -> wsDot"
   client: "clientStale() · pwa.clientCommit"
   kaval: "kavalUpdatePending() · downState() · daemonWarming()"
   ids: "server.commit =? clientCommit =? navigableCommit"
 }
-diverged: "diverged() — pure OR"
-dot: "unifiedDot() — worst-of (calm only)"
+dot: "unifiedDot() — worst-of"
+shows: "per-source <Show>: status!='open' · stale() · kavalDiverged()"
 calm: "RESTING ROW:  the dot · v{ver} · <sha> · the chevron"
-fan: "FAN-OUT: the diverging source's dot + sha + chip, inline"
+fan: "FAN-OUT: each diverging source's dot + sha + chip, inline"
 store: "DEEP STORE — Tip 3-way split · KavalInfoDialog · About"
-inputs -> diverged
 inputs -> dot
-diverged -> calm: "false (~95%)"
-diverged -> fan: "true"
+inputs -> shows
 dot -> calm
+shows -> calm: "all green (~95%)"
+shows -> fan: "any source non-green"
 calm -> store: "hover / click the chevron"
 fan -> store: "click -> restart / reload"
 `}
@@ -224,7 +233,7 @@ fan -> store: "click -> restart / reload"
 | Current element | Source accessor | New home |
 | --- | --- | --- |
 | `srv` / `client` / `kaval` labels | literal | Tooltip rows (off the resting strip) |
-| WS dot · kaval dot | `srvDot` · `kavalDot` | One **worst-of** dot at rest; the **specific** dot surfaces on divergence |
+| WS dot · kaval dot | `wsDot` · `kavalDot` | One **worst-of** dot at rest; the **specific** dot surfaces on divergence |
 | version `v1.1.0` | `server()?.version` | **Inline, kept** — cheap, identifying, not redundant |
 | server commit | `server()?.commit` | **Inline** as the one shared SHA + Tip row |
 | client commit | `clientCommit` | Tip row; **inline beside `≠ srv`** when stale; also About dialog |
