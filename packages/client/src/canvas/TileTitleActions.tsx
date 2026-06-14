@@ -48,6 +48,15 @@ const TileTitleActions: Component<{
   const splitExpanded = () =>
     subCount() > 0 && !subPanel.getSubPanel(props.id).collapsed;
 
+  /** Chrome-action handler: interacting with a tile's chrome selects that tile,
+   *  then runs the action. The "select first" policy lives here once instead of
+   *  being re-prefixed at every button — a new chrome button can't forget it. */
+  const onTile = (e: MouseEvent, fn: () => void) => {
+    e.stopPropagation();
+    store.setActiveSilently(props.id);
+    fn();
+  };
+
   return (
     <>
       <Show when={meta()?.agent}>
@@ -56,16 +65,16 @@ const TileTitleActions: Component<{
             type="button"
             class={`${TILE_BUTTON_CLASS} px-2`}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              store.setActiveSilently(props.id);
-              // The agent indicator is an Inspector entry point — the agent's
-              // metadata lives on the Inspector tab. Select it explicitly
-              // before revealing, otherwise a fresh terminal (whose Code tab
-              // is the default surface) would open on Code instead.
-              rightPanel.showInspector();
-              rightPanel.reveal();
-            }}
+            onClick={(e) =>
+              onTile(e, () => {
+                // The agent indicator is an Inspector entry point — the agent's
+                // metadata lives on the Inspector tab. Select it explicitly
+                // before revealing, otherwise a fresh terminal (whose Code tab
+                // is the default surface) would open on Code instead.
+                rightPanel.showInspector();
+                rightPanel.reveal();
+              })
+            }
             title="Open inspector"
           >
             <AgentIndicator agent={agent()} />
@@ -81,15 +90,15 @@ const TileTitleActions: Component<{
               class={`${TILE_BUTTON_CLASS} px-2 max-w-[14ch] truncate text-xs`}
               style={{ color: "var(--color-fg-3, currentColor)" }}
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                store.setActiveSilently(props.id);
-                commandPalette.openGroup("Set theme");
-                setTimeout(
-                  () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
-                  500,
-                );
-              }}
+              onClick={(e) =>
+                onTile(e, () => {
+                  commandPalette.openGroup("Set theme");
+                  setTimeout(
+                    () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
+                    500,
+                  );
+                })
+              }
             >
               {name()}
             </button>
@@ -104,11 +113,7 @@ const TileTitleActions: Component<{
           classList={{ "bg-black/20": splitExpanded() }}
           style={{ color: "var(--color-fg-3, currentColor)" }}
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            store.setActiveSilently(props.id);
-            crud.toggleSubPanel(props.id);
-          }}
+          onClick={(e) => onTile(e, () => crud.toggleSubPanel(props.id))}
           aria-label="Toggle split"
         >
           <SplitToggleIcon />
@@ -129,11 +134,7 @@ const TileTitleActions: Component<{
           class={`${TILE_BUTTON_CLASS} w-7`}
           style={{ color: "var(--color-fg-3, currentColor)" }}
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            store.setActiveSilently(props.id);
-            search.setOpen(props.id, true);
-          }}
+          onClick={(e) => onTile(e, () => search.setOpen(props.id, true))}
           aria-label="Find in terminal"
         >
           <SearchIcon />
@@ -144,10 +145,9 @@ const TileTitleActions: Component<{
         class={`${TILE_BUTTON_CLASS} w-7`}
         style={{ color: "var(--color-fg-3, currentColor)" }}
         onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          void screenshotTerminal(props.id, meta());
-        }}
+        onClick={(e) =>
+          onTile(e, () => void screenshotTerminal(props.id, meta()))
+        }
         title="Screenshot terminal"
         data-testid="screenshot-button"
       >
