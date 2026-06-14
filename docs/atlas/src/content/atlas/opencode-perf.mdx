@@ -1,0 +1,171 @@
+---
+title: OpenCode v2 Perf — What Kolu Can Adapt
+description: OpenCode Desktop v2's "10×" is a streaming-markdown number. Mapped onto Kolu's actual surfaces, most of it has no consumer — but the Pierre upgrade is a near-free win.
+kind: analysis
+status: proposed
+maturity: seedling
+updated: 2026-06-14
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import Finding from "../../components/Finding.astro";
+import D2 from "../../components/D2.astro";
+
+A read of [OpenCode Desktop v2's perf release](https://x.com/LukeParkerDev/status/2066190330660004230)
+(≈4 → 45.7 FPS under a 30× CPU throttle) against Kolu's real architecture.
+Method: 13 agents — external research ▸ code-map ▸ synthesize ▸ adversarially
+verify; every load-bearing fact re-checked against source + the npm registry.
+
+<Callout kind="accent" title="Verdict — the number is workload-specific">
+OpenCode's win is a **streaming-markdown message timeline** number. Kolu has no
+such surface: agent output is the `xterm.js` WebGL terminal, the only transcript
+is a static SSR export, and code/diffs are *already* virtualized inside Pierre.
+So 4 of their 6 techniques have **no consumer** here. What transfers is narrow:
+**bump `@pierre/diffs` 1.2.1 → 1.2.10** (≈2.3× faster parser, 9 releases of
+fixes, worker substrate — and Kolu's Shiki 3.23.0 already satisfies the peer, so
+*no* forced Shiki 4 bump). Then optional worker-offload + a canvas rAF fix.
+</Callout>
+
+## The 10× is workload-specific
+
+OpenCode's six techniques: (1) migrate the message timeline to **TanStack
+Virtual** with chat anchoring (`anchorTo:'end'`, `followOnAppend`); (2) **flicker
+/ scroll-jump fixes** (`overflow-anchor:none` + a manual rAF visual-anchor, and
+an absolute — not delta — scrollbar-thumb mapping); (3) **bump Pierre 1.2.10 +
+Shiki 4.2.0**; (4) **Shiki → Web Worker** (stream-tokenize the new suffix, reply
+with compact `[content, style]` tuples); (5) **append-only assumptions** (a
+text-delta accumulator bug that was the bogus 4-FPS baseline, plus freeze-all-
+prior-messages-only-the-last-mutates); (6) **perf-trace CPU work** — profile
+under 30× throttle, optimize **p95/p99 frame time**, and *log rejected
+experiments* (their token-batching and height-estimator ideas regressed the tail).
+
+The headline number is a dev-profiling figure on a long, growing list of
+variable-height markdown/diff messages. That list is the thing being virtualized,
+anchored, and worker-highlighted — it's the whole game.
+
+## Why most of it has no consumer in Kolu
+
+Kolu's perf-relevant surfaces, colored by verdict — amber = adopt, green =
+already covered / N-A, teal = the live agent stream:
+
+<D2 caption="Kolu's perf surfaces. Amber = adopt (R1/R2/R3/R4), green = already covered / N-A, teal = the live agent stream. The diff path (Pierre) is the only place a real win lands." code={`
+direction: down
+
+shiki: "shiki 3.23.0" {
+  style.fill: "#eef2fb"
+}
+diffs: "@pierre/diffs 1.2.1 → 1.2.10 · R1" {
+  style.fill: "#fbf1dc"
+}
+codeview: "solid-pierre CodeView · R2" {
+  style.fill: "#e6f4ea"
+}
+views: "client + transcript-html views" {
+  style.fill: "#e6f4ea"
+}
+markdown: "solid-markdown · already cached" {
+  style.fill: "#e6f4ea"
+}
+terminal: "terminal · xterm.js (live stream)" {
+  style.fill: "#e1f0f3"
+}
+canvas: "canvas gestures · R4" {
+  style.fill: "#fbf1dc"
+}
+tracer: "perf CDP tracer · R3" {
+  style.fill: "#fbf1dc"
+}
+
+shiki -> diffs
+shiki -> markdown
+diffs -> codeview: "2.3× parser + worker"
+codeview -> views
+tracer -> canvas: "measure p99"
+tracer -> codeview: "large-diff render"
+`} />
+
+- **#1, #2 (virtualize + scroll-anchor a message list)** — no growing list to
+  virtualize. Code/diffs are already windowed inside Pierre's `CodeView`
+  (inverse-sticky, binary-searched position→line, browser `overflow-anchor`
+  already disabled, own scrollbar). The flicker/scroll fixes live *inside Pierre*
+  — Kolu inherits them via R1.
+- **#5 (append-only token accumulator)** — no streaming text-delta accumulator.
+  Agent state arrives as snapshot-then-full-replacement; `Markdown.tsx` takes a
+  *complete* string and re-renders only when the whole string changes.
+- **#4 markdown worker** — `highlight.ts` is already the good version: a
+  dynamic-imported singleton, highlighting each **completed block once** (never
+  per-token). A markdown Shiki worker here would be over-engineering. The worker
+  win is the **diff** path (R2), not markdown.
+
+## What transfers
+
+| | Adaptation | Impact | Effort |
+|---|---|---|---|
+| **R1** | Upgrade `@pierre/diffs` 1.2.1 → 1.2.10 | <Pill variant="hi">high</Pill> | <Pill variant="md">medium</Pill> |
+| **R2** | Pierre worker pool + `shiki-js` engine for the diff path | <Pill variant="hi">high</Pill> | <Pill variant="md">medium</Pill> |
+| **R4** | rAF-coalesce the canvas wheel pan/zoom write-storm | <Pill variant="md">medium</Pill> | <Pill variant="ok">low</Pill> |
+| **R3** | Active-gesture FPS / p95-p99 frame-time harness | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> |
+
+<Finding sev="high" title="R1 — Bump @pierre/diffs to 1.2.10 (the standout)">
+Pinned `^1.2.1` in `solid-pierre`, `client`, `transcript-html`; **9 patch
+releases behind**. Brings ≈2.3× faster `parsePatchFiles` for free to every diff
+surface (the 50k-line lockfile diffs of #809/#514) plus the worker substrate R2
+needs. `fileGap` is used **nowhere** → the `fileGap→spacing` rename is a no-op;
+`pierreTheme.ts` already uses the `--*-override` convention → theming migration
+is aligned. **Re-validate** the `PIERRE_DIFFS_LINE_HEIGHT=16` virtualizer
+contract (#1026) after the bump. Update the stale `pierre/SKILL.md` pin.
+</Finding>
+
+<Finding sev="medium" title="R2 — Pierre worker pool + shiki-js, for the diff path only (depends on R1)">
+1.2.10 ships the worker substrate OpenCode built by hand: `./worker`,
+`./worker/worker.js`, `./worker/worker-portable.js` (confirmed on npm). For an
+Electron client, `preferredHighlighter:'shiki-js'` also drops the Oniguruma WASM
+payload. **Not a one-liner:** `CodeView.tsx`'s `buildOptions()` passes no
+highlighter/worker option and `CodeViewProps` doesn't expose one — the wrapper
+needs a prop added and threaded, and the exact 1.2.10 `CodeViewOptions` field
+must be read from the installed type defs. `shiki-js` is *not* universally faster
+— validate against Kolu's curated languages first.
+</Finding>
+
+<Finding sev="medium" title="R4 — rAF-coalesce the canvas wheel write-storm (quick win)">
+This is OpenCode's real principle — *per-frame work proportional to new data* —
+applied to Kolu's **actual** hot loop, the canvas. `gestures.ts` writes
+`panX/panY/zoom` synchronously per raw wheel event → a 120-event fling over 20
+tiles = ~2,400 transform writes (#1308's measured 8–24×). Accumulate the delta,
+flush once per `requestAnimationFrame`. #1308 found it **latent/benign** and
+deferred it pending a repro — so gate it behind R3, reproduce under throttle
+first. Mind the 150 ms wheel-ownership timeout.
+</Finding>
+
+<Finding sev="medium" title="R3 — Active-gesture FPS / p99 harness (methodology)">
+The CDP tracer (`docs/perf-investigations/scripts/tile-aura/trace.js`) is
+**idle-window, aggregate-only**; no FPS harness, no `performance.mark/measure` in
+hot paths (it already enables `blink.user_timing`, just unused). Drive an
+*active* pan/zoom under `setCPUThrottlingRate`, capture **p95/p99 + dropped
+frames**, and log rejected experiments. `dock-1308/kolu-driver.js` already proves
+active-gesture tracing works. This is what makes R4 measured, not guessed.
+</Finding>
+
+**Sequencing:** R1 → R3 (so R2/R4 are measured) → R2 and R4 behind that evidence.
+
+## Confirmed facts & the open question
+
+The verification pass settled every load-bearing claim:
+
+- `@pierre/diffs` pinned `^1.2.1` in **3** packages; installed **1.2.1**;
+  `@pierre/trees` **1.0.0-beta.4**; `shiki` **3.23.0**. <Pill variant="ok">verified</Pill>
+- npm `latest` = **1.2.10**; peer `shiki ^3 || ^4` → **satisfied by 3.23.0**, so
+  the Pierre bump does **not** force Shiki 4. 1.2.10 ships the three `./worker`
+  exports. <Pill variant="ok">verified</Pill>
+- `fileGap` used nowhere (rename = no-op); `pierreTheme.ts` already on the
+  `--*-override` convention. <Pill variant="ok">verified</Pill>
+- `@pierre/trees` has no newer release → leave on `beta.4`. <Pill variant="ok">verified</Pill>
+
+<Callout kind="warn" title="The one known-unknown — by design, not a gap">
+The exact `CodeViewOptions` field that threads Pierre's worker pool /
+`preferredHighlighter` through Kolu's `CodeView` wrapper can only be read from the
+**installed 1.2.10 type defs** — this worktree has no `node_modules`. The worker
+*entry points* are confirmed on npm; the precise wiring is an implementation-time
+confirmation (R2), recorded here rather than overstated.
+</Callout>
