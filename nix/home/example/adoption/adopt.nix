@@ -55,12 +55,15 @@ let
       [ -n "$pid" ] && [ "$pid" != null ] && [ "$pid" != 0 ] && break
       sleep 1
     done
-    [ -n "$pid" ] && [ "$pid" != 0 ] || fail "PTY for $id never went live"
+    # On timeout, dump the last list so a CI failure is diagnosable, not silent.
+    [ -n "$pid" ] && [ "$pid" != 0 ] \
+      || fail "PTY for $id never went live (last list: $(${kavalTui} list --json 2>&1 | tr -d '\n' | head -c 300))"
 
     # 3) run a command whose UNIQUE output we re-check after the restart (\r is
     #    Enter, exactly as the client sends it; jq builds the body so the escaping
     #    is correct).
-    body=$(${jq} -nc --arg id "$id" '{json:{id:$id,data:"echo ${nonce}\r"}}')
+    body=$(${jq} -nc --arg id "$id" '{json:{id:$id,data:"echo ${nonce}\r"}}') \
+      || fail "jq failed to build the sendInput request body"
     ${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/terminal/sendInput" \
       -H 'content-type: application/json' -d "$body" >/dev/null \
       || fail "terminal.sendInput RPC errored"

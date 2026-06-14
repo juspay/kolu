@@ -97,13 +97,15 @@ let
       fi
       sleep 1
     done
-    skewseen=no; journalctl --user -u kolu-new --no-pager 2>/dev/null | grep "contract skew" >/dev/null && skewseen=yes
-    sessseen=no; grep -q "$id" "$HOME/${configFile}" 2>/dev/null && sessseen=yes
+    # Final-state recheck for the FAIL diagnostic — same drain-the-pipe `grep`
+    # (no `-q`) as the poll above, for the same pipefail/SIGPIPE reason.
+    skewSeen=no; journalctl --user -u kolu-new --no-pager 2>/dev/null | grep "contract skew" >/dev/null && skewSeen=yes
+    sessionSeen=no; grep -q "$id" "$HOME/${configFile}" 2>/dev/null && sessionSeen=yes
     {
       echo "FAIL(skew-verify): the skewed survivor was not cleanly recycled with the session preserved."
       echo "  daemon gate pid: $oldgate -> $newgate (must CHANGE — the survivor is recycled, not adopted)"
-      echo "  kolu-new 'contract skew' logged: $skewseen (must be yes)"
-      echo "  session $id in config.json: $sessseen (must be yes — preserved for restore)"
+      echo "  kolu-new 'contract skew' logged: $skewSeen (must be yes)"
+      echo "  session $id in config.json: $sessionSeen (must be yes — preserved for restore)"
     } > ${verifyResultFile}
     exit 1
   '';
