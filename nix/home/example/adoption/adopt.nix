@@ -24,6 +24,12 @@
 let
   inherit (lib) jq curl ns gateFile openTerminal;
 
+  # The OK/FAIL files each script writes and mkAdoptionTest asserts (as root).
+  # Declared once so the script's write path and the assertion's read path can
+  # never drift apart.
+  seedResultFile = "/tmp/seed-result";
+  verifyResultFile = "/tmp/verify-result";
+
   # A unique marker only WE send into the terminal — a freshly-respawned PTY could
   # never contain it, so its survival in the scrollback is the headline proof of
   # adoption, stronger than a merely-matching pid.
@@ -35,7 +41,7 @@ let
   # /tmp/seed-result.
   seed = pkgs.writeShellScript "kolu-adopt-seed" ''
     set -uo pipefail
-    fail() { echo "FAIL(seed): $*" > /tmp/seed-result; exit 1; }
+    fail() { echo "FAIL(seed): $*" > ${seedResultFile}; exit 1; }
     ns="${ns}"
 
     # 1) create a terminal via the app contract's terminal.create RPC.
@@ -75,7 +81,7 @@ let
     cat "$ns/${gateFile}" > /tmp/adopt-gate || fail "could not read the daemon gate pid"
     echo "$id"  > /tmp/adopt-id
     echo "$pid" > /tmp/adopt-pid
-    echo OK > /tmp/seed-result
+    echo OK > ${seedResultFile}
   '';
 
   # Verify (after the server restart). POLL until adoption is FULLY confirmed —
@@ -105,7 +111,7 @@ let
          && journalctl --user -u kolu --no-pager 2>/dev/null \
               | grep "adopted surviving terminals after restart" >/dev/null; then
         echo "OK terminal $id (pid $pid) + scrollback (marker ${nonce}) survived; same daemon $gate; kolu reconciled it" \
-          > /tmp/verify-result
+          > ${verifyResultFile}
         exit 0
       fi
       sleep 1
@@ -116,15 +122,15 @@ let
       echo "  pty $id pid: $pid -> [$newpid] (must still be listed)"
       echo "  list: $(${kavalTui} list --json 2>&1 | tr -d '\n' | head -c 300)"
       echo "  adoption logs: $(journalctl --user -u kolu --no-pager 2>/dev/null | grep -c 'adopted surviving' || echo 0)"
-    } > /tmp/verify-result
+    } > ${verifyResultFile}
     exit 1
   '';
 in
 lib.mkAdoptionTest {
   name = "kolu-adoption";
   inherit seed verify;
-  seedResult = { file = "/tmp/seed-result"; label = "seed result"; };
-  verifyResult = "/tmp/verify-result";
+  seedResult = { file = seedResultFile; label = "seed result"; };
+  verifyResult = verifyResultFile;
 
   # Restart ONLY the server. The kaval daemon lives in its own
   # `systemd-run --user` transient cgroup, so it outlives this — the very thing

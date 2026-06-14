@@ -23,6 +23,12 @@
 let
   inherit (lib) jq curl ns gateFile configFile openTerminal;
 
+  # The OK/FAIL files each script writes and mkAdoptionTest asserts (as root).
+  # Declared once so the script's write path and the assertion's read path can
+  # never drift apart.
+  seedResultFile = "/tmp/skew-seed-result";
+  verifyResultFile = "/tmp/skew-verify-result";
+
   # The "newer" kolu: same source, but its daemon's wire-contract constant is
   # bumped so its server rejects (and recycles) the older daemon's handshake.
   # Build it exactly the way kolu's own flake builds packages.default — kolu's
@@ -41,7 +47,7 @@ let
   # skew-recycle. Records the OLD daemon's gate pid + the terminal id.
   seed = pkgs.writeShellScript "kolu-skew-seed" ''
     set -uo pipefail
-    fail() { echo "FAIL(skew-seed): $*" > /tmp/skew-seed-result; exit 1; }
+    fail() { echo "FAIL(skew-seed): $*" > ${seedResultFile}; exit 1; }
     ns="${ns}"
 
     ${openTerminal}
@@ -56,7 +62,7 @@ let
 
     cat "$ns/${gateFile}" > /tmp/skew-gate || fail "could not read daemon gate pid"
     echo "$id" > /tmp/skew-id
-    echo OK > /tmp/skew-seed-result
+    echo OK > ${seedResultFile}
   '';
 
   # Verify (after the bumped server boots). POLL until the skewed survivor has
@@ -86,7 +92,7 @@ let
          && journalctl --user -u kolu-new --no-pager 2>/dev/null | grep "contract skew" >/dev/null \
          && grep -q "$id" "$HOME/${configFile}" 2>/dev/null; then
         echo "OK skew-recycled: daemon gate $oldgate->$newgate; contract skew logged; session for $id preserved" \
-          > /tmp/skew-verify-result
+          > ${verifyResultFile}
         exit 0
       fi
       sleep 1
@@ -98,15 +104,15 @@ let
       echo "  daemon gate pid: $oldgate -> $newgate (must CHANGE — the survivor is recycled, not adopted)"
       echo "  kolu-new 'contract skew' logged: $skewseen (must be yes)"
       echo "  session $id in config.json: $sessseen (must be yes — preserved for restore)"
-    } > /tmp/skew-verify-result
+    } > ${verifyResultFile}
     exit 1
   '';
 in
 lib.mkAdoptionTest {
   name = "kolu-adoption-skew";
   inherit seed verify;
-  seedResult = { file = "/tmp/skew-seed-result"; label = "skew-seed"; };
-  verifyResult = "/tmp/skew-verify-result";
+  seedResult = { file = seedResultFile; label = "skew-seed"; };
+  verifyResult = verifyResultFile;
 
   # The "newer" (contract-bumped) kolu, as a manual user service on the SAME
   # port — started only after the old server is stopped, so it inherits the
