@@ -16,8 +16,10 @@ export const useCommandPalette = createSharedRoot(() => {
   return {
     open,
     initialGroup,
-    /** Open the palette at the top level. */
-    openPalette() {
+    /** Open the palette at the top level. Named `openDialog` to match the
+     *  shared overlay-opener verb (`createDisclosure.openDialog`) every
+     *  root-mounted dialog answers; `openGroup` is the palette-only drill-in. */
+    openDialog() {
       setInitialGroup(undefined);
       setOpen(true);
     },

@@ -347,7 +347,7 @@ const App: Component = () => {
       <Show when={!isMobile()}>
         <ChromeBar
           status={wsStatus()}
-          onOpenPalette={() => commandPalette.openPalette()}
+          onOpenPalette={() => commandPalette.openDialog()}
         />
       </Show>
       {/* relative: anchor for overlay panels.
@@ -426,7 +426,7 @@ const App: Component = () => {
                     orderedIds={orderedIds()}
                     status={wsStatus()}
                     appTitle={appTitle()}
-                    onOpenPalette={() => commandPalette.openPalette()}
+                    onOpenPalette={() => commandPalette.openDialog()}
                     renderBody={renderMobileTileBody}
                     bottomBar={<MobileKeyBar />}
                   />
