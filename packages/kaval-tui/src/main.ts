@@ -1,11 +1,12 @@
 /**
  * kaval-tui — a terminal-side client for a running `kaval` daemon
- * (R-4 Phases 1–2: `list` + `snapshot` + `attach`). It dials kaval's unix
- * socket via `unixSocketLink` and speaks `ptyHostSurface` directly — the *raw*
- * client (the browser is the *rich* one over the full kolu contract).
+ * (`list` + `snapshot` + `attach` + `create`). It dials kaval's unix socket
+ * via `unixSocketLink` and speaks `ptyHostSurface` directly — the *raw* client
+ * (the browser is the *rich* one over the full kolu contract).
  * See `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`.
  *
  *   kaval-tui list [--json]     list your live terminals (id · pid · idle · cwd)
+ *   kaval-tui create [--json]   spawn a new plain $SHELL terminal, print its id
  *   kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
  *   kaval-tui attach <id>       take over a terminal from the shell; `~.` detaches
  *
@@ -19,8 +20,8 @@
  * daemon), point `--socket` at kolu's socket
  * (`$XDG_RUNTIME_DIR/kolu/pty-host.sock`).
  *
- * `spawn` / `kill` are later phases. The CLI comes and goes; the daemon keeps
- * owning the PTYs.
+ * `kill` is a later phase. The CLI comes and goes; the daemon keeps owning the
+ * PTYs — `create` mints one, the daemon holds it until something kills it.
  */
 import { writeSync } from "node:fs";
 import { homedir } from "node:os";
@@ -35,6 +36,12 @@ import {
 } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
+import {
+  buildCreateInput,
+  formatCreate,
+  formatCreateJson,
+  newPtyId,
+} from "./create.ts";
 import { isValidEscapeChar } from "./escape.ts";
 import {
   formatList,
@@ -59,7 +66,7 @@ const argv = cli({
   version: PTY_HOST_CONTRACT_VERSION,
   help: {
     description:
-      "A terminal-side client for the kaval PTY daemon (beta). Connects to a running kaval over a local unix socket — start it with `kaval`; the socket appears once it boots. Use `--socket` to reach a kolu-server's in-process terminals instead. spawn / kill land later.",
+      "A terminal-side client for the kaval PTY daemon (beta). Connects to a running kaval over a local unix socket — start it with `kaval`; the socket appears once it boots. Use `--socket` to reach a kolu-server's in-process terminals instead. `kill` lands later.",
   },
   commands: [
     command({
@@ -70,6 +77,21 @@ const argv = cli({
         json: {
           type: Boolean,
           description: "machine-readable JSON output (a top-level array)",
+          default: false,
+        },
+      },
+    }),
+    command({
+      name: "create",
+      help: {
+        description:
+          "Spawn a new plain $SHELL terminal and print its id; the daemon owns it. Then `kaval-tui attach <id>` to take it over.",
+      },
+      flags: {
+        ...socketFlag,
+        json: {
+          type: Boolean,
+          description: "machine-readable JSON output ({ id, pid, cwd })",
           default: false,
         },
       },
@@ -199,6 +221,29 @@ async function cmdSnapshot(conn: Connection, id: string): Promise<void> {
   const lines = text ? text.replace(/\n+$/, "").split("\n").length : 0;
   process.stderr.write(
     `— ${shortId(id)} · ${lines} line${lines === 1 ? "" : "s"}\n`,
+  );
+}
+
+async function cmdCreate(conn: Connection, json: boolean): Promise<void> {
+  // Compose the WHOLE fully-specified input client-side (the host derives
+  // nothing since B0): a plain `$SHELL`, our own cwd/env, no rcfiles. We mint
+  // the id so the returned `id` echoes ours — the same way kolu-server does.
+  const input = buildCreateInput({
+    id: newPtyId(),
+    cwd: process.cwd(),
+    env: process.env,
+  });
+  const result = await conn.client.surface.terminal.spawn(input);
+  if (json) {
+    await writeOut(`${formatCreateJson(result)}\n`);
+    return;
+  }
+  const [shell = ""] = input.argv;
+  await writeOut(`${formatCreate(result, { shell, home: homedir() })}\n`);
+  // Next-step hint to stderr (stdout stays just the spawn line) — `create` is
+  // the prerequisite for `attach`, so name the exact command to take it over.
+  process.stderr.write(
+    `— attach with \`kaval-tui attach ${shortId(result.id)}\`\n`,
   );
 }
 
@@ -358,10 +403,11 @@ async function main(): Promise<void> {
   try {
     await assertCompatible(conn);
     // Closed dispatch: every command is named, and the final else fails loud
-    // — so a Phase 3 addition (spawn) that forgets a branch here cannot
+    // — so a future addition (`kill`) that forgets a branch here cannot
     // silently fall through into another command's handler. (cleye already
     // exits on commands not in its registry; this guards OUR omissions.)
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
+    else if (argv.command === "create") await cmdCreate(conn, argv.flags.json);
     else if (argv.command === "snapshot")
       await cmdSnapshot(conn, await resolveOne(conn, argv._.id));
     else if (argv.command === "attach")

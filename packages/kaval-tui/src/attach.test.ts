@@ -25,6 +25,7 @@ import {
   connectPtyHost,
   type PtyTuiClient,
 } from "./connect.ts";
+import { buildCreateInput } from "./create.ts";
 
 const silentLog = {
   debug: () => {},
@@ -152,6 +153,24 @@ describe("runAttach — over a real unix socket", () => {
     expect(outcome).toEqual({ kind: "not-found" });
     // Honest failure: nothing was painted on the local screen.
     expect(out()).toBe("");
+  });
+
+  it("create's composed input spawns a PTY that echoes the minted id and is listable", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-create-"));
+    // A client-minted id, exactly as `newPtyId()` produces — assert the host
+    // accepts our fully-specified input and echoes the id back (the round-trip
+    // `create` relies on so the printed id is the one `attach` then resolves).
+    const id = "11111111-2222-3333-4444-555555555555";
+    const result = await conn.client.surface.terminal.spawn(
+      buildCreateInput({ id, cwd: dir, env: process.env }),
+    );
+    expect(result.id).toBe(id);
+    expect(result.cwd).toBe(dir);
+    expect(result.pid).toBeGreaterThan(0);
+    const { entries } = await conn.client.surface.terminal.list({});
+    expect(entries.some((e) => e.id === id)).toBe(true);
   });
 
   it("paints the snapshot, round-trips a keystroke, detaches on ~., and leaves the PTY alive", {
