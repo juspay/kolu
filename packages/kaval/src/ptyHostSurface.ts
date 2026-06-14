@@ -152,12 +152,13 @@ const ForegroundMsgSchema = z.object({
 });
 
 /** The running pty-host's self-declared build identity, surfaced on
- *  `system.version` for the ChromeBar's `srv · pty` readout. `staleKey` is the
- *  hash of the `kaval` source closure (nix bakes
- *  `KOLU_PTY_HOST_BUILD_ID`) — it flips iff a restart would load different
- *  pty-host wire/behaviour code, the input to phase B's "update pending"
- *  derivation. `navigableCommit` is the git ref this kolu was built from
- *  (`KOLU_COMMIT_HASH`), the GitHub-clickable identity. */
+ *  `system.version` for the ChromeBar's `kaval` readout. `staleKey` is the
+ *  hash of the `kaval` source closure (nix bakes `KAVAL_BUILD_ID`) — it flips
+ *  iff a restart would load different pty-host wire/behaviour code, the
+ *  *reported* operand of B3.4's "update pending" currency nudge (compared at
+ *  the read site against the server's *expected* `buildInfo.expectedKaval`).
+ *  `navigableCommit` is the git ref this kaval was built from
+ *  (`KAVAL_COMMIT_HASH`), the GitHub-clickable identity. */
 export const PtyHostIdentitySchema = z.object({
   staleKey: z.string(),
   navigableCommit: z.string(),

@@ -662,8 +662,8 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //     session, terminalList; terminalMetadata; the git/fs streams; the
 //     terminalExit event). Served under the `kolu` key.
 //   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
-//     build-identity `buildInfo` cell extended with kolu's pty-host axis,
-//     plus the `identity.info` restart probe). Served under the `surfaceApp`
+//     build-identity `buildInfo` cell extended with kolu's `expectedKaval`
+//     axis, plus the `identity.info` restart probe). Served under the `surfaceApp`
 //     key. Its wire path is `surface.surfaceApp.{buildInfo,identity}`.
 //
 // They are NOT merged — `composeSurfaceContracts` / `implementSurfaces` /

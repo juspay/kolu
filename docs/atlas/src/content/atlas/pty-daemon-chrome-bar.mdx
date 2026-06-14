@@ -5,7 +5,7 @@ kind: feature
 status: implemented
 maturity: budding
 parents: [pty-daemon]
-updated: 2026-06-13
+updated: 2026-06-14
 ---
 
 import D2 from "../../components/D2.astro";
@@ -71,10 +71,10 @@ In A2 the rail's live axis is the WebSocket connection (the dot it absorbed). `p
 | **Connected** | live in A2 | WebSocket open · `srv ≡ pty` · both commits + build resolved · the `≡ in-process` tag |
 | **Connecting / reconnecting** | live in A2 | re-handshaking — both dots pulse amber, identity dimmed until the first yield (`srv connecting… · pty —`) |
 | **Disconnected** | live in A2 | `srv` red; `pty` *unknown* (grey) — honest: with the link down we can't claim pty state |
-| **Update pending** | <Pill variant="todo">B3.4</Pill> | `kaval` build ≠ the expected build → amber via the read-site `staleKey !== currentBuildId()` derivation. The nudge #1034 over-fired now fires only here. |
+| **Update pending** | <Pill variant="done">live · B3.4</Pill> | `kaval` build ≠ the build the server would spawn → amber `⬆ update` via the read-site `kavalStale(expected, reported, state)` derivation, comparing the server's `buildInfo.expectedKaval.staleKey` against the connected daemon's reported `daemonStatus.identity.staleKey` (B3.4, <PrLink pr={1353} />). The nudge #1034 over-fired now fires only here. |
 | **Daemon dead** | <Pill variant="done">live · B2</Pill> | `kaval` handle closed → red (`daemon dead — restart`). Pairs with the honest degraded canvas; never the empty-canvas lie. B3.2 (#1337) added the inline **Restart kaval** button. |
 
-No "dev / no-commit" state exists — kolu and the pty-host run **only under nix**, which always bakes both `KOLU_COMMIT_HASH` and `KOLU_PTY_HOST_BUILD_ID`. There is no off-nix fallback to render.
+No "dev / no-commit" state exists — kolu and kaval run **only under nix**, which always bakes both the server's `KOLU_COMMIT_HASH` and kaval's `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH`. There is no off-nix fallback to render.
 
 ## Decisions (resolved with the maintainer)
 

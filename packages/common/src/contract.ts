@@ -122,12 +122,14 @@ export const ServerIdentitySchema = z.object({
 });
 export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
 
-// The `processId` (restart axis) and `commit` + `ptyHost` (build-identity /
-// skew axis) that used to ride this probe now live on the surface, owned by
+// The `processId` (restart axis) and `commit` + `expectedKaval` (build-identity
+// / skew axis) that used to ride this probe now live on the surface, owned by
 // @kolu/surface-app: `processId` is the `surface.surfaceApp.identity.info` probe
-// (surface-app served as a sibling surface), and `commit` + `ptyHost` are the server-pushed `buildInfo`
-// cell (`koluBuildInfo`). This raw probe keeps only the per-host BRANDING the
-// shell needs synchronously at boot (document title, watermark, PWA theme).
+// (surface-app served as a sibling surface), and `commit` + `expectedKaval` are
+// the server-pushed `buildInfo` cell (`koluBuildInfo`); the connected daemon's
+// *reported* identity rides `daemonStatus.identity`, not this probe. This raw
+// probe keeps only the per-host BRANDING the shell needs synchronously at boot
+// (document title, watermark, PWA theme).
 export const ServerInfoSchema = z.object({
   identity: ServerIdentitySchema,
 });

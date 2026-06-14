@@ -294,13 +294,15 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   // `/surface/kolu/…` and `/surface/surfaceApp/…` with a key-namespaced channel
   // per surface (so neither's `*:changed` channels collide on the wire).
   //
-  // kolu's build identity has a boot-time-async axis (the pty-host's
-  // `system.version` over the in-process link). `surfaceAppServer` returns the
+  // kolu seeds the buildInfo cell with `{ commit }` and patches the rest
+  // (`version` + `expectedKaval`) over it. `surfaceAppServer` returns the
   // buildInfo cell carrying `.connect` — the surface runtime fires it once the
-  // cell ctx is built, republishing the resolved `{ commit, ptyHost }` through
-  // the same fragment when it settles (server-pushed, so a client connected
-  // before the pty-host answered fills in its `srv · pty` rail without a reload).
-  // No app-visible connect to call, no hand-written `ctx.cells.buildInfo.set`.
+  // cell ctx is built, republishing the resolved `{ commit, version,
+  // expectedKaval }` through the same fragment when it settles (server-pushed,
+  // so the `srv · kaval` rail fills in without a client reload). `expectedKaval`
+  // is the server's OWN baked build constant, not the connected daemon's
+  // reported identity (that rides `daemonStatus.identity`). No app-visible
+  // connect to call, no hand-written `ctx.cells.buildInfo.set`.
   implementSurfaces(
     // `surfaces` (the keyed Surface map) is the single source shared with the
     // contract (`composeSurfaceContracts`) and the client (`surfaceClients`);
