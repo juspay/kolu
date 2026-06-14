@@ -20,6 +20,7 @@ import { isContractVersionCompatible } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import {
   type DaemonConnection,
+  DaemonContractSkewError,
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
 import {
@@ -37,8 +38,18 @@ export type KavalConnection = DaemonConnection<
 >;
 
 /** Dial kaval at `socketPath`, handshake, and return the live connection.
- *  Rejects (raw socket error) if the socket isn't up, or throws on a contract
- *  skew / unreadable version — the endpoint turns either into `dead`. */
+ *
+ *  Three failure classes, distinguished for the supervisor's adopt path (F4):
+ *  - a raw socket error (socket isn't up) → plain reject (non-skew, transient);
+ *  - an unreadable `system.version` (handshake read failed) → plain `Error`
+ *    (non-skew: the daemon is there but did not answer the probe this time);
+ *  - a genuine contract-version mismatch → `DaemonContractSkewError`.
+ *
+ *  Only the LAST is a skew: it is the one failure that proves the daemon is
+ *  incompatible, so it is the only one on which `adoptOrEnsure` recycles a live
+ *  survivor. The first two are possibly-transient and must not cost a survivor
+ *  its live PTYs, so they stay plain errors the endpoint retries. (`ensure`'s
+ *  fresh-boot path turns any of the three into `dead` regardless.) */
 export async function connectKaval(
   socketPath: string,
 ): Promise<KavalConnection> {
@@ -66,7 +77,10 @@ export async function connectKaval(
     )
   ) {
     socket.destroy();
-    throw new Error(
+    // The ONE failure that proves the survivor is incompatible — raise the typed
+    // skew error so `adoptOrEnsure` recycles it (retrying can't fix incompatible
+    // contracts). Every other reject above stays a plain Error (non-skew).
+    throw new DaemonContractSkewError(
       `pty-host contract skew: kaval speaks ${version.contractVersion}, server needs ${PTY_HOST_CONTRACT_VERSION}`,
     );
   }

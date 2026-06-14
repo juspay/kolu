@@ -33,6 +33,7 @@ import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint } from "./ptyHost/index.ts";
+import { adoptSurvivingSession } from "./terminalBackend/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
@@ -297,7 +298,11 @@ const { host, port } = argv.flags;
 // Awaited before the HTTP server starts so no terminal RPC can race an unready
 // endpoint; a boot failure reports `dead` (not a crash), so the server still
 // listens and the UI honestly shows the down state.
-await ensureLocalEndpoint({ port, onStatus: publishDaemonStatus });
+await ensureLocalEndpoint({
+  port,
+  onStatus: publishDaemonStatus,
+  onAdopted: adoptSurvivingSession,
+});
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);

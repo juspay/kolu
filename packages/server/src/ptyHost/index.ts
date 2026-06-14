@@ -20,7 +20,6 @@ import {
   createEndpoint,
   type Endpoint,
   type EndpointStatus,
-  restart,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
@@ -42,6 +41,11 @@ import {
 } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity | undefined;
+
+/** The single local kaval host's id — the daemon-status key the endpoint reports
+ *  under and consumers (e.g. boot adoption's `setAdoptedCount`) read by. Owned
+ *  here, where `ensureLocalEndpoint` defines the daemon's identity/lifecycle. */
+export const LOCAL_HOST_ID = "local";
 
 let endpoint: Endpoint<PtyHostClient, Identity> | undefined;
 
@@ -117,10 +121,15 @@ export async function ensureLocalEndpoint(opts: {
    *  (`kaval-<port>`), so a second kolu-server never recycles this one's daemon. */
   port: number;
   onStatus: (hostId: string, status: EndpointStatus<Identity>) => void;
+  /** Run after the boot ADOPTS a surviving daemon (B3.3) — reconcile its live
+   *  PTYs against the saved session. Injected (not imported) so this composition
+   *  root stays free of the terminal-backend layer, which imports back from
+   *  here. Skipped on a fresh / recycled boot (no survivors to reconcile). */
+  onAdopted?: () => Promise<void>;
 }): Promise<void> {
   const socketPath = kavalSocketPath(opts.port);
   const ep = createEndpoint<PtyHostClient, Identity>({
-    hostId: "local",
+    hostId: LOCAL_HOST_ID,
     gatePath: kavalGatePath(socketPath),
     socketPath,
     driver: localKavalDriver(socketPath),
@@ -131,14 +140,28 @@ export async function ensureLocalEndpoint(opts: {
   endpoint = ep;
   triggerRestart = serializeRestart(ep);
   try {
-    // The boot recycle, expressed as a restart with degenerate steps — B2 makes
-    // no survival promise, so there is nothing to capture/drain/reattach. B3
-    // fills the same steps with session capture + adoption.
-    await restart(ep, {
-      capture: async () => undefined,
-      drain: async () => {},
-      reattach: async () => {},
-    });
+    // The boot, B3.3: adopt-or-recycle. A surviving daemon (a redeploy that did
+    // not change kaval's source) is ADOPTED — its PTYs preserved — and the
+    // caller reconciles its live PTYs against the saved session via `onAdopted`.
+    // A fresh / recycled boot has no survivors, so the saved session is left for
+    // the existing restore-card path (B2-unchanged) and `onAdopted` is skipped.
+    const adopted = await ep.adoptOrEnsure();
+    if (adopted && opts.onAdopted) {
+      try {
+        await opts.onAdopted();
+      } catch (err) {
+        // Reconciliation failed AFTER we adopted the survivor's connection — the
+        // daemon is connected but holds PTYs kolu may not have registered (F3).
+        // Fail CLOSED: recycle the daemon (kill + spawn fresh) so those hidden
+        // PTYs are destroyed and the user's saved session falls back to the
+        // restore card, rather than leaving invisible live terminals behind it.
+        log.error(
+          { err },
+          "surviving-session reconciliation failed — recycling the adopted daemon",
+        );
+        await ep.ensure();
+      }
+    }
   } catch (err) {
     // The endpoint already reported `dead`; don't crash the server boot.
     log.error({ err }, "kaval endpoint failed to come up at boot");

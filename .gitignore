@@ -25,3 +25,5 @@ packages/client/public/fonts
 .lens-debate/
 # /dev-server skill: per-worktree scratch (remembered dev-server ports)
 .dev-server/
+# /be review gauntlet: per-worktree scratch (reviewer comment artifacts)
+.be-review-comments/

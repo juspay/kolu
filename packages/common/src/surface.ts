@@ -617,6 +617,13 @@ export const DaemonStatusSchema = z.object({
   identity: PtyHostIdentitySchema.optional(),
   /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
   startedAt: z.number().optional(),
+  /** B3.3: how many terminals this boot ADOPTED from a surviving daemon — set
+   *  only on the `connected` status of an adopt-boot (a fresh / recycled boot
+   *  omits it). Drives the client's one-shot "N reattached" confirmation.
+   *  kolu's soul, not the spine: the supervisor's `EndpointStatus` never carries
+   *  it; the server folds it onto this kolu-owned status after reconciling.
+   *  Optional + additive, so it forces no contract bump. */
+  adopted: z.number().optional(),
 });
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export type DaemonState = DaemonStatus["state"];
