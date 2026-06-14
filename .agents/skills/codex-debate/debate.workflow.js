@@ -90,7 +90,8 @@ const rationaleBlock = rationale
   : ''
 // codex reads the rationale from a file (it's constant across rounds, written once
 // before the loop); `-` means "no rationale" to codex-review.sh.
-const rationaleFileArg = rationale ? `${workDir}/rationale.md` : '-'
+const rationaleFile = `${workDir}/rationale.md`
+const rationaleFileArg = rationale ? rationaleFile : '-'
 
 // The reasoning effort codex runs at, scoped to the debate. This JS constant is
 // the SINGLE home for the value: it is passed script-ward (a 4th positional arg
@@ -429,7 +430,7 @@ if (rationale) {
     `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
 
 1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
-2. Using the Write tool, create \`${workDir}/rationale.md\` with EXACTLY this content, overwriting any existing file:
+2. Using the Write tool, create \`${rationaleFile}\` with EXACTLY this content, overwriting any existing file:
 
 ${rationale}`,
     { label: 'rationale:write', phase: 'Debate', model: mechModel },
