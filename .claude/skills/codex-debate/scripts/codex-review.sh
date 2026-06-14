@@ -91,8 +91,19 @@ fi
 # from a file (the workflow writes it once) so multi-line notes with special chars
 # survive intact, the same way the rebuttal is handled.
 rationale=""
-if [ "$rationale_file" != "-" ] && [ -s "$rationale_file" ]; then
-  rationale="$(cat "$rationale_file")"
+if [ "$rationale_file" != "-" ]; then
+  if [ -s "$rationale_file" ]; then
+    rationale="$(cat "$rationale_file")"
+  else
+    # A rationale was expected (path given, not "-") but the file is missing or
+    # empty — the rationale:write handoff broke. Proceed without it (a missing
+    # rationale degrades to a bare-diff review the IMPLEMENTOR still disputes from
+    # its own inherited rationale block — it is a false-finding SUPPRESSOR, not a
+    # correctness input, so we don't abort the round), but make the failure loud
+    # so the round isn't silently mistaken for a rationale-aware review. Mirrors
+    # the rebuttal warning above.
+    echo "WARNING: expected rationale file '$rationale_file' is missing or empty; proceeding with no deliberate-decisions note this round (codex reviews the bare diff)." >&2
+  fi
 fi
 rationale_block=""
 if [ -n "$rationale" ]; then

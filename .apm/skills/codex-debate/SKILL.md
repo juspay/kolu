@@ -1,7 +1,7 @@
 ---
 name: codex-debate
 description: 'Run an automated codex⇄Claude debate to consensus — no round cap, no deadlock exit. Two explicit subcommands. `review` (also the bare/back-compat default) — codex (reviewer) critiques the current diff and a Claude subagent (author) fixes/disputes, looping until they agree. `answer` — Claude and codex each answer a freeform prompt in parallel, then cross-check until they agree, and a unified answer is returned. Use when the user types `/codex-debate`, asks to "have codex review this", "run the codex debate", "review this PR with codex", "argue this with codex until you agree", or passes a question to "have Claude and codex debate/answer until they agree".'
-argument-hint: "review [<pr-number>] [--base <branch>] [--no-commit] [--no-comment]  |  answer \"<prompt>\""
+argument-hint: "review [<pr-number>] [--base <branch>] [--no-commit] [--no-comment] [--rationale <note>] [--context <note>]  |  answer \"<prompt>\""
 ---
 
 # Codex ⇄ Claude debate
@@ -31,8 +31,8 @@ Look at the **first whitespace-delimited token** of `$ARGUMENTS`:
 - **`answer`** → **answer mode**. The prompt is everything after the `answer`
   token. Jump to [Answer mode](#answer-mode); the review-mode steps do not apply.
 - **`review`** → **review mode**. The remaining args are the review grammar
-  (`[<pr-number>] [--base …] [--no-commit] [--no-comment]`). Continue with
-  [Review mode](#review-mode).
+  (`[<pr-number>] [--base …] [--no-commit] [--no-comment] [--rationale <note>]
+  [--context <note>]`). Continue with [Review mode](#review-mode).
 - **No args, OR the first token is a number (a PR number) or a `--flag`** →
   **review mode** (the backward-compatible bare alias for the original
   `/codex-debate [<pr>] [flags]`, so existing callers like `/be-review` keep

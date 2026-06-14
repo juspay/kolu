@@ -316,13 +316,13 @@ local_deployed_file_hashes:
   .agents/skills/be-review/SKILL.md: sha256:bb2b6f0d452f91311d622cf58803ec737555c853764555911fd5dc465e3abd9f
   .agents/skills/be/SKILL.md: sha256:f3a4f93144b06e41ad681ff0e99331b4ed3ca353e795c2e6e6dd6dd0e2912ae0
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .agents/skills/codex-debate/SKILL.md: sha256:2fee33cfea0c2c9b818220dcbf7e4a28daa071a834534c1604e4afa298077650
+  .agents/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .agents/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
   .agents/skills/codex-debate/debate.workflow.js: sha256:ce2e7c8e77d5260bf767aefcc8647ad2b6457349924006f6b93b9d8d9d091d17
   .agents/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
   .agents/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
   .agents/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
-  .agents/skills/codex-debate/scripts/codex-review.sh: sha256:6aeae0b1ed2b71a3e14952404a0b1b9a404ec28b68b91bfa21d6cdfa8559ee3d
+  .agents/skills/codex-debate/scripts/codex-review.sh: sha256:e7f96490d9bbd13b692b4a80641f69447b2c9051eb3f4222daeb263c73d43b8f
   .agents/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
   .agents/skills/dev-server/SKILL.md: sha256:925026a0764d3330f5369192420f4f6c1fe3bb650017f5f784a9358955cf8acb
   .agents/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
@@ -350,13 +350,13 @@ local_deployed_file_hashes:
   .claude/skills/be-review/SKILL.md: sha256:bb2b6f0d452f91311d622cf58803ec737555c853764555911fd5dc465e3abd9f
   .claude/skills/be/SKILL.md: sha256:f3a4f93144b06e41ad681ff0e99331b4ed3ca353e795c2e6e6dd6dd0e2912ae0
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .claude/skills/codex-debate/SKILL.md: sha256:2fee33cfea0c2c9b818220dcbf7e4a28daa071a834534c1604e4afa298077650
+  .claude/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .claude/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
   .claude/skills/codex-debate/debate.workflow.js: sha256:ce2e7c8e77d5260bf767aefcc8647ad2b6457349924006f6b93b9d8d9d091d17
   .claude/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
   .claude/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
   .claude/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
-  .claude/skills/codex-debate/scripts/codex-review.sh: sha256:6aeae0b1ed2b71a3e14952404a0b1b9a404ec28b68b91bfa21d6cdfa8559ee3d
+  .claude/skills/codex-debate/scripts/codex-review.sh: sha256:e7f96490d9bbd13b692b4a80641f69447b2c9051eb3f4222daeb263c73d43b8f
   .claude/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
   .claude/skills/dev-server/SKILL.md: sha256:925026a0764d3330f5369192420f4f6c1fe3bb650017f5f784a9358955cf8acb
   .claude/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
