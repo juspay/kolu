@@ -9,16 +9,16 @@
 
 import type { DaemonState } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { shouldAnnounceReattach } from "./reattachAnnounce";
+import { reattachToAnnounce } from "./reattachAnnounce";
 
-describe("shouldAnnounceReattach — the B3.3 one-shot dedupe", () => {
+describe("reattachToAnnounce — the B3.3 one-shot dedupe", () => {
   it.each([
     {
       state: "connected" as DaemonState,
       adopted: 3,
       adoptedAt: 1000,
       lastAnnouncedAt: 0,
-      result: true,
+      result: { count: 3, at: 1000 },
       why: "first adoption (nothing announced yet) → announce",
     },
     {
@@ -29,7 +29,7 @@ describe("shouldAnnounceReattach — the B3.3 one-shot dedupe", () => {
       adopted: 3,
       adoptedAt: 1000,
       lastAnnouncedAt: 1000,
-      result: false,
+      result: null,
       why: "same adoptedAt already announced (reload replay) → silent",
     },
     {
@@ -37,7 +37,7 @@ describe("shouldAnnounceReattach — the B3.3 one-shot dedupe", () => {
       adopted: 2,
       adoptedAt: 2000,
       lastAnnouncedAt: 1000,
-      result: true,
+      result: { count: 2, at: 2000 },
       why: "a genuinely newer adoption (later update) → announce again",
     },
     {
@@ -45,7 +45,7 @@ describe("shouldAnnounceReattach — the B3.3 one-shot dedupe", () => {
       adopted: 2,
       adoptedAt: 1000,
       lastAnnouncedAt: 2000,
-      result: false,
+      result: null,
       why: "a stale/older replay below the high-water mark → never re-fire",
     },
     {
@@ -53,7 +53,7 @@ describe("shouldAnnounceReattach — the B3.3 one-shot dedupe", () => {
       adopted: 0,
       adoptedAt: undefined,
       lastAnnouncedAt: 0,
-      result: false,
+      result: null,
       why: "cold boot (no adoption) carries no adoptedAt → silent",
     },
     {
@@ -61,7 +61,7 @@ describe("shouldAnnounceReattach — the B3.3 one-shot dedupe", () => {
       adopted: 2,
       adoptedAt: undefined,
       lastAnnouncedAt: 0,
-      result: false,
+      result: null,
       why: "a count with no identity → never announce without an adoptedAt",
     },
     {
@@ -69,7 +69,7 @@ describe("shouldAnnounceReattach — the B3.3 one-shot dedupe", () => {
       adopted: 3,
       adoptedAt: 1000,
       lastAnnouncedAt: 0,
-      result: false,
+      result: null,
       why: "not yet connected → silent (the snapshot isn't authoritative)",
     },
     {
@@ -77,12 +77,12 @@ describe("shouldAnnounceReattach — the B3.3 one-shot dedupe", () => {
       adopted: 3,
       adoptedAt: 1000,
       lastAnnouncedAt: 0,
-      result: false,
+      result: null,
       why: "daemon down → silent",
     },
   ])("$why", ({ state, adopted, adoptedAt, lastAnnouncedAt, result }) => {
     expect(
-      shouldAnnounceReattach(state, adopted, adoptedAt, lastAnnouncedAt),
-    ).toBe(result);
+      reattachToAnnounce(state, adopted, adoptedAt, lastAnnouncedAt),
+    ).toEqual(result);
   });
 });

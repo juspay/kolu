@@ -19,23 +19,30 @@
 
 import type { DaemonState } from "kolu-common/surface";
 
-/** True when a NOT-yet-announced adoption is on the current snapshot: the daemon
- *  is `connected`, it actually adopted terminals (`adopted > 0`), it carries an
- *  `adoptedAt` identity, and that identity is strictly newer than the greatest
- *  one already announced. The `connected` gate excludes transient/down states
- *  whose snapshot isn't authoritative; the `> lastAnnouncedAt` gate (not `!==`)
- *  makes a stale/older replay silent and lets the `0` fallback announce the first
- *  adoption. */
-export function shouldAnnounceReattach(
+/** The reattach decision WITH its payload — `{ count, at }` to announce, or
+ *  `null` to stay silent. Returns the announce-this payload when a NOT-yet-
+ *  announced adoption is on the current snapshot: the daemon is `connected`, it
+ *  actually adopted terminals (`adopted > 0`), it carries an `adoptedAt`
+ *  identity, and that identity is strictly newer than the greatest one already
+ *  announced. The `connected` gate excludes transient/down states whose snapshot
+ *  isn't authoritative; the `> lastAnnouncedAt` gate (not `!==`) makes a
+ *  stale/older replay silent and lets the `0` fallback announce the first
+ *  adoption. Yielding the proven `{ count, at }` — not a bare boolean — means the
+ *  one consumer commits the high-water mark and renders the count straight from
+ *  the proof, with no re-read of the raw status fields. */
+export function reattachToAnnounce(
   state: DaemonState | undefined,
   adopted: number | undefined,
   adoptedAt: number | undefined,
   lastAnnouncedAt: number,
-): boolean {
-  return (
+): { count: number; at: number } | null {
+  if (
     state === "connected" &&
     (adopted ?? 0) > 0 &&
     typeof adoptedAt === "number" &&
     adoptedAt > lastAnnouncedAt
-  );
+  ) {
+    return { count: adopted!, at: adoptedAt };
+  }
+  return null;
 }

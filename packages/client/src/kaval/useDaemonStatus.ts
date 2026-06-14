@@ -14,7 +14,7 @@ import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import type { WsStatus } from "../rpc/rpc";
 import { app } from "../wire";
-import { shouldAnnounceReattach } from "./reattachAnnounce";
+import { reattachToAnnounce } from "./reattachAnnounce";
 
 /** The one host today; R-2's ssh hosts add more keys to the same collection. */
 export const LOCAL_HOST = "local";
@@ -215,7 +215,7 @@ export function refuseIfWarming(): boolean {
 // reset with the JS context and re-fired the toast on every reload
 // (juspay/kolu#1365); the persisted high-water mark survives the reload, so a
 // replay of the same `adoptedAt` is silent while a genuinely newer adoption
-// announces again. The pure `shouldAnnounceReattach` owns the truth table
+// announces again. The pure `reattachToAnnounce` owns the truth table
 // (unit-tested). The detached `createRoot` owns the effect + persisted signal for
 // the app's life (like the module `sub` above), so a consumer's teardown can't
 // freeze it.
@@ -235,19 +235,16 @@ createRoot(() => {
   });
   createEffect(() => {
     const status = localDaemonStatus();
-    if (
-      !shouldAnnounceReattach(
-        status?.state,
-        status?.adopted,
-        status?.adoptedAt,
-        reattachAnnouncedAt(),
-      )
-    )
-      return;
-    // `shouldAnnounceReattach` proved a connected status with a numeric adoptedAt
-    // and a positive count; read them back for the high-water mark + message.
-    const n = status?.adopted ?? 0;
-    setReattachAnnouncedAt(status?.adoptedAt ?? reattachAnnouncedAt());
-    toast.info(`${n} terminal${n === 1 ? "" : "s"} reattached`);
+    const a = reattachToAnnounce(
+      status?.state,
+      status?.adopted,
+      status?.adoptedAt,
+      reattachAnnouncedAt(),
+    );
+    if (!a) return;
+    // The decision carries its payload: commit the proven adoptedAt as the new
+    // high-water mark and render the proven count — no re-read of the status.
+    setReattachAnnouncedAt(a.at);
+    toast.info(`${a.count} terminal${a.count === 1 ? "" : "s"} reattached`);
   });
 });
