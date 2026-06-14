@@ -1,5 +1,5 @@
 /** Canvas state-aura tier — the dispatch the canvas tile's border glow
- *  (Language A · Halo) emits. Pure function of `(bucket, unread, stale)` so
+ *  (Language C · Run / sweep) emits. Pure function of `(bucket, unread, stale)` so
  *  the rule is independently testable without spinning up a Solid render
  *  harness, exactly the way the dock's `pipVariant` is. Order matters:
  *  `unread` dominates the bucket — a tile that fired an alert in the
@@ -18,7 +18,7 @@ import type { AgentBucketKind } from "./dockModel";
 export type TileAura =
   | "alert" // unread: a fresh, missed "needs you" — fast throb, loudest
   | "waiting-fresh" // awaiting + recent — gentle violet breathe
-  | "working" // thinking / tools / background — steady rust hum, no motion
+  | "working" // thinking / tools / background — runs as marching ants; busy, asks nothing
   | "waiting-stale" // awaiting but aged past the activity window — dim ember
   | "none"; // idle / parked / no agent — no glow
 
