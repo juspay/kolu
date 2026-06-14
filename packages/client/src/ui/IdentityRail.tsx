@@ -122,8 +122,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
     return t === undefined ? undefined : formatUptime(clockNow() - t);
   };
 
-  // The per-source split the resting strip collapses away — shown on hover. Built
-  // here (in the provider's reactive scope) so its reads stay live across the portal.
+  // The per-source split the resting strip collapses away — shown on hover. Passed
+  // to `<Tip>` as a THUNK (see its `label`), so it's evaluated lazily inside the
+  // tooltip portal only while open — its 1s-clock subscription never ticks behind a
+  // closed tooltip. `pwa`/`daemon` are captured from this scope, so it needs no
+  // provider context inside the portal.
   const breakdown = () => (
     <div class="flex min-w-[12rem] flex-col gap-1 font-mono text-[11px]">
       <div class="flex items-center gap-2">
@@ -176,7 +179,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           The dot carries both machine-readable axes (the e2e hooks); the leading seg
           is the `<Tip>` trigger, so hovering the identity reveals the breakdown. */}
       <Tip
-        label={breakdown()}
+        label={breakdown}
         class="inline-flex items-center gap-1.5 px-1.5 py-0.5"
       >
         <span
