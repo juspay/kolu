@@ -232,6 +232,14 @@ createRoot(() => {
       if (!Number.isFinite(n)) throw new Error(`non-numeric: ${raw}`);
       return n;
     },
+    // Surface a corrupt mark rather than resetting it silently. Resetting to `0`
+    // is benign — at worst the next adoption re-announces once — so a console
+    // warning is the right level (no user-facing toast for a recoverable reset).
+    onInvalid: (err, raw) =>
+      console.warn(
+        `[kaval] reattachAnnouncedAt corrupt (${raw}); resetting to 0:`,
+        err,
+      ),
   });
   createEffect(() => {
     // The glue (`announceReattach`) commits the proven adoptedAt as the new
