@@ -1,11 +1,11 @@
 ---
-title: ChromeBar identity rail (srv · pty)
-description: The consolidated connection + build/commit readout shipped in R-4 phase A2 — two explicit columns (srv = the server you're connected to, pty = the pty-host serving your terminals) that coincide while the pty-host is in-process; Phase B only lets them diverge (outdated / dead), never re-lay-out.
+title: ChromeBar identity rail (srv · client · kaval)
+description: The consolidated connection + build/commit readout in the ChromeBar. A2 shipped it as two coinciding columns (srv = server, pty = the in-process pty-host); B2 overtook that shape — renaming pty → kaval as a separate spawned daemon and adding a client-bundle column — so the live rail is three columns (srv · client · kaval). This note keeps A2's original design rationale, annotated where B2 took over.
 kind: feature
 status: implemented
 maturity: budding
 parents: [pty-daemon]
-updated: 2026-06-09
+updated: 2026-06-13
 ---
 
 import D2 from "../../components/D2.astro";
@@ -15,6 +15,10 @@ import PrLink from "../../components/PrLink.astro";
 import Commit from "../../components/Commit.astro";
 
 **The UI design for A2's deliverable #3** — the consolidated connection + build/commit readout in the ChromeBar, shipped with A2 in <PrLink pr={1063} /> as `packages/client/src/ui/IdentityRail.tsx`. Built in its **final two-column shape from day one** — `srv` (the server you're connected to) and `pty` (the pty-host serving your terminals) — even though in A2 they're the same process. That coincidence is the point: it's the live proof A2's identity plumbing works, and it means [Phase B](pty-daemon.html) only has to let the columns *diverge*, never re-lay-out. The original prototype was rendered with the live dark-theme tokens from `packages/client/src/index.css` against the real `ChromeBar.tsx` layout.
+
+<Callout kind="note" title="Updated through B2 — the rail is now three columns">
+This note is A2's original **two-column** design (`srv · pty`, coinciding in-process). **B2 (<PrLink pr={1310} />) overtook that shape.** The `pty` column was renamed **`kaval`** — the daemon is now a separate, spawned process, so the column carries the supervisor's *honest* daemon state (`connected`/`degraded`/`dead`, not the WebSocket's) and an uptime from its `startedAt` — and a third **`client`** column was added (this browser's JS build, flagging `≠ srv` when a stale cached bundle is served against a freshly deployed server). So the live rail is **three columns `srv · client · kaval`**: B2 *did* re-lay-out and migrate the component, which the "final two-column shape from day one / never re-lay-out / no migration" framing below predates. **B3.2 (<PrLink pr={1337} />)** then made the `kaval` column's down state actionable — the inline **Restart kaval** button. The current shape lives in [pty-daemon](pty-daemon.html); the design rationale below stands as A2's record.
+</Callout>
 
 ## The design call — two explicit columns in A2
 
@@ -67,8 +71,8 @@ In A2 the rail's live axis is the WebSocket connection (the dot it absorbed). `p
 | **Connected** | live in A2 | WebSocket open · `srv ≡ pty` · both commits + build resolved · the `≡ in-process` tag |
 | **Connecting / reconnecting** | live in A2 | re-handshaking — both dots pulse amber, identity dimmed until the first yield (`srv connecting… · pty —`) |
 | **Disconnected** | live in A2 | `srv` red; `pty` *unknown* (grey) — honest: with the link down we can't claim pty state |
-| **Update pending** | <Pill variant="todo">inert until B</Pill> | `pty` build ≠ the expected build → amber via the read-site `staleKey !== currentBuildId()` derivation. The nudge #1034 over-fired now fires only here. |
-| **Daemon dead** | <Pill variant="todo">inert until B</Pill> | `pty` handle closed → red (`daemon dead — restart`). Pairs with the honest degraded canvas; never the empty-canvas lie. |
+| **Update pending** | <Pill variant="todo">B3.4</Pill> | `kaval` build ≠ the expected build → amber via the read-site `staleKey !== currentBuildId()` derivation. The nudge #1034 over-fired now fires only here. |
+| **Daemon dead** | <Pill variant="done">live · B2</Pill> | `kaval` handle closed → red (`daemon dead — restart`). Pairs with the honest degraded canvas; never the empty-canvas lie. B3.2 (#1337) added the inline **Restart kaval** button. |
 
 No "dev / no-commit" state exists — kolu and the pty-host run **only under nix**, which always bakes both `KOLU_COMMIT_HASH` and `KOLU_PTY_HOST_BUILD_ID`. There is no off-nix fallback to render.
 

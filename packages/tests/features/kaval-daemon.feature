@@ -11,3 +11,24 @@ Feature: kaval daemon lifecycle (B2 — the door)
     Given the terminal is ready
     When the kaval daemon is killed
     Then the degraded canvas is shown
+
+  # B3.2 — supervised restart. The "Restart kaval" button the degraded canvas
+  # used to defer now recovers the daemon: the session is captured before the
+  # kill, a fresh daemon is spawned, and the preserved session is offered for
+  # restore on the empty canvas — the round-trip a session-preserving restart
+  # promises.
+  @kaval-restart
+  Scenario: Restarting kaval recovers a degraded daemon and preserves the session
+    Given the terminal is ready
+    When the kaval daemon is killed
+    Then the degraded canvas is shown
+    When I restart kaval from the degraded canvas
+    Then the warming canvas is shown while kaval restarts
+    And the restore card is not offered until kaval is connected
+    When I press the create terminal shortcut while kaval restarts
+    Then no terminal is created while kaval is warming
+    Then the daemon returns to running
+    And the session restore card should be visible
+    When I click the restore button
+    Then there should be 1 workspace switcher entries
+    And there should be no page errors

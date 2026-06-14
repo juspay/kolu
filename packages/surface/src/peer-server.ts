@@ -69,7 +69,7 @@ import {
   type HandleStandardServerPeerMessageOptions,
 } from "@orpc/server/standard-peer";
 import { ServerPeer } from "@orpc/standard-server-peer";
-import { readFramedLines, writeFramedMessage } from "./links/stdio-codec";
+import { framedSend, readFramedLines } from "./links/stdio-codec";
 
 /** Transport override for `serveOverStdio`. Default is `process.stdin`
  *  for `read` and `process.stdout` for `write`. */
@@ -173,7 +173,7 @@ export function serveOverStdio<T extends Context>(
   });
 
   const peer = new ServerPeer((message) =>
-    writeFramedMessage(transport.write, message),
+    framedSend(transport.write, message),
   );
 
   return readFramedLines(transport.read, (frame) => {

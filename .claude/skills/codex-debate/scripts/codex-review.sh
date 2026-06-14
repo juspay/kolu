@@ -13,7 +13,7 @@
 # codex-exec-lib.sh.
 #
 # Usage:
-#   codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort]
+#   codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort] [rationale-file|-]
 #
 #   <base-branch>    branch to diff against (e.g. master)
 #   <rebuttal-file>  path to a file holding CLAUDE's previous response (JSON),
@@ -22,6 +22,10 @@
 #   <reasoning-effort> codex model_reasoning_effort for this run; the debate
 #                    workflow passes its REASONING_EFFORT constant here so the
 #                    value has one home. Defaults to "xhigh" for standalone runs.
+#   <rationale-file> path to a file holding the author's note on DELIBERATE
+#                    decisions, or "-" for none. Injected into the round-1 (cold)
+#                    review prompt so codex doesn't flag intentional choices as
+#                    defects; codex's warm session carries it across later rounds.
 #
 # Notes:
 #   * codex runs under `--sandbox read-only` (see codex-exec-lib.sh), which enforces
@@ -36,12 +40,15 @@
 #     OWN prior review + reasoning across rounds.
 set -uo pipefail
 
-base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort]}"
+base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort] [rationale-file|-]}"
 rebuttal_file="${2:?missing rebuttal-file (use - for none)}"
 out="${3:?missing out-json path}"
 # The debate workflow owns this value (its REASONING_EFFORT constant) and passes
 # it down; "xhigh" is only the default for a standalone invocation of this script.
 effort="${4:-xhigh}"
+# Author's note on deliberate decisions (constant across rounds); "-" = none. Only
+# the cold/round-1 prompt injects it — codex's warm session retains it after that.
+rationale_file="${5:--}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 schema="$here/codex-verdict.schema.json"
@@ -79,6 +86,34 @@ $rebuttal
 "
 fi
 
+# The author's note on DELIBERATE decisions, if supplied — injected into the COLD
+# review prompt below so codex doesn't raise intentional choices as findings. Read
+# from a file (the workflow writes it once) so multi-line notes with special chars
+# survive intact, the same way the rebuttal is handled.
+rationale=""
+if [ "$rationale_file" != "-" ]; then
+  if [ -s "$rationale_file" ]; then
+    rationale="$(cat "$rationale_file")"
+  else
+    # A rationale was expected (path given, not "-") but the file is missing or
+    # empty — the rationale:write handoff broke. Proceed without it (a missing
+    # rationale degrades to a bare-diff review the IMPLEMENTOR still disputes from
+    # its own inherited rationale block — it is a false-finding SUPPRESSOR, not a
+    # correctness input, so we don't abort the round), but make the failure loud
+    # so the round isn't silently mistaken for a rationale-aware review. Mirrors
+    # the rebuttal warning above.
+    echo "WARNING: expected rationale file '$rationale_file' is missing or empty; proceeding with no deliberate-decisions note this round (codex reviews the bare diff)." >&2
+  fi
+fi
+rationale_block=""
+if [ -n "$rationale" ]; then
+  rationale_block="
+The author flagged the following as DELIBERATE decisions. Do NOT raise them as
+findings unless the reasoning itself is wrong — if it is, say specifically why:
+$rationale
+"
+fi
+
 # WARM SESSION. Round 1 (rebuttal_file == "-") cold-starts and resets any stale id;
 # later rounds resume codex's own review session. Resolve the id first so the prompt
 # below can lean on codex's retained context when warm.
@@ -103,8 +138,10 @@ synthesize_error_verdict() {
 # Two prompts: a lean follow-up for the WARM (resume) path that leans on codex's
 # retained context, and the full review prompt for the COLD path (round 1, or the
 # fallback when no session id was captured). Unquoted heredocs: only $base,
-# $rebuttal, and $rebuttal_block expand; their expansions are inserted literally
-# (heredoc results aren't re-scanned), so special chars in $rebuttal stay inert.
+# $rebuttal, $rebuttal_block, and (in the cold prompt) $rationale_block expand;
+# their expansions are inserted literally (heredoc results aren't re-scanned), so
+# special chars in $rebuttal / $rationale stay inert. The rationale rides the cold
+# prompt ONLY — codex's warm session already retains it from round 1.
 if [ -n "$resume_id" ]; then
   prompt="$(cat <<EOF
 You are CODEX, continuing the SAME review session you started earlier — you still
@@ -154,7 +191,7 @@ and run no git write command: add/commit/push/stash/checkout):
 
 Read every changed file plus enough surrounding code to judge it in context.
 Ignore the debate's own scratch dir '.codex-debate/' if it appears.
-
+$rationale_block
 Give ALL your feedback in this pass — every issue worth raising, at EVERY severity
 (blocking, major, minor, nit): correctness bugs, logic errors, silently swallowed
 errors, unjustified fallbacks, security problems, and clear simplicity/efficiency

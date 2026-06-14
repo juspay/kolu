@@ -11,7 +11,7 @@
  * than hanging.
  */
 
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { describe, expect, it } from "vitest";
@@ -269,6 +269,7 @@ describe("stdio link over loopback", () => {
     // nothing. With an isolated write stream, removing the guard makes
     // `destroy(err)` an uncaught 'error' that crashes this test — so the
     // green run is genuine evidence the guard is load-bearing.
+    // biome-ignore lint/correctness/noUnusedVariables: read only as a type via `typeof contract` below — this test drives the link itself, not the contract value, so the runtime binding is intentionally unused.
     const contract = {
       ping: oc.input(z.object({})).output(z.string()),
     };
@@ -286,5 +287,46 @@ describe("stdio link over loopback", () => {
     // The link is now closed: a fresh RPC rejects fast rather than hanging
     // (or crashing).
     await expect(client.ping({})).rejects.toThrow();
+  });
+
+  it("does not crash when a fire-and-forget teardown send hits a dead pipe (#32)", async () => {
+    // The #32 residual: #25 closed the stream-'error' path, but a send whose
+    // promise nobody awaits — oRPC's abort frame, an event-iterator cleanup —
+    // still rejected when the pipe was already gone. That rejection was
+    // rethrown via process.nextTick as an uncaught exception that crashed the
+    // coordinator on teardown after a green run. The request frame goes out
+    // fine; the abort frame that follows hits a now-dead write. With
+    // `framedSend` the dead-pipe write resolves, so nothing escapes.
+    //
+    // The guard is the same one the EPIPE-guard test above relies on: an
+    // uncaught error during a test fails the run, so the green run IS the
+    // evidence nothing escaped — strip the `.catch` in `framedSend` and this
+    // test errors with the exact teardown-time `write EPIPE`.
+    const contract = { ping: oc.input(z.object({})).output(z.string()) };
+
+    const read = new PassThrough(); // never fed — the request stays in flight
+    let writes = 0;
+    const write = new Writable({
+      write(_chunk, _enc, cb) {
+        writes += 1;
+        // First write (the request frame) flushes; the next — the abort frame,
+        // sent fire-and-forget by the peer — hits a dead pipe.
+        if (writes === 1) return cb();
+        cb(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      },
+    });
+    write.on("error", () => {}); // the link attaches exactly such a guard
+
+    const client = stdioLink<typeof contract>({ read, write });
+    const controller = new AbortController();
+    const call = client.ping({}, { signal: controller.signal });
+    await new Promise((r) => setImmediate(r)); // let the request frame flush
+    controller.abort(); // fire-and-forget abort send → 2nd write → EPIPE
+
+    // The call itself rejects (the transport is dead); what must NOT happen is
+    // the abort send's rejection escaping as an uncaught exception.
+    await expect(call).rejects.toThrow();
+    // Give a would-be escaped throw time to surface (and fail this test).
+    await new Promise((r) => setTimeout(r, 50));
   });
 });

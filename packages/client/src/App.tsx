@@ -11,22 +11,25 @@ import { shellCommit } from "@kolu/surface-app/lifecycle";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
-import Commit from "./ui/Commit";
-import { realSizes } from "./ui/corvuResizable";
 import {
   type Component,
   createEffect,
   createMemo,
   createSignal,
+  Match,
   on,
   Show,
+  Switch,
 } from "solid-js";
 import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
+import Commit from "./ui/Commit";
+import { realSizes } from "./ui/corvuResizable";
 import "kolu-common/test-hooks";
+import Resizable from "@corvu/resizable";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import Dock, { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
@@ -37,14 +40,11 @@ import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher, supportsSpatialCanvas } from "./capabilities";
 import { createCommands } from "./commands";
+import DegradedCanvas from "./kaval/DegradedCanvas";
 import DiagnosticInfo from "./DiagnosticInfo";
-import DegradedCanvas from "./DegradedCanvas";
 import EmptyState from "./EmptyState";
-import { daemonDown, daemonStatusPending, downState } from "./useDaemonStatus";
-import WelcomeDialog from "./WelcomeDialog";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
-import { exportSession, importSession } from "./sessionTransfer";
 import type { ActionContext } from "./input/actions";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
@@ -53,15 +53,14 @@ import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
-import Resizable from "@corvu/resizable";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
+import { exportSession, importSession } from "./sessionTransfer";
 import TipBanner from "./settings/TipBanner";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
@@ -71,9 +70,18 @@ import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminals } from "./terminal/useTerminals";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
+import { Z_HANDLE_OUTER } from "./ui/stackLayers";
+import {
+  daemonStatusPending,
+  daemonWarming,
+  downState,
+  localDaemonStatus,
+  warmingCanvasLabel,
+} from "./kaval/useDaemonStatus";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
+import WelcomeDialog from "./WelcomeDialog";
 import { client, savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
@@ -241,7 +249,14 @@ const App: Component = () => {
     activate: store.activate,
     mruOrder: store.mruOrder,
     activeMeta: store.activeMeta,
-    handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
+    // Fire-and-forget: `handleCreate` surfaces its own errors via toast — a
+    // warning when the daemon is warming, an error on spawn failure — and
+    // re-throws so the *awaited* restore loop aborts cleanly. This void caller
+    // (keyboard shortcut, palette, Dock `+`) has nothing to await it, so swallow
+    // the rejection rather than leak an unhandled promise rejection (the same
+    // reason `useWorktreeOps.handleCreateWorktree` doesn't rethrow). Without it a
+    // `Cmd+T` during a restart's warming window trips the e2e page-error guard.
+    handleCreate: (cwd?: string) => void crud.handleCreate(cwd).catch(() => {}),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
@@ -567,182 +582,190 @@ const App: Component = () => {
             </div>
           }
         >
-          <Show when={downState()}>
-            {/* Honest daemon-down surface — gated BEFORE the empty/terminals
-                branch so a dead/degraded kaval never masquerades as "you have
-                no terminals" (#1034's empty-canvas lie). `downState()` is the
-                one source for both "is it down" and "which down". */}
-            {(state) => <DegradedCanvas state={state()} />}
-          </Show>
-          <Show
-            when={!daemonDown() && !showEmpty()}
-            fallback={
-              // Empty-state welcome — only when the daemon is healthy. When it's
-              // down, DegradedCanvas (above) owns the canvas, so this fallback
-              // must stay hidden or both would render.
-              <Show when={!daemonDown()}>
-                <div
-                  data-testid="canvas-container"
-                  class="relative flex-1 min-h-0 canvas-grid-bg"
-                >
-                  <CanvasWatermark text={appTitle()} />
-                  {/* The Dock stays mounted at zero terminals (desktop only)
-                   *  so its `+` new-terminal button is the always-reachable
-                   *  mouse path to the first terminal — the welcome card
-                   *  advertises ⌘⏎ but carries no clickable affordance
-                   *  (#1202). The empty Dock is just its header; the
-                   *  `relative` parent anchors its tiled-posture float
-                   *  (`top-12 left-4`), the only posture reachable at zero
-                   *  tiles. Mobile keeps its own pull-down nav. */}
-                  <Show when={!isMobile()}>
-                    <Dock {...dockPalette} />
-                  </Show>
-                  <EmptyState
-                    install={pwaInstall}
-                    savedSession={session.savedSession() ?? undefined}
-                    isRestoring={session.isRestoring()}
-                    onRestore={(opts) =>
-                      void session.handleRestoreSession(opts)
+          {/* Exactly one canvas surface, chosen by daemon + session state. The
+              arm order IS the precedence: a down daemon owns the canvas first, so
+              a dead/degraded kaval never masquerades as "you have no terminals"
+              (#1034's empty-canvas lie); then a transiently warming one — a
+              restart's `drain` empties the terminal list, so without this arm
+              EmptyState would paint mid-restart with its ENABLED Restore +
+              new-terminal affordances and a fast click would spawn/restore into a
+              daemon the recycle is about to kill (terminal creation must wait for
+              `connected`, F3); then the empty-state welcome; then the terminals.
+              `<Switch>` makes the partition exclusive and total — no hand-threaded
+              `!daemonDown()` negations to keep in lockstep. */}
+          <Switch>
+            <Match when={downState()}>
+              {(state) => <DegradedCanvas state={state()} />}
+            </Match>
+            <Match when={daemonWarming()}>
+              <div
+                data-testid="daemon-warming"
+                data-daemon-state={localDaemonStatus()?.state}
+                class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
+              >
+                {warmingCanvasLabel()}
+              </div>
+            </Match>
+            <Match when={showEmpty()}>
+              <div
+                data-testid="canvas-container"
+                class="relative flex-1 min-h-0 canvas-grid-bg"
+              >
+                <CanvasWatermark text={appTitle()} />
+                {/* The Dock stays mounted at zero terminals (desktop only) so its
+                 *  `+` new-terminal button is the always-reachable mouse path to
+                 *  the first terminal — the welcome card advertises ⌘⏎ but carries
+                 *  no clickable affordance (#1202). The empty Dock is just its
+                 *  header; the `relative` parent anchors its tiled-posture float
+                 *  (`top-12 left-4`), the only posture reachable at zero tiles.
+                 *  Mobile keeps its own pull-down nav. */}
+                <Show when={!isMobile()}>
+                  <Dock {...dockPalette} />
+                </Show>
+                <EmptyState
+                  install={pwaInstall}
+                  savedSession={session.savedSession() ?? undefined}
+                  isRestoring={session.isRestoring()}
+                  onRestore={(opts) => void session.handleRestoreSession(opts)}
+                />
+              </div>
+            </Match>
+            <Match when={true}>
+              {match(isMobile())
+                .with(true, () => (
+                  <RightPanelDrawer
+                    terminalId={store.activeId()}
+                    meta={store.activeMeta()}
+                    themeName={activeThemeName()}
+                    onThemeClick={() => openPaletteGroup("Set theme")}
+                    contentClass="flex-col"
+                  >
+                    <MobileTileView
+                      orderedIds={orderedIds()}
+                      status={wsStatus()}
+                      appTitle={appTitle()}
+                      onOpenPalette={() => openPalette()}
+                      renderBody={renderMobileTileBody}
+                      bottomBar={<MobileKeyBar />}
+                    />
+                  </RightPanelDrawer>
+                ))
+                .with(false, () => (
+                  // Desktop host: horizontal `@corvu/resizable` split between
+                  // the canvas and the right panel. `sizes=[1, 0]` collapses
+                  // the panel to zero width while keeping it mounted — this
+                  // preserves `CodeTab`'s selectedPath signal and Pierre's
+                  // tree expansion across collapse round-trips (#818).
+                  //
+                  // **This container is expected to span the full viewport
+                  // width** — the Dock floats `position: absolute` over the
+                  // canvas in tiled mode rather than reflowing alongside it.
+                  // `ChromeBar` leans on this invariant for its
+                  // `right: panelSize * 100vw` offset; treating the Corvu
+                  // fraction as a viewport-width fraction only works while
+                  // the assumption holds. If a sibling ever shrinks this
+                  // container, the ChromeBar offset must move to a measured
+                  // pixel value or a host-published CSS custom property.
+                  //
+                  // `startIntersection={false}` on the handle opts out of
+                  // Corvu's module-level handle-pairing registry (see
+                  // `@corvu/resizable/dist/index.js:201-222`). Without the
+                  // opt-out, this outer horizontal handle pairs with
+                  // `CodeTab`'s inner vertical handle (their rects touch at
+                  // the corner) and clicks near the corner land on the
+                  // wrong handle. `CodeTab` defends from the inner side
+                  // with the same opt-out — both sides need it.
+                  <Resizable
+                    orientation="horizontal"
+                    sizes={
+                      rightPanel.collapsed()
+                        ? [1, 0]
+                        : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
                     }
-                  />
-                </div>
-              </Show>
-            }
-          >
-            {match(isMobile())
-              .with(true, () => (
-                <RightPanelDrawer
-                  terminalId={store.activeId()}
-                  meta={store.activeMeta()}
-                  themeName={activeThemeName()}
-                  onThemeClick={() => openPaletteGroup("Set theme")}
-                  contentClass="flex-col"
-                >
-                  <MobileTileView
-                    orderedIds={orderedIds()}
-                    status={wsStatus()}
-                    appTitle={appTitle()}
-                    onOpenPalette={() => openPalette()}
-                    renderBody={renderMobileTileBody}
-                    bottomBar={<MobileKeyBar />}
-                  />
-                </RightPanelDrawer>
-              ))
-              .with(false, () => (
-                // Desktop host: horizontal `@corvu/resizable` split between
-                // the canvas and the right panel. `sizes=[1, 0]` collapses
-                // the panel to zero width while keeping it mounted — this
-                // preserves `CodeTab`'s selectedPath signal and Pierre's
-                // tree expansion across collapse round-trips (#818).
-                //
-                // **This container is expected to span the full viewport
-                // width** — the Dock floats `position: absolute` over the
-                // canvas in tiled mode rather than reflowing alongside it.
-                // `ChromeBar` leans on this invariant for its
-                // `right: panelSize * 100vw` offset; treating the Corvu
-                // fraction as a viewport-width fraction only works while
-                // the assumption holds. If a sibling ever shrinks this
-                // container, the ChromeBar offset must move to a measured
-                // pixel value or a host-published CSS custom property.
-                //
-                // `startIntersection={false}` on the handle opts out of
-                // Corvu's module-level handle-pairing registry (see
-                // `@corvu/resizable/dist/index.js:201-222`). Without the
-                // opt-out, this outer horizontal handle pairs with
-                // `CodeTab`'s inner vertical handle (their rects touch at
-                // the corner) and clicks near the corner land on the
-                // wrong handle. `CodeTab` defends from the inner side
-                // with the same opt-out — both sides need it.
-                <Resizable
-                  orientation="horizontal"
-                  sizes={
-                    rightPanel.collapsed()
-                      ? [1, 0]
-                      : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
-                  }
-                  onSizesChange={(sizes) => {
-                    // `MIN_PANEL_SIZE = 0.05` inside `setPanelSize` drops
-                    // the collapsed `sizes[1] = 0` case so `preferences.size`
-                    // never persists as zero (which would re-expand into an
-                    // ungrabbable zero-width panel).
-                    const s = realSizes(sizes);
-                    if (s) rightPanel.setPanelSize(s[1]);
-                  }}
-                  class="flex-1 min-h-0 overflow-hidden"
-                >
-                  <Resizable.Panel
-                    as="div"
-                    class="min-w-0 min-h-0 flex"
-                    minSize={0.3}
-                  >
-                    <TerminalCanvas
-                      tileIds={store.terminalIds()}
-                      watermark={appTitle()}
-                      getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                      onLayoutChange={arrange.applyTileGeometry}
-                      onAutoArrange={arrange.handleCanvasAutoArrange}
-                      onSelect={store.setActiveSilently}
-                      onClose={(id) => closeTerminal(id)}
-                      {...dockPalette}
-                      renderTileTitle={(id) => (
-                        <TerminalMeta
-                          info={store.getDisplayInfo(id)}
-                          unread={store.isUnread(id)}
-                          onOpenIntent={() => intentEditor.openTerminal(id)}
-                        />
-                      )}
-                      renderTileTitleActions={(id) => (
-                        <TileTitleActions
-                          id={id}
-                          onOpenPaletteGroup={openPaletteGroup}
-                          onToggleSubPanel={handleToggleSubPanel}
-                          onOpenSearch={() => setSearchOpen(true)}
-                          onScreenshot={handleScreenshotTerminal}
-                        />
-                      )}
-                      renderTileBody={renderCanvasTileBody}
-                    />
-                  </Resizable.Panel>
-                  <Show when={!rightPanel.collapsed()}>
-                    <Resizable.Handle
-                      data-testid="right-panel-handle"
-                      startIntersection={false}
-                      // `Z_HANDLE_OUTER` lifts the ::before pseudo above
-                      // the canvas tile (`Z_CANVAS_TILE_ACTIVE`). The
-                      // handle's ::before extends 4px left into the
-                      // canvas area (`before:-left-1 before:w-2`); without
-                      // the explicit z-index the tile paints over that
-                      // half of the hit zone wherever its right edge
-                      // meets or passes the right-panel boundary, killing
-                      // both the visual hover indicator and the pointer
-                      // target. See `ui/stackLayers.ts` for the full
-                      // layering contract.
-                      class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
-                      style={{ "z-index": Z_HANDLE_OUTER }}
-                      aria-label="Resize inspector panel"
-                    />
-                  </Show>
-                  <Resizable.Panel
-                    as="div"
-                    class="min-w-0 min-h-0 overflow-hidden"
-                    classList={{
-                      "border-l border-edge": !rightPanel.collapsed(),
+                    onSizesChange={(sizes) => {
+                      // `MIN_PANEL_SIZE = 0.05` inside `setPanelSize` drops
+                      // the collapsed `sizes[1] = 0` case so `preferences.size`
+                      // never persists as zero (which would re-expand into an
+                      // ungrabbable zero-width panel).
+                      const s = realSizes(sizes);
+                      if (s) rightPanel.setPanelSize(s[1]);
                     }}
-                    minSize={0.1}
+                    class="flex-1 min-h-0 overflow-hidden"
                   >
-                    <RightPanel
-                      terminalId={store.activeId()}
-                      meta={store.activeMeta()}
-                      onToggle={rightPanel.togglePanel}
-                      themeName={activeThemeName()}
-                      onThemeClick={() => openPaletteGroup("Set theme")}
-                      visible={!rightPanel.collapsed()}
-                    />
-                  </Resizable.Panel>
-                </Resizable>
-              ))
-              .exhaustive()}
-          </Show>
+                    <Resizable.Panel
+                      as="div"
+                      class="min-w-0 min-h-0 flex"
+                      minSize={0.3}
+                    >
+                      <TerminalCanvas
+                        tileIds={store.terminalIds()}
+                        watermark={appTitle()}
+                        getLayout={(id) => store.getMetadata(id)?.canvasLayout}
+                        onLayoutChange={arrange.applyTileGeometry}
+                        onAutoArrange={arrange.handleCanvasAutoArrange}
+                        onSelect={store.setActiveSilently}
+                        onClose={(id) => closeTerminal(id)}
+                        {...dockPalette}
+                        renderTileTitle={(id) => (
+                          <TerminalMeta
+                            info={store.getDisplayInfo(id)}
+                            unread={store.isUnread(id)}
+                            onOpenIntent={() => intentEditor.openTerminal(id)}
+                          />
+                        )}
+                        renderTileTitleActions={(id) => (
+                          <TileTitleActions
+                            id={id}
+                            onOpenPaletteGroup={openPaletteGroup}
+                            onToggleSubPanel={handleToggleSubPanel}
+                            onOpenSearch={() => setSearchOpen(true)}
+                            onScreenshot={handleScreenshotTerminal}
+                          />
+                        )}
+                        renderTileBody={renderCanvasTileBody}
+                      />
+                    </Resizable.Panel>
+                    <Show when={!rightPanel.collapsed()}>
+                      <Resizable.Handle
+                        data-testid="right-panel-handle"
+                        startIntersection={false}
+                        // `Z_HANDLE_OUTER` lifts the ::before pseudo above
+                        // the canvas tile (`Z_CANVAS_TILE_ACTIVE`). The
+                        // handle's ::before extends 4px left into the
+                        // canvas area (`before:-left-1 before:w-2`); without
+                        // the explicit z-index the tile paints over that
+                        // half of the hit zone wherever its right edge
+                        // meets or passes the right-panel boundary, killing
+                        // both the visual hover indicator and the pointer
+                        // target. See `ui/stackLayers.ts` for the full
+                        // layering contract.
+                        class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+                        style={{ "z-index": Z_HANDLE_OUTER }}
+                        aria-label="Resize inspector panel"
+                      />
+                    </Show>
+                    <Resizable.Panel
+                      as="div"
+                      class="min-w-0 min-h-0 overflow-hidden"
+                      classList={{
+                        "border-l border-edge": !rightPanel.collapsed(),
+                      }}
+                      minSize={0.1}
+                    >
+                      <RightPanel
+                        terminalId={store.activeId()}
+                        meta={store.activeMeta()}
+                        onToggle={rightPanel.togglePanel}
+                        themeName={activeThemeName()}
+                        onThemeClick={() => openPaletteGroup("Set theme")}
+                        visible={!rightPanel.collapsed()}
+                      />
+                    </Resizable.Panel>
+                  </Resizable>
+                ))
+                .exhaustive()}
+            </Match>
+          </Switch>
         </Show>
       </div>
       <IntentEditorDialog
