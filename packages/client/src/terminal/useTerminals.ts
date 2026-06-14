@@ -81,7 +81,7 @@ export function useTerminals() {
     );
   }
 
-  const crud = useTerminalCrud({ store });
+  const crud = useTerminalCrud();
 
   // Keep exactly one exit subscription per live terminal (top-level and sub),
   // keyed to the server list so kills/exits dispose it. See useTerminalExits.
