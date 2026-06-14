@@ -29,7 +29,11 @@ let
 
   args = { inherit pkgs kolu system port kavalTui lib; };
 in
+# Symmetric attr names that decline one stem after the file stems
+  # (adopt.nix → adoption-adopt, skew.nix → adoption-skew). The redundant
+  # -vm-test suffix is dropped — both already live under the VM-test-only Linux
+  # lane — so a reader grepping a failing check name meets one consistent spelling.
 {
-  adoption-vm-test = import ./adopt.nix args;
-  adoption-skew-vm-test = import ./skew.nix args;
+  adoption-adopt = import ./adopt.nix args;
+  adoption-skew = import ./skew.nix args;
 }
