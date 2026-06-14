@@ -3,6 +3,13 @@
 import Tooltip from "@corvu/tooltip";
 import type { Component, JSX } from "solid-js";
 
+/** A thunk label (deferred body) vs. an already-built one — a real type predicate
+ *  so the call site narrows the union instead of casting (which would silently
+ *  break if `label`'s type ever widened). */
+const isThunkLabel = (
+  label: JSX.Element | (() => JSX.Element),
+): label is () => JSX.Element => typeof label === "function";
+
 const Tip: Component<{
   /** Tooltip body — a plain string or JSX for most call sites, or a **thunk**
    *  (`() => JSX.Element`) for an expensive body. The thunk is evaluated lazily
@@ -24,9 +31,7 @@ const Tip: Component<{
         <Tooltip.Content class="z-50 px-2 py-1 text-xs text-fg bg-surface-2 rounded-lg shadow-lg shadow-black/40 border border-edge">
           {/* Content mounts only when open (Corvu gates the Portal on a `<Show>`),
               so a thunk label is evaluated — and its reads subscribed — only then. */}
-          {typeof props.label === "function"
-            ? (props.label as () => JSX.Element)()
-            : props.label}
+          {isThunkLabel(props.label) ? props.label() : props.label}
         </Tooltip.Content>
       </Tooltip.Portal>
     </Tooltip>
