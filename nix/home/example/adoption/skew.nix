@@ -17,11 +17,11 @@
 # contract skew, AND the saved session still holds the terminal (preserved for
 # restore). A regression that wrongly adopted the skewed daemon would leave the
 # gate unchanged → the poll times out red.
-{ pkgs, kolu, home-manager, nixosModule, system }:
+#
+# Only the distinguishing data lives here; lib.nix owns the shared scaffold.
+{ pkgs, kolu, system, port, lib, ... }:
 let
-  jq = "${pkgs.jq}/bin/jq";
-  curl = "${pkgs.curl}/bin/curl";
-  port = "7681";
+  inherit (lib) jq curl ns gateFile configFile openTerminal;
 
   # The "newer" kolu: same source, but its daemon's wire-contract constant is
   # bumped so its server rejects (and recycles) the older daemon's handshake.
@@ -42,22 +42,19 @@ let
   seed = pkgs.writeShellScript "kolu-skew-seed" ''
     set -uo pipefail
     fail() { echo "FAIL(skew-seed): $*" > /tmp/skew-seed-result; exit 1; }
-    ns="$XDG_RUNTIME_DIR/kaval-${port}"
+    ns="${ns}"
 
-    id=$(${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/terminal/create" \
-           -H 'content-type: application/json' -d '{"json":{}}' \
-         | ${jq} -r '.json.id') || fail "terminal.create RPC errored"
-    [ -n "$id" ] && [ "$id" != null ] || fail "terminal.create returned no id"
+    ${openTerminal}
 
     # wait for the autosave to persist the session (so 'preserved' is meaningful).
     for _ in $(seq 1 30); do
-      grep -q "$id" "$HOME/.config/kolu/config.json" 2>/dev/null && break
+      grep -q "$id" "$HOME/${configFile}" 2>/dev/null && break
       sleep 1
     done
-    grep -q "$id" "$HOME/.config/kolu/config.json" 2>/dev/null \
+    grep -q "$id" "$HOME/${configFile}" 2>/dev/null \
       || fail "session for $id never saved to disk"
 
-    cat "$ns/kaval.pid" > /tmp/skew-gate || fail "could not read daemon gate pid"
+    cat "$ns/${gateFile}" > /tmp/skew-gate || fail "could not read daemon gate pid"
     echo "$id" > /tmp/skew-id
     echo OK > /tmp/skew-seed-result
   '';
@@ -69,14 +66,14 @@ let
   # logs a skew → times out, writing FAIL.
   verify = pkgs.writeShellScript "kolu-skew-verify" ''
     set -uo pipefail
-    ns="$XDG_RUNTIME_DIR/kaval-${port}"
+    ns="${ns}"
     id=$(cat /tmp/skew-id); oldgate=$(cat /tmp/skew-gate)
 
     newgate=""
     for _ in $(seq 1 90); do
-      newgate=$(cat "$ns/kaval.pid" 2>/dev/null || echo "")
+      newgate=$(cat "$ns/${gateFile}" 2>/dev/null || echo "")
       skewlog=$(journalctl --user -u kolu-new --no-pager 2>/dev/null | grep -c "contract skew" || echo 0)
-      sess=$(grep -c "$id" "$HOME/.config/kolu/config.json" 2>/dev/null || echo 0)
+      sess=$(grep -c "$id" "$HOME/${configFile}" 2>/dev/null || echo 0)
       if [ -n "$newgate" ] && [ "$newgate" != "$oldgate" ] \
          && [ "$skewlog" -ge 1 ] && [ "$sess" -ge 1 ]; then
         echo "OK skew-recycled: daemon gate $oldgate->$newgate; contract skew logged; session for $id preserved" \
@@ -89,25 +86,21 @@ let
       echo "FAIL(skew-verify): the skewed survivor was not cleanly recycled with the session preserved."
       echo "  daemon gate pid: $oldgate -> $newgate (must CHANGE — the survivor is recycled, not adopted)"
       echo "  kolu-new 'contract skew' log count: $(journalctl --user -u kolu-new --no-pager 2>/dev/null | grep -c 'contract skew' || echo 0) (must be >= 1)"
-      echo "  session $id in config.json: $(grep -c "$id" "$HOME/.config/kolu/config.json" 2>/dev/null || echo 0) (must be >= 1 — preserved for restore)"
+      echo "  session $id in config.json: $(grep -c "$id" "$HOME/${configFile}" 2>/dev/null || echo 0) (must be >= 1 — preserved for restore)"
     } > /tmp/skew-verify-result
     exit 1
   '';
 in
-pkgs.testers.nixosTest {
+lib.mkAdoptionTest {
   name = "kolu-adoption-skew";
+  inherit seed verify;
+  seedResult = { file = "/tmp/skew-seed-result"; label = "skew-seed"; };
+  verifyResult = "/tmp/skew-verify-result";
 
-  nodes.machine = { ... }: {
-    imports = [
-      home-manager.nixosModules.home-manager
-      nixosModule
-    ];
-    services.getty.autologinUser = "alice";
-    users.users.alice.linger = true;
-
-    # The "newer" (contract-bumped) kolu, as a manual user service on the SAME
-    # port — started only after the old server is stopped, so it inherits the
-    # surviving daemon's socket namespace and skews on the handshake.
+  # The "newer" (contract-bumped) kolu, as a manual user service on the SAME
+  # port — started only after the old server is stopped, so it inherits the
+  # surviving daemon's socket namespace and skews on the handshake.
+  nodeExtra = {
     systemd.user.services.kolu-new = {
       description = "kolu (contract-bumped) — the newer build for the skew test";
       serviceConfig = {
@@ -118,39 +111,11 @@ pkgs.testers.nixosTest {
     };
   };
 
-  testScript = ''
-    machine.wait_for_unit("multi-user.target")
-    machine.wait_until_succeeds("systemctl is-active user@1000.service", timeout=90)
-    machine.wait_until_succeeds(
-        "curl --fail --silent http://127.0.0.1:${port}/ > /dev/null",
-        timeout=180,
-    )
-
-    # Seed a terminal + a saved session on the OLD (compatible) daemon. Scripts
-    # run as alice via machinectl (whose exit code is swallowed), so assert the
-    # result file as root.
-    machine.succeed("timeout 180 machinectl -q shell alice@.host ${seed} </dev/null")
-    machine.succeed("grep -qx OK /tmp/skew-seed-result || { echo 'skew-seed:'; cat /tmp/skew-seed-result; false; }")
-
-    # Stop the OLD server; its daemon survives in its own transient cgroup.
-    machine.succeed(
-        "machinectl -q shell alice@.host /run/current-system/sw/bin/systemctl --user stop kolu </dev/null"
-    )
-    # Start the NEW (contract-bumped) server on the SAME port: it finds the
-    # surviving daemon, the handshake skews, and it recycles it.
-    machine.succeed(
-        "machinectl -q shell alice@.host /run/current-system/sw/bin/systemctl --user start kolu-new </dev/null"
-    )
-    machine.wait_until_succeeds(
-        "curl --fail --silent http://127.0.0.1:${port}/ > /dev/null",
-        timeout=180,
-    )
-
-    # Verify: the survivor was RECYCLED (new gate pid), the skew was logged, and
-    # the session is PRESERVED for restore.
-    machine.succeed("timeout 180 machinectl -q shell alice@.host ${verify} </dev/null")
-    print(machine.succeed(
-        "grep -q '^OK' /tmp/skew-verify-result && cat /tmp/skew-verify-result || { echo 'skew-verify:'; cat /tmp/skew-verify-result; false; }"
-    ))
-  '';
+  # Stop the OLD server (its daemon survives in its own transient cgroup), then
+  # start the NEW (contract-bumped) server on the SAME port: it finds the
+  # surviving daemon, the handshake skews, and it recycles it.
+  lifecycleSteps = ''
+    ${lib.systemctlUser "stop kolu"}
+    ${lib.systemctlUser "start kolu-new"}
+    ${lib.waitForListener}'';
 }

@@ -18,27 +18,16 @@
 #
 # Verified on a pu box, and falsified by reverting the boot to always-recycle
 # (which makes step 4 time out red — proving the assertions actually bite).
-{ pkgs, kolu, home-manager, nixosModule, system }:
+#
+# Only the distinguishing data lives here; lib.nix owns the shared scaffold.
+{ pkgs, port, kavalTui, lib, ... }:
 let
-  kavalTui = "${kolu.packages.${system}.kaval-tui}/bin/kaval-tui";
-  jq = "${pkgs.jq}/bin/jq";
-  curl = "${pkgs.curl}/bin/curl";
+  inherit (lib) jq curl ns gateFile openTerminal;
 
   # A unique marker only WE send into the terminal — a freshly-respawned PTY could
   # never contain it, so its survival in the scrollback is the headline proof of
   # adoption, stronger than a merely-matching pid.
   nonce = "KOLU_ADOPT_PROBE_4Qx9zt";
-
-  # The kolu user service listens here (the module default).
-  port = "7681";
-
-  # IMPORTANT — `machinectl shell` does NOT propagate the run command's exit
-  # status: it returns 0 once the session opens, whatever the command did. So
-  # these scripts (run AS alice, for her XDG_RUNTIME_DIR / DBUS / journal) record
-  # their verdict in a RESULT FILE, and the testScript asserts that file as ROOT
-  # (whose exit status the driver DOES see). Without this, every assertion would
-  # be silently ignored and the test could never fail — the trap the mutation
-  # check caught during authoring.
 
   # Seed: open a terminal, run a command, confirm its output reached the
   # scrollback BEFORE the restart; record the survivor's identity (terminal
@@ -47,13 +36,10 @@ let
   seed = pkgs.writeShellScript "kolu-adopt-seed" ''
     set -uo pipefail
     fail() { echo "FAIL(seed): $*" > /tmp/seed-result; exit 1; }
-    ns="$XDG_RUNTIME_DIR/kaval-${port}"
+    ns="${ns}"
 
     # 1) create a terminal via the app contract's terminal.create RPC.
-    id=$(${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/terminal/create" \
-           -H 'content-type: application/json' -d '{"json":{}}' \
-         | ${jq} -r '.json.id') || fail "terminal.create RPC errored"
-    [ -n "$id" ] && [ "$id" != null ] || fail "terminal.create returned no id"
+    ${openTerminal}
 
     # 2) wait for the PTY to go live on the daemon (a real pid in the list).
     pid=""
@@ -82,7 +68,7 @@ let
     [ -n "$seen" ] || fail "command output never reached the scrollback pre-restart"
 
     # 5) record the survivor identity for the verify phase.
-    cat "$ns/kaval.pid" > /tmp/adopt-gate || fail "could not read the daemon gate pid"
+    cat "$ns/${gateFile}" > /tmp/adopt-gate || fail "could not read the daemon gate pid"
     echo "$id"  > /tmp/adopt-id
     echo "$pid" > /tmp/adopt-pid
     echo OK > /tmp/seed-result
@@ -98,12 +84,12 @@ let
   # /tmp/verify-result.
   verify = pkgs.writeShellScript "kolu-adopt-verify" ''
     set -uo pipefail
-    ns="$XDG_RUNTIME_DIR/kaval-${port}"
+    ns="${ns}"
     id=$(cat /tmp/adopt-id); pid=$(cat /tmp/adopt-pid); gate=$(cat /tmp/adopt-gate)
 
     newgate=""; newpid=""
     for _ in $(seq 1 60); do
-      newgate=$(cat "$ns/kaval.pid" 2>/dev/null || echo "")
+      newgate=$(cat "$ns/${gateFile}" 2>/dev/null || echo "")
       newpid=$(${kavalTui} list --json 2>/dev/null \
                | ${jq} -r --arg id "$id" '.[] | select(.id==$id) | .pid' 2>/dev/null || echo "")
       if [ "$newgate" = "$gate" ] && [ "$newpid" = "$pid" ] \
@@ -126,60 +112,16 @@ let
     exit 1
   '';
 in
-pkgs.testers.nixosTest {
+lib.mkAdoptionTest {
   name = "kolu-adoption";
+  inherit seed verify;
+  seedResult = { file = "/tmp/seed-result"; label = "seed result"; };
+  verifyResult = "/tmp/verify-result";
 
-  nodes.machine = { ... }: {
-    imports = [
-      home-manager.nixosModules.home-manager
-      nixosModule
-    ];
-    services.getty.autologinUser = "alice";
-    # Linger keeps alice's user manager — and the kaval `systemd-run --user`
-    # transient unit it owns — running across `systemctl --user restart kolu`.
-    # This is the production survival precondition (the #1031 cgroup-v2 lesson the
-    # survivable-spawn driver encodes): without it the daemon would die with the
-    # restart and the test would silently exercise a FRESH spawn, not adoption.
-    # The default KillMode (control-group) is left as-is on purpose — it is
-    # exactly the hazard `systemd-run` escapes; do not add one.
-    users.users.alice.linger = true;
-  };
-
-  testScript = ''
-    machine.wait_for_unit("multi-user.target")
-    machine.wait_until_succeeds("systemctl is-active user@1000.service", timeout=90)
-    # systemd reports kolu "active" before its HTTP listener binds; 180s headroom
-    # for hosts without KVM (qemu TCG inflates node startup ~10x).
-    machine.wait_until_succeeds(
-        "curl --fail --silent http://127.0.0.1:${port}/ > /dev/null",
-        timeout=180,
-    )
-
-    # Seed: open a terminal over the oRPC API, run a command, confirm its output
-    # is in the scrollback. The script runs as alice via machinectl (whose exit
-    # code is swallowed), so we assert its result file as root. `</dev/null` is
-    # load-bearing — machinectl forwards stdin to the session PTY and the driver's
-    # pipe never EOFs.
-    machine.succeed("timeout 180 machinectl -q shell alice@.host ${seed} </dev/null")
-    machine.succeed("grep -qx OK /tmp/seed-result || { echo 'seed result:'; cat /tmp/seed-result; false; }")
-
-    # Restart ONLY the server. The kaval daemon lives in its own
-    # `systemd-run --user` transient cgroup, so it outlives this — the very thing
-    # adoption then reattaches to.
-    machine.succeed(
-        "machinectl -q shell alice@.host /run/current-system/sw/bin/systemctl --user restart kolu </dev/null"
-    )
-    machine.wait_until_succeeds(
-        "curl --fail --silent http://127.0.0.1:${port}/ > /dev/null",
-        timeout=180,
-    )
-
-    # Verify: the SAME daemon, the SAME PTY, the command's UNIQUE output, and
-    # kolu's reconcile all survived — adoption, not a fresh respawn. Same
-    # machinectl-exit caveat → assert the result file as root, printing it.
-    machine.succeed("timeout 180 machinectl -q shell alice@.host ${verify} </dev/null")
-    print(machine.succeed(
-        "grep -q '^OK' /tmp/verify-result && cat /tmp/verify-result || { echo 'verify result:'; cat /tmp/verify-result; false; }"
-    ))
-  '';
+  # Restart ONLY the server. The kaval daemon lives in its own
+  # `systemd-run --user` transient cgroup, so it outlives this — the very thing
+  # adoption then reattaches to.
+  lifecycleSteps = ''
+    ${lib.systemctlUser "restart kolu"}
+    ${lib.waitForListener}'';
 }
