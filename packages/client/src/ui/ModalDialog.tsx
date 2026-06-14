@@ -38,6 +38,21 @@ export function refocusTerminal() {
   (getActiveTerminalNode() ?? getFirstTerminalNode())?.click();
 }
 
+/** Refocus the terminal after a dialog closes — but only if no OTHER dialog
+ *  took over. A command can open About / Welcome / Diagnostic while closing the
+ *  one it ran from, and stealing focus back would yank it from the dialog that
+ *  just opened. Deferred a frame so the closing dialog has decremented and any
+ *  opened dialog has incremented — the reactive equivalent of the old
+ *  `:not([data-closed])` DOM probe. This is the single home for the
+ *  close-refocus policy: every `refocusOnClose` dialog and the command palette
+ *  route through it. */
+export function refocusIfNoDialogOpen() {
+  const dialogStack = useDialogStack();
+  requestAnimationFrame(() => {
+    if (dialogStack.openCount() === 0) refocusTerminal();
+  });
+}
+
 // Width cap for the dialog. Applied to the flex-item wrapper (not Dialog.Content)
 // so the child's `w-full` resolves against a definite parent width — otherwise
 // `w-full` on a content-auto flex item collapses to min-content on desktop.
@@ -90,8 +105,9 @@ const ModalDialog: Component<{
   const handleOpenChange = (open: boolean) => {
     props.onOpenChange(open);
     // Mirrors the retired App-side `withRefocus`: refocus after the setter, on
-    // close, deferred a frame so the closing dialog tears down first.
-    if (props.refocusOnClose && !open) requestAnimationFrame(refocusTerminal);
+    // close. The guard (only if no other dialog took over) lives once in
+    // `refocusIfNoDialogOpen`, shared with the command palette.
+    if (props.refocusOnClose && !open) refocusIfNoDialogOpen();
   };
 
   return (

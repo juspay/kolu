@@ -588,6 +588,7 @@ const CommandPalette: Component<{
       onOpenChange={props.onOpenChange}
       transparentOverlay={props.transparentOverlay}
       initialFocusEl={inputRef}
+      refocusOnClose
       size="lg"
     >
       <Dialog.Content

@@ -1,18 +1,15 @@
 /** Command-palette controller — singleton. Owns the open-state and the
- *  initial-group selection, plus the close policy: on close it resets the group
- *  and refocuses the terminal UNLESS a command opened another dialog (e.g.
- *  "About") — checked reactively via `useDialogStack`, replacing the old
- *  `document.querySelector("[data-corvu-dialog-content]…")` DOM probe. This is
- *  the one overlay with real internal logic, so it earns its own controller;
- *  the trivial toggles use `createDisclosure` instead. */
+ *  initial-group selection. On close it resets the group; the close-refocus
+ *  policy (refocus the terminal unless a command opened another dialog) lives
+ *  in `ModalDialog` — the palette routes through it via `refocusOnClose` like
+ *  every other dialog, so it doesn't hand-roll the refocus guard. This is the
+ *  one overlay with real internal logic (the group reset), so it earns its own
+ *  controller; the trivial toggles use `createDisclosure` instead. */
 
 import { createSignal } from "solid-js";
 import { createSharedRoot } from "./createSharedRoot";
-import { refocusTerminal } from "./ui/ModalDialog";
-import { useDialogStack } from "./ui/useDialogStack";
 
 export const useCommandPalette = createSharedRoot(() => {
-  const dialogStack = useDialogStack();
   const [open, setOpen] = createSignal(false);
   const [initialGroup, setInitialGroup] = createSignal<string | undefined>();
 
@@ -33,18 +30,9 @@ export const useCommandPalette = createSharedRoot(() => {
     toggle: () => setOpen((v) => !v),
     onOpenChange(next: boolean) {
       setOpen(next);
-      if (!next) {
-        setInitialGroup(undefined);
-        // Refocus the terminal only if no OTHER dialog took over: a palette
-        // command can open About / Welcome / Diagnostic while closing the
-        // palette, and stealing focus back would yank it from the dialog that
-        // just opened. The count is read in a rAF so the closing palette has
-        // decremented and any opened dialog has incremented — the reactive
-        // equivalent of the old `:not([data-closed])` DOM probe.
-        requestAnimationFrame(() => {
-          if (dialogStack.openCount() === 0) refocusTerminal();
-        });
-      }
+      // Palette-specific reset only; the close-refocus is `ModalDialog`'s job
+      // (CommandPalette passes `refocusOnClose`).
+      if (!next) setInitialGroup(undefined);
     },
   } as const;
 });
