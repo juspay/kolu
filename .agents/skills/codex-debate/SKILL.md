@@ -86,8 +86,9 @@ codex/opencode runtimes the skill is inert.
 ## Arguments
 
 A leading `review` subcommand token, if present, is consumed by mode detection;
-what remains is `[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]` (the
-bare alias passes the whole argument string through unchanged). Parse:
+what remains is `[<pr-number>] [--base <branch>] [--no-commit] [--no-comment]
+[--rationale <note>] [--context <note>]` (the bare alias passes the whole argument
+string through unchanged). Parse:
 
 - **`<pr-number>`** (optional): a PR to debate. If given, `gh pr checkout <n>`
   first and default the base to that PR's base branch. If omitted, debate the
@@ -106,6 +107,20 @@ bare alias passes the whole argument string through unchanged). Parse:
 - **`--no-comment`**: don't post the debate summary to the PR. By **default**, when
   a PR exists, the debate summary IS posted as a PR comment (see step 3). Pass
   this to suppress the outward-facing write and report in chat only.
+- **`--rationale <note>`** (optional): the author's note on **deliberate** design
+  decisions. Threaded into **both** sides — codex's round-1 review prompt (so it
+  doesn't flag intentional choices as defects; its warm session carries the note
+  across later rounds) and the Claude author's prompt **every round** (so it
+  *disputes*, rather than "fixes", a finding that contradicts a deliberate choice).
+  Mirrors `/lens-debate`'s `rationale`. Pull it from the PR/issue description, or the
+  caller (`/be-review`) passes the change rationale straight through.
+- **`--context <note>`** (optional): the **main-agent context** the Claude author
+  should **inherit** — what this change is FOR (its task/intent and key decisions the
+  orchestrator already holds). Injected into the author's prompt **every round** so it
+  no longer reconstructs intent from the diff alone (`agent()` is one-shot and can't
+  be resumed the way codex is, so re-injection is how it inherits at all). Given to
+  the **author only**, not codex — codex stays an independent reviewer of the code,
+  not the author's narrative. `/be-review` passes the task context through.
 
 ## Steps
 
@@ -133,7 +148,9 @@ Workflow({
     repoPath: "<worktree root>",        // also the per-worktree scratch dir root
     base: "<base branch>",
     commit: <false only if --no-commit>,
-    skillDir: ".claude/skills/codex-debate"
+    skillDir: ".claude/skills/codex-debate",
+    context: "<main-agent context the author inherits; omit/'' if none>",
+    rationale: "<author's note on deliberate decisions; omit/'' if none>"
   }
 })
 ```
@@ -416,6 +433,15 @@ returns:
   comment step 3 posts, so the author's memory and the published summary are one
   record. The writes stay small (one round each), so the Haiku writer never
   retypes a large blob. codex stays on its own warm session and never reads them.
+- **Inherited context, not just diff.** On top of that cross-round memory, when the
+  caller passes `context` and/or `rationale` the author **inherits them in EVERY
+  round's prompt** — the main-agent intent (what the change is FOR) and the
+  deliberate-decision note. So even **round 1** reasons from the change's purpose
+  rather than the diff alone, and the author *disputes* a finding that contradicts a
+  deliberate choice instead of dutifully "fixing" it. The `rationale` also rides
+  codex's round-1 prompt (see `codex-review.sh`), so the reviewer doesn't raise those
+  intentional choices at the source; `context` is the author's alone (codex stays an
+  independent reviewer of the code, not the narrative).
 - **Commits, but never pushes or merges.** Each round is committed locally (unless
   `--no-commit`) so the PR history reads as the debate, but the skill never
   pushes or merges. Consensus means "both AIs agree on the committed code," not

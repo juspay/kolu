@@ -60,6 +60,38 @@ const mechModel = a.mechModel || 'haiku'
 // agent's. The small per-round section writes stay on Haiku (tiny payloads).
 const copyModel = a.copyModel || 'sonnet'
 
+// --- Context the Claude implementor INHERITS --------------------------------
+// Two optional notes the CALLER threads in so the implementor (the Claude author)
+// no longer reasons from the diff alone — the gap that made it re-derive the
+// change's intent every round and re-litigate deliberate choices codex (rightly,
+// on a bare diff) flags.
+//
+// `context` (#1): the MAIN-AGENT context — what this change is FOR (the task/intent
+// and key decisions the orchestrator already holds). Injected into the implementor
+// EVERY round: agent() is one-shot and Claude isn't headless under Max auth, so it
+// can't be resumed the way codex is — re-injection is how it "inherits" at all.
+// Deliberately NOT given to codex, which stays an independent reviewer of the
+// actual code rather than the author's narrative.
+const context = (a.context || '').trim()
+// `rationale` (#2): the author's note on DELIBERATE decisions — the same note
+// /lens-debate already accepts, now threaded here too. Given to BOTH sides: codex
+// (its round-1 prompt, via codexReviews → codex-review.sh — so the reviewer doesn't
+// raise them at the source; codex's warm session carries the note across rounds)
+// AND the implementor (so it DISPUTES, rather than "fixes", a finding that
+// contradicts a deliberate choice).
+const rationale = (a.rationale || '').trim()
+// The two notes as ready-to-interpolate implementor-prompt blocks. Empty when the
+// note is absent, so the prompt stays byte-identical to the contextless form then.
+const contextBlock = context
+  ? `\nContext you INHERIT from the main agent — what this change is FOR (its task/intent and key decisions). Weigh codex's findings against it: a finding that contradicts this intent is a candidate to DISPUTE, not blindly fix.\n${context}\n`
+  : ''
+const rationaleBlock = rationale
+  ? `\nAuthor's note on DELIBERATE decisions (chosen on purpose — do NOT "fix" them away; dispute the finding unless codex shows the decision itself is wrong):\n${rationale}\n`
+  : ''
+// codex reads the rationale from a file (it's constant across rounds, written once
+// before the loop); `-` means "no rationale" to codex-review.sh.
+const rationaleFileArg = rationale ? `${workDir}/rationale.md` : '-'
+
 // The reasoning effort codex runs at, scoped to the debate. This JS constant is
 // the SINGLE home for the value: it is passed script-ward (a 4th positional arg
 // to codex-review.sh, which sets `-c model_reasoning_effort`) and read by
@@ -147,11 +179,11 @@ async function codexReviews(round, rebuttalJson) {
 ${rebuttalJson}
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath} ${REASONING_EFFORT}\``
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath} ${REASONING_EFFORT} ${rationaleFileArg}\``
     : `1. (No prior rebuttal this round.)
 
 2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
-   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath} ${REASONING_EFFORT}\``
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath} ${REASONING_EFFORT} ${rationaleFileArg}\``
 
   const prompt = `You are a MECHANICAL RUNNER for one round of an automated code-review debate. Do exactly the steps below and nothing else. Do NOT review the code yourself, do NOT edit any repository files, do NOT add commentary.
 
@@ -192,7 +224,7 @@ Build on what you already did; don't re-derive the diff from scratch, and don't 
   const prompt = `You authored the changes on this branch. CODEX reviewed them and returned the verdict below — what do you think? Fix what you agree with, push back (with reasons) on what you don't.
 
 Work in the repo at \`${repoPath}\` — your shell cwd may be a different worktree, so use ABSOLUTE paths under it and \`git -C ${repoPath}\`. See the change with \`git -C ${repoPath} diff ${base}\`.
-
+${contextBlock}${rationaleBlock}
 ${priorBlock}CODEX's verdict (JSON):
 ${JSON.stringify(verdict, null, 2)}
 
@@ -386,6 +418,23 @@ await agent(
   `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`mkdir -p -- ${shq(workDir)} && rm -f -- ${shq(workDir)}/section-*.md\`. Do not edit any other file. Do not run git.`,
   { label: 'ledger:reset', phase: 'Debate', model: mechModel },
 )
+
+// Persist the author's rationale ONCE (it's constant across rounds) so
+// codex-review.sh can inject it into codex's round-1 prompt; codex's warm session
+// then carries the note across later rounds without re-injection. Only when a
+// rationale was passed — otherwise rationaleFileArg is `-` and no file is needed.
+// A thin mechanical writer (the workflow can't do file I/O); the payload is small.
+if (rationale) {
+  await agent(
+    `You are a MECHANICAL WRITER. Do exactly these steps and nothing else — do not edit any other file, do not run git, do not add commentary.
+
+1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+2. Using the Write tool, create \`${workDir}/rationale.md\` with EXACTLY this content, overwriting any existing file:
+
+${rationale}`,
+    { label: 'rationale:write', phase: 'Debate', model: mechModel },
+  )
+}
 
 for (let round = 1; ; round++) {
   const verdict = await codexReviews(round, lastClaude ? JSON.stringify(lastClaude) : null)
