@@ -110,9 +110,10 @@ window.__burst = async function(gesture, K, cx, cy, mag, dir){
     }));
   }
   var t1 = performance.now();                       // synchronous burst cost
+  // Two frames so the coalesced rAF flush lands (and its tile writes register)
+  // before the next burst — the wait is needed even though we don't time it.
   await new Promise(function(r){ requestAnimationFrame(function(){ requestAnimationFrame(r); }); });
-  var t2 = performance.now();
-  return JSON.stringify({ burstMs: +(t1-t0).toFixed(2), settleMs: +(t2-t1).toFixed(2), writes: window.__m.tileTx });
+  return JSON.stringify({ burstMs: +(t1-t0).toFixed(2), writes: window.__m.tileTx });
 };
 `;
 
@@ -208,7 +209,6 @@ const median = (xs) => {
       const scene = {
         throttle: rate,
         gesture,
-        burst: BURST,
         medianBurstMs: mb,
         perEventUs: +((mb * 1000) / BURST).toFixed(1),
         writesPerBurst: mw,
