@@ -84,6 +84,10 @@ Local PTYs moved into **kaval**, a standalone hashed daemon kolu spawns and supe
 
 ## What's next — R-2 then R-3
 
+<Callout kind="note" title="Direction under review — kaval session switching">
+R-2's *granularity* is being reconsidered: rather than per-tile remote terminals (a mixed grid), treat a kaval as a daemon you dial and **switch between kavals like tmux sessions** (local or ssh-remote). The transport work below is unchanged and on the critical path either way; what may change is whether `location` is threaded per-record or the session partitions per-kaval. See [kaval-sessions](kaval-sessions.html).
+</Callout>
+
 Everything before R-2 is shipped, so the remaining work is narrow and additive. R-4 and `@kolu/surface-nix-host` already paid for the hard parts:
 
 <Callout kind="note" title="What R-4 + R-1.5 already paid for (so R-2/R-3 shrank)">

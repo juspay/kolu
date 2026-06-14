@@ -1,0 +1,131 @@
+---
+title: Kaval sessions — switch daemons like tmux
+description: A direction reframe for R-2. Instead of per-tile remote terminals (a grid that mixes hosts), treat a kaval as a daemon you dial — local over a unix socket, remote over ssh — and switch between kavals like tmux sessions. Switching is the adoption R-4 already shipped; remote becomes a transport, not a feature. Prototype the ssh reach in kaval-tui first.
+kind: feature
+status: proposed
+maturity: seedling
+parents: [remote-terminals]
+updated: 2026-06-14
+---
+
+import D2 from "../../components/D2.astro";
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Terminal from "../../components/Terminal.astro";
+
+export const KavalSwitcher = () => (
+  <div style="margin:1.5rem 0;max-width:33rem;border:1px solid #11131a;border-radius:11px;overflow:hidden;box-shadow:0 6px 22px rgba(0,0,0,.3);font-family:ui-sans-serif,system-ui">
+    <div style="display:flex;align-items:center;gap:.55rem;padding:.5rem .8rem;background:#1b1e27;border-bottom:1px solid #11131a">
+      <span style="font:700 .82rem/1 ui-monospace,monospace;color:#e8ecf7">kolu</span>
+      <span style="display:inline-flex;align-items:center;gap:.4rem;margin-left:.35rem;padding:.3rem .6rem;background:#272b38;border:1px solid #3a4152;border-radius:7px;font:600 .72rem/1 ui-monospace,monospace;color:#c9d1e3">
+        <span style="width:7px;height:7px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+        ⬣ work
+        <span style="color:#6b7488">▾</span>
+      </span>
+      <span style="flex:1"></span>
+      <span style="font:600 .6rem/1 ui-monospace,monospace;color:#6b7488">srv ● · client ● · kaval ●</span>
+    </div>
+    <div style="background:#13151c;padding:.4rem;border-bottom:1px solid #11131a">
+      <div style="font:600 .55rem/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#5b6377;padding:.35rem .55rem .3rem">switch kaval</div>
+      <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:6px;background:#222632">
+        <span style="width:7px;height:7px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+        <span style="font:600 .72rem/1 ui-monospace,monospace;color:#e8ecf7">⬣ work</span>
+        <span style="font:.62rem/1 ui-monospace,monospace;color:#8a93a8">local · 3 terminals</span>
+        <span style="flex:1"></span>
+        <span style="font:.58rem/1 ui-monospace,monospace;color:#4ec9a8">current</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:6px">
+        <span style="width:7px;height:7px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+        <span style="font:600 .72rem/1 ui-monospace,monospace;color:#c9d1e3">⬣ scratch</span>
+        <span style="font:.62rem/1 ui-monospace,monospace;color:#8a93a8">local · 1 terminal</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:6px">
+        <span style="width:7px;height:7px;border-radius:50%;background:#6b7488;display:inline-block"></span>
+        <span style="font:600 .72rem/1 ui-monospace,monospace;color:#c9d1e3">⬣ prod</span>
+        <span style="display:inline-block;font:600 .54rem/1 ui-monospace,monospace;color:#7fb0ff;border:1px solid #38507a;border-radius:4px;padding:.12rem .3rem">ssh</span>
+        <span style="font:.62rem/1 ui-monospace,monospace;color:#8a93a8">nix@prod · dial to attach</span>
+      </div>
+      <div style="height:1px;background:#22262f;margin:.35rem .55rem"></div>
+      <div style="padding:.34rem .55rem;font:.66rem/1 ui-monospace,monospace;color:#6b7488">+ Add a host…</div>
+    </div>
+    <div style="padding:.5rem .8rem;background:#0e1016;font:.63rem/1.4 ui-monospace,monospace;color:#6b7488">↳ the canvas shows <span style="color:#9aa3ba">work</span>'s terminals — switch and the whole grid swaps</div>
+  </div>
+);
+
+**A reframe of [remote-terminals](remote-terminals.html)'s R-2, proposed now kaval ships.** Old R-2 made *remote* a per-tile property — every terminal carries a `location`, the grid mixes hosts, host-knowledge smears onto ~5 surfaces. This proposes the opposite: **a kaval is a daemon you dial, and Kolu switches between kavals like tmux sessions** — local over a unix socket, remote over ssh, one kaval in view at a time.
+
+<KavalSwitcher />
+
+> The conflation it dissolves: old R-2 fused *"more than one kaval can exist"* (real, valuable) with *"tiles mix hosts"* (what made it heavy). Keep the first, drop the second.
+
+## The model — dial a kaval, switch like tmux
+
+kolu-server already keys its pty-host endpoint + status by `hostId` (a `Map`, instantiated as one — `local` — today). This just instantiates more keys: a registry of kaval endpoints, each reached by a driver — unix socket (local, shipped) or ssh stdio (`HostSession`, R-2's only new transport). A *current* pointer picks which kaval the canvas renders.
+
+<D2
+  caption="kolu-server holds a registry of kaval endpoints keyed by hostId + a 'current' pointer. The canvas renders ONE current kaval. Remote is just the ssh driver; more local kavals are just more unix-socket endpoints. Switching repoints 'current' and adopts."
+  code={`direction: down
+ui: "kolu canvas — kaval switcher\\n(one current kaval in view)"
+server: "kolu-server" {
+  switch: "switch(hostId) = repoint 'current' + adoptOrEnsure"
+  registry: "endpoint registry — Map<hostId, endpoint>" {
+    epWork: "work (local) — unix socket"
+    epProd: "prod (remote) — ssh stdio"
+  }
+}
+kWork: "kaval @ work — survives deploys"
+kProd: "kaval @ prod — survives (remote)"
+ui -> server.switch: "pick a kaval"
+server.registry.epWork -> kWork: "dial unix socket"
+server.registry.epProd -> kProd: "dial over ssh (stdioLink)"
+`}
+/>
+
+Switching is cheap because it is **adoption you already shipped**: `adoptOrEnsure` (B3.3) runs at boot against `local`; here it runs *on demand* against the chosen endpoint. Switch away and the kaval survives — the client just detaches. So host-knowledge collapses to one ambient pointer instead of smearing across the UI:
+
+| | per-tile `location` (old R-2) | per-kaval switch (this) |
+| --- | --- | --- |
+| "which host" lives | every record + ~5 surfaces | one *current kaval* pointer |
+| the grid | mixes hosts | one kaval in view |
+| persistence | `location` threaded per record | per-kaval session + endpoint registry |
+| the switch | — | `adoptOrEnsure` — already shipped |
+| remote is… | a per-terminal kind | a transport (the ssh driver) |
+
+Multiple *local* kavals fall out for free — kaval is already namespaced per kolu-server port (`kaval-<port>/`, <PrLink pr={1313} />), so several coexist today; the new capability is one server *switching among* them (isolation: a daemon per project).
+
+## Prototype the reach in kaval-tui first
+
+[kaval-tui](pty-daemon-tui.html) is the minimal client — no switcher, no chips, it just dials a socket and drives a PTY. Teaching it to dial a *remote* kaval isolates the **transport** from the **UI**, and because kaval-tui and kolu-server dial the same socket through the same client, the spike **is** the production `sshDriver`, not a throwaway.
+
+<Terminal title="kaval-tui · ssh nix@prod → kaval.sock (stdioLink)" lines={[
+  "$ kaval-tui --host nix@prod list",
+  "  ↳ ssh nix@prod · dialing kaval.sock over stdio …  connected",
+  "",
+  "ID         PID    IDLE  CMD                 CWD",
+  "a18c…9ff   4471   2m    pnpm build --watch  ~/app",
+  "7b2e…0d4   4502   8s    zsh                 ~/app",
+  "",
+  "$ kaval-tui --host nix@prod attach a18c…9ff",
+  "  ↳ snapshot restored — 642 lines · remote PTY 4471 unchanged",
+  "▸ build: 1 warning in 3.2s — watching…",
+  "~.   detach · the remote kaval keeps running",
+]} />
+
+Split *remote* into its two hard parts and prove the unknown one first:
+
+- **Reach** — dial a remote kaval's socket over an ssh `stdioLink` (`HostSession`). *Never actually run yet.* Prove it first, against a kaval you **hand-start** on the box — fewest moving parts.
+- **Provision** — `nix copy --derivation` the kaval closure, realise, run (`provisionAgent`). Well-trodden (how odu ships `odu-runner`, drishti its agent) — automate *after* reach works.
+
+<Callout kind="note" title="The spike is on the critical path either way">
+Per-tile or per-kaval, the ssh-<em>reach</em> transport is shared by both and is R-2's biggest unknown. Proving it in kaval-tui de-risks the part both models need — and lets real feedback <em>settle</em> the granularity before any switcher UI is designed. So "prototype in kaval-tui first" is the right first step even though the model above isn't accepted yet.
+</Callout>
+
+## Trade-off & status
+
+**You give up the mixed grid** — a local editor tile beside a prod-ssh tile in one saved layout. Right trade for v1: it deletes R-2's dominant complexity, and it is **recoverable** — the `TerminalLocation` discriminator (`{ kind: "local" }`) still lives at the `getTerminalBackendFor` seam, so a later mixed-grid feature threads `location` additively, on a working switch. Open for the spike to answer:
+
+- Does one-kaval-at-a-time chafe, or is tmux-style switching enough?
+- Does the existing KAVAL rail column generalize to the switcher, and does a remote kaval's `DisconnectedOverlay` belong on the whole canvas, not per-tile?
+- Endpoint registry: how are kavals named/added (ssh config? explicit list?), and does the per-kaval session partition compose with the restore-card flow?
+
+**Status — proposed.** Gate: the kaval-tui ssh-*reach* spike (reach before provision). Lands clean and one-kaval-at-a-time holds → this supersedes per-tile R-2 in [remote-terminals](remote-terminals.html) and flips to `accepted`. Surfaces a real need for the mixed grid → per-tile returns, transport already proven. Either way the spike is the next concrete step.
