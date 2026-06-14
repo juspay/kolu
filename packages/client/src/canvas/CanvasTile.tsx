@@ -21,6 +21,7 @@ import {
 } from "../ui/stackLayers";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
+import type { TileAura } from "./tileAura";
 import type { TileLayout } from "./TileLayout";
 import {
   type TileTheme,
@@ -79,6 +80,11 @@ const CanvasTile: Component<{
   panX: () => number;
   panY: () => number;
   zoom: () => number;
+  /** Canvas state-aura tier for this tile — drives the `data-aura` hook the
+   *  border treatment reads. Optional: undefined renders nothing (treated as
+   *  `"none"`). Resolved once by `useTileAura` so the tile and the minimap
+   *  marker share one tier. */
+  auraTier?: () => TileAura;
 }> = (props) => {
   const isMaximized = () => props.mode === "maximized";
   const isCovered = () => props.mode === "covered";
@@ -88,6 +94,7 @@ const CanvasTile: Component<{
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
 
   const bg = () => props.theme.bg;
+  const aura = (): TileAura => props.auraTier?.() ?? "none";
 
   // Active stays full-strength regardless of dimmed — the user is looking
   // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
@@ -109,18 +116,15 @@ const CanvasTile: Component<{
       width: `${l.w}px`,
       height: `${l.h}px`,
       "background-color": bg(),
+      // One colour throughout: the repo's identity colour. The border, the
+      // active "you are here" ring, and the state aura all use it — nothing
+      // else competes. Active reads via a brighter ring + full opacity, not a
+      // second hue.
       "border-color": props.repoColor,
-      // Active tile's right edge points at the inspector panel — repoColor
-      // on the other three edges, accent on the right. Longhand wins after
-      // shorthand in the same declaration block.
-      "border-right-color":
-        props.active && !isMaximized()
-          ? "var(--color-accent)"
-          : props.repoColor,
       "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
       opacity: props.active ? 1 : inactiveOpacity(),
       "box-shadow": props.active
-        ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
+        ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px ${props.repoColor}`
         : `0 2px 8px rgba(0,0,0,0.2)`,
       "transform-origin": "0 0",
       transform: tileTransformCSS(
@@ -160,6 +164,7 @@ const CanvasTile: Component<{
       data-active={props.active ? "true" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
+      data-aura={aura() === "none" ? undefined : aura()}
       // `inert` (when covered) removes the subtree from tab order, blocks
       // pointer events, and hides from assistive tech in one go — matches
       // the pre-#988 `visibility: hidden` wrapper without re-introducing
@@ -291,6 +296,21 @@ const CanvasTile: Component<{
             />
           )}
         </For>
+      </Show>
+
+      {/* Language C · Run / sweep — agent run-state shown as MOTION on a border
+       *  ring in the repo's identity colour (`--aura-c` = repoColor, the one
+       *  colour used throughout): working "runs" as marching ants, needs-you
+       *  "sweeps" a comet whose speed is the urgency. The treatment + speed are
+       *  driven by `[data-aura]` rules in index.css. Last child so it paints
+       *  over the body; `pointer-events:none` so it never eats a click. Skipped
+       *  when maximized — the focused tile mutes its own aura. */}
+      <Show when={aura() !== "none" && !isMaximized()}>
+        <div
+          class="tile-aura"
+          aria-hidden="true"
+          style={{ "--aura-c": props.repoColor }}
+        />
       </Show>
     </div>
   );

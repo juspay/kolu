@@ -193,6 +193,147 @@ body {
   }
 }
 
+/* ── Canvas tile state aura · Language C (Run / sweep) ───────────────────────
+ * Each live tile surfaces its agent run-state as MOTION on a border ring drawn
+ * in the repo's identity colour (`--aura-c` = repoColor — the one colour used
+ * throughout this feature: the resting border, the active ring, and this aura
+ * all share it, nothing else competes). The treatment carries the state; the
+ * colour carries identity.
+ *   - working   → "runs": marching ants stream calmly around all four edges
+ *                 (busy, asks nothing).
+ *   - needs-you → "sweeps": a comet orbits the ring; its SPEED is the urgency —
+ *                 alert fastest, fresh medium, stale slowest (the decay, read as
+ *                 a comet winding down).
+ *
+ * The ring lives on a `.tile-aura` child at `inset:0` — inside the tile's
+ * `overflow-hidden` bounds, so it isn't clipped the way an outer glow would be.
+ * The comet is a conic gradient masked to a ~3px ring (the same border-ring
+ * mask trick the dock pills use); `mask` clips the spinning `::before`, so only
+ * the band shows and it stays welded to all four edges. Focusing a tile clears
+ * unread and mutes its aura (rule last, so it wins). */
+.tile-aura {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 5;
+}
+
+/* working — marching ants: four edge dashes whose background-position streams */
+[data-canvas-tile][data-aura="working"] .tile-aura {
+  background-image:
+    linear-gradient(90deg, var(--aura-c) 50%, transparent 0),
+    linear-gradient(90deg, var(--aura-c) 50%, transparent 0),
+    linear-gradient(0deg, var(--aura-c) 50%, transparent 0),
+    linear-gradient(0deg, var(--aura-c) 50%, transparent 0);
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+  background-size:
+    14px 3px,
+    14px 3px,
+    3px 14px,
+    3px 14px;
+  background-position:
+    0 0,
+    0 100%,
+    0 0,
+    100% 0;
+  animation: tile-aura-ants 0.7s linear infinite;
+  opacity: 0.9;
+}
+@keyframes tile-aura-ants {
+  to {
+    background-position:
+      14px 0,
+      -14px 100%,
+      0 -14px,
+      100% 14px;
+  }
+}
+
+/* needs-you — a comet sweeping a masked ring; speed (`--aura-spin`) is urgency */
+[data-canvas-tile][data-aura="alert"] .tile-aura,
+[data-canvas-tile][data-aura="waiting-fresh"] .tile-aura,
+[data-canvas-tile][data-aura="waiting-stale"] .tile-aura {
+  padding: 3px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+[data-canvas-tile][data-aura="alert"] .tile-aura::before,
+[data-canvas-tile][data-aura="waiting-fresh"] .tile-aura::before,
+[data-canvas-tile][data-aura="waiting-stale"] .tile-aura::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--aura-c) 34deg,
+    transparent 88deg,
+    transparent 360deg
+  );
+  animation: tile-aura-spin var(--aura-spin, 2.1s) linear infinite;
+}
+@keyframes tile-aura-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+[data-canvas-tile][data-aura="alert"] .tile-aura {
+  /* Alert is the loudest rung: a thicker ring whose whole perimeter throbs
+     under a fast, extra-bright comet — unmistakable across the canvas. */
+  padding: 4px;
+  --aura-spin: 0.9s;
+  background: color-mix(in oklch, var(--aura-c) 38%, transparent);
+  animation: tile-aura-alert-pulse 1.1s ease-in-out infinite;
+}
+@keyframes tile-aura-alert-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+[data-canvas-tile][data-aura="alert"] .tile-aura::before {
+  filter: brightness(1.8) saturate(1.5);
+}
+[data-canvas-tile][data-aura="waiting-fresh"] .tile-aura {
+  --aura-spin: 2.1s;
+}
+[data-canvas-tile][data-aura="waiting-fresh"] .tile-aura::before {
+  filter: brightness(1.2);
+}
+[data-canvas-tile][data-aura="waiting-stale"] .tile-aura {
+  --aura-spin: 3.8s;
+}
+[data-canvas-tile][data-aura="waiting-stale"] .tile-aura::before {
+  filter: brightness(0.85) saturate(0.8);
+}
+
+/* Reduced motion: hold the ants / comet still — the themed ring still reads,
+ * it just stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  [data-canvas-tile] .tile-aura,
+  [data-canvas-tile] .tile-aura::before {
+    animation: none;
+  }
+}
+
+/* The active tile mutes its own aura so it doesn't compete with its brighter
+ * focus ring, and the eye-grab always points somewhere new. Last so it wins
+ * over the tier rules above. */
+[data-canvas-tile][data-active="true"] .tile-aura {
+  opacity: 0.4;
+}
+
 /* Inset highlight: marks the pill as ALSO the active terminal when
  * the border is already busy showing agent state. Sits inside the
  * pill so it doesn't compete with the outer animated ring. */

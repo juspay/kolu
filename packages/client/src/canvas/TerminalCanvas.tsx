@@ -36,6 +36,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { savedSessionSub } from "../wire";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
+import { useTileAura } from "./useTileAura";
 import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
@@ -107,6 +108,7 @@ const TerminalCanvas: Component<{
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
   const isStale = useStaleCheck();
+  const tileAuraOf = useTileAura();
 
   /** Pending per-tile layout overrides — bridges the gap between local
    *  geometry intent (drag-end, resize-end, default-place, arrange) and
@@ -438,6 +440,7 @@ const TerminalCanvas: Component<{
                       panX={viewport.panX}
                       panY={viewport.panY}
                       zoom={viewport.zoom}
+                      auraTier={() => tileAuraOf(id)}
                     />
                   )}
                 </Show>
