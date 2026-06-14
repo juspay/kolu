@@ -129,17 +129,18 @@
           )
         '';
         };
-
-        # B3.3 adoption: terminals survive a kolu-server restart when the kaval
-        # daemon outlives it — the one path the Playwright e2e harness can't reach
-        # (no systemd, one server per worker). Kept in its own folder so this flake
-        # stays lean; it's a plain check of this flake, so it rides
-        # `ci::home-manager` with no new CI recipe.
-        adoption-vm-test = import ./adoption {
-          pkgs = linuxPkgs;
-          inherit kolu home-manager nixosModule;
-          system = linuxSystem;
-        };
+      }
+      # B3.3 adoption VM tests (positive adopt + negative contract-skew):
+      # terminals survive a kolu-server restart when the kaval daemon outlives it,
+      # and a contract-skewed survivor is recycled (not adopted) with the session
+      # preserved — the one path the Playwright e2e harness can't reach (no
+      # systemd, one server per worker). Kept in its own folder so this flake stays
+      # lean; both are plain checks of this flake, so they ride `ci::home-manager`
+      # with no new CI recipe.
+      // import ./adoption {
+        pkgs = linuxPkgs;
+        inherit kolu home-manager nixosModule;
+        system = linuxSystem;
       };
 
       # Darwin: standalone home-manager activation package. Building this
