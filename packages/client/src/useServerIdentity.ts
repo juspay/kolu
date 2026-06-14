@@ -19,8 +19,11 @@ export const useServerIdentity = createSharedRoot(() => {
       console.warn("Server info fetch failed:", err);
     });
 
+  // Expose only the named projections, not the raw `identity()` signal: a
+  // consumer reaching past these to read `identity()?.name` would re-scatter the
+  // "kolu" default `appTitle` centralizes and couple itself to the
+  // `ServerIdentity` shape. A future field gets its own projection here.
   return {
-    identity,
     /** Document/window title — the server's name, or the "kolu" default. */
     appTitle: () => identity()?.name ?? "kolu",
     /** PWA chrome theme-color, or undefined before the fetch resolves. */
