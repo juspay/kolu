@@ -17,7 +17,7 @@
  *  reset with the JS context and re-fired the toast. A genuinely newer adoption
  *  (a later update) stamps a greater adoptedAt and announces again. */
 
-import type { DaemonState } from "kolu-common/surface";
+import type { DaemonState, DaemonStatus } from "kolu-common/surface";
 
 /** The reattach decision WITH its payload — `{ count, at }` to announce, or
  *  `null` to stay silent. Returns the announce-this payload when a NOT-yet-
@@ -45,4 +45,32 @@ export function reattachToAnnounce(
     return { count: adopted!, at: adoptedAt };
   }
   return null;
+}
+
+/** The announce side effect, as a glue function so the persist-before-toast
+ *  wiring is testable WITHOUT mounting {@link useDaemonStatus}'s detached
+ *  effect, real `localStorage`, or `solid-sonner`. Runs the {@link
+ *  reattachToAnnounce} decision against the current `status` and the persisted
+ *  high-water mark; on an announce, COMMITS the proven `adoptedAt` as the new
+ *  mark FIRST (so a re-run on the same snapshot — `localDaemonStatus()` re-emits
+ *  on every transition — sees `adoptedAt == lastAnnouncedAt` and stays silent),
+ *  then notifies. Order matters: commit before notify keeps the effect
+ *  idempotent; the unit test pins it by re-running on the same snapshot and
+ *  asserting a single notify. {@link useDaemonStatus} passes the live status,
+ *  the persisted signal's getter/setter, and a toast-bound `notify`. */
+export function announceReattach(
+  status: Pick<DaemonStatus, "state" | "adopted" | "adoptedAt"> | undefined,
+  lastAnnouncedAt: number,
+  commit: (at: number) => void,
+  notify: (count: number) => void,
+): void {
+  const a = reattachToAnnounce(
+    status?.state,
+    status?.adopted,
+    status?.adoptedAt,
+    lastAnnouncedAt,
+  );
+  if (!a) return;
+  commit(a.at);
+  notify(a.count);
 }

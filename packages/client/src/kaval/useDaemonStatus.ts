@@ -14,7 +14,7 @@ import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import type { WsStatus } from "../rpc/rpc";
 import { app } from "../wire";
-import { reattachToAnnounce } from "./reattachAnnounce";
+import { announceReattach } from "./reattachAnnounce";
 
 /** The one host today; R-2's ssh hosts add more keys to the same collection. */
 export const LOCAL_HOST = "local";
@@ -234,17 +234,15 @@ createRoot(() => {
     },
   });
   createEffect(() => {
-    const status = localDaemonStatus();
-    const a = reattachToAnnounce(
-      status?.state,
-      status?.adopted,
-      status?.adoptedAt,
+    // The glue (`announceReattach`) commits the proven adoptedAt as the new
+    // high-water mark BEFORE toasting, so a re-run on the same snapshot is silent
+    // — both halves are unit-tested in `reattachAnnounce.test.ts`.
+    announceReattach(
+      localDaemonStatus(),
       reattachAnnouncedAt(),
+      setReattachAnnouncedAt,
+      (count) =>
+        toast.info(`${count} terminal${count === 1 ? "" : "s"} reattached`),
     );
-    if (!a) return;
-    // The decision carries its payload: commit the proven adoptedAt as the new
-    // high-water mark and render the proven count — no re-read of the status.
-    setReattachAnnouncedAt(a.at);
-    toast.info(`${a.count} terminal${a.count === 1 ? "" : "s"} reattached`);
   });
 });

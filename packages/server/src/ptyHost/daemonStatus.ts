@@ -58,10 +58,23 @@ export function publishDaemonStatus(
  *  terminals). A no-op if the host has no recorded status yet (it always does by
  *  the time adoption runs — the connect emitted one).
  *
- *  Stamps `adoptedAt` here — this is the one site an adoption is surfaced, so the
+ *  Stamps `adoptedAt` here — this is the one site an adoption is surfaced, and it
+ *  fires at most ONCE per server process (boot adoption's `onAdopted`), so the
  *  timestamp is a true per-adoption identity. The pair is sticky in the store and
  *  replayed to every fresh subscription; the client dedupes the toast on
- *  `adoptedAt` so a reconnect/reload replay doesn't re-fire it (juspay/kolu#1365). */
+ *  `adoptedAt` so a reconnect/reload replay doesn't re-fire it (juspay/kolu#1365).
+ *
+ *  `Date.now()` orders adoptions across server boots. Since each adoption is its
+ *  OWN process lifetime separated by a restart, two adoptions can't collide on a
+ *  millisecond (no intra-process second stamp to alias). The one residual edge is
+ *  a wall-clock step BACKWARD across a redeploy — then a genuine new adoption's
+ *  `adoptedAt` can fall at-or-below the client's persisted high-water mark and its
+ *  (informational) toast is skipped for that one boot; nothing is lost. The store
+ *  is in-memory and empty on the next boot, so there's no prior stamp to enforce
+ *  monotonicity against server-side, and a client seen-id SET (the alternative)
+ *  would grow unbounded and forfeit the "a stale older replay stays silent"
+ *  property the high-water mark gives for free. The skewed-clock toast-skip is the
+ *  deliberately-accepted cost. */
 export function setAdoptedCount(hostId: string, adopted: number): void {
   const current = store.get(hostId);
   if (!current) return;
