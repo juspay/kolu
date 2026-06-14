@@ -12,6 +12,7 @@ import D2 from "../../components/D2.astro";
 import Callout from "../../components/Callout.astro";
 import PrLink from "../../components/PrLink.astro";
 import Terminal from "../../components/Terminal.astro";
+import Pill from "../../components/Pill.astro";
 
 export const KavalCanvas = () => (
   <div style="margin:1.5rem 0;max-width:35rem;border:1px solid #11131a;border-radius:11px;overflow:hidden;box-shadow:0 6px 22px rgba(0,0,0,.3);font-family:ui-sans-serif,system-ui">
@@ -162,7 +163,7 @@ server.registry.epProd -> kProd: "ssh: nix copy --derivation → realise → dia
 | **provider DAG + fs/git watchers** — run where the files are | in kolu-server | in **kolu-watcher** → stream metadata |
 | **Code-tab fs** — browse · read · *watch* | node fs (native) | remote fs surface · snapshot-then-delta |
 
-The **awareness** providers (cwd · title · foreground · command · agent-detection) are *tap-fed*, so they are transport-free. kaval stays the durable survivor; **kolu-watcher** — a host-resident process running the provider DAG + fs/git — **re-runs fresh** (the #1031 line, now applied remote-side). *The `kolu-` prefix is honest: kolu-watcher runs kolu's own logic — it is coupled, kolu's soul — unlike the generic, kolu-agnostic kaval (which earns a standalone name).* So R-1's `TerminalBackend` *interface* anticipated a second (remote) *implementation* the kaval model dissolves: not two backends, one backend whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` (B3.3) adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out for free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
+The **awareness** providers (cwd · title · foreground · command · agent-detection) are *tap-fed*, so they are transport-free. kaval stays the durable survivor; **kolu-watcher** — a host-resident process running the provider DAG + fs/git — **re-runs fresh** (the #1031 line, now applied remote-side). *The `kolu-` prefix is honest: kolu-watcher runs kolu's own logic — it is coupled, kolu's soul — unlike the generic, kolu-agnostic kaval (which earns a standalone name).* So R-1's `TerminalBackend` *interface* — renamed `TerminalEndpoint` and shorn of its speculative resolver in **P0** (<PrLink pr={1364} />) — anticipated a second (remote) *implementation* the kaval model dissolves: not two backends, one backend whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` (B3.3) adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out for free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
 
 ## Switch or multiplex?
 
@@ -182,7 +183,7 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
 
 | Phase | Ships | Note |
 | --- | --- | --- |
-| **P0** · backend cleanup | collapse R-1's anticipated backend polymorphism — a backend is **PTY · fs · git surfaces bound to an endpoint** (no `RemoteTerminalBackend`); byte-identical locally, the seam P3 fills with the remote impls | kolu-server only · low-risk · grounds P3 · can lead or run in parallel |
+| **P0** · backend cleanup <Pill variant="ok">shipped</Pill> <PrLink pr={1364} /> | collapsed R-1's anticipated backend polymorphism — a backend is **PTY · fs · git surfaces bound to an endpoint** (`TerminalEndpoint`, renamed from `TerminalBackend`; no `RemoteTerminalBackend`); byte-identical locally. The interface's own doc-comment is now the seam P3 fills with the remote impl | kolu-server only · landed · grounds P3 |
 | **P1** · `kaval-tui create` | spawn a plain shell — the attach-needs-something prerequisite | thin over `terminal.spawn` |
 | **P2** · `kaval-tui --host` | **reach + provision in one PR** (ssh), hosts auto-detected from ssh config | **the spike** — *is* the production `sshDriver`; the validation long-pole |
 | **P3** · kolu dials remotes | N-endpoint registry + the ssh driver; the remote pair — kaval + **kolu-watcher** (provider DAG + fs/git surface) — mirrored over the `HostSession` link; `location` additive on records | builds on P0 + P2 · carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`) |
@@ -201,12 +202,37 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
   "  ↳ ~/app on prod — remote PTY survives · detach/reattach anytime",
 ]} />
 
-- **`kaval-tui create`** *(prereq)* — spawn a **plain shell** (a thin subcommand over `terminal.spawn`; B0 made spawn fully-specified, the tests already carry the minimal `spawnInput()`). kaval-tui today is `list` / `snapshot` / `attach` — its own source says *"spawn / kill land later."* A freshly-provisioned remote kaval has **zero** terminals, so `create` comes first.
-- **`kaval-tui --host <ssh>`** *(reach + provision, one PR)* — `provisionAgent` (`nix copy --derivation` → realise) **then** dial over `HostSession`'s ssh `stdioLink`. Both halves already ship in `@kolu/surface-nix-host`, so it is one PR wiring two proven primitives.
+- **`kaval-tui create`** *(prereq)* — spawn a **plain shell**: a thin subcommand over the `terminal.spawn` RPC (B0 made spawn fully-specified — the caller supplies the whole `{argv, env, initFiles}`, the host derives nothing — and the tests already carry the minimal `spawnInput()`). `kaval-tui` today is `list` / `snapshot` / `attach`; its own source defers the rest — *"spawn / kill are later phases."* A freshly-provisioned remote kaval has **zero** terminals, so `create` comes first.
+- **`kaval-tui --host <ssh>`** *(reach + provision, one PR)* — one `getHostSession(…)` from `@kolu/surface-nix-host` both provisions (`nix copy --derivation` → realise → pin) **and** dials over ssh `stdioLink`, handing back a client of the *same* `ptyHostSurface` contract the unix socket speaks. Both halves already ship and are proven in the remote-process-monitor example, so it is one PR wiring two known primitives — no new transport invented.
 
 <Callout kind="note" title="The spike is the substrate — and it doesn't depend on switch-vs-multiplex">
-ssh <em>reach</em> + provision is the one genuinely-new transport, shared by both granularities and R-2's biggest unknown. Proving it in kaval-tui builds the production driver and lets real feedback <em>settle</em> switch-vs-multiplex later — so it is the right validation step even though the canvas model isn't finalized. (P0 is independent kolu-server cleanup; it can land first in parallel without waiting on the spike.)
+ssh <em>reach</em> + provision is the one genuinely-new transport, shared by both granularities and R-2's biggest unknown. Proving it in kaval-tui builds the production driver and lets real feedback <em>settle</em> switch-vs-multiplex later — so it is the right validation step even though the canvas model isn't finalized. (P0 was independent kolu-server cleanup; it landed first, <PrLink pr={1364} />, without waiting on the spike.)
 </Callout>
+
+### Pick-up anchors
+
+Concrete hooks so either phase can be picked up cold — every path below is verified against the post-P0 tree. Both phases live in **`packages/kaval-tui/src/main.ts`** (a [cleye](pty-daemon-tui.html) CLI: `command()` entries in a `commands` array, dispatched by a closed `if (argv.command === …)` chain) and call the **already-complete** `terminal.spawn` / surface contract — neither needs a contract bump.
+
+**P1 · `kaval-tui create`** — the thin spawn (the deferred *"spawn / kill are later phases"* work):
+
+| Concern | Anchor |
+| --- | --- |
+| subcommand + dispatch | add a `command()` beside `list`/`snapshot`/`attach` and an `else if (argv.command === "create")` arm — the deferred-phases comment marks the exact spot |
+| the call | `conn.client.surface.terminal.spawn(input)` → `{ id, pid, cwd }`; the existing `PtyTuiClient` (`connect.ts`) already exposes it — **no client change** |
+| input shape | `PtyHostSpawnInput` (`packages/kaval/src/ptyHostSurface.ts`) — required `{ argv, cwd, env, initFiles }`, optional `id` · `cols` · `rows` · `scrollback`. *Thin path:* shell straight into `argv[0]`, `initFiles: []` — deliberately **not** kolu-server's policy compose (`composeSpawnInput`, `packages/server/src/ptyHost/index.ts`), which layers env + shell-init for the rich client |
+| minimal shape to copy | the in-tree `spawnInput()` helper — `packages/kaval/src/contractCorpus.testlib.ts` and `packages/kaval-tui/src/attach.test.ts` |
+| open calls | positional `[-- cmd]` vs default `$SHELL` · auto-attach after spawn vs `--print-id` only · `--json` output |
+
+**P2 · `kaval-tui --host <ssh>`** — reach + provision, composing primitives that already ship in `@kolu/surface-nix-host`:
+
+| Concern | Anchor |
+| --- | --- |
+| the flag | add `--host` beside `socketFlag` (only `--socket` exists today; there is no `--host` yet) |
+| connect branch | the connect seam (`connect.ts` / `resolveSocketPath()`) gains a second path: on `--host`, build the ssh-stdio client instead of the unix-socket one. It is the **same `ptyHostSurface.contract` client**, so every `cmd*()` — including P1's `create` — consumes it unchanged |
+| dial + provision | `getHostSession<typeof ptyHostSurface.contract>({ host, resolveDrvPath, binary })` → internally `provisionAgent` (`nix copy --derivation` → realise → pin GC root) **then** `stdioLink({ read: child.stdout, write: child.stdin })`; the consumer touches neither directly. Use `session.pin()` for the client and `session.onState(cb)` for the `copying → connecting → connected` cell |
+| arch → drvPath | `resolveSystem(host)` (asks the host's own Nix for `builtins.currentSystem`) feeds the `resolveDrvPath` callback |
+| reference bridge | the remote-process-monitor example is the full pattern — `packages/surface/example/remote-process-monitor/src/server/{main.ts,router.ts}`. There is **no** ready-made `sshDriver`: P2 composes `getHostSession` + `pin` + `onState` itself |
+| open call | ssh-config host auto-detect (the *"from ssh config"* nicety) layers on top of the flag — not load-bearing for the spike |
 
 ## The remote process model (P3)
 
@@ -230,4 +256,4 @@ And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching i
 
 ## Status
 
-**Accepted (the approach).** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. Execution starts with the transport spike (`kaval-tui create` → `kaval-tui --host`), which validates the one genuinely-new piece; P0 (backend cleanup) can land first in parallel; P4 builds **multiplex** and validates the feel against tmux-switch — the one reversible call, made on real use, not up front.
+**Accepted (the approach); P0 shipped.** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. **P0 (backend cleanup) has landed** (<PrLink pr={1364} />): the `TerminalEndpoint` interface is now the live seam, its own doc-comment naming P3's remote transport. Next is the transport spike (`kaval-tui create` → `kaval-tui --host`), which validates the one genuinely-new piece; then P4 builds **multiplex** and validates the feel against tmux-switch — the one reversible call, made on real use, not up front.
