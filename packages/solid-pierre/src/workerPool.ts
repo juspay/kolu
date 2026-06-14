@@ -19,11 +19,30 @@
  *  (transcript-html's static export consumes `@pierre/diffs` directly, not this
  *  wrapper). */
 
-import { DEFAULT_THEMES } from "@pierre/diffs";
+import { DEFAULT_THEMES, type HighlighterTypes } from "@pierre/diffs";
 import {
   getOrCreateWorkerPoolSingleton,
   type WorkerPoolManager,
 } from "@pierre/diffs/worker";
+
+/** The single highlighter contract every Kolu `CodeView` shares with the worker
+ *  pool that tokenizes for it. Both facts here must hold for the off-thread
+ *  tokens to be byte-identical to any main-thread path:
+ *
+ *  - `preferredHighlighter`: which Shiki regex engine tokenizes. `shiki-js`
+ *    drops the Oniguruma WASM payload — lighter for an Electron client.
+ *  - `theme`: the dual light+dark registry the highlighter is built with. The
+ *    active scheme is a CSS-variable swap (`themeType`), so the worker
+ *    highlights once and theme toggles never re-tokenize.
+ *
+ *  `CodeView`'s `buildOptions` and the worker pool's `highlighterOptions` both
+ *  read from this one object, so the engine/theme axis lives in exactly one
+ *  place: a future engine or theme change is a one-line edit here that cannot
+ *  drift between the synchronous and worker paths. */
+export const HIGHLIGHTER_CONTRACT = {
+  preferredHighlighter: "shiki-js" as HighlighterTypes,
+  theme: DEFAULT_THEMES,
+} as const;
 
 /** Web workers in the pool. Kolu views one diff/file CodeView at a time, but a
  *  single CodeView holds *many* items that highlight as they scroll in, so a
@@ -47,16 +66,9 @@ export const getCodeViewWorkerPool = (): WorkerPoolManager => {
         }),
       poolSize: POOL_SIZE,
     },
-    highlighterOptions: {
-      // Match the engine CodeView itself selects (see `buildOptions`) so worker
-      // tokens and any main-thread path agree. `shiki-js` drops the Oniguruma
-      // WASM payload — lighter for an Electron client.
-      preferredHighlighter: "shiki-js",
-      // The dual light+dark set. The active scheme is a CSS-variable swap
-      // (`themeType`), so the worker highlights once and theme toggles never
-      // re-tokenize.
-      theme: DEFAULT_THEMES,
-    },
+    // The worker tokenizes against the same engine + theme registry the view
+    // renders with — see `HIGHLIGHTER_CONTRACT`.
+    highlighterOptions: { ...HIGHLIGHTER_CONTRACT },
   });
   return pool;
 };

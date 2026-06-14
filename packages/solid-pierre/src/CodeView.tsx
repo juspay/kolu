@@ -19,7 +19,6 @@ import {
   type CodeViewItem,
   type CodeViewLineSelection,
   type CodeViewOptions,
-  DEFAULT_THEMES,
 } from "@pierre/diffs";
 import {
   type Component,
@@ -30,7 +29,7 @@ import {
   onMount,
 } from "solid-js";
 import { safeApply } from "./safeApply";
-import { getCodeViewWorkerPool } from "./workerPool";
+import { getCodeViewWorkerPool, HIGHLIGHTER_CONTRACT } from "./workerPool";
 
 export type CodeViewProps = {
   /** The items to render — files, diffs, or a mix. Pierre virtualizes across
@@ -161,14 +160,14 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   // Pierre's `itemMetrics.lineHeight` so its virtualizer windows the right
   // number of rows; see the prop doc.
   const buildOptions = (): CodeViewOptions<undefined> => ({
-    theme: DEFAULT_THEMES,
+    // Fixed engine + theme policy shared with the worker pool that tokenizes
+    // for this view. Not per-view choices — spread from the one named binding
+    // (rather than inline literals among the reactive props below) so they
+    // cannot drift from the pool's `highlighterOptions`.
+    ...HIGHLIGHTER_CONTRACT,
     themeType: props.theme,
     diffStyle: props.diffStyle ?? "unified",
     overflow: props.overflow ?? "wrap",
-    // Use Shiki's JS regex engine instead of the Oniguruma WASM one; matches
-    // the worker pool's engine (see workerPool.ts) so any main-thread path
-    // tokenizes the same way.
-    preferredHighlighter: "shiki-js",
     lineHoverHighlight: "both",
     enableLineSelection: props.enableLineSelection ?? false,
     onSelectedLinesChange: (s) => props.onSelectedLinesChange?.(s),
