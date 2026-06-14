@@ -75,6 +75,7 @@ export const getCodeViewWorkerPool = (): WorkerPoolManager =>
       poolSize: POOL_SIZE,
     },
     // The worker tokenizes against the same engine + theme registry the view
-    // renders with — see `HIGHLIGHTER_CONTRACT`.
-    highlighterOptions: { ...HIGHLIGHTER_CONTRACT },
+    // renders with — see `HIGHLIGHTER_CONTRACT`. Pierre destructures it, so the
+    // binding is passed directly (no defensive copy needed).
+    highlighterOptions: HIGHLIGHTER_CONTRACT,
   });
