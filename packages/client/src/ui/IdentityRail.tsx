@@ -53,13 +53,6 @@ import Commit from "./Commit";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
 
-/** WebSocket transport status → the `srv` liveness tone. */
-const srvDot: Record<WsStatus, string> = {
-  connecting: "bg-warning animate-pulse",
-  open: "bg-ok",
-  closed: "bg-danger",
-};
-
 /** The daemon's honest state → the `kaval` tone, via the shared presentation
  *  table (so the rail and the dialog can't drift); undefined (status still
  *  loading) is grey, not red — we don't claim "dead" before the first yield. */
@@ -105,11 +98,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const [kavalDialogOpen, setKavalDialogOpen] = createSignal(false);
   const stale = clientStale;
 
-  // The single resting dot: worst-of across the WS link and the daemon, reusing
-  // srvDot/kavalDot (no new tone table). The link wins when it's down (identity is
-  // untrustworthy with no server to read), then an unknown daemon stays grey — never
-  // a false-green before the first status yield (#1034) — then a down/warming daemon,
-  // then the amber currency nudges, else all-clear.
+  // The single resting dot: worst-of across the WS link and the daemon, resolved
+  // through the shared tone receptacles (wsDot/kavalDot/nudgeDot/toneDot, no new tone
+  // table). The link wins when it's down (identity is untrustworthy with no server to
+  // read), then an unknown daemon stays grey — never a false-green before the first
+  // status yield (#1034) — then a down/warming daemon, then the amber currency nudges,
+  // else all-clear.
   const unifiedDot = (): string => {
     if (props.status !== "open") return wsDot(props.status);
     const state = daemon()?.state;
@@ -136,7 +130,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         <span class="w-12 text-[9px] uppercase tracking-wide text-fg-3">
           srv
         </span>
-        <span class={`h-[6px] w-[6px] rounded-full ${srvDot[props.status]}`} />
+        <span class={`h-[6px] w-[6px] rounded-full ${wsDot(props.status)}`} />
         <span class="flex-1 text-fg-2">{pwa.server()?.commit ?? "—"}</span>
         <Show when={pwa.server()?.version}>
           {(v) => <span class="text-fg-3">v{v()}</span>}

@@ -20,18 +20,13 @@ import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { type Component, createSignal, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
+import { wsDot } from "./kaval/useDaemonStatus";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
 import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
-
-const statusStyles: Record<WsStatus, string> = {
-  connecting: "bg-warning animate-pulse",
-  open: "bg-ok",
-  closed: "bg-danger",
-};
 
 const MobileChromeSheet: Component<{
   status: WsStatus;
@@ -62,7 +57,7 @@ const MobileChromeSheet: Component<{
         <span class="font-semibold text-sm flex-1">{props.appTitle}</span>
         <span
           data-ws-status={props.status}
-          class={`inline-block w-2 h-2 rounded-full ${statusStyles[props.status]}`}
+          class={`inline-block w-2 h-2 rounded-full ${wsDot(props.status)}`}
           role="status"
           aria-label="Connection status"
         />
