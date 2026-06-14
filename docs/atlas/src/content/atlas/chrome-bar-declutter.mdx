@@ -1,0 +1,285 @@
+---
+title: ChromeBar declutter — collapse the rail when it agrees
+description: The srv·client·kaval identity rail prints the same commit three times in the happy path. Collapse it to one calm health-dot + version + shared SHA at rest, and fan back out to per-source detail only when a source actually diverges — so every alarm stays loud and nothing becomes unreachable.
+kind: feature
+status: proposed
+maturity: seedling
+parents: [pty-daemon-chrome-bar]
+updated: 2026-06-14
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import D2 from "../../components/D2.astro";
+import PrLink from "../../components/PrLink.astro";
+import Pill from "../../components/Pill.astro";
+
+The rail is **too crowded** — and most of it is the *same fact, repeated*. In a
+clean deploy the server, this browser's bundle, and the kaval daemon are all
+built from one HEAD, so the rail prints **`d07ea54` three times** behind three
+labels and two dividers. <Cite file="packages/client/src/ui/IdentityRail.tsx" />
+
+export const CbStyles = () => (
+  <style>{`
+  .cb-stage{position:relative;background:#fcfcfd;border:1px solid #e6e2d6;border-radius:12px;padding:1.5rem 1.25rem 1.1rem;margin:1.3rem 0;background-image:linear-gradient(#eef0f3 1px,transparent 1px),linear-gradient(90deg,#eef0f3 1px,transparent 1px);background-size:22px 22px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+  .cb-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+  .cb-logo{display:flex;flex-direction:column;align-items:center;gap:2px;flex:none}
+  .cb-logo i{display:block;height:3px;border-radius:2px}
+  .cb-pill{display:inline-flex;align-items:stretch;border:1px solid #d0d0d8;background:rgba(232,232,236,.72);border-radius:9px;padding:2px;font:500 12px/1 ui-monospace,monospace}
+  .cb-seg{display:inline-flex;align-items:center;gap:6px;padding:4px 8px}
+  .cb-div{width:1px;align-self:center;height:15px;background:rgba(184,184,194,.75);margin:0 2px}
+  .cb-lbl{font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:#8a8a96}
+  .cb-dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .cb-ok{background:#16a34a}.cb-warn{background:#ca8a04}.cb-bad{background:#dc2626}.cb-unk{background:rgba(138,138,150,.5)}
+  .cb-ver{color:#5c5c66;font-variant-numeric:tabular-nums}
+  .cb-sha{color:#5c5c66;border-bottom:1px dotted #b8b8c2}
+  .cb-key{font-size:10px;color:#8a8a96;border-bottom:1px dotted rgba(138,138,150,.55)}
+  .cb-up{font-size:10px;color:#8a8a96;font-variant-numeric:tabular-nums}
+  .cb-chip{font-size:9px;color:#ca8a04;border:1px solid rgba(202,138,4,.45);border-radius:999px;padding:2px 6px;white-space:nowrap}
+  .cb-chip.bad{color:#dc2626;border-color:rgba(220,38,38,.45)}
+  .cb-aff{color:#a0a0a8;font-size:12px;padding:0 2px}
+  .cb-dup{background:rgba(202,138,4,.16);border-radius:3px;box-shadow:0 0 0 1px rgba(202,138,4,.3)}
+  .cb-pulse{animation:cb-blink 1.4s ease-in-out infinite}
+  @keyframes cb-blink{0%,100%{opacity:1}50%{opacity:.35}}
+  .cb-cap{margin-top:.7rem;font:600 .72rem/1.4 ui-sans-serif,system-ui;color:#6b7280}
+  .cb-cap b{color:#262a2e}
+  .cb-cap .ok{color:#16a34a}.cb-cap .am{color:#b8860b}.cb-cap .rd{color:#dc2626}
+  .cb-tip{margin-top:.7rem;display:inline-block;border:1px solid #d0d0d8;border-radius:8px;background:#fff;padding:.5rem .6rem;font:500 11px/1 ui-monospace,monospace;box-shadow:0 4px 14px rgba(0,0,0,.07)}
+  .cb-tip table{border-collapse:collapse}
+  .cb-tip td{padding:3px 10px 3px 0;color:#5c5c66;white-space:nowrap}
+  .cb-tip td.l{color:#8a8a96;font-size:9px;text-transform:uppercase;letter-spacing:.05em}
+  .cb-grid{display:grid;grid-template-columns:1fr 1fr;gap:.95rem;margin:1.3rem 0}
+  @media (max-width:640px){.cb-grid{grid-template-columns:1fr}}
+  .cb-card{border:1px solid #e6e2d6;border-radius:11px;padding:1rem .95rem;background:#fcfcfd;background-image:linear-gradient(#eef0f3 1px,transparent 1px),linear-gradient(90deg,#eef0f3 1px,transparent 1px);background-size:20px 20px}
+  .cb-mini{font:600 .62rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:#9098a2;margin:0 0 .6rem}
+  @media (prefers-reduced-motion:reduce){.cb-stage *,.cb-card *{animation:none!important}}
+  `}</style>
+);
+
+export const Logo = () => (
+  <span class="cb-logo" aria-label="kolu" role="img">
+    <i style="width:9px;background:#7c3aed" />
+    <i style="width:13px;background:#2563eb" />
+    <i style="width:17px;background:#16a34a" />
+    <i style="width:21px;background:#ca8a04" />
+    <i style="width:25px;background:#dc2626" />
+  </span>
+);
+
+<CbStyles />
+
+## The crowding — three SHAs for one bit
+
+<div class="cb-stage">
+  <div class="cb-row">
+    <Logo />
+    <span class="cb-pill">
+      <span class="cb-seg"><span class="cb-lbl">srv</span><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-sha cb-dup">d07ea54</span></span>
+      <span class="cb-div" />
+      <span class="cb-seg"><span class="cb-lbl">client</span><span class="cb-sha cb-dup">d07ea54</span></span>
+      <span class="cb-div" />
+      <span class="cb-seg"><span class="cb-lbl">kaval</span><span class="cb-dot cb-ok" /><span class="cb-sha cb-dup">d07ea54</span><span class="cb-key">98eeac0</span><span class="cb-up">1h 50m</span></span>
+    </span>
+  </div>
+  <div class="cb-cap">Today — <b>d07ea54</b> printed <b>three times</b> (highlighted), two dots, two dividers, three labels: ~10 tokens to say <span class="ok">in sync · alive</span>.</div>
+</div>
+
+The three columns exist to flag **disagreement** — `client ≠ srv` (a stale cached
+bundle), `kaval ⬆ update` (the daemon a build behind). When everything agrees —
+the ~95% case — that machinery just repeats one identity. Only `98eeac0` (kaval's
+nix closure hash) is genuinely distinct.
+
+<Callout kind="note" title="This revisits a decision we deliberately deferred">
+The original rail chose **"always two explicit columns… no collapse-when-equal"**
+— but only *"until the feature stabilizes"* ([pty-daemon-chrome-bar](pty-daemon-chrome-bar.html),
+decisions). Since then B2 split kaval into its own daemon, B3.2 added the inline
+restart, and B3.4 (<PrLink pr={1353} />) lit the `⬆ update` nudge. The feature
+has stabilized — so collapse-when-equal is now on the table.
+</Callout>
+
+## Collapse when they agree
+
+At rest, **one calm thing**: a single *worst-of* health dot, the version, and the
+shared commit shown **once**. Hover (or click the `▸`) for the full three-way
+split — nothing is lost, it just stops shouting.
+
+<div class="cb-stage">
+  <div class="cb-row">
+    <Logo />
+    <span class="cb-pill">
+      <span class="cb-seg"><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span><span class="cb-aff">▸</span></span>
+    </span>
+  </div>
+  <div class="cb-tip">
+    <table>
+      <tr><td class="l">srv</td><td><span class="cb-dot cb-ok" style="display:inline-block;margin-right:5px" />open</td><td>v1.1.0</td><td>d07ea54</td></tr>
+      <tr><td class="l">client</td><td><span class="cb-dot cb-ok" style="display:inline-block;margin-right:5px" />fresh</td><td></td><td>d07ea54</td></tr>
+      <tr><td class="l">kaval</td><td><span class="cb-dot cb-ok" style="display:inline-block;margin-right:5px" />running</td><td>1h 50m</td><td>d07ea54 · 98eeac0</td></tr>
+    </table>
+  </div>
+  <div class="cb-cap"><b>Calm mode</b> — one dot (<span class="ok">worst-of ws · client · kaval</span>) + version + one SHA. The <b>▸</b> opens <code>KavalInfoDialog</code>; the card above is the hover <code>&lt;Tip&gt;</code>.</div>
+</div>
+
+The whole switch rides accessors that **already exist** — no new derivation,
+no wire change:
+
+```ts
+// calm vs. needs-attention — a pure OR of existing pure accessors
+const diverged = () =>
+  props.status !== "open" || clientStale() || kavalUpdatePending() ||
+  !!downState() || daemonWarming();
+
+// the resting dot: worst-of, reusing the existing srvDot / kavalDot tables
+const unifiedDot = () =>
+  props.status !== "open"            ? srvDot[props.status]
+  : (!!downState() || daemonWarming()) ? kavalDot(daemon()?.state) // grey-not-red trap kept
+  : (clientStale() || kavalUpdatePending()) ? "bg-warning"
+  : "bg-ok";
+```
+
+## Fan out on divergence
+
+The collapse is a *steady-state* optimization, **never an alarm muffler**. The
+moment any axis goes non-green, the offending source re-materializes inline with
+its own dot, SHA and actionable chip — louder than today, not quieter. WS-down and
+daemon-down stay **distinct** reds (server-unreachable ≠ daemon-dead).
+
+<div class="cb-grid">
+  <div class="cb-card">
+    <p class="cb-mini">client behind server</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill">
+        <span class="cb-seg"><span class="cb-dot cb-warn" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span></span>
+        <span class="cb-div" />
+        <span class="cb-seg"><span class="cb-lbl">client</span><span class="cb-sha">e1f2a3c</span><span class="cb-chip">≠ srv</span><span class="cb-aff">▸</span></span>
+      </span>
+    </div>
+    <div class="cb-cap"><span class="am">amber dot</span> · the <b>client</b> row fans back out with its own SHA — one-click reload. <code>clientStale()</code></div>
+  </div>
+
+  <div class="cb-card">
+    <p class="cb-mini">kaval a build behind</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill">
+        <span class="cb-seg"><span class="cb-dot cb-warn" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span></span>
+        <span class="cb-div" />
+        <span class="cb-seg"><span class="cb-lbl">kaval</span><span class="cb-key">98eeac0</span><span class="cb-up">1h 50m</span><span class="cb-chip">⬆ update</span><span class="cb-aff">▸</span></span>
+      </span>
+    </div>
+    <div class="cb-cap"><span class="am">amber dot</span> · click <b>▸</b> → dialog (where Restart-kaval lives). <code>kavalUpdatePending()</code></div>
+  </div>
+
+  <div class="cb-card">
+    <p class="cb-mini">daemon stopped</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill">
+        <span class="cb-seg"><span class="cb-dot cb-bad" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span></span>
+        <span class="cb-div" />
+        <span class="cb-seg"><span class="cb-lbl">kaval</span><span class="cb-dot cb-bad" /><span style="color:#dc2626">not running</span><span class="cb-aff">▸</span></span>
+      </span>
+    </div>
+    <div class="cb-cap"><span class="rd">red dot</span>, surfaced as the <b>kaval</b> source. <code>downState()</code> · pairs with the degraded canvas.</div>
+  </div>
+
+  <div class="cb-card">
+    <p class="cb-mini">server unreachable</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill">
+        <span class="cb-seg"><span class="cb-dot cb-bad" /><span class="cb-ver">v1.1.0</span></span>
+        <span class="cb-div" />
+        <span class="cb-seg"><span class="cb-lbl">srv</span><span class="cb-dot cb-bad cb-pulse" /><span style="color:#dc2626">offline</span></span>
+      </span>
+    </div>
+    <div class="cb-cap"><span class="rd">red dot</span> surfaced as <b>srv</b> — a different red from a dead daemon. <code>props.status</code></div>
+  </div>
+</div>
+
+## What moves where — nothing is lost
+
+<D2
+  caption="The same pure accessors the rail reads today (props.status/srvDot, clientStale, kavalUpdatePending, downState/daemonWarming, the three commits) feed one diverged() predicate. False (the ~95% case) → the resting row: a worst-of unifiedDot + version + one shared SHA + the ▸ affordance. True → the diverging source fans back out inline with its own dot, SHA and chip. Every detail stripped from the resting strip stays reachable in the deep store — the hover Tip's three-way split, KavalInfoDialog, and the About dialog. No new derivation, no wire change."
+  code={`direction: down
+inputs: "accessors — already exist" {
+  ws: "props.status -> srvDot"
+  client: "clientStale() · pwa.clientCommit"
+  kaval: "kavalUpdatePending() · downState() · daemonWarming()"
+  ids: "server.commit =? clientCommit =? navigableCommit"
+}
+diverged: "diverged() — pure OR"
+dot: "unifiedDot() — worst-of (calm only)"
+calm: "RESTING ROW:  the dot · v{ver} · <sha> · the chevron"
+fan: "FAN-OUT: the diverging source's dot + sha + chip, inline"
+store: "DEEP STORE — Tip 3-way split · KavalInfoDialog · About"
+inputs -> diverged
+inputs -> dot
+diverged -> calm: "false (~95%)"
+diverged -> fan: "true"
+dot -> calm
+calm -> store: "hover / click the chevron"
+fan -> store: "click -> restart / reload"
+`}
+/>
+
+| Current element | Source accessor | New home |
+| --- | --- | --- |
+| `srv` / `client` / `kaval` labels | literal | Tooltip rows (off the resting strip) |
+| WS dot · kaval dot | `srvDot` · `kavalDot` | One **worst-of** dot at rest; the **specific** dot surfaces on divergence |
+| version `v1.1.0` | `server()?.version` | **Inline, kept** — cheap, identifying, not redundant |
+| server commit | `server()?.commit` | **Inline** as the one shared SHA + Tip row |
+| client commit | `clientCommit` | Tip row; **inline beside `≠ srv`** when stale; also About dialog |
+| kaval commit | `identity?.navigableCommit` | Tip row + dialog (already there) |
+| closure `98eeac0` | `identity?.staleKey` | Off the strip → Tip row + dialog (`.slice(0,12)`) |
+| uptime `1h 50m` | `formatUptime(...)` | Tip row + dialog — reference detail, not a glance signal |
+| `≠ srv` · `⬆ update` | `clientStale()` · `kavalUpdatePending()` | **Inline, unchanged** — they fire the dot + the fan-out |
+
+<Callout kind="accent" title="Scope — one component, ~half a day">
+Almost entirely a re-layout of <Cite file="packages/client/src/ui/IdentityRail.tsx" />:
+collapse the three `&lt;span&gt;` columns into one `&lt;Tip&gt;`-wrapped row, `&lt;Show&gt;`-gate the
+fan-out. `KavalInfoDialog` already holds the deep store — no change. **Two traps:**
+keep routing the unknown daemon through `kavalDot(undefined)` (grey, never a false
+red — #1034); and **keep the `data-ws-status` / `data-daemon-state` attributes** on
+whatever dot now carries each axis, so e2e selectors don't break.
+</Callout>
+
+## Alternatives weighed
+
+Lighter and heavier options, for overriding toward conservative. The judged
+verdict: each attacks the wrong axis or muffles an alarm.
+
+<div class="cb-grid">
+  <div class="cb-card">
+    <p class="cb-mini">A · dedupe only</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill"><span class="cb-seg"><span class="cb-dot cb-ok" /><span class="cb-dot cb-ok" /><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span></span></span>
+    </div>
+    <div class="cb-cap"><b>Drop labels + dup SHAs, keep 3 dots.</b> ~30 min change — but still three dots to decode. <Pill variant="md">partial</Pill></div>
+  </div>
+
+  <div class="cb-card">
+    <p class="cb-mini">B · dialog-only</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill"><span class="cb-seg"><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-aff">▸</span></span></span>
+    </div>
+    <div class="cb-cap"><b>Everything behind the chevron.</b> Maximal calm — but an alarm behind a click a calm user never makes. <Pill variant="bad">rejected</Pill></div>
+  </div>
+
+  <div class="cb-card">
+    <p class="cb-mini">C · one dot, three SHAs</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill"><span class="cb-seg"><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span><span style="color:#b8b8c2">·</span><span class="cb-sha">d07ea54</span><span style="color:#b8b8c2">·</span><span class="cb-sha">d07ea54</span></span></span>
+    </div>
+    <div class="cb-cap"><b>Merge the dots, keep the SHAs.</b> Leaves the actual redundancy untouched. <Pill variant="todo">wrong axis</Pill></div>
+  </div>
+
+  <div class="cb-card">
+    <p class="cb-mini">D · icon-segmented</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill"><span class="cb-seg"><span style="color:#8a8a96">⌑</span><span class="cb-dot cb-ok" /><span style="color:#8a8a96">▢</span><span class="cb-dot cb-ok" /><span style="color:#8a8a96">◆</span><span class="cb-dot cb-ok" /><span class="cb-sha">d07ea54</span></span></span>
+    </div>
+    <div class="cb-cap"><b>Glyph per source.</b> Trades text-clutter for an icon-decode puzzle. <Pill variant="bad">rejected</Pill></div>
+  </div>
+</div>
+
+The recommended **unified-identity / fan-out** shape is the only one that hits both
+axes at once: it kills the triple-SHA redundancy *and* keeps every alarm inline and
+loud — divergence is exactly what the rail was built to show.

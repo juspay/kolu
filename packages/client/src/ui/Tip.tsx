@@ -4,7 +4,10 @@ import Tooltip from "@corvu/tooltip";
 import type { Component, JSX } from "solid-js";
 
 const Tip: Component<{
-  label: string;
+  /** Tooltip body — a plain string for most call sites, or rich JSX (e.g. the
+   *  IdentityRail's per-source breakdown table). A bare string is a valid
+   *  `JSX.Element`, so existing string call sites are unaffected. */
+  label: JSX.Element;
   class?: string;
   children: JSX.Element;
 }> = (props) => {
