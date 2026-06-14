@@ -2,7 +2,7 @@
 title: Canvas tiles that show their state — border prototypes
 description: Five terminals on the canvas; which one needs you? Surface each session's run-state on the tile border itself — a loudness ladder ranked by attention (alert ▸ fresh-waiting ▸ working ▸ stale-waiting ▸ idle), where "waiting" cools with last-activity age via kolu's existing activity-window. Four live, animated visual languages to choose from.
 kind: feature
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-06-13
 ---
@@ -11,6 +11,7 @@ import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
 import Cite from "../../components/Cite.astro";
 import D2 from "../../components/D2.astro";
+import PrLink from "../../components/PrLink.astro";
 
 Five terminals on the canvas — which one needs you? The state exists today (a
 title-bar label, a dock dot), but reading a title bar isn't a glance. Put the
@@ -24,10 +25,12 @@ and **some other border** for ones that are waiting on you — so a sweep of the
 eye tells you the state of the fleet without reading anything.
 </Callout>
 
-A **chooser** — *nothing is decided, nothing has shipped.* Four live border
-languages below, each across the attention ladder (ranked by who needs you; a
-waiter cools as it ages). Pick a language + the open decisions, and it can be
-built.
+A **chooser**, now **decided**: refined Language **C** (run/sweep) shipped in
+<PrLink pr={1348} /> — motion carries the state, in the tile's own **repo
+colour** (the one colour used throughout), and the active tile is marked by an
+offset repo outline. The four live border languages below are kept as the design
+record; each renders the attention ladder (ranked by who needs you; a waiter
+cools as it ages).
 
 export const ProtoStyles = () => (
   <style>{`
@@ -550,6 +553,14 @@ prop wiring on the tile and minimap.
 
 ---
 
-*Status: `proposed` — nothing decided, nothing shipped. A chooser: the border
-language (A · halo, B · live border, C · run/sweep, D · top bar) and the open
-decisions above are still on the table.*
+*Status: `implemented` in <PrLink pr={1348} /> — refined Language **C**
+(run/sweep): working "runs" as marching ants, needs-you "sweeps" a comet whose
+speed is the urgency, alert throbs loudest, all in the tile's own **repo
+colour** (one colour throughout — theme-derived hues, teal, and white were each
+tried and rejected). A stale waiter cools to a dim ember; a stale worker parks to
+nothing. The active tile is marked by an offset repo outline on the dark canvas
+(not a ring, glow, or chrome accent — those were tried and rejected), and
+`prefers-reduced-motion` freezes every aura to a static ring. The pure
+`tileAura` mapper + `useTileAura` socket reuse the dock's existing classifiers;
+the minimap keeps its own marker. Shipped after a lens (lowy ⇄ hickey) + codex
+review gauntlet.*
