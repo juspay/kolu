@@ -27,9 +27,20 @@ const REACTIVE_PRIMITIVE_BUDGET = 3;
 
 describe("App.tsx thin-shell invariant (#1340)", () => {
   it(`holds at most ${REACTIVE_PRIMITIVE_BUDGET} reactive primitives`, () => {
-    // Matches `createSignal(`, `createSignal<T>(`, and the Memo/Effect forms;
-    // the bare import names (followed by `,`) don't match.
-    const matches = APP_SRC.match(/\bcreate(Signal|Memo|Effect)\s*[(<]/g) ?? [];
+    // Matches the call forms `createSignal(`, `createSignal<T>(`, the
+    // Memo/Effect/Store/Resource variants, and `makePersisted(` — the
+    // reactive-state introducers this codebase reaches for; the bare import
+    // names (followed by `,`) don't match.
+    //
+    // This is a source-token tripwire, not a fence. A `createSignal` hoisted to
+    // MODULE scope just above the component reads as in-shell ownership (the
+    // exact drift the budget guards) but the regex can't distinguish it from an
+    // in-component one. Treat a budget bump as a prompt to look at the diff, not
+    // a license to grow the shell's state.
+    const matches =
+      APP_SRC.match(
+        /\bcreate(Signal|Memo|Effect|Store|Resource)\s*[(<]|\bmakePersisted\s*\(/g,
+      ) ?? [];
     expect(matches.length).toBeLessThanOrEqual(REACTIVE_PRIMITIVE_BUDGET);
   });
 });
