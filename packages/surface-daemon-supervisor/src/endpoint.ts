@@ -385,9 +385,7 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
   // so a one-off failure never costs the survivor its live PTYs. The survivor's
   // socket stays up across the retries (we never killed it), so each retry
   // re-dials the SAME daemon.
-  const connectSurvivor = async (
-    holder: number,
-  ): Promise<SurvivorConnect> => {
+  const connectSurvivor = async (holder: number): Promise<SurvivorConnect> => {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= adoptConnectAttempts; attempt++) {
       try {
