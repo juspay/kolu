@@ -30,7 +30,10 @@ recommendations this fix implements for the tile aura specifically.
   3. **`will-change` + `contain`** so the comet/pulse promote once instead of
      re-deciding layer promotion every frame.
 - After: paints drop to **~4–12/6 s** and main-thread CPU drops in every
-  configuration measured.
+  software-rendered configuration measured.
+- **On the real client GPU** (`zest`, M1 Max — where the production kolu
+  instances actually run in Chrome), the fix cuts GPU-process work **~33%** and
+  paints **7,195 → 12**.
 
 ---
 
@@ -82,9 +85,9 @@ Three mechanisms, ranked by impact:
 Goal: isolate the aura's contribution and measure it **at idle** (the symptom is
 "CPU spins when I'm not even touching it").
 
-- **Off the user's machine.** All measurement ran on an ephemeral `pu` box (a
-  clean 32-core NixOS container) so nothing local was at risk and the
-  environment was reproducible.
+- **Off the user's machine.** The bulk of measurement ran on an ephemeral `pu`
+  box (a clean 32-core NixOS container) so nothing local was at risk and the
+  environment was reproducible; a real-GPU cross-check ran on an M1 Max (below).
 - **Faithful repro, not the whole app.** `repro.html` renders a grid of tiles
   with the aura CSS copied **verbatim** from `packages/client/src/index.css`, in
   a representative state mix (mostly working, some waiting, a few alert). This
@@ -103,26 +106,30 @@ Goal: isolate the aura's contribution and measure it **at idle** (the symptom is
   defeats the cheap mask path; opacity/transform are compositor-accelerated) were
   independently web-verified against web.dev / Chrome / MDN / csstriggers.
 
-### The one thing this environment could *not* measure: a real GPU
+### Two environments: a software box and a real GPU
 
-Both the `pu` container and the local headless setup have **no usable GPU** (the
-container has none; local headless Chrome's GL init fails without a display
-server — `Could not open the default X display`, GPU process exits). So all
-compositing fell back to **software** (SwiftShader / the CPU `VizCompositorThread`).
+No single machine tells the whole story, so measurement ran in two:
 
-This matters for interpretation:
+1. **Software (CPU) regime** — the `pu` container (no GPU) and the kolu server
+   itself (headless, no display server → Chrome's GL init fails, GPU process
+   exits). All compositing falls back to software (`VizCompositorThread` on the
+   CPU). This is a faithful stand-in for the **weak-/contended-GPU** case #1308
+   hit (AMD under Wayland, VMs). Here the cost lands on the **main thread / CPU
+   raster**.
+2. **Real-GPU regime** — `zest`, an Apple **M1 Max** (Metal), running the same
+   harness in headless Chrome with GPU rasterization. GPU engagement is
+   verifiable in the trace: the GPU process (`CrGpuMain`) is busy 1.5–2.5 s while
+   the software `VizCompositorThread` stays small — the *inverse* of the software
+   box, where the GPU process is idle and the CPU compositor does everything.
+   Here the cost lands on the **GPU process**.
 
-- **Main-thread numbers and paint counts are GPU-independent** and transfer
-  directly to a real machine. These are the ones to trust.
-- **`VizCompositorThread` (software compositor) is *inflated* for the fixed
-  version**, because compositor-only animation (`transform`/`opacity`) that a
-  real GPU runs in dedicated hardware is forced onto the CPU here. On the user's
-  actual GPU (e.g. the AMD card in #1308) that work is hardware-accelerated.
-
-The fix's core improvement is therefore stated in GPU-independent terms: it
-converts per-frame **raster** (`background-position`, expensive on any pipeline)
-into per-frame **transform compositing** (a cheap matrix op, *no* re-raster — the
-`Paint` count proves it), and removes work entirely for off-screen tiles.
+Read together: **main-thread CPU + paint count** are the GPU-independent metrics
+(trust these for the CPU-bound case); **`CrGpuMain`** is the real-GPU cost. The
+fix earns the label "win" only because it improves the relevant metric in *both*
+regimes — it converts per-frame **raster** (`background-position`, expensive on
+any pipeline) into per-frame **transform compositing** (a cheap matrix op, *no*
+re-raster — the `Paint` count proves it), and removes work entirely for
+off-screen tiles.
 
 ---
 
@@ -197,13 +204,47 @@ So: the CSS rewrite alone drops the main-thread repaint to nothing (paints
 3,251 → 10), and gating drops main-thread CPU a further ~25% (328 → 245 ms) by not
 animating the ~24 tiles you can't see.
 
-> **Note on `VizCompositorThread`.** In this GPU-less environment the fixed
-> version's software-compositor thread reads *higher* than the PR's, because the
-> motion is now compositor-only and there is no GPU to run it. That number is a
-> measurement artifact, not a regression: on a real GPU that work is
-> hardware-accelerated, and the fix strictly *reduces* GPU load too (per-frame
-> raster → cheap transform, plus far fewer animated tiles). The decision-relevant,
-> GPU-independent metrics — main-thread CPU and paint count — improve everywhere.
+### Real-GPU validation (M1 Max)
+
+Same idle-window harness on `zest` (M1 Max, headless Chrome with GPU). This is
+not a generic GPU cross-check: **`zest`'s Chrome is where the production kolu
+instances actually run** — i.e. the very browser whose CPU was spinning. So these
+are the canonical numbers for the reported symptom. This machine is GPU-bound,
+not CPU-bound, so the win shows up as **GPU-process work** (`CrGpuMain`) and paint
+count rather than main-thread CPU:
+
+| Scene | GPU process (`CrGpuMain`) | Paints / 6 s |
+|---|---|---|
+| #1348, 24 tiles | 2,375 ms | 7,195 |
+| Fixed, 24 tiles | **1,484 ms (−37%)** | **12** |
+| #1348, 48 tiles | 2,294 ms | 8,646 |
+| Fixed, 48 tiles | **1,589 ms (−31%)** | **12** |
+| #1348, 40-tile realistic | 2,497 ms | 7,882 |
+| Fixed, gated | **1,668 ms (−33%)** | **12** |
+
+On a real GPU the fix **reduces GPU work by ~a third** and eliminates the
+per-frame repaint (7,195 → 12). An M1 Max is over-powered for this either way —
+the *proportional* reduction is what matters for a weaker or contended GPU like
+#1308's. (Main-thread CPU on the M1 is floor-dominated by the trace + rAF loop
+and is roughly flat between versions; on this hardware the background-position
+re-raster lands on the GPU, which is exactly why the PR's `CrGpuMain` is high and
+the fix brings it down.)
+
+> **Caveat on absolutes.** Headless Chrome is not vsync-locked, so the idle loop
+> runs faster than a real display would refresh — the absolute paint counts
+> (~7,000/6 s) and millisecond totals are inflated versus a vsync-capped headful
+> window on zest's 120 Hz panel. The **ratios** (paints → ~0, GPU −33%) are the
+> load-bearing result and are unaffected. The harness deliberately isolates the
+> aura CSS (synthetic tiles), so what it reports is the *delta attributable to
+> the aura*, not kolu's whole-app cost.
+
+> **The one caveat, now settled.** On the *software* box the fixed version's
+> `VizCompositorThread` reads higher than the PR's — compositor-only motion with
+> no GPU to run it. That was the single number that needed a real GPU to judge,
+> and the M1 Max run above settles it: with hardware compositing the fix's GPU
+> work drops ~33%. The software-regime figure was a CPU-projection artifact, not
+> a regression. Across both regimes — CPU-bound and GPU-bound — the fix reduces
+> work and removes the per-frame repaint.
 
 ---
 
