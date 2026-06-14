@@ -243,6 +243,10 @@ export const useTerminalCrud = createSharedRoot(() => {
     try {
       await client.terminal.killAll();
       store.reset();
+      // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so clear
+      // the find-bar map wholesale here too — otherwise stale keys outlive the
+      // terminals they pointed at.
+      terminalSearch.reset();
     } catch (err) {
       toast.error(`Failed to close all terminals: ${(err as Error).message}`);
     }

@@ -225,11 +225,15 @@ the guard — every removed line's effect is already exercised: `kaval-daemon.fe
 + `keyboard-shortcuts` + `welcome` (dialog open/close + refocus, seam 2),
 `terminal.feature` find-in-terminal (seam 3), `terminal`/`sub-terminal`/`kill`
 (seam 4), `activity-alerts` (the test-hook fold-in). The one genuinely *new* test is
-a sibling unit test on `canvasMode` — asserting the tier precedence
+`canvasModeResolver.test.ts` — asserting the tier precedence
 (connecting ▸ down ▸ warming ▸ empty ▸ workspace) and the down/warming payloads
-without rendering, which is the whole point of pulling the decision out of the JSX.
+without rendering. That precedence is pulled into a dependency-free
+`resolveCanvasMode(facts)` (the `useCanvasMode` accessor just gathers the live
+daemon/session facts and delegates), so the decision is exercised as a pure
+function — no daemon-status subscription to mount — which is the whole point of
+lifting it out of the JSX.
 
-Implemented in <PrLink pr={1347} /> — App.tsx landed at **559 lines / 3 reactive
+Implemented in <PrLink pr={1347} /> — App.tsx landed at **~530 lines / 3 reactive
 primitives**, and the `app-shell-stays-thin` code-police rule + `App.shell.test.ts`
 budget now keep it there.
 

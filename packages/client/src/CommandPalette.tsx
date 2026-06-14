@@ -588,7 +588,12 @@ const CommandPalette: Component<{
       onOpenChange={props.onOpenChange}
       transparentOverlay={props.transparentOverlay}
       initialFocusEl={inputRef}
-      refocusOnClose
+      // No `refocusOnClose`: the palette also closes itself programmatically
+      // (selection → onOpenChange(false), Cmd+K → toggle()), paths that never
+      // re-enter ModalDialog.handleOpenChange. So the refocus lives once in
+      // `useCommandPalette`'s close path, which EVERY close (incl. the
+      // Corvu-driven onOpenChange this dialog forwards) funnels through —
+      // adding `refocusOnClose` here would double-fire it on the Corvu path.
       size="lg"
     >
       <Dialog.Content
