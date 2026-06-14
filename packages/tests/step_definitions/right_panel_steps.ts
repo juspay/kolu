@@ -113,6 +113,23 @@ Then(
 );
 
 Then(
+  "the inspector should show the kaval-tui attach command",
+  async function (this: KoluWorld) {
+    // The Attach section renders a copy button carrying the short-form
+    // `kaval-tui attach <id>` command for the active terminal.
+    const attach = this.page.locator(
+      '[data-testid="inspector-attach-command"]',
+    );
+    await attach.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const text = await attach.textContent();
+    assert.ok(
+      text?.includes("kaval-tui attach "),
+      `Expected inspector to show the kaval-tui attach command, got "${text}"`,
+    );
+  },
+);
+
+Then(
   "the inspector toggle should not be active",
   async function (this: KoluWorld) {
     // The header toggle drops its `data-active` marker when the panel isn't

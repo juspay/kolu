@@ -66,6 +66,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.toggleRightPanel.keybind)} toggles the right panel — the Code browser plus an Inspector tab with full terminal context`,
   },
   {
+    id: "amb-inspector-attach",
+    text: "The Inspector tab's Attach row copies a `kaval-tui attach …` command — grab the active terminal from any shell with kaval-tui",
+  },
+  {
     id: "amb-canvas-zoom",
     text: "Pinch or Ctrl+scroll to zoom the canvas. Two-finger scroll to pan.",
   },

@@ -5,6 +5,9 @@ import {
   formatList,
   formatListJson,
   relativeTime,
+  resolveTerminalId,
+  SHORT_ID_LEN,
+  shortId,
   tildeify,
 } from "./render.ts";
 
@@ -70,7 +73,10 @@ describe("formatList", () => {
           foregroundProcess: "node",
         }),
         entry({
-          id: "longer-id",
+          // A full-length uuid: the rendered id column truncates to the first
+          // SHORT_ID_LEN chars (`7f3e0a91`), while ids already shorter than that
+          // (`abc` above) pass through unchanged.
+          id: "7f3e0a91-aaaa-bbbb-cccc-dddddddddddd",
           pid: 12,
           cwd: "/etc",
           lastActivity: now - 120_000,
@@ -83,12 +89,13 @@ describe("formatList", () => {
     const lines = out.split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toMatch(/^ID\s+PID\s+IDLE\s+CMD\s+CWD$/);
-    // title wins when set
+    // title wins when set; short id passes through unchanged (<8 chars)
     expect(lines[1]).toMatch(
       /^abc\s+100\s+5s\s+claude: implement\s+~\/code\/kolu$/,
     );
-    // falls back to the foreground command when the title is empty
-    expect(lines[2]).toMatch(/^longer-id\s+12\s+2m\s+vim\s+\/etc$/);
+    // falls back to the foreground command when the title is empty, and the
+    // long uuid is truncated to its 8-char short form
+    expect(lines[2]).toMatch(/^7f3e0a91\s+12\s+2m\s+vim\s+\/etc$/);
   });
 
   it("shows an em-dash when a terminal has neither title nor foreground", () => {
@@ -109,5 +116,73 @@ describe("formatListJson", () => {
     );
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed[0]).toMatchObject({ id: "x", pid: 12843, title: "zsh" });
+  });
+
+  it("keeps the FULL id (scripts resolve against it), unlike the human table", () => {
+    const id = "7f3e0a91-aaaa-bbbb-cccc-dddddddddddd";
+    const parsed = JSON.parse(formatListJson([entry({ id })]));
+    expect(parsed[0].id).toBe(id);
+  });
+});
+
+describe("shortId", () => {
+  it("takes the first SHORT_ID_LEN chars of a uuid", () => {
+    expect(shortId("7f3e0a91-aaaa-bbbb-cccc-dddddddddddd")).toBe("7f3e0a91");
+    expect("7f3e0a91").toHaveLength(SHORT_ID_LEN);
+  });
+  it("passes through ids already shorter than SHORT_ID_LEN", () => {
+    expect(shortId("abc")).toBe("abc");
+    expect(shortId("")).toBe("");
+  });
+});
+
+describe("resolveTerminalId", () => {
+  // Named (not indexed) so each is a plain `string` under
+  // noUncheckedIndexedAccess. ID_A and ID_B share the `7f3e0a9` prefix.
+  const ID_A = "7f3e0a91-aaaa-bbbb-cccc-dddddddddddd";
+  const ID_B = "7f3e0a92-eeee-ffff-0000-111111111111";
+  const ID_C = "a18c9ff0-2222-3333-4444-555555555555";
+  const ids = [ID_A, ID_B, ID_C];
+
+  it("resolves a unique short prefix to the full id", () => {
+    expect(resolveTerminalId("a18c", ids)).toEqual({ kind: "found", id: ID_C });
+  });
+
+  it("resolves a single-char prefix when it's unique", () => {
+    expect(resolveTerminalId("a", ids)).toEqual({ kind: "found", id: ID_C });
+  });
+
+  it("treats a full id as a prefix of itself (pasted ids keep working)", () => {
+    expect(resolveTerminalId(ID_A, ids)).toEqual({ kind: "found", id: ID_A });
+  });
+
+  it("returns the exact id even when it's a prefix of a longer one", () => {
+    // "7f3e0a91" exactly matches one id and prefixes no longer one, so the
+    // exact-match short-circuit must win over the startsWith scan.
+    const withNested = [...ids, "7f3e0a91"];
+    expect(resolveTerminalId("7f3e0a91", withNested)).toEqual({
+      kind: "found",
+      id: "7f3e0a91",
+    });
+  });
+
+  it("is case-insensitive (uuids are lowercase hex)", () => {
+    expect(resolveTerminalId("A18C", ids)).toEqual({ kind: "found", id: ID_C });
+  });
+
+  it("reports an ambiguous prefix with all matching ids", () => {
+    const result = resolveTerminalId("7f3e0a9", ids);
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.matches).toEqual([ID_A, ID_B]);
+    }
+  });
+
+  it("reports no match for a prefix nothing starts with", () => {
+    expect(resolveTerminalId("zz", ids)).toEqual({ kind: "none" });
+  });
+
+  it("reports no match against an empty inventory", () => {
+    expect(resolveTerminalId("anything", [])).toEqual({ kind: "none" });
   });
 });

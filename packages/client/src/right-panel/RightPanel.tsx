@@ -133,6 +133,7 @@ const RightPanel: Component<{
                   .with("inspector", () => (
                     <MetadataInspector
                       meta={props.meta}
+                      terminalId={props.terminalId}
                       themeName={props.themeName}
                       onThemeClick={props.onThemeClick}
                     />
