@@ -4,6 +4,7 @@
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { SW_MESSAGE_TYPE } from "@kolu/surface-app";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import "kolu-common/test-hooks";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences } from "../wire";
 import { isAttentionState } from "./agentState";
@@ -138,6 +139,13 @@ export function useTerminalAlerts(deps: {
     if (pick === undefined) return;
     alertForTerminal(pick);
   }
+
+  // Expose for e2e test access (type from "kolu-common/test-hooks"). Installed
+  // by the producer — App.tsx neither produces nor consumes this bridge.
+  // useTerminalAlerts is constructed unconditionally on the App-startup path
+  // (via useTerminals), so the hook is present before any scenario runs, and
+  // the singleton lives for the app's lifetime — same timing as before.
+  window.__koluSimulateAlert = simulateAlert;
 
   return { simulateAlert };
 }

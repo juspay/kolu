@@ -4,9 +4,14 @@ import Dialog from "@corvu/dialog";
 import { type Component, For } from "solid-js";
 import { ACTIONS, type ActionId } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
+import { createDisclosure } from "./ui/createDisclosure";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
+
+/** Shortcuts-help open-state — the component owns it. Opened from the `Cmd+/`
+ *  chord (`useActionContext`) and the "Keyboard shortcuts" palette command. */
+export const shortcutsHelp = createDisclosure();
 
 /** Curated display order for the shortcuts help overlay. Referencing actions
  *  by id (instead of restating label/keybind) keeps the overlay in sync with
@@ -34,11 +39,13 @@ const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
 
 const chrome = surface({ portalled: true });
 
-const ShortcutsHelp: Component<{
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}> = (props) => (
-  <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="sm">
+const ShortcutsHelp: Component = () => (
+  <ModalDialog
+    open={shortcutsHelp.open()}
+    onOpenChange={shortcutsHelp.onOpenChange}
+    refocusOnClose
+    size="sm"
+  >
     <Dialog.Content
       data-testid="shortcuts-help"
       class={`${chrome.class} overflow-hidden`}

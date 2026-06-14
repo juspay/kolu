@@ -13,7 +13,7 @@
  *    so chrome reflects state and double-click toggles it. */
 
 import { createDraggable } from "@thisbeyond/solid-dnd";
-import { type Component, For, type JSX, Show } from "solid-js";
+import { type Component, createMemo, For, type JSX, Show } from "solid-js";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import {
   Z_CANVAS_TILE_ACTIVE,
@@ -21,6 +21,7 @@ import {
 } from "../ui/stackLayers";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
+import type { TileAura } from "./tileAura";
 import type { TileLayout } from "./TileLayout";
 import {
   type TileTheme,
@@ -79,6 +80,12 @@ const CanvasTile: Component<{
   panX: () => number;
   panY: () => number;
   zoom: () => number;
+  /** Canvas state-aura tier for this tile — drives the `data-aura` hook the
+   *  border treatment reads. Optional: undefined renders nothing (treated as
+   *  `"none"`). Resolved by `useTileAura`; this resolver drives only the tile
+   *  border. The minimap derives its own bucket→color independently via
+   *  `bucketDescriptor` and does not share this tier. */
+  auraTier?: () => TileAura;
 }> = (props) => {
   const isMaximized = () => props.mode === "maximized";
   const isCovered = () => props.mode === "covered";
@@ -88,6 +95,13 @@ const CanvasTile: Component<{
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
 
   const bg = () => props.theme.bg;
+  // Memoized: `showAura` and the `data-aura` attribute both read the tier, and
+  // each read chains through the resolver into store + staleness lookups — so
+  // compute it once per reactive cycle rather than per consumer.
+  const aura = createMemo((): TileAura => props.auraTier?.() ?? "none");
+  // One decision — "is the aura showing" — so the `data-aura` host attribute
+  // and the `.tile-aura` child can't drift. A maximized tile mutes its aura.
+  const showAura = () => aura() !== "none" && !isMaximized();
 
   // Active stays full-strength regardless of dimmed — the user is looking
   // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
@@ -109,19 +123,21 @@ const CanvasTile: Component<{
       width: `${l.w}px`,
       height: `${l.h}px`,
       "background-color": bg(),
+      // One colour throughout: the repo's identity colour drives the border, the
+      // state aura, AND the active tile's focus cue. The active "you are here"
+      // signal is a crisp repo-colour OUTLINE floating 4px off the tile on the
+      // dark canvas (`outline` + `outline-offset` below). It's drawn outside the
+      // border-box on the constant dark canvas — never over the terminal body,
+      // so it's theme-independent — and `outline` is never clipped by the tile's
+      // overflow-hidden. The 4px moat keeps it clear of the border aura.
       "border-color": props.repoColor,
-      // Active tile's right edge points at the inspector panel — repoColor
-      // on the other three edges, accent on the right. Longhand wins after
-      // shorthand in the same declaration block.
-      "border-right-color":
-        props.active && !isMaximized()
-          ? "var(--color-accent)"
-          : props.repoColor,
       "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
       opacity: props.active ? 1 : inactiveOpacity(),
       "box-shadow": props.active
-        ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
+        ? `0 8px 32px rgba(0,0,0,0.4)`
         : `0 2px 8px rgba(0,0,0,0.2)`,
+      outline: props.active ? `1.5px solid ${props.repoColor}` : undefined,
+      "outline-offset": props.active ? "4px" : undefined,
       "transform-origin": "0 0",
       transform: tileTransformCSS(
         l.x,
@@ -160,6 +176,7 @@ const CanvasTile: Component<{
       data-active={props.active ? "true" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
+      data-aura={showAura() ? aura() : undefined}
       // `inert` (when covered) removes the subtree from tab order, blocks
       // pointer events, and hides from assistive tech in one go — matches
       // the pre-#988 `visibility: hidden` wrapper without re-introducing
@@ -187,7 +204,6 @@ const CanvasTile: Component<{
         absolute: true,
         "inset-0 z-40": isMaximized(),
         "rounded-xl": !isMaximized(),
-        "shadow-xl": props.active && !isMaximized(),
         "border-transparent": isMaximized(),
       }}
       style={tileStyle()}
@@ -291,6 +307,21 @@ const CanvasTile: Component<{
             />
           )}
         </For>
+      </Show>
+
+      {/* Language C · Run / sweep — agent run-state shown as MOTION on a border
+       *  ring in the repo's identity colour (`--aura-c` = repoColor, the one
+       *  colour used throughout): working "runs" as marching ants, needs-you
+       *  "sweeps" a comet whose speed is the urgency. The treatment + speed are
+       *  driven by `[data-aura]` rules in index.css. Last child so it paints
+       *  over the body; `pointer-events:none` so it never eats a click. Skipped
+       *  when maximized — the focused tile mutes its own aura. */}
+      <Show when={showAura()}>
+        <div
+          class="tile-aura"
+          aria-hidden="true"
+          style={{ "--aura-c": props.repoColor }}
+        />
       </Show>
     </div>
   );
