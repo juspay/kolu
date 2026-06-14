@@ -8,7 +8,6 @@ import {
   buildCreateInput,
   type CreateResult,
   formatCreate,
-  formatCreateJson,
   newPtyId,
 } from "./create.ts";
 
@@ -120,14 +119,5 @@ describe("formatCreate", () => {
     expect(line).toBe("spawned a8f1c2d3 · ba sh · ~/co de [31m (pid 12843)");
     // No raw ESC or newline survives into the human line.
     expect(line).not.toMatch(/[\x00-\x1f\x7f]/);
-  });
-});
-
-describe("formatCreateJson", () => {
-  it("emits the raw {id,pid,cwd} object with the FULL id, parseable", () => {
-    const json = formatCreateJson(RESULT);
-    expect(JSON.parse(json)).toEqual(RESULT);
-    // The full id is preserved for scripts (`jq -r .id`), not shortened.
-    expect(json).toContain(RESULT.id);
   });
 });

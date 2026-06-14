@@ -78,9 +78,3 @@ export function formatCreate(
   const cwd = sanitizeCell(tildeify(result.cwd, opts.home));
   return `spawned ${shortId(result.id)} · ${program} · ${cwd} (pid ${result.pid})`;
 }
-
-/** Render `create --json` — the raw `{ id, pid, cwd }` object, 2-space indented
- *  like `list --json`, carrying the FULL id for scripts (`jq -r .id`). */
-export function formatCreateJson(result: CreateResult): string {
-  return JSON.stringify(result, null, 2);
-}

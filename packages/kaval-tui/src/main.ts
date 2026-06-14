@@ -36,12 +36,7 @@ import {
 } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
-import {
-  buildCreateInput,
-  formatCreate,
-  formatCreateJson,
-  newPtyId,
-} from "./create.ts";
+import { buildCreateInput, formatCreate, newPtyId } from "./create.ts";
 import { isValidEscapeChar } from "./escape.ts";
 import {
   formatList,
@@ -242,7 +237,10 @@ async function cmdCreate(
   });
   const result = await conn.client.surface.terminal.spawn(input);
   if (json) {
-    await writeOut(`${formatCreateJson(result)}\n`);
+    // The raw { id, pid, cwd }, 2-space indented like `list --json`, with the
+    // FULL id for scripts (`jq -r .id`). Controls are JSON-escaped, so — unlike
+    // the human line — this path needs no sanitizing.
+    await writeOut(`${JSON.stringify(result, null, 2)}\n`);
     return;
   }
   const program = input.argv[0] ?? "";
