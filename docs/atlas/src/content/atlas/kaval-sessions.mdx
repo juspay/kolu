@@ -80,7 +80,15 @@ server.registry.epProd -> kProd: "ssh: nix copy --derivation → realise → dia
 `}
 />
 
-**There is one backend, not many.** Today's lone `LocalTerminalBackend` is already a *client of a kaval endpoint* (since B2); a remote tile is the **same** backend bound to an ssh-reached endpoint — so R-1's `TerminalBackend` *interface* anticipated a second (remote) implementation the kaval model dissolves. Adding a kaval is **adoption you already shipped**: `adoptOrEnsure` (B3.3) adopts a live survivor's PTYs (else provisions + spawns), exactly as the boot does against `local` — now run per endpoint. And multiple *local* kavals fall out for free: kaval is namespaced per kolu-server port (`kaval-<port>/`, <PrLink pr={1313} />), so several coexist already.
+**There is one backend, not many** — and one backend means one *shape*, not one host. A backend is **three surfaces bound to an endpoint** — PTY · fs · git — and local vs remote is only the transport each is dialed over. The PTY surface already works this way (kaval at a unix socket since B2, or ssh stdio); fs and git extend the **same** pattern — served at the host, mirrored over the same `HostSession` link (`mirrorRemoteCollection`, the R-1.5 remote-process-monitor pattern). **No reach-over-ssh per op, no polling.**
+
+| At the endpoint | local | remote — same `HostSession` link |
+| --- | --- | --- |
+| **PTY** — kaval (fds + OSC taps) | unix socket | ssh stdio |
+| **provider DAG + fs/git watchers** — run where the files are | in kolu-server | in the provisioned agent → stream metadata |
+| **Code-tab fs** — browse · read · *watch* | node fs (native) | remote fs surface · snapshot-then-delta |
+
+The **awareness** providers (cwd · title · foreground · command · agent) are *tap-fed*, so they are transport-free. kaval stays the durable survivor; the watcher tier **re-runs fresh** — the #1031 line, now applied remote-side. So R-1's `TerminalBackend` *interface* anticipated a second (remote) *implementation* the kaval model dissolves: not two backends, one backend whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` (B3.3) adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out for free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
 
 ## Switch or multiplex?
 
@@ -100,10 +108,10 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
 
 | Phase | Ships | Note |
 | --- | --- | --- |
-| **P0** · backend cleanup | collapse R-1's anticipated backend polymorphism — **one** backend bound to an endpoint; keep the invariants + the `location → endpoint` resolver, drop the second-implementation pretence | kolu-server only · low-risk · grounds P3 · can lead or run in parallel |
+| **P0** · backend cleanup | collapse R-1's anticipated backend polymorphism — a backend is **PTY · fs · git surfaces bound to an endpoint** (no `RemoteTerminalBackend`); byte-identical locally, the seam P3 fills with the remote impls | kolu-server only · low-risk · grounds P3 · can lead or run in parallel |
 | **P1** · `kaval-tui create` | spawn a plain shell — the attach-needs-something prerequisite | thin over `terminal.spawn` |
 | **P2** · `kaval-tui --host` | **reach + provision in one PR** (ssh), hosts auto-detected from ssh config | **the spike** — *is* the production `sshDriver`; the validation long-pole |
-| **P3** · kolu dials remotes | N-endpoint registry + the ssh driver; `location` additive on records; fs/git/providers resolve per endpoint | builds on P0 + P2 · carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`) |
+| **P3** · kolu dials remotes | N-endpoint registry + the ssh driver; the **remote agent** (kaval + provider DAG + fs/git surface) mirrored over the `HostSession` link; `location` additive on records | builds on P0 + P2 · carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`) |
 | **P4** · the canvas UI | multiplex (or switch) — the active-kaval strip (local always present), per-tile host hint, ssh-config picker | the granularity call lands here |
 
 **P1–P2 — the spike — in detail.** [kaval-tui](pty-daemon-tui.html) is the minimal client; it proves the transport before any Kolu UI, and because it and kolu-server dial the same socket through the same client, the spike **is** the production driver.
@@ -130,6 +138,7 @@ ssh <em>reach</em> + provision is the one genuinely-new transport, shared by bot
 
 - **Resolved — host source:** auto-detected from ssh config; no registry to curate.
 - **Leaning multiplex,** but validate the *feel* with a prototype once the substrate lands (does N-at-once actually beat tmux-switch in daily use?).
-- **Where do a remote tile's fs/git/providers run?** kaval holds only fds + taps (dumb-but-durable), so a remote tile's Code-tab filesystem and git watcher resolve elsewhere — kolu-server reaching over ssh (`mirrorRemoteCollection`) or providers running remote-side. A real fork for P3/P4. *([herdr vs. kolu](herdr-vs-kolu.html) also flagged multi-client resize arbitration as already-latent.)*
+- **Resolved — fs/git/providers:** surfaces at the host, mirrored over the `HostSession` link — the watcher tier runs in the provisioned agent, awareness is tap-fed, no reach-over-ssh per op (see the substrate table). The one inherent cost is remote file *bytes* crossing ssh (physics), and they ride snapshot-then-delta.
+- **Open — resize arbitration** across a remote hop, and the multiplex *feel* (does N-at-once beat tmux-switch in daily use?). *([herdr vs. kolu](herdr-vs-kolu.html) flagged multi-client resize as already-latent.)*
 
 **Status — accepted (the approach).** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. Execution starts with the transport spike (`kaval-tui create` → `kaval-tui --host`), which validates the one genuinely-new piece; P0 (backend cleanup) can land first in parallel; the switch-vs-multiplex UI is a later, reversible call.
