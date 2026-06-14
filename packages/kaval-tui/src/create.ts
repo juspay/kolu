@@ -4,11 +4,11 @@
  * without a socket. `main.ts` is the thin glue that mints the id, fetches over
  * the contract, and prints these.
  *
- * `create` is the *raw* multiplexer's spawn: a plain login shell, no rcfiles,
- * no kolu policy. Since B0 the wire is fully specified (the host derives
- * nothing from its own env), so the client composes the whole input itself —
- * here, from kaval-tui's own `process.env`/`cwd`, the same minimal shape the
- * contract tests carry. kolu-server's rich client composes far more
+ * `create` is the *raw* multiplexer's spawn: a plain login shell (or a command
+ * you pass), no rcfiles, no kolu policy. Since B0 the wire is fully specified
+ * (the host derives nothing from its own env), so the client composes the whole
+ * input itself — here, from kaval-tui's own `process.env`/`cwd`, the same
+ * minimal shape the contract tests carry. kolu-server's rich client composes far more
  * (`composeSpawnInput`: env layering, identity vars, shell-init); kaval-tui
  * deliberately does not — a plain `$SHELL` is the point.
  */
@@ -27,21 +27,30 @@ export interface CreateResult {
  *  contract tests use, so a bare environment still spawns something usable. */
 const DEFAULT_SHELL = "/bin/bash";
 
-/** Compose the fully-specified spawn input for a plain shell. Pure: `id`, `cwd`,
- *  and `env` are passed in (`main.ts` supplies `randomUUID()` / `process.cwd()`
- *  / `process.env`) so the result is deterministic and testable. `argv[0]` is
- *  `$SHELL` (or `/bin/bash`), there are no rcfiles, and the env is the caller's
- *  own with `undefined` values dropped — the host writes nothing of its own. */
+/** Compose the fully-specified spawn input. Pure: `id`, `cwd`, `env`, and an
+ *  optional `command` are passed in (`main.ts` supplies `randomUUID()` /
+ *  `process.cwd()` / `process.env` / the `[command…]` positional) so the result
+ *  is deterministic and testable. `argv` is the given `command`, or `[$SHELL]`
+ *  (falling back to `/bin/bash`) when none is passed — a plain login shell. There
+ *  are no rcfiles, and the env is the caller's own with `undefined` values
+ *  dropped: the host writes nothing of its own. */
 export function buildCreateInput(opts: {
   id: string;
   cwd: string;
   env: NodeJS.ProcessEnv;
+  /** Program + args to run instead of a plain shell — the `[command…]`
+   *  positional (`kaval-tui create -- htop -d 5`). Empty/absent → `$SHELL`. */
+  command?: readonly string[];
 }): PtyHostSpawnInput {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(opts.env)) if (v != null) env[k] = v;
+  const argv =
+    opts.command && opts.command.length > 0
+      ? [...opts.command]
+      : [env.SHELL || DEFAULT_SHELL];
   return {
     id: opts.id,
-    argv: [env.SHELL || DEFAULT_SHELL],
+    argv,
     cwd: opts.cwd,
     env,
     initFiles: [],
@@ -55,14 +64,14 @@ export function newPtyId(): string {
   return randomUUID();
 }
 
-/** Render the human one-liner — the short id to hand to `attach`, the shell,
- *  the resolved cwd, and the pid. Mirrors `list`'s vocabulary (`·` separators,
- *  tildeified cwd, short id). */
+/** Render the human one-liner — the short id to hand to `attach`, the program
+ *  (`$SHELL` or the command's basename), the resolved cwd, and the pid. Mirrors
+ *  `list`'s vocabulary (`·` separators, tildeified cwd, short id). */
 export function formatCreate(
   result: CreateResult,
-  opts: { shell: string; home?: string },
+  opts: { program: string; home?: string },
 ): string {
-  return `spawned ${shortId(result.id)} · ${commandName(opts.shell)} · ${tildeify(
+  return `spawned ${shortId(result.id)} · ${commandName(opts.program)} · ${tildeify(
     result.cwd,
     opts.home,
   )} (pid ${result.pid})`;

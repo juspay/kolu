@@ -33,6 +33,27 @@ describe("buildCreateInput", () => {
     expect(input.argv).toEqual(["/bin/bash"]);
   });
 
+  it("runs the given command verbatim instead of $SHELL", () => {
+    const input = buildCreateInput({
+      id: "x",
+      cwd: "/",
+      env: { SHELL: "/bin/zsh" },
+      command: ["htop", "-d", "5"],
+    });
+    // argv IS the command — the shell is not consulted when one is passed.
+    expect(input.argv).toEqual(["htop", "-d", "5"]);
+  });
+
+  it("ignores an empty command (no positional) and uses $SHELL", () => {
+    const input = buildCreateInput({
+      id: "x",
+      cwd: "/",
+      env: { SHELL: "/bin/zsh" },
+      command: [],
+    });
+    expect(input.argv).toEqual(["/bin/zsh"]);
+  });
+
   it("drops undefined env values (ProcessEnv holes), keeps defined ones", () => {
     const input = buildCreateInput({
       id: "x",
@@ -68,14 +89,20 @@ const RESULT: CreateResult = {
 };
 
 describe("formatCreate", () => {
-  it("renders the short id, shell basename, tildeified cwd, and pid", () => {
-    expect(formatCreate(RESULT, { shell: "/bin/zsh", home: "/home/u" })).toBe(
+  it("renders the short id, program basename, tildeified cwd, and pid", () => {
+    expect(formatCreate(RESULT, { program: "/bin/zsh", home: "/home/u" })).toBe(
       "spawned a8f1c2d3 · zsh · ~/code/kolu (pid 12843)",
     );
   });
 
+  it("shows a passed command's basename as the program", () => {
+    expect(formatCreate(RESULT, { program: "htop", home: "/home/u" })).toBe(
+      "spawned a8f1c2d3 · htop · ~/code/kolu (pid 12843)",
+    );
+  });
+
   it("leaves the cwd absolute when it is outside home", () => {
-    expect(formatCreate(RESULT, { shell: "/bin/bash", home: "/other" })).toBe(
+    expect(formatCreate(RESULT, { program: "/bin/bash", home: "/other" })).toBe(
       "spawned a8f1c2d3 · bash · /home/u/code/kolu (pid 12843)",
     );
   });

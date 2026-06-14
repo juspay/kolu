@@ -173,6 +173,33 @@ describe("runAttach — over a real unix socket", () => {
     expect(entries.some((e) => e.id === id)).toBe(true);
   });
 
+  it("create runs a passed command instead of a plain shell", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-create-cmd-"));
+    const id = "22222222-3333-4444-5555-666666666666";
+    // A command (not $SHELL) that prints a marker then stays alive, so the PTY
+    // is still listable when we read its screen — proves the `[command…]`
+    // positional reaches the host's spawn verbatim.
+    await conn.client.surface.terminal.spawn(
+      buildCreateInput({
+        id,
+        cwd: dir,
+        env: process.env,
+        command: ["sh", "-c", "echo CMDMARK-create; sleep 100"],
+      }),
+    );
+    let screen = "";
+    await until(
+      () => screen.includes("CMDMARK-create"),
+      "command output",
+      async () => {
+        screen = (await conn.client.surface.terminal.getScreenText({ id }))
+          .text;
+      },
+    );
+  });
+
   it("paints the snapshot, round-trips a keystroke, detaches on ~., and leaves the PTY alive", {
     timeout: 30_000,
   }, async () => {
