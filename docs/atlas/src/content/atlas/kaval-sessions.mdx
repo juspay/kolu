@@ -119,7 +119,7 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
 <Terminal title="kaval-tui · ssh nix@prod (provision + dial)" lines={[
   "$ kaval-tui --host nix@prod",
   "  ↳ ssh nix@prod · nix copy --derivation → realise … kaval up",
-  "  ↳ dialing kaval.sock over stdio … connected · 0 terminals",
+  "  ↳ dialing the remote kaval over ssh stdio … connected · 0 terminals",
   "",
   "$ kaval-tui --host nix@prod create",
   "  ↳ spawned a8f1…  plain shell on prod",
@@ -134,11 +134,51 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
 ssh <em>reach</em> + provision is the one genuinely-new transport, shared by both granularities and R-2's biggest unknown. Proving it in kaval-tui builds the production driver and lets real feedback <em>settle</em> switch-vs-multiplex later — so it is the right validation step even though the canvas model isn't finalized. (P0 is independent kolu-server cleanup; it can land first in parallel without waiting on the spike.)
 </Callout>
 
+## The remote process model (P3)
+
+For a remote tile, kolu-server **provisions an agent** on the host (`provisionAgent`: `nix copy --derivation` → remote `nix-store --realise` → pin a GC root) and dials it over **one** `HostSession` ssh link (the `stdioLink`). The agent is the durable **kaval** (fds + OSC taps, single-instance pid-gate, survives deploys) plus the **watcher tier** (provider DAG + fs/git surface) that **re-runs fresh** — the #1031 line, now applied remote-side. PTY attach + taps ride the link; fs/git + metadata mirror over the same link (`mirrorRemoteCollection`).
+
+<D2
+  caption="P3's process/host model. kolu-server provisions an agent on the remote host and dials it over ONE HostSession ssh link — PTY attach + taps via the stdioLink, fs/git + metadata via mirrorRemoteCollection. The agent is the durable kaval (pid-gate, survives) plus the watcher tier (provider DAG + fs/git surface, re-runs fresh). An already-running kaval is adopted, never duplicated."
+  code={`direction: down
+localhost: "local host — where kolu-server runs" {
+  browser: "browser — the canvas"
+  server: "kolu-server" {
+    ep: "endpoint(hostId) · adoptOrEnsure\\nbackend surfaces (PTY · fs · git) bound to this endpoint"
+  }
+}
+remotehost: "remote host — reached over ONE ssh link" {
+  agent: "provisioned agent (nix-realised closure)" {
+    kaval: "kaval — fds + OSC taps\\npid-gate: single instance · SURVIVES"
+    watchers: "watcher tier — provider DAG + fs/git surface\\nre-runs fresh (#1031)"
+  }
+}
+localhost.browser -> localhost.server: "websocket"
+localhost.server.ep -> remotehost.agent.kaval: "HostSession ssh stdio (stdioLink)\\nPTY attach · taps"
+localhost.server.ep -> remotehost.agent.watchers: "same link · mirrorRemoteCollection\\nfs/git · metadata"
+`}
+/>
+
+**If the host already has a kaval running, it is adopted** — the same generic `adoptOrEnsure` spine (`endpoint.ts`), per endpoint, that the local boot uses. A duplicate is impossible by construction: a second launch hits the pid-gate's atomic `link(2)` EEXIST, liveness-probes the holder (`kill(pid,0)`), and exits 0 ("yielding to the live instance") **without binding a socket** — the running daemon is never disturbed. Re-provisioning is idempotent (`nix realise` no-ops if the closure is already present; an older build coexists and the moving GC root migrates to the new one). On dial:
+
+| the remote kaval is… | kolu does |
+| --- | --- |
+| absent | provision + spawn fresh (`adoptOrEnsure` → ensure) |
+| live · wire-compatible | **adopt** — connect, never kill; its PTYs reconcile in (older `startedAt`) |
+| live · a build behind | adopt **+** the B3.4 "update pending" nudge (an orthogonal axis) |
+| live · contract-skewed | recycle (kill → respawn) — only on a typed `DaemonContractSkewError`, no retry |
+| unreachable (bad dial) | bounded retry, then **degraded — never killed** (a bad dial can't cost live PTYs) |
+
+<Callout kind="warning" title="Two host-local caveats — open for P3">
+(1) The pid-gate arbitrates by <strong>pid + filesystem on that host</strong> — it is not a cross-host or cross-container lock. (2) The <strong>remote namespace key is open</strong>: locally kaval is keyed by the server's listen port (<code>kaval-&lt;port&gt;/</code>, <PrLink pr={1313} />), which does not cross ssh — two kolu-servers reaching the <em>same remote user</em> resolve to one namespace, and under always-recycle the second would SIGTERM the first's daemon. R-2 must either pick an isolating key, or deliberately <strong>share one kaval per remote host with an adopt-not-recycle policy</strong> (host-level multiplexing — arguably the feature: you reconnect to "the prod terminals").
+</Callout>
+
 ## Open questions & status
 
 - **Resolved — host source:** auto-detected from ssh config; no registry to curate.
 - **Leaning multiplex,** but validate the *feel* with a prototype once the substrate lands (does N-at-once actually beat tmux-switch in daily use?).
 - **Resolved — fs/git/providers:** surfaces at the host, mirrored over the `HostSession` link — the watcher tier runs in the provisioned agent, awareness is tap-fed, no reach-over-ssh per op (see the substrate table). The one inherent cost is remote file *bytes* crossing ssh (physics), and they ride snapshot-then-delta.
+- **Open — the remote namespace key** (see *The remote process model*): kaval's local per-port key (`kaval-<port>/`) does not cross ssh, so R-2 must either isolate per (server, host) or deliberately share one kaval per remote host with an adopt-not-recycle policy.
 - **Open — resize arbitration** across a remote hop, and the multiplex *feel* (does N-at-once beat tmux-switch in daily use?). *([herdr vs. kolu](herdr-vs-kolu.html) flagged multi-client resize as already-latent.)*
 
 **Status — accepted (the approach).** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. Execution starts with the transport spike (`kaval-tui create` → `kaval-tui --host`), which validates the one genuinely-new piece; P0 (backend cleanup) can land first in parallel; the switch-vs-multiplex UI is a later, reversible call.
