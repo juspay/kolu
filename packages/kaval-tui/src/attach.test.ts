@@ -25,7 +25,7 @@ import {
   connectPtyHost,
   type PtyTuiClient,
 } from "./connect.ts";
-import { buildCreateInput } from "./create.ts";
+import { buildCreateInput, newPtyId } from "./create.ts";
 
 const silentLog = {
   debug: () => {},
@@ -36,17 +36,10 @@ const silentLog = {
 } as unknown as InProcessPtyHostDeps["log"];
 
 /** A minimal fully-specified spawn — a plain login shell, no rc files (the host
- *  derives nothing from policy since B0). */
-function spawnInput(cwd: string): PtyHostSpawnInput {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v;
-  return {
-    argv: [process.env.SHELL || "/bin/bash"],
-    cwd,
-    env,
-    initFiles: [],
-  };
-}
+ *  derives nothing from policy since B0). Delegates to the production composer
+ *  so the test shape can't drift from what `create` actually sends. */
+const spawnInput = (cwd: string): PtyHostSpawnInput =>
+  buildCreateInput({ id: newPtyId(), cwd, env: process.env });
 
 interface FakeTty {
   tty: AttachTty;
