@@ -98,12 +98,12 @@ export const ProcDiagram = () => (
       <text x="486" y="272" font-size="9.5" fill="#64748b" text-anchor="middle">pty-host proxied · fs/git · metadata</text>
 
       <rect x="8" y="306" width="664" height="248" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
-      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#475569">host · remote (prod)  —  one ssh endpoint: the agent, fronting kaval</text>
+      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#475569">host · remote (prod)  —  one ssh endpoint: kolu-watcher, fronting kaval</text>
 
       <rect x="22" y="338" width="300" height="200" rx="7" fill="#fff" stroke="#334155" />
       <rect x="22" y="338" width="300" height="22" rx="7" fill="#b45309" />
       <rect x="22" y="349" width="300" height="11" fill="#b45309" />
-      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#fff">process · agent  —  re-runs fresh  (new · P3)</text>
+      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#fff">process · kolu-watcher  —  re-runs fresh  (P3)</text>
       <text x="32" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/server   (R-1.6 provider DAG)</text>
       <text x="32" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/integrations/git</text>
       <text x="32" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface</text>
@@ -159,10 +159,10 @@ server.registry.epProd -> kProd: "ssh: nix copy --derivation → realise → dia
 | At the endpoint | local | remote — same `HostSession` link |
 | --- | --- | --- |
 | **PTY** — kaval (fds + OSC taps) | unix socket | ssh stdio |
-| **provider DAG + fs/git watchers** — run where the files are | in kolu-server | in the provisioned agent → stream metadata |
+| **provider DAG + fs/git watchers** — run where the files are | in kolu-server | in **kolu-watcher** → stream metadata |
 | **Code-tab fs** — browse · read · *watch* | node fs (native) | remote fs surface · snapshot-then-delta |
 
-The **awareness** providers (cwd · title · foreground · command · agent) are *tap-fed*, so they are transport-free. kaval stays the durable survivor; the watcher tier **re-runs fresh** — the #1031 line, now applied remote-side. So R-1's `TerminalBackend` *interface* anticipated a second (remote) *implementation* the kaval model dissolves: not two backends, one backend whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` (B3.3) adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out for free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
+The **awareness** providers (cwd · title · foreground · command · agent-detection) are *tap-fed*, so they are transport-free. kaval stays the durable survivor; **kolu-watcher** — a host-resident process running the provider DAG + fs/git — **re-runs fresh** (the #1031 line, now applied remote-side). *The `kolu-` prefix is honest: kolu-watcher runs kolu's own logic — it is coupled, kolu's soul — unlike the generic, kolu-agnostic kaval (which earns a standalone name).* So R-1's `TerminalBackend` *interface* anticipated a second (remote) *implementation* the kaval model dissolves: not two backends, one backend whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` (B3.3) adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out for free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
 
 ## Switch or multiplex?
 
@@ -185,7 +185,7 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
 | **P0** · backend cleanup | collapse R-1's anticipated backend polymorphism — a backend is **PTY · fs · git surfaces bound to an endpoint** (no `RemoteTerminalBackend`); byte-identical locally, the seam P3 fills with the remote impls | kolu-server only · low-risk · grounds P3 · can lead or run in parallel |
 | **P1** · `kaval-tui create` | spawn a plain shell — the attach-needs-something prerequisite | thin over `terminal.spawn` |
 | **P2** · `kaval-tui --host` | **reach + provision in one PR** (ssh), hosts auto-detected from ssh config | **the spike** — *is* the production `sshDriver`; the validation long-pole |
-| **P3** · kolu dials remotes | N-endpoint registry + the ssh driver; the **remote agent** (kaval + provider DAG + fs/git surface) mirrored over the `HostSession` link; `location` additive on records | builds on P0 + P2 · carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`) |
+| **P3** · kolu dials remotes | N-endpoint registry + the ssh driver; the remote pair — kaval + **kolu-watcher** (provider DAG + fs/git surface) — mirrored over the `HostSession` link; `location` additive on records | builds on P0 + P2 · carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`) |
 | **P4** · the canvas UI | multiplex (or switch) — the active-kaval strip (local always present), per-tile host hint, ssh-config picker | the granularity call lands here |
 
 **P1–P2 — the spike — in detail.** [kaval-tui](pty-daemon-tui.html) is the minimal client; it proves the transport before any Kolu UI, and because it and kolu-server dial the same socket through the same client, the spike **is** the production driver.
@@ -210,9 +210,9 @@ ssh <em>reach</em> + provision is the one genuinely-new transport, shared by bot
 
 ## The remote process model (P3)
 
-**kaval and the watcher tier are two separate processes** — forced, not incidental. kaval is the durable survivor (it must outlive deploys); the watcher tier (provider DAG + fs/git) re-runs fresh (it must be the current build's code — the #1031 line); **one process cannot be both.** Locally the watcher tier isn't even standalone — the DAG + fs/git watchers run *inside* `kolu-server` (`local.ts`: *"the DAG runs HERE, in kolu-server"*), with kaval the separate daemon. Remotely, `kolu-server` isn't on the host, so the watcher tier becomes its own **agent** process beside kaval.
+**kaval and kolu-watcher are two separate processes** — forced, not incidental. kaval is the durable survivor (it must outlive deploys); **kolu-watcher** (provider DAG + fs/git) re-runs fresh (it must be the current build's code — the #1031 line); **one process cannot be both.** Locally that role isn't even a separate process — the DAG + fs/git watchers run *inside* `kolu-server` (`local.ts`: *"the DAG runs HERE, in kolu-server"*), with kaval the separate daemon. Remotely, `kolu-server` isn't on the host, so it splits out as its own **kolu-watcher** process beside kaval.
 
-And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching it over the network needs a remote *stdio* endpoint — and a `HostSession` is one ssh subprocess per host. So the remote host exposes **one** ssh endpoint, the agent: `kolu-server` dials the agent over one `HostSession` `stdioLink`, and the agent locally **fronts kaval** (its unix socket) for PTY attach/control + taps while serving its own fs/git + metadata surface (`mirrorRemoteCollection`). The closure is shipped first via `provisionAgent` (`nix copy --derivation` → remote `realise` → pin a GC root). The diagram shows all three boundaries — **host** (dashed), **process** (boxed), **package** (`packages/…`):
+And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching it over the network needs a remote *stdio* endpoint — and a `HostSession` is one ssh subprocess per host. So the remote host exposes **one** ssh endpoint — **kolu-watcher**: `kolu-server` dials it over one `HostSession` `stdioLink`, and kolu-watcher locally **fronts kaval** (its unix socket) for PTY attach/control + taps while serving its own fs/git + metadata surface (`mirrorRemoteCollection`). The closure is shipped first via `provisionAgent` (`nix copy --derivation` → remote `realise` → pin a GC root). The diagram shows all three boundaries — **host** (dashed), **process** (boxed), **package** (`packages/…`):
 
 <ProcDiagram />
 
@@ -234,7 +234,7 @@ And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching i
 
 - **Resolved — host source:** auto-detected from ssh config; no registry to curate.
 - **Leaning multiplex,** but validate the *feel* with a prototype once the substrate lands (does N-at-once actually beat tmux-switch in daily use?).
-- **Resolved — fs/git/providers:** surfaces at the host, mirrored over the `HostSession` link — the watcher tier runs in the provisioned agent, awareness is tap-fed, no reach-over-ssh per op (see the substrate table). The one inherent cost is remote file *bytes* crossing ssh (physics), and they ride snapshot-then-delta.
+- **Resolved — fs/git/providers:** surfaces at the host, mirrored over the `HostSession` link — `kolu-watcher` runs them on the host, awareness is tap-fed, no reach-over-ssh per op (see the substrate table). The one inherent cost is remote file *bytes* crossing ssh (physics), and they ride snapshot-then-delta.
 - **Open — the remote namespace key** (see *The remote process model*): kaval's local per-port key (`kaval-<port>/`) does not cross ssh, so R-2 must either isolate per (server, host) or deliberately share one kaval per remote host with an adopt-not-recycle policy.
 - **Open — resize arbitration** across a remote hop, and the multiplex *feel* (does N-at-once beat tmux-switch in daily use?). *([herdr vs. kolu](herdr-vs-kolu.html) flagged multi-client resize as already-latent.)*
 
