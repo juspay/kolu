@@ -3,20 +3,23 @@
  *  Order (left → right between title and close): agent indicator, theme
  *  pill, split toggle, search, screenshot.
  *
- *  Reads singleton state (store, sub-panel, theme manager, right panel,
- *  tips) directly — per `no-preference-prop-drilling`. Only App-local
- *  imperative actions (palette open, search open, screenshot) are drilled
- *  as props because they are state setters whose ownership belongs at the
- *  orchestration layer. Extracted from App.tsx per kolu#626. */
+ *  Reads singleton state and verbs directly — store, sub-panel, theme manager,
+ *  right panel, tips, plus the command palette, terminal CRUD, and per-terminal
+ *  search singletons — per `no-preference-prop-drilling`. The only prop is the
+ *  tile `id`. Extracted from App.tsx per kolu#626. */
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { useRightPanel } from "../right-panel/useRightPanel";
+import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import AgentIndicator from "../terminal/AgentIndicator";
 import { useSubPanel } from "../terminal/useSubPanel";
+import { useTerminalCrud } from "../terminal/useTerminalCrud";
+import { useTerminalSearch } from "../terminal/useTerminalSearch";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { useCommandPalette } from "../useCommandPalette";
 import { ScreenshotIcon, SearchIcon, SplitToggleIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import { useThemeManager } from "../useThemeManager";
@@ -28,17 +31,11 @@ const TILE_BUTTON_CLASS =
 
 const TileTitleActions: Component<{
   id: TerminalId;
-  /** Open the command palette at a specific group (e.g. "Set theme"). */
-  onOpenPaletteGroup: (group: string) => void;
-  /** Toggle the sub-panel for the given parent — App owns this because it
-   *  has to bridge to `crud.handleCreateSubTerminal` when no splits exist. */
-  onToggleSubPanel: (parentId: TerminalId) => void;
-  /** Open the in-tile search overlay. */
-  onOpenSearch: () => void;
-  /** Screenshot the given terminal. */
-  onScreenshot: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
+  const crud = useTerminalCrud();
+  const search = useTerminalSearch();
+  const commandPalette = useCommandPalette();
   const rightPanel = useRightPanel();
   const subPanel = useSubPanel();
   const { activeThemeName } = useThemeManager();
@@ -87,7 +84,7 @@ const TileTitleActions: Component<{
               onClick={(e) => {
                 e.stopPropagation();
                 store.setActiveSilently(props.id);
-                props.onOpenPaletteGroup("Set theme");
+                commandPalette.openGroup("Set theme");
                 setTimeout(
                   () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
                   500,
@@ -110,7 +107,7 @@ const TileTitleActions: Component<{
           onClick={(e) => {
             e.stopPropagation();
             store.setActiveSilently(props.id);
-            props.onToggleSubPanel(props.id);
+            crud.toggleSubPanel(props.id);
           }}
           aria-label="Toggle split"
         >
@@ -135,7 +132,7 @@ const TileTitleActions: Component<{
           onClick={(e) => {
             e.stopPropagation();
             store.setActiveSilently(props.id);
-            props.onOpenSearch();
+            search.setOpen(props.id, true);
           }}
           aria-label="Find in terminal"
         >
@@ -149,7 +146,7 @@ const TileTitleActions: Component<{
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
-          props.onScreenshot(props.id);
+          void screenshotTerminal(props.id, meta());
         }}
         title="Screenshot terminal"
         data-testid="screenshot-button"

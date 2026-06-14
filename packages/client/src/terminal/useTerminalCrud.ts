@@ -10,6 +10,7 @@ import type {
 } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
+import { createSharedRoot } from "../createSharedRoot";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
@@ -17,11 +18,19 @@ import { writeTextToClipboard } from "../ui/clipboard";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { client, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
-import type { TerminalStore } from "./useTerminalStore";
+import { useTerminalSearch } from "./useTerminalSearch";
+import { useTerminalStore } from "./useTerminalStore";
 
-export function useTerminalCrud(deps: { store: TerminalStore }) {
-  const { store } = deps;
+/** Terminal CRUD — singleton via `createSharedRoot`. Reads `useTerminalStore`
+ *  internally (no `deps` argument), so consumers that already touch the store
+ *  — `TileTitleActions`, `TerminalContent` — can call `useTerminalCrud()`
+ *  directly instead of receiving crud-derived closures drilled from App.tsx.
+ *  Mirrors the `useIntentEditor` de-deps: the old `{ store }` argument was an
+ *  unenforceable "deps never change identity" convention held by a comment. */
+export const useTerminalCrud = createSharedRoot(() => {
+  const store = useTerminalStore();
   const subPanel = useSubPanel();
+  const terminalSearch = useTerminalSearch();
   const rightPanel = useRightPanel();
   const { showTipOnce } = useTips();
 
@@ -76,6 +85,7 @@ export function useTerminalCrud(deps: { store: TerminalStore }) {
     const idx = ids.indexOf(id);
     subPanel.removePanel(id);
     rightPanel.removePanel(id);
+    terminalSearch.removeTerminal(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
       const remaining = ids.filter((x) => x !== id);
@@ -162,6 +172,21 @@ export function useTerminalCrud(deps: { store: TerminalStore }) {
     subPanel.expandPanel(parentId);
   }
 
+  /** Toggle a terminal's split: create the first sub-terminal if none exist
+   *  (seeded with the parent's cwd), otherwise flip the sub-panel's
+   *  visibility. Moved out of App.tsx — it complected store + crud + sub-panel,
+   *  all of which crud already orchestrates. */
+  function toggleSubPanel(parentId: TerminalId) {
+    if (store.getSubTerminalIds(parentId).length === 0) {
+      void handleCreateSubTerminal(
+        parentId,
+        store.activeMeta()?.cwd ?? undefined,
+      );
+    } else {
+      subPanel.togglePanel(parentId);
+    }
+  }
+
   async function handleKill(id: TerminalId) {
     try {
       await client.terminal.kill({ id });
@@ -227,10 +252,11 @@ export function useTerminalCrud(deps: { store: TerminalStore }) {
     removeAndAutoSwitch,
     handleCreate,
     handleCreateSubTerminal,
+    toggleSubPanel,
     handleKill,
     handleKillWithSubs,
     handleCopyTerminalText,
     handleRunInActiveTerminal,
     handleCloseAll,
   };
-}
+});

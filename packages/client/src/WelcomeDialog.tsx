@@ -7,18 +7,26 @@
 import Dialog from "@corvu/dialog";
 import type { PwaInstall } from "@kolu/solid-pwa-install";
 import type { Component } from "solid-js";
+import { createDisclosure } from "./ui/createDisclosure";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 import WelcomeMoments from "./WelcomeMoments";
 
 const chrome = surface({ portalled: true });
 
+/** Welcome-dialog open-state — the component owns it. Re-summoned by the
+ *  "Tutorial" palette command; zero terminals shows the same moments inline. */
+export const welcomeDialog = createDisclosure();
+
 const WelcomeDialog: Component<{
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   install: PwaInstall;
 }> = (props) => (
-  <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
+  <ModalDialog
+    open={welcomeDialog.open()}
+    onOpenChange={welcomeDialog.onOpenChange}
+    refocusOnClose
+    size="md"
+  >
     <Dialog.Content class={`${chrome.class} p-6`} style={chrome.style}>
       <div class="flex items-center gap-2 mb-1">
         <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />

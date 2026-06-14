@@ -14,10 +14,13 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
+import { aboutDialog } from "./AboutDialog";
 import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
 import type { DockSourceEntry } from "./canvas/dockModel";
 import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
+import { diagnosticDialog } from "./DiagnosticInfo";
+import { welcomeDialog } from "./WelcomeDialog";
 import {
   ACTIONS,
   type ActionContext,
@@ -117,11 +120,6 @@ export interface CommandDeps extends ActionContext {
   handleSetTheme: (name: string) => void;
   // Intent — opens the editor for the active terminal.
   handleEditActiveIntent: () => void;
-  // Dialogs
-  setAboutOpen: (open: boolean) => void;
-  /** Re-summon the welcome overlay (the "Tutorial" command). */
-  setWelcomeOpen: (open: boolean) => void;
-  setDiagnosticInfoOpen: (open: boolean) => void;
   // Canvas — desktop only. The canvas isn't mounted on mobile, so these
   // commands are hidden there via `supportsSpatialCanvas`.
   canvasCenterActive: () => void;
@@ -395,7 +393,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Tutorial",
             description: "Show the welcome screen",
             section: "help" as const,
-            onSelect: () => deps.setWelcomeOpen(true),
+            onSelect: () => welcomeDialog.openDialog(),
           },
         ]
       : []),
@@ -403,7 +401,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       kind: "action",
       name: "About kolu",
       section: "help",
-      onSelect: () => deps.setAboutOpen(true),
+      onSelect: () => aboutDialog.openDialog(),
     },
     // "Debug" — drill-in group under Help. The handful of internal
     // hatches don't warrant their own top-level section; nesting under
@@ -418,7 +416,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           kind: "action",
           name: "Diagnostic info",
           description: "Runtime state — renderer, WS, terminals",
-          onSelect: () => deps.setDiagnosticInfoOpen(true),
+          onSelect: () => diagnosticDialog.openDialog(),
         },
         // Restart kaval — recycle the terminal daemon, capturing the session
         // first and offering it for restore on the fresh daemon (B3.2). The

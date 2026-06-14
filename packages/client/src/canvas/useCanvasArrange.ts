@@ -12,18 +12,16 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { supportsSpatialCanvas } from "../capabilities";
-import type { useTerminalCrud } from "../terminal/useTerminalCrud";
-import type { TerminalStore } from "../terminal/useTerminalStore";
+import { useTerminalCrud } from "../terminal/useTerminalCrud";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import { getBucketFor } from "./placementPolicy";
 import { arrangeRepoIslands, type RepoIslandTile } from "./repoIslands";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { usePendingLayouts } from "./usePendingLayouts";
 
-export function useCanvasArrange(deps: {
-  store: TerminalStore;
-  crud: ReturnType<typeof useTerminalCrud>;
-}) {
-  const { store, crud } = deps;
+export function useCanvasArrange() {
+  const store = useTerminalStore();
+  const crud = useTerminalCrud();
   const pendingLayouts = usePendingLayouts();
 
   /** Apply a tile's geometry — drag-end, resize-end, default-place,
@@ -76,5 +74,15 @@ export function useCanvasArrange(deps: {
     if (activeId && arranged.has(activeId)) store.activate(activeId);
   }
 
-  return { applyTileGeometry, handleCanvasAutoArrange };
+  /** Center the canvas on the active tile (the "Center on active tile" palette
+   *  command). No-op off the spatial canvas (mobile / narrow) or at zero tiles.
+   *  Moved out of App.tsx — sibling to `handleCanvasAutoArrange`, both
+   *  canvas-spatial behavior over the same store. */
+  function centerActive() {
+    if (!supportsSpatialCanvas()) return;
+    const id = store.activeId();
+    if (id) store.activate(id);
+  }
+
+  return { applyTileGeometry, handleCanvasAutoArrange, centerActive };
 }

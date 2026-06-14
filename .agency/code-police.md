@@ -178,6 +178,23 @@ Bad: `<Child scrollLock={preferences().scrollLock} />` then `props.scrollLock` i
 Good: `const { preferences } = usePreferences();` inside the child component
 _Rationale_: Prop-drilling preferences creates unenforced coupling ("parent extracts the right field and passes it to the right consumer") and bloats App.tsx's wiring surface. Components that own their behavior should own their preference reads too.
 
+### app-shell-stays-thin
+
+`packages/client/src/App.tsx` is a thin layout shell — it mounts the chrome, the canvas surface, the dialogs, and the overlays, and composes domain singletons. It must NOT accrete new domain state, wiring, or orchestration. Reject a diff that, in `App.tsx`:
+
+- adds a `createSignal` / `createMemo` / `createEffect` for anything other than layout-level state (the close-confirm target, the `canvasMode` memo, and the `workspaceEntries` command-source memo are the whole baseline);
+- adds a new dialog/overlay open-state signal — push it into the dialog component via `createDisclosure` (`ui/createDisclosure.ts`), or into `useCommandPalette` for the palette;
+- assembles `ActionContext` / `CommandDeps` wiring inline instead of in `useActionContext` / the owning `useXxx.ts`;
+- adds a per-feature handler that re-threads `store.*` / `crud.*` into a child (the child should read the singleton — see `no-preference-prop-drilling`);
+- reaches `window.__…` / `document.querySelector` for state a singleton already owns reactively (e.g. "is any dialog open" → `useDialogStack`).
+
+New shared state goes in a `useXxx.ts` singleton (the pattern every other domain follows); new dialog open-state goes in the dialog component. The reactive-primitive budget is CI-enforced by `packages/client/src/App.shell.test.ts`. Bumping that budget is allowed only for genuinely layout-level reactive state, and the PR must say why — the bump is a deliberate, reviewable exception, not a silent ratchet.
+
+Bad: `const [aboutOpen, setAboutOpen] = createSignal(false)` in App.tsx, drilled into the dialog
+Good: `export const aboutDialog = createDisclosure()` in `AboutDialog.tsx`; App just mounts `<AboutDialog />`
+
+_Rationale_: App.tsx is the catch-all every feature is tempted to land "a little wiring" in; left unchecked it drifts back into the 785-line kitchen-sink #1340 restored. The "thin layout shell" rule (`.claude/rules/solidjs.md`) had no teeth — this rule plus the budget test give it teeth. Codified after the #1340 decomposition.
+
 ### errors-must-log-at-error
 
 Actual errors (failed I/O, failed queries, unexpected exceptions, callback throws) must log at `error` level, not `warn` or `debug`. Reserve `warn` for degraded-but-recoverable states (e.g. a non-critical fallback path). Reserve `debug` for expected-absent conditions (e.g. file not found on a machine that doesn't have the tool installed).
