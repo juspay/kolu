@@ -23,6 +23,13 @@ export function useTerminalSearch() {
     setOpen(id: TerminalId, open: boolean) {
       setState(id, open);
     },
+    /** Open the find bar for terminal `id` — the "find in THIS terminal" intent
+     *  named once, so the tile's find button doesn't hand-roll `setOpen(id,
+     *  true)`. The search singleton owns find-bar state; tile selection stays
+     *  with the caller (TileTitleActions' `onTile`). */
+    openFor(id: TerminalId) {
+      setState(id, true);
+    },
     /** Toggle the find bar for the active terminal — the `Cmd+F` action. */
     toggleActive() {
       const id = store.activeId();

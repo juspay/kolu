@@ -134,7 +134,7 @@ const TileTitleActions: Component<{
           class={`${TILE_BUTTON_CLASS} w-7`}
           style={{ color: "var(--color-fg-3, currentColor)" }}
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => onTile(e, () => search.setOpen(props.id, true))}
+          onClick={(e) => onTile(e, () => search.openFor(props.id))}
           aria-label="Find in terminal"
         >
           <SearchIcon />
