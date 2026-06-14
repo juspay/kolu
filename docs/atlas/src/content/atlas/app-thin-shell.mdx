@@ -2,8 +2,8 @@
 title: "App.tsx: Restore the Thin Layout Shell"
 description: A plan to decompose the 785-line App.tsx kitchen-sink into six volatility-aligned seams — pressure-tested by the lowy + hickey lenses before a line of code.
 kind: analysis
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -229,8 +229,9 @@ a sibling unit test on `canvasMode` — asserting the tier precedence
 (connecting ▸ down ▸ warming ▸ empty ▸ workspace) and the down/warming payloads
 without rendering, which is the whole point of pulling the decision out of the JSX.
 
-When it lands, this note flips to `status: implemented` and links the PR with
-`<PrLink pr={0} />`.
+Implemented in <PrLink pr={1347} /> — App.tsx landed at **559 lines / 3 reactive
+primitives**, and the `app-shell-stays-thin` code-police rule + `App.shell.test.ts`
+budget now keep it there.
 
 ---
 
