@@ -147,7 +147,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           client
         </span>
         <span
-          class={`h-[6px] w-[6px] rounded-full ${stale() ? "bg-warning" : "bg-ok"}`}
+          class={`h-[6px] w-[6px] rounded-full ${stale() ? nudgeDot : toneDot.ok}`}
         />
         <span class="flex-1 text-fg-2">{pwa.clientCommit ?? "—"}</span>
       </div>
