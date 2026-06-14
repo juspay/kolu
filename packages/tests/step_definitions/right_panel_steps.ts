@@ -125,28 +125,35 @@ Then(
     );
     await attach.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 
-    const visible = (await attach.textContent())?.trim() ?? "";
-    const shortId = visible.match(/kaval-tui attach (\S+)/)?.[1] ?? "";
-    // The displayed id is the short form (8 hex chars), not the full uuid.
+    // The SHOWN command (the idle affordance is an icon with no text, so the
+    // button's textContent is exactly the command — incl. any `--socket <path>`
+    // the inspector pins after the id).
+    const shown = (await attach.textContent())?.trim() ?? "";
+    // The id token is the 8-char short form, not the full uuid.
+    const shortId = shown.match(/^kaval-tui attach ([0-9a-f]{8})\b/)?.[1] ?? "";
     assert.ok(
       /^[0-9a-f]{8}$/.test(shortId),
-      `Expected the shown command to carry an 8-char short id, got "${visible}"`,
+      `Expected the shown command to start with an 8-char short id, got "${shown}"`,
     );
 
-    // The hover/title fallback carries the FULL command — its id starts with
-    // the shown short id and is the full-length uuid (longer than 8 chars).
+    // The hover/title carries the FULL command (the on-hover disambiguator):
+    // same shape, but its id token is the full-length uuid that the short id
+    // prefixes.
     const title = (await attach.getAttribute("title")) ?? "";
-    const fullId = title.match(/^kaval-tui attach (\S+)$/)?.[1] ?? "";
+    const fullId = title.match(/^kaval-tui attach ([0-9a-f-]+)/)?.[1] ?? "";
     assert.ok(
-      fullId.startsWith(shortId) && fullId.length > 8,
-      `Expected the title to carry the full attach command, got "${title}"`,
+      fullId.startsWith(shortId) && fullId.length >= 36,
+      `Expected the title to carry the full-uuid attach command, got "${title}"`,
     );
 
-    // Clicking copies the SHORT command (the deliberate WYSIWYG-copy decision).
+    // Clicking copies EXACTLY what's shown (WYSIWYG) — short id and, when the
+    // daemon socket is known, the `--socket` that pins the command to THIS
+    // server's kaval. Comparing to the shown text keeps the assertion correct
+    // whether or not the socket has resolved in the fixture.
     await attach.click();
     await this.page.waitForFunction(
       (exp) => navigator.clipboard.readText().then((t) => t === exp),
-      `kaval-tui attach ${shortId}`,
+      shown,
       { timeout: POLL_TIMEOUT },
     );
   },
