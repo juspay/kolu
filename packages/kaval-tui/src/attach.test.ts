@@ -35,9 +35,9 @@ const silentLog = {
   child: () => silentLog,
 } as unknown as InProcessPtyHostDeps["log"];
 
-/** A minimal fully-specified spawn — a plain login shell, no rc files (the host
- *  derives nothing from policy since B0). Delegates to the production composer
- *  so the test shape can't drift from what `create` actually sends. */
+/** A minimal fully-specified spawn — a plain `$SHELL` run with no login flag, no
+ *  rc files (the host derives nothing from policy since B0). Delegates to the
+ *  production composer so the test shape can't drift from what `create` sends. */
 const spawnInput = (cwd: string): PtyHostSpawnInput =>
   buildCreateInput({ id: newPtyId(), cwd, env: process.env });
 

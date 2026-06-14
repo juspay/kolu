@@ -12,8 +12,34 @@ The daemon owns the PTYs and outlives the clients; kaval-tui comes and goes.
 
 ```
 kaval-tui list [--json]     list your live terminals (id · pid · idle · cmd · cwd)
+kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
 kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches
+```
+
+## Creating a terminal
+
+A freshly-started daemon owns no terminals, so `create` is what `attach` needs
+first. It spawns a plain `$SHELL` (no rcfiles, no kolu policy — the _raw_
+multiplexer's spawn), prints the new id, and exits without attaching:
+
+```sh
+kaval-tui create                 # spawned a1b2c3d4 · bash · ~/code/kolu (pid 12843)
+kaval-tui attach a1b2c3d4        # …then take it over
+```
+
+Pass a command to run instead of a shell — prefix it with `--` when it carries
+its own flags, so they reach the program rather than kaval-tui:
+
+```sh
+kaval-tui create -- htop -d 5    # run htop, not a shell
+```
+
+`--json` prints `{ id, pid, cwd }` (the full id) for scripts; the `attach with
+…` next-step hint always goes to stderr, so stdout stays just the spawn line:
+
+```sh
+id=$(kaval-tui create --json | jq -r .id)
 ```
 
 ## Short ids
@@ -75,8 +101,8 @@ pass straight through.
 `~` clashing (nested ssh?) → rebind it: `kaval-tui attach <id> --escape %`.
 
 When the program inside exits, kaval-tui exits with the same code. An
-unreachable daemon is a one-line error, never a hang. `spawn` / `kill` —
-creating and ending terminals from the shell — are later phases.
+unreachable daemon is a one-line error, never a hang. `create` (above) makes a
+terminal; `kill` — ending one from the shell — is a later phase.
 
 The full design lives in the
 [kaval atlas note](https://htmlpreview.github.io/?https://github.com/juspay/kolu/blob/master/docs/atlas/dist/pty-daemon.html).

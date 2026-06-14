@@ -54,7 +54,8 @@ export const CONTRACT_COVERAGE = {
   ],
 } as const;
 
-/** A minimal fully-specified spawn — a plain login shell, no rc files. Since B0
+/** A minimal fully-specified spawn — a plain `$SHELL` run with no login flag,
+ *  no rc files. Since B0
  *  the host derives nothing from policy, so a bare client supplies the complete
  *  `{argv, env, initFiles}` (and this exercises exactly that no-hooks path). The
  *  env crosses the wire verbatim on the socket link. */

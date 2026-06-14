@@ -382,6 +382,73 @@ describe("kaval daemon — process-boundary behaviour", () => {
     await reap(d);
   }, 30000);
 
+  it("kaval-tui create: the CLI spawns through main.ts and the id is then listable", async () => {
+    const d = track(await startDaemon());
+
+    // Drive the REAL cleye boundary: `[command...]` after `--` (so the command
+    // keeps its own flags), `--json` for a scriptable `{ id }`, the daemon
+    // socket. This proves dispatch + positional + `--` + `--json` + stdout, not
+    // just `buildCreateInput` in isolation.
+    const created = await runKavalTui([
+      "create",
+      "--socket",
+      d.socketPath,
+      "--json",
+      "--",
+      "sh",
+      "-c",
+      "echo CREATEMARK; sleep 100",
+    ]);
+    expect(created.code).toBe(0);
+    // `--json` keeps stdout to the scriptable object — the next-step hint is
+    // suppressed there (it rides stderr only on the human path, asserted below).
+    const { id } = JSON.parse(created.stdout) as { id: string };
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+
+    // The human (non-`--json`) path prints the one-line `spawned …` to stdout
+    // and the `attach with …` next-step hint to STDERR, so stdout stays the
+    // scriptable spawn line.
+    const human = await runKavalTui([
+      "create",
+      "--socket",
+      d.socketPath,
+      "--",
+      "sh",
+      "-c",
+      "sleep 100",
+    ]);
+    expect(human.code).toBe(0);
+    expect(human.stdout).toMatch(/^spawned /);
+    expect(human.stderr).toContain("attach with `kaval-tui attach");
+
+    // The freshly-minted terminal is live on the daemon — `list` sees the FULL
+    // id (the form `--json` carries), so create→list round-trips end to end.
+    const listed = await runKavalTui([
+      "list",
+      "--socket",
+      d.socketPath,
+      "--json",
+    ]);
+    expect(listed.code).toBe(0);
+    const entries = JSON.parse(listed.stdout) as Array<{ id: string }>;
+    expect(entries.some((e) => e.id === id)).toBe(true);
+
+    // …and its screen shows the command's output, proving the `[command...]`
+    // positional reached the host's spawn (not a plain $SHELL).
+    const conn = await connect(d.socketPath);
+    let screen = "";
+    for (let i = 0; i < 100 && !screen.includes("CREATEMARK"); i++) {
+      screen = (await conn.client.surface.terminal.getScreenText({ id })).text;
+      if (!screen.includes("CREATEMARK")) await sleep(50);
+    }
+    expect(screen).toContain("CREATEMARK");
+    await conn.dispose();
+
+    await reap(d);
+  }, 30000);
+
   it("a flag BEFORE the subcommand fails with a flag-order hint, not silent help", async () => {
     // cleye binds flags only after the subcommand, so `--socket X list` makes it
     // lose the command. Rather than print bare help (which read as a no-op), the

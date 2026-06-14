@@ -4,10 +4,11 @@
  * without a socket. `main.ts` is the thin glue that mints the id, fetches over
  * the contract, and prints these.
  *
- * `create` is the *raw* multiplexer's spawn: a plain login shell (or a command
- * you pass), no rcfiles, no kolu policy. Since B0 the wire is fully specified
- * (the host derives nothing from its own env), so the client composes the whole
- * input itself — here, from kaval-tui's own `process.env`/`cwd`, the same
+ * `create` is the *raw* multiplexer's spawn: a plain `$SHELL` (or a command
+ * you pass) run with no login flag, no rcfiles, no kolu policy. Since B0 the
+ * wire is fully specified (the host derives nothing from its own env), so the
+ * client composes the whole input itself — here, from kaval-tui's own
+ * `process.env`/`cwd`, the same
  * minimal shape the contract tests carry. kolu-server's rich client composes far more
  * (`composeSpawnInput`: env layering, identity vars, shell-init); kaval-tui
  * deliberately does not — a plain `$SHELL` is the point.
@@ -18,7 +19,7 @@ import {
   type PtyHostSpawnInput,
   type PtyHostSpawnResult,
 } from "kaval";
-import { commandName, shortId, tildeify } from "./render.ts";
+import { commandName, sanitizeCell, shortId, tildeify } from "./render.ts";
 
 /** The pty-host's spawn result — `{ id, pid, cwd }` (TerminalSpawnOutputSchema).
  *  Consumes the contract's inferred type so it can't drift from the schema. */
@@ -29,7 +30,7 @@ export type CreateResult = PtyHostSpawnResult;
  *  `process.cwd()` / `process.env` / the `[command…]` positional) so the result
  *  is deterministic and testable. `argv` is the given `command`, or `[$SHELL]`
  *  (falling back to `DEFAULT_SPAWN_SHELL`, the host-agreeing `/bin/sh`) when none
- *  is passed — a plain login shell. There
+ *  is passed — a plain shell, run with no login flag. There
  *  are no rcfiles, and the env is the caller's own with `undefined` values
  *  dropped: the host writes nothing of its own. */
 export function buildCreateInput(opts: {
@@ -64,15 +65,18 @@ export function newPtyId(): string {
 
 /** Render the human one-liner — the short id to hand to `attach`, the program
  *  (`$SHELL` or the command's basename), the resolved cwd, and the pid. Mirrors
- *  `list`'s vocabulary (`·` separators, tildeified cwd, short id). */
+ *  `list`'s vocabulary (`·` separators, tildeified cwd, short id). The program
+ *  basename and cwd are run through `sanitizeCell` for the same reason `list`
+ *  does: a cwd (or argv[0]) carrying a newline or raw ESC would otherwise break
+ *  this line's layout or inject terminal control effects. `--json` stays raw
+ *  (`JSON.stringify` escapes controls). */
 export function formatCreate(
   result: CreateResult,
   opts: { program: string; home?: string },
 ): string {
-  return `spawned ${shortId(result.id)} · ${commandName(opts.program)} · ${tildeify(
-    result.cwd,
-    opts.home,
-  )} (pid ${result.pid})`;
+  const program = sanitizeCell(commandName(opts.program));
+  const cwd = sanitizeCell(tildeify(result.cwd, opts.home));
+  return `spawned ${shortId(result.id)} · ${program} · ${cwd} (pid ${result.pid})`;
 }
 
 /** Render `create --json` — the raw `{ id, pid, cwd }` object, 2-space indented

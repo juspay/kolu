@@ -106,6 +106,21 @@ describe("formatCreate", () => {
       "spawned a8f1c2d3 · bash · /home/u/code/kolu (pid 12843)",
     );
   });
+
+  it("strips control bytes from the cwd and program so the line can't be injected", () => {
+    // A cwd carrying a newline + raw ESC sequence (an attacker-influenceable cwd
+    // — the daemon echoes back whatever it spawned in) must not break the line
+    // or paint terminal control effects: `sanitizeCell` collapses the controls.
+    const evil: CreateResult = {
+      id: "a8f1c2d3-1111-2222-3333-444455556666",
+      pid: 12843,
+      cwd: "/home/u/co\nde\x1b[31m",
+    };
+    const line = formatCreate(evil, { program: "ba\x1bsh", home: "/home/u" });
+    expect(line).toBe("spawned a8f1c2d3 · ba sh · ~/co de [31m (pid 12843)");
+    // No raw ESC or newline survives into the human line.
+    expect(line).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
 });
 
 describe("formatCreateJson", () => {
