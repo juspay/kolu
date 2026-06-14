@@ -1,0 +1,238 @@
+---
+title: ChromeBar declutter — show the commit once
+description: The srv·client·kaval identity rail printed the same commit three times in the happy path. Keep the three familiar columns, but show the shared commit once (in srv), collapse client to a muted ≡ when it matches, and move kaval's duplicate commit + closure-hash into its panel — so the rail stays recognizable while the redundancy is gone, and divergence still spells itself out inline.
+kind: feature
+status: implemented
+maturity: budding
+parents: [pty-daemon-chrome-bar]
+updated: 2026-06-14
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import D2 from "../../components/D2.astro";
+import PrLink from "../../components/PrLink.astro";
+import Pill from "../../components/Pill.astro";
+
+The rail is **too crowded** — and most of it is the *same fact, repeated*. In a
+clean deploy the server, this browser's bundle, and the kaval daemon are all
+built from one HEAD, so the rail prints **`d07ea54` three times** behind three
+labels. <Cite file="packages/client/src/ui/IdentityRail.tsx" /> Shipped in <PrLink pr={1359} />.
+
+export const CbStyles = () => (
+  <style>{`
+  .cb-stage{position:relative;background:#fcfcfd;border:1px solid #e6e2d6;border-radius:12px;padding:1.5rem 1.25rem 1.1rem;margin:1.3rem 0;background-image:linear-gradient(#eef0f3 1px,transparent 1px),linear-gradient(90deg,#eef0f3 1px,transparent 1px);background-size:22px 22px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+  .cb-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+  .cb-logo{display:flex;flex-direction:column;align-items:center;gap:2px;flex:none}
+  .cb-logo i{display:block;height:3px;border-radius:2px}
+  .cb-pill{display:inline-flex;align-items:stretch;border:1px solid #d0d0d8;background:rgba(232,232,236,.72);border-radius:9px;padding:2px;font:500 12px/1 ui-monospace,monospace}
+  .cb-seg{display:inline-flex;align-items:center;gap:6px;padding:4px 8px}
+  .cb-div{width:1px;align-self:center;height:15px;background:rgba(184,184,194,.75);margin:0 2px}
+  .cb-lbl{font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:#8a8a96}
+  .cb-dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .cb-ok{background:#16a34a}.cb-warn{background:#ca8a04}.cb-bad{background:#dc2626}.cb-unk{background:rgba(138,138,150,.5)}
+  .cb-ver{color:#5c5c66;font-variant-numeric:tabular-nums}
+  .cb-sha{color:#5c5c66;border-bottom:1px dotted #b8b8c2}
+  .cb-key{font-size:10px;color:#8a8a96;border-bottom:1px dotted rgba(138,138,150,.55)}
+  .cb-up{font-size:10px;color:#8a8a96;font-variant-numeric:tabular-nums}
+  .cb-eq{color:#9098a2;font-size:13px;line-height:1}
+  .cb-chip{font-size:9px;color:#ca8a04;border:1px solid rgba(202,138,4,.45);border-radius:999px;padding:2px 6px;white-space:nowrap}
+  .cb-aff{color:#a0a0a8;font-size:12px;padding:0 2px}
+  .cb-btn{border-radius:6px;background:rgba(220,220,228,.5)}
+  .cb-dup{background:rgba(202,138,4,.16);border-radius:3px;box-shadow:0 0 0 1px rgba(202,138,4,.3)}
+  .cb-cap{margin-top:.7rem;font:600 .72rem/1.4 ui-sans-serif,system-ui;color:#6b7280}
+  .cb-cap b{color:#262a2e}
+  .cb-cap .ok{color:#16a34a}.cb-cap .am{color:#b8860b}.cb-cap .rd{color:#dc2626}
+  .cb-grid{display:grid;grid-template-columns:1fr 1fr;gap:.95rem;margin:1.3rem 0}
+  @media (max-width:640px){.cb-grid{grid-template-columns:1fr}}
+  .cb-card{border:1px solid #e6e2d6;border-radius:11px;padding:1rem .95rem;background:#fcfcfd;background-image:linear-gradient(#eef0f3 1px,transparent 1px),linear-gradient(90deg,#eef0f3 1px,transparent 1px);background-size:20px 20px}
+  .cb-mini{font:600 .62rem/1 ui-monospace,monospace;letter-spacing:.05em;text-transform:uppercase;color:#9098a2;margin:0 0 .6rem}
+  @media (prefers-reduced-motion:reduce){.cb-stage *,.cb-card *{animation:none!important}}
+  `}</style>
+);
+
+export const Logo = () => (
+  <span class="cb-logo" aria-label="kolu" role="img">
+    <i style="width:9px;background:#7c3aed" />
+    <i style="width:13px;background:#2563eb" />
+    <i style="width:17px;background:#16a34a" />
+    <i style="width:21px;background:#ca8a04" />
+    <i style="width:25px;background:#dc2626" />
+  </span>
+);
+
+<CbStyles />
+
+## The crowding — three SHAs for one bit
+
+<div class="cb-stage">
+  <div class="cb-row">
+    <Logo />
+    <span class="cb-pill">
+      <span class="cb-seg"><span class="cb-lbl">srv</span><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-sha cb-dup">d07ea54</span></span>
+      <span class="cb-div" />
+      <span class="cb-seg"><span class="cb-lbl">client</span><span class="cb-sha cb-dup">d07ea54</span></span>
+      <span class="cb-div" />
+      <span class="cb-seg"><span class="cb-lbl">kaval</span><span class="cb-dot cb-ok" /><span class="cb-sha cb-dup">d07ea54</span><span class="cb-key">98eeac0</span><span class="cb-up">1h 50m</span></span>
+    </span>
+  </div>
+  <div class="cb-cap">Before — <b>d07ea54</b> printed <b>three times</b> (highlighted), plus a closure hash and three labels: ~10 tokens to say <span class="ok">in sync · alive</span>.</div>
+</div>
+
+The three columns exist to flag **disagreement** — `client ≠ srv` (a stale cached
+bundle), `kaval ⬆ update` (the daemon a build behind). When everything agrees —
+the ~95% case — that machinery just repeats one identity. Only `98eeac0` (kaval's
+nix closure hash) is genuinely distinct, and it's a content hash, not a
+GitHub-navigable commit.
+
+<Callout kind="note" title="This revisits a decision we deliberately deferred">
+The original rail chose **"always explicit columns… no collapse-when-equal"** —
+but only *"until the feature stabilizes"* ([pty-daemon-chrome-bar](pty-daemon-chrome-bar.html),
+decisions). Since then B2 split kaval into its own daemon, B3.2 added the inline
+restart, and B3.4 (<PrLink pr={1353} />) lit the `⬆ update` nudge. The feature has
+stabilized — so cutting the redundant repeats is now on the table.
+</Callout>
+
+## Show the commit once
+
+Keep the three familiar columns and the labeled **kaval** panel button — just
+stop repeating the commit. It shows **once**, in `srv` (the canonical identity).
+`client` collapses to a muted **≡** ("same build as the server"), and `kaval`
+drops its duplicate commit + closure-hash down into its panel, keeping only its
+live dot · uptime on the strip.
+
+<div class="cb-stage">
+  <div class="cb-row">
+    <Logo />
+    <span class="cb-pill">
+      <span class="cb-seg"><span class="cb-lbl">srv</span><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span></span>
+      <span class="cb-div" />
+      <span class="cb-seg"><span class="cb-lbl">client</span><span class="cb-eq">≡</span></span>
+      <span class="cb-div" />
+      <span class="cb-seg cb-btn"><span class="cb-lbl">kaval</span><span class="cb-dot cb-ok" /><span class="cb-up">1h 50m</span></span>
+    </span>
+  </div>
+  <div class="cb-cap"><b>After</b> — the commit shows <b>once</b>. <span style="color:#9098a2">≡</span> = client matches srv; <b>kaval</b> stays the labeled button (shaded) → its panel (build commit · <code>98eeac0</code> · restart · <code>kaval-tui</code>). One dot per axis: srv's carries <code>data-ws-status</code>, kaval's <code>data-daemon-state</code>.</div>
+</div>
+
+No new affordance, no hover-to-reveal, no disclosure triangle — the rail reads the
+same as before, just without the echo. Every dropped fact stays reachable: the
+client commit in the About dialog, kaval's commit + closure-hash in its panel.
+
+## Divergence spells itself out
+
+The dedup only collapses what's *redundant*. The moment a column actually
+disagrees it expands back to its own commit + an actionable chip — automatically,
+nothing to click. These are the signals the three columns existed for.
+
+<div class="cb-grid">
+  <div class="cb-card">
+    <p class="cb-mini">client behind server</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill">
+        <span class="cb-seg"><span class="cb-lbl">srv</span><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span></span>
+        <span class="cb-div" />
+        <span class="cb-seg"><span class="cb-lbl">client</span><span class="cb-sha">a1b2c3d</span><span class="cb-chip">≠ srv</span></span>
+      </span>
+    </div>
+    <div class="cb-cap"><span class="am">≠ srv</span> — the <b>≡</b> gives way to the client's own SHA + a one-click reload nudge. <code>clientStale()</code></div>
+  </div>
+
+  <div class="cb-card">
+    <p class="cb-mini">kaval a build behind</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill">
+        <span class="cb-seg"><span class="cb-lbl">srv</span><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span></span>
+        <span class="cb-div" />
+        <span class="cb-seg cb-btn"><span class="cb-lbl">kaval</span><span class="cb-dot cb-ok" /><span class="cb-up">1h 50m</span><span class="cb-chip">⬆ update</span></span>
+      </span>
+    </div>
+    <div class="cb-cap"><span class="am">⬆ update</span> on the kaval button — click it → panel with running-vs-expected + Restart. <code>kavalUpdatePending()</code></div>
+  </div>
+
+  <div class="cb-card">
+    <p class="cb-mini">daemon stopped</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill">
+        <span class="cb-seg"><span class="cb-lbl">srv</span><span class="cb-dot cb-ok" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span></span>
+        <span class="cb-div" />
+        <span class="cb-seg cb-btn"><span class="cb-lbl">kaval</span><span class="cb-dot cb-bad" /><span style="color:#dc2626;font-size:10px">not running</span></span>
+      </span>
+    </div>
+    <div class="cb-cap"><span class="rd">red dot</span> + state label replace the uptime; pairs with the degraded canvas. <code>DAEMON_STATE_PRESENTATION[state].label</code></div>
+  </div>
+
+  <div class="cb-card">
+    <p class="cb-mini">server unreachable</p>
+    <div class="cb-row"><Logo />
+      <span class="cb-pill">
+        <span class="cb-seg"><span class="cb-lbl">srv</span><span class="cb-dot cb-bad" /><span class="cb-ver">v1.1.0</span><span class="cb-sha">d07ea54</span></span>
+        <span class="cb-div" />
+        <span class="cb-seg"><span class="cb-lbl">client</span><span class="cb-eq">≡</span></span>
+      </span>
+    </div>
+    <div class="cb-cap"><span class="rd">red srv dot</span> — the WS liveness dot (the e2e <code>data-ws-status</code> hook), distinct from a red kaval dot. <code>wsDot(props.status)</code></div>
+  </div>
+</div>
+
+## What moves where — nothing is lost
+
+<D2
+  caption="The same per-column accessors the rail reads today. The server commit is the one shown; clientStale() decides whether client renders a muted ≡ or fans out to its own commit + ≠srv badge; the kaval column stays a button onto KavalInfoDialog, which is now the home for kaval's build commit + closure-hash (its dot + uptime stay on the strip, with ⬆update / a state label when it diverges). srvDot/statusStyles are deduped behind one shared wsDot helper used by both the desktop rail and the mobile connection dot."
+  code={`direction: down
+srv: "srv column — wsDot dot · version · Commit (the ONE commit)"
+client: "client column — clientStale()?"
+eq: "≡  (matches srv)"
+diverge: "client's own Commit + ≠ srv badge"
+kaval: "kaval column (button) — kavalDot dot · uptime · ⬆update?"
+dialog: "KavalInfoDialog — build commit · 98eeac0 · restart · kaval-tui"
+wsdot: "wsDot — shared by srv dot + mobile connection dot"
+srv -> wsdot
+client -> eq: "false"
+client -> diverge: "true (clientStale)"
+kaval -> dialog: "click"
+`}
+/>
+
+| Current element | Where it lives now |
+| --- | --- |
+| server commit | **the one shown** (srv column), a GitHub link |
+| client commit (when it matches) | a muted **≡** — its real SHA is in the About dialog |
+| client commit (when stale) | **inline**, beside the `≠ srv` chip |
+| kaval commit | **KavalInfoDialog** (off the strip) |
+| kaval closure hash `98eeac0` | **KavalInfoDialog** (it's a content hash, not navigable) |
+| kaval dot · uptime · `⬆ update` | **inline** on the kaval button (unchanged) |
+| srv WS-tone map (was duplicated in mobile chrome) | one shared **`wsDot`** in `useDaemonStatus.ts` |
+
+<Callout kind="accent" title="Scope — a surgical edit on the existing rail">
+This keeps <Cite file="packages/client/src/ui/IdentityRail.tsx" />'s three-column
+shape and the kaval-column-is-a-button affordance untouched; it only stops
+repeating the commit and relocates kaval's build identity into the panel that
+already shows it. The one shared helper extracted along the way (`wsDot`) dedups
+the desktop and mobile connection dots. The load-bearing e2e hooks stay where the
+scenarios expect them: `data-ws-status` on the srv dot, `data-daemon-state` on the
+kaval dot, exactly one element each.
+</Callout>
+
+## What we tried first — and backed off
+
+The first cut went further: **collapse to a single worst-of health dot + one
+commit**, with the per-source split behind a hover tooltip and a `▸` disclosure
+that opened the kaval panel. Driving it live killed it on two counts:
+
+- **The hover/dropdown breakdown was machinery for a non-problem.** At rest it
+  reveals `d07ea54 / d07ea54 / d07ea54` — the exact redundancy the collapse
+  removed. The one case where the split matters (divergence) already fans out
+  inline on its own, so nothing needs un-hiding.
+- **A `▸` reads as "expand," not "open a modal."** Clicking the disclosure
+  triangle opened the kaval *dialog* — and that modal's full-screen backdrop then
+  sat on top of an unrelated "App updated → Reload" card and ate the click. A
+  disclosure that doesn't disclose is a broken affordance.
+
+So the shipped design keeps the familiar columns and the labeled kaval button, and
+just deletes the echo. Two further-out options, for the record:
+
+- **Most minimal** — `srv ● v1.1.0 d07ea54` only, kaval reached via the command
+  palette. Cleanest, but drops `kaval-tui` discoverability at rest.
+- **Full collapse + dropdown** — the first cut above. Rejected: the dropdown
+  un-hides the redundancy, and the triangle misreads as a disclosure.
