@@ -12,14 +12,7 @@
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import type { TerminalId } from "kolu-common/surface";
-import {
-  type Component,
-  createMemo,
-  createSignal,
-  Match,
-  Show,
-  Switch,
-} from "solid-js";
+import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
@@ -247,14 +240,6 @@ const App: Component = () => {
       terminalCount: () => store.terminalIds().length,
     }),
   );
-  const downMode = () => {
-    const m = mode();
-    return m.kind === "down" ? m : undefined;
-  };
-  const warmingMode = () => {
-    const m = mode();
-    return m.kind === "warming" ? m : undefined;
-  };
 
   return (
     <div
@@ -351,30 +336,29 @@ const App: Component = () => {
         {/* Exactly one canvas surface, chosen by `canvasMode` — a total,
             exclusive partition whose arm ORDER is the precedence (down beats
             empty per #1034; warming beats empty per F3). The decision lives in
-            `useCanvasMode`; only the per-surface layout stays here. */}
-        <Switch>
-          <Match when={mode().kind === "connecting"}>
-            {/* Neutral connecting state until BOTH the session cell AND the
-                daemon-status stream have produced their first value. */}
+            `useCanvasMode`; only the per-surface layout stays here. `match` over
+            the tagged union reads the discriminator one way and `exhaustive()`
+            compile-forces a new variant to get an arm; the down/warming payload
+            comes from the destructured handler arg, not a re-narrowing accessor. */}
+        {match(mode())
+          .with({ kind: "connecting" }, () => (
+            // Neutral connecting state until BOTH the session cell AND the
+            // daemon-status stream have produced their first value.
             <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
               Connecting...
             </div>
-          </Match>
-          <Match when={downMode()}>
-            {(m) => <DegradedCanvas state={m().state} />}
-          </Match>
-          <Match when={warmingMode()}>
-            {(m) => (
-              <div
-                data-testid="daemon-warming"
-                data-daemon-state={m().daemonState}
-                class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
-              >
-                {m().label}
-              </div>
-            )}
-          </Match>
-          <Match when={mode().kind === "empty"}>
+          ))
+          .with({ kind: "down" }, (m) => <DegradedCanvas state={m.state} />)
+          .with({ kind: "warming" }, (m) => (
+            <div
+              data-testid="daemon-warming"
+              data-daemon-state={m.daemonState}
+              class="flex items-center justify-center flex-1 text-fg-3 text-sm canvas-grid-bg"
+            >
+              {m.label}
+            </div>
+          ))
+          .with({ kind: "empty" }, () => (
             <div
               data-testid="canvas-container"
               class="relative flex-1 min-h-0 canvas-grid-bg"
@@ -397,9 +381,9 @@ const App: Component = () => {
                 onRestore={(opts) => void session.handleRestoreSession(opts)}
               />
             </div>
-          </Match>
-          <Match when={mode().kind === "workspace"}>
-            {match(isMobile())
+          ))
+          .with({ kind: "workspace" }, () =>
+            match(isMobile())
               .with(true, () => (
                 <RightPanelDrawer
                   terminalId={store.activeId()}
@@ -525,9 +509,9 @@ const App: Component = () => {
                   </Resizable.Panel>
                 </Resizable>
               ))
-              .exhaustive()}
-          </Match>
-        </Switch>
+              .exhaustive(),
+          )
+          .exhaustive()}
       </div>
       <IntentEditorDialog
         open={intentEditor.open()}
