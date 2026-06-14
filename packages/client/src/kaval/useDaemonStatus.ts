@@ -105,12 +105,6 @@ export const wsTone: Record<WsStatus, DaemonTone> = {
  *  through this single helper, so a connection-tone change is made once. */
 export const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
 
-/** The steady client-stale / kaval-update currency-advisory tone — a calm amber
- *  nudge ("you're a build behind"), distinct from {@link toneDot}.warming's
- *  PULSING transient (a daemon coming up). No `animate-pulse`: a currency advisory
- *  rests, it doesn't shout. The one place this advisory amber is spelled. */
-export const nudgeDot = "bg-warning";
-
 const sub = app.collections.daemonStatus.use({
   keys: () => [LOCAL_HOST],
   onError: (err) => toast.error(`Daemon status error: ${err.message}`),

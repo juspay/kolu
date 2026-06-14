@@ -78,7 +78,7 @@ No "dev / no-commit" state exists — kolu and kaval run **only under nix**, whi
 
 ## Decisions (resolved with the maintainer)
 
-- **Coincidence rendering** — always two explicit columns + the `≡ in-process` tag; verbose/explicit is favoured until the feature stabilizes, no collapse-when-equal. **Revisited once the feature stabilized** (B2/B3.4 shipped): the rail now *does* collapse-when-equal — one readout at rest, fanning out only on divergence — see [chrome-bar-declutter](chrome-bar-declutter.html).
+- **Coincidence rendering** — always two explicit columns + the `≡ in-process` tag; verbose/explicit is favoured until the feature stabilizes, no collapse-when-equal. **Revisited once the feature stabilized** (B2/B3.4 shipped): the rail now shows the shared commit *once* instead of three times — `client` collapses to a muted `≡` when it matches, and `kaval`'s duplicate commit + closure-hash move into its panel — keeping the three columns but cutting the echo. See [chrome-bar-declutter](chrome-bar-declutter.html).
 - **Labels** — `srv` / `pty`.
 - **Identity values** — nix is first-class, no fallback: both values are nix-injected on the `koluBin` wrapper; no dev-derivation, no placeholder dance, no `|| ""` softening.
 - **Closure scope** — no severing, no excluded deps. The staleKey hashes the pty-host package's own source closure — naturally tight (provider churn elsewhere can't over-prompt) and complete for the package's own wire+behaviour. The build-time test guards the one real regression: a wire/behaviour dependency landing *outside* the hashed package (the #1034 mis-scope) — it walks `index.ts`'s transitive imports and fails on any reached module that's neither in-package nor on a small allowlist of stable framework/leaf deps.

@@ -1,27 +1,23 @@
 /** IdentityRail — the "which kolu am I running" chrome readout.
  *
- *  Three identities ride this rail: `srv` (the server you're connected to + the
- *  WebSocket liveness), `client` (this browser's JS build), and `kaval` (the
- *  pty-host daemon serving your terminals). In a clean deploy all three are built
- *  from one HEAD, so the old three-column rail printed the SAME commit three times
- *  behind three labels — noise for the one bit a calm user reads: "in sync, alive".
+ *  Three columns — `srv` (the server you're connected to + the WebSocket
+ *  liveness), `client` (this browser's JS build), and `kaval` (the pty-host
+ *  daemon serving your terminals). In a clean deploy all three are built from one
+ *  HEAD, so the rail used to print the SAME commit three times. The commit now
+ *  shows **once**, in `srv` (the canonical identity):
  *
- *  So the rail **collapses when everything agrees** and **fans back out when a
- *  source diverges** (the design note: `docs/atlas/chrome-bar-declutter`):
+ *  - `client` collapses to a muted `≡` when its build matches the server, and
+ *    only spells out its own commit + the actionable `≠ srv` chip when a stale
+ *    cached bundle disagrees (`clientStale`).
+ *  - `kaval` keeps its dot · uptime and stays a button onto `KavalInfoDialog`
+ *    (daemon details, the session-preserving restart, `kaval-tui` attach). Its
+ *    build commit + nix closure-hash live in that dialog now, not on the strip;
+ *    the amber `⬆ update` chip still surfaces inline when the running daemon is a
+ *    build behind what the server would spawn (`kavalUpdatePending`).
  *
- *  - **Calm (the ~95% case):** one *worst-of* health dot + the version + the one
- *    shared commit. Hover for the per-source breakdown (the `<Tip>`); click the `▸`
- *    for the daemon deep-store (`KavalInfoDialog`). Nothing is lost, it just stops
- *    shouting.
- *  - **Diverged:** the offending source re-materializes inline with its own dot,
- *    commit and actionable chip — `≠ srv` (stale bundle), `⬆ update` (kaval a build
- *    behind), a red daemon, or a down/connecting socket. Louder than before, never
- *    quieter: the alarm is exactly what the rail was built to show.
- *
- *  The single resting dot carries BOTH `data-ws-status` and `data-daemon-state`
- *  (the per-axis dots are gone from the strip) — those are the e2e hooks the
- *  smoke / reconnect / kaval-daemon scenarios read, so they stay on whatever dot
- *  now owns each axis, and exactly one element holds `data-ws-status`. */
+ *  The `srv` dot carries `data-ws-status` and the `kaval` dot `data-daemon-state`
+ *  — the e2e hooks the smoke / reconnect / kaval-daemon scenarios read; exactly
+ *  one element holds each. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { DaemonState, KoluBuildInfo } from "kolu-common/surface";
@@ -40,11 +36,8 @@ import {
 } from "../kaval/KavalUpdateBadge";
 import {
   DAEMON_STATE_PRESENTATION,
-  daemonWarming,
-  downState,
   formatUptime,
   localDaemonStatus,
-  nudgeDot,
   toneDot,
   wsDot,
 } from "../kaval/useDaemonStatus";
@@ -61,21 +54,11 @@ function kavalDot(state: DaemonState | undefined): string {
   return toneDot[DAEMON_STATE_PRESENTATION[state].tone];
 }
 
-/** Short-form a build id for display: a nix store hash's leading 7 chars, or a
- *  path basename capped at 12. The full id lives in the dialog. */
-function shortId(id: string | null | undefined): string {
-  if (!id) return "—";
-  const hash = /^([a-z0-9]{7})/.exec(id);
-  if (hash) return hash[1] as string;
-  const tail = id.split("/").pop() ?? id;
-  return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
-}
-
-// A 1s clock so the kaval uptime in the breakdown ticks live rather than freezing
-// at mount-time. One shared owner for any rail that reads it (the `createSharedRoot`
-// singleton idiom shared with `staleness.ts`/`useDockOrder`), so the single
-// interval is owned and its `onCleanup` clears it — never an orphaned module-level
-// timer that leaks under HMR or a test teardown.
+// A 1s clock so the kaval uptime ticks live (`15s → 16s → …`) rather than
+// jumping in coarse steps that read as frozen. One shared owner (the
+// `createSharedRoot` singleton idiom shared with `staleness.ts`/`useDockOrder`),
+// so the single interval is owned and its `onCleanup` clears it — never an
+// orphaned module-level timer that leaks under HMR or a test teardown.
 const getClockNow = createSharedRoot<Accessor<number>>(() => {
   const [now, setNow] = createSignal(Date.now());
   const id = setInterval(() => setNow(Date.now()), 1_000);
@@ -83,90 +66,19 @@ const getClockNow = createSharedRoot<Accessor<number>>(() => {
   return now;
 });
 
-/** The thin vertical rule between the resting identity and a fanned-out source. */
+/** The thin vertical rule between two columns. */
 const Divider: Component = () => (
   <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
 );
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // The server's build identity rides surface-app's `buildInfo` cell; `clientCommit`
-  // is this bundle's baked commit. Read here in the parent (under the provider) so
-  // the portalled breakdown tooltip never calls `useSurfaceApp` outside the tree.
+  // is this bundle's baked commit.
   const pwa = useSurfaceApp<KoluBuildInfo>();
   const clockNow = getClockNow();
   const daemon = localDaemonStatus;
   const [kavalDialogOpen, setKavalDialogOpen] = createSignal(false);
   const stale = clientStale;
-
-  // The single resting dot: worst-of across the WS link and the daemon, resolved
-  // through the shared tone receptacles (wsDot/kavalDot/nudgeDot/toneDot, no new tone
-  // table). The link wins when it's down (identity is untrustworthy with no server to
-  // read), then an unknown daemon stays grey — never a false-green before the first
-  // status yield (#1034) — then a down/warming daemon, then the amber currency nudges,
-  // else all-clear.
-  const unifiedDot = (): string => {
-    if (props.status !== "open") return wsDot(props.status);
-    const state = daemon()?.state;
-    if (!state) return kavalDot(undefined);
-    if (downState() || daemonWarming()) return kavalDot(state);
-    if (stale() || kavalUpdatePending()) return nudgeDot;
-    return toneDot.ok;
-  };
-
-  // The kaval source fans out when it's behind (⬆ update) or not cleanly running.
-  const kavalDiverged = (): boolean =>
-    kavalUpdatePending() || !!downState() || daemonWarming();
-
-  const uptime = (): string | undefined => {
-    const t = daemon()?.startedAt;
-    return t === undefined ? undefined : formatUptime(clockNow() - t);
-  };
-
-  // The per-source split the resting strip collapses away — shown on hover. Passed
-  // to `<Tip>` as a THUNK (see its `label`), so it's evaluated lazily inside the
-  // tooltip portal only while open — its 1s-clock subscription never ticks behind a
-  // closed tooltip. `pwa`/`daemon` are captured from this scope, so it needs no
-  // provider context inside the portal.
-  const breakdown = () => (
-    <div class="flex min-w-[12rem] flex-col gap-1 font-mono text-[11px]">
-      <div class="flex items-center gap-2">
-        <span class="w-12 text-[9px] uppercase tracking-wide text-fg-3">
-          srv
-        </span>
-        <span class={`h-[6px] w-[6px] rounded-full ${wsDot(props.status)}`} />
-        <span class="flex-1 text-fg-2">{pwa.server()?.commit ?? "—"}</span>
-        <Show when={pwa.server()?.version}>
-          {(v) => <span class="text-fg-3">v{v()}</span>}
-        </Show>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="w-12 text-[9px] uppercase tracking-wide text-fg-3">
-          client
-        </span>
-        <span
-          class={`h-[6px] w-[6px] rounded-full ${stale() ? nudgeDot : toneDot.ok}`}
-        />
-        <span class="flex-1 text-fg-2">{pwa.clientCommit ?? "—"}</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="w-12 text-[9px] uppercase tracking-wide text-fg-3">
-          kaval
-        </span>
-        <span
-          class={`h-[6px] w-[6px] rounded-full ${kavalDot(daemon()?.state)}`}
-        />
-        <span class="flex-1 text-fg-2">
-          {daemon()?.identity?.navigableCommit ?? "—"}
-        </span>
-        <Show when={daemon()?.identity?.staleKey}>
-          {(key) => <span class="text-fg-3">{shortId(key())}</span>}
-        </Show>
-        <Show when={uptime()}>
-          {(u) => <span class="tabular-nums text-fg-3">{u()}</span>}
-        </Show>
-      </div>
-    </div>
-  );
 
   const dialogTitle = (): string =>
     kavalUpdatePending()
@@ -174,104 +86,94 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       : "kaval daemon — click for details and how to attach with kaval-tui";
 
   return (
-    <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 px-1 py-0.5 font-mono text-xs">
-      {/* The unified identity — one worst-of dot + version + the one shared commit.
-          The dot carries both machine-readable axes (the e2e hooks); the leading seg
-          is the `<Tip>` trigger, so hovering the identity reveals the breakdown. */}
-      <Tip
-        label={breakdown}
-        class="inline-flex items-center gap-1.5 px-1.5 py-0.5"
-      >
-        <span
-          data-ws-status={props.status}
-          data-daemon-state={daemon()?.state ?? "unknown"}
-          class={`inline-block h-[7px] w-[7px] rounded-full ${unifiedDot()}`}
-        />
-        <Show when={pwa.server()?.version}>
-          {(v) => <span class="tabular-nums text-fg-2">v{v()}</span>}
-        </Show>
-        {/* Dropped while the socket is down — we can't vouch for identity with no
-            server to read it from; the `srv` fan-out names the outage instead. */}
-        <Show when={props.status === "open"}>
-          <Commit sha={pwa.server()?.commit} />
-        </Show>
-      </Tip>
-
-      {/* ── Fan-outs: only the diverging source(s) re-materialize inline ── */}
-
-      {/* The socket itself is the problem — server unreachable / reconnecting. */}
-      <Show when={props.status !== "open"}>
-        <Divider />
-        <span class="inline-flex items-center gap-1.5 px-1.5 py-0.5">
-          <span class="text-[9px] uppercase tracking-wide text-fg-3">srv</span>
-          <span class="text-danger">
-            {props.status === "closed" ? "offline" : "reconnecting…"}
-          </span>
-        </span>
-      </Show>
-
-      {/* Stale client bundle — the actionable `≠ srv` nudge, with its own commit. */}
-      <Show when={stale()}>
-        <Divider />
-        <span
-          class="inline-flex items-center gap-1.5 px-1.5 py-0.5"
-          title="This client build doesn't match the server — reload to pick up the server's version."
-        >
-          <span class="text-[9px] uppercase tracking-wide text-fg-3">
-            client
-          </span>
-          <Commit sha={pwa.clientCommit} />
-          <StaleBadge />
-        </span>
-      </Show>
-
-      {/* kaval behind (⬆ update) or not cleanly running — its own dot + detail. */}
-      <Show when={kavalDiverged()}>
-        <Divider />
-        <span class="inline-flex items-center gap-1.5 px-1.5 py-0.5">
-          <span class="text-[9px] uppercase tracking-wide text-fg-3">
-            kaval
-          </span>
+    <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
+      {/* srv — the one canonical identity: WS-dot · version · the shared commit. */}
+      <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
+        <span class="text-[9px] uppercase tracking-wide text-fg-3">srv</span>
+        <Tip label="Server connection">
           <span
-            class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(daemon()?.state)}`}
+            data-ws-status={props.status}
+            class={`inline-block h-[7px] w-[7px] rounded-full ${wsDot(props.status)}`}
           />
-          <Show
-            when={!!downState() || daemonWarming()}
-            fallback={
-              <>
-                <Show when={daemon()?.identity?.staleKey}>
-                  {(key) => (
-                    <span class="border-b border-dotted border-fg-3/50 text-[10px] text-fg-3">
-                      {shortId(key())}
-                    </span>
-                  )}
-                </Show>
-                <KavalUpdateBadge />
-              </>
-            }
-          >
-            <Show when={daemon()?.state}>
-              {(s) => (
-                <span class="text-fg-2">
-                  {DAEMON_STATE_PRESENTATION[s()].label}
-                </span>
-              )}
-            </Show>
-          </Show>
-        </span>
-      </Show>
+        </Tip>
+        <Show when={pwa.server()?.version}>
+          {(v) => (
+            <Tip label="kolu version">
+              <span class="tabular-nums text-fg-2">v{v()}</span>
+            </Tip>
+          )}
+        </Show>
+        <Commit sha={pwa.server()?.commit} />
+      </span>
 
-      {/* The deep-store affordance — the one click target (so the server commit
-          stays a normal link, no nested interactives). Opens KavalInfoDialog:
-          daemon details, the session-preserving restart, kaval-tui attach. */}
+      <Divider />
+
+      {/* client — this browser's bundle. Collapses to a muted `≡` when it matches
+          the server; spells out its own commit + the `≠ srv` nudge only when a
+          stale cached bundle disagrees. */}
+      <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
+        <span class="text-[9px] uppercase tracking-wide text-fg-3">client</span>
+        <Show
+          when={stale()}
+          fallback={
+            <Tip label="This browser's build matches the server.">
+              <span class="text-fg-3">≡</span>
+            </Tip>
+          }
+        >
+          <Tip label="This browser's JS build (baked in at build time)">
+            <Commit sha={pwa.clientCommit} />
+          </Tip>
+          <Tip label="This client build doesn't match the server — reload to pick up the server's version.">
+            <StaleBadge />
+          </Tip>
+        </Show>
+      </span>
+
+      <Divider />
+
+      {/* kaval — the daemon serving your terminals. The whole column is a button:
+          click it for the daemon details, the restart, the running build + closure
+          hash, and how to reach these terminals from `kaval-tui`. */}
       <button
         type="button"
         onClick={() => setKavalDialogOpen(true)}
-        class="inline-flex items-center self-center rounded px-1 text-fg-3 transition-colors hover:bg-surface-3/50 hover:text-fg"
+        class="inline-flex items-center gap-1.5 rounded px-2 py-0.5 transition-colors hover:bg-surface-3/50"
         title={dialogTitle()}
-        aria-label="kaval daemon details"
       >
-        <span aria-hidden="true">▸</span>
+        <span class="text-[9px] uppercase tracking-wide text-fg-3">kaval</span>
+        <span
+          data-daemon-state={daemon()?.state ?? "unknown"}
+          class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(daemon()?.state)}`}
+        />
+        {/* Connected → live uptime; any other known state → its label (e.g.
+            "not running", "restarting…"); unknown (pre-first-yield) → nothing. */}
+        <Show when={daemon()?.state}>
+          {(state) => (
+            <Show
+              when={state() === "connected"}
+              fallback={
+                <span class="text-[10px] text-fg-3">
+                  {DAEMON_STATE_PRESENTATION[state()].label}
+                </span>
+              }
+            >
+              <Show when={daemon()?.startedAt}>
+                {(t) => (
+                  <span class="tabular-nums text-[10px] text-fg-3">
+                    {formatUptime(clockNow() - t())}
+                  </span>
+                )}
+              </Show>
+            </Show>
+          )}
+        </Show>
+        {/* B3.4: the running daemon is a build behind what the server would spawn.
+            A passive amber chip — the column's own click opens the dialog where
+            the running-vs-expected detail and the restart live. */}
+        <Show when={kavalUpdatePending()}>
+          <KavalUpdateBadge />
+        </Show>
       </button>
 
       <KavalInfoDialog
