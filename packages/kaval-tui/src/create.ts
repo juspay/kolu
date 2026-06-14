@@ -13,15 +13,16 @@
  * deliberately does not — a plain `$SHELL` is the point.
  */
 import { randomUUID } from "node:crypto";
-import { DEFAULT_SPAWN_SHELL, type PtyHostSpawnInput } from "kaval";
+import {
+  DEFAULT_SPAWN_SHELL,
+  type PtyHostSpawnInput,
+  type PtyHostSpawnResult,
+} from "kaval";
 import { commandName, shortId, tildeify } from "./render.ts";
 
-/** The pty-host's spawn result — `{ id, pid, cwd }` (TerminalSpawnOutputSchema). */
-export interface CreateResult {
-  id: string;
-  pid: number;
-  cwd: string;
-}
+/** The pty-host's spawn result — `{ id, pid, cwd }` (TerminalSpawnOutputSchema).
+ *  Consumes the contract's inferred type so it can't drift from the schema. */
+export type CreateResult = PtyHostSpawnResult;
 
 /** Compose the fully-specified spawn input. Pure: `id`, `cwd`, `env`, and an
  *  optional `command` are passed in (`main.ts` supplies `randomUUID()` /

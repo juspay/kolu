@@ -76,6 +76,7 @@ export {
   type PtyHostInitFile,
   type PtyHostListEntry,
   type PtyHostSpawnInput,
+  type PtyHostSpawnResult,
   type PtyHostSurface,
   type PtyHostSystemInfo,
   type PtyHostSystemVersion,
