@@ -440,6 +440,7 @@ const TerminalCanvas: Component<{
                       panX={viewport.panX}
                       panY={viewport.panY}
                       zoom={viewport.zoom}
+                      viewportSize={viewport.viewportSize}
                       auraTier={() => tileAuraOf(id)}
                     />
                   )}
