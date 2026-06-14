@@ -61,12 +61,9 @@ export async function adoptSurvivingSession(): Promise<void> {
   // record (a create that never reached the debounced autosave) is adopted from
   // the live daemon snapshot (`adoptLocalOrphan`). Killing the latter merely
   // because the debounced session lagged the daemon would break the headline
-  // "terminals survive a kolu update" guarantee.
-  const liveById = new Map(live.map((entry) => [entry.id, entry]));
-  for (const record of adopt) {
-    const liveEntry = liveById.get(record.id);
-    if (liveEntry) adoptLocalTerminal(record, liveEntry);
-  }
+  // "terminals survive a kolu update" guarantee. `reconcile` already paired each
+  // adopted record with its live PTY, so there is no join to redo here.
+  for (const pair of adopt) adoptLocalTerminal(pair.record, pair.live);
   for (const orphan of adoptOrphans) adoptLocalOrphan(orphan);
 
   const adoptedCount = adopt.length + adoptOrphans.length;
@@ -77,7 +74,7 @@ export async function adoptSurvivingSession(): Promise<void> {
   // (`saveSession` empty→null), so an all-exited survivor shows no restore card.
   restoreActiveTerminalId(
     saved?.activeTerminalId &&
-      adopt.some((r) => r.id === saved.activeTerminalId)
+      adopt.some(({ record }) => record.id === saved.activeTerminalId)
       ? saved.activeTerminalId
       : null,
   );

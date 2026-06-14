@@ -37,9 +37,18 @@
 import type { PtyHostListEntry } from "kaval";
 import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 
+/** A saved terminal whose PTY is still alive, paired with that live PTY. The
+ *  join lives here (not the caller), so adoption never re-derives it: the
+ *  `record` rides through whole (#1275: a unit, never field-by-field) and the
+ *  `live` entry is the authority for the non-replayed fields cwd/foreground (F2). */
+export interface AdoptPair {
+  record: SavedTerminal;
+  live: PtyHostListEntry;
+}
+
 export interface ReconcileResult {
-  /** Saved terminals whose PTY is still alive — adopt each whole-record. */
-  adopt: SavedTerminal[];
+  /** Saved terminals whose PTY is still alive, each paired with its live PTY. */
+  adopt: AdoptPair[];
   /** Live daemon PTYs with no saved record — adopt from the live snapshot
    *  (`orphanMeta`), never reap. See the module doc (F1). */
   adoptOrphans: PtyHostListEntry[];
@@ -52,11 +61,16 @@ export function reconcile(
   live: PtyHostListEntry[],
   saved: SavedSession | null,
 ): ReconcileResult {
-  const liveIds = new Set(live.map((entry) => entry.id));
+  const liveById = new Map(live.map((entry) => [entry.id, entry]));
   const savedTerminals = saved?.terminals ?? [];
   const savedIds = new Set(savedTerminals.map((terminal) => terminal.id));
+  const adopt: AdoptPair[] = [];
+  for (const record of savedTerminals) {
+    const liveEntry = liveById.get(record.id);
+    if (liveEntry) adopt.push({ record, live: liveEntry });
+  }
   return {
-    adopt: savedTerminals.filter((terminal) => liveIds.has(terminal.id)),
+    adopt,
     adoptOrphans: live.filter((entry) => !savedIds.has(entry.id)),
   };
 }

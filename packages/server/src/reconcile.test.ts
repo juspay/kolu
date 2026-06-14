@@ -18,7 +18,8 @@ describe("reconcile — boot-time adoption partition (B3.3)", () => {
   it("adopts a saved terminal whose PTY is still alive, as the whole record", () => {
     const t = term("a");
     const { adopt, adoptOrphans } = reconcile([live("a")], saved(t));
-    expect(adopt).toEqual([t]); // the WHOLE record (by reference), never rebuilt
+    expect(adopt.map((a) => a.record)).toEqual([t]); // the WHOLE record, never rebuilt
+    expect(adopt[0]?.live.id).toBe("a"); // paired with its live PTY (the join)
     expect(adoptOrphans).toEqual([]);
   });
 
@@ -26,7 +27,7 @@ describe("reconcile — boot-time adoption partition (B3.3)", () => {
     const a = term("a");
     const b = term("b"); // 'b' exited in the restart window — not live
     const { adopt, adoptOrphans } = reconcile([live("a")], saved(a, b));
-    expect(adopt.map((t) => t.id)).toEqual(["a"]); // 'b' dropped, not restore-carded
+    expect(adopt.map((a) => a.record.id)).toEqual(["a"]); // 'b' dropped, not restore-carded
     expect(adoptOrphans).toEqual([]);
   });
 
@@ -35,7 +36,7 @@ describe("reconcile — boot-time adoption partition (B3.3)", () => {
     // a create that raced the restart. It must survive (adopt), never be killed.
     const a = term("a");
     const { adopt, adoptOrphans } = reconcile([live("a"), live("z")], saved(a));
-    expect(adopt.map((t) => t.id)).toEqual(["a"]);
+    expect(adopt.map((a) => a.record.id)).toEqual(["a"]);
     expect(adoptOrphans.map((e) => e.id)).toEqual(["z"]); // adopted from the snapshot
   });
 
@@ -46,7 +47,7 @@ describe("reconcile — boot-time adoption partition (B3.3)", () => {
       [live("a"), live("c")], // 'c' is a live orphan; 'b' is gone
       saved(a, b),
     );
-    expect(adopt.map((t) => t.id)).toEqual(["a"]);
+    expect(adopt.map((a) => a.record.id)).toEqual(["a"]);
     expect(adoptOrphans.map((e) => e.id)).toEqual(["c"]); // adopted, not reaped
   });
 
@@ -68,6 +69,6 @@ describe("reconcile — boot-time adoption partition (B3.3)", () => {
       [live("c"), live("a"), live("b")], // daemon order differs
       saved(a, b, c),
     );
-    expect(adopt.map((t) => t.id)).toEqual(["a", "b", "c"]); // saved order wins
+    expect(adopt.map((a) => a.record.id)).toEqual(["a", "b", "c"]); // saved order wins
   });
 });
