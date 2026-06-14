@@ -14,11 +14,11 @@ import {
 } from "./coordinates";
 import { installGestures } from "./gestures";
 import {
+  applyGestureBatch,
   computeCenterPan,
   normalizeDelta as normalizeDeltaPure,
   snapToGrid as snapToGridPure,
   zoomToCenter as zoomToCenterPure,
-  zoomTowardPoint,
 } from "./transforms";
 
 // ── Singleton state ──
@@ -38,6 +38,63 @@ let currentAnim: AbortController | null = null;
 function cancelPanAnimation() {
   currentAnim?.abort();
   currentAnim = null;
+}
+
+// ── rAF-coalesced gesture application ──
+//
+// Wheel events arrive at ~166/s — several per animation frame. Writing
+// panX/panY/zoom on *every* event makes every mounted tile recompute its
+// transform per event, even though only the last state before the next paint is
+// ever shown. #1308 measured that write-storm (a zoom fling = 9,600 tile writes)
+// and under a throttled CPU it dropped frames — p99 past 33ms, 148 dropped
+// frames at 6× (docs/perf-investigations/canvas-gesture-p99.md). We accumulate
+// the frame's pan delta (sum) and zoom factor (product, toward the last anchor)
+// and apply them ONCE per rAF. The per-frame state is identical to the per-event
+// path — `applyGestureBatch` telescopes the math — so feel is unchanged; only
+// the redundant intra-frame recomputes vanish. Mutable scalars (not an object)
+// keep the per-event hot path allocation-free.
+let pendingDx = 0;
+let pendingDy = 0;
+let pendingZoomFactor = 1;
+let zoomAnchorX = 0;
+let zoomAnchorY = 0;
+let gestureRaf = 0;
+
+function scheduleGestureFlush() {
+  if (gestureRaf) return;
+  gestureRaf = requestAnimationFrame(flushGesture);
+}
+
+function flushGesture() {
+  gestureRaf = 0;
+  const result = applyGestureBatch(panX(), panY(), zoom(), {
+    panDx: pendingDx,
+    panDy: pendingDy,
+    zoomFactor: pendingZoomFactor,
+    zoomAnchorX,
+    zoomAnchorY,
+  });
+  pendingDx = 0;
+  pendingDy = 0;
+  pendingZoomFactor = 1;
+  // Equal-value writes are no-ops (SolidJS skips on Object.is), so a pure-pan
+  // frame never notifies zoom dependents and vice versa.
+  setPanX(result.panX);
+  setPanY(result.panY);
+  setZoom(result.zoom);
+}
+
+/** Drop any queued gesture delta — a programmatic absolute pan/zoom (or a
+ *  container swap) is the new truth, so a frame-late fling delta must not land
+ *  on top of it. */
+function discardPendingGesture() {
+  if (gestureRaf) {
+    cancelAnimationFrame(gestureRaf);
+    gestureRaf = 0;
+  }
+  pendingDx = 0;
+  pendingDy = 0;
+  pendingZoomFactor = 1;
 }
 
 // ── Public API ──
@@ -88,22 +145,26 @@ function setContainerRef(
   shouldYieldWheel?: (e: WheelEvent) => boolean,
 ) {
   cleanupGestures?.();
+  discardPendingGesture();
   containerEl = el;
   cleanupGestures = installGestures(
     el,
     {
+      // Accumulate per-event; `flushGesture` applies the frame's batch once.
+      // `cancelPanAnimation` stays synchronous so a wheel still interrupts an
+      // in-flight tween on the very first event, not a frame later.
       onPan: (dx, dy) => {
         cancelPanAnimation();
-        const z = zoom();
-        setPanX(panX() + dx / z);
-        setPanY(panY() + dy / z);
+        pendingDx += dx;
+        pendingDy += dy;
+        scheduleGestureFlush();
       },
       onZoom: (factor, sx, sy) => {
         cancelPanAnimation();
-        const result = zoomTowardPoint(panX(), panY(), zoom(), factor, sx, sy);
-        setPanX(result.panX);
-        setPanY(result.panY);
-        setZoom(result.zoom);
+        pendingZoomFactor *= factor;
+        zoomAnchorX = sx;
+        zoomAnchorY = sy;
+        scheduleGestureFlush();
       },
     },
     shouldYieldWheel,
@@ -147,6 +208,7 @@ function targetForPoint(
 
 function startAnimatedPan(target: { panX: number; panY: number }) {
   cancelPanAnimation();
+  discardPendingGesture();
   currentAnim = animatePan(
     { x: panX(), y: panY() },
     { x: target.panX, y: target.panY },
@@ -169,6 +231,7 @@ function panTo(x: number, y: number) {
 
 function setPan(x: number, y: number) {
   cancelPanAnimation();
+  discardPendingGesture();
   setPanX(x);
   setPanY(y);
 }
@@ -185,6 +248,7 @@ function viewportSize() {
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
   if (!containerEl) return;
   cancelPanAnimation();
+  discardPendingGesture();
   const result = zoomToCenterPure(
     panX(),
     panY(),

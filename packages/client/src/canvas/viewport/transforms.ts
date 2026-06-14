@@ -62,6 +62,57 @@ export function zoomTowardPoint(
   };
 }
 
+/** One animation frame's worth of coalesced wheel gestures.
+ *  `panDx/panDy` is the *summed* screen-space pan delta; `zoomFactor` is the
+ *  *product* of the frame's zoom factors (1 = no zoom) toward `zoomAnchor`
+ *  (the last event's screen-space point). */
+export interface GestureBatch {
+  panDx: number;
+  panDy: number;
+  zoomFactor: number;
+  zoomAnchorX: number;
+  zoomAnchorY: number;
+}
+
+/** Apply one frame's coalesced gesture batch to a viewport state.
+ *
+ *  Behaviour-preserving by construction: the batched result equals applying
+ *  each raw wheel event in turn within the frame. Pan is additive in canvas
+ *  space, so a summed screen delta ÷ zoom equals the sum of per-event deltas.
+ *  Zoom telescopes — successive `zoomTowardPoint` calls toward a fixed anchor
+ *  have their `point/zoom` correction terms cancel, so the product of factors
+ *  toward that anchor lands on the same pan+zoom (proven in transforms.test.ts).
+ *  Zoom is applied first so the pan delta lands in the post-zoom scale, the
+ *  canonical order for the rare frame that mixes both. */
+export function applyGestureBatch(
+  panX: number,
+  panY: number,
+  zoom: number,
+  batch: GestureBatch,
+): { panX: number; panY: number; zoom: number } {
+  let nx = panX;
+  let ny = panY;
+  let nz = zoom;
+  if (batch.zoomFactor !== 1) {
+    const r = zoomTowardPoint(
+      nx,
+      ny,
+      nz,
+      batch.zoomFactor,
+      batch.zoomAnchorX,
+      batch.zoomAnchorY,
+    );
+    nx = r.panX;
+    ny = r.panY;
+    nz = r.zoom;
+  }
+  if (batch.panDx !== 0 || batch.panDy !== 0) {
+    nx += batch.panDx / nz;
+    ny += batch.panDy / nz;
+  }
+  return { panX: nx, panY: ny, zoom: nz };
+}
+
 /** Compute new pan+zoom after zooming toward viewport center. */
 export function zoomToCenter(
   panX: number,

@@ -1,0 +1,5 @@
+# Run artifacts — only driver.js, run.sh, and this file are committed.
+out.json
+*.log
+node_modules/
+browsers_path
