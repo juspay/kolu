@@ -64,6 +64,25 @@
         in {
           typecheck = koluBySystem.${system}.typecheck;
           website-typecheck = websiteBySystem.${system}.typecheck;
+          # Runtime proof that the whole-repo Node (`pkgs.nodejs`, set to a
+          # QUIC-enabled Node 26 in nix/overlay.nix) actually exposes the
+          # built-in QUIC module — the day-one runtime for kaval's roaming
+          # remote transport (docs/atlas note kaval-vs-zmosh). `require("node:
+          # quic")` throws ERR_UNKNOWN_BUILTIN_MODULE unless Node was *compiled*
+          # with --experimental-quic, and the builtin stays hidden unless Node is
+          # also *run* with --experimental-quic, so a green build exercises both
+          # gates on each platform. Realized by the `nix` (devour-flake) +
+          # `flake-check` CI nodes via eachSystem — no extra recipe.
+          node-quic = pkgs.runCommand "node-quic-smoke" { } ''
+            ${pkgs.nodejs}/bin/node --experimental-quic -e '
+              require("node:quic");
+              if (process.features.quic !== true) {
+                throw new Error("node:quic loaded but process.features.quic=" + process.features.quic);
+              }
+              console.log("node:quic OK", process.version);
+            '
+            touch $out
+          '';
         });
       devShells = eachSystem (pkgs:
         let default = import ./shell.nix { inherit pkgs; };
