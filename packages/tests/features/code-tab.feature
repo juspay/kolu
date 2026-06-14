@@ -241,6 +241,40 @@ Feature: Code tab (review + browse)
     When I select workspace switcher entry 1
     Then the selected file should show content "manual-A"
 
+  # The symmetric half of the invariant: the file you previewed last persists
+  # across a terminal round-trip *regardless of how you previewed it*. Here the
+  # last preview came from a terminal file-ref click with no later manual pick,
+  # so the clicked file — not whatever the tree happens to default to — must be
+  # what's showing when you return to the terminal. (Guards against a "fix" that
+  # over-corrects by clearing the clicked selection on switch.)
+  Scenario: A terminal-clicked file survives a terminal round-trip
+    When I run "rm -rf /tmp/kolu-clicked-persist-a && git init /tmp/kolu-clicked-persist-a && cd /tmp/kolu-clicked-persist-a"
+    And I run "printf 'initial-A\n' > initial.txt && printf 'clicked-A\n' > clicked.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "initial.txt" in the file browser
+    Then the selected file should show content "initial-A"
+    # A second terminal in a different repo with its own browse selection.
+    When I create a terminal
+    And I run "rm -rf /tmp/kolu-clicked-persist-b && git init /tmp/kolu-clicked-persist-b && cd /tmp/kolu-clicked-persist-b"
+    And I run "printf 'other-B\n' > other.txt && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "other.txt" in the file browser
+    Then the selected file should show content "other-B"
+    # Back to terminal A: click a file-ref in the terminal. This is the last
+    # preview action — no manual tree pick follows it.
+    When I select workspace switcher entry 1
+    And I run "echo 'jump to clicked.txt:1 now'"
+    And I trigger the terminal file-ref link "clicked.txt:1"
+    Then the selected file should show content "clicked-A"
+    # Round-trip to B and back. The clicked file must still be showing.
+    When I select workspace switcher entry 2
+    Then the selected file should show content "other-B"
+    When I select workspace switcher entry 1
+    Then the selected file should show content "clicked-A"
+
   # Regression: opening a file in the Code tab and refreshing the browser
   # used to lose the preview because `selectedPath` lived in a local
   # `createSignal` that died with the component. Selection is now backed
