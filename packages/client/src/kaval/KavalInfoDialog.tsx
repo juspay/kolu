@@ -12,7 +12,8 @@ import Dialog from "@corvu/dialog";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import type { DaemonStatus } from "kolu-common/surface";
-import { expectedKavalStaleKey, kavalUpdatePending } from "./KavalUpdateBadge";
+import { kavalStale } from "./kavalCurrency";
+import { expectedKavalStaleKey } from "./KavalUpdateBadge";
 import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
@@ -42,9 +43,21 @@ const KavalInfoDialog: Component<{
   const chrome = surface({ portalled: true });
   // The build the server WOULD spawn — the `expected` operand of the currency
   // nudge (the `reported` operand is `props.status.identity`), read through the
-  // shared `expectedKavalStaleKey` accessor so the surface path is named once.
-  // `kavalUpdatePending` gates the banner; this drives the running-vs-expected
-  // display.
+  // shared `expectedKavalStaleKey` accessor so the surface path is named once;
+  // it drives the running-vs-expected display.
+  //
+  // Derive the nudge predicate from the `props.status` the dialog already holds
+  // (the same `kavalStale` the rail uses), rather than `kavalUpdatePending()`
+  // re-reading the global daemon-status singleton. Gating the banner and its
+  // fallback on one memo means the gate, the displayed `running`, and the copy
+  // all read one snapshot — no mid-restart disagreement between the prop and the
+  // singleton.
+  const pending = (): boolean =>
+    kavalStale(
+      expectedKavalStaleKey(),
+      props.status?.identity?.staleKey,
+      props.status?.state,
+    );
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
       <Dialog.Content
@@ -129,7 +142,7 @@ const KavalInfoDialog: Component<{
           {/* B3.4: when the running daemon is a build behind what the server
               would spawn, surface the running-vs-expected detail right above the
               restart that picks it up (the read-site nudge's call-to-action). */}
-          <Show when={kavalUpdatePending()}>
+          <Show when={pending()}>
             <div class="mb-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 leading-relaxed">
               <p class="text-xs font-medium text-warning">
                 ⬆ A newer kaval is available
@@ -152,7 +165,7 @@ const KavalInfoDialog: Component<{
               void restartDaemon();
             }}
           />
-          <Show when={!kavalUpdatePending()}>
+          <Show when={!pending()}>
             <p class="mt-1.5 text-[11px] leading-relaxed text-fg-3">
               Picks up a new build or recovers a stopped daemon. Your terminals
               are captured first and offered for restore on the fresh daemon.
