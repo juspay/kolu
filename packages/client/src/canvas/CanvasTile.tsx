@@ -116,16 +116,21 @@ const CanvasTile: Component<{
       width: `${l.w}px`,
       height: `${l.h}px`,
       "background-color": bg(),
-      // One colour throughout: the repo's identity colour drives the border and
-      // the state aura — nothing else competes. The active tile reads via
-      // ELEVATION (a stronger drop shadow + full opacity), not a second hue or a
-      // focus ring, so the border stays 100% the state aura.
+      // One colour throughout: the repo's identity colour drives the border, the
+      // state aura, AND the active tile's focus cue. The active "you are here"
+      // signal is a crisp repo-colour OUTLINE floating 4px off the tile on the
+      // dark canvas (`outline` + `outline-offset` below). It's drawn outside the
+      // border-box on the constant dark canvas — never over the terminal body,
+      // so it's theme-independent — and `outline` is never clipped by the tile's
+      // overflow-hidden. The 4px moat keeps it clear of the border aura.
       "border-color": props.repoColor,
       "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
       opacity: props.active ? 1 : inactiveOpacity(),
       "box-shadow": props.active
-        ? `0 16px 44px -6px rgba(0,0,0,0.55)`
+        ? `0 8px 32px rgba(0,0,0,0.4)`
         : `0 2px 8px rgba(0,0,0,0.2)`,
+      outline: props.active ? `1.5px solid ${props.repoColor}` : undefined,
+      "outline-offset": props.active ? "4px" : undefined,
       "transform-origin": "0 0",
       transform: tileTransformCSS(
         l.x,
