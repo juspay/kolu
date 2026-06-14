@@ -49,6 +49,43 @@ export interface EndpointStatus<I> {
   startedAt?: number;
 }
 
+/**
+ * The soul's `connect` throws THIS — and only this — to tell the endpoint a live
+ * survivor is genuinely INCOMPATIBLE (a contract-version skew: the daemon speaks
+ * a version this client cannot talk to). It is the one connect failure that
+ * proves recycling is safe-and-necessary: retrying can never make an
+ * incompatible daemon compatible, and the survivor must be replaced.
+ *
+ * The endpoint stays soul-agnostic about *what* skew means — it never parses an
+ * error message or knows a contract version. It only checks this typed marker:
+ * the soul (which owns the handshake) decides "this is skew" and signals it.
+ * Every OTHER connect rejection (a transport dial failure, an unreadable
+ * handshake read) is NON-skew — possibly transient — so `adoptOrEnsure` retries
+ * it and, if it persists, refuses to kill the live survivor (F4): a daemon we
+ * merely cannot reach right now is not proven incompatible, and killing it would
+ * destroy the live PTYs adoption exists to preserve.
+ */
+export class DaemonContractSkewError extends Error {
+  readonly isContractSkew = true as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "DaemonContractSkewError";
+  }
+}
+
+/** True iff `err` is a `DaemonContractSkewError` — a genuine contract skew the
+ *  soul's `connect` raised. Brand-checked (not `instanceof`) so it holds across
+ *  module-instance / realm boundaries, the same robustness oRPC errors use. */
+export function isContractSkewError(
+  err: unknown,
+): err is DaemonContractSkewError {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { isContractSkew?: unknown }).isContractSkew === true
+  );
+}
+
 /** A live, handshaken connection to a daemon. The injected `connect` builds it;
  *  the endpoint holds it and tears it down. */
 export interface DaemonConnection<C, I> {
@@ -74,8 +111,12 @@ export interface EndpointSpec<C, I> {
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /** Dial `socketPath`, run the contract-version handshake, and return the live
-   *  connection. Rejects on a skew (an incompatible daemon) or a transport
-   *  failure — the endpoint treats either as a failed boot (`dead`). */
+   *  connection. On a genuine contract skew (an incompatible daemon) it must
+   *  reject with a `DaemonContractSkewError` — the ONE signal `adoptOrEnsure`
+   *  trusts to recycle a live survivor. Every other failure (transport dial,
+   *  unreadable handshake read) rejects with a plain error, which the endpoint
+   *  treats as possibly-transient: `ensure` reports `dead`, and `adoptOrEnsure`
+   *  retries it without ever killing the survivor (F4). */
   connect(): Promise<DaemonConnection<C, I>>;
   log: Logger;
   /** Called on every state transition — the supervisor publishes it. */
@@ -86,10 +127,11 @@ export interface EndpointSpec<C, I> {
   /** Socket-readiness poll spacing. Default 50ms. */
   socketPollMs?: number;
   /** How many times `adoptOrEnsure` re-attempts `connect()` against a live
-   *  survivor before it concludes the survivor is genuinely incompatible and
-   *  recycles it (F4). A skew fails every attempt and recycles after the last; a
-   *  transient transport/read hiccup against a healthy survivor clears on a retry
-   *  and is adopted — so a one-off failure never kills live PTYs. Default 3. */
+   *  survivor on a NON-skew failure before giving up and reporting `degraded`
+   *  (F4). A `DaemonContractSkewError` short-circuits on the FIRST attempt and
+   *  recycles (retrying can't fix an incompatible contract); a transient
+   *  transport/read hiccup against a healthy survivor clears on a retry and is
+   *  adopted — so a one-off failure never kills live PTYs. Default 3. */
   adoptConnectAttempts?: number;
   /** Spacing between `adoptOrEnsure`'s connect retries. Default 100ms. */
   adoptConnectRetryMs?: number;
@@ -101,12 +143,15 @@ export interface Endpoint<C, I> {
   ensure(): Promise<void>;
   /** Take the daemon to a live connection under the **adopt-or-recycle** boot
    *  policy (B3.3): a live, handshake-compatible survivor is ADOPTED (connected
-   *  to, never killed) so its PTYs survive a supervisor restart; an absent /
-   *  dead / skewed survivor is recycled. Resolves `true` iff it adopted a
-   *  surviving daemon — the caller then reconciles that daemon's live PTYs
-   *  against its saved session; `false` on a fresh / recycled boot, where there
-   *  are no survivors to reconcile. Throws (after reporting `dead`) if it cannot
-   *  bring a daemon up at all. */
+   *  to, never killed) so its PTYs survive a supervisor restart; an absent / dead
+   *  survivor — or a live one that is a genuine contract skew — is recycled. A
+   *  live survivor that merely cannot be reached (a non-skew connect failure that
+   *  outlasts the retries) is left STANDING and reported `degraded`, never killed
+   *  (F4) — preserving its PTYs. Resolves `true` iff it adopted a surviving daemon
+   *  — the caller then reconciles that daemon's live PTYs against its saved
+   *  session; `false` on a fresh / recycled / left-degraded boot, where there is
+   *  nothing to reconcile. Throws (after reporting `dead`) if it cannot bring a
+   *  daemon up at all. */
   adoptOrEnsure(): Promise<boolean>;
   /** The live connection, or `undefined` before `ensure()` or after the daemon
    *  died (`degraded`). */
@@ -318,21 +363,47 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
     await spawnConnectHold();
   };
 
-  // Connect to a live survivor for adoption, retrying a bounded number of times
-  // before giving up (F4). Returns the connection on success, or `undefined` once
-  // every attempt has failed — at which point the caller recycles. A genuine skew
-  // fails all attempts (the contract really is incompatible); a transient
-  // transport/read hiccup against a healthy survivor clears on a retry, so a
-  // one-off failure never costs the survivor its live PTYs. The survivor's socket
-  // stays up across the retries (we never killed it), so each retry re-dials the
-  // SAME daemon.
-  const connectSurvivorWithRetry = async (
+  // The outcome of trying to connect to a live survivor for adoption (F4) — a
+  // three-way verdict the endpoint can act on WITHOUT interpreting an error:
+  //   adopted    — connected + handshaked; adopt it (preserve its PTYs).
+  //   skew       — the soul raised `DaemonContractSkewError`: the contract really
+  //                is incompatible, so recycle (retrying can't fix incompatibility).
+  //   unreachable — a NON-skew failure (transport dial / unreadable handshake)
+  //                that persisted across every retry: the survivor is alive but
+  //                we cannot reach it RIGHT NOW. NOT proven incompatible — so the
+  //                caller must NOT kill it (that would destroy live PTYs); it
+  //                reports `degraded` and leaves the survivor be.
+  type SurvivorConnect =
+    | { kind: "adopted"; conn: DaemonConnection<C, I> }
+    | { kind: "skew"; err: unknown }
+    | { kind: "unreachable"; err: unknown };
+
+  // Connect to a live survivor for adoption, retrying bounded times on a
+  // NON-skew failure before declaring it `unreachable` (F4). A skew short-circuits
+  // immediately (no retry can make an incompatible contract compatible). A
+  // transient transport/read hiccup against a healthy survivor clears on a retry,
+  // so a one-off failure never costs the survivor its live PTYs. The survivor's
+  // socket stays up across the retries (we never killed it), so each retry
+  // re-dials the SAME daemon.
+  const connectSurvivor = async (
     holder: number,
-  ): Promise<DaemonConnection<C, I> | undefined> => {
+  ): Promise<SurvivorConnect> => {
+    let lastErr: unknown;
     for (let attempt = 1; attempt <= adoptConnectAttempts; attempt++) {
       try {
-        return await spec.connect();
+        return { kind: "adopted", conn: await spec.connect() };
       } catch (err) {
+        lastErr = err;
+        // A genuine contract skew is terminal: an incompatible daemon stays
+        // incompatible no matter how many times we re-dial it, so stop retrying
+        // and tell the caller to recycle.
+        if (isContractSkewError(err)) {
+          spec.log.warn(
+            { hostId: spec.hostId, pid: holder, err: String(err) },
+            "survivor connect hit a contract skew — recycling (incompatible daemon)",
+          );
+          return { kind: "skew", err };
+        }
         const last = attempt === adoptConnectAttempts;
         spec.log.warn(
           {
@@ -343,13 +414,14 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
             err: String(err),
           },
           last
-            ? "survivor connect failed on the final attempt — will recycle"
-            : "survivor connect failed — retrying before treating it as skew",
+            ? "survivor connect failed (non-skew) on the final attempt — " +
+                "leaving the survivor up (its PTYs are not killed)"
+            : "survivor connect failed (non-skew) — retrying without killing the survivor",
         );
         if (!last) await new Promise((r) => setTimeout(r, adoptConnectRetryMs));
       }
     }
-    return undefined;
+    return { kind: "unreachable", err: lastErr };
   };
 
   return {
@@ -415,34 +487,55 @@ export function createEndpoint<C, I>(spec: EndpointSpec<C, I>): Endpoint<C, I> {
       // reset being the honest signal that the daemon was reused.
       const holder = await liveServingHolder();
       if (holder !== undefined) {
-        // The survivor answered its socket. Try to connect + handshake; a single
-        // failure is NOT proof of skew (F4) — `connect` can also reject on a
-        // transient transport / handshake-read hiccup against an otherwise
-        // healthy survivor, and recycling on that would kill live PTYs for no
-        // reason. Retry a bounded number of times: a genuine skew (incompatible
-        // contract) fails every attempt; a transient failure clears on a retry
-        // and the survivor is adopted. The endpoint stays soul-agnostic — it
-        // does not interpret the error, it just refuses to treat one failure as
-        // a verdict.
-        const adopted = await connectSurvivorWithRetry(holder);
-        if (adopted) {
+        // The survivor answered its socket. Try to connect + handshake. A single
+        // failure is NOT proof of skew (F4): only a `DaemonContractSkewError`
+        // raised by the soul's `connect` proves the daemon is incompatible. A
+        // transport-dial or handshake-read failure may just be transient, so it
+        // is retried, and if it persists the survivor is `unreachable`, not
+        // skewed. The endpoint stays soul-agnostic — it never parses an error,
+        // it only branches on the soul's typed skew marker.
+        const outcome = await connectSurvivor(holder);
+        if (outcome.kind === "adopted") {
           spec.log.info(
-            { hostId: spec.hostId, pid: holder, startedAt: adopted.startedAt },
+            {
+              hostId: spec.hostId,
+              pid: holder,
+              startedAt: outcome.conn.startedAt,
+            },
             "adopted a surviving daemon (its PTYs are preserved)",
           );
-          holdConnection(adopted);
+          holdConnection(outcome.conn);
           return true;
         }
-        // Every attempt failed — treat the survivor as genuinely incompatible
-        // and recycle it: kill, then spawn fresh. The deliberate OPPOSITE of
-        // `spawnConnectHold`'s connect-failure handling — there a failed connect
-        // is a fresh spawn's genuine `dead` boot; here it is a survivor we kill
-        // and replace only after retries ruled out a transient failure.
-        spec.log.warn(
-          { hostId: spec.hostId, pid: holder, attempts: adoptConnectAttempts },
-          "live daemon survivor failed every connect attempt — recycling it",
+        if (outcome.kind === "skew") {
+          // Proven incompatible — recycle it: kill, then spawn fresh. The
+          // deliberate OPPOSITE of `spawnConnectHold`'s connect-failure handling:
+          // there a failed connect is a fresh spawn's genuine `dead` boot; here it
+          // is a survivor we replace because its contract cannot be talked to.
+          spec.log.warn(
+            { hostId: spec.hostId, pid: holder },
+            "live daemon survivor is a contract skew — recycling it",
+          );
+          await recycle(holder);
+          return false;
+        }
+        // `unreachable`: the survivor is alive but every NON-skew connect attempt
+        // failed. We have NOT proven it incompatible, so we must NOT kill it —
+        // doing so would destroy the very live PTYs adoption exists to preserve
+        // (the F4 data-loss mode). Report `degraded` (a daemon is there but we
+        // hold no working connection to it) and leave it standing; the facade
+        // throws until a later reconnect, and the survivor's session is intact.
+        spec.log.error(
+          {
+            hostId: spec.hostId,
+            pid: holder,
+            attempts: adoptConnectAttempts,
+            err: String(outcome.err),
+          },
+          "live daemon survivor is unreachable (non-skew connect failure) — " +
+            "leaving it up to preserve its PTYs; reporting degraded",
         );
-        await recycle(holder);
+        emit("degraded");
         return false;
       }
       // No live survivor — a fresh boot, identical to `ensure` minus the kill.

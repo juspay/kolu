@@ -21,12 +21,14 @@
 
 export {
   type DaemonConnection,
+  DaemonContractSkewError,
   type Endpoint,
   type EndpointSpec,
   type EndpointState,
   type EndpointStatus,
   ENDPOINT_STATES,
   createEndpoint,
+  isContractSkewError,
 } from "./endpoint.ts";
 export { dialSocket } from "./dialSocket.ts";
 export {

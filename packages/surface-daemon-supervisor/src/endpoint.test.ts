@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createEndpoint,
   type DaemonConnection,
+  DaemonContractSkewError,
   type EndpointStatus,
 } from "./endpoint.ts";
 import { serializeRestart } from "./restart.ts";
@@ -572,7 +573,7 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     expect(endpoint.current()?.identity).toEqual({ staleKey: "survivor" });
   });
 
-  it("RECYCLES a survivor that fails EVERY connect attempt (genuine skew): kills it, spawns fresh, returns false", async () => {
+  it("RECYCLES a survivor that is a genuine contract skew: kills it WITHOUT retrying, spawns fresh, returns false (F4)", async () => {
     const d = dir();
     const socketPath = join(d, "x.sock");
     const gatePath = join(d, "x.pid");
@@ -604,9 +605,13 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       },
       connect: async () => {
         connectCount += 1;
-        // A genuine skew fails EVERY survivor-connect attempt (the contract
-        // really is incompatible); only the post-recycle fresh spawn connects.
-        if (connectCount <= 2) throw new Error("pty-host contract skew");
+        // A genuine skew (the typed error) is TERMINAL: it proves the contract is
+        // incompatible, so the endpoint must recycle on the FIRST one — never
+        // burn retries re-dialing a daemon that can't become compatible. Only the
+        // post-recycle fresh spawn connects.
+        if (connectCount === 1) {
+          throw new DaemonContractSkewError("pty-host contract skew");
+        }
         return {
           client: "FRESH",
           identity: { staleKey: "fresh" },
@@ -618,7 +623,7 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
-      adoptConnectAttempts: 2, // both survivor attempts skew → recycle
+      adoptConnectAttempts: 3, // generous budget, but skew short-circuits at 1
       adoptConnectRetryMs: 1,
     });
 
@@ -627,8 +632,68 @@ describe("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
 
     expect(adopted).toBe(false); // recycled, not adopted
     expect(spawned).toBe(true); // a fresh daemon was spawned after the kill
-    expect(connectCount).toBe(3); // 2 failed survivor attempts + 1 fresh connect
+    // 1 skew (no retry — skew is terminal) + 1 fresh connect = 2, NOT 4.
+    expect(connectCount).toBe(2);
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
+  });
+
+  it("does NOT kill a survivor whose NON-skew connect fails every attempt: leaves it up, reports degraded, returns false (F4)", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+
+    // A real live survivor holding live PTYs. Its connect rejects on a NON-skew
+    // failure (a transport/handshake-read hiccup) on EVERY attempt — but that is
+    // NOT proof it is incompatible. The endpoint must NOT recycle it: killing the
+    // survivor would destroy the very PTYs adoption exists to preserve.
+    const survivor = spawn("sleep", ["60"], { stdio: "ignore" });
+    const survivorPid = survivor.pid as number;
+    children.push(survivorPid);
+    writeFileSync(gatePath, `${survivorPid}\n`);
+    let survivorExited = false;
+    survivor.on("exit", () => {
+      survivorExited = true;
+    });
+
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    let spawnCalled = false;
+    let connectCount = 0;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      gatePath,
+      socketPath,
+      driver: {
+        spawn: async () => {
+          spawnCalled = true;
+        },
+      },
+      connect: async () => {
+        connectCount += 1;
+        // Plain Error (NOT a DaemonContractSkewError) → non-skew, possibly
+        // transient. Here it persists across every attempt.
+        throw new Error("ECONNRESET (persistent transport failure)");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+      adoptConnectAttempts: 3,
+      adoptConnectRetryMs: 1,
+    });
+
+    const adopted = await endpoint.adoptOrEnsure();
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(adopted).toBe(false); // nothing adopted, nothing to reconcile
+    expect(connectCount).toBe(3); // retried every attempt before giving up
+    expect(spawnCalled).toBe(false); // NEVER spawned a fresh daemon
+    expect(survivorExited).toBe(false); // NEVER killed the survivor (PTYs preserved)
+    expect(endpoint.current()).toBeUndefined(); // no working connection held
+    // Reports degraded: a daemon is there, but we hold no connection to it.
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "degraded"]);
   });
 
   it("with NO survivor: spawns fresh and returns false (a cold boot)", async () => {
