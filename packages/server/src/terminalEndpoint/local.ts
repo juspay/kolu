@@ -86,7 +86,7 @@ function emitTerminalsDirty(): void {
   terminalsDirtyChannel.publish({});
 }
 
-/** Republish the live `terminalList` cell. Backend lifecycle calls this on
+/** Republish the live `terminalList` cell. Endpoint lifecycle calls this on
  *  create / kill; client metadata setters publish via the metadata
  *  collection instead. */
 function emitTerminalListChanged(): void {

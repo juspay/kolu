@@ -1,6 +1,6 @@
 /** Per-terminal provider DAG, parameterized over `ProviderHooks` +
  *  `ProviderChannels` + `ProviderRecord` so the host is the only thing
- *  that varies. kolu-server's local backend (`./local.ts`) instantiates it,
+ *  that varies. kolu-server's local endpoint (`./local.ts`) instantiates it,
  *  feeding it the pty-host's raw taps over the `ptyHostSurface` contract; a
  *  remote ssh pty-host serves the same taps in #951 R-2 — same DAG, different
  *  transport.
@@ -66,7 +66,7 @@ import type { Channel } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 
-/** Minimal "terminal record" shape the provider DAG needs. The local backend
+/** Minimal "terminal record" shape the provider DAG needs. The local endpoint
  *  (`./local.ts`) constructs one per terminal; the providers only touch
  *  `pid` + `meta` + `currentAgent` from here. `meta` is
  *  `TerminalServerMetadata` — the canonical
@@ -89,7 +89,7 @@ export interface ProviderRecord {
   currentAgent: string | null;
 }
 
-/** Per-terminal channels the providers subscribe to. The local backend
+/** Per-terminal channels the providers subscribe to. The local endpoint
  *  (`./local.ts`) creates a fresh in-memory channel of each kind per terminal
  *  and feeds them from the pty-host's tap streams; a remote pty-host serves
  *  the same taps. */
@@ -111,14 +111,14 @@ export interface ProviderChannels {
  *  `metadata.ts` enforces): writing `m.agent` through
  *  `updateServerMetadata` is a compile error, so the
  *  `terminals:dirty` autosave firehose can't be reintroduced by a new
- *  provider. The local backend (`makeHooks` in `./local.ts`) wires these
+ *  provider. The local endpoint (`makeHooks` in `./local.ts`) wires these
  *  straight to kolu-server's metadata + activity surfaces; the same fence
  *  applies there.
  *
  *  `record` is passed to every hook so a host whose update function isn't
  *  already keyed by terminal id (e.g. one with a global publish surface)
  *  can look the record up in its own registry to dispatch the write. The
- *  backend already has the entry + id captured in `makeHooks`'s per-terminal
+ *  endpoint already has the entry + id captured in `makeHooks`'s per-terminal
  *  closure, so it ignores the argument — hence the `_record` prefix. */
 export interface ProviderHooks {
   updateServerMetadata: (
@@ -772,7 +772,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   };
 }
 
-/** Start every per-terminal provider for one terminal. The local backend
+/** Start every per-terminal provider for one terminal. The local endpoint
  *  (`./local.ts`) calls this with its channels + hooks. Provider order matters
  *  only for the agent-command tracker — it must come first so its stash is
  *  populated before agent detectors reconcile. */

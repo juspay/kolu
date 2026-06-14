@@ -14,7 +14,7 @@
  *
  *  Exported (not private to `local.ts`) so the unit test for the
  *  recency rule can stay readable without reaching through the whole
- *  backend module. */
+ *  endpoint module. */
 
 import type { AgentInfo } from "kolu-common/surface";
 
