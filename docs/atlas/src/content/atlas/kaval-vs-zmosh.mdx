@@ -1,0 +1,225 @@
+---
+title: kaval-tui that roams — remote attach that survives the network
+description: Today kaval-tui attaches to a remote kaval over ssh stdio (TCP — it drops the moment you change networks). zmosh's idea, applied to kaval — teach kaval to also bind an encrypted-UDP listener beside its unix socket, so you attach once and keep the session through Wi-Fi↔cellular and sleep/wake, with no reconnect and no lost scrollback. No extra process; kaval already owns the hard half (server-side VT + snapshot-then-delta); only the transport changes.
+kind: analysis
+maturity: seedling
+parents: [kaval-sessions]
+updated: 2026-06-14
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import D2 from "../../components/D2.astro";
+import Pill from "../../components/Pill.astro";
+import Terminal from "../../components/Terminal.astro";
+
+export const Journey = () => (
+  <div style="margin:1.5rem 0;overflow-x:auto">
+    <svg viewBox="0 0 720 196" width="100%" style="min-width:560px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
+      <defs>
+        <marker id="jy-ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L7,3 L0,6 Z" fill="#94a3b8" /></marker>
+      </defs>
+      <text x="22" y="28" font-size="13" font-weight="700" fill="#0f172a">Attach once. Keep it.</text>
+      <rect x="24" y="48" width="184" height="74" rx="8" fill="#e7f6ec" stroke="#1b7a3a" />
+      <text x="38" y="70" font-size="12" font-weight="700" fill="#0f172a">desk · Wi-Fi</text>
+      <text x="38" y="88" font-size="11" font-family="ui-monospace,monospace" fill="#64748b">198.51.100.7</text>
+      <circle cx="44" cy="104" r="4" fill="#1b7a3a" /><text x="54" y="108" font-size="10.5" fill="#15803d">attached</text>
+      <line x1="208" y1="85" x2="262" y2="85" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#jy-ar)" />
+      <rect x="266" y="48" width="170" height="74" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
+      <text x="280" y="70" font-size="12" font-weight="700" fill="#475569">lid closed · moving</text>
+      <text x="280" y="88" font-size="11" fill="#64748b">Wi-Fi → cellular</text>
+      <text x="280" y="108" font-size="10.5" fill="#94a3b8">offline ~20 min</text>
+      <line x1="436" y1="85" x2="490" y2="85" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#jy-ar)" />
+      <rect x="494" y="48" width="202" height="74" rx="8" fill="#e7f6ec" stroke="#1b7a3a" />
+      <text x="508" y="70" font-size="12" font-weight="700" fill="#0f172a">café · cellular</text>
+      <text x="508" y="88" font-size="11" font-family="ui-monospace,monospace" fill="#64748b">203.0.113.9</text>
+      <circle cx="514" cy="104" r="4" fill="#1b7a3a" /><text x="524" y="108" font-size="10.5" font-weight="600" fill="#15803d">still attached</text>
+      <rect x="24" y="146" width="672" height="20" rx="6" fill="#15803d" />
+      <text x="36" y="160" font-size="11" fill="#fff">one kaval session — never re-created · scrollback intact · no reconnect spinner</text>
+    </svg>
+  </div>
+);
+
+export const Recovery = () => (
+  <div style="margin:1.5rem 0;overflow-x:auto">
+    <svg viewBox="0 0 720 196" width="100%" style="min-width:560px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
+      <text x="22" y="27" font-size="13" font-weight="700" fill="#0f172a">The hard part is recovery — kaval already does it</text>
+      <rect x="24" y="44" width="208" height="100" rx="8" fill="#f8fafc" stroke="#334155" />
+      <text x="38" y="66" font-size="12" font-weight="700" fill="#0f172a">zmosh, on loss</text>
+      <text x="38" y="88" font-size="11" fill="#334155">gap on a seq ⇒ replay</text>
+      <text x="38" y="104" font-size="11" fill="#334155">the full screen snapshot</text>
+      <text x="38" y="130" font-size="10" font-family="ui-monospace,monospace" fill="#94a3b8">serve.zig:389-398</text>
+      <rect x="256" y="44" width="208" height="100" rx="8" fill="#e7f6ec" stroke="#1b7a3a" />
+      <text x="270" y="66" font-size="12" font-weight="700" fill="#15803d">kaval, on attach</text>
+      <text x="270" y="88" font-size="11" fill="#334155">snapshot-then-delta from</text>
+      <text x="270" y="104" font-size="11" font-family="ui-monospace,monospace" fill="#334155">@xterm/headless</text>
+      <text x="270" y="130" font-size="10" font-family="ui-monospace,monospace" fill="#94a3b8">ptyHost.ts:565-573</text>
+      <rect x="488" y="44" width="208" height="100" rx="8" fill="#eef2ff" stroke="#5a3ff0" />
+      <text x="502" y="66" font-size="12" font-weight="700" fill="#4c34d6">what's missing</text>
+      <text x="502" y="88" font-size="11" fill="#334155">a roaming transport to</text>
+      <text x="502" y="104" font-size="11" fill="#334155">carry it (today: ssh stdio)</text>
+      <text x="502" y="130" font-size="10" font-style="italic" fill="#94a3b8">the only new code</text>
+      <text x="22" y="176" font-size="11.5" fill="#0f172a">Same primitive — re-send the <tspan font-weight="700">whole screen</tspan>, never the lost bytes. kaval owns it server-side; only the pipe needs to roam.</text>
+    </svg>
+  </div>
+);
+
+export const CidViz = () => (
+  <div style="margin:1.5rem 0;overflow-x:auto">
+    <svg viewBox="0 0 720 244" width="100%" style="min-width:600px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
+      <text x="22" y="27" font-size="13" font-weight="700" fill="#0f172a">What QUIC changes — the connection isn't the IP</text>
+      <rect x="24" y="44" width="324" height="158" rx="9" fill="#fef2f2" stroke="#c0392b" />
+      <text x="40" y="68" font-size="12" font-weight="700" fill="#b91c1c">TCP / ssh — keyed by the 4-tuple</text>
+      <rect x="40" y="82" width="292" height="32" rx="6" fill="#fff" stroke="#e5b4b4" />
+      <text x="52" y="102" font-size="10" font-family="ui-monospace,monospace" fill="#0f172a">conn = (198.51.100.7:51000 → prod:22)</text>
+      <text x="40" y="138" font-size="10.5" fill="#334155">client IP changes → 203.0.113.9</text>
+      <text x="40" y="160" font-size="11" font-weight="700" fill="#b91c1c">✗ 4-tuple broke — connection dead</text>
+      <text x="40" y="180" font-size="10.5" fill="#64748b">re-dial + fresh TLS/ssh handshake</text>
+      <rect x="372" y="44" width="324" height="158" rx="9" fill="#ecfdf3" stroke="#1b7a3a" />
+      <text x="388" y="68" font-size="12" font-weight="700" fill="#15803d">QUIC — keyed by Connection ID</text>
+      <rect x="388" y="82" width="292" height="32" rx="6" fill="#fff" stroke="#b6e3c6" />
+      <text x="400" y="102" font-size="10" font-family="ui-monospace,monospace" fill="#0f172a">conn = CID 0x9f3a… (in every packet)</text>
+      <text x="388" y="138" font-size="10.5" fill="#334155">client IP changes → 203.0.113.9 · CID stays</text>
+      <text x="388" y="160" font-size="11" font-weight="700" fill="#15803d">✓ same connection — keeps running</text>
+      <text x="388" y="180" font-size="10.5" fill="#64748b">PATH_CHALLENGE validates the path · 1 RTT</text>
+      <text x="22" y="228" font-size="10.5" fill="#475569">RFC 9000 §9 · only the client migrates (exactly kaval-tui's direction) · the stream stays reliable+ordered, so kaval's wire rides it unchanged</text>
+    </svg>
+  </div>
+);
+
+**kaval-tui** attaches to kaval sessions — local over a unix socket, and (R-2) remote over ssh. **zmosh** ([mmonad/zmosh](https://github.com/mmonad/zmosh)) is a session daemon whose remote attach survives Wi-Fi↔cellular and sleep/wake with no reconnect. This note: give kaval-tui the same. <Pill variant="new">24-agent workflow · verified vs. both codebases</Pill>
+
+## See it
+
+Same command, today vs. with roaming. The difference is the 20 minutes you don't notice.
+
+<Terminal title="today · kaval-tui --host over ssh stdio" lines={[
+  "$ kaval-tui --host nix@prod attach build",
+  "  ↳ prod · vite build — watching…            [ssh stdio · TCP]",
+  "  — close laptop · walk to café · Wi-Fi → cellular —",
+  "  ⚠ ssh: connection reset by peer",
+  "  ↳ re-dialing prod… re-attaching… snapshot restored",
+  "  ✓ back — after ~6 s of dead air, and only because you noticed",
+]} />
+
+<Terminal title="with roaming · kaval-tui --host over QUIC" lines={[
+  "$ kaval-tui --host nix@prod attach build",
+  "  ↳ prod · vite build — watching…            [QUIC]",
+  "  — close laptop · walk to café · Wi-Fi → cellular —",
+  "  ✓ build finished — never dropped a frame",
+  "    (one authenticated datagram re-pinned the peer · scrollback intact)",
+]} />
+
+<Journey />
+
+That is the whole user-facing win: **attach once, and the session is yours until you kill it** — across network switches, VPN flips, and a closed lid. No `⚠`, no spinner, no lost output.
+
+## One hop, one swap
+
+kaval-tui ↔ kaval is a **single hop** — exactly zmosh's shape. Local attach (unix socket) is already roam-proof; only the **remote** transport changes. Nothing about kaval the daemon, your shell, or detach/reattach moves.
+
+<D2
+  caption="The only thing that changes is the wire between kaval-tui and a remote kaval. Today it's ssh stdio (a TCP child that dies on an IP change); the swap is teaching kaval to bind an encrypted-UDP listener beside its unix socket — no extra process — where one authenticated datagram re-pins the peer after a roam."
+  code={`direction: down
+tui: "kaval-tui · your laptop"
+kaval: "kaval daemon · remote host — owns PTYs + server-side VT" {
+  style.fill: "#e7f6ec"
+  style.stroke: "#1b7a3a"
+}
+pty: "your shell / build / agent — survives detach"
+tui -> kaval: "the ONE hop: ssh stdio (drops on roam)  →  QUIC (roams · connection migration · RFC 9000 ss9)" {
+  style.stroke: "#c0392b"
+  style.stroke-width: 3
+}
+kaval -> pty: "owned in-process · OSC taps — unchanged"
+`}
+/>
+
+- **Local `kaval-tui attach` is untouched** — unix socket, same machine, nothing to roam.
+- **Remote: kaval *also* binds an encrypted-UDP (QUIC) listener** — a `serveOverUdp` link beside today's `serveOverUnixSocket`, serving the *same* shared router. No extra process. Started over ssh it hands off its port + cert (à la mosh); the ssh pipe closes and QUIC carries the session.
+
+<Callout kind="accent" title="Why not just make the PTY socket itself UDP?">
+You almost can — and you don't need a separate gateway <em>process</em> to do it; kaval binds the UDP listener itself, next to the unix socket. But the socket can't be <em>repointed</em> at UDP, for one hard reason: kaval's wire is base64+newline oRPC over a <strong>reliable, ordered stream</strong> (<Cite file="packages/surface/src/links/unix-socket.ts" lines="34-39" /> hands the raw <code>net.Socket</code> straight to <code>stdioLink</code>). That framing has no sequence numbers, no retransmit, no reassembly — TCP/unix-stream gives it those. UDP is lossy, unordered, and datagram-capped, so it needs a reliability + crypto + roaming layer <em>underneath</em> the same wire. <strong>That layer is QUIC</strong> — a QUIC stream is reliable, ordered, and TLS-1.3-encrypted, and it roams via connection migration — so you don't hand-roll the equivalent of zmosh's <Cite file="src/transport.zig" lines="110-211" repo="mmonad/zmosh" label="transport.zig" />. Either way it's a <strong>transport kaval binds</strong>, not a daemon it spawns. (See <a href="#the-transport-quic">The transport</a>.) Keep the unix socket for local (cheap, same-host, filesystem-authed — that privacy gate <em>is</em> the security model); add UDP only for the remote case, and only it pays for crypto.
+</Callout>
+
+## Already half-built
+
+The expensive half of "mosh for a session daemon" is keeping a **server-side terminal-state authority** so a reconnecting client can be re-hydrated. kaval has it — `@xterm/headless` mirrors every byte and `attach()` hands back a race-free snapshot-then-delta (<Cite file="packages/kaval/src/ptyHost.ts" lines="565-573" />). On overflow it sheds the wedged consumer and recovers with a fresh snapshot (<Cite file="packages/kaval/src/channel.ts" lines="120-131" />). That is zmosh's recovery model, already shipped.
+
+<Recovery />
+
+So the work is **only the transport** — the daemon, the VT, the wire contract (<Cite file="packages/kaval/src/ptyHost.ts" lines="565-573" label="ptyHostSurface · contract 3.0" />), and kaval-tui's attach loop all stay as they are.
+
+## The transport — QUIC
+
+The remote wire should be **QUIC** — and not as a hedge. QUIC is UDP + TLS 1.3 + reliable, multiplexed, ordered streams (RFC 9000/9001/9002). Two of its properties are *exactly* this problem:
+
+- **Connection migration is the roaming** (RFC 9000 §9, §5.1, verified). A QUIC connection is keyed by a **Connection ID in the packet, not the 4-tuple** — so an IP/port change (Wi-Fi→cellular, NAT-rebind on wake) keeps the *same* connection after a one-round-trip `PATH_CHALLENGE`/`PATH_RESPONSE`. No re-dial, no re-handshake. Only the client migrates — exactly kaval-tui's direction.
+- **A QUIC stream is reliable + ordered, so kaval's wire rides it unchanged.** kaval's base64+newline oRPC already runs over a reliable duplex (`stdioLink`); a QUIC bidi stream *is* that duplex — hand it to the same codec, zero reassembly shim.
+
+<CidViz />
+
+So QUIC isn't "zmosh's idea, maybe" — it **is** zmosh's design (per-packet AEAD, roaming, reliable transport), standardized, fuzzed, interop-tested, with path-spoofing defenses the bare seq rule lacks. You write none of it. That's why hand-rolling a UDP transport is the wrong call: raw UDP forces you to rebuild sequencing/retransmit/ARQ by hand — the one piece mosh got to *skip* (it discards lost frames; an RPC byte-stream can't).
+
+**The one honest caveat is the Node library, not the protocol** (verified, mid-2026): there is no turnkey-perfect QUIC for Node yet.
+
+| Option | State | Call |
+|---|---|---|
+| **`node:quic`** (Node built-in, ngtcp2) | generic bidi streams ✓, but **experimental** ("Stability 1.0") — needs a *custom Node build* (compile-time `--experimental-quic` + OpenSSL 3.5) plus a runtime flag; landed ~Node 26.2 | **the target** — bet on the standard; own the build |
+| **`@matrixai/quic`** (quiche bindings) | real `ReadableStream`/`WritableStream` ✓, but ~15 mo stale, single-sponsor, **no `linux-arm64` prebuilt** (aarch64 compiles quiche from Rust) | **prototype only** — validates the design, too thin to depend on |
+| ~~bespoke UDP port~~ | hand-rolled crypto + ARQ | **rejected** — rebuilds what QUIC ships |
+
+Doing it *properly* means **`node:quic`, with the QUIC-enabled Node owned in the Nix closure** — a clean cost that shrinks as the flag graduates — not an under-maintained binding. Nix is the ideal place to own that runtime build.
+
+<Callout kind="accent" title="Where it lives (lowy + hickey agree)">
+First, scope: QUIC here is <strong>Node-only</strong> — kaval-tui (CLI) and kolu-server reaching a remote kaval. The browser keeps WebSocket (it can't run <code>node:quic</code>, and its hop already roams), so the question is purely where the Node-side code lives. It splits along volatility axes the framework already owns, so it needs <strong>no new package</strong>:
+<ul>
+<li><strong>The link codec</strong> (oRPC wire over a QUIC bidi stream) → <code>@kolu/surface/links/quic.ts</code>, a sibling of <code>links/stdio</code> / <code>links/unix-socket</code>. The <em>same</em> transport-medium volatility the link family already encapsulates — a new wire in an existing socket, not a new receptacle. Clean because <code>node:quic</code> is a built-in (zero npm dep), exactly like the <code>node:stream</code>/<code>node:net</code> behind those Node-only subpaths the browser never imports.</li>
+<li><strong>Roaming / connection migration</strong> → <em>dissolves</em>. It lives inside the QUIC protocol; there's no app code — which is the deep reason QUIC is the right call: it deletes the very lifecycle volatility <code>recheck()</code>/reconnect exist to paper over.</li>
+<li><strong>Bootstrap + supervise</strong> (provision over ssh, cert/port handoff, reconnect) → <code>@kolu/surface-nix-host</code>'s <code>HostSession</code> — swap its one <code>stdioLink(...)</code> callsite for a <code>quicLink</code> via a <code>linkFactory</code>; the whole reconnect/provision state machine is reused.</li>
+</ul>
+The only thing that could move this boundary is a parent runtime that can't run <code>node:quic</code> — which would force <code>@matrixai/quic</code> (a native npm addon) into a codec-only <code>@kolu/surface-quic</code> (a dependency firewall, not an electricity). <strong>That's now moot: drishti is moving Bun→Node</strong>, so <code>node:quic</code> runs on both parents and the codec settles cleanly in <code>@kolu/surface/links/quic.ts</code> — no firewall package, kolu and drishti alike.
+</Callout>
+
+<Callout kind="warn" title="QUIC can't do everything — keep ssh-stdio as the fallback">
+QUIC rides UDP, and plenty of enterprise/hotel/captive networks block or throttle it — so a QUIC-only design would be half-baked on hostile networks. <strong>ssh-stdio stays</strong>: it's the trust/key bootstrap (TLS authenticates the server, but <em>which</em> daemon to trust still comes over ssh — and never put terminal input in 0-RTT early data, which has no replay protection) <em>and</em> the automatic fallback where UDP is blocked (it just doesn't roam there). Provisioning still rides <code>surface-nix-host</code> (see "Where it lives" above) — shared infra, not a kaval-only fork.
+</Callout>
+
+## Phases
+
+**Prerequisite — `node:quic` in Nix (day one, not a phase).** kolu is Nix-first, so the QUIC-enabled Node is baked into the flake from the start, not bolted on later: build Node with `--experimental-quic` (needs OpenSSL ≥ 3.5) in the devShell *and* in the kaval/agent closures. One change to the flake's Node derivation; kolu and drishti both inherit it (both run `node:quic`). Everything below assumes it. Drop the compile flag if/when it graduates upstream — no code change, just the derivation.
+
+There's no decision-spike left (library/package settled: `node:quic`, codec in `@kolu/surface/links/quic.ts`), and **nothing is demonstrable until the daemon roams** — so the transport and its demo land together. The "session survives a roam" win is a *daemon* property, so the demo is **kaval, not drishti**: drishti has no surviving session (a dropped agent just re-streams), so it can de-risk the *transport* (and `.claude/rules/surface.md` mandates its PR) but it can't show the feature.
+
+| Phase | Ships | Visible? |
+| --- | --- | --- |
+| **P1 · transport + `kaval-tui --host` roaming demo** | the `links/quic` codec, kaval's QUIC listener, the `HostSession` dial seam, and kaval-tui's `--host` path — end to end | **yes** — attach → roam Wi-Fi↔cellular → session + scrollback survive, no reconnect |
+| **P2 · kolu dials a remote kaval** | kolu's `TerminalEndpoint` registry dials remote kavals over QUIC; ssh-stdio kept as the auto-fallback | yes — a roaming remote tile on the canvas |
+
+### P1, file by file
+
+A single vertical slice. Each piece mirrors an existing member of the link family, so the pattern is already established in-tree:
+
+- **`@kolu/surface`** — the codec, client + server halves (mirror the unix-socket pair):
+  - `src/links/quic.ts` → `quicLink({ host, port, certFingerprint })`: open a `node:quic` session, take one bidi `QuicStream` (a Node `Duplex`), hand `{ read, write }` to the existing `stdioLink` codec. Direct sibling of `src/links/unix-socket.ts`, which does exactly this with a `net.Socket`.
+  - `src/quic.ts` → `serveOverQuic({ router, tlsKeyPair })`: bind a `QuicEndpoint`, serve `router` over each accepted bidi stream with the same peer framing as `serveOverUnixSocket` (`src/unix-socket.ts:205`) and `serveOverStdio` (`src/peer-server.ts:130`). Add `./links/quic` + `./quic` to package `exports`.
+- **`packages/kaval`** — bind the listener *beside* the unix socket (additive, never a replacement):
+  - `src/servePtyHostOverQuic.ts` → wraps `serveOverQuic` for the *same* `servedRouter` (`createInProcessPtyHost`); the unix-socket precedent is `src/serveOverSocket.ts`. Mints an ephemeral cert, binds an ephemeral UDP port, returns `{ port, certFingerprint, close }`.
+  - `src/daemonMain.ts` (~`:45–50`, beside `servePtyHostOverUnixSocket`) → under a `--quic` flag, also serve QUIC and print one line to stdout: `KAVAL_QUIC <port> <certFingerprint>`.
+- **`@kolu/surface-nix-host`** — the dial + supervise seam (the one genuinely *hard* change):
+  - `src/hostSession.ts:spawn()` (`:388–547`) → add `transport: "stdio" | "quic"`. Today it wraps `stdioLink({ read: child.stdout, write: child.stdin })` (`:524`) and treats `child.on("exit")` as the disconnect. For `"quic"`: ssh starts the agent with `--quic`, read its `KAVAL_QUIC` line, **then close the ssh child** and build `quicLink({ host, port, certFingerprint })`. **The load-bearing flip:** with stdio the ssh child *is* the link (its TCP death = disconnect); with QUIC the ssh child is only the *bootstrap*, so it must be closed — otherwise a roam kills its TCP and trips `handleChildDone` even though QUIC migrated. Supervision moves from the child's `exit` to the QUIC link's connection-close event; `scheduleReconnect`/backoff/`recheck` reuse unchanged.
+- **`packages/kaval-tui`** — the demo driver:
+  - `src/connect.ts` → add `connectPtyHostQuic({ host, port, certFingerprint })` via `quicLink` — the file already anticipates it ("the same link the ssh/daemon path will reuse").
+  - `src/main.ts` → `--host <ssh>`: `provisionAgent` → ssh-start `kaval --quic` → read the bootstrap line → `connectPtyHostQuic` → `attach`. This `--host` path *is* the driver kolu reuses in P2.
+
+**Bootstrap (mosh-style).** (1) `provisionAgent` (`nix copy --derivation` → realise) puts kaval on the host. (2) ssh runs `kaval --quic`, which binds a unix socket (local) + a QUIC listener (ephemeral UDP port, ephemeral self-signed cert) and prints `KAVAL_QUIC <port> <certFingerprint>`. (3) kaval-tui reads that line and **closes ssh**. (4) It dials `quic://host:<port>` pinning the fingerprint — TLS secures the channel, and the fingerprint, delivered over the authenticated ssh hop, is the trust anchor (TLS alone doesn't say *which* kaval). (5) Only QUIC after that; an IP change migrates by Connection ID, no re-dial.
+
+**Acceptance — prove the roam, don't assume it.** Attach to a remote kaval running a counter; force a client IP/port change (a NAT rebind, or move the client between two network namespaces); the session keeps streaming with **one `PATH_CHALLENGE`/`PATH_RESPONSE` and no reconnect log line**, scrollback intact. The same flow over `transport: "stdio"` drops (`agent exited` → reconnect) — that contrast *is* the demo.
+
+**Companion (mandated, not a phase).** The paired drishti PR for the `@kolu/surface` + `HostSession` change (`.claude/rules/surface.md`). drishti dials its process-monitor agent with `transport: "quic"`; a sequence/echo agent proves the *bytes* migrate across an IP change. drishti can't show session-survival (no daemon) — that's P1's job.
+
+### P2 — kolu + the fallback
+
+kolu's endpoint registry (the `TerminalEndpoint` seam, #1364) dials remote kavals through the same `HostSession` `transport: "quic"`. **ssh-stdio stays as the automatic fallback:** if QUIC can't establish (UDP blocked, handshake timeout) fall back to `transport: "stdio"` — no roaming, but it always connects. Terminal input never rides 0-RTT early data (no replay protection). The canvas multiplexes a roaming remote kaval beside local ones.
+
+_zmosh cloned at HEAD; kaval claims verified against `packages/kaval`; QUIC claims verified against RFC 9000/9001/9002 and the mid-2026 Node QUIC landscape; placement per a lowy + hickey lens pass. Sibling to [kaval-sessions](kaval-sessions.html) (the kaval-tui plan)._
