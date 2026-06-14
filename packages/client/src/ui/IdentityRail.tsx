@@ -44,7 +44,9 @@ import {
   downState,
   formatUptime,
   localDaemonStatus,
+  nudgeDot,
   toneDot,
+  wsDot,
 } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
@@ -109,12 +111,12 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // a false-green before the first status yield (#1034) — then a down/warming daemon,
   // then the amber currency nudges, else all-clear.
   const unifiedDot = (): string => {
-    if (props.status !== "open") return srvDot[props.status];
+    if (props.status !== "open") return wsDot(props.status);
     const state = daemon()?.state;
-    if (!state) return "bg-fg-3/50";
+    if (!state) return kavalDot(undefined);
     if (downState() || daemonWarming()) return kavalDot(state);
-    if (stale() || kavalUpdatePending()) return "bg-warning";
-    return "bg-ok";
+    if (stale() || kavalUpdatePending()) return nudgeDot;
+    return toneDot.ok;
   };
 
   // The kaval source fans out when it's behind (⬆ update) or not cleanly running.

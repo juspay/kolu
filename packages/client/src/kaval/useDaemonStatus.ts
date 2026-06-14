@@ -11,6 +11,7 @@
 import type { DaemonState, DaemonStatus } from "kolu-common/surface";
 import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
+import type { WsStatus } from "../rpc/rpc";
 import { app } from "../wire";
 
 /** The one host today; R-2's ssh hosts add more keys to the same collection. */
@@ -19,7 +20,7 @@ export const LOCAL_HOST = "local";
 /** A daemon state's coarse tone — the warming-up/up/down bucket every display
  *  site shares. `restarting` and `connecting` are both `warming` (transient,
  *  coming up), declared once here rather than re-collapsed at each dot map. */
-type DaemonTone = "ok" | "warming" | "down";
+export type DaemonTone = "ok" | "warming" | "down";
 
 /** The single source of truth for "what does daemon state X mean visually."
  *  One row per state, keyed by `DaemonState`, so a new state is a compile-forced
@@ -88,6 +89,27 @@ export const toneDot: Record<DaemonTone, string> = {
   warming: "bg-warning animate-pulse",
   down: "bg-danger",
 };
+
+/** A WebSocket transport status → its coarse tone — `connecting` is transient
+ *  (warming, pulses), `open` is healthy, `closed` is down. The one place the
+ *  WS-status→tone mapping lives, so the `srv` liveness dot (desktop rail) and the
+ *  mobile connection dot read ONE receptacle instead of two byte-identical maps. */
+export const wsTone: Record<WsStatus, DaemonTone> = {
+  connecting: "warming",
+  open: "ok",
+  closed: "down",
+};
+
+/** A WebSocket status → its status-dot class, via {@link wsTone} + {@link
+ *  toneDot}. Both the desktop rail's `srv` dot and the mobile chrome dot resolve
+ *  through this single helper, so a connection-tone change is made once. */
+export const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
+
+/** The steady client-stale / kaval-update currency-advisory tone — a calm amber
+ *  nudge ("you're a build behind"), distinct from {@link toneDot}.warming's
+ *  PULSING transient (a daemon coming up). No `animate-pulse`: a currency advisory
+ *  rests, it doesn't shout. The one place this advisory amber is spelled. */
+export const nudgeDot = "bg-warning";
 
 const sub = app.collections.daemonStatus.use({
   keys: () => [LOCAL_HOST],
