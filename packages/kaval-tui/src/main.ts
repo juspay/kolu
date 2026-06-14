@@ -245,7 +245,7 @@ async function cmdCreate(
     await writeOut(`${formatCreateJson(result)}\n`);
     return;
   }
-  const [program = ""] = input.argv;
+  const program = input.argv[0] ?? "";
   await writeOut(`${formatCreate(result, { program, home: homedir() })}\n`);
   // Next-step hint to stderr (stdout stays just the spawn line) — `create` is
   // the prerequisite for `attach`, so name the exact command to take it over.
