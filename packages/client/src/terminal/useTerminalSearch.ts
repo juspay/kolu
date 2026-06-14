@@ -1,4 +1,7 @@
-/** Per-terminal find-bar visibility — singleton module. The xterm search
+/** Per-terminal find-bar visibility — singleton via `createSharedRoot` (the
+ *  same primitive the other domain singletons use, so the verb object is built
+ *  once and the `useTerminalStore` dependency is captured in the shared root
+ *  rather than re-read per call). The xterm search
  *  overlay is scoped to one terminal at a time; keying open-state by
  *  `TerminalId` means switching terminals reads a different key (closed by
  *  default), so the bar closes on switch structurally — no `on(activeId)`
@@ -8,12 +11,12 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { createStore, produce } from "solid-js/store";
+import { createSharedRoot } from "../createSharedRoot";
 import { useTerminalStore } from "./useTerminalStore";
 
-const [state, setState] = createStore<Record<TerminalId, boolean>>({});
-
-export function useTerminalSearch() {
+export const useTerminalSearch = createSharedRoot(() => {
   const store = useTerminalStore();
+  const [state, setState] = createStore<Record<TerminalId, boolean>>({});
   return {
     /** Is the find bar open for terminal `id`? */
     isOpen(id: TerminalId): boolean {
@@ -40,4 +43,4 @@ export function useTerminalSearch() {
       setState(produce((s) => delete s[id]));
     },
   } as const;
-}
+});
