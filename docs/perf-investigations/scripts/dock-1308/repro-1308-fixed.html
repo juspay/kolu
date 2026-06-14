@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>#1308 FIXED repro — compositor-friendly dock/pill/capsule anims</title>
+<style>
+  :root {
+    --color-surface-2: #1f1f23; --color-fg: #e4e4e8; --color-edge-bright: #3a3a42;
+    --color-accent: #5a9ea0; --color-alert: #a78bfa; --color-danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0c0c0e; color: #c7ccd6;
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #hud { position: fixed; top: 8px; left: 380px; z-index: 1000; background: #161618;
+    border: 1px solid #2a2a30; border-radius: 8px; padding: 8px 10px; }
+  #hud b { color: #fff; }
+  .rail { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .cards { position: absolute; top: 12px; left: 120px; display: flex; flex-wrap: wrap; gap: 12px; width: 1100px; }
+
+  /* ═══ FIXED: paint→composite. box-shadow/background animated ONCE→static;
+     only opacity/transform animate (compositor). will-change promotes once. ═══ */
+
+  /* pills — base background set once (full strength); animate opacity */
+  .pill-border { position: relative; }
+  .pill-border::before {
+    content: ""; position: absolute; inset: -2px;
+    border-radius: var(--pill-border-radius, 9999px); padding: 2px;
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
+  }
+  .pill-border-active::before { background: oklch(from var(--card-color) l c h / 0.8); }
+  .pill-border-awaiting::before {
+    background: color-mix(in oklch, var(--pill-state-color, var(--color-alert)) 90%, transparent);
+    animation: pill-awaiting-breathe 1.6s ease-in-out infinite; will-change: opacity;
+  }
+  @keyframes pill-awaiting-breathe { 0%, 100% { opacity: 0.22; } 50% { opacity: 1; } }
+  .pill-border-working::before {
+    background: color-mix(in oklch, var(--pill-state-color, var(--color-accent)) 80%, transparent);
+    animation: pill-working-pulse 2.4s ease-in-out infinite; will-change: opacity;
+  }
+  @keyframes pill-working-pulse { 0%, 100% { opacity: 0.44; } 50% { opacity: 1; } }
+
+  /* record capsule — pre-rendered ring, animate transform:scale + opacity */
+  .record-capsule-live { position: relative; }
+  .record-capsule-live::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit;
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-danger) 50%, transparent);
+    will-change: transform, opacity; animation: record-capsule-breathe 2s ease-out infinite;
+  }
+  @keyframes record-capsule-breathe { 0% { transform: scale(0.92); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+
+  /* dock rail chips — glow moves to a .chip-glow child; box-shadow painted once,
+     only opacity/scale (breathe) or transform:rotate (spin) animate */
+  .dock-rail-chip {
+    position: relative; width: 32px; height: 32px; border-radius: 8px;
+    background: color-mix(in oklch, var(--chip-tint) 18%, var(--color-surface-2));
+    border: 1.5px solid color-mix(in oklch, var(--chip-ring) 70%, transparent);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .dock-rail-chip[data-bucket="awaiting"] { border-color: var(--color-alert); }
+  .dock-rail-chip[data-bucket="working"] { border-color: var(--color-accent); }
+  .chip-glow { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
+  .dock-rail-chip[data-bucket="awaiting"] .chip-glow {
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-alert) 70%, transparent);
+    will-change: opacity, transform; animation: dock-chip-breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes dock-chip-breathe { 0%, 100% { opacity: 0.45; transform: scale(0.985); } 50% { opacity: 1; transform: scale(1); } }
+  .dock-rail-chip[data-bucket="working"] .chip-glow {
+    box-shadow: 2px 0 6px color-mix(in oklch, var(--color-accent) 55%, transparent);
+    will-change: transform; animation: dock-chip-spin-glow 2.4s linear infinite;
+  }
+  @keyframes dock-chip-spin-glow { to { transform: rotate(1turn); } }
+
+  .card { width: 240px; height: 44px; border-radius: 10px; background: #161618;
+    display: flex; align-items: center; padding: 0 12px; color: #6b7280; }
+  .capsule { width: 10px; height: 10px; border-radius: 9999px; background: var(--color-danger); margin-left: 8px; }
+</style>
+</head>
+<body>
+<div id="hud"><div>chips: <b id="c">0</b> · pills: <b id="p">0</b> · <b id="mode">FIXED</b></div><div>fps: <b id="fps">…</b></div></div>
+<div class="rail" id="rail"></div>
+<div class="cards" id="cardsEl"></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const CHIPS = parseInt(q.get("chips") || "24", 10);
+  const PILLS = parseInt(q.get("pills") || "12", 10);
+  const ANIM = q.get("anim") !== "0";
+  const COLORS = ["#e06c75","#61afef","#98c379","#c678dd","#e5c07b","#56b6c2","#d19a66","#abb2bf"];
+  const BUCKETS = ["working","awaiting","working","working","awaiting","none","working","awaiting"];
+  const rail = document.getElementById("rail");
+  for (let i = 0; i < CHIPS; i++) {
+    const c = COLORS[i % COLORS.length];
+    const chip = document.createElement("div");
+    chip.className = "dock-rail-chip";
+    chip.setAttribute("data-bucket", ANIM ? BUCKETS[i % BUCKETS.length] : "none");
+    chip.style.setProperty("--chip-tint", c);
+    chip.style.setProperty("--chip-ring", c);
+    const txt = document.createElement("span"); txt.textContent = "ka"; chip.appendChild(txt);
+    const glow = document.createElement("div"); glow.className = "chip-glow"; chip.appendChild(glow);
+    rail.appendChild(chip);
+  }
+  const cards = document.getElementById("cardsEl");
+  for (let i = 0; i < PILLS; i++) {
+    const c = COLORS[i % COLORS.length];
+    const state = ANIM ? (i % 2 === 0 ? "pill-border-working" : "pill-border-awaiting") : "pill-border-active";
+    const card = document.createElement("div");
+    card.className = "card pill-border " + state;
+    card.style.setProperty("--card-color", c);
+    card.style.setProperty("--pill-state-color", c);
+    card.style.setProperty("--pill-border-radius", "10px");
+    card.innerHTML = (ANIM ? (i % 2 ? "awaiting" : "working") : "idle") + " · repo " + (i % COLORS.length) + (i === 0 && ANIM ? '<span class="capsule record-capsule-live"></span>' : "");
+    cards.appendChild(card);
+  }
+  document.getElementById("c").textContent = CHIPS;
+  document.getElementById("p").textContent = PILLS;
+  let f = 0, last = performance.now();
+  (function loop(t){ f++; if (t-last>=1000){ document.getElementById("fps").textContent=f+" fps"; f=0; last=t; } requestAnimationFrame(loop); })(performance.now());
+  window.__reproReady = true;
+</script>
+</body>
+</html>
