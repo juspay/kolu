@@ -58,16 +58,21 @@ export const HIGHLIGHTER_CONTRACT = {
  *  desktop client. */
 const POOL_SIZE = 2;
 
-/** The shared pool. `getOrCreateWorkerPoolSingleton` memoizes the manager
- *  module-side, so every call returns the same warm instance for the session;
- *  this wrapper is a pure adapter that pre-fills Kolu's options (one lifetime
- *  cache — Pierre's — instead of mirroring it with a second local one). */
+/** The shared pool. `getOrCreateWorkerPoolSingleton` is `pool ??= new
+ *  WorkerPoolManager(...)` module-side, so the options below are consumed only
+ *  on the *first* call; every later call returns that same warm instance and
+ *  ignores its args. A per-CodeView-mount call is therefore free and never
+ *  builds a second pool — this wrapper is a pure adapter that pre-fills Kolu's
+ *  options (one lifetime cache, Pierre's, instead of mirroring it locally). */
 export const getCodeViewWorkerPool = (): WorkerPoolManager =>
   getOrCreateWorkerPoolSingleton({
     poolOptions: {
       // Kolu owns the worker factory, so the worker bundles through the
       // client's Vite (`new Worker(new URL(...))` is Vite's worker pattern)
-      // rather than Pierre guessing the bundler.
+      // rather than Pierre guessing the bundler. If the Worker can't construct
+      // (CSP, workers disabled), Pierre catches the throw, sets `workersFailed`,
+      // and the view degrades to un-highlighted (plain-AST) rendering — the
+      // content still paints, so no extra guard is needed here.
       workerFactory: () =>
         new Worker(new URL("@pierre/diffs/worker/worker.js", import.meta.url), {
           type: "module",
