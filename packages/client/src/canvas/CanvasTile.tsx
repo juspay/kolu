@@ -96,6 +96,9 @@ const CanvasTile: Component<{
 
   const bg = () => props.theme.bg;
   const aura = (): TileAura => props.auraTier?.() ?? "none";
+  // One decision — "is the aura showing" — so the `data-aura` host attribute
+  // and the `.tile-aura` child can't drift. A maximized tile mutes its aura.
+  const showAura = () => aura() !== "none" && !isMaximized();
 
   // Active stays full-strength regardless of dimmed — the user is looking
   // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
@@ -170,7 +173,7 @@ const CanvasTile: Component<{
       data-active={props.active ? "true" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
-      data-aura={aura() === "none" ? undefined : aura()}
+      data-aura={showAura() ? aura() : undefined}
       // `inert` (when covered) removes the subtree from tab order, blocks
       // pointer events, and hides from assistive tech in one go — matches
       // the pre-#988 `visibility: hidden` wrapper without re-introducing
@@ -310,7 +313,7 @@ const CanvasTile: Component<{
        *  driven by `[data-aura]` rules in index.css. Last child so it paints
        *  over the body; `pointer-events:none` so it never eats a click. Skipped
        *  when maximized — the focused tile mutes its own aura. */}
-      <Show when={aura() !== "none" && !isMaximized()}>
+      <Show when={showAura()}>
         <div
           class="tile-aura"
           aria-hidden="true"
