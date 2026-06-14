@@ -263,7 +263,6 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           daemon details, the session-preserving restart, kaval-tui attach. */}
       <button
         type="button"
-        data-testid="kaval-dialog-trigger"
         onClick={() => setKavalDialogOpen(true)}
         class="inline-flex items-center self-center rounded px-1 text-fg-3 transition-colors hover:bg-surface-3/50 hover:text-fg"
         title={dialogTitle()}
