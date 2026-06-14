@@ -27,7 +27,7 @@
     "@kolu/terminal-protocol": "workspace:*",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
-    "@pierre/diffs": "^1.2.1",
+    "@pierre/diffs": "^1.2.10",
     "@pierre/trees": "^1.0.0-beta.4",
     "@solid-primitives/event-listener": "^2.4.5",
     "@solid-primitives/media": "^2.3.5",
