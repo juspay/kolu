@@ -23,10 +23,10 @@ OpenCode's win is a **streaming-markdown message timeline** number. Kolu has no
 such surface: agent output is the `xterm.js` WebGL terminal, the only transcript
 is a static SSR export, and code/diffs are *already* virtualized inside Pierre.
 So 4 of their 6 techniques have **no consumer** here. What transfers is narrow —
-and the standout, **R1 (bump `@pierre/diffs` 1.2.1 → 1.2.10 + Shiki to 4.2.0),
-has shipped** <PrLink pr={1360} /> as a clean deps-only change. Remaining:
-worker-offload for the diff path (R2), a canvas rAF fix (R4), and a p99 harness
-(R3).
+and two have now shipped: **R1** (bump `@pierre/diffs` 1.2.1 → 1.2.10 + Shiki to
+4.2.0) <PrLink pr={1360} />, and **R2** (move diff/file highlighting to a worker
+pool, off the UI thread) <PrLink pr={1363} />. Remaining: a canvas rAF fix (R4)
+and a p99 harness (R3).
 </Callout>
 
 <Callout kind="good" title="Update — R1 shipped (#1360)">
@@ -36,7 +36,7 @@ breaking-change risks flagged below were all non-issues, proven green by
 moved **3.23.0 → 4.2.0 deliberately**: `@pierre/diffs` takes `shiki` as a regular
 dependency and `solid-markdown` shares that same install, so bumping only one
 would split the workspace into *two* shiki copies — bumping both keeps a single
-shared `4.2.0`. R2 is now **unblocked**; §What-transfers tracks the rest.
+shared `4.2.0`. R2 then shipped on that substrate <PrLink pr={1363} />.
 </Callout>
 
 ## The 10× is workload-specific
@@ -61,7 +61,7 @@ anchored, and worker-highlighted — it's the whole game.
 Kolu's perf-relevant surfaces, colored by verdict — amber = still to adopt,
 green = done / already covered / N-A, teal = the live agent stream:
 
-<D2 caption="Kolu's perf surfaces. Amber = still to adopt (R2/R3/R4), green = done (R1 #1360) / already covered, teal = the live agent stream. The diff path (Pierre) is the only place a real win lands." code={`
+<D2 caption="Kolu's perf surfaces. Amber = still to adopt (R3/R4), green = done (R1 #1360, R2 #1363) / already covered, teal = the live agent stream. The diff path (Pierre) is the only place a real win lands." code={`
 direction: down
 
 shiki: "shiki 4.2.0 ✓ #1360" {
@@ -70,7 +70,7 @@ shiki: "shiki 4.2.0 ✓ #1360" {
 diffs: "@pierre/diffs 1.2.10 ✓ R1 #1360" {
   style.fill: "#e6f4ea"
 }
-codeview: "solid-pierre CodeView · R2" {
+codeview: "solid-pierre CodeView · R2 ✓ #1363" {
   style.fill: "#e6f4ea"
 }
 views: "client + transcript-html views" {
@@ -115,7 +115,7 @@ tracer -> codeview: "large-diff render"
 | | Adaptation | Impact | Effort | Status |
 |---|---|---|---|---|
 | **R1** | Upgrade `@pierre/diffs` 1.2.1 → 1.2.10 (+ Shiki 4.2.0) | <Pill variant="hi">high</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="done">shipped · #1360</Pill> |
-| **R2** | Pierre worker pool + `shiki-js` engine for the diff path | <Pill variant="hi">high</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="new">unblocked</Pill> |
+| **R2** | Pierre worker pool + `shiki-js` engine for the diff path | <Pill variant="hi">high</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="done">shipped · #1363</Pill> |
 | **R4** | rAF-coalesce the canvas wheel pan/zoom write-storm | <Pill variant="md">medium</Pill> | <Pill variant="ok">low</Pill> | <Pill variant="todo">proposed</Pill> |
 | **R3** | Active-gesture FPS / p95-p99 frame-time harness | <Pill variant="md">medium</Pill> | <Pill variant="md">medium</Pill> | <Pill variant="todo">proposed</Pill> |
 
@@ -131,18 +131,21 @@ the ≈2.3× faster `parsePatchFiles` and the worker substrate R2 needs. (`pnpmD
 hash refreshed; `pierre/SKILL.md` pin still reads 1.2.1 — a stray to fix.)
 </Finding>
 
-<Finding sev="medium" title="R2 — Pierre worker pool + shiki-js, for the diff path only (now unblocked)">
-**R1 has landed (#1360), so R2 is actionable.** 1.2.10 ships the worker substrate
-OpenCode built by hand: `./worker`, `./worker/worker.js`,
-`./worker/worker-portable.js` (confirmed on npm). For an Electron client,
-`preferredHighlighter:'shiki-js'` also drops the Oniguruma WASM payload. **Not a
-one-liner:** `CodeView.tsx`'s `buildOptions()` passes no highlighter/worker option
-and `CodeViewProps` doesn't expose one — the wrapper needs a prop added and
-threaded, and the exact 1.2.10 `CodeViewOptions` field name must be read from the
-now-installed type defs (next step). `shiki-js` is *not* universally faster —
-validate against Kolu's curated languages first. Note Pierre still drags a
-transitive `@shikijs/transformers@3` (a duplicate `@shikijs/core@3.23.0` beside
-the 4.x engine) — its choice, not ours; worth watching if it regresses.
+<Finding sev="low" title="R2 — Pierre worker pool + shiki-js, for the diff path only — SHIPPED (#1363)">
+Done <PrLink pr={1363} />. The 1.2.10 type defs settled the open question: the
+engine is a `CodeView` *option* (`preferredHighlighter: 'shiki-js'`, in
+`CODE_VIEW_DIFF_OPTION_KEYS`), and worker offload is the `CodeView` constructor's
+**2nd arg** (`workerManager`), built once via `getOrCreateWorkerPoolSingleton`.
+So `solid-pierre` now owns a session-lived worker-pool singleton (`workerPool.ts`)
+and hands it to every `CodeView`; plain ASTs paint synchronously while highlighted
+tokens stream back off-thread. Kolu supplies the `workerFactory`
+(`new Worker(new URL('@pierre/diffs/worker/worker.js', import.meta.url), { type:
+'module' })`), so the worker bundles through the client's Vite — which needed
+`worker.format: 'es'` since Pierre's worker code-splits its Shiki grammars (the
+default `iife` can't). Browser-only (created in `onMount`), so the SSR
+transcript-html path never spawns a Worker. Pool size 2; never torn down. The
+transitive `@shikijs/transformers@3` duplicate (a `@shikijs/core@3.23.0` beside
+the 4.x engine) remains Pierre's choice — worth watching if it regresses.
 </Finding>
 
 <Finding sev="medium" title="R4 — rAF-coalesce the canvas wheel write-storm (quick win)">
@@ -164,7 +167,7 @@ frames**, and log rejected experiments. `dock-1308/kolu-driver.js` already prove
 active-gesture tracing works. This is what makes R4 measured, not guessed.
 </Finding>
 
-**Sequencing:** ~~R1~~ ✓ → R3 (so R2/R4 are measured) → R2 and R4 behind that evidence.
+**Sequencing:** ~~R1~~ ✓ → ~~R2~~ ✓ → R3 (a p99 harness, so R4 is measured) → R4 behind that evidence.
 
 ## Confirmed facts & the open question
 
@@ -183,9 +186,10 @@ moved the version facts forward:
   signatures and the `--shiki-light`/`--shiki-dark` dual-theme output unchanged.
   <Pill variant="ok">verified</Pill>
 
-<Callout kind="warn" title="The one open question — now unblocked">
-The exact `CodeViewOptions` field that threads Pierre's worker pool /
-`preferredHighlighter` through Kolu's `CodeView` wrapper still needs reading from
-the **1.2.10 type defs** — but those are now the installed version (#1360), so
-this is no longer blocked, just the first concrete step of R2.
+<Callout kind="good" title="The one open question — now answered">
+Reading the installed 1.2.10 type defs (R2, #1363) settled it: the engine is a
+`CodeView` *option* (`preferredHighlighter`, a `CODE_VIEW_DIFF_OPTION_KEYS` key),
+and the worker pool is the `CodeView` constructor's **2nd argument**
+(`workerManager`), not an option field. The wrapper builds one
+`getOrCreateWorkerPoolSingleton` and passes it in.
 </Callout>
