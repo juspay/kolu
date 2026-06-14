@@ -9,7 +9,13 @@
  *  before `setCopied(true)`, so the clipboard write stays inside the
  *  user-activation gesture window (see clipboard.ts:28-34). */
 
-import { type Component, type JSX, createSignal, Show } from "solid-js";
+import {
+  type Component,
+  type JSX,
+  createSignal,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "./clipboard";
 
@@ -28,13 +34,22 @@ const CopyCommandButton: Component<{
 }> = (props) => {
   const [copied, setCopied] = createSignal(false);
 
+  // Flash "copied" for 1500ms. The timer is tracked so a rapid re-click resets
+  // it instead of stacking timers, and a mid-flash unmount cancels it rather
+  // than firing setCopied on a disposed owner (clearTimeout(undefined) is a
+  // safe no-op).
+  let resetTimer: ReturnType<typeof setTimeout> | undefined;
+  const flashCopied = () => {
+    setCopied(true);
+    clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => setCopied(false), 1500);
+  };
+  onCleanup(() => clearTimeout(resetTimer));
+
   // Fire the clipboard write first, inside the gesture, then flash "copied".
   const copy = () => {
     writeTextToClipboard(props.copyText ?? props.command)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      })
+      .then(flashCopied)
       .catch((err: Error) => toast.error(`Couldn't copy: ${err.message}`));
   };
 
