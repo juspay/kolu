@@ -11,8 +11,10 @@
 import type { DaemonState, DaemonStatus } from "kolu-common/surface";
 import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
+import { persistedPref } from "../persistedPref";
 import type { WsStatus } from "../rpc/rpc";
 import { app } from "../wire";
+import { shouldAnnounceReattach } from "./reattachAnnounce";
 
 /** The one host today; R-2's ssh hosts add more keys to the same collection. */
 export const LOCAL_HOST = "local";
@@ -200,23 +202,52 @@ export function refuseIfWarming(): boolean {
 // B3.3: a one-shot "N terminals reattached" confirmation when the boot ADOPTED a
 // surviving daemon (a redeploy that didn't change kaval's source — the daemon and
 // its PTYs outlived the server restart). Adoption is otherwise invisible: the
-// terminals are simply still there, no restore card. The server folds the count
-// onto the first `connected` daemon status (`DaemonStatusSchema.adopted`, kolu's
-// soul); this watches for it and toasts exactly once. The detached `createRoot`
-// owns the effect for the app's life (like the module `sub` above), so a
-// consumer's teardown can't freeze it. Guards: a module latch fires it once —
-// `localDaemonStatus()` re-emits on every transition (the rail ticks uptime,
-// restarting→connected) — and the `> 0` test skips cold boots, which carry no
-// `adopted` field.
-let reattachToastFired = false;
+// terminals are simply still there, no restore card. The server folds the count +
+// a per-adoption timestamp onto the first `connected` daemon status
+// (`DaemonStatusSchema.adopted`/`adoptedAt`, kolu's soul); this watches for it and
+// toasts once PER ADOPTION.
+//
+// Dedupe is keyed on `adoptedAt`, PERSISTED to localStorage — not an in-memory
+// boolean. The `adopted`/`adoptedAt` snapshot is sticky server-side and replayed
+// verbatim to every fresh subscription, so a reconnect after a page reload
+// (mobile-Safari evicts a backgrounded tab and reloads on return; a desktop hard
+// refresh does the same) re-delivered the SAME adoption. The old module boolean
+// reset with the JS context and re-fired the toast on every reload
+// (juspay/kolu#1365); the persisted high-water mark survives the reload, so a
+// replay of the same `adoptedAt` is silent while a genuinely newer adoption
+// announces again. The pure `shouldAnnounceReattach` owns the truth table
+// (unit-tested). The detached `createRoot` owns the effect + persisted signal for
+// the app's life (like the module `sub` above), so a consumer's teardown can't
+// freeze it.
 createRoot(() => {
+  // The greatest `adoptedAt` already announced; `0` until the first adoption (every
+  // real adoptedAt is an ms epoch, so it clears the fallback). `localDaemonStatus()`
+  // re-emits on every transition (the rail ticks uptime, restarting→connected), so
+  // the persisted guard — not a one-shot latch — keeps it idempotent.
+  const [reattachAnnouncedAt, setReattachAnnouncedAt] = persistedPref<number>({
+    name: "kolu.kaval.reattachAnnouncedAt",
+    fallback: 0,
+    parse: (raw) => {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) throw new Error(`non-numeric: ${raw}`);
+      return n;
+    },
+  });
   createEffect(() => {
-    if (reattachToastFired) return;
     const status = localDaemonStatus();
-    const n = status?.state === "connected" ? (status.adopted ?? 0) : 0;
-    if (n > 0) {
-      reattachToastFired = true;
-      toast.info(`${n} terminal${n === 1 ? "" : "s"} reattached`);
-    }
+    if (
+      !shouldAnnounceReattach(
+        status?.state,
+        status?.adopted,
+        status?.adoptedAt,
+        reattachAnnouncedAt(),
+      )
+    )
+      return;
+    // `shouldAnnounceReattach` proved a connected status with a numeric adoptedAt
+    // and a positive count; read them back for the high-water mark + message.
+    const n = status?.adopted ?? 0;
+    setReattachAnnouncedAt(status?.adoptedAt ?? reattachAnnouncedAt());
+    toast.info(`${n} terminal${n === 1 ? "" : "s"} reattached`);
   });
 });

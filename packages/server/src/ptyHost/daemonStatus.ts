@@ -56,9 +56,14 @@ export function publishDaemonStatus(
  *  because the count is kolu's soul, computed by `reconcile` AFTER the endpoint
  *  has already reported `connected` (the spine's `onStatus` knows nothing of
  *  terminals). A no-op if the host has no recorded status yet (it always does by
- *  the time adoption runs — the connect emitted one). */
+ *  the time adoption runs — the connect emitted one).
+ *
+ *  Stamps `adoptedAt` here — this is the one site an adoption is surfaced, so the
+ *  timestamp is a true per-adoption identity. The pair is sticky in the store and
+ *  replayed to every fresh subscription; the client dedupes the toast on
+ *  `adoptedAt` so a reconnect/reload replay doesn't re-fire it (juspay/kolu#1365). */
 export function setAdoptedCount(hostId: string, adopted: number): void {
   const current = store.get(hostId);
   if (!current) return;
-  publishDaemonStatus(hostId, { ...current, adopted });
+  publishDaemonStatus(hostId, { ...current, adopted, adoptedAt: Date.now() });
 }
