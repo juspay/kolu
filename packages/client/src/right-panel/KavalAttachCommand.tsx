@@ -18,12 +18,16 @@ import { CopyIcon } from "../ui/Icons";
 const SHORT_ID_LEN = 8;
 
 const KavalAttachCommand: Component<{ terminalId: TerminalId }> = (props) => {
+  // One template, applied to whichever id form we want — the command surface
+  // lives in a single place rather than fragmented across two derivations.
+  const cmd = (id: string) => `kaval-tui attach ${id}`;
+
   return (
     <CopyCommandButton
       // The short form is what you see and copy; hovering reveals the full
       // command (with the full id) as the disambiguating fallback.
-      command={`kaval-tui attach ${props.terminalId.slice(0, SHORT_ID_LEN)}`}
-      title={`kaval-tui attach ${props.terminalId}`}
+      command={cmd(props.terminalId.slice(0, SHORT_ID_LEN))}
+      title={cmd(props.terminalId)}
       testId="inspector-attach-command"
       rounded="rounded-md"
       idle={<CopyIcon class="w-3 h-3" />}
