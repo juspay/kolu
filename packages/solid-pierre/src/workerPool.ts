@@ -51,11 +51,12 @@ export const HIGHLIGHTER_CONTRACT = {
  *  desktop client. */
 const POOL_SIZE = 2;
 
-let pool: WorkerPoolManager | undefined;
-
-/** The shared pool, created on first call. */
-export const getCodeViewWorkerPool = (): WorkerPoolManager => {
-  pool ??= getOrCreateWorkerPoolSingleton({
+/** The shared pool. `getOrCreateWorkerPoolSingleton` memoizes the manager
+ *  module-side, so every call returns the same warm instance for the session;
+ *  this wrapper is a pure adapter that pre-fills Kolu's options (one lifetime
+ *  cache — Pierre's — instead of mirroring it with a second local one). */
+export const getCodeViewWorkerPool = (): WorkerPoolManager =>
+  getOrCreateWorkerPoolSingleton({
     poolOptions: {
       // Kolu owns the worker factory, so the worker bundles through the
       // client's Vite (`new Worker(new URL(...))` is Vite's worker pattern)
@@ -70,5 +71,3 @@ export const getCodeViewWorkerPool = (): WorkerPoolManager => {
     // renders with — see `HIGHLIGHTER_CONTRACT`.
     highlighterOptions: { ...HIGHLIGHTER_CONTRACT },
   });
-  return pool;
-};
