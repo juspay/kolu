@@ -8,6 +8,14 @@
 # Used by flake.nix (thin wrapper), shell.nix, and nix-build directly.
 { pkgs ? import ./nix/nixpkgs.nix { }
 , commitHash ? "dev"
+  # TEST-ONLY hook: when set (e.g. "9.0"), rewrite the daemon's
+  # `PTY_HOST_CONTRACT_VERSION` so this build's server *and* the kaval it spawns
+  # speak an incompatible wire. Used by the adoption-skew VM test to build a
+  # "newer kolu" whose handshake rejects (and recycles) a surviving older daemon
+  # — there is no env seam for the contract version (it's a source constant), so
+  # the skew can only be produced at build time. `null` (the default) is a no-op,
+  # so the real build is untouched.
+, contractVersionOverride ? null
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -140,6 +148,17 @@ let
     ];
 
     inherit pnpmDeps;
+
+    # TEST-ONLY contract-version skew (see the function arg). A no-op unless
+    # `contractVersionOverride` is set; then the daemon's single source-constant
+    # version is rewritten so both the server and the kaval it spawns speak it.
+    postPatch = pkgs.lib.optionalString (contractVersionOverride != null) ''
+      sed -i 's|PTY_HOST_CONTRACT_VERSION = "[^"]*"|PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"|' \
+        packages/kaval/src/ptyHostSurface.ts
+      grep -q 'PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"' \
+        packages/kaval/src/ptyHostSurface.ts \
+        || { echo "contractVersionOverride: PTY_HOST_CONTRACT_VERSION constant not found — update default.nix" >&2; exit 1; }
+    '';
 
     # The fixupPhase (strip, patchShebangs, patchELF) traverses the entire
     # output tree (~395MB of node_modules). For a Node.js app this is pure
