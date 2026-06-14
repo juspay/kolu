@@ -38,10 +38,10 @@ committed HTML is stale or host-dependent.
 ## 3. Preview & share
 
 Each `dist/<slug>.html` is self-contained: it previews in kolu's Code tab, and —
-once the branch is pushed — reads on GitHub via
-`https://htmlpreview.github.io/?https://github.com/<owner>/<repo>/blob/<branch>/docs/atlas/dist/<slug>.html`
-(`<owner>/<repo>` ← `gh repo view --json nameWithOwner -q .nameWithOwner`,
-`<branch>` ← `git branch --show-current`).
+once the note is merged to `master` — is published on the web at
+`https://kolu.dev/atlas/<slug>.html` (the index is `https://kolu.dev/atlas/`).
+The website build folds the committed `dist/` in under `/atlas/`, so a merged
+note ships with the next Pages deploy.
 
 ## 4. Lifecycle
 

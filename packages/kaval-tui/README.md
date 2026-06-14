@@ -79,4 +79,4 @@ unreachable daemon is a one-line error, never a hang. `spawn` / `kill` —
 creating and ending terminals from the shell — are later phases.
 
 The full design lives in the
-[kaval atlas note](https://htmlpreview.github.io/?https://github.com/juspay/kolu/blob/master/docs/atlas/dist/pty-daemon.html).
+[kaval atlas note](https://kolu.dev/atlas/pty-daemon.html).
