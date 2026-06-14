@@ -11,6 +11,8 @@ import type {
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { createSharedRoot } from "../createSharedRoot";
+import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
+import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
@@ -246,6 +248,22 @@ export const useTerminalCrud = createSharedRoot(() => {
     }
   }
 
+  /** Export the active terminal's scrollback as a PDF. Resolves the active id
+   *  and null-guards here so the shell doesn't thread `store.*` into the export
+   *  feature — an active-terminal-keyed op like the rest of crud. */
+  function exportScrollbackPdf() {
+    const id = store.activeId();
+    if (id === null) return;
+    exportScrollbackAsPdf(id, store.getMetadata(id));
+  }
+
+  /** Export the active terminal's session as a standalone HTML page. */
+  async function exportSessionHtml() {
+    const id = store.activeId();
+    if (id === null) return;
+    await exportSessionAsHtml(id);
+  }
+
   return {
     setThemeName,
     setCanvasLayout,
@@ -258,5 +276,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     handleCopyTerminalText,
     handleRunInActiveTerminal,
     handleCloseAll,
+    exportScrollbackPdf,
+    exportSessionHtml,
   };
 });

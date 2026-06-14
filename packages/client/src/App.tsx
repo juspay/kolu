@@ -39,8 +39,6 @@ import { createCommands } from "./commands";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
-import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
-import { exportSessionAsHtml } from "./exportSessionAsHtml";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
@@ -134,18 +132,6 @@ const App: Component = () => {
   // takes no app-identity overrides.
   const pwaInstall = createPwaInstall();
 
-  function handleExportScrollbackAsPdf() {
-    const id = store.activeId();
-    if (id === null) return;
-    exportScrollbackAsPdf(id, store.getMetadata(id));
-  }
-
-  function handleExportSessionAsHtml() {
-    const id = store.activeId();
-    if (id === null) return;
-    void exportSessionAsHtml(id);
-  }
-
   // Intent editor singleton — reads store + RPC directly. The dialog
   // is mounted at the App root; the chip in TerminalMeta and the palette
   // command both call `intentEditor.openTerminal(id)` to surface it.
@@ -194,8 +180,8 @@ const App: Component = () => {
     ...actionContext,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
-    handleExportScrollbackAsPdf,
-    handleExportSessionAsHtml,
+    handleExportScrollbackAsPdf: crud.exportScrollbackPdf,
+    handleExportSessionAsHtml: () => void crud.exportSessionHtml(),
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
