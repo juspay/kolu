@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@kolu/html-escape": "workspace:*",
-    "@pierre/diffs": "^1.2.1",
+    "@pierre/diffs": "^1.2.10",
     "kolu-transcript-core": "workspace:*",
     "marked": "^18.0.2",
     "preact": "^10.29.1",
