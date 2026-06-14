@@ -66,8 +66,11 @@
         ];
       };
 
-      # Linux: VM test boots the config and verifies kolu listens on its port.
-      checks.${linuxSystem}.vm-test = linuxPkgs.testers.nixosTest {
+      # Linux checks — both run on the x86_64-linux lane (NixOS VM tests are
+      # Linux-only): the kolu-service smoke (vm-test) + B3.3 adoption.
+      checks.${linuxSystem} = {
+        # vm-test boots the config and verifies kolu listens on its port.
+        vm-test = linuxPkgs.testers.nixosTest {
         name = "kolu-service";
 
         nodes.machine = { ... }: {
@@ -125,6 +128,18 @@
               timeout=120,
           )
         '';
+        };
+
+        # B3.3 adoption: terminals survive a kolu-server restart when the kaval
+        # daemon outlives it — the one path the Playwright e2e harness can't reach
+        # (no systemd, one server per worker). Kept in its own folder so this flake
+        # stays lean; it's a plain check of this flake, so it rides
+        # `ci::home-manager` with no new CI recipe.
+        adoption-vm-test = import ./adoption {
+          pkgs = linuxPkgs;
+          inherit kolu home-manager nixosModule;
+          system = linuxSystem;
+        };
       };
 
       # Darwin: standalone home-manager activation package. Building this
