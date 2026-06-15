@@ -92,10 +92,7 @@ function spawnDetachedDaemon(): void {
  *  `daemonWaitMs` of the spawn — an honest "the daemon won't come up" rather
  *  than a hang. */
 async function connectToDaemon(deps: StdioBridgeDeps): Promise<Socket> {
-  const socketPath =
-    deps.socketOverride !== undefined
-      ? getPtyHostSocketPath(deps.socketOverride, KAVAL_NS_PREFIX)
-      : getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX);
+  const socketPath = getPtyHostSocketPath(deps.socketOverride, KAVAL_NS_PREFIX);
   const connect = deps.connect ?? createConnection;
   const log =
     deps.log ?? ((msg) => process.stderr.write(`kaval --stdio: ${msg}\n`));
