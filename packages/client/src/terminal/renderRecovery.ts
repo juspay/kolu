@@ -193,9 +193,12 @@ export function createRenderRecovery(
       msSinceLastPaint: () =>
         lastPaintAt === null ? null : now() - lastPaintAt,
       renderDebouncerPending: () => {
-        const rs = renderService(term);
-        if (!rs || !rs._renderDebouncer) return null;
-        return rs._renderDebouncer._animationFrame !== undefined;
+        const rd = renderService(term)?._renderDebouncer;
+        // Absent `_animationFrame` KEY (a future beta renamed it) is "unknown"
+        // (null), not "no frame pending" (false) — the probe exists to flag a
+        // shape change, so it must not report a renamed field as healthy.
+        if (!rd || !("_animationFrame" in rd)) return null;
+        return rd._animationFrame !== undefined;
       },
       isPaused: () => {
         const rs = renderService(term);

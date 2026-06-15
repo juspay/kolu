@@ -218,6 +218,23 @@ describe("renderRecovery", () => {
     });
   });
 
+  it("reports renderDebouncerPending as null (unknown), not false, when _animationFrame was renamed away", () => {
+    createRoot((dispose) => {
+      // A debouncer whose `_animationFrame` key is absent models a future beta
+      // renaming the field: the probe must say "unknown" (null), never "healthy".
+      const renamed = {
+        rows: 24,
+        onRender: () => ({ dispose() {} }),
+        _core: { _renderService: { _renderDebouncer: {} } },
+      } as unknown as Terminal;
+      const r = createRenderRecovery(renamed, () => true, {
+        hasFocus: () => true,
+      });
+      expect(r.probes.renderDebouncerPending()).toBeNull();
+      dispose();
+    });
+  });
+
   it("degrades to null probes / no-op repaint when xterm's private shape is absent", () => {
     createRoot((dispose) => {
       const bare = {
