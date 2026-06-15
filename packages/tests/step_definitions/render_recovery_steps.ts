@@ -35,32 +35,45 @@ When(
       const w = window as unknown as RenderProbeWindow;
       w.__paintCount = 0;
       w.__syncRefreshes = 0;
-      // Model occlusion: the window is in the background, so `document.hasFocus()`
-      // is false. The production watchdog (renderRecovery.noteData) only arms
-      // while the document has focus, so forcing this false keeps it disarmed
-      // through `I generate 30 lines of output` — otherwise, on a slow runner,
-      // output + the buffer wait could exceed WATCHDOG_DELAY_MS (250ms) and the
-      // watchdog would fire the sync repaint before the "not repainted yet"
-      // assertion (paintCount would be > 0), flaking the test. `the window
-      // regains focus` restores it before dispatching the focus event.
+      // NOTE on the `__name`-avoidance shapes below: esbuild's keep-names
+      // transform decorates any NAME-INFERRED function (an arrow assigned to a
+      // variable/property, or an object-literal value) with a `__name(...)`
+      // call that doesn't exist in page.evaluate's browser context, so it
+      // crashes (see file_drop_steps.ts). Call-argument arrows (the onRender
+      // callback) are safe — no name is inferred — but a `value: () => …` and a
+      // `rs.refreshRows = () => …` are not, so this uses a bound function and an
+      // array element (neither name-inferred) instead.
+      //
+      // Model occlusion: the window is backgrounded, so `document.hasFocus()` is
+      // false. The production watchdog (renderRecovery.noteData) only arms while
+      // the document has focus, so forcing this false keeps it disarmed through
+      // `I generate 30 lines of output` — otherwise, on a slow runner, output +
+      // the buffer wait could exceed WATCHDOG_DELAY_MS (250ms) and the watchdog
+      // would fire the sync repaint before the "not repainted yet" assertion
+      // (paintCount > 0), flaking the test. `the window regains focus` restores
+      // it before dispatching the focus event. `Boolean.bind(null, false)` is a
+      // no-literal hasFocus()→false.
       Object.defineProperty(document, "hasFocus", {
         configurable: true,
-        value: () => false,
+        value: Boolean.bind(null, false),
       });
       term.onRender(() => {
         w.__paintCount++;
       });
       // Swallow the debounced/async refresh the way a parked rAF would (a frame
-      // that never gets serviced under occlusion), but let the forced
-      // SYNCHRONOUS refresh — what the fix calls on window focus — through, and
-      // count it.
+      // never serviced under occlusion), but let the forced SYNCHRONOUS refresh
+      // — what the fix calls on window focus — through, and count it. The
+      // wrapper lives as an array element so esbuild leaves it anonymous.
       const orig = rs.refreshRows.bind(rs);
-      rs.refreshRows = (s: number, e: number, sync?: boolean) => {
-        if (sync) {
-          w.__syncRefreshes++;
-          orig(s, e, true);
-        }
-      };
+      const swallow = [
+        (s: number, e: number, sync?: boolean) => {
+          if (sync) {
+            w.__syncRefreshes++;
+            orig(s, e, true);
+          }
+        },
+      ];
+      rs.refreshRows = swallow[0];
     }, ACTIVE_TERMINAL);
   },
 );
