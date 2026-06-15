@@ -7,6 +7,7 @@ import Dialog from "@corvu/dialog";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { PAINT_STALL_WARN_MS } from "./terminal/renderRecovery";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
@@ -320,7 +321,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                       <span
                         class={
                           d.render.debouncerPending &&
-                          (d.render.msSinceLastPaint ?? 0) > 1000
+                          (d.render.msSinceLastPaint ?? 0) > PAINT_STALL_WARN_MS
                             ? "text-danger font-semibold"
                             : "text-fg-3/60"
                         }
