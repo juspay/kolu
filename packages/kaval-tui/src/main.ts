@@ -37,8 +37,8 @@ import {
   discoverPtyHostSockets,
   getPtyHostSocketPath,
   KAVAL_NS_PREFIX,
-  type PtyHostSpawnInput,
   PTY_HOST_CONTRACT_VERSION,
+  type PtyHostSpawnInput,
 } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
@@ -48,12 +48,13 @@ import {
   formatCreate,
   newPtyId,
 } from "./create.ts";
-import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { isValidEscapeChar } from "./escape.ts";
+import { connectPtyHostViaHost } from "./hostConnect.ts";
 import {
   formatList,
   formatListJson,
   resolveTerminalId,
+  shellQuoteArg,
   shortId,
 } from "./render.ts";
 
@@ -92,10 +93,16 @@ type Endpoint =
   | { kind: "default" };
 
 /** The flag suffix that re-targets a later command at the SAME endpoint — the
- *  empty string for the default discovered socket (bare `attach` finds it). */
+ *  empty string for the default discovered socket (bare `attach` finds it). The
+ *  value is shell-quoted: the hint is printed for copy-paste back into a shell,
+ *  and a socket path may legitimately carry spaces (`/tmp/my sock`) that would
+ *  otherwise re-split into two args (the pasted command targets the wrong thing)
+ *  — see `shellQuoteArg`. */
 function endpointHint(endpoint: Endpoint): string {
-  if (endpoint.kind === "host") return ` --host ${endpoint.host}`;
-  if (endpoint.kind === "socket") return ` --socket ${endpoint.socket}`;
+  if (endpoint.kind === "host")
+    return ` --host ${shellQuoteArg(endpoint.host)}`;
+  if (endpoint.kind === "socket")
+    return ` --socket ${shellQuoteArg(endpoint.socket)}`;
   return "";
 }
 
