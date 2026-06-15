@@ -329,19 +329,28 @@ export function createScrollLock(
    * This completely avoids viewport-jumping — xterm never processes the data
    * until the user is at the bottom and ready to see it.
    *
-   * Returns whether the data actually reached xterm (`true` = written now,
-   * `false` = buffered because the lock is engaged). Callers that key off "data
-   * landed in xterm" — e.g. render-stall recovery, which must NOT arm its
-   * watchdog for buffered chunks that produce no paint — read this rather than
-   * assuming every call wrote.
+   * `onParsed` (optional) is xterm's own write callback: it fires only when the
+   * chunk has actually reached xterm AND been parsed into the buffer (xterm
+   * parses asynchronously off a `setTimeout` — `term.write` returns long before
+   * the data is paintable). Render-stall recovery passes its `noteData` here so
+   * the watchdog is keyed to "data is in the buffer, paint should follow", not
+   * to stream receipt. When the lock buffers a chunk it produces no paint, so
+   * `onParsed` is deliberately NOT invoked — arming the watchdog for buffered
+   * data would force pointless sync repaints of the scrollback the user is
+   * reading. (On lock release the buffered flush rejoins the bottom via a user
+   * scroll / tab-visible / window-focus path, each of which already forces a
+   * repaint via recover().)
    */
-  function writeData(term: Terminal, data: string): boolean {
+  function writeData(
+    term: Terminal,
+    data: string,
+    onParsed?: () => void,
+  ): void {
     if (!isLocked()) {
-      term.write(data);
-      return true;
+      term.write(data, onParsed);
+      return;
     }
     setPending((buffered) => [...buffered, data]);
-    return false;
   }
 
   /**

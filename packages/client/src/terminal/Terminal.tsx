@@ -739,15 +739,20 @@ const Terminal: Component<{
               ),
             (data) => {
               if (terminal) {
-                // Only arm the render-stall watchdog when the data actually
-                // reached xterm (scroll-lock buffers it otherwise, producing no
-                // paint — arming for buffered data would force pointless sync
-                // repaints of the scrollback the user is reading). A parked-rAF
-                // freeze on a real write then gets a forced sync paint even if
-                // the user never returns focus. On lock release the buffered
-                // flush rejoins the bottom via a user scroll / tab-visible /
-                // window-focus path, each of which already calls recover().
-                if (scrollLock.writeData(terminal, data)) recovery.noteData();
+                // Key the render-stall watchdog to xterm's PARSE, not stream
+                // receipt: `term.write` returns immediately and parses the
+                // chunk asynchronously (off a setTimeout), so noteData() run
+                // here synchronously would arm a 250ms timer against data not
+                // yet in the buffer. Passing noteData as xterm's write callback
+                // arms it when the chunk has actually landed in the buffer and
+                // a paint should follow — so paintIsBehind() reflects buffer
+                // state, not in-flight data. A parked-rAF freeze on a real
+                // write then gets a forced sync paint even if the user never
+                // returns focus. scroll-lock buffers a chunk -> no paint -> the
+                // callback isn't invoked; the buffered flush rejoins the bottom
+                // via a user scroll / tab-visible / window-focus path, each of
+                // which already forces a repaint via recover().
+                scrollLock.writeData(terminal, data, () => recovery.noteData());
               }
             },
             "Terminal attach",
