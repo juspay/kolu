@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCreateInput,
+  buildRemoteCreateInput,
   type CreateResult,
   formatCreate,
   newPtyId,
@@ -66,6 +67,66 @@ describe("buildCreateInput", () => {
   it("passes the caller-minted id straight through (so the host echoes ours)", () => {
     const id = newPtyId();
     expect(buildCreateInput({ id, cwd: "/", env: {} }).id).toBe(id);
+  });
+});
+
+describe("buildRemoteCreateInput", () => {
+  // The remote (`--host`) composer must use the REMOTE host's facts (from
+  // `system.info`), not this CLI's process facts — a local cwd/env/$SHELL would
+  // be wrong on another machine (and a wholesale local env leaks secrets).
+  const localEnv = {
+    SHELL: "/usr/bin/fish", // local login shell — must NOT reach the remote
+    HOME: "/home/laptop-user", // local home — must NOT reach the remote
+    AWS_SECRET_ACCESS_KEY: "shhh", // a local secret — must NOT be shipped
+    TERM: "xterm-256color", // presentation — safe to carry
+    LANG: "en_US.UTF-8", // presentation — safe to carry
+  };
+  const host = { shell: "/bin/bash", home: "/home/prod" };
+
+  it("uses the host's shell + home, never the local ones", () => {
+    const input = buildRemoteCreateInput({ id: "r1", host, localEnv });
+    expect(input.argv).toEqual(["/bin/bash"]); // host shell, not /usr/bin/fish
+    expect(input.cwd).toBe("/home/prod"); // host home, not /home/laptop-user
+    expect(input.env.HOME).toBe("/home/prod");
+    expect(input.env.SHELL).toBe("/bin/bash");
+  });
+
+  it("ships ONLY presentation env — no wholesale local process.env / secrets", () => {
+    const input = buildRemoteCreateInput({ id: "r1", host, localEnv });
+    // The local secret never crosses the wire.
+    expect("AWS_SECRET_ACCESS_KEY" in input.env).toBe(false);
+    // Presentation vars are carried (they describe the attaching terminal).
+    expect(input.env.TERM).toBe("xterm-256color");
+    expect(input.env.LANG).toBe("en_US.UTF-8");
+    // The whole env is exactly host-derived HOME/SHELL + the passthrough set.
+    expect(input.env).toEqual({
+      HOME: "/home/prod",
+      SHELL: "/bin/bash",
+      TERM: "xterm-256color",
+      LANG: "en_US.UTF-8",
+    });
+  });
+
+  it("falls back to /bin/sh when the host reports no shell", () => {
+    const input = buildRemoteCreateInput({
+      id: "r1",
+      host: { shell: "", home: "/home/prod" },
+      localEnv: {},
+    });
+    expect(input.argv).toEqual(["/bin/sh"]);
+    expect(input.env.SHELL).toBe("/bin/sh");
+  });
+
+  it("runs a given command verbatim, still in the host's home with host env", () => {
+    const input = buildRemoteCreateInput({
+      id: "r1",
+      host,
+      localEnv,
+      command: ["htop", "-d", "5"],
+    });
+    expect(input.argv).toEqual(["htop", "-d", "5"]);
+    expect(input.cwd).toBe("/home/prod");
+    expect(input.env.HOME).toBe("/home/prod");
   });
 });
 

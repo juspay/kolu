@@ -5,7 +5,7 @@
  * touches the well-known path. The relay is transport-blind (it splices bytes),
  * so an echo server is enough to prove both directions and the link lifecycle.
  */
-import { createConnection, createServer, type Server } from "node:net";
+import { createConnection, createServer, type Server, Socket } from "node:net";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -108,6 +108,44 @@ describe("runStdioBridge", () => {
 
     stdin.end();
     await done;
+  });
+
+  it("surfaces a non-retryable connect error instead of spawning + timing out", async () => {
+    // EACCES/ENOTSOCK/… mean the path is unprobeable (a perms or not-a-socket
+    // fault), NOT "no daemon yet". The bridge must propagate that real error
+    // immediately, never read it as absence — which would start a daemon, wait
+    // the full deadline, and then report a misleading timeout.
+    const stdin = new PassThrough();
+    const out = captureStdout();
+    let spawned = 0;
+
+    const failing = (): Socket => {
+      const socket = new Socket();
+      // No connect; emit a non-retryable code on the next tick.
+      queueMicrotask(() => {
+        const err = new Error("permission denied") as NodeJS.ErrnoException;
+        err.code = "EACCES";
+        socket.emit("error", err);
+      });
+      return socket;
+    };
+
+    await expect(
+      runStdioBridge({
+        socketOverride: "/unused-in-test",
+        stdin,
+        stdout: out.stream,
+        connect: failing,
+        spawnDaemon: () => {
+          spawned += 1;
+        },
+        daemonWaitMs: 50,
+        pollMs: 10,
+        log: () => {},
+      }),
+    ).rejects.toThrow(/EACCES|permission denied/);
+    // It failed fast on the real error — never started a daemon to wait on.
+    expect(spawned).toBe(0);
   });
 
   it("ends the link when the daemon drops the connection", async () => {

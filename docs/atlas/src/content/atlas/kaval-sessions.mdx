@@ -192,13 +192,13 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
 **P1–P2 — the spike — in detail.** [kaval-tui](pty-daemon-tui.html) is the minimal client; it proves the transport before any Kolu UI, and because it and kolu-server dial the same socket through the same client, the spike **is** the production driver. P1 (`create`) and P2 (`--host`) have both landed (<PrLink pr={1370} /> · <PrLink pr={1373} />); the prose below reads as the record for both.
 
 <Terminal title="kaval-tui · ssh nix@prod (provision + dial)" lines={[
-  "$ kaval-tui --host nix@prod",
+  "$ kaval-tui list --host nix@prod",
   "  ↳ ssh nix@prod · nix copy --derivation → realise … kaval up",
   "  ↳ dialing the remote kaval over ssh stdio … connected · 0 terminals",
   "",
-  "$ kaval-tui --host nix@prod create",
+  "$ kaval-tui create --host nix@prod",
   "  ↳ spawned a8f1…  plain shell on prod",
-  "$ kaval-tui --host nix@prod attach a8f1…",
+  "$ kaval-tui attach a8f1… --host nix@prod",
   "  ↳ ~/app on prod — remote PTY survives · detach/reattach anytime",
 ]} />
 

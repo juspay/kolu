@@ -37,11 +37,17 @@ import {
   discoverPtyHostSockets,
   getPtyHostSocketPath,
   KAVAL_NS_PREFIX,
+  type PtyHostSpawnInput,
   PTY_HOST_CONTRACT_VERSION,
 } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
-import { buildCreateInput, formatCreate, newPtyId } from "./create.ts";
+import {
+  buildCreateInput,
+  buildRemoteCreateInput,
+  formatCreate,
+  newPtyId,
+} from "./create.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { isValidEscapeChar } from "./escape.ts";
 import {
@@ -74,6 +80,24 @@ const hostFlag = {
 
 // Every subcommand can target either a local socket or a remote host.
 const endpointFlags = { ...socketFlag, ...hostFlag } as const;
+
+/** The endpoint a command resolved to — which daemon it dialed. Carried into
+ *  `create` so a remote `create` composes against the host's facts (not local
+ *  ones) and so the printed "attach with …" hint names the SAME endpoint: a
+ *  remote PTY is reachable only with `--host`, and an explicit `--socket` may
+ *  not be what bare-`attach` autodiscovery would pick. */
+type Endpoint =
+  | { kind: "host"; host: string }
+  | { kind: "socket"; socket: string }
+  | { kind: "default" };
+
+/** The flag suffix that re-targets a later command at the SAME endpoint — the
+ *  empty string for the default discovered socket (bare `attach` finds it). */
+function endpointHint(endpoint: Endpoint): string {
+  if (endpoint.kind === "host") return ` --host ${endpoint.host}`;
+  if (endpoint.kind === "socket") return ` --socket ${endpoint.socket}`;
+  return "";
+}
 
 const argv = cli({
   name: "kaval-tui",
@@ -241,19 +265,37 @@ async function cmdSnapshot(conn: Connection, id: string): Promise<void> {
 
 async function cmdCreate(
   conn: Connection,
+  endpoint: Endpoint,
   command: readonly string[],
   json: boolean,
 ): Promise<void> {
   // Compose the WHOLE fully-specified input client-side (the host derives
-  // nothing since B0): a plain `$SHELL` (or the given `command`), our own
-  // cwd/env, no rcfiles. We mint the id so the returned `id` echoes ours — the
-  // same way kolu-server does.
-  const input = buildCreateInput({
-    id: newPtyId(),
-    cwd: process.cwd(),
-    env: process.env,
-    command,
-  });
+  // nothing since B0). We mint the id so the returned `id` echoes ours — the
+  // same way kolu-server does. WHERE the facts come from depends on the
+  // endpoint: a LOCAL daemon runs on THIS machine, so our own cwd/env/$SHELL
+  // are its facts; a REMOTE one (`--host`) runs elsewhere, so we read its
+  // `system.info` (shell/home) and ship a host-derived, minimal env rather than
+  // a local cwd that may not exist there or a wholesale local `process.env`.
+  let input: PtyHostSpawnInput;
+  let home: string;
+  if (endpoint.kind === "host") {
+    const info = await conn.client.surface.system.info({});
+    input = buildRemoteCreateInput({
+      id: newPtyId(),
+      host: { shell: info.shell, home: info.home },
+      localEnv: process.env,
+      command,
+    });
+    home = info.home;
+  } else {
+    input = buildCreateInput({
+      id: newPtyId(),
+      cwd: process.cwd(),
+      env: process.env,
+      command,
+    });
+    home = homedir();
+  }
   const result = await conn.client.surface.terminal.spawn(input);
   if (json) {
     // The raw { id, pid, cwd }, 2-space indented like `list --json`, with the
@@ -263,11 +305,13 @@ async function cmdCreate(
     return;
   }
   const program = input.argv[0] ?? "";
-  await writeOut(`${formatCreate(result, { program, home: homedir() })}\n`);
+  await writeOut(`${formatCreate(result, { program, home })}\n`);
   // Next-step hint to stderr (stdout stays just the spawn line) — `create` is
-  // the prerequisite for `attach`, so name the exact command to take it over.
+  // the prerequisite for `attach`, so name the exact command to take it over,
+  // carrying the SAME endpoint: a remote PTY is reached only with `--host`, and
+  // an explicit `--socket` may not be the one autodiscovery would pick.
   process.stderr.write(
-    `— attach with \`kaval-tui attach ${shortId(result.id)}\`\n`,
+    `— attach with \`kaval-tui attach ${shortId(result.id)}${endpointHint(endpoint)}\`\n`,
   );
 }
 
@@ -446,9 +490,17 @@ async function main(): Promise<void> {
       "--host and --socket are mutually exclusive: --host reaches a remote kaval over ssh, --socket dials a local one. Pass just one.",
     );
   }
-  const conn =
+  // The endpoint this command targets — its transport AND the suffix that
+  // re-targets a later `attach` at the same daemon (see `endpointHint`).
+  const endpoint: Endpoint =
     argv.flags.host !== undefined
-      ? await connectHost(argv.flags.host)
+      ? { kind: "host", host: argv.flags.host }
+      : argv.flags.socket !== undefined
+        ? { kind: "socket", socket: argv.flags.socket }
+        : { kind: "default" };
+  const conn =
+    endpoint.kind === "host"
+      ? await connectHost(endpoint.host)
       : await connectLocal(argv.flags.socket);
 
   try {
@@ -459,7 +511,7 @@ async function main(): Promise<void> {
     // exits on commands not in its registry; this guards OUR omissions.)
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
     else if (argv.command === "create")
-      await cmdCreate(conn, argv._.command, argv.flags.json);
+      await cmdCreate(conn, endpoint, argv._.command, argv.flags.json);
     else if (argv.command === "snapshot")
       await cmdSnapshot(conn, await resolveOne(conn, argv._.id));
     else if (argv.command === "attach")

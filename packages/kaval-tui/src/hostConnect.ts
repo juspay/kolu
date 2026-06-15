@@ -53,6 +53,10 @@ function agentDrvBySystem(): Record<string, string> {
   if (
     typeof parsed !== "object" ||
     parsed === null ||
+    // An array is an `object` whose values can all be strings, so it would slip
+    // past the shape check and only surface later as a host-system map miss
+    // (after the ssh probe). Reject it here, eagerly, with the same config error.
+    Array.isArray(parsed) ||
     Object.values(parsed).some((v) => typeof v !== "string")
   ) {
     throw new Error(
@@ -102,19 +106,29 @@ export async function connectPtyHostViaHost(host: string): Promise<Connection> {
     binary: KAVAL_BINARY,
     resolveDrvPath: () => resolveKavalAgentDrv(host, drvBySystem),
   });
-  // `pin()` runs the provision (`nix copy` → realise — which happens BEFORE the
-  // connect watchdog arms, so a cold copy doesn't time it out) and spawns the
-  // ssh child, resolving once the stdio link is live. Pin (not acquire) because
-  // this is a process-lifetime hold released only by `dispose`.
-  const client = await session.pin();
-  // Roundtrip one cheap RPC and flip the session to `connected`: this disarms
-  // the 30s connect watchdog that would otherwise SIGTERM the ssh child mid
-  // `attach` (a command that runs far longer than 30s), and proves the link
-  // works in both directions before any real command.
-  await client.surface.system.heartbeat({});
-  session.markConnected();
-  return {
-    client,
-    dispose: () => session.destroy(),
-  };
+  // Until a `Connection` (whose `dispose` owns teardown) is handed back, a
+  // failure anywhere in pin/heartbeat must destroy the session itself —
+  // otherwise its ref-counted reconnect loop/watchdog timer leaks for any
+  // caller that catches the rejection (the CLI exits, but the exported dialer
+  // is also used by tests and a future long-lived consumer).
+  try {
+    // `pin()` runs the provision (`nix copy` → realise — which happens BEFORE
+    // the connect watchdog arms, so a cold copy doesn't time it out) and spawns
+    // the ssh child, resolving once the stdio link is live. Pin (not acquire)
+    // because this is a process-lifetime hold released only by `dispose`.
+    const client = await session.pin();
+    // Roundtrip one cheap RPC and flip the session to `connected`: this disarms
+    // the 30s connect watchdog that would otherwise SIGTERM the ssh child mid
+    // `attach` (a command that runs far longer than 30s), and proves the link
+    // works in both directions before any real command.
+    await client.surface.system.heartbeat({});
+    session.markConnected();
+    return {
+      client,
+      dispose: () => session.destroy(),
+    };
+  } catch (err) {
+    session.destroy();
+    throw err;
+  }
 }

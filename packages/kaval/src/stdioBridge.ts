@@ -97,7 +97,9 @@ async function connectToDaemon(deps: StdioBridgeDeps): Promise<Socket> {
   const log =
     deps.log ?? ((msg) => process.stderr.write(`kaval --stdio: ${msg}\n`));
 
-  // A daemon already owns the socket — front it, no spawn.
+  // A daemon already owns the socket — front it, no spawn. A non-retryable
+  // connect error (a path we can't probe / isn't a socket) propagates instead
+  // of being read as "no daemon" — see `tryConnect`.
   const existing = await tryConnect(connect, socketPath);
   if (existing) return existing;
 
@@ -111,6 +113,8 @@ async function connectToDaemon(deps: StdioBridgeDeps): Promise<Socket> {
   const pollMs = deps.pollMs ?? DEFAULT_POLL_MS;
   while (Date.now() < deadline) {
     await sleep(pollMs);
+    // A daemon that comes up but rejects a path we can't probe (e.g. perms
+    // tightened mid-wait) still propagates rather than spinning to the deadline.
     const sock = await tryConnect(connect, socketPath);
     if (sock) return sock;
   }
@@ -119,19 +123,33 @@ async function connectToDaemon(deps: StdioBridgeDeps): Promise<Socket> {
   );
 }
 
-/** One connect attempt: resolve the socket on `connect`, or `null` on any
- *  connect error (`ENOENT`/`ECONNREFUSED` while no daemon is up). Never throws —
- *  a refused connect is the expected "not running yet" signal, not a failure. */
+/** Connect errors that mean "no daemon is listening yet" — the expected
+ *  poll-again signal, not a failure: the socket file is absent (`ENOENT`) or
+ *  present but unbound (`ECONNREFUSED`). Anything else (`EACCES`/`EPERM` perms,
+ *  `ENOTSOCK` a non-socket path, `ENOTDIR` a bad path component) means the path
+ *  is *unprobeable*, not empty — a real config/safety error, not absence. */
+const NO_DAEMON_CODES = new Set(["ENOENT", "ECONNREFUSED"]);
+
+/** One connect attempt: resolve the socket on `connect`, `null` when no daemon
+ *  is up yet (`ENOENT`/`ECONNREFUSED`), or reject for any other connect error.
+ *  A refused/absent socket is the "not running yet" signal the caller polls on;
+ *  an unprobeable path (`EACCES`, `ENOTSOCK`, …) must surface as itself rather
+ *  than be misread as absence — which would spawn a daemon and then time out
+ *  with a misleading message instead of naming the real fault. */
 function tryConnect(
   connect: (socketPath: string) => Socket,
   socketPath: string,
 ): Promise<Socket | null> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const socket = connect(socketPath);
-    const onError = (): void => {
+    const onError = (err: NodeJS.ErrnoException): void => {
       socket.removeListener("connect", onConnect);
       socket.destroy();
-      resolve(null);
+      if (err.code !== undefined && NO_DAEMON_CODES.has(err.code)) {
+        resolve(null);
+        return;
+      }
+      reject(err);
     };
     const onConnect = (): void => {
       socket.removeListener("error", onError);
@@ -159,6 +177,12 @@ function relay(
       done = true;
       stdin.unpipe(socket);
       socket.unpipe(stdout);
+      socket.removeListener("close", finish);
+      socket.removeListener("error", finish);
+      stdin.removeListener("end", finish);
+      stdin.removeListener("error", finish);
+      stdout.removeListener("error", finish);
+      stdout.removeListener("close", finish);
       socket.destroy();
       resolve();
     };
@@ -167,11 +191,16 @@ function relay(
     stdin.pipe(socket);
     socket.pipe(stdout, { end: false });
     // The link is over when EITHER side goes away: the daemon dropped the
-    // connection, or the ssh peer closed its input.
+    // connection, or the ssh peer closed its input. The outbound `stdout` is
+    // watched too — if the ssh client's read side closes while the daemon is
+    // still writing, the resulting `EPIPE`/`close` resolves the relay cleanly
+    // instead of crashing the bridge with an unhandled writable-stream error.
     socket.once("close", finish);
     socket.once("error", finish);
     stdin.once("end", finish);
     stdin.once("error", finish);
+    stdout.once("error", finish);
+    stdout.once("close", finish);
   });
 }
 

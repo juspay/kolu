@@ -93,6 +93,17 @@ describe("connectPtyHostViaHost: eager drv-map validation", () => {
     );
     expect(getHostSession).not.toHaveBeenCalled();
   });
+
+  it("rejects a JSON array (an object whose string values would slip the shape check)", async () => {
+    // An array passes `typeof === "object"` and all-string `Object.values`, so
+    // without an explicit array guard it would slip past eager validation and
+    // only fail later as a host-system map miss after the ssh probe.
+    process.env.KAVAL_AGENT_DRVS_JSON = JSON.stringify(["/nix/store/x.drv"]);
+    await expect(connectPtyHostViaHost("nix@prod")).rejects.toThrow(
+      /must be a JSON object of \{ system: drvPath \} strings/,
+    );
+    expect(getHostSession).not.toHaveBeenCalled();
+  });
 });
 
 describe("connectPtyHostViaHost", () => {
