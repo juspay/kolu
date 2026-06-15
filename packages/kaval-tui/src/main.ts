@@ -15,10 +15,15 @@
  * resolved against the live inventory client-side (see `resolveOne`), so a
  * pasted full uuid keeps working. `--json` always carries the full id.
  *
- * By default it reaches a standalone `kaval` daemon. To drive a running
- * kolu-server's in-process terminals instead (until B2 flips kolu onto the
- * daemon), point `--socket` at kolu's socket
- * (`$XDG_RUNTIME_DIR/kolu/pty-host.sock`).
+ * By default it reaches a standalone `kaval` daemon on THIS machine. Two ways to
+ * point it elsewhere, mutually exclusive:
+ *   --socket PATH   a different LOCAL socket — e.g. a running kolu-server's
+ *                   in-process terminals (`$XDG_RUNTIME_DIR/kolu/pty-host.sock`).
+ *   --host <ssh>    a REMOTE kaval over ssh (R-2): provision the daemon's
+ *                   closure with Nix, run `kaval --stdio`, and dial it — the
+ *                   same client over a different transport (see `hostConnect.ts`).
+ *                   A remote PTY survives the link: `create` on prod, then a
+ *                   later `attach` finds it.
  *
  * `kill` is a later phase. The CLI comes and goes; the daemon keeps owning the
  * PTYs — `create` mints one, the daemon holds it until something kills it.
@@ -37,6 +42,7 @@ import {
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { buildCreateInput, formatCreate, newPtyId } from "./create.ts";
+import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { isValidEscapeChar } from "./escape.ts";
 import {
   formatList,
@@ -56,19 +62,32 @@ const socketFlag = {
   },
 } as const;
 
+// --host reaches a REMOTE kaval over ssh, provisioning it with Nix. Mutually
+// exclusive with --socket (a local path); the conflict is rejected in main().
+const hostFlag = {
+  host: {
+    type: String,
+    description:
+      "reach a kaval on a remote machine over ssh, provisioning it via Nix — e.g. --host nix@prod. The remote PTYs survive the link (create on the host, attach to it later). Mutually exclusive with --socket. Goes AFTER the subcommand.",
+  },
+} as const;
+
+// Every subcommand can target either a local socket or a remote host.
+const endpointFlags = { ...socketFlag, ...hostFlag } as const;
+
 const argv = cli({
   name: "kaval-tui",
   version: PTY_HOST_CONTRACT_VERSION,
   help: {
     description:
-      "A terminal-side client for the kaval PTY daemon (beta). Connects to a running kaval over a local unix socket — start it with `kaval`; the socket appears once it boots. Use `--socket` to reach a kolu-server's in-process terminals instead. `kill` lands later.",
+      "A terminal-side client for the kaval PTY daemon (beta). Connects to a running kaval over a local unix socket — start it with `kaval`; the socket appears once it boots. Use `--socket` to reach a kolu-server's in-process terminals, or `--host <ssh>` to provision and dial a kaval on a remote machine. `kill` lands later.",
   },
   commands: [
     command({
       name: "list",
       help: { description: "List your live terminals." },
       flags: {
-        ...socketFlag,
+        ...endpointFlags,
         json: {
           type: Boolean,
           description: "machine-readable JSON output (a top-level array)",
@@ -84,7 +103,7 @@ const argv = cli({
           "Spawn a new terminal and print its id; the daemon owns it. Runs a plain $SHELL by default, or the command you pass — prefix it with `--` when it takes its own flags: `kaval-tui create -- htop -d 5`. Then `kaval-tui attach <id>` to take it over.",
       },
       flags: {
-        ...socketFlag,
+        ...endpointFlags,
         json: {
           type: Boolean,
           description: "machine-readable JSON output ({ id, pid, cwd })",
@@ -99,7 +118,7 @@ const argv = cli({
         description:
           "Print a terminal's current rendered scrollback. <id> is the short id from `list` or any unique prefix.",
       },
-      flags: { ...socketFlag },
+      flags: { ...endpointFlags },
     }),
     command({
       name: "attach",
@@ -109,7 +128,7 @@ const argv = cli({
           "Take over a terminal: raw passthrough until a line-start `~.` detaches (the daemon keeps the terminal). `~?` lists the escapes. <id> is the short id from `list` or any unique prefix.",
       },
       flags: {
-        ...socketFlag,
+        ...endpointFlags,
         escape: {
           type: String,
           description:
@@ -373,6 +392,35 @@ async function assertCompatible(conn: Connection): Promise<void> {
   }
 }
 
+/** Dial a LOCAL kaval (or kolu-server) over its unix socket — an explicit
+ *  `--socket`, else the discovered/default one. Fails loud with an actionable
+ *  hint if nothing is listening. */
+function connectLocal(socketOverride: string | undefined): Promise<Connection> {
+  const kavalDefault = getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX);
+  const socketPath = resolveSocketPath(socketOverride, kavalDefault);
+  return connectPtyHost(socketPath).catch((err) => {
+    const code = (err as NodeJS.ErrnoException).code;
+    // The kolu-server hint names the SAME path kolu computes — and the
+    // $XDG_RUNTIME_DIR-unset fallback (e.g. over ssh), the exact case where a
+    // hand-built `$XDG_RUNTIME_DIR/kolu/...` collapses to a wrong `/kolu/...`.
+    const koluSock = getPtyHostSocketPath(undefined, "kolu");
+    return fail(
+      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is kaval running? Start it with \`kaval\`; the socket appears once it boots. To reach a running kolu-server instead, point at its socket: \`--socket ${koluSock}\`.`,
+    );
+  });
+}
+
+/** Reach a REMOTE kaval over ssh (`--host`): provision the daemon with Nix and
+ *  dial it. Fails loud with the underlying ssh/nix error so a misconfigured host
+ *  (no passwordless ssh, the user not in the remote's `trusted-users`) reads as
+ *  actionable rather than an opaque hang — the CLI is one-shot, so it surfaces
+ *  the first failure instead of spinning on HostSession's reconnect loop. */
+function connectHost(host: string): Promise<Connection> {
+  return connectPtyHostViaHost(host).catch((err) =>
+    fail(`could not reach kaval on ${host} — ${(err as Error).message}`),
+  );
+}
+
 async function main(): Promise<void> {
   // cleye already handled --help / --version (it prints and exits). We land here
   // with no command in two cases: bare `kaval-tui` (no args → show help), or the
@@ -390,20 +438,18 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // The bare-kaval default we dial when discovery finds no daemon — bound once
-  // so the path the resolver falls through to is the same value by construction.
-  const kavalDefault = getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX);
-  const socketPath = resolveSocketPath(argv.flags.socket, kavalDefault);
-  const conn = await connectPtyHost(socketPath).catch((err) => {
-    const code = (err as NodeJS.ErrnoException).code;
-    // The kolu-server hint names the SAME path kolu computes — and the
-    // $XDG_RUNTIME_DIR-unset fallback (e.g. over ssh), the exact case where a
-    // hand-built `$XDG_RUNTIME_DIR/kolu/...` collapses to a wrong `/kolu/...`.
-    const koluSock = getPtyHostSocketPath(undefined, "kolu");
-    return fail(
-      `no socket at ${socketPath}${code ? ` (${code})` : ""} — is kaval running? Start it with \`kaval\`; the socket appears once it boots. To reach a running kolu-server instead, point at its socket: \`--socket ${koluSock}\`.`,
+  // Pick the transport: --host reaches a remote kaval over ssh; otherwise dial a
+  // local socket. They name two different daemons (an ssh target vs a path), so
+  // passing both is a usage error rather than a precedence puzzle.
+  if (argv.flags.host !== undefined && argv.flags.socket !== undefined) {
+    fail(
+      "--host and --socket are mutually exclusive: --host reaches a remote kaval over ssh, --socket dials a local one. Pass just one.",
     );
-  });
+  }
+  const conn =
+    argv.flags.host !== undefined
+      ? await connectHost(argv.flags.host)
+      : await connectLocal(argv.flags.socket);
 
   try {
     await assertCompatible(conn);

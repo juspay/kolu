@@ -25,9 +25,23 @@
         })
         systems);
       commitHash = self.shortRev or self.dirtyShortRev or "dev";
+      # Per-system { system → kaval .drv } map, baked onto kaval-tui's wrapper
+      # (KAVAL_AGENT_DRVS_JSON) so `kaval-tui --host <ssh>` ships the TARGET-arch
+      # kaval derivation (provisionAgent copies+realises it remotely). Derived from
+      # a JSON-LESS import of default.nix on purpose: the kaval daemon drv doesn't
+      # depend on the map (only the kaval-tui wrapper does), so building the map
+      # this way can't cycle back through the koluBySystem that consumes it.
+      # `unsafeDiscardStringContext` drops the .drv's build-dep context so toJSON
+      # sees a plain string and the whole thing stays a pure eval (no IFD) — the
+      # same host-independent discipline `default.nix`'s kavalBuildId follows.
+      kavalDrvBySystem = eachSystem (pkgs:
+        builtins.unsafeDiscardStringContext
+          (import ./default.nix { inherit pkgs commitHash; }).kaval.drvPath);
+      kavalAgentDrvsJson = builtins.toJSON kavalDrvBySystem;
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
-      koluBySystem = eachSystem (pkgs: import ./default.nix { inherit pkgs commitHash; });
+      koluBySystem = eachSystem (pkgs:
+        import ./default.nix { inherit pkgs commitHash kavalAgentDrvsJson; });
       # website/default.nix is self-contained — it resolves its own public/
       # asset symlinks (favicon, kaval logo), so the flake just imports it.
       websiteBySystem = eachSystem (pkgs: import ./website { inherit pkgs; });

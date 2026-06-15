@@ -12,8 +12,22 @@ import {
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
 
-export type Connection = UnixSocketConnection<typeof ptyHostSurface.contract>;
-export type PtyTuiClient = Connection["client"];
+/** The contract-typed pty-host client — `ContractRouterClient<contract,
+ *  ClientRetryPluginContext>`. Identical whether the link is a local unix socket
+ *  (`unixSocketLink`) or an ssh stdio child (`getHostSession` → `stdioLink`), so
+ *  one client type backs both transports. */
+export type PtyTuiClient = UnixSocketConnection<
+  typeof ptyHostSurface.contract
+>["client"];
+
+/** A live pty-host connection: the client plus a `dispose` that tears the
+ *  transport down. Both the local socket path (`connectPtyHost`) and the ssh
+ *  `--host` path (`connectPtyHostViaHost`) return this shape, so every `cmd*()`
+ *  is written against it once and the transport is interchangeable. */
+export interface Connection {
+  client: PtyTuiClient;
+  dispose: () => void;
+}
 
 /** Connect to the pty-host at `socketPath`. Rejects with the raw socket error
  *  (`ECONNREFUSED` for a dead/absent server, `ENOENT` for a missing path) so

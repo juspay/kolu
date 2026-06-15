@@ -467,4 +467,19 @@ describe("kaval daemon — process-boundary behaviour", () => {
     expect(right.code).not.toBe(0);
     expect(right.stderr).toContain("no socket at /no/such/kaval.sock");
   }, 30000);
+
+  it("--host and --socket are mutually exclusive: passing both fails with a clear hint", async () => {
+    // The remote (--host, an ssh target) and local (--socket, a path) transports
+    // name two different daemons, so passing both is a usage error rejected at
+    // arg validation — before any connect, so no daemon or ssh is involved.
+    const both = await runKavalTui([
+      "list",
+      "--host",
+      "nix@prod",
+      "--socket",
+      "/some/where.sock",
+    ]);
+    expect(both.code).not.toBe(0);
+    expect(both.stderr).toContain("mutually exclusive");
+  }, 30000);
 });

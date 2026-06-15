@@ -29,6 +29,13 @@
   # constant); KAVAL_BUILD_ID is nix-injected, so this overrides the value, not a
   # source file.
 , kavalBuildIdOverride ? null
+  # Per-system `{ system → kaval .drv }` map, baked onto the kaval-tui wrapper as
+  # KAVAL_AGENT_DRVS_JSON so `kaval-tui --host <ssh>` can ship the target-arch
+  # kaval derivation (provisionAgent copies+realises it on the remote). default.nix
+  # is single-system, so the map is built across all systems in flake.nix and
+  # threaded in here. Defaults to "{}" for a bare `nix-build default.nix` (no
+  # --host map; --host then fails with a clear "run from the Nix wrapper" error).
+, kavalAgentDrvsJson ? "{}"
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -349,6 +356,12 @@ let
   # attaches its live PTYs. Runs from the SAME built workspace closure as `kolu`
   # (so kaval + @kolu/surface resolve identically) under tsx — no client bundle,
   # no state dir, just nodejs.
+  #
+  # R-2's `--host <ssh>` rides this wrapper: KAVAL_AGENT_DRVS_JSON carries the
+  # per-system `{ system → kaval .drv }` map so the CLI can ship the target-arch
+  # kaval derivation to a remote, and openssh + nix are on PATH for the provision
+  # (resolveSystem's ssh arch-probe + provisionAgent's `nix copy` / `nix-store`).
+  # `--set-default` (not `--set`) so a power user can override the map.
   kaval-tui = pkgs.runCommand "kaval-tui"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -357,7 +370,8 @@ let
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kaval-tui \
       --add-flags "${kolu}/packages/kaval-tui/src/main.ts" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+      --set-default KAVAL_AGENT_DRVS_JSON '${kavalAgentDrvsJson}' \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
   '';
 
   # @kolu/surface example demos — derivations live next to each demo's
