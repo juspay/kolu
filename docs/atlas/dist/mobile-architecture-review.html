@@ -11,6 +11,19 @@ the breakpoint is unified via the <code>--breakpoint-sm</code> theme token, <cod
 calls <code>rp.reveal()</code>, feature gates live in <code>capabilities.ts</code>, and the
 contenteditable surgery is extracted to <code>enableSoftKeyboardInput()</code>. The circuit
 diagram, scorecard, and §⑤/§⑧ below record the pre-#1088 wiring.</p></div> </aside>
+<aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Update — the fork went three-state (compact)</p> <div class="callout-body" data-astro-cid-mrmim4ef><p><a href="https://github.com/juspay/kolu/pull/1380" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1380 </a> gave the macro fork a third voltage. The boolean <code>isMobile</code>
+(viewport size alone) became <code>layoutMode()</code> — <code>phone</code> · <code>compact</code> · <code>desktop</code> — so
+a <em>wide but finger-only</em> device no longer crosses the width line into the
+mouse-driven desktop canvas. A Z Fold 6 unfolded is ~900 CSS px (past <code>sm</code>) yet is
+touch-only (<code>(pointer: coarse) and (hover: none)</code>); width alone mis-mounted the
+desktop layout on it. Now width still picks <code>phone</code> below <code>sm</code>, but above it the
+<strong>pointer</strong> axis splits a handheld (<code>compact</code> — a two-pane rail + tile via
+<code>CompactTileView</code>, the <code>DockList</code> shared with the phone drawer) from a real
+pointer (<code>desktop</code>). The <code>capabilities.ts</code> gates read <code>isDesktop()</code>; <code>reveal()</code>
+and the Code-tab touch-scroll driver read <code>!isDesktop()</code>, so phone and compact
+share the drawer-hosted panel. The circuit diagram, scorecard, and §②/§⑤ below
+record the pre-#1380 two-state fork (<code>match(isMobile())</code>).</p></div> </aside>
 <h2 id="-the-analogy--lowys-receptacle">① The analogy — Lowy’s receptacle</h2>
 <p>Lowy uses household power to argue you decompose by what <em>changes</em>, not what it
 <em>does</em>:</p>

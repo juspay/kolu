@@ -30,6 +30,21 @@ contenteditable surgery is extracted to `enableSoftKeyboardInput()`. The circuit
 diagram, scorecard, and §⑤/§⑧ below record the pre-#1088 wiring.
 </Callout>
 
+<Callout kind="good" title="Update — the fork went three-state (compact)">
+<PrLink pr={1380} /> gave the macro fork a third voltage. The boolean `isMobile`
+(viewport size alone) became `layoutMode()` — `phone` · `compact` · `desktop` — so
+a *wide but finger-only* device no longer crosses the width line into the
+mouse-driven desktop canvas. A Z Fold 6 unfolded is ~900 CSS px (past `sm`) yet is
+touch-only (`(pointer: coarse) and (hover: none)`); width alone mis-mounted the
+desktop layout on it. Now width still picks `phone` below `sm`, but above it the
+**pointer** axis splits a handheld (`compact` — a two-pane rail + tile via
+`CompactTileView`, the `DockList` shared with the phone drawer) from a real
+pointer (`desktop`). The `capabilities.ts` gates read `isDesktop()`; `reveal()`
+and the Code-tab touch-scroll driver read `!isDesktop()`, so phone and compact
+share the drawer-hosted panel. The circuit diagram, scorecard, and §②/§⑤ below
+record the pre-#1380 two-state fork (`match(isMobile())`).
+</Callout>
+
 ## ① The analogy — Lowy's receptacle
 
 Lowy uses household power to argue you decompose by what *changes*, not what it
