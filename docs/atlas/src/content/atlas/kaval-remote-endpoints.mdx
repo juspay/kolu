@@ -1,0 +1,201 @@
+---
+title: Remote kaval endpoints — kolu dials (P3), the canvas (P4)
+description: The forward half of the kaval-sessions plan — kolu-server dialing a remote kaval over ssh (P3, decomposed into eight additive sub-PRs) and the multiplex canvas it unlocks (P4). Split out of kaval-sessions as the implementation-ready detail outgrew the direction note.
+kind: feature
+status: accepted
+maturity: seedling
+parents: [kaval-sessions]
+updated: 2026-06-15
+---
+
+import D2 from "../../components/D2.astro";
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Pill from "../../components/Pill.astro";
+
+export const ProcDiagram = () => (
+  <div style="margin:1.5rem 0;overflow-x:auto">
+    <svg viewBox="0 0 680 560" width="100%" style="min-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
+      <defs>
+        <marker id="pd-ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#475569" />
+        </marker>
+      </defs>
+
+      <text x="16" y="22" font-size="11" fill="#64748b">Boundaries:</text>
+      <rect x="96" y="13" width="20" height="11" rx="2" fill="none" stroke="#94a3b8" stroke-dasharray="3 2" />
+      <text x="121" y="22" font-size="11" fill="#64748b">host</text>
+      <rect x="156" y="13" width="20" height="11" rx="2" fill="#fff" stroke="#334155" />
+      <text x="181" y="22" font-size="11" fill="#64748b">process</text>
+      <text x="238" y="22" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/…</text>
+      <text x="312" y="22" font-size="11" fill="#64748b">= package</text>
+
+      <rect x="8" y="34" width="664" height="186" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
+      <text x="18" y="52" font-size="12.5" font-weight="700" fill="#475569">host · local  —  where kolu-server runs</text>
+
+      <rect x="22" y="64" width="168" height="146" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="22" y="64" width="168" height="22" rx="7" fill="#64748b" />
+      <rect x="22" y="75" width="168" height="11" fill="#64748b" />
+      <text x="32" y="79" font-size="11.5" font-weight="700" fill="#fff">process · browser</text>
+      <text x="32" y="108" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/client</text>
+      <text x="32" y="132" font-size="10" font-style="italic" fill="#64748b">the canvas (SolidJS)</text>
+
+      <rect x="204" y="64" width="452" height="146" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="204" y="64" width="452" height="22" rx="7" fill="#2563eb" />
+      <rect x="204" y="75" width="452" height="11" fill="#2563eb" />
+      <text x="214" y="79" font-size="11.5" font-weight="700" fill="#fff">process · kolu-server</text>
+      <text x="214" y="106" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/server</text>
+      <text x="214" y="124" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-daemon-supervisor</text>
+      <text x="214" y="142" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-nix-host</text>
+      <text x="214" y="160" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/integrations/git</text>
+      <text x="214" y="186" font-size="10" font-style="italic" fill="#64748b">local tiles: the provider DAG + fs/git watchers run HERE</text>
+
+      <line x1="190" y1="150" x2="204" y2="150" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
+      <text x="197" y="144" font-size="9" fill="#334155" text-anchor="middle">ws</text>
+
+      <line x1="290" y1="212" x2="174" y2="336" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
+      <text x="486" y="256" font-size="10.5" font-weight="700" fill="#7c3aed" text-anchor="middle">ssh · HostSession (stdioLink)</text>
+      <text x="486" y="272" font-size="9.5" fill="#64748b" text-anchor="middle">pty-host proxied · fs/git · metadata</text>
+
+      <rect x="8" y="306" width="664" height="248" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
+      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#475569">host · remote (prod)  —  one ssh endpoint: kolu-watcher, fronting kaval</text>
+
+      <rect x="22" y="338" width="300" height="200" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="22" y="338" width="300" height="22" rx="7" fill="#b45309" />
+      <rect x="22" y="349" width="300" height="11" fill="#b45309" />
+      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#fff">process · kolu-watcher  —  re-runs fresh  (P3)</text>
+      <text x="32" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/server   (R-1.6 provider DAG)</text>
+      <text x="32" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/integrations/git</text>
+      <text x="32" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface</text>
+      <text x="32" y="446" font-size="10" font-style="italic" fill="#64748b">fronts kaval; runs the DAG + native fs/git;</text>
+      <text x="32" y="462" font-size="10" font-style="italic" fill="#64748b">serves pty-host + fs/git over ssh</text>
+
+      <rect x="380" y="338" width="276" height="200" rx="7" fill="#fff" stroke="#334155" />
+      <rect x="380" y="338" width="276" height="22" rx="7" fill="#15803d" />
+      <rect x="380" y="349" width="276" height="11" fill="#15803d" />
+      <text x="390" y="353" font-size="11.5" font-weight="700" fill="#fff">process · kaval  —  durable · SURVIVES</text>
+      <text x="390" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/kaval</text>
+      <text x="390" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-daemon</text>
+      <text x="390" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/terminal-protocol</text>
+      <text x="390" y="446" font-size="10" font-style="italic" fill="#64748b">fds + OSC taps; single-instance</text>
+      <text x="390" y="462" font-size="10" font-style="italic" fill="#64748b">pid-gate; serves a unix socket</text>
+
+      <line x1="322" y1="440" x2="380" y2="440" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
+      <text x="351" y="432" font-size="8.5" fill="#334155" text-anchor="middle">unix socket</text>
+      <text x="351" y="454" font-size="8" fill="#64748b" text-anchor="middle">taps + pty-host</text>
+    </svg>
+  </div>
+);
+
+**The forward half of [kaval-sessions](kaval-sessions.html).** That note carries the R-2 direction and the shipped spike (P0–P2.8, where `kaval-tui --host` already dials + provisions a remote kaval over ssh); this one is the implementation-ready plan for the two phases still ahead — **P3** (kolu-server itself dials a *remote* kaval, so a canvas tile can live on another host) and **P4** (the multiplex canvas on top). The substrate it builds on — *one backend, three surfaces (PTY · fs · git) bound to an endpoint*, reached by a unix-socket driver (local) or an ssh-stdio `HostSession` (remote) — is established in the parent; here it gets built.
+
+## The remote process model (P3)
+
+**kaval and kolu-watcher are two separate processes** — forced, not incidental. kaval is the durable survivor (it must outlive deploys); **kolu-watcher** (provider DAG + fs/git) re-runs fresh (it must be the current build's code — the #1031 line); **one process cannot be both.** Locally that role isn't even a separate process — the DAG + fs/git watchers run *inside* `kolu-server` (`local.ts`: *"the DAG runs HERE, in kolu-server"*), with kaval the separate daemon. Remotely, `kolu-server` isn't on the host, so it splits out as its own **kolu-watcher** process beside kaval.
+
+And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching it over the network needs a remote *stdio* endpoint — and a `HostSession` is one ssh subprocess per host. So the remote host exposes **one** ssh endpoint — **kolu-watcher**: `kolu-server` dials it over one `HostSession` `stdioLink`, and kolu-watcher locally **fronts kaval** (its unix socket) for PTY attach/control + taps while serving its own fs/git + metadata surface (`mirrorRemoteCollection`). The closure is shipped first via `provisionAgent` (`nix copy --derivation` → remote `realise` → pin a GC root). The diagram shows all three boundaries — **host** (dashed), **process** (boxed), **package** (`packages/…`):
+
+<ProcDiagram />
+
+**If the host already has a kaval running, it is adopted** — the same generic `adoptOrEnsure` spine (`endpoint.ts`), per endpoint, that the local boot uses. A duplicate is impossible by construction: a second launch hits the pid-gate's atomic `link(2)` EEXIST, liveness-probes the holder (`kill(pid,0)`), and exits 0 ("yielding to the live instance") **without binding a socket** — the running daemon is never disturbed. Re-provisioning is idempotent (`nix realise` no-ops if the closure is already present; an older build coexists and the moving GC root migrates to the new one). On dial:
+
+| the remote kaval is… | kolu does |
+| --- | --- |
+| absent | provision + spawn fresh (`adoptOrEnsure` → ensure) |
+| live · wire-compatible | **adopt** — connect, never kill; its PTYs reconcile in (older `startedAt`) |
+| live · a build behind | adopt **+** the B3.4 "update pending" nudge (an orthogonal axis) |
+| live · contract-skewed | recycle (kill → respawn) — only on a typed `DaemonContractSkewError`, no retry |
+| unreachable (bad dial) | bounded retry, then **degraded — never killed** (a bad dial can't cost live PTYs) |
+
+**One kaval per remote host, adopted.** Dialing a host *joins* its kaval — you reconnect to "the prod terminals" — and never clobbers it. The local per-port key (`kaval-<port>/`, <PrLink pr={1313} />), which isolates two dev servers under always-recycle, isn't needed across ssh: a remote host runs **one** shared kaval and dials *adopt* it (the table above), so two reconnects join the same terminals rather than racing to kill them. *(The pid-gate is host-local — pid + filesystem on that host — not a cross-host or cross-container lock.)*
+
+## Implementing P3 — eight additive phases
+
+P3 is the largest phase: a re-introduced dispatch seam, additive wire/record fields, a brand-new host-resident process (**kolu-watcher**), the remote endpoint binding, three remote-only seams, and remote adoption. **Ship it as eight sub-PRs, not one** — the cadence the P2.x series already proved. Each phase is *either a pure-additive change that keeps every local terminal byte-identical* **or** *a small user-facing increment*, and the whole sequence is strictly additive — a local tile behaves identically at every step. The seam is already cut: `TerminalEndpoint`'s own doc-comment names "Remote (P3)" as "the same shape, a different transport," and **P0 (<PrLink pr={1364} />) left three call sites commented `// P3 will select the endpoint…`**. P3.1 is the literal inverse of that commit.
+
+- **P3.1–P3.2 are pure refactors** — byte-identical, the suite stays green for the same reason P0 landed standalone.
+- **P3.3–P3.4 add new, isolated code** that changes no existing behavior (a contract type, a nix-config mirror, then the kolu-watcher process behind a throwaway spike) — additive, not yet user-reachable.
+- **P3.5–P3.8 each deliver one small user-facing increment** — a remote tile, a correct remote shell, the Code-tab + pills lighting up, surviving a restart.
+
+<D2
+  caption="The P3 phase DAG. The additive groundwork (P3.1–P3.4) is a straight line that keeps local byte-identical; P3.5 is the first user-facing remote tile; P3.6 (seams) and P3.7 (thicken kolu-watcher) are parallel-safe siblings that both land against the frozen seam, joining at P3.8 (adoption). Every arrow is 'must-merge-before', so a coding agent can pick up the next unblocked phase."
+  code={`direction: down
+p1: "P3.1 — location resolver (both arms → local)\\nrefactor · byte-identical"
+p2: "P3.2 — location additive on wire + record\\nrefactor · nothing reads it"
+p3: "P3.3 — kolu-watcher contract + .drv map\\nadditive · compile + nix only"
+p4: "P3.4 — kolu-watcher PTY-only spike\\nadditive · falsifiability gate on pu"
+p5: "P3.5 — RemoteTerminalEndpoint: first remote tile\\nuser-facing · fs/git stubbed"
+p6: "P3.6 — invert composeSpawnInput + paste guard\\nuser-facing"
+p7: "P3.7 — thicken kolu-watcher: DAG + fs/git\\nuser-facing · Code tab + pills"
+p8: "P3.8 — remote adoption + reattach\\nuser-facing · survives restart"
+p1 -> p2 -> p3 -> p4 -> p5
+p5 -> p6
+p5 -> p7
+p6 -> p8
+p7 -> p8
+`}
+/>
+
+| Phase | Kind | Ships — one PR each | Gate |
+| --- | --- | --- | --- |
+| **P3.1** · location resolver | <Pill variant="todo">refactor</Pill> | Resurrect `TerminalLocation = {kind:'local'} \| {kind:'remote',host}` in `kolu-common/terminalEndpoint.ts`; add a `getTerminalEndpointFor(location)` resolver in a **new leaf** `server/src/terminalEndpoint/resolve.ts` (a `Map<hostId, endpoint>` seeded `local → localTerminalEndpoint`, mirroring `daemonStatus.ts`). Route the three P0-commented call sites through it; remote arm throws. A create-time `getTerminalEndpointForCreate({parentId, location})` reads the parent's `meta.location` for sub-terminal inheritance. | full suite green byte-for-byte; unit: local arm `===` the singleton, remote arm throws, sub-terminal inherits parent location; `resolve.ts` stays a leaf (preserves the #1005 import-order defense) |
+| **P3.2** · location on records | <Pill variant="todo">refactor</Pill> | Add `hostId` to `TerminalInfoSchema` and `location` to the **server-persisted** metadata partition + `TerminalCreateInputSchema` — all `.optional()`, defaulting to local; rides `SavedTerminal` through the existing snapshot spread. Server stamps `{kind:'local'}` on every spawn; the client reads it but renders nothing. | schema round-trip (a pre-P3 saved blob deserializes to local); the partition compile-fence; `snapshot`-then-delta unchanged; session-restore e2e green |
+| **P3.3** · watcher contract + drv map | <Pill variant="todo">additive</Pill> | A **typed `@kolu/surface` kolu-watcher contract** in `kolu-common/watcher-surface.ts` (the `TerminalEndpointFs`/`Git` read+subscribe ops, the provider-DAG live outputs as snapshot-then-delta, a `system.gateStatus()` baked in for P3.8) **+** the per-system `.drv` map: a `koluAgentDrvsJson` sibling in `flake.nix` baked onto the server wrapper as `KOLU_AGENT_DRVS_JSON` (the exact mirror of `KAVAL_AGENT_DRVS_JSON`). Define the **full** contract now; later phases only fill handlers, never the wire. No process, no dial. | `just check` typechecks the contract; a compile assertion that `AgentClient<WatcherContract>` matches the fs/git seam; `nix build` of the wrapper succeeds with `openssh`/`nix` on PATH; malformed drv-map throws synchronously at boot |
+| **P3.4** · kolu-watcher spike | <Pill variant="todo">additive</Pill> | The **kolu-watcher process**, PTY-only: over **one** `serveOverStdio` link it fronts the host's durable kaval (`frontDaemonOverStdio`, adopt-or-spawn, raw-byte relay) **and** serves the P3.3 contract with only the PTY capability live (fs/git stubbed). Driven by a **throwaway ssh harness** like the kaval-tui spike — touches no kolu-server call site. **The keystone.** | falsifiability gate on a leased pu box: one link carries kaval-fronting + the watcher surface at once; spawn → attach → detach → re-dial reaches the **same** live PTY (kaval durability); every stream's first yield is a full snapshot |
+| **P3.5** · first remote tile | <Pill variant="new">user-facing</Pill> | `RemoteTerminalEndpoint` (`server/src/terminalEndpoint/remote.ts`) — the **same `TerminalEndpoint` shape** bound to the P3.4 watcher via `getHostSession({ binary:'kolu-watcher', resolveDrvPath })`; the resolver's remote arm constructs/caches one per host. **The first remote tile on the canvas** (fs/git still stubbed). Proves the sync-shadow holds through a cold `nix` realise and that a bad host drives the session to `failed` and **unwinds the shadow**. | evidence on live kolu + pu: a tile renders ~1 frame into `copying`, `ready` gates on the real remote PTY, keystrokes reach the remote shell; an un-provisionable host → `failed`, no orphaned entry, no hung spinner; local tiles byte-identical |
+| **P3.6** · remote-only seams | <Pill variant="new">user-facing</Pill> | **Invert `composeSpawnInput`** for remote (the remote host's `$SHELL`/`$HOME`/`$PATH` win; only a presentation-var whitelist passes through — the proven `buildRemoteCreateInput` + `REMOTE_ENV_PASSTHROUGH` pattern) and **guard paste/upload** with `PRECONDITION_FAILED` on a remote tile. | on pu: `echo $SHELL $HOME` shows the **remote** values, `env` shows no local `/nix/store` leakage; paste/upload on a remote tile → `PRECONDITION_FAILED` (with a "planned for P4" message), local unchanged |
+| **P3.7** · thicken kolu-watcher | <Pill variant="new">user-facing</Pill> | Move kolu-watcher from PTY-only to full: run the **R-1.6 provider DAG + native fs/git host-resident** (against kaval's taps and the remote disk) and **mirror** them to kolu-server via `mirrorRemoteCollection`; replace P3.5's stubs. **The Code tab and the agent/git pills light up for remote tiles.** | on pu: a remote git-repo tile lists files, shows a real diff, the git pill resolves, and starting `claude` in the remote shell lights the agent pill — all derived host-resident; a link-drop → respawn re-subscribes and re-paints the snapshot |
+| **P3.8** · remote adoption | <Pill variant="new">user-facing</Pill> | Remote **adoption + boot reattach** through the **unchanged** `adoptOrEnsure`/`reconcile` spine — a remote `connect` soul that runs the same contract-version handshake and reads the pid-gate over the wire (the RPC-baked `system.gateStatus` from P3.3); per-host `DaemonStatus` fed from `session.onState`. **Remote terminals survive a kolu-server restart** (adopt, never clobber). | the five-state adoption table on pu (absent / wire-compatible / build-behind / contract-skewed / unreachable→degraded-never-killed); a server restart re-dials + reattaches surviving remote terminals with scrollback; `daemonStatus` shows the host's transitions |
+
+*Phasing note: P3.3 + P3.4 may merge into one "introduce kolu-watcher behind a spike" PR, and P3.4 may fold into P3.5 if you'd rather not land an unwired binary on master — the falsifiability gate is what matters, not the PR boundary. Everything else should stay split: each row is independently reviewable against a frozen seam and independently revertable.*
+
+### The three remote seams
+
+The "carries the remote seams" line, resolved concretely — each is small, and each is already de-risked by an existing pattern:
+
+- **`composeSpawnInput` inversion (P3.6).** Today the rich spawn policy (`composeSpawnInput`, wrapped by `buildTerminalSpawnInput` in `server/src/ptyHost/index.ts`) layers env with the **local** kolu-server process winning over the daemon's `system.info` — correct on one machine, **wrong** over ssh (it would leak the local `$HOME`/`$PATH`/`/nix/store`). The remote sibling **inverts the precedence**: the remote daemon's `system.info` wins and only a presentation whitelist (`TERM`/`LANG`/`LC_*`/`COLORTERM`) rides through. This is exactly `buildRemoteCreateInput` + `REMOTE_ENV_PASSTHROUGH` from kaval-tui (P1/P2) — P3 lifts the pattern into kolu-server and routes by endpoint kind. The wire stays self-contained: no var refs, host-relative rc paths.
+- **paste/upload `PRECONDITION_FAILED` guard (P3.6).** `pasteImage`/`uploadFile` (`router.ts`) save into a **local** scratch dir and bracketed-paste that local path into the PTY — unreachable from a remote shell (a silent `ENOENT` the agent would chase). P3's scope is the **guard, not the fix**: inspect the tile's recorded `location` (on the record after P3.2) and throw `PRECONDITION_FAILED` on a remote tile. The actual copy-to-remote-scratch is **P4**.
+- **`drvPath` via `resolveSystem` (P3.3 + P3.5).** kolu-server must ship the right-arch kolu-watcher closure: `resolveSystem(host)` (the P2.8-memoized ssh arch probe) → a `{system → .drv}` map baked onto the server wrapper as `KOLU_AGENT_DRVS_JSON` (the exact mirror of kaval's `KAVAL_AGENT_DRVS_JSON`), fed to `getHostSession`. The pool key is `(host, binary)` — **one resolver per host**.
+
+### Where P3 stops and P4 begins
+
+P3 makes a remote terminal **correct and observable on the server**; P4 makes it **discoverable, controllable, and fully featured in the UI**. So P3 ends with `hostId` on the wire that the client *reads but renders nothing host-aware* — tiles, dock and chrome are visually **byte-identical** for local and remote. **P4** adds the active-kaval strip, the per-tile host hint, the ssh-config picker, the reconnect affordance (a button wired to `session.reconnect()`), and the real paste/upload-to-remote that turns P3.6's guard into a feature. The sharp line: anything that **renders** a host indicator, a picker, or a recovery control — or **transfers a file** to the remote host — is P4.
+
+### P3 pick-up anchors
+
+Concrete hooks, every path verified against the tree (the [P1/P2 anchor tables](kaval-sessions.html#pick-up-anchors) in the parent set the convention):
+
+| Concern | Where it lands |
+| --- | --- |
+| **dispatch seam** | `TerminalLocation` back in `packages/common/src/terminalEndpoint.ts` (its doc already names the remote binding); new leaf `packages/server/src/terminalEndpoint/resolve.ts` (the inverse of the deleted `terminalBackend/index.ts`, commit `1c8f1770`); re-route `terminals.ts` (the `// P3 will select…` comment), `surface.ts` (the fs/git stream block), `router.ts` (`terminal.attach`) |
+| **wire / record** | `packages/common/src/surface.ts` — `hostId` on `TerminalInfoSchema`, `location` on `ServerPersistedTerminalFieldsSchema` (`.optional()`); `TerminalCreateInputSchema` in `contract.ts`. Heed the metadata-partition comment — misclassifying a new field onto the wrong base is the one silent failure mode |
+| **remote transport** | import `getHostSession` · `HostSession` · `resolveSystem` · `mirrorRemoteCollection` · `makeClientCursor` · `isLocalHost` · `FailureCause` from `packages/surface-nix-host/src/index.ts`; new `packages/server/src/terminalEndpoint/remote.ts`; new `packages/common/src/watcher-surface.ts`; the process composes `frontDaemonOverStdio` (`@kolu/surface-daemon`) + `serveOverStdio` (`@kolu/surface`) and runs the **unchanged** DAG from `terminalEndpoint/providers.ts` |
+| **the three seams** | `composeSpawnInput`/`buildTerminalSpawnInput` in `packages/server/src/ptyHost/index.ts`; inversion pattern at `packages/kaval-tui/src/create.ts` (`buildRemoteCreateInput` + `REMOTE_ENV_PASSTHROUGH`); paste guard at `router.ts` (`pasteImage`/`uploadFile`/`bracketedPastePath`); `resolveSystem` in `surface-nix-host/src/arch.ts` |
+| **adoption spine** *(reused unchanged)* | `adoptOrEnsure` in `packages/surface-daemon-supervisor/src/endpoint.ts`; pure partition in `packages/server/src/reconcile.ts`; `adoptSurvivingSession` in `terminalEndpoint/reattach.ts` (parallel the remote one); the local `connect` soul to mirror in `ptyHost/connect.ts`; `DaemonStatus` already keyed by hostId in `ptyHost/daemonStatus.ts` |
+| **nix** | `flake.nix` (`kavalAgentDrvsJson` → add a `koluAgentDrvsJson` sibling) + `default.nix` (the `KAVAL_AGENT_DRVS_JSON --set-default` line → add `KOLU_AGENT_DRVS_JSON`, plus `openssh`/`nix` on the server wrapper PATH) |
+
+### Open calls — decide at implementation
+
+Genuine design calls left to the implementer, each with a recommendation:
+
+1. **Where fs/git lives** — kolu-watcher runs `kolu-git` natively + the DAG in-process; **kaval stays a pure PTY host** (co-locates agent detection with the JSONL files it reads). *Recommended.*
+2. **Remote gate read** — an **RPC-baked `system.gateStatus()`** on the watcher contract, not an ssh-exec subprocess; bake it into the P3.3 contract so P3.8 needs no wire bump. *Recommended.*
+3. **Pooling** — **one `HostSession` per remote host**, keyed `(host, 'kolu-watcher')`, shared across the PTY + fs/git + metadata pumps. *Recommended.*
+4. **Create-time selection** — explicit `location` > parent inheritance > **default-local**; the interactive picker is P4. *Recommended.*
+5. **Remote `list` failure** — **degrade, don't recycle** (a pure-dial remote may not be kolu's to own — unlike the local F3 "recycle on list failure", which assumes kolu owns the lifecycle). *Recommended; settle in P3.8.*
+
+## P4 — the canvas: switch or multiplex
+
+With P3 the server can hold N live endpoints; **P4 spends that on the UI — and settles the one open granularity call.** The same substrate answers either, so it is a **later, reversible** choice that the P1–P2 spike deliberately did not depend on:
+
+| | switch (tmux-style) | multiplex (canvas) — leaning |
+| --- | --- | --- |
+| the canvas | one kaval in view | tiles span kavals |
+| per-tile `location` | unneeded | additive — the R-1 discriminator, finally used |
+| live endpoints | one, swapped | N concurrent |
+| host hint | one *current* pointer | a light per-tile tag; ChromeBar shows the *active* kavals |
+| why it fits kolu | simplest | the canvas is spatial + heterogeneous *by design* |
+
+The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but kolu is a *canvas* — "watch a local build beside a prod-ssh tile" is the point of a canvas, not a corner case. The cost over switch is modest and clean — per-tile `location` returns, but **additively** (no `RemoteTerminalBackend`, no screen mirror — just *which endpoint holds this tile's PTY*), and the ChromeBar shows only the kavals this canvas *actually has tiles on*.
+
+**P4 builds multiplex, then validates the feel.** The UI work consumes exactly the server substrate P3 left: the **active-kaval strip** (local always present), the **per-tile host hint**, the **ssh-config picker** (how a user *chooses* a remote host — P3's selection is config/env-driven, not interactive), the **reconnect affordance** wired to `session.reconnect()` and tooltip'd from `lastError`, and turning P3.6's paste/upload `PRECONDITION_FAILED` guard into a **real feature** (copy the file to the remote scratch dir, bracketed-paste the *remote* path). Then the validation: **does N-at-once actually beat tmux-switch in daily use?** Fall back to switch if multiplex doesn't earn its keep — the granularity call lands **and is validated** here, on real use, not up front.
