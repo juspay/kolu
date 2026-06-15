@@ -204,16 +204,14 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
             desktop-only) and can't action the shortcut list with a finger. On
             desktop the empty Dock owns the `+`, so this is suppressed there. */}
         <Show when={!isDesktop() && props.onCreate}>
-          {(onCreate) => (
-            <button
-              type="button"
-              data-testid="empty-create-terminal"
-              class="mb-5 w-full px-3 py-2 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 active:brightness-95 transition-all"
-              onClick={() => onCreate()()}
-            >
-              New terminal
-            </button>
-          )}
+          <button
+            type="button"
+            data-testid="empty-create-terminal"
+            class="mb-5 w-full px-3 py-2 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 active:brightness-95 transition-all"
+            onClick={() => props.onCreate?.()}
+          >
+            New terminal
+          </button>
         </Show>
         {/* Shortcut list — only where the welcome moments aren't shown (mobile).
             On desktop the moments above already advertise these, so the list is

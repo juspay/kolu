@@ -427,12 +427,13 @@ const App: Component = () => {
                 // `CompactTileView`. The inner tile props are identical, so
                 // they live in one `tileProps` object.
                 //
-                // The reactive reads stay GETTERS (not eager calls): spreading
-                // `{...tileProps}` is `mergeProps`-style lazy access, so a getter
-                // re-runs `orderedIds()` / `wsStatus()` / `appTitle()` per read
-                // and the tile view tracks them. An eager `orderedIds: orderedIds()`
-                // would snapshot the value at mount — a freshly-created terminal
-                // would never reach the body's `<For each={props.orderedIds}>`.
+                // The reactive reads stay GETTERS (not eager calls): Solid's JSX
+                // prop spread preserves the getters (mergeProps-style, not an
+                // eager copy), so each re-runs `orderedIds()` / `wsStatus()` /
+                // `appTitle()` when the tile view reads the prop, and tracks them.
+                // An eager `orderedIds: orderedIds()` would snapshot the value at
+                // mount — a freshly-created terminal would never reach the body's
+                // `<For each={props.orderedIds}>`.
                 const tileProps = {
                   get orderedIds() {
                     return orderedIds();
@@ -455,12 +456,13 @@ const App: Component = () => {
                     onThemeClick={() => commandPalette.openGroup("Set theme")}
                     contentClass={m === "phone" ? "flex-col" : undefined}
                   >
-                    <Show
-                      when={m === "phone"}
-                      fallback={<CompactTileView {...tileProps} />}
-                    >
+                    {/* `m` is a fixed match-arm value, not a signal, so a plain
+                     *  ternary picks the tile view — no reactive `<Show>` needed. */}
+                    {m === "phone" ? (
                       <MobileTileView {...tileProps} />
-                    </Show>
+                    ) : (
+                      <CompactTileView {...tileProps} />
+                    )}
                   </RightPanelDrawer>
                 );
               })
