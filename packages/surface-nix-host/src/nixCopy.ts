@@ -6,11 +6,17 @@
  * the remote, which realises (builds) it for its own architecture. No
  * pre-built linux closure smuggled onto a darwin host.
  *
- *   1. Caller passes a `/nix/store/…-agent.drv` path. The package
- *      doesn't care HOW the caller obtained it; `nix eval --raw
+ *   Preamble: the caller passes a `/nix/store/…-agent.drv` path. The
+ *      package doesn't care HOW the caller obtained it; `nix eval --raw
  *      .#packages.<system>.<agent>.drvPath` is the typical recipe
  *      (use `resolveSystem(host)` to get the remote's `<system>` first,
  *      so the derivation is for the *remote's* architecture).
+ *   1. (Remote, warm) `ssh $host nix-store --realise $drvPath --add-root
+ *      $link --indirect`. If the closure is already on the host this one
+ *      fused command confirms presence (realise fast-fails when the
+ *      closure is absent and unsubstitutable), refreshes the GC root, and
+ *      returns the out-path — so a warm host short-circuits here, skipping
+ *      the redundant copy/realise/pin below. On a miss we fall through.
  *   2. `nix copy --derivation --to ssh-ng://$host $drvPath` pushes the
  *      .drv (plus its inputs' .drvs and source paths the remote
  *      doesn't have).
@@ -21,7 +27,7 @@
  *      `nix-collect-garbage` there can't delete the agent out from
  *      under a live session (or force a rebuild on the next reconnect).
  *      See `agentGcRootPath` for the "latest"-link semantics.
- *   5. The output path becomes `agentPath`; the caller then spawns
+ *   Spawn: the output path becomes `agentPath`; the caller then spawns
  *      `ssh $host $agentPath/bin/<binary> --stdio` via `HostSession`.
  *
  * Localhost shortcut: the .drv is already in the local store, so
