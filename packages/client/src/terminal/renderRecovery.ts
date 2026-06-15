@@ -69,8 +69,10 @@ function defaultHasFocus(): boolean {
 export interface RenderRecoveryProbes {
   /** ms since the last `onRender` firing — climbs without bound while the
    *  paint loop is stalled even as `bufferBytes` grows. The single clearest
-   *  freeze signal. */
-  msSinceLastPaint: () => number;
+   *  freeze signal. `null` when no paint has happened yet (genuinely unknown,
+   *  not a fresh 0 ms paint) — the most severe stall, surfaced as "?" rather
+   *  than masquerading as the healthiest value. */
+  msSinceLastPaint: () => number | null;
   /** RenderDebouncer is holding an unserviced rAF handle. `true` while frozen,
    *  `false` once a frame (or a forced sync paint) clears it, `null` if the
    *  private path changed. */
@@ -179,7 +181,8 @@ export function createRenderRecovery(
     noteData,
     recover,
     probes: {
-      msSinceLastPaint: () => (lastPaintAt === null ? 0 : now() - lastPaintAt),
+      msSinceLastPaint: () =>
+        lastPaintAt === null ? null : now() - lastPaintAt,
       renderDebouncerPending: () => {
         const rs = renderService(term);
         if (!rs || !rs._renderDebouncer) return null;

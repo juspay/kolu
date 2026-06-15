@@ -168,8 +168,9 @@ describe("renderRecovery", () => {
         hasFocus: () => true,
       });
 
-      // ms-since-paint reads 0 until the first paint, then tracks the clock.
-      expect(r.probes.msSinceLastPaint()).toBe(0);
+      // ms-since-paint reads null (never painted, genuinely unknown) until the
+      // first paint, then tracks the clock.
+      expect(r.probes.msSinceLastPaint()).toBeNull();
       f.fireRender();
       vi.advanceTimersByTime(500);
       expect(r.probes.msSinceLastPaint()).toBe(500);
