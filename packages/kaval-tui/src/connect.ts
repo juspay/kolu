@@ -23,7 +23,12 @@ export type PtyTuiClient = UnixSocketConnection<
 /** A live pty-host connection: the client plus a `dispose` that tears the
  *  transport down. Both the local socket path (`connectPtyHost`) and the ssh
  *  `--host` path (`connectPtyHostViaHost`) return this shape, so every `cmd*()`
- *  is written against it once and the transport is interchangeable. */
+ *  is transport-blind — written against it once over either transport. This is
+ *  the kaval-tui CLI's shape: a one-shot dialer needs only the client and a
+ *  teardown. A long-lived consumer (kolu-server, P3) that wants the session's
+ *  `onState`/`markConnected` seam composes its own `Connection` variant carrying
+ *  `session` (as mini-ci's dialer does) — it does NOT reuse this `{ client,
+ *  dispose }`. */
 export interface Connection {
   client: PtyTuiClient;
   dispose: () => void;

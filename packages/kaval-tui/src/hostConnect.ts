@@ -11,8 +11,11 @@
  * speaks `ptyHostSurface` over that child's stdio. kaval's `--stdio` mode fronts
  * the *durable* daemon (see `kaval/src/stdioBridge.ts`), so a PTY a `create`
  * spawns survives the ssh link and a later `attach` finds it. This module is the
- * thin kaval-tui-side composition of that primitive — the same one kolu-server
- * reuses in a later phase.
+ * thin kaval-tui-side, CLI-local composition of `getHostSession`: a one-shot
+ * dialer that fires `markConnected()` itself and discards the `HostSession`,
+ * because a one-shot CLI needs no copying/connecting overlay and never reads
+ * `onState`. A long-lived consumer (kolu-server, P3) does NOT reuse this exact
+ * `Connection` — it would compose its own variant carrying `session`/`onState`.
  *
  * This is the ONLY place kaval-tui imports `@kolu/surface-nix-host` — it must
  * never leak into the kaval daemon closure (the staleKey allow-list).
