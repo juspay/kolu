@@ -111,12 +111,14 @@ async function connectToDaemon(deps: StdioBridgeDeps): Promise<Socket> {
 
   const deadline = Date.now() + (deps.daemonWaitMs ?? DEFAULT_DAEMON_WAIT_MS);
   const pollMs = deps.pollMs ?? DEFAULT_POLL_MS;
+  // Try immediately (a daemon that binds sub-second isn't taxed a full pollMs),
+  // then sleep only BETWEEN retries. A daemon that comes up but rejects a path
+  // we can't probe (e.g. perms tightened mid-wait) still propagates via
+  // tryConnect rather than spinning to the deadline.
   while (Date.now() < deadline) {
-    await sleep(pollMs);
-    // A daemon that comes up but rejects a path we can't probe (e.g. perms
-    // tightened mid-wait) still propagates rather than spinning to the deadline.
     const sock = await tryConnect(connect, socketPath);
     if (sock) return sock;
+    await sleep(pollMs);
   }
   throw new Error(
     `daemon did not start listening at ${socketPath} within ${deps.daemonWaitMs ?? DEFAULT_DAEMON_WAIT_MS}ms`,

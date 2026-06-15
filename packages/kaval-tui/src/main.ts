@@ -508,7 +508,9 @@ async function main(): Promise<void> {
   const conn =
     endpoint.kind === "host"
       ? await connectHost(endpoint.host)
-      : await connectLocal(argv.flags.socket);
+      : await connectLocal(
+          endpoint.kind === "socket" ? endpoint.socket : undefined,
+        );
 
   try {
     await assertCompatible(conn);
