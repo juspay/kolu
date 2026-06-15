@@ -77,4 +77,4 @@ await restart(endpoint, NO_SURVIVAL_STEPS); // B2 boot = recycle with degenerate
 
 ## Invariant this package carries
 
-> **It runs in the client, never the daemon — so it is never a staleKey root.** A change here cannot change what a daemon restart would load (that is the daemon half's job), so `default.nix` hashes none of it and `kaval/src/buildId.closure.test.ts` never reaches it. The mirror invariant of `@kolu/surface-daemon`'s "only daemon-running code lives here": only *supervising* code lives here, and only kolu-free supervising code at that.
+> **It runs in the client, never the daemon — so it is never a staleKey root.** A change here cannot change what a daemon restart would load (that is the daemon half's job), so `default.nix` hashes none of it and `kaval/src/buildId.closure.test.ts` never reaches it. The mirror invariant of `@kolu/surface-daemon`'s "only daemon-*binary* code lives here" (its serve + front halves): only *supervising* code lives here, and only kolu-free supervising code at that.

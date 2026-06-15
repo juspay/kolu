@@ -49,11 +49,13 @@ const ENTRIES = [resolve(SRC, "index.ts"), resolve(SRC, "bin.ts")];
 const PROTOCOL_SRC = resolve(SRC, "../../terminal-protocol/src");
 const PROTOCOL_ENTRY = resolve(PROTOCOL_SRC, "index.ts");
 
-// The third hashed root: @kolu/surface-daemon is the daemon spine — the
-// pid-gate and the `daemonMain` skeleton run INSIDE the daemon process, so a
-// change to them is a change to what a restart loads. default.nix hashes it
-// whole (its standing invariant: only daemon-running code lives there until
-// S1), and the walk follows the edge.
+// The third hashed root: @kolu/surface-daemon is the durable-daemon spine —
+// the pid-gate and the `daemonMain` skeleton run INSIDE the daemon process, and
+// (P2.5) `frontDaemonOverStdio` runs in the per-link front proxy reached from
+// `bin.ts`'s `--stdio` dispatch. Both halves are part of the kaval *binary* a
+// restart loads, so a change to either changes the staleKey. default.nix hashes
+// the package whole (its standing invariant: only daemon-binary code — serve +
+// front — lives there, never the supervisor), and the walk follows the edge.
 const DAEMON_SRC = resolve(SRC, "../../surface-daemon/src");
 const DAEMON_ENTRY = resolve(DAEMON_SRC, "index.ts");
 

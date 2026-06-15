@@ -653,7 +653,7 @@ The sibling package [`@kolu/surface-mcp`](../surface-mcp) re-exposes any surface
 
 ### See also: `@kolu/surface-daemon`
 
-The sibling package [`@kolu/surface-daemon`](../surface-daemon) is the **daemon half** of the surface-daemon spine: the lifecycle mechanism every long-lived process that owns a unix socket and serves a typed surface repeats — `acquirePidGate` (the atomic single-instance gate, with `gatePid`/`isHolderLive` single-sourcing the gate's file format) and `daemonMain` (the gate → serve → teardown skeleton, parameterized over scope key, socket path, the surface `router`, and lifetime). It builds on this package's `serveOverUnixSocket` transport; [kaval](../kaval)'s `bin.ts` is a thin composition over it, with `odu serve` the planned second tenant. See the Atlas note `surface-daemon` for the design.
+The sibling package [`@kolu/surface-daemon`](../surface-daemon) is the **durable-daemon spine** — both halves of the daemon *binary*. The **serve** half: `acquirePidGate` (the atomic single-instance gate, with `gatePid`/`isHolderLive` single-sourcing the gate's file format) and `daemonMain` (the gate → serve → teardown skeleton, parameterized over scope key, socket path, the surface `router`, and lifetime), built on this package's `serveOverUnixSocket` transport. The **front** half: `frontDaemonOverStdio` — the durable counterpart to this package's `serveOverStdio` (adopt-or-spawn the gate-held daemon and relay an ssh-stdio link onto its socket, so a remote session survives the link) — plus `reExecAsDetachedDaemon`. [kaval](../kaval)'s `bin.ts` (serve) and `--stdio` (front) are thin compositions over it, with `odu serve` the planned second tenant. See the Atlas note `surface-daemon` for the design.
 
 ## API reference
 
