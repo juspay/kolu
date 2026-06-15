@@ -105,6 +105,15 @@ the host (else starts one), so a terminal you `create` outlives the ssh link —
 detach on the train, `attach` again at the café and your build is still
 running. One kaval per host, shared across dials.
 
+A remote terminal runs in the **host's** environment, not yours. A remote
+`create` composes its spawn from the daemon's `system.info`: `$SHELL`, `$HOME`,
+and `$PATH` are the **remote** machine's (so the shell finds the remote's own
+commands — a shell with no `$PATH` would exit `127` on the first one), and only
+your terminal's _presentation_ vars (`TERM`, `COLORTERM`, `LANG`/`LC_*`) are
+carried across. Your local environment — and any secrets in it — never crosses
+the wire. (A _local_ `create` ships your own env, since the daemon is on your
+machine; the remote path deliberately does not.)
+
 `--host` is mutually exclusive with `--socket` (a remote ssh target vs a local
 path). It needs passwordless ssh and the remote's nix-daemon trusting your user
 (`trusted-users`) to accept the copied closure. Run kaval-tui from its Nix

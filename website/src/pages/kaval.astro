@@ -196,6 +196,19 @@ const escapes = [
       with <code class="mono text-ink">--socket</code>; it needs passwordless ssh
       and your user trusted by the remote's Nix daemon.
     </p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mt-4">
+      A remote terminal runs in the <span class="text-ink">host's</span>{" "}
+      environment, not yours: its <code class="mono text-ink">$SHELL</code>,{" "}
+      <code class="mono text-ink">$HOME</code>, and{" "}
+      <code class="mono text-ink">$PATH</code> come from the remote machine (so
+      its own commands resolve), and only your terminal's <em>presentation</em>{" "}
+      vars (<code class="mono text-ink">TERM</code>,{" "}
+      <code class="mono text-ink">COLORTERM</code>,{" "}
+      <code class="mono text-ink">LANG</code>/<code class="mono text-ink"
+        >LC_*</code
+      >) are carried across. Your local environment — and any secrets in it —{" "}
+      <span class="text-ink">never crosses the wire</span>.
+    </p>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
