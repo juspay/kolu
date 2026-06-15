@@ -60,6 +60,7 @@ import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
 import { isTerminalQueryResponse } from "@kolu/terminal-protocol";
+import { createRenderRecovery } from "./renderRecovery";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
@@ -642,6 +643,17 @@ const Terminal: Component<{
           // this assignment silently breaks every cucumber test that
           // touches terminal contents.
           (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
+          // Force a synchronous repaint when xterm's rAF-driven paint loop
+          // stalls under window occlusion (the real freeze — see renderRecovery
+          // for the full story). Gated on `visible` so hidden tiles don't draw.
+          const recovery = createRenderRecovery(term, () => props.visible);
+          // The DOM signal that an occluded window is back in front: app-switch
+          // return fires `focus` (not `visibilitychange`, which only covers a
+          // real tab switch — handled in refitOnTabVisible below). The forced
+          // paint is synchronous, so it doesn't wait for Chromium to resume
+          // producing frames. Kept here (DOM-adjacent) so renderRecovery stays
+          // DOM-free and node-testable, mirroring scrollLock/scrollLockWiring.
+          makeEventListener(window, "focus", () => recovery.recover());
           // Production path for handlers that need live xterm/addon refs
           // (e.g. export-as-PDF reads serializeAddon).
           registerTerminalRefs(props.terminalId, {
@@ -654,6 +666,7 @@ const Terminal: Component<{
               },
               bufferBytes: () => readBufferBytes(term),
               scrollLockEvents: () => scrollLock.events(),
+              ...recovery.probes,
             },
           });
           // Diagnostics subscribes to hasWebgl via accessor — keeps hasWebgl
@@ -776,7 +789,13 @@ const Terminal: Component<{
                 },
               ),
             (data) => {
-              if (terminal) scrollLock.writeData(terminal, data);
+              if (terminal) {
+                scrollLock.writeData(terminal, data);
+                // Output reached xterm — arm the render-stall watchdog so a
+                // parked-rAF freeze (occluded window) gets a forced sync paint
+                // even if the user never returns focus to fire the focus path.
+                recovery.noteData();
+              }
             },
             "Terminal attach",
           );
@@ -819,6 +838,11 @@ const Terminal: Component<{
               // returning user as a frozen terminal (#1272) — flush and
               // rejoin the bottom, like switching back to a terminal does.
               scrollLock.handleTabVisible();
+              // Returning via a real tab switch (document.hidden→visible) can
+              // also leave a parked-rAF stale frame; force a sync repaint. The
+              // window-focus path inside recovery covers app-switch occlusion,
+              // which never trips visibilitychange.
+              recovery.recover();
             },
             () => props.visible,
           );

@@ -98,6 +98,15 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         jsHeap: readJsHeap(),
         domNodes: document.getElementsByTagName("*").length,
         canvases: webgl.totalDomCanvases,
+        // Page-attention state AT SNAPSHOT TIME. The parked-rAF freeze
+        // signature is visibility "visible" + hidden false + hasFocus FALSE
+        // (window occluded by app-switch — see renderRecovery.ts). Captured
+        // here, not per-terminal, since it's a whole-document fact.
+        page: {
+          visibility: document.visibilityState,
+          hidden: document.hidden,
+          hasFocus: document.hasFocus(),
+        },
       },
       terminals: getDiagnostics().map((d) => {
         const refs = getTerminalRefs(d.id);
@@ -115,6 +124,16 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           // Full transition ring for the JSON dump — the live row above only
           // shows the latest one (#1272 field diagnosis).
           scrollLockEvents: refs?.probes.scrollLockEvents() ?? [],
+          // Render-pipeline state — climbing msSinceLastPaint with
+          // debouncerPending=true while bufferBytes grows is the parked-rAF
+          // freeze; debouncerPending=false with a stale paint means refreshRows
+          // was never called (a kolu write-path/routing bug instead).
+          render: {
+            msSinceLastPaint: refs?.probes.msSinceLastPaint() ?? null,
+            debouncerPending: refs?.probes.renderDebouncerPending() ?? null,
+            isPaused: refs?.probes.isPaused() ?? null,
+            syncOutput: refs?.probes.synchronizedOutput() ?? null,
+          },
         };
       }),
       webgl,
@@ -225,6 +244,22 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 {browser.crossOriginIsolated ? "yes" : "no"}
               </span>
             </Row>
+            <Row label="Page">
+              {(() => {
+                const p = snapshot().session.page;
+                // visible + no focus = window occluded by app-switch: the
+                // condition that parks xterm's rAF and freezes paints.
+                const occluded = !p.hidden && !p.hasFocus;
+                return (
+                  <span
+                    class={`font-mono ${occluded ? "text-danger" : "text-fg-3"}`}
+                  >
+                    {p.visibility} · focus:{p.hasFocus ? "yes" : "no"}
+                    {occluded ? " (occluded)" : ""}
+                  </span>
+                );
+              })()}
+            </Row>
           </div>
         </Section>
 
@@ -281,6 +316,27 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                         </Show>
                       </div>
                     </Show>
+                    <div class="pl-[9ch] text-[10px] tabular-nums">
+                      <span
+                        class={
+                          d.render.debouncerPending &&
+                          (d.render.msSinceLastPaint ?? 0) > 1000
+                            ? "text-danger font-semibold"
+                            : "text-fg-3/60"
+                        }
+                      >
+                        paint:{" "}
+                        {d.render.msSinceLastPaint === null
+                          ? "?"
+                          : `${d.render.msSinceLastPaint}ms ago`}
+                        <Show when={d.render.debouncerPending !== null}>
+                          {" · rAF:"}
+                          {d.render.debouncerPending ? "pending" : "idle"}
+                        </Show>
+                        <Show when={d.render.isPaused}> · paused</Show>
+                        <Show when={d.render.syncOutput}> · sync2026</Show>
+                      </span>
+                    </div>
                     <Show when={d.scrollback !== null}>
                       <div class="pl-[9ch] text-[10px] text-fg-3/60 tabular-nums">
                         scrollback: {d.scrollback}
