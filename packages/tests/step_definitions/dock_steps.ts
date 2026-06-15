@@ -186,9 +186,14 @@ Then(
 
 // Repo-identity treatment: the section element draws the spine from a
 // per-section `--repo-color` custom property (the single source the
-// header tint and the name colour also read), so asserting the property
-// is set plus the 3px solid left border proves the spine is wired —
-// without matching on a class name (e2e-testing rule).
+// header tint and the name colour also read). Assert the structural
+// facts via computed style, never a class name (e2e-testing rule): the
+// 3px solid left border exists AND its colour resolves to the same value
+// as `--repo-color` — so a regression to e.g. `border-left: 3px solid
+// red` (a non-repo hue) fails the scenario rather than slipping through.
+// `--repo-color` is an oklch() literal while `borderLeftColor` resolves
+// to the browser's rgb form, so we normalise both through a throwaway
+// probe element and compare the computed results.
 Then(
   "the dock section should carry a repo-colour spine",
   async function (this: KoluWorld) {
@@ -197,11 +202,19 @@ Then(
         const sec = document.querySelector(sel);
         if (!sec) return false;
         const cs = getComputedStyle(sec);
-        return (
-          cs.getPropertyValue("--repo-color").trim() !== "" &&
-          cs.borderLeftStyle === "solid" &&
-          cs.borderLeftWidth === "3px"
-        );
+        const repoColor = cs.getPropertyValue("--repo-color").trim();
+        if (repoColor === "") return false;
+        if (cs.borderLeftStyle !== "solid" || cs.borderLeftWidth !== "3px") {
+          return false;
+        }
+        // Resolve the raw `--repo-color` literal to the same computed
+        // colour form `borderLeftColor` already reports, then compare.
+        const probe = document.createElement("span");
+        probe.style.color = repoColor;
+        document.body.appendChild(probe);
+        const resolvedRepoColor = getComputedStyle(probe).color;
+        probe.remove();
+        return cs.borderLeftColor === resolvedRepoColor;
       },
       '[data-testid="dock-section"]',
       { timeout: POLL_TIMEOUT },
