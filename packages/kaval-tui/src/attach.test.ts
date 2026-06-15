@@ -25,6 +25,7 @@ import {
   connectPtyHost,
   type PtyTuiClient,
 } from "./connect.ts";
+import { buildCreateInput, newPtyId } from "./create.ts";
 
 const silentLog = {
   debug: () => {},
@@ -34,18 +35,11 @@ const silentLog = {
   child: () => silentLog,
 } as unknown as InProcessPtyHostDeps["log"];
 
-/** A minimal fully-specified spawn — a plain login shell, no rc files (the host
- *  derives nothing from policy since B0). */
-function spawnInput(cwd: string): PtyHostSpawnInput {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v;
-  return {
-    argv: [process.env.SHELL || "/bin/bash"],
-    cwd,
-    env,
-    initFiles: [],
-  };
-}
+/** A minimal fully-specified spawn — a plain `$SHELL` run with no login flag, no
+ *  rc files (the host derives nothing from policy since B0). Delegates to the
+ *  production composer so the test shape can't drift from what `create` sends. */
+const spawnInput = (cwd: string): PtyHostSpawnInput =>
+  buildCreateInput({ id: newPtyId(), cwd, env: process.env });
 
 interface FakeTty {
   tty: AttachTty;
@@ -152,6 +146,51 @@ describe("runAttach — over a real unix socket", () => {
     expect(outcome).toEqual({ kind: "not-found" });
     // Honest failure: nothing was painted on the local screen.
     expect(out()).toBe("");
+  });
+
+  it("create's composed input spawns a PTY that echoes the minted id and is listable", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-create-"));
+    // A client-minted id, exactly as `newPtyId()` produces — assert the host
+    // accepts our fully-specified input and echoes the id back (the round-trip
+    // `create` relies on so the printed id is the one `attach` then resolves).
+    const id = "11111111-2222-3333-4444-555555555555";
+    const result = await conn.client.surface.terminal.spawn(
+      buildCreateInput({ id, cwd: dir, env: process.env }),
+    );
+    expect(result.id).toBe(id);
+    expect(result.cwd).toBe(dir);
+    expect(result.pid).toBeGreaterThan(0);
+    const { entries } = await conn.client.surface.terminal.list({});
+    expect(entries.some((e) => e.id === id)).toBe(true);
+  });
+
+  it("create runs a passed command instead of a plain shell", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-create-cmd-"));
+    const id = "22222222-3333-4444-5555-666666666666";
+    // A command (not $SHELL) that prints a marker then stays alive, so the PTY
+    // is still listable when we read its screen — proves the `[command…]`
+    // positional reaches the host's spawn verbatim.
+    await conn.client.surface.terminal.spawn(
+      buildCreateInput({
+        id,
+        cwd: dir,
+        env: process.env,
+        command: ["sh", "-c", "echo CMDMARK-create; sleep 100"],
+      }),
+    );
+    let screen = "";
+    await until(
+      () => screen.includes("CMDMARK-create"),
+      "command output",
+      async () => {
+        screen = (await conn.client.surface.terminal.getScreenText({ id }))
+          .text;
+      },
+    );
   });
 
   it("paints the snapshot, round-trips a keystroke, detaches on ~., and leaves the PTY alive", {

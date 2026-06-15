@@ -94,6 +94,11 @@ let
     installPhase = ''
       runHook preInstall
       cp -r dist $out
+      # Fold the committed Atlas dist in at /atlas/. The notes are
+      # self-contained HTML with inlined CSS and relative cross-links (Astro
+      # `format: "file"`), so they need no Astro/Vite processing — copy them in
+      # verbatim. `kolu.dev/atlas/` serves docs/atlas/dist/index.html.
+      cp -r ${../docs/atlas/dist} $out/atlas
       runHook postInstall
     '';
   };

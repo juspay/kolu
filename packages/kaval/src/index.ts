@@ -67,6 +67,7 @@ export {
 // to type their client, which collapses to `unknown` under a type-only re-export.
 // Compatibility check: `isContractVersionCompatible` from `@kolu/surface/define`.
 export {
+  DEFAULT_SPAWN_SHELL,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostDataMsg,
   type PtyHostForegroundMsg,
@@ -75,6 +76,7 @@ export {
   type PtyHostInitFile,
   type PtyHostListEntry,
   type PtyHostSpawnInput,
+  type PtyHostSpawnResult,
   type PtyHostSurface,
   type PtyHostSystemInfo,
   type PtyHostSystemVersion,

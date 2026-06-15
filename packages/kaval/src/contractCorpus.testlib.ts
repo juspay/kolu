@@ -22,6 +22,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PtyHostClient } from "./inProcessPtyHost.ts";
 import {
+  DEFAULT_SPAWN_SHELL,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSpawnInput,
 } from "./ptyHostSurface.ts";
@@ -53,7 +54,8 @@ export const CONTRACT_COVERAGE = {
   ],
 } as const;
 
-/** A minimal fully-specified spawn — a plain login shell, no rc files. Since B0
+/** A minimal fully-specified spawn — a plain `$SHELL` run with no login flag,
+ *  no rc files. Since B0
  *  the host derives nothing from policy, so a bare client supplies the complete
  *  `{argv, env, initFiles}` (and this exercises exactly that no-hooks path). The
  *  env crosses the wire verbatim on the socket link. */
@@ -61,7 +63,7 @@ export function spawnInput(cwd: string): PtyHostSpawnInput {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v;
   return {
-    argv: [process.env.SHELL || "/bin/bash"],
+    argv: [process.env.SHELL || DEFAULT_SPAWN_SHELL],
     cwd,
     env,
     initFiles: [],

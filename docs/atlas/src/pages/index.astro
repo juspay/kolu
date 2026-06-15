@@ -9,8 +9,8 @@ import { buildCategoryGroups } from "../lib/indexTree";
 // edges become "related" links). Drafts are hidden from the build but reachable
 // in `astro dev`. Membership is automatic — a note's `kind` always lands it in a
 // section, so nothing falls through unfiled. Links are relative (`./<slug>.html`)
-// so the committed pages navigate both in kolu's Code tab and externally via
-// htmlpreview.github.io.
+// so the committed pages navigate both in kolu's Code tab and on the web at
+// kolu.dev/atlas/.
 const notes = (await getCollection("atlas")).filter(
   (n) => import.meta.env.DEV || !n.data.draft,
 );

@@ -9,6 +9,7 @@ on:
     branches: [master]
     paths:
       - "website/**"
+      - "docs/atlas/dist/**"
       - "packages/client/favicon.svg"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
