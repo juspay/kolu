@@ -29,7 +29,9 @@ const KAVAL_BINARY = "kaval";
  *  wrapper (`KAVAL_AGENT_DRVS_JSON`), mirroring drishti's agent-drv map. The ssh
  *  path probes the host's nix-system and ships THAT system's derivation, so
  *  `--host` works cross-arch (an aarch64-darwin laptop provisioning an
- *  x86_64-linux box). Parsed lazily so a non-`--host` command never needs it. */
+ *  x86_64-linux box). Parsed once, eagerly, at the `--host` entry (so the
+ *  static-config check never enters the session's reconnect path); a non-`--host`
+ *  command never reaches this. */
 function agentDrvBySystem(): Record<string, string> {
   const raw = process.env.KAVAL_AGENT_DRVS_JSON;
   if (raw === undefined || raw === "") {
@@ -57,13 +59,19 @@ function agentDrvBySystem(): Record<string, string> {
   return parsed as Record<string, string>;
 }
 
-/** Resolve the kaval daemon's `.drv` for `host`: probe its nix-system over ssh
- *  (`resolveSystem`), then look it up in the baked map. Deferred (handed to
- *  `getHostSession` as a thunk, not awaited here) so an unreachable host folds
- *  into the session's reconnect machinery rather than throwing before any
- *  session exists. */
-export async function resolveKavalAgentDrv(host: string): Promise<string> {
-  const drvBySystem = agentDrvBySystem();
+/** Resolve the kaval daemon's `.drv` for `host` against an already-validated
+ *  `{ system → drv }` map: probe the host's nix-system over ssh
+ *  (`resolveSystem`), then look it up. This is the ONLY genuinely-per-host,
+ *  genuinely-volatile step — and it's the only thing the deferred resolver
+ *  thunk runs, so an unreachable host (or a lookup miss for the host's arch)
+ *  folds into the session's reconnect machinery. The static-config axis
+ *  (env-var present / valid JSON / right shape) is parsed eagerly by the caller
+ *  via `agentDrvBySystem`, so a missing/malformed map never reaches the session
+ *  to be misclassified as a retryable `"network"` fault. */
+export async function resolveKavalAgentDrv(
+  host: string,
+  drvBySystem: Record<string, string>,
+): Promise<string> {
   const system = await resolveSystem(host);
   const drv = drvBySystem[system];
   if (drv === undefined) {
@@ -78,10 +86,18 @@ export async function resolveKavalAgentDrv(host: string): Promise<string> {
 /** Dial a kaval on `host` over ssh. Provisions the daemon's closure, runs
  *  `kaval --stdio`, and returns the contract-typed `Connection`. */
 export async function connectPtyHostViaHost(host: string): Promise<Connection> {
+  // Parse + validate the baked drv map ONCE, eagerly — before any session
+  // exists. A missing/malformed `KAVAL_AGENT_DRVS_JSON` is a terminal config
+  // error (the user ran the raw entrypoint instead of the Nix wrapper), so it
+  // must throw synchronously here (caught by `connectHost`'s fail-fast) rather
+  // than inside the deferred resolver, where `HostSession` would misclassify it
+  // as a retryable `"network"` fault and a long-lived consumer would spin on it
+  // forever. Only the genuinely-per-host arch probe + lookup stays deferred.
+  const drvBySystem = agentDrvBySystem();
   const session = getHostSession<typeof ptyHostSurface.contract>({
     host,
     binary: KAVAL_BINARY,
-    resolveDrvPath: () => resolveKavalAgentDrv(host),
+    resolveDrvPath: () => resolveKavalAgentDrv(host, drvBySystem),
   });
   // `pin()` runs the provision (`nix copy` → realise — which happens BEFORE the
   // connect watchdog arms, so a cold copy doesn't time it out) and spawns the

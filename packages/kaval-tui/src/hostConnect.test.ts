@@ -50,39 +50,48 @@ afterEach(() => {
 });
 
 describe("resolveKavalAgentDrv", () => {
+  // The map is already parsed+validated by the caller; this resolver only does
+  // the genuinely-per-host arch probe + lookup against it.
   beforeEach(() => h.resolveSystem.mockResolvedValue("x86_64-linux"));
 
   it("ships the host-arch derivation: probe system, then map-lookup", async () => {
-    process.env.KAVAL_AGENT_DRVS_JSON = JSON.stringify({
-      "x86_64-linux": "/nix/store/aaa-kaval.drv",
-      "aarch64-darwin": "/nix/store/bbb-kaval.drv",
-    });
-    await expect(resolveKavalAgentDrv("nix@prod")).resolves.toBe(
-      "/nix/store/aaa-kaval.drv",
-    );
+    await expect(
+      resolveKavalAgentDrv("nix@prod", {
+        "x86_64-linux": "/nix/store/aaa-kaval.drv",
+        "aarch64-darwin": "/nix/store/bbb-kaval.drv",
+      }),
+    ).resolves.toBe("/nix/store/aaa-kaval.drv");
   });
 
   it("fails clearly when no derivation is baked for the host's system", async () => {
-    process.env.KAVAL_AGENT_DRVS_JSON = JSON.stringify({
-      "aarch64-darwin": "/nix/store/bbb-kaval.drv",
-    });
-    await expect(resolveKavalAgentDrv("nix@prod")).rejects.toThrow(
-      /no kaval derivation baked for system=x86_64-linux/,
-    );
+    await expect(
+      resolveKavalAgentDrv("nix@prod", {
+        "aarch64-darwin": "/nix/store/bbb-kaval.drv",
+      }),
+    ).rejects.toThrow(/no kaval derivation baked for system=x86_64-linux/);
   });
+});
 
+describe("connectPtyHostViaHost: eager drv-map validation", () => {
+  // The static-config check runs eagerly at the --host entry — BEFORE the
+  // session is constructed — so a missing/malformed map fails synchronously
+  // (caught by connectHost's fail-fast) and never enters the session's
+  // retryable "network" classification.
   it("fails when the drv map is missing entirely (run outside the Nix wrapper)", async () => {
     delete process.env.KAVAL_AGENT_DRVS_JSON;
-    await expect(resolveKavalAgentDrv("nix@prod")).rejects.toThrow(
+    await expect(connectPtyHostViaHost("nix@prod")).rejects.toThrow(
       /KAVAL_AGENT_DRVS_JSON is not set/,
     );
+    // It threw before ever constructing a session — no reconnect path entered.
+    expect(getHostSession).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed (non-string-valued) map", async () => {
     process.env.KAVAL_AGENT_DRVS_JSON = JSON.stringify({ "x86_64-linux": 7 });
-    await expect(resolveKavalAgentDrv("nix@prod")).rejects.toThrow(
+    await expect(connectPtyHostViaHost("nix@prod")).rejects.toThrow(
       /must be a JSON object of \{ system: drvPath \} strings/,
     );
+    expect(getHostSession).not.toHaveBeenCalled();
   });
 });
 
@@ -90,6 +99,12 @@ describe("connectPtyHostViaHost", () => {
   let dispose: () => void;
 
   beforeEach(() => {
+    // `connectPtyHostViaHost` parses the drv map eagerly at entry, so the
+    // happy-path dial needs a valid one even though the fake session never
+    // invokes the deferred resolver.
+    process.env.KAVAL_AGENT_DRVS_JSON = JSON.stringify({
+      "x86_64-linux": "/nix/store/aaa-kaval.drv",
+    });
     const inproc = createInProcessPtyHost({
       log: silentLog,
       rcDir: mkdtempSync(join(tmpdir(), "kaval-host-rc-")),
