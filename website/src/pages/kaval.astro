@@ -20,6 +20,11 @@ const commands = [
     what: "One row per live terminal — id · pid · idle · cmd · cwd. --json emits a top-level array for jq.",
   },
   {
+    cmd: "kaval-tui create",
+    flags: "[-- cmd] · --json",
+    what: "Spawn a new terminal on the daemon and print its short id — a plain $SHELL, or a command you pass (create -- htop -d 5). A freshly-started daemon owns nothing, so create is what attach needs first; the daemon then holds the terminal until something kills it. --json emits { id, pid, cwd }.",
+  },
+  {
     cmd: "kaval-tui snapshot <id>",
     flags: "",
     what: "Print a terminal's current scrollback as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean).",
@@ -96,9 +101,11 @@ const escapes = [
       their screens, and serves them over a local unix socket — outliving the
       clients that come and go.{" "}
       <code class="mono text-ink">kaval-tui</code> is its terminal client: list
-      your shells, dump their scrollback, or attach and type. Run the pair on a
-      box where kolu has never been installed — a tmux/zellij-shaped duo, minus
-      the multiplexer's session model.
+      your shells, <span class="text-ink">create</span> new ones, dump their
+      scrollback, or attach and type — locally, or on a remote machine over ssh
+      (<code class="mono text-ink">--host</code>). Run the pair on a box where
+      kolu has never been installed — a tmux/zellij-shaped duo, minus the
+      multiplexer's session model.
     </p>
   </section>
 
@@ -125,6 +132,10 @@ const escapes = [
             its own — no socket path to remember.
           </p>
           <p class="mono text-ink-faint text-sm leading-relaxed mt-2">
+            <code class="text-ink"
+              >nix run github:juspay/kolu#kaval-tui -- create</code
+            >
+            <br />
             <code class="text-ink"
               >nix run github:juspay/kolu#kaval-tui -- list</code
             >
@@ -158,6 +169,32 @@ const escapes = [
       kolu-server namespaces its daemon by listen port). One running → it's
       picked automatically. More than one → kaval-tui lists them and asks you to
       choose with <code class="mono text-ink">--socket &lt;path&gt;</code>.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">reach a remote kaval — over ssh</p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+      <code class="mono text-ink">--host &lt;ssh&gt;</code> drives a kaval on{" "}
+      <span class="text-ink">another machine</span>, with nothing to install
+      there first. kaval-tui provisions the daemon with Nix (ships the
+      right-arch build over ssh, realises it), runs it, and dials it — every
+      subcommand works exactly as it does locally, just pointed at the remote.
+    </p>
+    <p class="mono text-ink-faint text-sm leading-relaxed mt-4 max-w-xl">
+      <code class="text-ink">kaval-tui create --host nix@prod</code>
+      <br />
+      <code class="text-ink">kaval-tui list&nbsp;&nbsp;&nbsp;--host nix@prod</code>
+      <br />
+      <code class="text-ink">kaval-tui attach --host nix@prod &lt;id&gt;</code>
+    </p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mt-4">
+      The remote daemon is <span class="text-ink">durable</span>: a terminal you
+      create outlives the ssh link, so create on prod and attach to it later —
+      even after you closed the laptop and changed networks. One shared daemon
+      per host. <code class="mono text-ink">--host</code> is mutually exclusive
+      with <code class="mono text-ink">--socket</code>; it needs passwordless ssh
+      and your user trusted by the remote's Nix daemon.
     </p>
   </section>
 
@@ -277,9 +314,10 @@ const escapes = [
         An unreachable daemon is a one-line error, never a hang.
       </li>
       <li>
-        Next up: <code class="mono text-ink">spawn</code> and{" "}
-        <code class="mono text-ink">kill</code> — creating and ending
-        terminals from the shell.
+        <code class="mono text-ink">create</code> and remote{" "}
+        <code class="mono text-ink">--host</code> have shipped; next up is{" "}
+        <code class="mono text-ink">kill</code> — ending a terminal from the
+        shell.
       </li>
       <li>
         The full design — architecture, phasing, and the decisions behind the
