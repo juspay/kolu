@@ -125,8 +125,14 @@ export async function provisionAgent(
   // code, not ssh's 255) is still classified `"network"`. We only flip a
   // flag — no buffering of the (potentially large) transfer log.
   let sawNetworkError = false;
-  const onProgress = (line: string): void => {
+  // Scan a line for a transport failure so an unreachable host is classified
+  // `"network"` no matter which step's stderr first carries the error. Shared
+  // by the visible progress wrapper and the suppressed probe callback below.
+  const scanForNetworkError = (line: string): void => {
     if (looksLikeNetworkError(line)) sawNetworkError = true;
+  };
+  const onProgress = (line: string): void => {
+    scanForNetworkError(line);
     opts.onProgress(line);
   };
   // The warm probe is *speculative*: on a cold host it's expected to fail
@@ -139,9 +145,7 @@ export async function provisionAgent(
   // host `"network"`) but NOT echoed to `opts.onProgress`. The real
   // copy/realise path below reports its own errors verbatim if provisioning
   // ultimately fails.
-  const onProbeProgress = (line: string): void => {
-    if (looksLikeNetworkError(line)) sawNetworkError = true;
-  };
+  const onProbeProgress = scanForNetworkError;
   // A direct-ssh command (realise/pin) surfaces ssh's own 255 on a transport
   // failure; combined with the stderr scan this covers both the copy step
   // (nix-wrapped ssh) and the realise step (bare ssh).
