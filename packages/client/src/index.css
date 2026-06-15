@@ -470,17 +470,25 @@ body {
  * `group.color` — the same socket the rail chip and rail divider
  * read — so every repo-tinted dock surface shares one literal name.
  *
- * The 3 px spine sits at the section's outer edge (x 0–3); the
- * active row's own 3 px accent stripe sits just inside it (x 3–6),
- * so an active row reads as "active (accent) AND in this repo
- * (spine)" without the two cues overlapping.
+ * The spine sits at the section's outer edge (x 0–3); the active
+ * row's own accent stripe sits just inside it (x 3–6), so an active
+ * row reads as "active (accent) AND in this repo (spine)" without the
+ * two cues overlapping. That non-overlap depends on the two widths
+ * being equal, so both read `--dock-edge-stripe-w` (defined below) —
+ * the single token is the anchor: the spine here, and the rows'
+ * `border-l-[length:var(--dock-edge-stripe-w)]` left stripe in
+ * Dock.tsx / MobileDockDrawer.tsx. Change it in one place and the
+ * x0-3 / x3-6 alignment stays honoured everywhere.
  *
  * Custom CSS (not Tailwind utilities): the tint formula and the
  * spine colour both interpolate the per-section `var(--repo-color)`,
  * which Tailwind's static utilities can't express — same exception
  * the rail chip below takes. */
+:root {
+  --dock-edge-stripe-w: 3px;
+}
 .dock-cards-section {
-  border-left: 3px solid var(--repo-color);
+  border-left: var(--dock-edge-stripe-w) solid var(--repo-color);
 }
 .dock-cards-section-header {
   position: sticky;
