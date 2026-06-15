@@ -16,11 +16,14 @@ vi.mock("./process", () => ({
 const STORE = "/nix/store/x8yvl9si8vb93vhwway7kf3zbvv4ahg1-agent";
 const DRV = "/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-agent.drv";
 
-/** Wire up the happy path: copy ok, realise prints the store path, pin
- *  prints the link path. Returns the `vi.fn()` handles for assertions. */
+/** Wire up the cold-provision happy path: the warm fast-path probe misses
+ *  (the closure isn't on the host yet), then copy ok, realise prints the
+ *  store path, pin prints the link path. Returns the `vi.fn()` handles for
+ *  assertions. */
 function mockHappyPath() {
   vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
   vi.mocked(runCapture)
+    .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // warm probe: not on host yet
     .mockResolvedValueOnce({ ok: true, code: 0, stdout: `${STORE}\n` }) // realise
     .mockResolvedValueOnce({ ok: true, code: 0, stdout: "/home/u/link\n" }); // pin
 }
@@ -41,10 +44,11 @@ describe("provisionAgent GC-root pinning", () => {
 
     expect(res).toEqual({ ok: true, agentPath: STORE });
 
-    // The pin is the second runCapture; it re-realises the *store path*
-    // (not the .drv) and registers an indirect root.
-    expect(runCapture).toHaveBeenCalledTimes(2);
-    const pinArgs = vi.mocked(runCapture).mock.calls[1]![1];
+    // After the warm-probe miss, the pin is the third runCapture; it
+    // re-realises the *store path* (not the .drv) and registers an indirect
+    // root.
+    expect(runCapture).toHaveBeenCalledTimes(3);
+    const pinArgs = vi.mocked(runCapture).mock.calls[2]![1];
     expect(pinArgs).toContain("--realise");
     expect(pinArgs).toContain(STORE);
     expect(pinArgs).toContain("--add-root");
@@ -69,6 +73,7 @@ describe("provisionAgent GC-root pinning", () => {
   it("treats a pin failure as non-fatal — the agent still provisions", async () => {
     vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
     vi.mocked(runCapture)
+      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // warm probe: not on host
       .mockResolvedValueOnce({ ok: true, code: 0, stdout: `${STORE}\n` }) // realise
       .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }); // pin fails
 
@@ -85,11 +90,9 @@ describe("provisionAgent GC-root pinning", () => {
 
   it("does not pin when the realise itself fails", async () => {
     vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
-    vi.mocked(runCapture).mockResolvedValueOnce({
-      ok: false,
-      code: 1,
-      stdout: "",
-    });
+    vi.mocked(runCapture)
+      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // warm probe: not on host
+      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }); // realise fails
 
     const res = await provisionAgent({
       host: "testhost",
@@ -98,7 +101,130 @@ describe("provisionAgent GC-root pinning", () => {
     });
 
     expect(res.ok).toBe(false);
-    expect(runCapture).toHaveBeenCalledTimes(1); // realise only, no pin
+    expect(runCapture).toHaveBeenCalledTimes(2); // warm probe + realise, no pin
+  });
+});
+
+describe("provisionAgent warm fast-path", () => {
+  it("skips the nix copy when the closure is already realisable on the host", async () => {
+    // Warm host: the fused realise + add-root probe succeeds (the .drv's
+    // closure is already on the host), returning the out path — so no copy,
+    // no separate realise/pin. This is the redundant work the fast-path removes.
+    vi.mocked(runCapture).mockResolvedValueOnce({
+      ok: true,
+      code: 0,
+      stdout: `${STORE}\n`,
+    });
+
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+    });
+
+    expect(res).toEqual({ ok: true, agentPath: STORE });
+    // The whole point: a warm host never re-ships the closure.
+    expect(runProgress).not.toHaveBeenCalled();
+    // One ssh: the fused realise-the-drv + register-the-root probe.
+    expect(runCapture).toHaveBeenCalledTimes(1);
+    const probeArgs = vi.mocked(runCapture).mock.calls[0]![1];
+    expect(probeArgs).toContain("--realise");
+    expect(probeArgs).toContain(DRV); // realises the .drv (can rebuild), not the out
+    expect(probeArgs).toContain("--add-root");
+    expect(probeArgs).toContain("--indirect");
+  });
+
+  it("does not leak the expected probe-miss error into the progress ring", async () => {
+    // On a cold host the probe fails because the `.drv` isn't there yet, and
+    // nix emits a real `error: …` line on stderr. That line must NOT reach the
+    // user-visible progress callback, or a clean first-time provision would
+    // read as if it errored.
+    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
+    vi.mocked(runCapture).mockImplementation(
+      async (_cmd, _args, onProgress) => {
+        // Probe (call #1): nix's expected miss-on-cold-host stderr.
+        if (vi.mocked(runCapture).mock.calls.length === 1) {
+          onProgress?.(`error: path '${DRV}' is not valid`);
+          return { ok: false, code: 1, stdout: "" };
+        }
+        // realise (#2), pin (#3): succeed.
+        return { ok: true, code: 0, stdout: `${STORE}\n` };
+      },
+    );
+
+    const lines: string[] = [];
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: (l) => lines.push(l),
+    });
+
+    expect(res).toEqual({ ok: true, agentPath: STORE });
+    // The scary-but-expected probe error is swallowed.
+    expect(lines.some((l) => l.includes("is not valid"))).toBe(false);
+    expect(lines.some((l) => l.includes("error:"))).toBe(false);
+  });
+
+  it("still classifies a transport failure on the probe as network", async () => {
+    // The probe's stderr is suppressed from the progress ring, but it must
+    // still be SCANNED: a network-looking line on the probe has to flip the
+    // fall-through's cause to `"network"` so an unreachable host keeps
+    // retrying instead of failing terminally.
+    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
+    vi.mocked(runCapture).mockImplementation(
+      async (_cmd, _args, onProgress) => {
+        if (vi.mocked(runCapture).mock.calls.length === 1) {
+          // A transport failure during the probe (ssh's own 255 path).
+          onProgress?.(
+            "ssh: connect to host testhost port 22: No route to host",
+          );
+          return { ok: false, code: 255, stdout: "" };
+        }
+        // The fall-through copy then also fails on the unreachable host.
+        return { ok: false, code: 1, stdout: "" };
+      },
+    );
+    vi.mocked(runProgress).mockResolvedValue({ ok: false, code: 1 });
+
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.cause).toBe("network");
+  });
+
+  it("clears a stale probe network blip once the copy succeeds", async () => {
+    // A speculative probe can hit a transient network error that has cleared by
+    // the time the copy runs. If the copy then SUCCEEDS (host reachable) but a
+    // later realise fails for a genuine REMOTE reason, the cause must be
+    // "remote" (bounded give-up) — not "network" (retry forever) leaked from
+    // the now-stale probe blip.
+    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 }); // copy succeeds
+    vi.mocked(runCapture).mockImplementation(
+      async (_cmd, _args, onProgress) => {
+        if (vi.mocked(runCapture).mock.calls.length === 1) {
+          // Probe (#1): a transient transport blip.
+          onProgress?.(
+            "ssh: connect to host testhost port 22: No route to host",
+          );
+          return { ok: false, code: 255, stdout: "" };
+        }
+        // Realise (#2): a genuine remote failure, no network signal.
+        return { ok: false, code: 1, stdout: "" };
+      },
+    );
+
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.cause).toBe("remote");
   });
 });
 

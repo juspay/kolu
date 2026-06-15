@@ -6,11 +6,17 @@
  * the remote, which realises (builds) it for its own architecture. No
  * pre-built linux closure smuggled onto a darwin host.
  *
- *   1. Caller passes a `/nix/store/…-agent.drv` path. The package
- *      doesn't care HOW the caller obtained it; `nix eval --raw
+ *   Preamble: the caller passes a `/nix/store/…-agent.drv` path. The
+ *      package doesn't care HOW the caller obtained it; `nix eval --raw
  *      .#packages.<system>.<agent>.drvPath` is the typical recipe
  *      (use `resolveSystem(host)` to get the remote's `<system>` first,
  *      so the derivation is for the *remote's* architecture).
+ *   1. (Remote, warm) `ssh $host nix-store --realise $drvPath --add-root
+ *      $link --indirect`. If the closure is already on the host this one
+ *      fused command confirms presence (realise fast-fails when the
+ *      closure is absent and unsubstitutable), refreshes the GC root, and
+ *      returns the out-path — so a warm host short-circuits here, skipping
+ *      the redundant copy/realise/pin below. On a miss we fall through.
  *   2. `nix copy --derivation --to ssh-ng://$host $drvPath` pushes the
  *      .drv (plus its inputs' .drvs and source paths the remote
  *      doesn't have).
@@ -21,7 +27,7 @@
  *      `nix-collect-garbage` there can't delete the agent out from
  *      under a live session (or force a rebuild on the next reconnect).
  *      See `agentGcRootPath` for the "latest"-link semantics.
- *   5. The output path becomes `agentPath`; the caller then spawns
+ *   Spawn: the output path becomes `agentPath`; the caller then spawns
  *      `ssh $host $agentPath/bin/<binary> --stdio` via `HostSession`.
  *
  * Localhost shortcut: the .drv is already in the local store, so
@@ -89,6 +95,23 @@ export function agentGcRootPath(
   return home ? `${home}/${rel}` : null;
 }
 
+/** Realise `target` on `$host` AND register an indirect GC root at
+ *  `rootPath` in one ssh command — the single shape both the warm probe
+ *  (target = the `.drv`) and the cold pin (target = the realised out-path)
+ *  share. Defined once so the root flags, option ordering, and
+ *  `--indirect` semantics live in exactly one place. */
+function realiseAndPin(host: string, target: string, rootPath: string) {
+  return buildSshProbeCommand(
+    host,
+    "nix-store",
+    "--realise",
+    target,
+    "--add-root",
+    rootPath,
+    "--indirect",
+  );
+}
+
 /** Ship the `.drv` to `$host` and realise it there. Returns the
  *  output path on the *target* host, ready for
  *  `ssh $host $agentPath/bin/...`. */
@@ -102,15 +125,61 @@ export async function provisionAgent(
   // code, not ssh's 255) is still classified `"network"`. We only flip a
   // flag — no buffering of the (potentially large) transfer log.
   let sawNetworkError = false;
-  const onProgress = (line: string): void => {
+  // Scan a line for a transport failure so an unreachable host is classified
+  // `"network"` no matter which step's stderr first carries the error. Shared
+  // by the visible progress wrapper and the suppressed probe callback below.
+  const scanForNetworkError = (line: string): void => {
     if (looksLikeNetworkError(line)) sawNetworkError = true;
+  };
+  const onProgress = (line: string): void => {
+    scanForNetworkError(line);
     opts.onProgress(line);
   };
+  // The warm probe is *speculative*: on a cold host it's expected to fail
+  // (the `.drv` isn't there yet), and nix writes a real `error: …` line to
+  // stderr before we fall through and provision successfully. Forwarding that
+  // line into the user-visible progress ring would make a clean first-time
+  // provision read as if it errored. So the probe's stderr is scanned for the
+  // network classification (a transport failure here must still flip
+  // `sawNetworkError` so the fall-through's `causeFor` calls an unreachable
+  // host `"network"`) but NOT echoed to `opts.onProgress`. The real
+  // copy/realise path below reports its own errors verbatim if provisioning
+  // ultimately fails.
+  const onProbeProgress = scanForNetworkError;
   // A direct-ssh command (realise/pin) surfaces ssh's own 255 on a transport
   // failure; combined with the stderr scan this covers both the copy step
   // (nix-wrapped ssh) and the realise step (bare ssh).
   const causeFor = (code: number | null): FailureCause =>
     sawNetworkError || code === 255 ? "network" : "remote";
+
+  const rootPath = agentGcRootPath(isLocal, opts.drvPath);
+
+  // 1. Warm fast-path (remote only). If the .drv's closure is already on the
+  //    host, ONE fused `--realise <drv> --add-root … --indirect` both proves it
+  //    (realise fast-fails when the closure is absent and unsubstitutable) and
+  //    refreshes the GC root — so a warm host skips the redundant `nix copy`
+  //    (the wasteful "copying 0 paths" step) plus the separate realise/pin it
+  //    otherwise re-pays on every dial. On a miss (drv absent → fast-fail, or an
+  //    unwritable root) we fall through to the full provision below, whose pin
+  //    is best-effort, so a root issue degrades to "works, unpinned" rather than
+  //    a hard failure. Localhost never copies anyway (the .drv is already in the
+  //    local store), so the fast-path is remote-only — its one ssh would be pure
+  //    overhead locally. The probe's stderr is scanned for the network
+  //    classification (via `onProbeProgress`) but NOT echoed to the
+  //    user-visible progress ring — its expected miss on a cold host would
+  //    otherwise make a clean first-time provision read as an error — so a
+  //    transport failure here still classifies the fall-through as `"network"`.
+  if (!isLocal && rootPath !== null) {
+    const warm = realiseAndPin(opts.host, opts.drvPath, rootPath);
+    const warmRes = await runCapture(warm.command, warm.args, onProbeProgress);
+    const warmPath = warmRes.stdout.trim();
+    if (warmRes.ok && warmPath.length > 0) {
+      onProgress(
+        `${opts.host}: already provisioned at ${warmPath} — skipped copy`,
+      );
+      return { ok: true, agentPath: warmPath };
+    }
+  }
 
   // 2. Copy the .drv (and its build-inputs) to the remote. Skipped
   //    for localhost — the .drv is already in /nix/store.
@@ -144,6 +213,13 @@ export async function provisionAgent(
       };
     }
     onProgress(`${opts.host}: derivation copy complete`);
+    // The copy reached the host, so it's provably reachable *now* — clear any
+    // network flag a speculative warm-probe blip set. Without this, a transient
+    // probe network error that cleared by the time we copied would make a
+    // subsequent genuine *remote* realise/pin failure misclassify as `"network"`
+    // (retrying forever instead of giving up). Each later step's own stderr scan
+    // re-sets the flag if the host goes unreachable again.
+    sawNetworkError = false;
   }
 
   // 3. Realise (build) the .drv on the target. Output is the agent's
@@ -187,22 +263,13 @@ export async function provisionAgent(
   //    root path can't be formed (local $HOME unset) or the command
   //    fails, we warn and continue — the agent at `agentPath` still
   //    runs, it's just collectable.
-  const rootPath = agentGcRootPath(isLocal, opts.drvPath);
   if (rootPath === null) {
     opts.onProgress(
       `${opts.host}: HOME unset, can't place a GC root; agent runs but is unpinned`,
     );
   } else {
     opts.onProgress(`${opts.host}: pinning GC root at '${rootPath}'…`);
-    const pin = buildSshProbeCommand(
-      opts.host,
-      "nix-store",
-      "--realise",
-      agentPath,
-      "--add-root",
-      rootPath,
-      "--indirect",
-    );
+    const pin = realiseAndPin(opts.host, agentPath, rootPath);
     const pinRes = await runCapture(pin.command, pin.args, opts.onProgress);
     if (!pinRes.ok) {
       opts.onProgress(
