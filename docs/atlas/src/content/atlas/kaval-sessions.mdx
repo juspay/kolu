@@ -5,7 +5,7 @@ kind: feature
 status: accepted
 maturity: seedling
 parents: [remote-terminals]
-updated: 2026-06-14
+updated: 2026-06-15
 ---
 
 import D2 from "../../components/D2.astro";
@@ -186,9 +186,9 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
 | **P0** · backend cleanup <Pill variant="ok">shipped</Pill> <PrLink pr={1364} /> | collapsed R-1's anticipated backend polymorphism — a backend is **PTY · fs · git surfaces bound to an endpoint** (`TerminalEndpoint`, renamed from `TerminalBackend`; no `RemoteTerminalBackend`); byte-identical locally. The interface's own doc-comment is now the seam P3 fills with the remote impl | kolu-server only · landed · grounds P3 |
 | **P1** · `kaval-tui create` <Pill variant="ok">shipped</Pill> <PrLink pr={1370} /> | spawns a plain `$SHELL` (or a given command) and prints its id — the attach-needs-something prerequisite; thin over `terminal.spawn`, the whole input composed client-side (no kolu policy) | unblocks the `create → attach` half of the spike |
 | **P2** · `kaval-tui --host` <Pill variant="ok">shipped</Pill> <PrLink pr={1373} /> | **reach + provision in one PR** (ssh): provision the daemon's closure, run `kaval --stdio` — which fronts the *durable* daemon (adopt-or-start the host's kaval, relay the link to its unix socket) — and dial it as the same `ptyHostSurface` client, so a remote PTY survives the link (create on prod, attach later). ssh-config auto-detect deferred | **the spike** — *is* the production driver; validated on a `pu` box |
+| **P2.5** · upstream `frontDaemonOverStdio` <Pill variant="todo">next</Pill> | extract P2's `kaval --stdio` durable-fronting bridge (`stdioBridge.ts`) into **`@kolu/surface-daemon`** as `frontDaemonOverStdio` — the **durable counterpart to `@kolu/surface`'s `serveOverStdio`** (ephemeral per-link agent ↔ a gate-held daemon fronted over ssh-stdio): a contract-agnostic relay + adopt-or-spawn, parameterized by socket path + daemon-spawn command | **immediately after #1373 merges**, while the bridge is fresh — homes the durable transport as a library primitive before P3's remote pair builds on it. surface-daemon API ⇒ a drishti companion PR |
 | **P3** · kolu dials remotes | N-endpoint registry + the ssh driver; the remote pair — kaval + **kolu-watcher** (provider DAG + fs/git surface) — mirrored over the `HostSession` link; `location` additive on records | builds on P0 + P2 · carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`) |
 | **P4** · the canvas UI + validate | build **multiplex** (the lean) — active-kaval strip (local always present), per-tile host hint, ssh-config picker — then **validate the feel** (does N-at-once beat tmux-switch in daily use?); fall back to switch if it doesn't earn its keep | the granularity call lands **and is validated** here |
-
 **P1–P2 — the spike — in detail.** [kaval-tui](pty-daemon-tui.html) is the minimal client; it proves the transport before any Kolu UI, and because it and kolu-server dial the same socket through the same client, the spike **is** the production driver. P1 (`create`) and P2 (`--host`) have both landed (<PrLink pr={1370} /> · <PrLink pr={1373} />); the prose below reads as the record for both.
 
 <Terminal title="kaval-tui · ssh nix@prod (provision + dial)" lines={[
@@ -208,6 +208,18 @@ The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but
 <Callout kind="note" title="The spike is the substrate — and it doesn't depend on switch-vs-multiplex">
 ssh <em>reach</em> + provision is the one genuinely-new transport, shared by both granularities and R-2's biggest unknown. Proving it in kaval-tui builds the production driver and lets real feedback <em>settle</em> switch-vs-multiplex later — so it is the right validation step even though the canvas model isn't finalized. (P0 was independent kolu-server cleanup; it landed first, <PrLink pr={1364} />, without waiting on the spike.)
 </Callout>
+
+### P2.5 — upstream the durable stdio front (right after this PR)
+
+P2's `kaval --stdio` bridge (`packages/kaval/src/stdioBridge.ts`) is a member of a real class — **a remote, in-process *stateful session* that must outlive any one client link** (detach → reattach hits the same live state), reached over ssh-stdio. That's the mosh / tmux / `dtach` / `abduco` lineage, generalized from *a PTY* to *any `@kolu/surface` daemon*.
+
+It is a **different primitive** from the ephemeral remote-agent the library already serves: `mini-ci`, `remote-process-monitor`, and drishti all **re-run fresh** per link, which `@kolu/surface`'s `serveOverStdio` covers (there the `--stdio` process *is* the server). The durable bridge is a **contract-agnostic proxy** fronting a *separate, gate-held* daemon. P2.5 homes it as a named library concept **right after #1373 merges, while it's fresh** — rather than letting it ossify as kaval-private before P3's remote pair builds on the same transport.
+
+**Where:** **`@kolu/surface-daemon`** (the durable-daemon spine: `acquirePidGate` + `daemonMain`) gains **`frontDaemonOverStdio`** — the **durable counterpart to `serveOverStdio`** — making surface-daemon "`dtach`/`abduco` for any surface daemon, reachable over ssh." (Not `surface-nix-host` — that's the client/dial side; not a new package.) kaval's `--stdio` then becomes a thin call into it.
+
+- **Shape:** the generic core is a byte relay + adopt-or-spawn, parameterized by socket path + daemon-spawn command. kaval is the first consumer; the anticipated next ones — a **survivable CI run** (mini-ci's durable evolution: kick a long build on prod, detach, reattach) and a remote REPL/kernel — should guide the parameterization so it doesn't over-fit kaval.
+- **Carry the invariants** the kaval bridge encodes: the single-process `node --import <loader>` re-exec (so `SIGTERM` reaches the daemon, not a swallowing `tsx` fork), the `{ end: false }` stdout relay, the final post-deadline connect attempt, and `env: process.env` inheritance.
+- **Plan for the cost:** a surface-daemon API addition pulls a mandated **drishti companion PR** (`.claude/rules/surface.md`) green against the new API — part of P2.5's done-ness.
 
 ### Pick-up anchors
 
@@ -256,4 +268,4 @@ And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching i
 
 ## Status
 
-**Accepted (the approach); P0 + P1 + P2 shipped.** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. **P0 (backend cleanup) landed** (<PrLink pr={1364} />): the `TerminalEndpoint` interface is now the live seam, its own doc-comment naming P3's remote transport. **P1 (`kaval-tui create`) landed** (<PrLink pr={1370} />): the spike's `create → attach` half works locally. **P2 (`kaval-tui --host`) landed** (<PrLink pr={1373} />): the genuinely-new ssh reach + provision works end to end, with the remote daemon durable behind `kaval --stdio`. Next is **P3 (kolu dials remotes)** — the N-endpoint registry reusing this same `getHostSession` driver, then P4 builds **multiplex** and validates the feel against tmux-switch — the one reversible call, made on real use, not up front.
+**Accepted (the approach); P0 + P1 + P2 shipped.** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. **P0 (backend cleanup) landed** (<PrLink pr={1364} />): the `TerminalEndpoint` interface is now the live seam, its own doc-comment naming P3's remote transport. **P1 (`kaval-tui create`) landed** (<PrLink pr={1370} />): the spike's `create → attach` half works locally. **P2 (`kaval-tui --host`) landed** (<PrLink pr={1373} />): the genuinely-new ssh reach + provision works end to end, with the remote daemon durable behind `kaval --stdio`. **Next, right after this PR, is P2.5** (spun out of P2's review) — upstream `kaval --stdio`'s durable-fronting bridge to **`@kolu/surface-daemon`** as `frontDaemonOverStdio`, the durable counterpart to `serveOverStdio`, while it's fresh. Then **P3 (kolu dials remotes)** — the N-endpoint registry reusing this same `getHostSession` driver — and **P4** builds **multiplex** and validates the feel against tmux-switch, the one reversible call, made on real use, not up front.
