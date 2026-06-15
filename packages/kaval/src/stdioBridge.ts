@@ -120,6 +120,11 @@ async function connectToDaemon(deps: StdioBridgeDeps): Promise<Socket> {
     if (sock) return sock;
     await sleep(pollMs);
   }
+  // One last attempt past the deadline: the daemon may have bound during that
+  // final sleep, after which the loop's `< deadline` check exits — don't fail
+  // on a daemon that is, by now, actually listening.
+  const last = await tryConnect(connect, socketPath);
+  if (last) return last;
   throw new Error(
     `daemon did not start listening at ${socketPath} within ${deps.daemonWaitMs ?? DEFAULT_DAEMON_WAIT_MS}ms`,
   );
