@@ -203,10 +203,20 @@ Then(
         if (!sec) return false;
         const cs = getComputedStyle(sec);
         const repoColor = cs.getPropertyValue("--repo-color").trim();
-        if (repoColor === "") return false;
+        // Throw rather than returning false so a missing/empty --repo-color
+        // surfaces a clear diagnostic instead of a generic timeout.
+        if (repoColor === "")
+          throw new Error(
+            `[data-testid="dock-section"] has no --repo-color custom property set`,
+          );
         if (cs.borderLeftStyle !== "solid" || cs.borderLeftWidth !== "3px") {
           return false;
         }
+        // Validate before assigning: an invalid colour value is silently
+        // rejected by the browser, causing getComputedStyle to fall back to
+        // the inherited colour and producing a false positive/negative.
+        if (!CSS.supports("color", repoColor))
+          throw new Error(`--repo-color is not a valid CSS colour: "${repoColor}"`);
         // Resolve the raw `--repo-color` literal to the same computed
         // colour form `borderLeftColor` already reports, then compare.
         const probe = document.createElement("span");
