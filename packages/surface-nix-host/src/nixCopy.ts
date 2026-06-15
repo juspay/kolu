@@ -213,6 +213,13 @@ export async function provisionAgent(
       };
     }
     onProgress(`${opts.host}: derivation copy complete`);
+    // The copy reached the host, so it's provably reachable *now* — clear any
+    // network flag a speculative warm-probe blip set. Without this, a transient
+    // probe network error that cleared by the time we copied would make a
+    // subsequent genuine *remote* realise/pin failure misclassify as `"network"`
+    // (retrying forever instead of giving up). Each later step's own stderr scan
+    // re-sets the flag if the host goes unreachable again.
+    sawNetworkError = false;
   }
 
   // 3. Realise (build) the .drv on the target. Output is the agent's

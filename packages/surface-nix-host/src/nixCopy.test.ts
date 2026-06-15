@@ -175,7 +175,9 @@ describe("provisionAgent warm fast-path", () => {
       async (_cmd, _args, onProgress) => {
         if (vi.mocked(runCapture).mock.calls.length === 1) {
           // A transport failure during the probe (ssh's own 255 path).
-          onProgress?.("ssh: connect to host testhost port 22: No route to host");
+          onProgress?.(
+            "ssh: connect to host testhost port 22: No route to host",
+          );
           return { ok: false, code: 255, stdout: "" };
         }
         // The fall-through copy then also fails on the unreachable host.
@@ -192,6 +194,37 @@ describe("provisionAgent warm fast-path", () => {
 
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.cause).toBe("network");
+  });
+
+  it("clears a stale probe network blip once the copy succeeds", async () => {
+    // A speculative probe can hit a transient network error that has cleared by
+    // the time the copy runs. If the copy then SUCCEEDS (host reachable) but a
+    // later realise fails for a genuine REMOTE reason, the cause must be
+    // "remote" (bounded give-up) — not "network" (retry forever) leaked from
+    // the now-stale probe blip.
+    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 }); // copy succeeds
+    vi.mocked(runCapture).mockImplementation(
+      async (_cmd, _args, onProgress) => {
+        if (vi.mocked(runCapture).mock.calls.length === 1) {
+          // Probe (#1): a transient transport blip.
+          onProgress?.(
+            "ssh: connect to host testhost port 22: No route to host",
+          );
+          return { ok: false, code: 255, stdout: "" };
+        }
+        // Realise (#2): a genuine remote failure, no network signal.
+        return { ok: false, code: 1, stdout: "" };
+      },
+    );
+
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.cause).toBe("remote");
   });
 });
 
