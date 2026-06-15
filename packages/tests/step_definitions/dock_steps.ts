@@ -216,7 +216,9 @@ Then(
         // rejected by the browser, causing getComputedStyle to fall back to
         // the inherited colour and producing a false positive/negative.
         if (!CSS.supports("color", repoColor))
-          throw new Error(`--repo-color is not a valid CSS colour: "${repoColor}"`);
+          throw new Error(
+            `--repo-color is not a valid CSS colour: "${repoColor}"`,
+          );
         // Resolve the raw `--repo-color` literal to the same computed
         // colour form `borderLeftColor` already reports, then compare.
         const probe = document.createElement("span");
