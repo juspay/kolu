@@ -423,10 +423,23 @@ const App: Component = () => {
                 // default row, and the tile view is `MobileTileView` vs
                 // `CompactTileView`. The inner tile props are identical, so
                 // they live in one `tileProps` object.
+                //
+                // The reactive reads stay GETTERS (not eager calls): spreading
+                // `{...tileProps}` is `mergeProps`-style lazy access, so a getter
+                // re-runs `orderedIds()` / `wsStatus()` / `appTitle()` per read
+                // and the tile view tracks them. An eager `orderedIds: orderedIds()`
+                // would snapshot the value at mount — a freshly-created terminal
+                // would never reach the body's `<For each={props.orderedIds}>`.
                 const tileProps = {
-                  orderedIds: orderedIds(),
-                  status: wsStatus(),
-                  appTitle: appTitle(),
+                  get orderedIds() {
+                    return orderedIds();
+                  },
+                  get status() {
+                    return wsStatus();
+                  },
+                  get appTitle() {
+                    return appTitle();
+                  },
                   onOpenPalette: () => commandPalette.openDialog(),
                   renderBody: renderMobileTileBody,
                   bottomBar: <MobileKeyBar />,
