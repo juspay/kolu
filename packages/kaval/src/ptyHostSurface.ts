@@ -182,12 +182,18 @@ const SystemHeartbeatOutputSchema = z.object({ ts: z.number() });
  *  `shell`/`home` are the host's login shell and `$HOME`; `platform` is its
  *  `process.platform`; `rcDir` is the absolute directory under which the host
  *  materialises `spawn`'s `initFiles`, so the client can name them and point
- *  `argv`/`env` at their resolved paths. */
+ *  `argv`/`env` at their resolved paths; `path` is the host's `$PATH`, which a
+ *  REMOTE client must put in the spawn env so the shell can find any command (a
+ *  local client already has its own `$PATH`). `path` is optional so an older
+ *  daemon a `--host` dial adopts (predating this field) degrades to a baseline
+ *  rather than failing response validation — the same-build daemon `--host`
+ *  provisions always carries it. */
 const SystemInfoOutputSchema = z.object({
   shell: z.string(),
   home: z.string(),
   platform: z.string(),
   rcDir: z.string(),
+  path: z.string().optional(),
 });
 
 export const ptyHostSurface = defineSurface({

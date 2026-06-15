@@ -289,7 +289,7 @@ async function cmdCreate(
     const info = await conn.client.surface.system.info({});
     input = buildRemoteCreateInput({
       id: newPtyId(),
-      host: { shell: info.shell, home: info.home },
+      host: { shell: info.shell, home: info.home, path: info.path },
       localEnv: process.env,
       command,
     });

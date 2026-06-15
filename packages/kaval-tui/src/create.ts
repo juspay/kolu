@@ -59,12 +59,22 @@ export function buildCreateInput(opts: {
 }
 
 /** Host facts the remote (`--host`) composer reads from the daemon's
- *  `system.info` — the shell and home of the machine the PTY will actually run
- *  on, NOT this CLI's. */
+ *  `system.info` — the shell, home, and `$PATH` of the machine the PTY will
+ *  actually run on, NOT this CLI's. `path` is optional: a daemon predating the
+ *  `system.info.path` field returns none, and the composer falls back to a
+ *  baseline so the remote shell still finds the common tools. */
 export interface RemoteHostFacts {
   shell: string;
   home: string;
+  path?: string;
 }
+
+/** A usable PATH for a remote shell when the host daemon didn't report its own
+ *  (an older adopted daemon). Covers NixOS (`/run/current-system/sw/bin`) and
+ *  the FHS bins, so `sleep`/`ls`/etc. resolve. The same-build daemon `--host`
+ *  provisions reports its real `$PATH`, so this is only the degraded path. */
+const BASELINE_REMOTE_PATH =
+  "/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin";
 
 /** Presentation-only env vars safe to carry from the local CLI to a remote PTY:
  *  they describe the *terminal we're attaching with*, not the local machine's
@@ -96,6 +106,10 @@ export function buildRemoteCreateInput(opts: {
   const env: Record<string, string> = {
     HOME: opts.host.home,
     SHELL: opts.host.shell || DEFAULT_SPAWN_SHELL,
+    // The host's PATH (not ours — local store paths don't exist there). Without
+    // it the remote shell finds no external command and the PTY exits 127 on the
+    // first one. Falls back to a baseline if an older daemon didn't report it.
+    PATH: opts.host.path || BASELINE_REMOTE_PATH,
   };
   for (const k of REMOTE_ENV_PASSTHROUGH) {
     const v = opts.localEnv[k];

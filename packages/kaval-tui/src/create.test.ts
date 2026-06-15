@@ -81,30 +81,50 @@ describe("buildRemoteCreateInput", () => {
     TERM: "xterm-256color", // presentation — safe to carry
     LANG: "en_US.UTF-8", // presentation — safe to carry
   };
-  const host = { shell: "/bin/bash", home: "/home/prod" };
+  const host = {
+    shell: "/bin/bash",
+    home: "/home/prod",
+    path: "/run/current-system/sw/bin:/usr/bin:/bin",
+  };
 
-  it("uses the host's shell + home, never the local ones", () => {
+  it("uses the host's shell + home + PATH, never the local ones", () => {
     const input = buildRemoteCreateInput({ id: "r1", host, localEnv });
     expect(input.argv).toEqual(["/bin/bash"]); // host shell, not /usr/bin/fish
     expect(input.cwd).toBe("/home/prod"); // host home, not /home/laptop-user
     expect(input.env.HOME).toBe("/home/prod");
     expect(input.env.SHELL).toBe("/bin/bash");
+    // The host's PATH — so the remote shell can find external commands (a shell
+    // with no PATH exits 127 on the first one, killing the PTY instantly).
+    expect(input.env.PATH).toBe("/run/current-system/sw/bin:/usr/bin:/bin");
   });
 
-  it("ships ONLY presentation env — no wholesale local process.env / secrets", () => {
+  it("ships ONLY presentation env + host shell/home/PATH — no wholesale local env / secrets", () => {
     const input = buildRemoteCreateInput({ id: "r1", host, localEnv });
     // The local secret never crosses the wire.
     expect("AWS_SECRET_ACCESS_KEY" in input.env).toBe(false);
     // Presentation vars are carried (they describe the attaching terminal).
     expect(input.env.TERM).toBe("xterm-256color");
     expect(input.env.LANG).toBe("en_US.UTF-8");
-    // The whole env is exactly host-derived HOME/SHELL + the passthrough set.
+    // The whole env is exactly host-derived HOME/SHELL/PATH + the passthrough set.
     expect(input.env).toEqual({
       HOME: "/home/prod",
       SHELL: "/bin/bash",
+      PATH: "/run/current-system/sw/bin:/usr/bin:/bin",
       TERM: "xterm-256color",
       LANG: "en_US.UTF-8",
     });
+  });
+
+  it("falls back to a baseline PATH when the host reports none (older daemon)", () => {
+    const input = buildRemoteCreateInput({
+      id: "r1",
+      host: { shell: "/bin/bash", home: "/home/prod" }, // no path
+      localEnv: {},
+    });
+    // Not empty — a usable baseline covering NixOS + FHS, so the remote shell
+    // still finds the common tools instead of dying on the first command.
+    expect(input.env.PATH).toContain("/run/current-system/sw/bin");
+    expect(input.env.PATH).toContain("/usr/bin");
   });
 
   it("falls back to /bin/sh when the host reports no shell", () => {

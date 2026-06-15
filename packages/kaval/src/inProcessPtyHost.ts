@@ -293,6 +293,11 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           home: hostHome(),
           platform: platform(),
           rcDir,
+          // The host's own `$PATH`, so a REMOTE client can give the spawned
+          // shell a working PATH (a local client already has the same one). A
+          // shell with no PATH can't find any external command (`sleep` →
+          // exit 127), so the PTY dies on the first one.
+          path: process.env.PATH ?? "",
         }),
       },
     },
