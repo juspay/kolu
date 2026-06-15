@@ -39,6 +39,7 @@ import { createCommands } from "./commands";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
+import CompactTileView from "./CompactTileView";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
@@ -61,7 +62,7 @@ import { useTerminals } from "./terminal/useTerminals";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
-import { isMobile } from "./useMobile";
+import { isDesktop, layoutMode } from "./useMobile";
 import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
 import { useServerIdentity } from "./useServerIdentity";
@@ -329,10 +330,10 @@ const App: Component = () => {
       />
       {/* Desktop chrome — docked top bar carrying identity and global
        *  controls. The workspace switcher retired in favor of the
-       *  dock's mega level (#903). Mobile has its own
-       *  pull-down sheet (see MobileTileView) and does not render this
+       *  dock's mega level (#903). The touch layouts have their own
+       *  pull-down sheet (see MobileTileView) and do not render this
        *  band. */}
-      <Show when={!isMobile()}>
+      <Show when={isDesktop()}>
         <ChromeBar
           status={wsStatus()}
           onOpenPalette={() => commandPalette.openDialog()}
@@ -399,8 +400,8 @@ const App: Component = () => {
                *  no clickable affordance (#1202). The empty Dock is just its
                *  header; the `relative` parent anchors its tiled-posture float
                *  (`top-12 left-4`), the only posture reachable at zero tiles.
-               *  Mobile keeps its own pull-down nav. */}
-              <Show when={!isMobile()}>
+               *  The touch layouts keep their own pull-down nav. */}
+              <Show when={isDesktop()}>
                 <Dock {...dockPalette} />
               </Show>
               <EmptyState
@@ -412,8 +413,10 @@ const App: Component = () => {
             </div>
           </Match>
           <Match when={mode().kind === "workspace"}>
-            {match(isMobile())
-              .with(true, () => (
+            {match(layoutMode())
+              .with("phone", () => (
+                // Phone host: a single fullscreen tile stacked in a column
+                // (`flex-col`). The right panel reveals as a bottom sheet.
                 <RightPanelDrawer
                   terminalId={store.activeId()}
                   meta={store.activeMeta()}
@@ -431,7 +434,27 @@ const App: Component = () => {
                   />
                 </RightPanelDrawer>
               ))
-              .with(false, () => (
+              .with("compact", () => (
+                // Compact host: a two-pane rail + tile row (default `flex`, not
+                // `flex-col`) for roomy touch screens (Z Fold unfolded,
+                // tablets). Shares the bottom-sheet right panel with the phone.
+                <RightPanelDrawer
+                  terminalId={store.activeId()}
+                  meta={store.activeMeta()}
+                  themeName={activeThemeName()}
+                  onThemeClick={() => commandPalette.openGroup("Set theme")}
+                >
+                  <CompactTileView
+                    orderedIds={orderedIds()}
+                    status={wsStatus()}
+                    appTitle={appTitle()}
+                    onOpenPalette={() => commandPalette.openDialog()}
+                    renderBody={renderMobileTileBody}
+                    bottomBar={<MobileKeyBar />}
+                  />
+                </RightPanelDrawer>
+              ))
+              .with("desktop", () => (
                 // Desktop host: horizontal `@corvu/resizable` split between
                 // the canvas and the right panel. `sizes=[1, 0]` collapses
                 // the panel to zero width while keeping it mounted — this

@@ -34,7 +34,7 @@ import {
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { isMobile } from "../useMobile";
+import { isDesktop } from "../useMobile";
 import { client, preferences, updatePreferences } from "../wire";
 
 /** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
@@ -265,19 +265,20 @@ export function useRightPanel() {
       }
     },
 
-    // ── Mobile drawer (session-local) ────────────────────────────────
-    /** Whether the mobile bottom-drawer host is open. Only meaningful on
-     *  mobile — desktop reads `collapsed()` instead. Not persisted. */
+    // ── Touch-layout drawer (session-local) ──────────────────────────
+    /** Whether the bottom-drawer host is open. Only meaningful on the touch
+     *  layouts (phone + compact) — desktop reads `collapsed()` instead. Not
+     *  persisted. */
     drawerOpen,
     setDrawerOpen,
     /** Reveal the panel by whatever mechanism the current layout uses — open
-     *  the bottom-drawer host on mobile, uncollapse the desktop Resizable
-     *  otherwise. Producers (e.g. `openInCodeTab`) call this to express intent
-     *  ("show the panel") without owning the mobile-vs-desktop fork; the two
-     *  visibility volatilities (session-local `drawerOpen`, persisted
-     *  `collapsed`) stay separate and are resolved here in one place. */
+     *  the bottom-drawer host on the touch layouts, uncollapse the desktop
+     *  Resizable otherwise. Producers (e.g. `openInCodeTab`) call this to
+     *  express intent ("show the panel") without owning the touch-vs-desktop
+     *  fork; the two visibility volatilities (session-local `drawerOpen`,
+     *  persisted `collapsed`) stay separate and are resolved here in one place. */
     reveal: () => {
-      if (isMobile()) setDrawerOpen(true);
+      if (!isDesktop()) setDrawerOpen(true);
       else if (rp().collapsed) setCollapsed(false);
     },
 

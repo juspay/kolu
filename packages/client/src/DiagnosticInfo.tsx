@@ -17,7 +17,7 @@ import ModalDialog from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
 import { surface } from "./ui/Surface";
-import { isMobile } from "./useMobile";
+import { layoutMode } from "./useMobile";
 
 /** WebGL2 support detection creates a throwaway canvas + WebGL context
  *  that lingers on a detached node until GC. Compute once at module load
@@ -90,7 +90,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     return {
       browser,
       session: {
-        viewport: isMobile() ? "mobile" : "canvas",
+        viewport: layoutMode(),
         wsStatus: wsStatus(),
         serverProcessId: serverProcessId(),
         activeId: props.activeId,
@@ -178,7 +178,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         <Section title="Session">
           <div class="space-y-0.5">
             <Row label="Viewport">
-              <span class="text-fg">{isMobile() ? "mobile" : "canvas"}</span>
+              <span class="text-fg">{layoutMode()}</span>
             </Row>
             <Row label="WS" variant="badge">
               {wsStatus()}
