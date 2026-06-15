@@ -6,7 +6,7 @@
     "get-port": "^7.2.0",
     "kolu-common": "workspace:*",
     "kolu-pty": "workspace:*",
-    "playwright": "1.57.0",
+    "playwright": "1.60.0",
     "tsx": "^4.19.0"
   },
   "scripts": {
