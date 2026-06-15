@@ -21,7 +21,7 @@ import {
   Switch,
 } from "solid-js";
 import { Toaster } from "solid-sonner";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
@@ -414,46 +414,40 @@ const App: Component = () => {
           </Match>
           <Match when={mode().kind === "workspace"}>
             {match(layoutMode())
-              .with("phone", () => (
-                // Phone host: a single fullscreen tile stacked in a column
-                // (`flex-col`). The right panel reveals as a bottom sheet.
-                <RightPanelDrawer
-                  terminalId={store.activeId()}
-                  meta={store.activeMeta()}
-                  themeName={activeThemeName()}
-                  onThemeClick={() => commandPalette.openGroup("Set theme")}
-                  contentClass="flex-col"
-                >
-                  <MobileTileView
-                    orderedIds={orderedIds()}
-                    status={wsStatus()}
-                    appTitle={appTitle()}
-                    onOpenPalette={() => commandPalette.openDialog()}
-                    renderBody={renderMobileTileBody}
-                    bottomBar={<MobileKeyBar />}
-                  />
-                </RightPanelDrawer>
-              ))
-              .with("compact", () => (
-                // Compact host: a two-pane rail + tile row (default `flex`, not
-                // `flex-col`) for roomy touch screens (Z Fold unfolded,
-                // tablets). Shares the bottom-sheet right panel with the phone.
-                <RightPanelDrawer
-                  terminalId={store.activeId()}
-                  meta={store.activeMeta()}
-                  themeName={activeThemeName()}
-                  onThemeClick={() => commandPalette.openGroup("Set theme")}
-                >
-                  <CompactTileView
-                    orderedIds={orderedIds()}
-                    status={wsStatus()}
-                    appTitle={appTitle()}
-                    onOpenPalette={() => commandPalette.openDialog()}
-                    renderBody={renderMobileTileBody}
-                    bottomBar={<MobileKeyBar />}
-                  />
-                </RightPanelDrawer>
-              ))
+              .with(P.union("phone", "compact"), (m) => {
+                // One touch host for both handheld layouts: the same
+                // bottom-sheet `RightPanelDrawer` wrapping a touch tile view.
+                // They diverge only on two axes — the phone stacks its single
+                // fullscreen tile in a column (`contentClass="flex-col"`) while
+                // the roomier compact (Z Fold unfolded, tablets) keeps the
+                // default row, and the tile view is `MobileTileView` vs
+                // `CompactTileView`. The inner tile props are identical, so
+                // they live in one `tileProps` object.
+                const tileProps = {
+                  orderedIds: orderedIds(),
+                  status: wsStatus(),
+                  appTitle: appTitle(),
+                  onOpenPalette: () => commandPalette.openDialog(),
+                  renderBody: renderMobileTileBody,
+                  bottomBar: <MobileKeyBar />,
+                };
+                return (
+                  <RightPanelDrawer
+                    terminalId={store.activeId()}
+                    meta={store.activeMeta()}
+                    themeName={activeThemeName()}
+                    onThemeClick={() => commandPalette.openGroup("Set theme")}
+                    contentClass={m === "phone" ? "flex-col" : undefined}
+                  >
+                    <Show
+                      when={m === "phone"}
+                      fallback={<CompactTileView {...tileProps} />}
+                    >
+                      <MobileTileView {...tileProps} />
+                    </Show>
+                  </RightPanelDrawer>
+                );
+              })
               .with("desktop", () => (
                 // Desktop host: horizontal `@corvu/resizable` split between
                 // the canvas and the right panel. `sizes=[1, 0]` collapses
