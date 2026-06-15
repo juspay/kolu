@@ -58,10 +58,6 @@ export type LayoutMode = "phone" | "compact" | "desktop";
 export const layoutMode = (): LayoutMode =>
   belowSm() ? "phone" : handheld() ? "compact" : "desktop";
 
-/** Below `sm` — single fullscreen tile (iPhone, Z Fold folded). */
-export const isPhone = () => layoutMode() === "phone";
-/** Roomy finger-driven handheld — two-pane rail (Z Fold unfolded, tablets). */
-export const isCompact = () => layoutMode() === "compact";
 /** Real (fine) pointer — the spatial pan/zoom canvas. */
 export const isDesktop = () => layoutMode() === "desktop";
 
