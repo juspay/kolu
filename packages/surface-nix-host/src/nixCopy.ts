@@ -95,6 +95,23 @@ export function agentGcRootPath(
   return home ? `${home}/${rel}` : null;
 }
 
+/** Realise `target` on `$host` AND register an indirect GC root at
+ *  `rootPath` in one ssh command — the single shape both the warm probe
+ *  (target = the `.drv`) and the cold pin (target = the realised out-path)
+ *  share. Defined once so the root flags, option ordering, and
+ *  `--indirect` semantics live in exactly one place. */
+function realiseAndPin(host: string, target: string, rootPath: string) {
+  return buildSshProbeCommand(
+    host,
+    "nix-store",
+    "--realise",
+    target,
+    "--add-root",
+    rootPath,
+    "--indirect",
+  );
+}
+
 /** Ship the `.drv` to `$host` and realise it there. Returns the
  *  output path on the *target* host, ready for
  *  `ssh $host $agentPath/bin/...`. */
@@ -134,15 +151,7 @@ export async function provisionAgent(
   //    `onProgress` network scan, so the fall-through copy/realise still
   //    classifies an unreachable host as `"network"`.
   if (!isLocal && rootPath !== null) {
-    const warm = buildSshProbeCommand(
-      opts.host,
-      "nix-store",
-      "--realise",
-      opts.drvPath,
-      "--add-root",
-      rootPath,
-      "--indirect",
-    );
+    const warm = realiseAndPin(opts.host, opts.drvPath, rootPath);
     const warmRes = await runCapture(warm.command, warm.args, onProgress);
     const warmPath = warmRes.stdout.trim();
     if (warmRes.ok && warmPath.length > 0) {
@@ -234,15 +243,7 @@ export async function provisionAgent(
     );
   } else {
     opts.onProgress(`${opts.host}: pinning GC root at '${rootPath}'…`);
-    const pin = buildSshProbeCommand(
-      opts.host,
-      "nix-store",
-      "--realise",
-      agentPath,
-      "--add-root",
-      rootPath,
-      "--indirect",
-    );
+    const pin = realiseAndPin(opts.host, agentPath, rootPath);
     const pinRes = await runCapture(pin.command, pin.args, opts.onProgress);
     if (!pinRes.ok) {
       opts.onProgress(
