@@ -45,7 +45,7 @@ import {
   type FailureCause,
   isLocalHost,
   looksLikeNetworkError,
-  NIX_SSHOPTS,
+  nixSshOpts,
 } from "./host";
 import { runCapture, runProgress } from "./process";
 
@@ -201,9 +201,12 @@ export async function provisionAgent(
       ],
       onProgress,
       // The copy is a remote transfer that can sit idle for minutes; the
-      // ssh it forks internally only honours dead-peer keepalive through
-      // NIX_SSHOPTS. Without it a degraded host wedges this step forever.
-      { NIX_SSHOPTS },
+      // ssh it forks internally only honours dead-peer keepalive — and the
+      // P2.8 ControlMaster multiplexing — through NIX_SSHOPTS. Without the
+      // keepalive a degraded host wedges this step forever; with the control
+      // opts this fork rides the master the warm probe already opened
+      // instead of paying its own handshake. `nixSshOpts()` renders both.
+      { NIX_SSHOPTS: nixSshOpts() },
     );
     if (!copyRes.ok) {
       return {

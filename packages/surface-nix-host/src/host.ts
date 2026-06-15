@@ -3,6 +3,8 @@
  *  "are we talking to ourselves?" check and the per-line stderr fanout
  *  in one place so they evolve together. */
 
+import { controlOptPairs } from "./controlMaster";
+
 export function isLocalHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
@@ -96,6 +98,20 @@ const SSH_OPT_PAIRS = [
   ["ConnectTimeout", "10"],
 ] as const;
 
+/** Render `(key, value)` opt pairs into an ssh `-o Key=Value` argv. The one
+ *  wire-format definition for the argv shape — `SSH_COMMON_OPTS` and
+ *  `controlArgv()` both go through here, so re-tuning the form (say ssh ever
+ *  wants `-o k v` instead of `-o k=v`) touches one place. */
+const toArgv = (pairs: readonly (readonly [string, string])[]): string[] =>
+  pairs.flatMap(([key, value]) => ["-o", `${key}=${value}`]);
+
+/** Render `(key, value)` opt pairs into the whitespace-joined `-o Key=Value`
+ *  env string `nix copy --to ssh-ng://` word-splits out of `NIX_SSHOPTS`.
+ *  The one wire-format definition for the env shape — both `NIX_SSHOPTS` and
+ *  `nixSshOpts()` go through here. */
+const toEnv = (pairs: readonly (readonly [string, string])[]): string =>
+  pairs.map(([key, value]) => `-o ${key}=${value}`).join(" ");
+
 /** The policy as an ssh `-o Key=Value` argv, for the ssh commands this
  *  package spawns directly (agent session, probe/realise/pin). Exported so
  *  consumers that build their *own* ssh command — e.g. the `mini-ci`
@@ -103,18 +119,34 @@ const SSH_OPT_PAIRS = [
  *  of a nix closure — reuse the same dead-peer policy rather than copying
  *  it. (`buildAgentCommand`/`buildSshProbeCommand` already bake it in for
  *  the argv shapes this package spawns itself.) */
-export const SSH_COMMON_OPTS: readonly string[] = SSH_OPT_PAIRS.flatMap(
-  ([key, value]) => ["-o", `${key}=${value}`],
-);
+export const SSH_COMMON_OPTS: readonly string[] = toArgv(SSH_OPT_PAIRS);
 
 /** The same policy as the `NIX_SSHOPTS` env string that `nix copy --to
  *  ssh-ng://` reads. That copy spawns its *own* ssh which never sees our
  *  argv, so this env var is the only handle on its dead-peer behaviour —
  *  without it the copy step is exposed to the exact hang `SSH_COMMON_OPTS`
  *  closes for the commands we spawn directly. */
-export const NIX_SSHOPTS: string = SSH_OPT_PAIRS.map(
-  ([key, value]) => `-o ${key}=${value}`,
-).join(" ");
+export const NIX_SSHOPTS: string = toEnv(SSH_OPT_PAIRS);
+
+/** The `NIX_SSHOPTS` env string for `nix copy --to ssh-ng://`, as a
+ *  function (not the const above) so it can additionally carry the
+ *  runtime-computed `ControlMaster` pairs (see `controlOptPairs`). The
+ *  const stays for external direct importers and is the static keepalive
+ *  policy alone; THIS is what `nixCopy` passes, so the ssh `nix copy` forks
+ *  internally rides the SAME shared master the arch probe opened — not a
+ *  fresh ~5s handshake. When multiplexing is unavailable `controlOptPairs()`
+ *  returns `[]`, so this degrades back to exactly the const's value. */
+export function nixSshOpts(): string {
+  return toEnv([...SSH_OPT_PAIRS, ...controlOptPairs()]);
+}
+
+/** The `ControlMaster` opts as ssh `-o` argv — empty when multiplexing is
+ *  unavailable (see `controlOptPairs`). Appended after `SSH_COMMON_OPTS` by
+ *  the spawned-ssh builders so the agent dial, the arch probe, and the
+ *  realise all ride the one shared master. */
+function controlArgv(): string[] {
+  return toArgv(controlOptPairs());
+}
 
 /** Argv to spawn the agent on `host` against the realised `agentPath`.
  *  Localhost runs the binary directly (no ssh round-trip); a real
@@ -134,7 +166,7 @@ export function buildAgentCommand(opts: {
   }
   return {
     command: "ssh",
-    args: [...SSH_COMMON_OPTS, opts.host, exe, "--stdio"],
+    args: [...SSH_COMMON_OPTS, ...controlArgv(), opts.host, exe, "--stdio"],
   };
 }
 
@@ -155,6 +187,6 @@ export function buildSshProbeCommand(
   }
   return {
     command: "ssh",
-    args: [...SSH_COMMON_OPTS, host, ...remoteArgv],
+    args: [...SSH_COMMON_OPTS, ...controlArgv(), host, ...remoteArgv],
   };
 }

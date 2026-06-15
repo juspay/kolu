@@ -184,6 +184,70 @@ Then(
   },
 );
 
+// Repo-identity treatment: the section element draws the spine from a
+// per-section `--repo-color` custom property (the single source the
+// header tint and the name colour also read). Assert the structural
+// facts via computed style, never a class name (e2e-testing rule): the
+// 3px solid left border exists AND its colour resolves to the same value
+// as `--repo-color` — so a regression to e.g. `border-left: 3px solid
+// red` (a non-repo hue) fails the scenario rather than slipping through.
+// `--repo-color` is an oklch() literal while `borderLeftColor` resolves
+// to the browser's rgb form, so we normalise both through a throwaway
+// probe element and compare the computed results.
+Then(
+  "the dock section should carry a repo-colour spine",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel) => {
+        const sec = document.querySelector(sel);
+        if (!sec) return false;
+        const cs = getComputedStyle(sec);
+        const repoColor = cs.getPropertyValue("--repo-color").trim();
+        // Throw rather than returning false so a missing/empty --repo-color
+        // surfaces a clear diagnostic instead of a generic timeout.
+        if (repoColor === "")
+          throw new Error(
+            `[data-testid="dock-section"] has no --repo-color custom property set`,
+          );
+        if (cs.borderLeftStyle !== "solid" || cs.borderLeftWidth !== "3px") {
+          return false;
+        }
+        // Validate before assigning: an invalid colour value is silently
+        // rejected by the browser, causing getComputedStyle to fall back to
+        // the inherited colour and producing a false positive/negative.
+        if (!CSS.supports("color", repoColor))
+          throw new Error(
+            `--repo-color is not a valid CSS colour: "${repoColor}"`,
+          );
+        // Resolve the raw `--repo-color` literal to the same computed
+        // colour form `borderLeftColor` already reports, then compare.
+        const probe = document.createElement("span");
+        probe.style.color = repoColor;
+        document.body.appendChild(probe);
+        const resolvedRepoColor = getComputedStyle(probe).color;
+        probe.remove();
+        return cs.borderLeftColor === resolvedRepoColor;
+      },
+      '[data-testid="dock-section"]',
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the dock section header should be sticky",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel) => {
+        const header = document.querySelector(sel);
+        return !!header && getComputedStyle(header).position === "sticky";
+      },
+      '[data-testid="dock-section-header"]',
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "no dock-row shortcut hints should be visible",
   async function (this: KoluWorld) {

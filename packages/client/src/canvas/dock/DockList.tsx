@@ -55,9 +55,12 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
   );
 }
 
-/** Repo section — header (uppercase name + colored swatch + row count)
- *  over the group's rows. Always rendered, matching the desktop dock's
- *  "section headers always on" policy. */
+/** Repo section — a repo-colored left-edge spine plus a faintly
+ *  repo-tinted sticky header (uppercase name + row count) over the
+ *  group's rows, sharing the desktop dock's `.dock-cards-section*`
+ *  classes so both surfaces carry one repo-identity vocabulary.
+ *  Always rendered, matching the desktop dock's "section headers
+ *  always on" policy. */
 function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
@@ -76,13 +79,17 @@ function DockListSection(props: {
     <section
       data-testid="mobile-dock-section"
       data-repo={props.group.name}
-      class="grid grid-cols-[20px_minmax(0,1fr)_auto_auto] gap-x-3 pl-6 pr-3"
+      style={{ "--repo-color": props.group.color }}
+      class="dock-cards-section grid grid-cols-[20px_minmax(0,1fr)_auto_auto] gap-x-3 pl-6 pr-3"
     >
-      <div class="col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 bg-surface-2/60 border-y border-edge/30">
+      <div
+        data-testid="mobile-dock-section-header"
+        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 border-y border-edge/30"
+      >
         <span
           data-testid="mobile-dock-section-name"
           class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-          style={{ color: props.group.color }}
+          style={{ color: "var(--repo-color)" }}
         >
           {props.group.name}
         </span>
@@ -153,7 +160,7 @@ function DockListRow(props: {
           // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
           // side is symmetric between the two surfaces, so it ships
           // as one symbol.
-          class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+          class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
         >
           <StatePip bucket={props.bucket} unread={unread()} />
           <span

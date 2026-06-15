@@ -459,6 +459,50 @@ body {
   display: none;
 }
 
+/* ── Cards-mode repo section ───────────────────────────────────
+ * Repo identity carried by two high-mass surfaces instead of one
+ * 9.6 px label: a continuous left-edge SPINE in the repo colour
+ * that runs the section's full height (header + every row), and a
+ * faintly repo-tinted, STICKY header band that pins to the top of
+ * the scrollport until the next repo's header pushes it off — so
+ * "which repo is this row?" is answerable at a glance and survives
+ * the scroll. `--repo-color` is set inline per-section from
+ * `group.color` — the same socket the rail chip and rail divider
+ * read — so every repo-tinted dock surface shares one literal name.
+ *
+ * The spine sits at the section's outer edge (x 0–3); the active
+ * row's own accent stripe sits just inside it (x 3–6), so an active
+ * row reads as "active (accent) AND in this repo (spine)" without the
+ * two cues overlapping. That non-overlap depends on the two widths
+ * being equal, so both read `--dock-edge-stripe-w` (defined below) —
+ * the single token is the anchor: the spine here, and the rows'
+ * `border-l-[length:var(--dock-edge-stripe-w)]` left stripe in
+ * Dock.tsx / MobileDockDrawer.tsx. Change it in one place and the
+ * x0-3 / x3-6 alignment stays honoured everywhere.
+ *
+ * Custom CSS (not Tailwind utilities): the tint formula and the
+ * spine colour both interpolate the per-section `var(--repo-color)`,
+ * which Tailwind's static utilities can't express — same exception
+ * the rail chip below takes. */
+:root {
+  --dock-edge-stripe-w: 3px;
+}
+.dock-cards-section {
+  border-left: var(--dock-edge-stripe-w) solid var(--repo-color);
+}
+.dock-cards-section-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  /* Opaque tint (surface-2 is opaque) so rows scroll cleanly under
+   * the pinned header with no bleed-through. */
+  background: color-mix(
+    in oklch,
+    var(--repo-color) 16%,
+    var(--color-surface-2)
+  );
+}
+
 /* ── Rail-mode chip ────────────────────────────────────────────
  * Rail mode renders one 32 px chip per terminal showing two-letter
  * initials (repo letter + branch/intent letter). Repo colour tints
@@ -467,8 +511,11 @@ body {
  * accent halo; unread shows an alert badge top-right. Five signals
  * stack on a single 32 × 32 tile.
  *
- * `--chip-tint` / `--chip-ring` are inline-set per-chip from
- * `info.repoColor`; bucket / active / unread are data-attributes the
+ * `--repo-color` is inline-set per-chip from `info.repoColor` — the
+ * same socket the cards spine / sticky header read, so every
+ * repo-tinted dock surface plugs into one name. The bg-vs-ring
+ * distinction is a static formula difference (18% vs 70% mix), one
+ * input suffices. Bucket / active / unread are data-attributes the
  * selectors below react to. */
 .dock-rail-chip {
   position: relative;
@@ -476,8 +523,12 @@ body {
   height: 32px;
   margin: 0 auto;
   border-radius: 8px;
-  background: color-mix(in oklch, var(--chip-tint) 18%, var(--color-surface-2));
-  border: 1.5px solid color-mix(in oklch, var(--chip-ring) 70%, transparent);
+  background: color-mix(
+    in oklch,
+    var(--repo-color) 18%,
+    var(--color-surface-2)
+  );
+  border: 1.5px solid color-mix(in oklch, var(--repo-color) 70%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -633,6 +684,7 @@ body {
   height: 2px;
   border-radius: 1px;
   margin: 4px auto 2px;
+  background-color: var(--repo-color);
   opacity: 0.7;
 }
 .dock-rail-section-mark:first-child {
