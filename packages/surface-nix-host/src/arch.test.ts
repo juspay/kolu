@@ -6,8 +6,12 @@
  * Mocks `./process` so no ssh is ever spawned; each test uses a distinct
  * host so the module-level cache never bleeds across tests.
  */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveSystem } from "./arch";
+import { __resetControlMemo } from "./controlMaster";
 import { runCapture } from "./process";
 
 vi.mock("./process", () => ({
@@ -15,15 +19,23 @@ vi.mock("./process", () => ({
   runProgress: vi.fn(),
 }));
 
+const tmpDirs: string[] = [];
 beforeEach(() => {
   // The argv builder appends ControlMaster opts (which mkdir a control dir);
-  // point it at a throwaway runtime dir so this suite never touches the real
-  // one. The mocked runCapture means no ssh runs regardless.
-  vi.stubEnv("XDG_RUNTIME_DIR", "/tmp/kolu-ssh-arch-test");
+  // point it at a throwaway private runtime dir per test so the suite never
+  // touches the real one and leaves no residue. The mocked runCapture means
+  // no ssh runs regardless.
+  const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-arch-test-"));
+  tmpDirs.push(xdg);
+  vi.stubEnv("XDG_RUNTIME_DIR", xdg);
+  __resetControlMemo();
 });
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
+  __resetControlMemo();
+  for (const d of tmpDirs.splice(0))
+    rmSync(d, { recursive: true, force: true });
 });
 
 const okSystem = (sys: string) => ({ ok: true, code: 0, stdout: `"${sys}"\n` });

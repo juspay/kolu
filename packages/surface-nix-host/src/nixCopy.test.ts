@@ -4,6 +4,9 @@
  * nix by mocking `./process`; the real `./host` builds the argv so the
  * assertions see exactly what would hit the wire.
  */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetControlMemo } from "./controlMaster";
 import { agentGcRootPath, provisionAgent } from "./nixCopy";
@@ -29,12 +32,15 @@ function mockHappyPath() {
     .mockResolvedValueOnce({ ok: true, code: 0, stdout: "/home/u/link\n" }); // pin
 }
 
+const tmpDirs: string[] = [];
 beforeEach(() => {
   // The copy step builds NIX_SSHOPTS via nixSshOpts(), which mkdirs the P2.8
-  // control dir. Point it at a throwaway runtime dir so this suite stays off
-  // the real one; the NIX_SSHOPTS *value* isn't asserted here, so whether the
-  // control opts render or degrade is immaterial to these tests.
-  vi.stubEnv("XDG_RUNTIME_DIR", "/tmp/kolu-ssh-nixcopy-test");
+  // control dir. Point it at a throwaway *private* runtime dir per test so the
+  // control opts render deterministically (a real $XDG_RUNTIME_DIR may not be
+  // owner-only on a given box) and the suite leaves no /tmp residue.
+  const xdg = mkdtempSync(join(tmpdir(), "kolu-ssh-nixcopy-test-"));
+  tmpDirs.push(xdg);
+  vi.stubEnv("XDG_RUNTIME_DIR", xdg);
   __resetControlMemo();
 });
 
@@ -42,6 +48,8 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   __resetControlMemo();
+  for (const d of tmpDirs.splice(0))
+    rmSync(d, { recursive: true, force: true });
 });
 
 describe("provisionAgent GC-root pinning", () => {
@@ -69,6 +77,36 @@ describe("provisionAgent GC-root pinning", () => {
     );
     // …and it must not re-realise the derivation in the pin step.
     expect(pinArgs).not.toContain(DRV);
+  });
+
+  it("rides the P2.8 ControlMaster in nix copy's NIX_SSHOPTS env", async () => {
+    // Locks the call-site integration: `nix copy --to ssh-ng://` forks its own
+    // ssh out of reach of our argv, so the ssh-ng fork only joins the shared
+    // master through the NIX_SSHOPTS env `provisionAgent` hands `runProgress`.
+    // host.test.ts asserts `nixSshOpts()` *renders* these opts; this asserts
+    // the cold copy step actually *passes* its value — so a regression that
+    // reverts to the keepalive-only const (dropping multiplexing for the fork)
+    // is caught here, not silently green there.
+    mockHappyPath();
+    await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+    });
+
+    // The copy is the sole runProgress call; its 4th arg is the env overlay.
+    expect(runProgress).toHaveBeenCalledTimes(1);
+    const env = vi.mocked(runProgress).mock.calls[0]![3] as Record<
+      string,
+      string
+    >;
+    const nixSshOpts = env.NIX_SSHOPTS ?? "";
+    // The fork rides the same master (auto + the %C-addressed socket, 10m
+    // persist) AND keeps the dead-peer keepalive — all through this one env.
+    expect(nixSshOpts).toContain("-o ControlMaster=auto");
+    expect(nixSshOpts).toMatch(/-o ControlPath=\S+\/%C(\s|$)/);
+    expect(nixSshOpts).toContain("-o ControlPersist=10m");
+    expect(nixSshOpts).toContain("-o ServerAliveInterval=10");
   });
 
   it("returns the immutable store path, not the moving root link", async () => {
