@@ -54,10 +54,11 @@ export interface FrontDaemonOverStdioOptions {
    *  its own namespace / rendezvous policy lives with the caller, not here. */
   socketPath: string;
   /** Ensure a durable daemon is (being) started, idempotently — invoked only
-   *  when nothing is listening at `socketPath`. The daemon's own pid-gate must
-   *  make a racing second launch a clean no-op. `reExecAsDetachedDaemon` is the
-   *  default strategy for a same-binary daemon (kaval); a consumer fronted by an
-   *  external supervisor (systemd, …) supplies its own. */
+   *  when nothing is listening at `socketPath`. Required, no default: the front
+   *  takes an opaque spawn so the caller owns how its daemon starts. The daemon's
+   *  own pid-gate must make a racing second launch a clean no-op.
+   *  `reExecAsDetachedDaemon` is the same-binary strategy kaval passes here; a
+   *  consumer fronted by an external supervisor (systemd, …) supplies its own. */
   spawnDaemon: () => void;
   /** The link's inbound byte stream. Default `process.stdin`. */
   stdin?: Readable;

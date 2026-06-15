@@ -25,14 +25,23 @@ import {
 import { getPtyHostSocketPath, KAVAL_NS_PREFIX } from "./socketPath.ts";
 
 export interface RunStdioBridgeOptions {
-  /** Override the daemon socket to front (`--socket`); the spawned daemon, if
-   *  any, is launched to serve the same path. Default: kaval's own namespace. */
+  /** The value of `--socket`, threaded straight from `bin.ts`'s argv parse, so
+   *  the front and the re-exec'd daemon resolve the SAME path from the SAME
+   *  token. Default (`undefined`): kaval's own namespace.
+   *
+   *  This is the kaval `--stdio` CLI shim, not a general-purpose entry: the
+   *  spawn re-execs `process.argv` (minus `--stdio`), so the daemon serves the
+   *  override ONLY because `--socket PATH` is still in argv. Pass `socketOverride`
+   *  *without* a matching `--socket` in argv and the daemon would bind the
+   *  default while the front waits on the override — so don't call this off the
+   *  CLI path; for a programmatic front, use `frontDaemonOverStdio` directly and
+   *  supply a `spawnDaemon` that injects the path. */
   socketOverride?: string;
 }
 
 /** Run the `--stdio` bridge: front kaval's durable daemon over this process's
  *  stdio for the lifetime of the link. Resolves when the link ends; the daemon
- *  it fronts keeps running. */
+ *  it fronts keeps running. CLI-only — see `socketOverride`. */
 export function runStdioBridge(
   opts: RunStdioBridgeOptions = {},
 ): Promise<void> {
@@ -40,8 +49,9 @@ export function runStdioBridge(
   return frontDaemonOverStdio({
     socketPath,
     // Start kaval's own durable daemon: re-exec this binary minus `--stdio`.
-    // Any `--socket` rides through in `process.argv`, so the daemon serves the
-    // same path the front just resolved.
+    // `--socket PATH` (if any) rides through in `process.argv`, so the daemon
+    // resolves the SAME path the front just did — load-bearing, and why this
+    // shim is CLI-only (see `socketOverride`).
     spawnDaemon: () => reExecAsDetachedDaemon({ stripArgs: ["--stdio"] }),
     log: (msg) => process.stderr.write(`kaval --stdio: ${msg}\n`),
   });

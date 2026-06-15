@@ -29,7 +29,7 @@ It exists because two programs arrived at the identical machinery from opposite 
 | `gatePid(gatePath)` / `isHolderLive(pid)` | The gate's file format, single-sourced as two daemon-running primitives — the pid parse and the liveness probe. The supervisor (`@kolu/surface-daemon-supervisor`, from B2) composes them where it lives (`isHolderLive(gatePid(path))`) for a live-only read, so no supervisor reader crosses into this daemon-hashed package. |
 | `daemonMain(spec)` | The `gate → serve → teardown` skeleton. `spec` = `{ gatePath, socketPath, router, lifetime, log, signal?, onReady? }`; resolves a `DaemonExit`. |
 | `frontDaemonOverStdio(opts)` | The **front half**: adopt-or-spawn the gate-held daemon at `socketPath` and raw-byte-relay this process's stdio onto its socket, so a remote session survives the ssh link. The durable counterpart to `serveOverStdio` (see below). |
-| `reExecAsDetachedDaemon(opts)` | The same-binary daemon-spawn the front defaults to: re-exec this process minus the front flag (`stripArgs`) as the single-process `node --import` form, detached, so SIGTERM reaches the daemon and it survives the link's SIGHUP. |
+| `reExecAsDetachedDaemon(opts)` | The same-binary daemon-spawn kaval supplies as its `spawnDaemon` (the front has no built-in default — `spawnDaemon` is required): re-exec this process minus the front flag (`stripArgs`) as the single-process `node --import` form, detached, so SIGTERM reaches the daemon and it survives the link's SIGHUP. |
 | `Logger` | The structural logging contract (so the package carries no `kolu-*` dep). |
 
 ```ts
@@ -56,7 +56,7 @@ A surface daemon is reached *locally* over its unix socket. To reach it *remotel
 
 It is the **durable** sibling of `@kolu/surface`'s `serveOverStdio`: where `serveOverStdio` makes the `--stdio` process *be* the server (ephemeral — a fresh one per link, gone when the link drops, right for a re-run-fresh agent like `mini-ci` or drishti), `frontDaemonOverStdio` fronts a *separate, gate-held* daemon whose state outlives the link — `dtach`/`abduco` for any surface daemon. kaval is the first consumer (`kaval --stdio`, R-2's `kaval-tui --host`); a survivable CI run and a remote REPL are the anticipated next ones.
 
-`reExecAsDetachedDaemon` is the same-binary spawn strategy the front defaults to: re-exec this process minus the front flag (`["--stdio"]`) as the signal-deliverable single-process `node --import <loader> bin.ts` form — *not* a `tsx bin.ts` CLI fork that swallows `SIGTERM` and leaks the socket + gate — `detached` + `stdio:"ignore"` + `unref` so it survives the SIGHUP that closes the link.
+`reExecAsDetachedDaemon` is the same-binary spawn strategy kaval supplies as its `spawnDaemon` (the front takes an opaque `spawnDaemon` — required, no built-in default — so a systemd-supervised consumer can hand in its own): re-exec this process minus the front flag (`["--stdio"]`) as the signal-deliverable single-process `node --import <loader> bin.ts` form — *not* a `tsx bin.ts` CLI fork that swallows `SIGTERM` and leaks the socket + gate — `detached` + `stdio:"ignore"` + `unref` so it survives the SIGHUP that closes the link.
 
 ```ts
 import { frontDaemonOverStdio, reExecAsDetachedDaemon } from "@kolu/surface-daemon";

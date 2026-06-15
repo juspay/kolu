@@ -18,9 +18,10 @@
  *       adopt-or-spawn the gate-held daemon and raw-byte-relay a stdio link to
  *       its socket, so a remote session survives the link. `dtach`/`abduco` for
  *       any surface daemon.
- *     - `reExecAsDetachedDaemon` — the same-binary spawn strategy the front
- *       defaults to (re-exec minus the front flag, as the signal-deliverable
- *       single-process `node --import` form).
+ *     - `reExecAsDetachedDaemon` — the same-binary spawn strategy kaval supplies
+ *       as its `spawnDaemon` (the front has no built-in default — `spawnDaemon`
+ *       is a required option; re-exec minus the front flag, as the
+ *       signal-deliverable single-process `node --import` form).
  *
  *  Both halves are part of the *same executable* (kaval `serve`s; `kaval --stdio`
  *  fronts — one binary, flag-dispatched), so both legitimately sit inside the

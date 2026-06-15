@@ -136,11 +136,14 @@ let
       # would escape the staleKey.
       (pkgs.lib.fileset.fileFilter isHashedSource ./packages/terminal-protocol/src)
       ./packages/terminal-protocol/package.json
-      # @kolu/surface-daemon is the daemon spine — the pid-gate and the
-      # `daemonMain` skeleton run inside the daemon process, so a change to them
-      # is a change to what a restart loads. Hashed WHOLE (its standing
-      # invariant: only daemon-running code lives there — the supervisor
-      # half is its own un-hashed package from B2).
+      # @kolu/surface-daemon is the daemon spine — both halves of the kaval
+      # *binary* a restart loads. The serve half (pid-gate + the `daemonMain`
+      # skeleton) runs inside the daemon process; the front half
+      # (`frontDaemonOverStdio`, P2.5) runs in the per-link proxy reached from
+      # `bin.ts`'s `--stdio` dispatch — so a change to either is a change to what
+      # that binary loads. Hashed WHOLE (its standing invariant, broadened in
+      # P2.5: only daemon-BINARY code — serve + front — lives there; the
+      # supervisor half is its own un-hashed package from B2).
       (pkgs.lib.fileset.fileFilter isHashedSource ./packages/surface-daemon/src)
       ./packages/surface-daemon/package.json
     ];
