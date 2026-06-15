@@ -129,6 +129,19 @@ export async function provisionAgent(
     if (looksLikeNetworkError(line)) sawNetworkError = true;
     opts.onProgress(line);
   };
+  // The warm probe is *speculative*: on a cold host it's expected to fail
+  // (the `.drv` isn't there yet), and nix writes a real `error: …` line to
+  // stderr before we fall through and provision successfully. Forwarding that
+  // line into the user-visible progress ring would make a clean first-time
+  // provision read as if it errored. So the probe's stderr is scanned for the
+  // network classification (a transport failure here must still flip
+  // `sawNetworkError` so the fall-through's `causeFor` calls an unreachable
+  // host `"network"`) but NOT echoed to `opts.onProgress`. The real
+  // copy/realise path below reports its own errors verbatim if provisioning
+  // ultimately fails.
+  const onProbeProgress = (line: string): void => {
+    if (looksLikeNetworkError(line)) sawNetworkError = true;
+  };
   // A direct-ssh command (realise/pin) surfaces ssh's own 255 on a transport
   // failure; combined with the stderr scan this covers both the copy step
   // (nix-wrapped ssh) and the realise step (bare ssh).
@@ -147,12 +160,14 @@ export async function provisionAgent(
   //    is best-effort, so a root issue degrades to "works, unpinned" rather than
   //    a hard failure. Localhost never copies anyway (the .drv is already in the
   //    local store), so the fast-path is remote-only — its one ssh would be pure
-  //    overhead locally. A transport failure here flows through the same
-  //    `onProgress` network scan, so the fall-through copy/realise still
-  //    classifies an unreachable host as `"network"`.
+  //    overhead locally. The probe's stderr is scanned for the network
+  //    classification (via `onProbeProgress`) but NOT echoed to the
+  //    user-visible progress ring — its expected miss on a cold host would
+  //    otherwise make a clean first-time provision read as an error — so a
+  //    transport failure here still classifies the fall-through as `"network"`.
   if (!isLocal && rootPath !== null) {
     const warm = realiseAndPin(opts.host, opts.drvPath, rootPath);
-    const warmRes = await runCapture(warm.command, warm.args, onProgress);
+    const warmRes = await runCapture(warm.command, warm.args, onProbeProgress);
     const warmPath = warmRes.stdout.trim();
     if (warmRes.ok && warmPath.length > 0) {
       onProgress(

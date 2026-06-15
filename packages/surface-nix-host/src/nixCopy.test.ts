@@ -133,6 +133,66 @@ describe("provisionAgent warm fast-path", () => {
     expect(probeArgs).toContain("--add-root");
     expect(probeArgs).toContain("--indirect");
   });
+
+  it("does not leak the expected probe-miss error into the progress ring", async () => {
+    // On a cold host the probe fails because the `.drv` isn't there yet, and
+    // nix emits a real `error: …` line on stderr. That line must NOT reach the
+    // user-visible progress callback, or a clean first-time provision would
+    // read as if it errored.
+    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
+    vi.mocked(runCapture).mockImplementation(
+      async (_cmd, _args, onProgress) => {
+        // Probe (call #1): nix's expected miss-on-cold-host stderr.
+        if (vi.mocked(runCapture).mock.calls.length === 1) {
+          onProgress?.(`error: path '${DRV}' is not valid`);
+          return { ok: false, code: 1, stdout: "" };
+        }
+        // realise (#2), pin (#3): succeed.
+        return { ok: true, code: 0, stdout: `${STORE}\n` };
+      },
+    );
+
+    const lines: string[] = [];
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: (l) => lines.push(l),
+    });
+
+    expect(res).toEqual({ ok: true, agentPath: STORE });
+    // The scary-but-expected probe error is swallowed.
+    expect(lines.some((l) => l.includes("is not valid"))).toBe(false);
+    expect(lines.some((l) => l.includes("error:"))).toBe(false);
+  });
+
+  it("still classifies a transport failure on the probe as network", async () => {
+    // The probe's stderr is suppressed from the progress ring, but it must
+    // still be SCANNED: a network-looking line on the probe has to flip the
+    // fall-through's cause to `"network"` so an unreachable host keeps
+    // retrying instead of failing terminally.
+    vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
+    vi.mocked(runCapture).mockImplementation(
+      async (_cmd, _args, onProgress) => {
+        if (vi.mocked(runCapture).mock.calls.length === 1) {
+          // A transport failure during the probe (ssh's own 255 path).
+          onProgress?.("ssh: connect to host testhost port 22: No route to host");
+          return { ok: false, code: 255, stdout: "" };
+        }
+        // The fall-through copy then also fails on the unreachable host.
+        return { ok: false, code: 1, stdout: "" };
+      },
+    );
+    vi.mocked(runProgress).mockResolvedValue({ ok: false, code: 1 });
+
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.cause).toBe("network");
+  });
 });
 
 // A store-path .drv with a 32-char base32 hash, like nix produces.
