@@ -321,7 +321,11 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                       <span
                         class={
                           d.render.debouncerPending &&
-                          (d.render.msSinceLastPaint ?? 0) > PAINT_STALL_WARN_MS
+                          // null = never painted, the most severe unknown
+                          // (renderRecovery documents it so) — reds it too,
+                          // rather than `?? 0` masquerading as the healthiest.
+                          (d.render.msSinceLastPaint === null ||
+                            d.render.msSinceLastPaint > PAINT_STALL_WARN_MS)
                             ? "text-danger font-semibold"
                             : "text-fg-3/60"
                         }

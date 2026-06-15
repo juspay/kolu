@@ -35,6 +35,18 @@ When(
       const w = window as unknown as RenderProbeWindow;
       w.__paintCount = 0;
       w.__syncRefreshes = 0;
+      // Model occlusion: the window is in the background, so `document.hasFocus()`
+      // is false. The production watchdog (renderRecovery.noteData) only arms
+      // while the document has focus, so forcing this false keeps it disarmed
+      // through `I generate 30 lines of output` — otherwise, on a slow runner,
+      // output + the buffer wait could exceed WATCHDOG_DELAY_MS (250ms) and the
+      // watchdog would fire the sync repaint before the "not repainted yet"
+      // assertion (paintCount would be > 0), flaking the test. `the window
+      // regains focus` restores it before dispatching the focus event.
+      Object.defineProperty(document, "hasFocus", {
+        configurable: true,
+        value: () => false,
+      });
       term.onRender(() => {
         w.__paintCount++;
       });
@@ -73,7 +85,12 @@ Then(
 When("the window regains focus", async function (this: KoluWorld) {
   // App-switch return fires `focus` (not `visibilitychange`); the fix's
   // window-focus listener turns it into a forced synchronous repaint.
-  await this.page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+  // Restore real focus reporting first (the stall step forced hasFocus()=false
+  // to model occlusion), then dispatch the focus event the listener keys off.
+  await this.page.evaluate(() => {
+    delete (document as unknown as { hasFocus?: unknown }).hasFocus;
+    window.dispatchEvent(new FocusEvent("focus"));
+  });
 });
 
 Then(

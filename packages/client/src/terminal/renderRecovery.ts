@@ -125,6 +125,13 @@ export function createRenderRecovery(
 
   const onRender = term.onRender(() => {
     lastPaintAt = now();
+    // A normal rAF paint caught up — drop any watchdog armed by an earlier
+    // chunk. Without this, a timer armed at t≈0 survives the healthy paint at
+    // t≈16ms; a chunk landing at t≈240ms (which finds watchdog !== null, so
+    // does NOT re-arm) then lets that stale t=250ms timer see paintIsBehind()
+    // and force a pointless sync repaint while the render loop is fine. We only
+    // ever want a watchdog covering data the latest paint hasn't reached yet.
+    if (!paintIsBehind()) disarm();
   });
 
   function forceRepaint(): void {
@@ -146,7 +153,9 @@ export function createRenderRecovery(
   // last paint predates the last data we received. During normal focused
   // output the serviced rAF keeps lastPaintAt current, so this is false.
   function paintIsBehind(): boolean {
-    return lastPaintAt === null || (lastDataAt !== null && lastDataAt > lastPaintAt);
+    return (
+      lastPaintAt === null || (lastDataAt !== null && lastDataAt > lastPaintAt)
+    );
   }
 
   function maybeForce(): void {

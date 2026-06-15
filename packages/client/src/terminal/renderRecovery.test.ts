@@ -142,6 +142,34 @@ describe("renderRecovery", () => {
     });
   });
 
+  it("does NOT force during healthy continuous output: a normal paint disarms the stale watchdog a later chunk would otherwise trip", () => {
+    createRoot((dispose) => {
+      const f = makeFakeTerm();
+      const r = createRenderRecovery(f.term, () => true, {
+        hasFocus: () => true,
+      });
+      // Chunk A arrives, arming a watchdog at t=0 (fires at t=250).
+      r.noteData();
+      // A normal rAF paint catches up at t=16 — this must disarm that watchdog.
+      vi.advanceTimersByTime(16);
+      f.fireRender();
+      // Chunk B arrives at t=240, before the ORIGINAL t=250 deadline. With the
+      // watchdog disarmed it arms a FRESH timer (fires at t=490).
+      vi.advanceTimersByTime(224);
+      r.noteData();
+      // Past the original t=250 deadline. A surviving stale timer would see
+      // paintIsBehind() (chunk B unpainted) and force a repaint here — the
+      // "fights normal rendering" bug. It must not.
+      vi.advanceTimersByTime(20); // t=260
+      expect(f.refreshCalls).toHaveLength(0);
+      // Chunk B's own normal paint lands at t=270 — still healthy, still no force.
+      f.fireRender();
+      vi.advanceTimersByTime(WATCHDOG_DELAY_MS); // well past t=490
+      expect(f.refreshCalls).toHaveLength(0);
+      dispose();
+    });
+  });
+
   it("recover() forces a sync repaint when on-screen, and is a no-op when off-screen", () => {
     createRoot((dispose) => {
       const f = makeFakeTerm();

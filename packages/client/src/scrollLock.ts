@@ -328,13 +328,20 @@ export function createScrollLock(
    * Scroll-aware write: when locked, buffer data instead of writing to xterm.
    * This completely avoids viewport-jumping — xterm never processes the data
    * until the user is at the bottom and ready to see it.
+   *
+   * Returns whether the data actually reached xterm (`true` = written now,
+   * `false` = buffered because the lock is engaged). Callers that key off "data
+   * landed in xterm" — e.g. render-stall recovery, which must NOT arm its
+   * watchdog for buffered chunks that produce no paint — read this rather than
+   * assuming every call wrote.
    */
-  function writeData(term: Terminal, data: string): void {
+  function writeData(term: Terminal, data: string): boolean {
     if (!isLocked()) {
       term.write(data);
-      return;
+      return true;
     }
     setPending((buffered) => [...buffered, data]);
+    return false;
   }
 
   /**
