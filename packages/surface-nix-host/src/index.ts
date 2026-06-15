@@ -12,6 +12,7 @@ export {
   buildSshProbeCommand,
   forEachLine,
   isLocalHost,
+  nixSshOpts,
   SSH_COMMON_OPTS,
 } from "./host";
 export {

@@ -3,6 +3,8 @@
  *  "are we talking to ourselves?" check and the per-line stderr fanout
  *  in one place so they evolve together. */
 
+import { controlOptPairs } from "./controlMaster";
+
 export function isLocalHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
@@ -116,6 +118,28 @@ export const NIX_SSHOPTS: string = SSH_OPT_PAIRS.map(
   ([key, value]) => `-o ${key}=${value}`,
 ).join(" ");
 
+/** The `NIX_SSHOPTS` env string for `nix copy --to ssh-ng://`, as a
+ *  function (not the const above) so it can additionally carry the
+ *  runtime-computed `ControlMaster` pairs (see `controlOptPairs`). The
+ *  const stays for external direct importers and is the static keepalive
+ *  policy alone; THIS is what `nixCopy` passes, so the ssh `nix copy` forks
+ *  internally rides the SAME shared master the arch probe opened — not a
+ *  fresh ~5s handshake. When multiplexing is unavailable `controlOptPairs()`
+ *  returns `[]`, so this degrades back to exactly the const's value. */
+export function nixSshOpts(): string {
+  return [...SSH_OPT_PAIRS, ...controlOptPairs()]
+    .map(([key, value]) => `-o ${key}=${value}`)
+    .join(" ");
+}
+
+/** The `ControlMaster` opts as ssh `-o` argv — empty when multiplexing is
+ *  unavailable (see `controlOptPairs`). Appended after `SSH_COMMON_OPTS` by
+ *  the spawned-ssh builders so the agent dial, the arch probe, and the
+ *  realise all ride the one shared master. */
+function controlArgv(): string[] {
+  return controlOptPairs().flatMap(([key, value]) => ["-o", `${key}=${value}`]);
+}
+
 /** Argv to spawn the agent on `host` against the realised `agentPath`.
  *  Localhost runs the binary directly (no ssh round-trip); a real
  *  remote wraps in `ssh` with `SSH_COMMON_OPTS`.
@@ -134,7 +158,7 @@ export function buildAgentCommand(opts: {
   }
   return {
     command: "ssh",
-    args: [...SSH_COMMON_OPTS, opts.host, exe, "--stdio"],
+    args: [...SSH_COMMON_OPTS, ...controlArgv(), opts.host, exe, "--stdio"],
   };
 }
 
@@ -155,6 +179,6 @@ export function buildSshProbeCommand(
   }
   return {
     command: "ssh",
-    args: [...SSH_COMMON_OPTS, host, ...remoteArgv],
+    args: [...SSH_COMMON_OPTS, ...controlArgv(), host, ...remoteArgv],
   };
 }

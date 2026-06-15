@@ -4,7 +4,8 @@
  * nix by mocking `./process`; the real `./host` builds the argv so the
  * assertions see exactly what would hit the wire.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __resetControlMemo } from "./controlMaster";
 import { agentGcRootPath, provisionAgent } from "./nixCopy";
 import { runCapture, runProgress } from "./process";
 
@@ -28,9 +29,19 @@ function mockHappyPath() {
     .mockResolvedValueOnce({ ok: true, code: 0, stdout: "/home/u/link\n" }); // pin
 }
 
+beforeEach(() => {
+  // The copy step builds NIX_SSHOPTS via nixSshOpts(), which mkdirs the P2.8
+  // control dir. Point it at a throwaway runtime dir so this suite stays off
+  // the real one; the NIX_SSHOPTS *value* isn't asserted here, so whether the
+  // control opts render or degrade is immaterial to these tests.
+  vi.stubEnv("XDG_RUNTIME_DIR", "/tmp/kolu-ssh-nixcopy-test");
+  __resetControlMemo();
+});
+
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
+  __resetControlMemo();
 });
 
 describe("provisionAgent GC-root pinning", () => {
