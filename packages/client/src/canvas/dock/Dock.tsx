@@ -13,7 +13,13 @@
  *     `working`); active wears an accent halo; unread shows an alert
  *     badge top-right. Tiny tinted dividers between repo groups
  *     carry the cards-mode section-header colour into the rail so
- *     the two modes share one repo-identity vocabulary.
+ *     the two modes share one repo-identity vocabulary — every
+ *     repo-tinted dock surface (cards spine, sticky header, name,
+ *     rail chip bg+ring, rail divider) reads the same `--repo-color`
+ *     custom property, so the shared socket is a structural fact, not
+ *     a comment. (Canvas tiles' `--card-color` / `--aura-c` are a
+ *     separate module; converging them onto `--repo-color` is future
+ *     work, not done here.)
  *  2. **cards** (default) — rows grouped by repo. Each repo gets a
  *     continuous repo-colored **spine** down the section's left edge
  *     plus a faintly repo-tinted **sticky** header (uppercase name +
@@ -532,7 +538,7 @@ const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
     data-testid="dock-rail-section"
     data-repo={props.name}
     class="dock-rail-section-mark"
-    style={{ "background-color": props.color }}
+    style={{ "--repo-color": props.color }}
     title={props.name}
   />
 );
@@ -573,10 +579,7 @@ const RailChip: Component<{
             }
             onClick={() => store.activate(props.id)}
             class="dock-rail-chip"
-            style={{
-              "--chip-tint": c().info.repoColor,
-              "--chip-ring": c().info.repoColor,
-            }}
+            style={{ "--repo-color": c().info.repoColor }}
             title={chipTooltip(c().info, props.bucket)}
             aria-label={chipTooltip(c().info, props.bucket)}
           >

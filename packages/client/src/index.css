@@ -467,8 +467,8 @@ body {
  * the scrollport until the next repo's header pushes it off — so
  * "which repo is this row?" is answerable at a glance and survives
  * the scroll. `--repo-color` is set inline per-section from
- * `group.color` — the same OKLCH the rail chip's `--chip-tint`
- * reads — so cards and rail share one repo-identity vocabulary.
+ * `group.color` — the same socket the rail chip and rail divider
+ * read — so every repo-tinted dock surface shares one literal name.
  *
  * The 3 px spine sits at the section's outer edge (x 0–3); the
  * active row's own 3 px accent stripe sits just inside it (x 3–6),
@@ -503,8 +503,11 @@ body {
  * accent halo; unread shows an alert badge top-right. Five signals
  * stack on a single 32 × 32 tile.
  *
- * `--chip-tint` / `--chip-ring` are inline-set per-chip from
- * `info.repoColor`; bucket / active / unread are data-attributes the
+ * `--repo-color` is inline-set per-chip from `info.repoColor` — the
+ * same socket the cards spine / sticky header read, so every
+ * repo-tinted dock surface plugs into one name. The bg-vs-ring
+ * distinction is a static formula difference (18% vs 70% mix), one
+ * input suffices. Bucket / active / unread are data-attributes the
  * selectors below react to. */
 .dock-rail-chip {
   position: relative;
@@ -512,8 +515,12 @@ body {
   height: 32px;
   margin: 0 auto;
   border-radius: 8px;
-  background: color-mix(in oklch, var(--chip-tint) 18%, var(--color-surface-2));
-  border: 1.5px solid color-mix(in oklch, var(--chip-ring) 70%, transparent);
+  background: color-mix(
+    in oklch,
+    var(--repo-color) 18%,
+    var(--color-surface-2)
+  );
+  border: 1.5px solid color-mix(in oklch, var(--repo-color) 70%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -669,6 +676,7 @@ body {
   height: 2px;
   border-radius: 1px;
   margin: 4px auto 2px;
+  background-color: var(--repo-color);
   opacity: 0.7;
 }
 .dock-rail-section-mark:first-child {
