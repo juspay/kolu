@@ -131,16 +131,17 @@ export function createRenderRecovery(
     }
   }
 
+  // The one staleness judgment both recovery paths reason about: is the
+  // painted frame behind the data xterm holds? Never painted (null), or the
+  // last paint predates the last data we received. During normal focused
+  // output the serviced rAF keeps lastPaintAt current, so this is false.
+  function paintIsBehind(): boolean {
+    return lastPaintAt === null || (lastDataAt !== null && lastDataAt > lastPaintAt);
+  }
+
   function maybeForce(): void {
     watchdog = null;
-    if (lastDataAt === null) return; // only armed after noteData, so unreachable
-    // Force only when a paint is genuinely behind the data we last received
-    // (never painted, or the last paint predates it) — during normal focused
-    // output the serviced rAF keeps lastPaintAt current and this is a no-op.
-    const paintBehind = lastPaintAt === null || lastDataAt > lastPaintAt;
-    if (isOnScreen() && hasFocus() && paintBehind) {
-      forceRepaint();
-    }
+    if (isOnScreen() && hasFocus() && paintIsBehind()) forceRepaint();
   }
 
   function noteData(): void {
@@ -155,6 +156,9 @@ export function createRenderRecovery(
   }
 
   function recover(): void {
+    // Forces unconditionally (does NOT consult paintIsBehind): focus-return is
+    // cheap and after an occlusion gap our own staleness bookkeeping can't be
+    // trusted.
     if (isOnScreen()) forceRepaint();
   }
 
