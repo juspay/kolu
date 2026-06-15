@@ -459,6 +459,42 @@ body {
   display: none;
 }
 
+/* ── Cards-mode repo section ───────────────────────────────────
+ * Repo identity carried by two high-mass surfaces instead of one
+ * 9.6 px label: a continuous left-edge SPINE in the repo colour
+ * that runs the section's full height (header + every row), and a
+ * faintly repo-tinted, STICKY header band that pins to the top of
+ * the scrollport until the next repo's header pushes it off — so
+ * "which repo is this row?" is answerable at a glance and survives
+ * the scroll. `--repo-color` is set inline per-section from
+ * `group.color` — the same OKLCH the rail chip's `--chip-tint`
+ * reads — so cards and rail share one repo-identity vocabulary.
+ *
+ * The 3 px spine sits at the section's outer edge (x 0–3); the
+ * active row's own 3 px accent stripe sits just inside it (x 3–6),
+ * so an active row reads as "active (accent) AND in this repo
+ * (spine)" without the two cues overlapping.
+ *
+ * Custom CSS (not Tailwind utilities): the tint formula and the
+ * spine colour both interpolate the per-section `var(--repo-color)`,
+ * which Tailwind's static utilities can't express — same exception
+ * the rail chip below takes. */
+.dock-cards-section {
+  border-left: 3px solid var(--repo-color);
+}
+.dock-cards-section-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  /* Opaque tint (surface-2 is opaque) so rows scroll cleanly under
+   * the pinned header with no bleed-through. */
+  background: color-mix(
+    in oklch,
+    var(--repo-color) 16%,
+    var(--color-surface-2)
+  );
+}
+
 /* ── Rail-mode chip ────────────────────────────────────────────
  * Rail mode renders one 32 px chip per terminal showing two-letter
  * initials (repo letter + branch/intent letter). Repo colour tints

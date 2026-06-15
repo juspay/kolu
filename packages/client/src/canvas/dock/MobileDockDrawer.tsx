@@ -63,9 +63,12 @@ const MobileDockDrawer: Component<{
   );
 };
 
-/** Repo section — header (uppercase name + colored swatch + row count)
- *  over the group's rows. Always rendered, matching the desktop dock's
- *  "section headers always on" policy. */
+/** Repo section — a repo-colored left-edge spine plus a faintly
+ *  repo-tinted sticky header (uppercase name + row count) over the
+ *  group's rows, sharing the desktop dock's `.dock-cards-section*`
+ *  classes so both surfaces carry one repo-identity vocabulary.
+ *  Always rendered, matching the desktop dock's "section headers
+ *  always on" policy. */
 const MobileSection: Component<{
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
@@ -84,13 +87,17 @@ const MobileSection: Component<{
   <section
     data-testid="mobile-dock-section"
     data-repo={props.group.name}
-    class="grid grid-cols-[20px_minmax(0,1fr)_auto_auto] gap-x-3 pl-6 pr-3"
+    style={{ "--repo-color": props.group.color }}
+    class="dock-cards-section grid grid-cols-[20px_minmax(0,1fr)_auto_auto] gap-x-3 pl-6 pr-3"
   >
-    <div class="col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 bg-surface-2/60 border-y border-edge/30">
+    <div
+      data-testid="mobile-dock-section-header"
+      class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 border-y border-edge/30"
+    >
       <span
         data-testid="mobile-dock-section-name"
         class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-        style={{ color: props.group.color }}
+        style={{ color: "var(--repo-color)" }}
       >
         {props.group.name}
       </span>

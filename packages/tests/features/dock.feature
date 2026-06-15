@@ -98,6 +98,18 @@ Feature: Dock
     Given I create a terminal
     Then the dock should show 1 active row indicator
 
+  Scenario: Repo sections carry a colour spine and a sticky tinted header
+    # Repo identity rides two high-mass surfaces, not a 9.6px label: a
+    # repo-coloured spine down the section's left edge (the section
+    # element draws it from the per-section `--repo-color` custom
+    # property) and a sticky header band so the repo label survives the
+    # scroll. Assert the structural facts via computed style, never a
+    # class selector (see .claude/rules/e2e-testing.md).
+    Given I create a terminal
+    When the dock is expanded
+    Then the dock section should carry a repo-colour spine
+    And the dock section header should be sticky
+
   Scenario: Dock activity-window selector defaults to 24h and shares with the minimap
     # The dock header carries a compact `24h ▾` chip mirroring the
     # minimap's existing window picker. Both surfaces consume the same

@@ -184,6 +184,45 @@ Then(
   },
 );
 
+// Repo-identity treatment: the section element draws the spine from a
+// per-section `--repo-color` custom property (the single source the
+// header tint and the name colour also read), so asserting the property
+// is set plus the 3px solid left border proves the spine is wired —
+// without matching on a class name (e2e-testing rule).
+Then(
+  "the dock section should carry a repo-colour spine",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel) => {
+        const sec = document.querySelector(sel);
+        if (!sec) return false;
+        const cs = getComputedStyle(sec);
+        return (
+          cs.getPropertyValue("--repo-color").trim() !== "" &&
+          cs.borderLeftStyle === "solid" &&
+          cs.borderLeftWidth === "3px"
+        );
+      },
+      '[data-testid="dock-section"]',
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the dock section header should be sticky",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel) => {
+        const header = document.querySelector(sel);
+        return !!header && getComputedStyle(header).position === "sticky";
+      },
+      '[data-testid="dock-section-header"]',
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "no dock-row shortcut hints should be visible",
   async function (this: KoluWorld) {

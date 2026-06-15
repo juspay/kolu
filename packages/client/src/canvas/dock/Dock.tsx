@@ -15,9 +15,12 @@
  *     carry the cards-mode section-header colour into the rail so
  *     the two modes share one repo-identity vocabulary.
  *  2. **cards** (default) — rows grouped by repo. Each repo gets a
- *     small section header (uppercase name + repo-colored swatch +
- *     row count); rows below stack as `state · branch · pips · time`
- *     lines. The first-column **state pip** (`StatePip`) encodes
+ *     continuous repo-colored **spine** down the section's left edge
+ *     plus a faintly repo-tinted **sticky** header (uppercase name +
+ *     row count) that pins to the scrollport top until the next
+ *     repo's header pushes it off — so a row's repo is legible at a
+ *     glance and the label survives the scroll. Rows below stack as
+ *     `state · branch · pips · time` lines. The first-column **state pip** (`StatePip`) encodes
  *     urgency by shape: filled orange disk + pulse for unread
  *     attention, dim small disk for already-seen awaiting, hollow
  *     spinning ring for working, muted dot for idle, nothing for
@@ -348,24 +351,27 @@ const RepoSection: Component<{
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
-    class={`grid grid-cols-[16px_minmax(0,1fr)_auto_auto] gap-x-2 pl-6 ${DOCK_CARDS_GUTTER_CLASS}`}
+    style={{ "--repo-color": props.group.color }}
+    class={`dock-cards-section grid grid-cols-[16px_minmax(0,1fr)_auto_auto] gap-x-2 pl-6 ${DOCK_CARDS_GUTTER_CLASS}`}
   >
-    {/* Header is a band — bg-surface-2 plus a hairline divider top
-     *  and bottom — so a `KOLU` / `NIXOS-CONFIG` label reads as a
-     *  section break rather than a faint label that blends into
-     *  the rows. The repo identity is carried by colouring the name
-     *  itself (no separate swatch); count stays neutral. Header
-     *  text sits at `pl-3` (12 px) from the dock's outer edge; row
-     *  content sits at `pl-6` (24 px) inside the section's grid, so
-     *  the header reads as an outdented parent and the rows nest
-     *  visually beneath it. */}
+    {/* Header is a sticky band tinted with the repo colour (see
+     *  `.dock-cards-section-header`), riding above the repo-colour
+     *  spine the section's left border draws — so a `KOLU` /
+     *  `NIXOS-CONFIG` label reads as a coloured section break that
+     *  stays pinned while its rows scroll, not a faint label that
+     *  blends in and slides away. The name carries the repo colour
+     *  too; count stays neutral. Header text sits at `pl-3` (12 px)
+     *  from the dock's outer edge; row content sits at `pl-6`
+     *  (24 px) inside the section's grid, so the header reads as an
+     *  outdented parent and the rows nest visually beneath it. */}
     <div
-      class={`col-span-full flex items-center gap-2 -ml-6 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 bg-surface-2/60 border-y border-edge/30`}
+      data-testid="dock-section-header"
+      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-6 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 border-y border-edge/30`}
     >
       <span
         data-testid="dock-section-name"
         class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-        style={{ color: props.group.color }}
+        style={{ color: "var(--repo-color)" }}
         title={props.group.name}
       >
         {props.group.name}
