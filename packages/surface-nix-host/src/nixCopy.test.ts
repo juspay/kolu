@@ -16,11 +16,14 @@ vi.mock("./process", () => ({
 const STORE = "/nix/store/x8yvl9si8vb93vhwway7kf3zbvv4ahg1-agent";
 const DRV = "/nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-agent.drv";
 
-/** Wire up the happy path: copy ok, realise prints the store path, pin
- *  prints the link path. Returns the `vi.fn()` handles for assertions. */
+/** Wire up the cold-provision happy path: the warm fast-path probe misses
+ *  (the closure isn't on the host yet), then copy ok, realise prints the
+ *  store path, pin prints the link path. Returns the `vi.fn()` handles for
+ *  assertions. */
 function mockHappyPath() {
   vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
   vi.mocked(runCapture)
+    .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // warm probe: not on host yet
     .mockResolvedValueOnce({ ok: true, code: 0, stdout: `${STORE}\n` }) // realise
     .mockResolvedValueOnce({ ok: true, code: 0, stdout: "/home/u/link\n" }); // pin
 }
@@ -41,10 +44,11 @@ describe("provisionAgent GC-root pinning", () => {
 
     expect(res).toEqual({ ok: true, agentPath: STORE });
 
-    // The pin is the second runCapture; it re-realises the *store path*
-    // (not the .drv) and registers an indirect root.
-    expect(runCapture).toHaveBeenCalledTimes(2);
-    const pinArgs = vi.mocked(runCapture).mock.calls[1]![1];
+    // After the warm-probe miss, the pin is the third runCapture; it
+    // re-realises the *store path* (not the .drv) and registers an indirect
+    // root.
+    expect(runCapture).toHaveBeenCalledTimes(3);
+    const pinArgs = vi.mocked(runCapture).mock.calls[2]![1];
     expect(pinArgs).toContain("--realise");
     expect(pinArgs).toContain(STORE);
     expect(pinArgs).toContain("--add-root");
@@ -69,6 +73,7 @@ describe("provisionAgent GC-root pinning", () => {
   it("treats a pin failure as non-fatal — the agent still provisions", async () => {
     vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
     vi.mocked(runCapture)
+      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // warm probe: not on host
       .mockResolvedValueOnce({ ok: true, code: 0, stdout: `${STORE}\n` }) // realise
       .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }); // pin fails
 
@@ -85,11 +90,9 @@ describe("provisionAgent GC-root pinning", () => {
 
   it("does not pin when the realise itself fails", async () => {
     vi.mocked(runProgress).mockResolvedValue({ ok: true, code: 0 });
-    vi.mocked(runCapture).mockResolvedValueOnce({
-      ok: false,
-      code: 1,
-      stdout: "",
-    });
+    vi.mocked(runCapture)
+      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }) // warm probe: not on host
+      .mockResolvedValueOnce({ ok: false, code: 1, stdout: "" }); // realise fails
 
     const res = await provisionAgent({
       host: "testhost",
@@ -98,7 +101,37 @@ describe("provisionAgent GC-root pinning", () => {
     });
 
     expect(res.ok).toBe(false);
-    expect(runCapture).toHaveBeenCalledTimes(1); // realise only, no pin
+    expect(runCapture).toHaveBeenCalledTimes(2); // warm probe + realise, no pin
+  });
+});
+
+describe("provisionAgent warm fast-path", () => {
+  it("skips the nix copy when the closure is already realisable on the host", async () => {
+    // Warm host: the fused realise + add-root probe succeeds (the .drv's
+    // closure is already on the host), returning the out path — so no copy,
+    // no separate realise/pin. This is the redundant work the fast-path removes.
+    vi.mocked(runCapture).mockResolvedValueOnce({
+      ok: true,
+      code: 0,
+      stdout: `${STORE}\n`,
+    });
+
+    const res = await provisionAgent({
+      host: "testhost",
+      drvPath: DRV,
+      onProgress: () => {},
+    });
+
+    expect(res).toEqual({ ok: true, agentPath: STORE });
+    // The whole point: a warm host never re-ships the closure.
+    expect(runProgress).not.toHaveBeenCalled();
+    // One ssh: the fused realise-the-drv + register-the-root probe.
+    expect(runCapture).toHaveBeenCalledTimes(1);
+    const probeArgs = vi.mocked(runCapture).mock.calls[0]![1];
+    expect(probeArgs).toContain("--realise");
+    expect(probeArgs).toContain(DRV); // realises the .drv (can rebuild), not the out
+    expect(probeArgs).toContain("--add-root");
+    expect(probeArgs).toContain("--indirect");
   });
 });
 

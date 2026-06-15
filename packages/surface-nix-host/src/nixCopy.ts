@@ -112,6 +112,41 @@ export async function provisionAgent(
   const causeFor = (code: number | null): FailureCause =>
     sawNetworkError || code === 255 ? "network" : "remote";
 
+  const rootPath = agentGcRootPath(isLocal, opts.drvPath);
+
+  // 1. Warm fast-path (remote only). If the .drv's closure is already on the
+  //    host, ONE fused `--realise <drv> --add-root … --indirect` both proves it
+  //    (realise fast-fails when the closure is absent and unsubstitutable) and
+  //    refreshes the GC root — so a warm host skips the redundant `nix copy`
+  //    (the wasteful "copying 0 paths" step) plus the separate realise/pin it
+  //    otherwise re-pays on every dial. On a miss (drv absent → fast-fail, or an
+  //    unwritable root) we fall through to the full provision below, whose pin
+  //    is best-effort, so a root issue degrades to "works, unpinned" rather than
+  //    a hard failure. Localhost never copies anyway (the .drv is already in the
+  //    local store), so the fast-path is remote-only — its one ssh would be pure
+  //    overhead locally. A transport failure here flows through the same
+  //    `onProgress` network scan, so the fall-through copy/realise still
+  //    classifies an unreachable host as `"network"`.
+  if (!isLocal && rootPath !== null) {
+    const warm = buildSshProbeCommand(
+      opts.host,
+      "nix-store",
+      "--realise",
+      opts.drvPath,
+      "--add-root",
+      rootPath,
+      "--indirect",
+    );
+    const warmRes = await runCapture(warm.command, warm.args, onProgress);
+    const warmPath = warmRes.stdout.trim();
+    if (warmRes.ok && warmPath.length > 0) {
+      onProgress(
+        `${opts.host}: already provisioned at ${warmPath} — skipped copy`,
+      );
+      return { ok: true, agentPath: warmPath };
+    }
+  }
+
   // 2. Copy the .drv (and its build-inputs) to the remote. Skipped
   //    for localhost — the .drv is already in /nix/store.
   if (!isLocal) {
@@ -187,7 +222,6 @@ export async function provisionAgent(
   //    root path can't be formed (local $HOME unset) or the command
   //    fails, we warn and continue — the agent at `agentPath` still
   //    runs, it's just collectable.
-  const rootPath = agentGcRootPath(isLocal, opts.drvPath);
   if (rootPath === null) {
     opts.onProgress(
       `${opts.host}: HOME unset, can't place a GC root; agent runs but is unpinned`,
