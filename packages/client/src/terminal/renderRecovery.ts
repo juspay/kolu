@@ -33,49 +33,23 @@
  *  cause-agnostic: they don't depend on WHY frames stopped and don't wait for
  *  the browser to produce one.
  *
- *  All knowledge of xterm's private `_core._renderService` shape lives in this
- *  one module — null-guarded exactly like `readBufferBytes`, so a future beta
- *  that renames these fields degrades to a no-op forceRepaint + "unknown"
- *  probes instead of crashing.
+ *  This module owns render-stall RECOVERY (the watchdog and the forced sync
+ *  paint); the knowledge of xterm's private `_core` shape it depends on
+ *  (`_renderService`, DEC private modes) lives in `xtermInternals.ts`, the one
+ *  null-guarded home for every `_core.*` reach. So a future beta that renames
+ *  those fields degrades to a no-op forceRepaint + "unknown" probes instead of
+ *  crashing — and is fixed in exactly one place.
  */
 
 import type { Terminal as XTerm } from "@xterm/xterm";
 import { onCleanup } from "solid-js";
+import { readDecPrivateMode, renderService } from "./xtermInternals";
 
 /** How long after output arrives we allow a paint to be missing before the
  *  watchdog forces one. Comfortably longer than a serviced rAF (~16 ms) and
  *  xterm's wheel smooth-scroll (~125 ms) so it never fights normal rendering;
  *  short enough that a focused-but-parked recovery is imperceptible. */
 export const WATCHDOG_DELAY_MS = 250;
-
-/** xterm's private render internals we reach through. Every field optional —
- *  the cast is unchecked, so the guards below are what keep us safe. */
-interface RenderInternals {
-  refreshRows?: (start: number, end: number, sync?: boolean) => void;
-  _renderDebouncer?: { _animationFrame?: number };
-  _isPaused?: boolean;
-}
-
-function renderService(term: XTerm): RenderInternals | null {
-  const rs = (
-    term as unknown as { _core?: { _renderService?: RenderInternals } }
-  )._core?._renderService;
-  return rs ?? null;
-}
-
-/** True/false if we can read it; null if xterm's shape changed under us. */
-function readDecPrivateMode(
-  term: XTerm,
-  field: "synchronizedOutput",
-): boolean | null {
-  const modes = (
-    term as unknown as {
-      _core?: { _coreService?: { decPrivateModes?: Record<string, unknown> } };
-    }
-  )._core?._coreService?.decPrivateModes;
-  if (!modes || !(field in modes)) return null;
-  return modes[field] === true;
-}
 
 /** Whether the document currently has focus. A small testable seam (the unit
  *  suite runs in a node environment with no `document`), mirroring
