@@ -400,7 +400,9 @@ const App: Component = () => {
                *  no clickable affordance (#1202). The empty Dock is just its
                *  header; the `relative` parent anchors its tiled-posture float
                *  (`top-12 left-4`), the only posture reachable at zero tiles.
-               *  The touch layouts keep their own pull-down nav. */}
+               *  The touch layouts mount no tile view (and so no pull-down nav)
+               *  at zero terminals — `EmptyState`'s own `onCreate` button is
+               *  their tappable path to the first terminal instead. */}
               <Show when={isDesktop()}>
                 <Dock {...dockPalette} />
               </Show>
@@ -409,6 +411,7 @@ const App: Component = () => {
                 savedSession={session.savedSession() ?? undefined}
                 isRestoring={session.isRestoring()}
                 onRestore={(opts) => void session.handleRestoreSession(opts)}
+                onCreate={dockPalette.onCreate}
               />
             </div>
           </Match>

@@ -7,6 +7,7 @@ import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { showsWelcome } from "./capabilities";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
+import { isDesktop } from "./useMobile";
 import Kbd from "./ui/Kbd";
 import { surface } from "./ui/Surface";
 import Toggle from "./ui/Toggle";
@@ -63,6 +64,11 @@ interface EmptyStateProps {
    *  reveal. */
   isRestoring?: boolean;
   onRestore?: (options: { resumeIds: ReadonlySet<string> }) => void;
+  /** Open the "New terminal" flow. On desktop the always-mounted empty Dock
+   *  carries the clickable `+` (#1202), so the button below renders only on the
+   *  touch layouts (phone + compact), where there is no Dock and the shortcut
+   *  list is unreachable with a finger. */
+  onCreate?: () => void;
 }
 
 const EmptyState: Component<EmptyStateProps> = (props) => {
@@ -192,6 +198,22 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               </div>
             );
           }}
+        </Show>
+        {/* Touch create button — the tappable path to the first terminal on the
+            phone + compact layouts, which mount no Dock (its clickable `+` is
+            desktop-only) and can't action the shortcut list with a finger. On
+            desktop the empty Dock owns the `+`, so this is suppressed there. */}
+        <Show when={!isDesktop() && props.onCreate}>
+          {(onCreate) => (
+            <button
+              type="button"
+              data-testid="empty-create-terminal"
+              class="mb-5 w-full px-3 py-2 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 active:brightness-95 transition-all"
+              onClick={() => onCreate()()}
+            >
+              New terminal
+            </button>
+          )}
         </Show>
         {/* Shortcut list — only where the welcome moments aren't shown (mobile).
             On desktop the moments above already advertise these, so the list is
