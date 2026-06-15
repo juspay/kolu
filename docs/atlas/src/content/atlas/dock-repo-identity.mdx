@@ -2,13 +2,14 @@
 title: Dock — telling repos apart at a glance
 description: The cards-mode dock groups rows by repo, but spends its whole colour budget on a per-branch rainbow and gives repo identity one 9.6px label that scrolls away. Move the colour onto the repo axis — a left-edge spine, a tinted/sticky header, or an avatar swatch — and calm the rows. Faithful prototypes of three treatments.
 kind: feature
-status: proposed
+status: implemented
 maturity: seedling
 ---
 
 import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
 import D2 from "../../components/D2.astro";
+import PrLink from "../../components/PrLink.astro";
 
 The dock already groups rows by repo. But you can't *see* the grouping: the
 repo colour is one **9.6px** label that scrolls away, while every row label is
@@ -186,7 +187,7 @@ dot). Same treatment A, both ways:
 ## Recommendation
 
 <Callout kind="accent" title="Spine + sticky tinted header (branch colours kept)">
-**Shipped: treatment A.** A continuous repo-colour **spine** down each section's
+**Shipped: treatment A** — <PrLink pr={1379} />. A continuous repo-colour **spine** down each section's
 left edge plus a faintly repo-tinted **sticky** header — the smallest, most
 reversible change that puts a *persistent* repo cue on every row and keeps the
 label on screen as the rows scroll, without the visual weight of a full colour
