@@ -58,6 +58,8 @@ export const KavalCanvas = () => (
 
 <KavalCanvas />
 
+> **This note is the R-2 direction and the shipped spike (P0–P2.8).** The two phases still ahead — **P3** (kolu-server dials remotes) and **P4** (the multiplex canvas) — are planned in detail in the companion note it spun off, **[Remote kaval endpoints](kaval-remote-endpoints.html)**.
+
 ## The substrate — a kaval is a daemon you dial
 
 kolu-server already keys its pty-host endpoint + status by `hostId` (a `Map`, instantiated as one — `local` — today). This instantiates more keys: a registry of kaval endpoints, each reached by a driver — unix socket (local, shipped) or ssh stdio (`HostSession`, R-2's only new transport, the same closure shipped by `@kolu/surface-nix-host`).
