@@ -75,7 +75,7 @@ import {
   type ProviderHooks,
   type ProviderRecord,
   startProviders,
-} from "./providers.ts";
+} from "@kolu/terminal-dag";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
@@ -265,6 +265,7 @@ function bridgeStream<T>(
  *  record is publishing kolu-server state directly. */
 function makeHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
   return {
+    log,
     updateServerMetadata: (_record, mutate) =>
       updateServerMetadata(entry, id, mutate),
     updateServerLiveMetadata: (_record, mutate) =>

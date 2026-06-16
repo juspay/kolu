@@ -63,7 +63,7 @@ import type {
 import { opencodeProvider } from "kolu-opencode";
 import type { ForegroundSample } from "kaval";
 import type { Channel } from "@kolu/surface/server";
-import { log } from "../log.ts";
+import type { Logger } from "pino";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 
 /** Minimal "terminal record" shape the provider DAG needs. The local endpoint
@@ -121,6 +121,11 @@ export interface ProviderChannels {
  *  endpoint already has the entry + id captured in `makeHooks`'s per-terminal
  *  closure, so it ignores the argument — hence the `_record` prefix. */
 export interface ProviderHooks {
+  /** The host's logger — the DAG creates per-provider child loggers off it
+   *  (`{ provider, terminal }` bindings). Injected rather than module-owned
+   *  so each host keeps its own logger context: kolu-server's carries its
+   *  `serverId`, kolu-watcher's carries the watcher's. */
+  log: Logger;
   updateServerMetadata: (
     record: ProviderRecord,
     mutate: (meta: ServerPersistedTerminalFields) => void,
@@ -162,7 +167,7 @@ function startProcessProvider(
   channels: ProviderChannels,
   hooks: ProviderHooks,
 ): () => void {
-  const plog = log.child({ provider: "process", terminal: terminalId });
+  const plog = hooks.log.child({ provider: "process", terminal: terminalId });
   // Foreground `{name, title}` — one concept, two coherent fields, so it's one
   // value not four scattered bindings. The name is tracked from
   // `channels.foreground` (the pty-host tap) rather than read synchronously
@@ -220,7 +225,7 @@ function startGitProvider(
   channels: ProviderChannels,
   hooks: ProviderHooks,
 ): () => void {
-  const plog = log.child({ provider: "git", terminal: terminalId });
+  const plog = hooks.log.child({ provider: "git", terminal: terminalId });
   plog.debug({ cwd: record.meta.cwd }, "started");
   const watcher = subscribeGitInfo(
     record.meta.cwd,
@@ -299,7 +304,7 @@ function startPrProvider(
   channels: ProviderChannels,
   hooks: ProviderHooks,
 ): () => void {
-  const plog = log.child({ provider: "pr", terminal: terminalId });
+  const plog = hooks.log.child({ provider: "pr", terminal: terminalId });
   plog.debug("started");
   // The dispatcher routes each resolve to the forge picked from the remote;
   // with one forge today that's always the gh adapter.
@@ -365,7 +370,7 @@ function startAgentCommandTracker(
       }
     },
     onError: (err) =>
-      log.error(
+      hooks.log.error(
         { err, terminal: terminalId, channel: "commandRun" },
         "publisher subscription failed",
       ),
@@ -481,7 +486,10 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   channels: ProviderChannels,
   hooks: ProviderHooks,
 ): () => void {
-  const plog = log.child({ provider: provider.kind, terminal: terminalId });
+  const plog = hooks.log.child({
+    provider: provider.kind,
+    terminal: terminalId,
+  });
   let current: {
     watcher: AgentWatcher;
     key: string;
@@ -551,7 +559,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
       registeredForExternal = true;
       if (!activation.installed) {
         activation.installed = true;
-        const slog = log.child({ provider: provider.kind });
+        const slog = hooks.log.child({ provider: provider.kind });
         provider.externalChanges.install(
           () => {
             // Every reconciler is a `reconcile` (above) and cannot throw, so

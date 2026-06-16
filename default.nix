@@ -77,6 +77,7 @@ let
       ./packages/terminal-themes
       ./packages/memorable-names
       ./packages/terminal-protocol
+      ./packages/dag
       ./packages/kaval
       ./packages/kaval-tui
       ./packages/server

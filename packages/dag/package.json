@@ -1,0 +1,35 @@
+{
+  "name": "@kolu/terminal-dag",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@kolu/surface": "workspace:*",
+    "anyagent": "workspace:*",
+    "anyforge": "workspace:*",
+    "kaval": "workspace:*",
+    "kolu-claude-code": "workspace:*",
+    "kolu-codex": "workspace:*",
+    "kolu-common": "workspace:*",
+    "kolu-git": "workspace:*",
+    "kolu-github": "workspace:*",
+    "kolu-opencode": "workspace:*",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.0"
+  }
+}
