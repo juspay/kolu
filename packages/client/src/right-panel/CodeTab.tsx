@@ -191,6 +191,13 @@ const CodeTab: Component<{
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
 
+  // The host this terminal lives on (P3). A remote terminal's fs/git reads must
+  // route to its watcher, so every Code-tab stream input carries the terminal's
+  // `location.hostId`; the server's `endpointFor(hostId)` dispatches local vs
+  // remote. Absent (a local terminal) the field is omitted and the server falls
+  // back to the local endpoint — byte-identical to the pre-P3 path.
+  const hostId = () => props.meta?.location?.hostId;
+
   // History records repo-relative `{ mode, path }` locations with no repo
   // identity of their own, so a stack captured in repo A must not be replayed
   // against repo B after a `cd`. `syncRepo` drops a terminal's history whenever
@@ -314,7 +321,9 @@ const CodeTab: Component<{
   const localStatus = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
-      return p ? { repoPath: p, mode: "local" as const } : null;
+      return p
+        ? { repoPath: p, mode: "local" as const, hostId: hostId() }
+        : null;
     },
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
@@ -328,7 +337,9 @@ const CodeTab: Component<{
   const branchStatus = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
-      return p ? { repoPath: p, mode: "branch" as const } : null;
+      return p
+        ? { repoPath: p, mode: "branch" as const, hostId: hostId() }
+        : null;
     },
     {
       onError: (err) => {
@@ -350,7 +361,7 @@ const CodeTab: Component<{
     () => {
       const p = repoPath();
       const m = diffMode();
-      return p && m ? { repoPath: p, mode: m } : null;
+      return p && m ? { repoPath: p, mode: m, hostId: hostId() } : null;
     },
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
@@ -363,7 +374,9 @@ const CodeTab: Component<{
   const allPaths = app.streams.fsListAll.use(
     () => {
       const p = repoPath();
-      return p && view() === "browse" ? { repoPath: p } : null;
+      return p && view() === "browse"
+        ? { repoPath: p, hostId: hostId() }
+        : null;
     },
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
@@ -378,7 +391,13 @@ const CodeTab: Component<{
       if (!p || !s || !m) return null;
       const file = status()?.files.find((f) => f.path === s);
       if (!file) return null;
-      return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
+      return {
+        repoPath: p,
+        filePath: s,
+        mode: m,
+        oldPath: file.oldPath,
+        hostId: hostId(),
+      };
     },
     {
       onError: (err) => toast.error(`Git diff stream: ${err.message}`),
@@ -1064,6 +1083,9 @@ const CodeTab: Component<{
                           terminalId={tid}
                           repoPath={repo}
                           filePath={path}
+                          // Route the fs read to the terminal's host (P3) — a
+                          // remote terminal reads file bytes over its watcher.
+                          hostId={hostId()}
                           // The live repo file list — the vault a `[[wikilink]]`
                           // in the previewed doc resolves against, pathless —
                           // paired with its readiness as one value. `fsListAll`

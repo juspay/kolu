@@ -22,10 +22,14 @@
  *     `daemonStatus` collection (keyed by hostId), mapped onto the wire enum so
  *     the client surfaces it WITHOUT widening the shared enum.
  *
- * Spawn policy stays kolu's soul: the spawn input is composed by
- * `composeSpawnInput` against the WATCHER's `system.info` (the remote host's
- * shell/home/path), so a remote shell opens with the host's environment, not
- * this machine's.
+ * Spawn policy stays kolu's soul, but composed for a DIFFERENT machine: the
+ * spawn input comes from `composeRemoteSpawnInput` against the WATCHER's
+ * `system.info` (the remote host's shell/home/PATH). Unlike the local
+ * `composeSpawnInput` — which forwards THIS process's env (`cleanEnv()`) and
+ * treats `system.info` only as a fallback — the remote variant builds the env
+ * FRESH from the host's facts (`info.shell`/`info.home`/`info.path` are
+ * authoritative), so a remote shell opens in the host's environment with NOTHING
+ * from this machine's process env leaking across.
  */
 
 import {
@@ -55,7 +59,7 @@ import type {
 import { watcherSurface } from "kolu-watcher";
 import { log } from "../log.ts";
 import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
-import { composeSpawnInput } from "../ptyHost/index.ts";
+import { composeRemoteSpawnInput } from "../ptyHost/index.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
@@ -259,8 +263,27 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
         // shell opens in the host's environment (not this machine's).
         const info = await client.surface.system.info({});
         const res = await client.surface.terminal.spawn(
-          composeSpawnInput({ id, cwd: opts.cwd }, info),
+          composeRemoteSpawnInput({ id, cwd: opts.cwd }, info),
         );
+        // Killed-during-spawn race (mirrors `LocalTerminalEndpoint.
+        // spawnViaClient`): the user can close the tile while the cold
+        // provision + spawn RPC is in flight, so `killTerminal` already
+        // unregistered the local shadow. The remote PTY is now live with no
+        // local owner — KILL it on the host (else it leaks an orphan), fail the
+        // proxy, and return without marking ready. The window is wider here
+        // than locally because a cold `nix run` can run for tens of seconds.
+        if (!getTerminal(id)) {
+          proxy.markFailed(new Error("terminal killed during spawn"));
+          try {
+            await client.surface.terminal.kill({ id });
+          } catch (killErr) {
+            log.error(
+              { terminal: id, err: killErr },
+              "remote kill of spawn-raced terminal failed",
+            );
+          }
+          return;
+        }
         const entry = getTerminal(id);
         if (entry) {
           entry.info.pid = res.pid;
@@ -286,6 +309,15 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
     id: TerminalId,
     signal: AbortSignal,
   ): Promise<TerminalAttachment> {
+    // Wait for the remote PTY to actually exist before opening the attach
+    // stream — the same gate `LocalTerminalEndpoint.attach` holds. A tile
+    // attaching off the sync shadow would otherwise race the in-flight
+    // `terminal.spawn` and the watcher/kaval throws "no PTY with id". The
+    // window is wider remotely (a cold provision precedes the spawn), so the
+    // gate matters more here. `ready` is the `TerminalHandle` invariant; awaiting
+    // it also surfaces a spawn failure (the proxy rejects `ready`) rather than
+    // hitting a missing PTY.
+    await getTerminal(id)?.handle.ready;
     const client = await this.session.acquire();
     let released = false;
     const release = (): void => {
@@ -413,8 +445,17 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
   ): () => void {
     const abort = new AbortController();
     void (async () => {
-      const client = await this.session.acquire();
+      // `session.acquire()` MUST be inside the try: on an unreachable host (or a
+      // provisioning failure) it rejects, and this is a FLOATED async task — an
+      // unawaited rejection here would reach the process-wide unhandledRejection
+      // handler, which exits the server. So a dead remote host installing a
+      // repo/file watcher would otherwise take down the whole kolu-server.
+      // `acquired` gates the matching release so we never release a lease we
+      // never took.
+      let acquired = false;
       try {
+        const client = await this.session.acquire();
+        acquired = true;
         for await (const _ of await open(client, abort.signal)) {
           if (abort.signal.aborted) return;
           onChange();
@@ -426,7 +467,7 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
             "remote change subscription",
           );
       } finally {
-        this.session.release();
+        if (acquired) this.session.release();
       }
     })();
     return () => abort.abort();

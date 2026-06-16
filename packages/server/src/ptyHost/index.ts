@@ -239,3 +239,52 @@ export async function buildTerminalSpawnInput(args: {
 }): Promise<PtyHostSpawnInput> {
   return composeSpawnInput(args, await hostInfo());
 }
+
+/**
+ * The REMOTE sibling of `composeSpawnInput` (R-2). A remote watcher's PTY runs
+ * on a *different machine*, so the local process env (`cleanEnv()`, which
+ * describes THIS box's SHELL/HOME/PATH) is the wrong authority — copying it over
+ * would open the host's shell with this machine's shell path, HOME, and a PATH
+ * its filesystem doesn't have. So this inverts the local layering: the host's
+ * `info.shell`/`info.home` are AUTHORITATIVE (not a fallback), the env is built
+ * FRESH from the host's facts rather than forwarded from the parent —
+ *   1. `info.path` → `PATH` (the host's `$PATH`, so the shell can find its own
+ *      commands; the `SystemInfoOutputSchema.path` field exists for exactly this
+ *      — a remote client must seed it, a local client already has its own).
+ *   2. `SHELL`/`HOME` from the host facts (so user dotfiles + `$HOME`-relative
+ *      lookups resolve on the host).
+ *   3. `koluIdentityEnv()` — kolu's identity vars (host-agnostic).
+ *   4. `plan.env` — per-PTY overrides (e.g. ZDOTDIR), already host-relative
+ *      because `prepareShellInit` is fed the host's `rcDir`.
+ * `prepareShellInit` itself is pure and writes nothing — the watcher's kaval
+ * materialises the returned `initFiles` under the host's `rcDir`, on the disk it
+ * owns. Nothing from this machine's process env reaches the remote shell.
+ */
+export function composeRemoteSpawnInput(
+  args: { id: string; cwd?: string },
+  info: PtyHostSystemInfo,
+): PtyHostSpawnInput {
+  const shell = info.shell;
+  const home = info.home;
+  const cwd = args.cwd || home || "/";
+  const env: Record<string, string> = {};
+  if (info.path) env.PATH = info.path;
+  env.SHELL = shell;
+  env.HOME = home;
+  Object.assign(env, koluIdentityEnv(pkg.version));
+  const plan = prepareShellInit({
+    shell,
+    home,
+    terminalId: args.id,
+    rcDir: info.rcDir,
+  });
+  Object.assign(env, plan.env);
+  return {
+    id: args.id,
+    argv: [shell, ...plan.args],
+    cwd,
+    env,
+    initFiles: plan.initFiles,
+    scrollback: DEFAULT_SCROLLBACK,
+  };
+}

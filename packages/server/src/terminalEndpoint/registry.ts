@@ -25,6 +25,14 @@ import { RemoteTerminalEndpoint } from "./remote.ts";
 
 const remoteEndpoints = new Map<string, RemoteTerminalEndpoint>();
 
+/** Whether `hostId` names a REMOTE host (a dialed watcher) rather than the local
+ *  process. Undefined / `"local"` ⇒ local. The single home for this rule so
+ *  callers that must branch local-vs-remote (e.g. the binary-preview route gate,
+ *  which can only serve LOCAL file bytes today) don't each re-spell it. */
+export function isRemoteHost(hostId?: string): boolean {
+  return !!hostId && hostId !== LOCAL_HOST_ID;
+}
+
 /** Resolve the endpoint that owns a terminal on `hostId`. Undefined / `"local"`
  *  ⇒ the local endpoint. A configured remote host ⇒ its (cached) remote
  *  endpoint. An unknown host throws a typed NOT_FOUND. */

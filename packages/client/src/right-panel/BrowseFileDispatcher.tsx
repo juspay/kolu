@@ -87,6 +87,10 @@ export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
   repoPath: string;
   filePath: string;
+  /** The host the terminal lives on (P3) — threaded into the `fsReadFile`
+   *  input so a remote terminal reads its file bytes over the host's watcher,
+   *  not kolu-server's local filesystem. Absent for a local terminal. */
+  hostId?: string;
   /** The repo's vault a `[[wikilink]]` resolves against — its full file list
    *  (`fsListAll`, repo-relative, pathless) paired with that list's readiness,
    *  threaded from `CodeTab` rather than re-subscribed here so resolution shares
@@ -118,6 +122,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       terminalId: props.terminalId,
       repoPath: props.repoPath,
       filePath: props.filePath,
+      hostId: props.hostId,
     }),
     {
       onError: (err) => toast.error(`File content stream: ${err.message}`),

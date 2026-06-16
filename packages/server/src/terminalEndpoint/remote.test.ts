@@ -34,12 +34,22 @@ const fake = vi.hoisted(() => {
       kill: vi.fn(async () => ({ ok: true })),
       killAll: vi.fn(async () => ({ killed: 0 })),
     },
+    terminalAttach: {
+      // One snapshot frame then close — enough to drive attach()'s first-frame
+      // read without hanging.
+      get: vi.fn(async () => ({
+        async *[Symbol.asyncIterator]() {
+          yield { kind: "snapshot", data: "screen" };
+        },
+      })),
+    },
     system: {
       info: vi.fn(async () => ({
         shell: "/bin/sh",
         home: "/h",
         platform: "linux",
         rcDir: "/h/.rc",
+        path: "/usr/bin:/bin",
       })),
       heartbeat: vi.fn(async () => ({ ts: 0 })),
     },
@@ -76,7 +86,7 @@ vi.mock("@kolu/surface-nix-host", () => ({
 }));
 vi.mock("../ptyHost/daemonStatus.ts", () => ({ publishDaemonStatus }));
 vi.mock("../ptyHost/index.ts", () => ({
-  composeSpawnInput: () => ({
+  composeRemoteSpawnInput: () => ({
     argv: ["/bin/sh"],
     cwd: "/r",
     env: {},
@@ -168,6 +178,65 @@ describe("RemoteTerminalEndpoint", () => {
     );
     expect([...SERVER_META_KEYS].sort()).toEqual([...schemaKeys].sort());
     expect(SERVER_META_KEYS).not.toContain("location");
+  });
+
+  // F3 (codex round 1): the user can close a remote tile while the cold
+  // provision + spawn RPC is still in flight. By the time spawn resolves, the
+  // local shadow is already unregistered — the live remote PTY would leak with no
+  // local owner. The async tail must detect the missing registry entry and KILL
+  // the just-spawned remote PTY rather than mark it ready.
+  it("kills the remote PTY when the terminal is killed mid-spawn", async () => {
+    const ep = makeEndpoint();
+    // Make the spawn RPC pend so we can unregister the shadow before it resolves.
+    let resolveSpawn!: (v: { id: string; pid: number; cwd: string }) => void;
+    fake.surface.terminal.spawn.mockImplementationOnce(
+      () => new Promise((r) => (resolveSpawn = r)),
+    );
+    ep.spawnPty("term-kill", { cwd: "/r" });
+    // Let the async tail reach the (pending) spawn RPC — it sits behind
+    // `session.acquire()` + `system.info()`, so flush until `spawn` is invoked.
+    await vi.waitFor(() => expect(resolveSpawn).toBeTypeOf("function"));
+    // Simulate the kill landing while spawn is in flight.
+    registry.entries.delete("term-kill");
+    resolveSpawn({ id: "term-kill", pid: 99, cwd: "/r" });
+    await vi.waitFor(() =>
+      expect(fake.surface.terminal.kill).toHaveBeenCalledWith({
+        id: "term-kill",
+      }),
+    );
+    // Never re-registered, and no orphan left behind.
+    expect(registry.entries.has("term-kill")).toBe(false);
+  });
+
+  // F2 (codex round 1): a tile attaching off the sync shadow must not race the
+  // in-flight spawn. `attach` awaits the proxy's `ready` (resolved by the spawn
+  // tail) BEFORE opening the watcher attach stream, so it can't hit a
+  // not-yet-spawned PTY. We assert `terminalAttach.get` is deferred until spawn
+  // resolves.
+  it("attach waits for the spawn to resolve before opening the stream", async () => {
+    const ep = makeEndpoint();
+    let resolveSpawn!: (v: { id: string; pid: number; cwd: string }) => void;
+    fake.surface.terminal.spawn.mockImplementationOnce(
+      () => new Promise((r) => (resolveSpawn = r)),
+    );
+    ep.spawnPty("term-attach", { cwd: "/r" });
+    await vi.waitFor(() => expect(resolveSpawn).toBeTypeOf("function"));
+    const attachPromise = ep.attach(
+      "term-attach",
+      new AbortController().signal,
+    );
+    // Let microtasks flush — the attach stream MUST still be unopened because the
+    // proxy's `ready` hasn't resolved (spawn is pending).
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fake.surface.terminalAttach.get).not.toHaveBeenCalled();
+    resolveSpawn({ id: "term-attach", pid: 99, cwd: "/r" });
+    const att = await attachPromise;
+    expect(fake.surface.terminalAttach.get).toHaveBeenCalledWith(
+      { id: "term-attach" },
+      expect.anything(),
+    );
+    expect(att.snapshot).toBe("screen");
   });
 
   it("maps the ssh session state onto the wire daemonStatus enum", () => {
