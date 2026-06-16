@@ -56,10 +56,13 @@ const HostChip: Component<{ hostId: string }> = (props) => {
     const l = lines().at(-1);
     return l ? stripProgressTag(l) : undefined;
   };
-  /** Still working through its lifecycle — provisioning (a cold dial's
-   *  `nix copy`/build) or unreachable (retrying). A steadily-connected host
-   *  needs no progress UI, so the inline hint + popover are dropped there. */
-  const active = () => state() !== "connected";
+  /** Both gates read the one presentation table so the chip cannot disagree
+   *  with the dot's own tone. `warming` = the host is still coming up (a cold
+   *  dial's `nix copy`/build) — it pulses the inline "it's building" hint.
+   *  `failed` = the host has given up (`down`) — its last line is the failure
+   *  reason, surfaced WITHOUT the pulse so a dead host doesn't read as busy. */
+  const warming = () => presentation().tone === "warming";
+  const failed = () => presentation().down;
   const hasLog = () => lines().length > 0;
   const [open, setOpen] = createSignal(false);
   const [triggerEl, setTriggerEl] = createSignal<HTMLElement>();
@@ -76,7 +79,7 @@ const HostChip: Component<{ hostId: string }> = (props) => {
           "cursor-default": !hasLog(),
         }}
         title={`Runs on ${props.hostId} — ${presentation().label}${
-          active() && latest() ? `\n${latest()}` : ""
+          (warming() || failed()) && latest() ? `\n${latest()}` : ""
         }`}
         onClick={(e) => {
           e.stopPropagation();
@@ -92,12 +95,27 @@ const HostChip: Component<{ hostId: string }> = (props) => {
       </button>
       {/* Live activity hint while dialing — turns a static amber chip into a
        *  visible "it's building" so a ~minute cold dial doesn't read as a hang.
-       *  Hidden once connected; click the chip for the full log. */}
-      <Show when={active() && latest()}>
+       *  Pulses only while `warming`; hidden once connected. Click the chip for
+       *  the full log. */}
+      <Show when={warming() && latest()}>
         {(line) => (
           <span
             data-testid="terminal-host-progress-hint"
             class="text-[9px] text-fg-3 truncate max-w-[16ch] animate-pulse"
+            title={line()}
+          >
+            {line()}
+          </span>
+        )}
+      </Show>
+      {/* Failure reason for a host that has given up (`down`) — the last
+       *  progress line is the 'why'. Rendered WITHOUT the pulse so a dead host
+       *  doesn't read as still working. */}
+      <Show when={failed() && latest()}>
+        {(line) => (
+          <span
+            data-testid="terminal-host-progress-fail"
+            class="text-[9px] text-fg-3 truncate max-w-[16ch]"
             title={line()}
           >
             {line()}
