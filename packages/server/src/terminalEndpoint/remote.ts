@@ -71,6 +71,24 @@ type WatcherClient = AgentClient<typeof watcherSurface.contract>;
 
 const WATCHER_BINARY = "kolu-watcher";
 
+/** Run one watcher RPC under a ref-counted session lease: acquire the client,
+ *  run `fn`, release in a `finally`. The single home for the acquire/release
+ *  discipline, shared by the proxy's control verbs and the endpoint's
+ *  fs/git/kill forwards so a change to the lease contract is one edit. */
+function withClient<T>(
+  session: HostSession<typeof watcherSurface.contract>,
+  fn: (c: WatcherClient) => Promise<T>,
+): Promise<T> {
+  return (async () => {
+    const client = await session.acquire();
+    try {
+      return await fn(client);
+    } finally {
+      session.release();
+    }
+  })();
+}
+
 export interface RemoteTerminalEndpointOptions {
   /** The hostId — the daemonStatus key + the terminal record's location.hostId. */
   hostId: string;
@@ -146,19 +164,12 @@ class RemoteTerminalProxy implements TerminalHandle {
     this.rejectReady(err);
   }
 
-  private async call<T>(fn: (c: WatcherClient) => Promise<T>): Promise<T> {
-    const client = await this.session.acquire();
-    try {
-      return await fn(client);
-    } finally {
-      this.session.release();
-    }
-  }
-
   write(data: string): void {
     void this.ready
       .then(() =>
-        this.call((c) => c.surface.terminal.write({ id: this.id, data })),
+        withClient(this.session, (c) =>
+          c.surface.terminal.write({ id: this.id, data }),
+        ),
       )
       .catch((err) => log.error({ terminal: this.id, err }, "remote write"));
   }
@@ -166,7 +177,7 @@ class RemoteTerminalProxy implements TerminalHandle {
   resize(cols: number, rows: number): void {
     void this.ready
       .then(() =>
-        this.call((c) =>
+        withClient(this.session, (c) =>
           c.surface.terminal.resize({ id: this.id, cols, rows }),
         ),
       )
@@ -175,7 +186,7 @@ class RemoteTerminalProxy implements TerminalHandle {
 
   async getScreenState(): Promise<string> {
     await this.ready;
-    const { data } = await this.call((c) =>
+    const { data } = await withClient(this.session, (c) =>
       c.surface.terminal.getScreenState({ id: this.id }),
     );
     return data;
@@ -187,7 +198,7 @@ class RemoteTerminalProxy implements TerminalHandle {
     tailLines?: number,
   ): Promise<string> {
     await this.ready;
-    const { text } = await this.call((c) =>
+    const { text } = await withClient(this.session, (c) =>
       c.surface.terminal.getScreenText({
         id: this.id,
         startLine,
@@ -314,7 +325,7 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
     const entry = getTerminal(id);
     if (!entry) return undefined;
     try {
-      await this.call((c) => c.surface.terminal.kill({ id }));
+      await withClient(this.session, (c) => c.surface.terminal.kill({ id }));
     } catch (err) {
       log.error(
         { terminal: id, err },
@@ -336,7 +347,7 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
       )
       .map((info) => info.id);
     try {
-      await this.call((c) => c.surface.terminal.killAll({}));
+      await withClient(this.session, (c) => c.surface.terminal.killAll({}));
     } catch (err) {
       log.error({ err }, "remote killAll failed; unregistering anyway");
     }
@@ -353,11 +364,13 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
   private makeFs(): TerminalEndpointFs {
     return {
       listAll: (repoPath) =>
-        this.call((c) => c.surface.fs.listAll({ repoPath })),
+        withClient(this.session, (c) => c.surface.fs.listAll({ repoPath })),
       readFile: (repoPath, filePath) =>
-        this.call((c) => c.surface.fs.readFile({ repoPath, filePath })),
+        withClient(this.session, (c) =>
+          c.surface.fs.readFile({ repoPath, filePath }),
+        ),
       statFileMtimeMs: (repoPath, filePath) =>
-        this.call((c) =>
+        withClient(this.session, (c) =>
           c.surface.fs.statFileMtimeMs({ repoPath, filePath }),
         ).then((r) => r.mtimeMs),
       subscribeRepoChange: (repoPath, onChange) =>
@@ -377,24 +390,17 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
   private makeGit(): TerminalEndpointGit {
     return {
       getStatus: (repoPath, mode) =>
-        this.call((c) => c.surface.git.getStatus({ repoPath, mode })),
+        withClient(this.session, (c) =>
+          c.surface.git.getStatus({ repoPath, mode }),
+        ),
       getDiff: (repoPath, filePath, mode, oldPath) =>
-        this.call((c) =>
+        withClient(this.session, (c) =>
           c.surface.git.getDiff({ repoPath, filePath, mode, oldPath }),
         ),
     };
   }
 
   // ── shared plumbing ────────────────────────────────────────────────────
-
-  private async call<T>(fn: (c: WatcherClient) => Promise<T>): Promise<T> {
-    const client = await this.session.acquire();
-    try {
-      return await fn(client);
-    } finally {
-      this.session.release();
-    }
-  }
 
   /** Bridge a watcher change-notification stream onto a `() => void` callback,
    *  returning a synchronous unsubscribe (the `TerminalEndpointFs` contract). */
