@@ -60,9 +60,3 @@ export function endpointForTerminal(id: TerminalId): TerminalEndpoint {
 export function allEndpoints(): TerminalEndpoint[] {
   return [localTerminalEndpoint, ...remoteEndpoints.values()];
 }
-
-/** The remote endpoints dialed so far (boot wiring iterates these to publish
- *  each host's initial daemonStatus). */
-export function remoteEndpointFor(hostId: string): RemoteTerminalEndpoint {
-  return endpointFor(hostId) as RemoteTerminalEndpoint;
-}
