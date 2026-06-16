@@ -36,12 +36,13 @@ import {
   makeClientCursor,
   mirrorRemoteCollection,
 } from "@kolu/surface-nix-host";
-import type {
-  DaemonStatus,
-  InitialTerminalMetadata,
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
+import {
+  type DaemonStatus,
+  type InitialTerminalMetadata,
+  type TerminalId,
+  type TerminalInfo,
+  type TerminalMetadata,
+  TerminalServerMetadataSchema,
 } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
@@ -78,6 +79,16 @@ export interface RemoteTerminalEndpointOptions {
   /** Resolve the kolu-watcher `.drv` for this host (resolveSystem → drv map). */
   resolveDrvPath: () => Promise<string>;
 }
+
+/** The server-owned fields the watcher is authoritative for — the
+ *  `TerminalServerMetadata` partition (server-persisted ∪ live) MINUS
+ *  `location`, which kolu-server stamps itself from the dialed hostId. Derived
+ *  off the schema's keys so a new server/live field is mirrored for free and a
+ *  field-by-field rewrite that dropped one fails the round-trip test. */
+export const SERVER_META_KEYS =
+  TerminalServerMetadataSchema.keyof().options.filter(
+    (k): k is Exclude<typeof k, "location"> => k !== "location",
+  );
 
 // These two mirror `LocalTerminalEndpoint`'s private emit helpers — a terminal
 // list/dirty signal is endpoint-agnostic, so both endpoints fire the same ones.
@@ -452,13 +463,16 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
       registerTerminal(id, entry);
       emitTerminalListChanged();
     }
-    entry.meta.cwd = remote.cwd;
-    entry.meta.git = remote.git;
-    entry.meta.lastAgentCommand = remote.lastAgentCommand;
-    entry.meta.lastActivityAt = remote.lastActivityAt;
-    entry.meta.pr = remote.pr;
-    entry.meta.agent = remote.agent;
-    entry.meta.foreground = remote.foreground;
+    // Copy the server-owned half of `remote` as a UNIT (the
+    // `TerminalServerMetadata` partition driven off the schema, sans
+    // `location`), so a new server/live field rides for free rather than being
+    // dropped by a stale field-by-field rewrite (the #1275 lossy-adoption
+    // class). The client-persisted fields kolu-server owns (theme/layout/sub-
+    // panel/intent) are untouched on `entry.meta` — only the server keys are
+    // overwritten — and `location` is re-stamped from the dialed hostId.
+    for (const key of SERVER_META_KEYS) {
+      (entry.meta[key] as TerminalMetadata[typeof key]) = remote[key];
+    }
     entry.meta.location = { hostId: this.opts.hostId };
     surfaceCtx.collections.terminalMetadata.upsert(id, entry.meta);
   }

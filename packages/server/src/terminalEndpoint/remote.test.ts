@@ -115,7 +115,8 @@ vi.mock("../terminal-registry.ts", () => ({
     [...registry.entries.values()].map((e) => (e as { info: unknown }).info),
 }));
 
-import { RemoteTerminalEndpoint } from "./remote.ts";
+import { TerminalServerMetadataSchema } from "kolu-common/surface";
+import { RemoteTerminalEndpoint, SERVER_META_KEYS } from "./remote.ts";
 
 function makeEndpoint() {
   return new RemoteTerminalEndpoint({
@@ -152,6 +153,20 @@ describe("RemoteTerminalEndpoint", () => {
       meta: { location?: { hostId: string } };
     };
     expect(entry.meta.location).toEqual({ hostId: "prod" });
+  });
+
+  // The mirror copies the watcher's server-owned half onto the registry entry
+  // as a UNIT driven off this key set. If the set drifts from the schema (a new
+  // server/live field added but not mirrored, or a field-by-field rewrite that
+  // dropped one), a remote tile would silently lose that field — the #1275
+  // lossy-adoption class. This pins the set to `TerminalServerMetadata` keys
+  // minus `location` (kolu-server stamps location itself from the hostId).
+  it("copies exactly the TerminalServerMetadata keys minus location", () => {
+    const schemaKeys = TerminalServerMetadataSchema.keyof().options.filter(
+      (k) => k !== "location",
+    );
+    expect([...SERVER_META_KEYS].sort()).toEqual([...schemaKeys].sort());
+    expect(SERVER_META_KEYS).not.toContain("location");
   });
 
   it("maps the ssh session state onto the wire daemonStatus enum", () => {
