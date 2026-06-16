@@ -370,6 +370,12 @@ A home-manager module runs kolu as a systemd user service on Linux and as a laun
 
 See [`nix/home/example/`](nix/home/example/) for a full configuration — a NixOS VM test exercises the systemd path on Linux, and a standalone home-manager activation build exercises the launchd path on Darwin.
 
+kolu's RPC surface is unauthenticated and same-origin-gated (see [Communication](#communication) above), so it serves only its own origin out of the box. If you front it with a reverse proxy or `tailscale serve` whose browser origin differs from the `Host` kolu receives, list that origin in `services.kolu.allowedOrigins` (which sets the `KOLU_ALLOWED_ORIGINS` env var) so the browser's WebSocket clears the same-origin check:
+
+```nix
+services.kolu.allowedOrigins = [ "https://box.tailnet.ts.net" ];
+```
+
 On macOS, the LaunchAgent writes stdout to `~/Library/Logs/kolu.out.log` and stderr to `~/Library/Logs/kolu.err.log`, so crashes and startup failures leave service logs alongside other user logs.
 
 ### Diagnosing memory leaks
