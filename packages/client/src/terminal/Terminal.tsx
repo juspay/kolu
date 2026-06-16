@@ -60,6 +60,7 @@ import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
 import { isTerminalQueryResponse } from "@kolu/terminal-protocol";
+import { createRenderRecovery } from "./renderRecovery";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
@@ -68,58 +69,7 @@ import {
   trackDispose,
   trackLoseContextCalled,
 } from "./webglTracker";
-
-/** Sum `byteLength` of every BufferLine's `Uint32Array` in xterm's primary
- *  and alternate buffers. Reaches through private `_core._bufferService`,
- *  so every access is null-guarded — if xterm renames these fields in a
- *  future version, the probe reports `null` and the UI labels it "unknown"
- *  instead of crashing. Uses `length` + `get(i)` rather than iterating the
- *  private list array, because `CircularList.length` is the public view
- *  into a ring buffer with an arbitrary internal start offset. */
-function readBufferBytes(
-  term: XTerm,
-): { primary: number; alternate: number } | null {
-  const bufSvc = (
-    term as unknown as {
-      _core?: {
-        _bufferService?: {
-          buffers?: {
-            normal?: {
-              lines?: {
-                length: number;
-                get(i: number): { _data?: Uint32Array } | undefined;
-              };
-            };
-            alt?: {
-              lines?: {
-                length: number;
-                get(i: number): { _data?: Uint32Array } | undefined;
-              };
-            };
-          };
-        };
-      };
-    }
-  )._core?._bufferService;
-  if (!bufSvc?.buffers) return null;
-
-  function sum(lines: {
-    length: number;
-    get(i: number): { _data?: Uint32Array } | undefined;
-  }) {
-    let total = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const data = lines.get(i)?._data;
-      if (data) total += data.byteLength;
-    }
-    return total;
-  }
-
-  const primary = bufSvc.buffers.normal?.lines;
-  const alternate = bufSvc.buffers.alt?.lines;
-  if (!primary || !alternate) return null;
-  return { primary: sum(primary), alternate: sum(alternate) };
-}
+import { readBufferBytes } from "./xtermInternals";
 
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
@@ -642,6 +592,17 @@ const Terminal: Component<{
           // this assignment silently breaks every cucumber test that
           // touches terminal contents.
           (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
+          // Force a synchronous repaint when xterm's rAF-driven paint loop
+          // stalls under window occlusion (the real freeze — see renderRecovery
+          // for the full story). Gated on `visible` so hidden tiles don't draw.
+          const recovery = createRenderRecovery(term, () => props.visible);
+          // The DOM signal that an occluded window is back in front: app-switch
+          // return fires `focus` (not `visibilitychange`, which only covers a
+          // real tab switch — handled in refitOnTabVisible below). The forced
+          // paint is synchronous, so it doesn't wait for Chromium to resume
+          // producing frames. Kept here (DOM-adjacent) so renderRecovery stays
+          // DOM-free and node-testable, mirroring scrollLock/scrollLockWiring.
+          makeEventListener(window, "focus", () => recovery.recover());
           // Production path for handlers that need live xterm/addon refs
           // (e.g. export-as-PDF reads serializeAddon).
           registerTerminalRefs(props.terminalId, {
@@ -654,6 +615,7 @@ const Terminal: Component<{
               },
               bufferBytes: () => readBufferBytes(term),
               scrollLockEvents: () => scrollLock.events(),
+              ...recovery.probes,
             },
           });
           // Diagnostics subscribes to hasWebgl via accessor — keeps hasWebgl
@@ -776,7 +738,22 @@ const Terminal: Component<{
                 },
               ),
             (data) => {
-              if (terminal) scrollLock.writeData(terminal, data);
+              if (terminal) {
+                // Key the render-stall watchdog to xterm's PARSE, not stream
+                // receipt: `term.write` returns immediately and parses the
+                // chunk asynchronously (off a setTimeout), so noteData() run
+                // here synchronously would arm a 250ms timer against data not
+                // yet in the buffer. Passing noteData as xterm's write callback
+                // arms it when the chunk has actually landed in the buffer and
+                // a paint should follow — so paintIsBehind() reflects buffer
+                // state, not in-flight data. A parked-rAF freeze on a real
+                // write then gets a forced sync paint even if the user never
+                // returns focus. scroll-lock buffers a chunk -> no paint -> the
+                // callback isn't invoked; the buffered flush rejoins the bottom
+                // via a user scroll / tab-visible / window-focus path, each of
+                // which already forces a repaint via recover().
+                scrollLock.writeData(terminal, data, () => recovery.noteData());
+              }
             },
             "Terminal attach",
           );
@@ -819,6 +796,11 @@ const Terminal: Component<{
               // returning user as a frozen terminal (#1272) — flush and
               // rejoin the bottom, like switching back to a terminal does.
               scrollLock.handleTabVisible();
+              // Returning via a real tab switch (document.hidden→visible) can
+              // also leave a parked-rAF stale frame; force a sync repaint. The
+              // window-focus path inside recovery covers app-switch occlusion,
+              // which never trips visibilitychange.
+              recovery.recover();
             },
             () => props.visible,
           );
