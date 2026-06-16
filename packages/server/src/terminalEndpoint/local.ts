@@ -33,23 +33,9 @@ import type {
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
-  TerminalEndpointFs,
-  TerminalEndpointGit,
   TerminalHandle,
 } from "kolu-common/terminalEndpoint";
-import {
-  type FsListAllOutput,
-  type GitDiffOutput,
-  type GitStatusOutput,
-  getDiff,
-  getStatus,
-  listAll,
-  readFile,
-  statFileMtimeMs,
-  subscribeFileChange,
-  subscribeRepoChange,
-} from "kolu-git";
-import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
+import type { GitInfo } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
@@ -64,13 +50,13 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
-import { unwrapGit } from "../unwrapGit.ts";
 import {
   createMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
 import {
+  makeFsGit,
   type ProviderChannels,
   type ProviderHooks,
   type ProviderRecord,
@@ -94,33 +80,11 @@ function emitTerminalListChanged(): void {
 }
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
+// The fs/git adapter is shared with kolu-watcher (P3) via `@kolu/terminal-dag`
+// so both read a host's real filesystem through ONE kolu-git impl — see
+// `makeFsGit`. The only difference local vs remote is which process runs it.
 
-const localFs: TerminalEndpointFs = {
-  async listAll(repoPath: string): Promise<FsListAllOutput> {
-    return { paths: unwrapGit(await listAll(repoPath, log)) };
-  },
-  async readFile(repoPath, filePath) {
-    return unwrapGit(await readFile(repoPath, filePath, log));
-  },
-  async statFileMtimeMs(repoPath, filePath) {
-    return unwrapGit(await statFileMtimeMs(repoPath, filePath, log));
-  },
-  subscribeRepoChange(repoPath, onChange) {
-    return subscribeRepoChange(repoPath, onChange, log);
-  },
-  subscribeFileChange(repoPath, filePath, onChange) {
-    return subscribeFileChange(repoPath, filePath, onChange, log);
-  },
-};
-
-const localGit: TerminalEndpointGit = {
-  async getStatus(repoPath, mode: GitDiffMode): Promise<GitStatusOutput> {
-    return unwrapGit(await getStatus(repoPath, mode, log));
-  },
-  async getDiff(repoPath, filePath, mode, oldPath): Promise<GitDiffOutput> {
-    return unwrapGit(await getDiff(repoPath, filePath, mode, log, oldPath));
-  },
-};
+const { fs: localFs, git: localGit } = makeFsGit(log);
 
 // ── The contract-backed terminal handle ─────────────────────────────────
 

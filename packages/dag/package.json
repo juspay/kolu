@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
+    "@orpc/server": "^1.13.13",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "kaval": "workspace:*",
@@ -25,7 +26,8 @@
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "kolu-opencode": "workspace:*",
-    "pino": "^10.3.1"
+    "pino": "^10.3.1",
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

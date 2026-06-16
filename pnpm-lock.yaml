@@ -275,6 +275,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.20.1)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -305,6 +308,9 @@ importers:
       pino:
         specifier: ^10.3.1
         version: 10.3.1
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

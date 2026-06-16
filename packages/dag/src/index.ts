@@ -23,3 +23,4 @@ export {
   startProviders,
 } from "./providers.ts";
 export { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
+export { makeFsGit, unwrapGit } from "./fsGit.ts";

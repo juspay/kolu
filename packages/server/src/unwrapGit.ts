@@ -1,40 +1,12 @@
 /**
- * Unwrap a `GitResult` into the success value or throw an `ORPCError`
- * for the client. Pure helper shared by `router.ts`'s raw git handlers
- * and `terminalEndpoint/local.ts`'s fs/git surfaces.
+ * `unwrapGit` — unwrap a `GitResult` into the success value or throw an
+ * `ORPCError` for the client.
  *
- * Lives in its own file (rather than `surface.ts`) so importing it from
- * `terminalEndpoint/local.ts` does not tug `local.ts` into a cycle with
- * `surface.ts`. See #1005.
+ * The implementation now lives in `@kolu/terminal-dag` (alongside `makeFsGit`),
+ * so kolu-server's raw git handlers, `LocalTerminalEndpoint`, and kolu-watcher
+ * (P3) all map a `GitError` to the same wire status from ONE place. Re-exported
+ * here so `router.ts` / `terminalEndpoint/local.ts` keep their `../unwrapGit.ts`
+ * import path (and stay out of the `surface.ts` cycle — #1005).
  */
 
-import { ORPCError } from "@orpc/server";
-import type { GitResult } from "kolu-git";
-import { match } from "ts-pattern";
-
-export function unwrapGit<T>(result: GitResult<T>): T {
-  if (result.ok) return result.value;
-  const { status, message } = match(result.error)
-    .with({ code: "BASE_BRANCH_NOT_FOUND" }, (e) => ({
-      status: "PRECONDITION_FAILED" as const,
-      message: e.message,
-    }))
-    .with({ code: "WORKTREE_NAME_COLLISION" }, (e) => ({
-      status: "CONFLICT" as const,
-      message: e.message,
-    }))
-    .with({ code: "PATH_ESCAPES_ROOT" }, (e) => ({
-      status: "INTERNAL_SERVER_ERROR" as const,
-      message: `path escapes root: ${e.child}`,
-    }))
-    .with({ code: "GIT_FAILED" }, (e) => ({
-      status: "INTERNAL_SERVER_ERROR" as const,
-      message: e.message,
-    }))
-    .with({ code: "NOT_A_REPO" }, () => ({
-      status: "INTERNAL_SERVER_ERROR" as const,
-      message: "Not a git repository",
-    }))
-    .exhaustive();
-  throw new ORPCError(status, { message });
-}
+export { unwrapGit } from "@kolu/terminal-dag";
