@@ -5,10 +5,11 @@
  *  - **Workspace chrome** (collapsed, size, codeTabTreeSize) lives on
  *    `preferences.rightPanel` — global to the user, set once and forgotten.
  *    Drives the desktop Resizable's collapsed/expanded geometry.
- *  - **Mobile drawer open state** is session-local, NOT persisted. Dismissing
- *    the bottom-drawer host on a phone is an ephemeral gesture; persisting
- *    it into account prefs would mean the next desktop session opens with
- *    the panel collapsed for reasons the user never expressed on desktop.
+ *  - **Touch-layout drawer open state** (phone + compact) is session-local, NOT
+ *    persisted. Dismissing the bottom-drawer host on a handheld is an ephemeral
+ *    gesture; persisting it into account prefs would mean the next desktop
+ *    session opens with the panel collapsed for reasons the user never
+ *    expressed on desktop.
  *  - **Per-terminal task state** (activeTab, codeMode, per-mode selected
  *    file) lives in an in-memory store keyed by terminal id; mutations
  *    push to the server via `client.terminal.setRightPanel`, which writes
@@ -34,7 +35,7 @@ import {
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { isMobile } from "../useMobile";
+import { isDesktop } from "../useMobile";
 import { client, preferences, updatePreferences } from "../wire";
 
 /** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
@@ -77,11 +78,11 @@ const [perTerminal, setPerTerminal] = createStore<
   Record<TerminalId, RightPanelPerTerminalState>
 >({});
 
-/** Session-local visibility of the mobile bottom-drawer host. Distinct from
- *  the persisted `preferences.rightPanel.collapsed` bit so dismissing the
- *  drawer on mobile doesn't cross-contaminate the desktop chrome preference.
- *  `RightPanelDrawer`'s mobile branch owns the open/close gestures; the
- *  desktop branch ignores this signal entirely. */
+/** Session-local visibility of the touch-layout bottom-drawer host (phone +
+ *  compact). Distinct from the persisted `preferences.rightPanel.collapsed` bit
+ *  so dismissing the drawer on a handheld doesn't cross-contaminate the desktop
+ *  chrome preference. `RightPanelDrawer` (the touch-layout host) owns the
+ *  open/close gestures; the desktop Resizable ignores this signal entirely. */
 const [drawerOpen, setDrawerOpen] = createSignal(false);
 
 /** Per-terminal navigation history — one record per terminal bundling the
@@ -265,19 +266,20 @@ export function useRightPanel() {
       }
     },
 
-    // ── Mobile drawer (session-local) ────────────────────────────────
-    /** Whether the mobile bottom-drawer host is open. Only meaningful on
-     *  mobile — desktop reads `collapsed()` instead. Not persisted. */
+    // ── Touch-layout drawer (session-local) ──────────────────────────
+    /** Whether the bottom-drawer host is open. Only meaningful on the touch
+     *  layouts (phone + compact) — desktop reads `collapsed()` instead. Not
+     *  persisted. */
     drawerOpen,
     setDrawerOpen,
     /** Reveal the panel by whatever mechanism the current layout uses — open
-     *  the bottom-drawer host on mobile, uncollapse the desktop Resizable
-     *  otherwise. Producers (e.g. `openInCodeTab`) call this to express intent
-     *  ("show the panel") without owning the mobile-vs-desktop fork; the two
-     *  visibility volatilities (session-local `drawerOpen`, persisted
-     *  `collapsed`) stay separate and are resolved here in one place. */
+     *  the bottom-drawer host on the touch layouts, uncollapse the desktop
+     *  Resizable otherwise. Producers (e.g. `openInCodeTab`) call this to
+     *  express intent ("show the panel") without owning the touch-vs-desktop
+     *  fork; the two visibility volatilities (session-local `drawerOpen`,
+     *  persisted `collapsed`) stay separate and are resolved here in one place. */
     reveal: () => {
-      if (isMobile()) setDrawerOpen(true);
+      if (!isDesktop()) setDrawerOpen(true);
       else if (rp().collapsed) setCollapsed(false);
     },
 
@@ -308,9 +310,9 @@ export function useRightPanel() {
      *  drawer-open signal); the host (`RightPanelDrawer`) watches the
      *  paired `pendingOpen` signal seeded by `openInCodeTab` and ensures
      *  the surface is visible per its own semantics (desktop expand vs.
-     *  mobile drawer open). Keeping visibility out of this function is
+     *  touch-layout drawer open). Keeping visibility out of this function is
      *  what lets one persisted bit live on the desktop side without
-     *  mobile gestures polluting it.
+     *  touch-layout gestures polluting it.
      *
      *  Short-circuits when the tab+mode is already current — every
      *  diff→browse and browse→browse `openCodeAt` would otherwise

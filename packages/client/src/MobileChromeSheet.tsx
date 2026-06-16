@@ -7,8 +7,8 @@
  *  palette, settings, inspector toggle).
  *
  *  Terminal navigation moved out of this sheet to its own left-edge
- *  swipe drawer — see `MobileDockDrawer`. The split mirrors the
- *  desktop: the dock owns the live-terminal navigator, the
+ *  swipe drawer (the `DockList`, mounted by `MobileTileView`). The split
+ *  mirrors the desktop: the dock owns the live-terminal navigator, the
  *  chrome bar owns global controls.
  *
  *  Sheet machinery (open state, drag-to-dismiss, overlay, portal) is

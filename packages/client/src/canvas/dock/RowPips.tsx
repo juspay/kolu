@@ -56,7 +56,7 @@ import { type PipVariant, pipVariant } from "./pipVariant";
 import { SubCountChip } from "./SubCountChip";
 
 /** Per-row combined reactive data — `info` + `meta` in a single memo.
- *  Three components (`DockRow`, `RailChip`, `MobileRow`) build the same
+ *  Three components (`DockRow`, `RailChip`, `DockListRow`) build the same
  *  `createMemo(() => { const info = …; const meta = …; … })` pattern.
  *  This factory extracts that once: call it in a component body,
  *  read the accessor to get `{ info, meta }` or `null`. */

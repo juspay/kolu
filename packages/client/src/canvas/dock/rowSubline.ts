@@ -14,8 +14,9 @@
  *      by callers as an invisible placeholder so the row still claims
  *      its second line of vertical space.
  *
- *  Shared by `Dock` and `MobileDockDrawer` — both have the same
- *  two-line geometry and the same content rules. */
+ *  Shared by `Dock` (desktop) and `DockList` (the touch list behind the
+ *  phone drawer and the compact rail) — both have the same two-line
+ *  geometry and the same content rules. */
 
 import type { TerminalMetadata } from "kolu-common/surface";
 import { stateLabels } from "../../ui/agentDisplay";

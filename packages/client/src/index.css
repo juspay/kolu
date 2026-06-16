@@ -477,7 +477,7 @@ body {
  * being equal, so both read `--dock-edge-stripe-w` (defined below) —
  * the single token is the anchor: the spine here, and the rows'
  * `border-l-[length:var(--dock-edge-stripe-w)]` left stripe in
- * Dock.tsx / MobileDockDrawer.tsx. Change it in one place and the
+ * Dock.tsx / DockList.tsx. Change it in one place and the
  * x0-3 / x3-6 alignment stays honoured everywhere.
  *
  * Custom CSS (not Tailwind utilities): the tint formula and the

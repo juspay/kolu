@@ -1,16 +1,19 @@
-/** MobileTileView — single fullscreen tile with swipe navigation.
+/** MobileTileView — the touch single-tile pane with swipe navigation.
  *
- *  On mobile the canvas (pan/zoom) and the desktop dock are
- *  disabled per #622. The active terminal fills the viewport; swipe-
- *  left/right cycles between terminals in workspace-switcher order.
+ *  Used directly as the phone layout, and reused by `CompactTileView` as the
+ *  compact (tablet / Z Fold unfolded) layout's terminal pane — there with
+ *  `hideDockDrawer`, since the compact layout supplies its own persistent dock
+ *  rail in place of the edge-drawer below. The active terminal fills the pane;
+ *  swipe-left/right cycles between terminals in workspace-switcher order. On the
+ *  phone the canvas (pan/zoom) and the desktop dock are disabled per #622.
  *
  *  Two chrome drawers mirror the desktop split (#903):
  *  - **Top pull-down** (`MobileChromeSheet`): global controls — palette,
  *    settings, inspector toggle. Trigger is the always-visible
  *    pull-handle row at the top of the terminal.
- *  - **Left swipe** (`MobileDockDrawer`): live-terminal navigator. The
- *    mobile mirror of the desktop dock; trigger is a thin
- *    handle pinned to the left edge.
+ *  - **Left swipe**: the live-terminal navigator — the `DockList` (shared with
+ *    the compact rail) in a left edge-drawer; trigger is a thin handle pinned to
+ *    the left edge. Suppressed under `hideDockDrawer`.
  *
  *  Both Corvu `Drawer`s live as siblings (not nested) so each has its
  *  own clean context — nesting put the chrome trigger inside the dock
@@ -22,7 +25,7 @@
 import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
-import MobileDockDrawer from "./canvas/dock/MobileDockDrawer";
+import { DockList } from "./canvas/dock/DockList";
 import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
@@ -61,6 +64,11 @@ const MobileTileView: Component<{
   renderBody: (id: TerminalId, visible: () => boolean) => JSX.Element;
   /** Soft-keyboard helper bar (Esc, Tab, arrows, etc.). */
   bottomBar?: JSX.Element;
+  /** Suppress the left-edge dock handle + swipe drawer. The compact layout
+   *  (`CompactTileView`) mounts a *persistent* dock rail beside this tile, so
+   *  the edge-drawer navigator would be a redundant second copy. The top chrome
+   *  sheet and swipe-to-cycle stay; only the dock drawer is dropped. */
+  hideDockDrawer?: boolean;
 }> = (props) => {
   const store = useTerminalStore();
   const [touchStart, setTouchStart] = createSignal<{
@@ -182,22 +190,26 @@ const MobileTileView: Component<{
         {/* Left-edge dock handle — opens the dock drawer on tap. The button
          *  is a 32px-wide transparent hit target (clears the WCAG 2.2 24px
          *  touch-target floor) wrapping an 8px visible bar, so the grab zone
-         *  is comfortable on a phone without a chunky edge intrusion. */}
-        <button
-          type="button"
-          data-testid="mobile-dock-handle"
-          class="group absolute top-1/2 left-0 -translate-y-1/2 z-10 flex h-16 w-8 items-center justify-start cursor-pointer"
-          aria-label="Open dock"
-          onClick={() => setDockOpen(true)}
-          // Don't let the wrapper's horizontal-swipe handler claim
-          // an edge-grab as a tile cycle gesture.
-          onTouchStart={(e: TouchEvent) => e.stopPropagation()}
-        >
-          <span
-            aria-hidden="true"
-            class="h-16 w-2 rounded-r bg-fg-3/30 transition-colors group-active:bg-fg-3/60"
-          />
-        </button>
+         *  is comfortable on a phone without a chunky edge intrusion.
+         *  Suppressed under `hideDockDrawer` — the compact layout shows a
+         *  persistent dock rail instead. */}
+        <Show when={!props.hideDockDrawer}>
+          <button
+            type="button"
+            data-testid="mobile-dock-handle"
+            class="group absolute top-1/2 left-0 -translate-y-1/2 z-10 flex h-16 w-8 items-center justify-start cursor-pointer"
+            aria-label="Open dock"
+            onClick={() => setDockOpen(true)}
+            // Don't let the wrapper's horizontal-swipe handler claim
+            // an edge-grab as a tile cycle gesture.
+            onTouchStart={(e: TouchEvent) => e.stopPropagation()}
+          >
+            <span
+              aria-hidden="true"
+              class="h-16 w-2 rounded-r bg-fg-3/30 transition-colors group-active:bg-fg-3/60"
+            />
+          </button>
+        </Show>
 
         {/* Body container — relative so per-terminal absolutely-positioned
          *  search overlays anchor here, not the dvh root. */}
@@ -253,31 +265,40 @@ const MobileTileView: Component<{
 
       {/* Dock (left swipe) drawer — terminal navigator.
        *  Carries `CORVU_SNAP_WORKAROUND` for the same #977 reason as the
-       *  chrome drawer above. */}
-      <Drawer
-        side="left"
-        open={dockOpen()}
-        onOpenChange={onDockOpenChange}
-        snapPoints={CORVU_SNAP_WORKAROUND}
-        // See the chrome drawer above: restoreFocus={false} keeps Corvu from
-        // re-summoning the keyboard, `onDockOpenChange` blurs the field to drop
-        // a keyboard left lingering. Covers both dismiss paths — backdrop tap
-        // (Corvu's onOpenChange) and selecting a terminal row (onClose below).
-        restoreFocus={false}
-      >
-        <Drawer.Portal>
-          <Drawer.Overlay
-            data-testid="mobile-dock-backdrop"
-            class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
-          />
-          <Drawer.Content class="fixed top-0 left-0 bottom-0 z-50 w-[78vw] max-w-[20rem] bg-surface-1 border-r border-edge shadow-xl">
-            <MobileDockDrawer
-              onSelect={store.setActiveSilently}
-              onClose={() => onDockOpenChange(false)}
+       *  chrome drawer above. Suppressed under `hideDockDrawer` (the compact
+       *  layout's persistent rail replaces it). */}
+      <Show when={!props.hideDockDrawer}>
+        <Drawer
+          side="left"
+          open={dockOpen()}
+          onOpenChange={onDockOpenChange}
+          snapPoints={CORVU_SNAP_WORKAROUND}
+          // See the chrome drawer above: restoreFocus={false} keeps Corvu from
+          // re-summoning the keyboard, `onDockOpenChange` blurs the field to drop
+          // a keyboard left lingering. Covers both dismiss paths — backdrop tap
+          // (Corvu's onOpenChange) and selecting a terminal row (onClose below).
+          restoreFocus={false}
+        >
+          <Drawer.Portal>
+            <Drawer.Overlay
+              data-testid="mobile-dock-backdrop"
+              class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
             />
-          </Drawer.Content>
-        </Drawer.Portal>
-      </Drawer>
+            <Drawer.Content class="fixed top-0 left-0 bottom-0 z-50 w-[78vw] max-w-[20rem] bg-surface-1 border-r border-edge shadow-xl">
+              {/* The dock list, same `DockList` the compact rail mounts; the
+               *  phone drawer's one addition is dismiss-on-select. */}
+              <div data-testid="mobile-dock-sheet" class="flex flex-col h-full">
+                <DockList
+                  onSelect={(id) => {
+                    store.setActiveSilently(id);
+                    onDockOpenChange(false);
+                  }}
+                />
+              </div>
+            </Drawer.Content>
+          </Drawer.Portal>
+        </Drawer>
+      </Show>
     </>
   );
 };

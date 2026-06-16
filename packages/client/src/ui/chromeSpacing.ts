@@ -71,6 +71,6 @@ export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-3";
  *  the cancel without the restore would land the subgrid's first
  *  column flush against the dock's left edge. The right-side cancel
  *  + restore stays at the call site because desktop uses
- *  `DOCK_CARDS_GUTTER_*` (24 px) while mobile uses `pr-3` / `-mr-3`
- *  (12 px); see the comment in `MobileDockDrawer.tsx`. */
+ *  `DOCK_CARDS_GUTTER_*` (24 px) while the touch list uses `pr-3` /
+ *  `-mr-3` (12 px); see the comment in `DockList.tsx`. */
 export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-6 pl-6";

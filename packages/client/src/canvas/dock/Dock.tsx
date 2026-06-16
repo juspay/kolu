@@ -410,7 +410,7 @@ const RepoSection: Component<{
  *  3 px accent left stripe) but identical geometry, so the dock
  *  doesn't reflow on activation.
  *
- *  Mobile variant lives in `MobileDockDrawer.tsx`'s `MobileRow`.
+ *  Touch variant lives in `DockList.tsx`'s `DockListRow`.
  *  The two are intentionally separate — touch-target sizing,
  *  pointer-down gesture interception (Corvu drawer drag-to-dismiss),
  *  and the desktop-only `Cmd+N` shortcut hint are real divergence
