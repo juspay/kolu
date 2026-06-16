@@ -43,3 +43,24 @@ Then(
     await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
+
+/** Reach a chip state, then HOLD it for a span and re-assert it. Two jobs in one:
+ *  (1) a stronger assertion — the dial doesn't merely *touch* `connected` for a
+ *  frame, it STAYS there (a connected host that flapped back to provisioning
+ *  would fail here); (2) a steady dwell so the evidence recording has a clean
+ *  window of the GREEN chip BEFORE the After-hook teardown drops the host's
+ *  daemonStatus and the chip defaults back to the amber "connecting…" placeholder. */
+Then(
+  "the host chip should stay {string} for {int} seconds",
+  async function (this: KoluWorld, state: string, seconds: number) {
+    const chip = this.page.locator(
+      `[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-host-chip"][data-host-state="${state}"]`,
+    );
+    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForTimeout(seconds * 1000);
+    assert.ok(
+      (await chip.count()) > 0,
+      `host chip left the "${state}" state within ${seconds}s`,
+    );
+  },
+);

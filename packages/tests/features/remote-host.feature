@@ -52,5 +52,8 @@ Feature: Remote host — kolu dials a remote over ssh
     # Pick the ssh-config host — kolu dials it (over the loopback for `localhost`).
     When I select "localhost" in the palette
     And I press the maximize toggle shortcut
-    Then the host chip should reach the "connected" state
+    # Hold the GREEN connected chip on screen (and prove it doesn't flap back to
+    # provisioning) — the dwell gives the evidence capture a steady green window
+    # before teardown drops the daemonStatus.
+    Then the host chip should stay "connected" for 4 seconds
     And there should be no page errors
