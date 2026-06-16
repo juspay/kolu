@@ -26,6 +26,7 @@ import { createSurfaceSocket } from "@kolu/surface-app/connect";
 import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
+  type KnownHost,
   type Preferences,
   type PreferencesPatch,
   type RecentAgent,
@@ -140,6 +141,14 @@ export const recentRepos = (): RecentRepo[] =>
   _activityFeed.value()?.recentRepos ?? [];
 export const recentAgents = (): RecentAgent[] =>
   _activityFeed.value()?.recentAgents ?? [];
+
+// Remote hosts kolu recognises (KOLU_HOSTS_JSON + ~/.ssh/config) — offered in
+// the "Connect to host…" palette so the user picks instead of retyping (P3).
+const _knownHosts = app.cells.knownHosts.use({
+  onError: (err) =>
+    toast.error(`Known-hosts subscription error: ${err.message}`),
+});
+export const knownHosts = (): KnownHost[] => _knownHosts.value() ?? [];
 
 const _savedSession = app.cells.session.use({
   onError: (err) =>

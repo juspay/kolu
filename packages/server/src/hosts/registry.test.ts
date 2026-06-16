@@ -8,8 +8,15 @@
  * resolveSystem here — only env parsing.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { hostConfigFor, listConfiguredHosts } from "./registry.ts";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  hostConfigFor,
+  listConfiguredHosts,
+  listKnownHosts,
+} from "./registry.ts";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -72,5 +79,48 @@ describe("hostConfigFor", () => {
     vi.stubEnv("KOLU_HOSTS_JSON", JSON.stringify({ prod: "nix@prod" }));
     vi.stubEnv("KOLU_WATCHER_AGENT_DRVS_JSON", "{bad");
     expect(() => hostConfigFor("prod")).toThrow(/KOLU_WATCHER_AGENT_DRVS_JSON/);
+  });
+});
+
+describe("listKnownHosts", () => {
+  let dir: string;
+  let configPath: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-knownhosts-"));
+    configPath = path.join(dir, "config");
+    // `KOLU_SSH_CONFIG` is the hermetic seam — point the ssh-config reader at a
+    // tmp file so the test never touches the runner's real ~/.ssh/config.
+    vi.stubEnv("KOLU_SSH_CONFIG", configPath);
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("merges KOLU_HOSTS_JSON aliases with ~/.ssh/config Host entries", () => {
+    vi.stubEnv("KOLU_HOSTS_JSON", JSON.stringify({ prod: "nix@prod.example" }));
+    fs.writeFileSync(
+      configPath,
+      "Host build-box\n  HostName b.internal\nHost laptop\n",
+    );
+    expect(listKnownHosts()).toEqual([
+      { hostId: "prod", host: "nix@prod.example" },
+      { hostId: "build-box", host: "build-box" },
+      { hostId: "laptop", host: "laptop" },
+    ]);
+  });
+
+  it("lets an explicit KOLU_HOSTS_JSON alias win a name clash", () => {
+    vi.stubEnv("KOLU_HOSTS_JSON", JSON.stringify({ prod: "nix@prod.example" }));
+    fs.writeFileSync(configPath, "Host prod\n  HostName some-other-prod\n");
+    expect(listKnownHosts()).toEqual([
+      { hostId: "prod", host: "nix@prod.example" },
+    ]);
+  });
+
+  it("is just the ssh-config hosts when KOLU_HOSTS_JSON is unset", () => {
+    vi.stubEnv("KOLU_HOSTS_JSON", "");
+    fs.writeFileSync(configPath, "Host only-ssh\n");
+    expect(listKnownHosts()).toEqual([
+      { hostId: "only-ssh", host: "only-ssh" },
+    ]);
   });
 });

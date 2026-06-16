@@ -63,6 +63,7 @@ import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
+import { listKnownHosts } from "./hosts/registry.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
 import {
@@ -165,6 +166,12 @@ const koluDeps: Omit<
     terminalList: {
       // Live registry; the in-memory store has no persistent slot.
       store: { get: () => listTerminals(), set: () => {} },
+    },
+    knownHosts: {
+      // Derived fresh on read from `KOLU_HOSTS_JSON` + `~/.ssh/config`. No
+      // persistent slot and no `set` — the list is a pure function of config,
+      // re-read on each subscribe (so a reconnect picks up config edits).
+      store: { get: () => listKnownHosts(), set: () => {} },
     },
   },
 

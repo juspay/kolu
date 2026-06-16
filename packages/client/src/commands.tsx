@@ -30,7 +30,7 @@ import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { daemonWarming } from "./kaval/useDaemonStatus";
-import { recentAgents, recentRepos } from "./wire";
+import { knownHosts, recentAgents, recentRepos } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures
  *  the entries accessor + recency lookup in a closure so the palette
@@ -216,6 +216,22 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 },
               ]
             : []),
+          // Recognised remote hosts (P3, kaval-sessions): every host in
+          // `~/.ssh/config` (plus any `KOLU_HOSTS_JSON` alias), offered so the
+          // user picks instead of retyping an ssh target. Selecting one dials it
+          // — a terminal opens on that machine, mirrored like a local one.
+          ...knownHosts().map(
+            (h): PaletteAction => ({
+              kind: "action",
+              name: h.hostId,
+              description:
+                h.host === h.hostId
+                  ? "Open a terminal on this host over ssh"
+                  : `Open a terminal on ${h.host} over ssh`,
+              icon: TerminalIcon,
+              onSelect: () => deps.handleCreate(undefined, h.hostId),
+            }),
+          ),
           // Connect to a remote host over ssh (P3, kaval-sessions): type an ssh
           // target (alias or user@host) and a terminal opens on that machine.
           {

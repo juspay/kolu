@@ -20,6 +20,7 @@
  */
 
 import { LOCAL_HOST_ID } from "../ptyHost/index.ts";
+import { listSshConfigHosts } from "./sshConfig.ts";
 import { resolveWatcherAgentDrv } from "./watcherDrv.ts";
 
 export interface ConfiguredHost {
@@ -71,6 +72,27 @@ function watcherDrvBySystem(): Record<string, string> {
 export function listConfiguredHosts(): ConfiguredHost[] {
   const map = parseStringMap(process.env.KOLU_HOSTS_JSON, "KOLU_HOSTS_JSON");
   return Object.entries(map).map(([hostId, host]) => ({ hostId, host }));
+}
+
+/** The hosts kolu OFFERS in the UI — the `KOLU_HOSTS_JSON` aliases PLUS every
+ *  `Host` alias found in `~/.ssh/config`, deduped (an explicit alias wins on a
+ *  name clash). This is the "recognize my hosts" surface: a user picks a known
+ *  host from the palette instead of retyping its ssh target.
+ *
+ *  Distinct from {@link listConfiguredHosts} (the `KOLU_HOSTS_JSON` boot-DIAL
+ *  set) on purpose: kolu *lists* every known host but only *dials* one on demand
+ *  — auto-dialing every host in someone's ssh config at boot would be wrong. */
+export function listKnownHosts(): ConfiguredHost[] {
+  const result = listConfiguredHosts();
+  const seen = new Set(result.map((h) => h.hostId));
+  for (const alias of listSshConfigHosts()) {
+    if (seen.has(alias)) continue;
+    seen.add(alias);
+    // ssh-config aliases are their own dial target — ssh resolves the
+    // `HostName`/`User`/`Port` from the same config when the dial runs.
+    result.push({ hostId: alias, host: alias });
+  }
+  return result;
 }
 
 /** Resolve a host's dial config. A `hostId` in KOLU_HOSTS_JSON dials its named

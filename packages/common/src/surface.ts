@@ -372,6 +372,17 @@ export const ActivityFeedSchema = z.object({
   recentAgents: z.array(RecentAgentSchema),
 });
 
+/** A remote host kolu KNOWS about and offers in the "Connect to host…" UI —
+ *  sourced from `KOLU_HOSTS_JSON` aliases and the user's `~/.ssh/config` (P3,
+ *  kaval-sessions). `hostId` is the name shown + dialed; `host` is the ssh
+ *  target it resolves to (equal to `hostId` for a bare ssh-config alias, a
+ *  friendlier label for a `KOLU_HOSTS_JSON` entry). */
+export const KnownHostSchema = z.object({
+  hostId: z.string(),
+  host: z.string(),
+});
+export type KnownHost = z.infer<typeof KnownHostSchema>;
+
 // ── Session persistence ───────────────────────────────────────────────
 
 /**
@@ -740,6 +751,16 @@ export const koluSurface = defineSurface({
     terminalList: {
       schema: z.array(TerminalInfoSchema),
       default: [] as z.infer<typeof TerminalInfoSchema>[],
+      verbs: ["get"],
+    },
+
+    /** The remote hosts kolu recognises — `KOLU_HOSTS_JSON` aliases plus the
+     *  user's `~/.ssh/config` Host entries (P3). Read-only on the client; the
+     *  server derives it (`listKnownHosts`) so the "Connect to host…" palette
+     *  can offer them instead of making the user retype an ssh target. */
+    knownHosts: {
+      schema: z.array(KnownHostSchema),
+      default: [] as z.infer<typeof KnownHostSchema>[],
       verbs: ["get"],
     },
   },
