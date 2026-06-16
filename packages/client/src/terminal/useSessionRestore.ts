@@ -30,6 +30,7 @@ export function useSessionRestore(deps: {
   handleCreate: (
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    hostId?: string,
   ) => Promise<TerminalId>;
   handleCreateSubTerminal: (
     parentId: TerminalId,
@@ -158,6 +159,20 @@ export function useSessionRestore(deps: {
     if (isRestoring()) return;
     const session = options.session ?? savedSession();
     if (!session) return;
+    // Skip terminals already live in the store — a durable daemon (the local
+    // kaval across a kolu update, or a REMOTE host's kaval that we re-dialed at
+    // boot) may have re-adopted them by id before the user reached restore.
+    // Re-creating them would spawn a duplicate shell beside the adopted one.
+    // Adoption preserves the original id; restore mints fresh ids — so a saved
+    // terminal whose id is already live was adopted and must be skipped.
+    const liveIds = new Set((store.listSub() ?? []).map((t) => t.id));
+    const pending = session.terminals.filter((t) => !liveIds.has(t.id));
+    if (pending.length === 0) {
+      // Everything was re-adopted (e.g. a durable remote host reconnected) —
+      // nothing to spawn, so just dismiss the restore card.
+      setSavedSession(null);
+      return;
+    }
     // Keep the restore card mounted until terminal creation actually
     // succeeds. Synchronously clearing `savedSession` before the async
     // create loop runs detaches the click target mid-event — Playwright
@@ -168,9 +183,7 @@ export function useSessionRestore(deps: {
     // before the toast, on failure we leave it set so the user can retry.
     setIsRestoring(true);
     const resumeIds = options.resumeIds;
-    const id = toast.loading(
-      `Restoring ${session.terminals.length} terminals…`,
-    );
+    const id = toast.loading(`Restoring ${pending.length} terminals…`);
     try {
       const oldToNew = new Map<string, TerminalId>();
       // ── Active-terminal restore protocol — three interdependent steps ──
@@ -211,7 +224,7 @@ export function useSessionRestore(deps: {
 
       // Array order is the ordering — the server wrote terminals in Map
       // insertion order, and that order round-trips verbatim through disk.
-      const topLevelInSavedOrder = session.terminals.filter((t) => !t.parentId);
+      const topLevelInSavedOrder = pending.filter((t) => !t.parentId);
       // Step 1: active-first reorder.
       const topLevel =
         session.activeTerminalId !== undefined
@@ -231,7 +244,7 @@ export function useSessionRestore(deps: {
           : topLevelInSavedOrder;
       // Type predicate so the body of the loop below sees `parentId`
       // narrowed to `string` instead of `string | undefined`.
-      const subTerminals = session.terminals.filter(
+      const subTerminals = pending.filter(
         (t): t is typeof t & { parentId: string } => t.parentId !== undefined,
       );
       let resumed = 0;
@@ -242,14 +255,21 @@ export function useSessionRestore(deps: {
       // so the canvas cascade effect sees the saved layout on its first run
       // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
-        const newId = await deps.handleCreate(t.cwd, {
-          themeName: t.themeName,
-          canvasLayout: t.canvasLayout,
-          subPanel: t.subPanel,
-          rightPanel: t.rightPanel,
-          lastActivityAt: t.lastActivityAt,
-          intent: t.intent,
-        });
+        const newId = await deps.handleCreate(
+          t.cwd,
+          {
+            themeName: t.themeName,
+            canvasLayout: t.canvasLayout,
+            subPanel: t.subPanel,
+            rightPanel: t.rightPanel,
+            lastActivityAt: t.lastActivityAt,
+            intent: t.intent,
+          },
+          // Re-dial the terminal's REMOTE host so it spawns on the right
+          // endpoint (and the durable kaval there); undefined ⇒ local. Without
+          // this, a restored remote terminal was created LOCALLY.
+          t.location?.hostId,
+        );
         oldToNew.set(t.id, newId);
         // Step 2: in-loop assert. Combined with step 1, this puts the
         // intended active in place before the first canvas mount.
@@ -293,12 +313,18 @@ export function useSessionRestore(deps: {
       if (restoredActiveId !== null) {
         store.setActiveSilently(restoredActiveId);
       } else if (session.activeTerminalId) {
-        const newActiveId = oldToNew.get(session.activeTerminalId);
-        if (newActiveId) store.setActiveSilently(newActiveId);
+        // The saved active may have been re-adopted (skipped above, keeps its
+        // original id) rather than freshly restored (remapped via oldToNew).
+        const remapped = oldToNew.get(session.activeTerminalId);
+        const adopted = liveIds.has(session.activeTerminalId)
+          ? (session.activeTerminalId as TerminalId)
+          : undefined;
+        const target = remapped ?? adopted;
+        if (target) store.setActiveSilently(target);
       }
       const summary =
         resumed > 0
-          ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${resumed > 1 ? "s" : ""}`
+          ? `Restored ${pending.length} terminals, resumed ${resumed} agent${resumed > 1 ? "s" : ""}`
           : "Session restored";
       setSavedSession(null);
       toast.success(summary, { id });

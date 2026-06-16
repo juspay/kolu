@@ -38,7 +38,7 @@ import { endpointFor, isRemoteHost } from "./terminalEndpoint/registry.ts";
 import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
-import { initSessionAutoSave } from "./session.ts";
+import { getSavedSession, initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
@@ -341,17 +341,28 @@ await ensureLocalEndpoint({
   onAdopted: adoptSurvivingSession,
 });
 
-// Dial every configured remote host (P3, kaval-sessions). Constructing each
-// RemoteTerminalEndpoint pins its ssh session, starts the metadata mirror, and
-// publishes the host's daemonStatus row — so the client sees the host (and any
-// terminals already alive on it adopt back) without an explicit user dial. This
-// is fire-and-forget by construction: an unreachable host folds into the
-// HostSession's own reconnect loop, so a down host never blocks boot.
-for (const { hostId } of listConfiguredHosts()) {
+// Dial every remote host we should reconnect at boot (P3, kaval-sessions):
+// the configured hosts (KOLU_HOSTS_JSON / ssh config) AND any host that owns
+// terminals in the SAVED SESSION — so a durable remote kaval's terminals adopt
+// back (you rejoin the prod terminals, you don't restart them) before the client
+// attempts session restore. Without the saved-session hosts here, a remote tile
+// you'd dialed ad-hoc (not configured) would not re-adopt on restart, and
+// session restore would spawn a fresh shell beside the still-running durable one.
+// Constructing each RemoteTerminalEndpoint pins its ssh session, starts the
+// metadata mirror, and publishes the host's daemonStatus row. Fire-and-forget by
+// construction: an unreachable host folds into the HostSession's own reconnect
+// loop, so a down host never blocks boot.
+const bootDialHosts = new Set<string>(
+  listConfiguredHosts().map((h) => h.hostId),
+);
+for (const t of getSavedSession()?.terminals ?? []) {
+  if (t.location?.hostId) bootDialHosts.add(t.location.hostId);
+}
+for (const hostId of bootDialHosts) {
   try {
     endpointFor(hostId);
   } catch (err) {
-    log.error({ hostId, err }, "failed to dial configured host at boot");
+    log.error({ hostId, err }, "failed to dial remote host at boot");
   }
 }
 
