@@ -143,6 +143,15 @@ export interface TerminalEndpointFs {
     filePath: string,
     onChange: () => void,
   ): () => void;
+  /** Write base64-encoded data to the endpoint's host-side per-terminal scratch
+   *  dir, returning the on-disk path. Local writes to kolu-server's scratch;
+   *  remote forwards to the watcher so the bracketed-paste path resolves on the
+   *  host the file lives on, not kolu-server's own filesystem. */
+  writeFile(
+    terminalId: string,
+    name: string,
+    base64Data: string,
+  ): Promise<{ path: string }>;
 }
 
 /** Git operations scoped to an endpoint's host machine. Same unwrap
@@ -155,6 +164,11 @@ export interface TerminalEndpointGit {
     mode: GitDiffMode,
     oldPath?: string,
   ): Promise<GitDiffOutput>;
+  worktreeCreate(
+    repoPath: string,
+    name: string,
+  ): Promise<{ path: string; branch: string }>;
+  worktreeRemove(worktreePath: string): Promise<void>;
 }
 
 /** Per-terminal world — the three surfaces (PTY · fs · git) bound to an

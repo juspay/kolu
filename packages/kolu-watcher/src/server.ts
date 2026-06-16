@@ -36,10 +36,13 @@ import {
   type ProviderHooks,
   type ProviderRecord,
   startProviders,
+  unwrapGit,
 } from "@kolu/terminal-dag";
+import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import type { Logger } from "pino";
 import type { HostKaval } from "./kavalClient.ts";
+import { writeWatcherFile } from "./scratch.ts";
 import { forwardStream, tickStream } from "./streamBridge.ts";
 import { watcherSurface } from "./watcherSurface.ts";
 
@@ -293,6 +296,16 @@ export function buildWatcherServer(
             input.mode,
             input.oldPath,
           ),
+        // (P3) worktree ops on the HOST's repo — `worktreeCreate`/`worktreeRemove`
+        // are standalone kolu-git functions (not methods on the `makeFsGit` git
+        // object), returning GitResult; `unwrapGit` maps each GitError code to a
+        // wire status (e.g. WORKTREE_NAME_COLLISION → CONFLICT) and throws, so
+        // the remote endpoint surfaces a clear, typed error.
+        worktreeCreate: async ({ input }) =>
+          unwrapGit(await worktreeCreate(input.repoPath, input.name, log)),
+        worktreeRemove: async ({ input }) => {
+          unwrapGit(await worktreeRemove(input.worktreePath, log));
+        },
       },
       fs: {
         listAll: ({ input }) => fs.listAll(input.repoPath),
@@ -301,6 +314,15 @@ export function buildWatcherServer(
           fs.readFileBytes(input.repoPath, input.filePath),
         statFileMtimeMs: async ({ input }) => ({
           mtimeMs: await fs.statFileMtimeMs(input.repoPath, input.filePath),
+        }),
+        // (P3) write an uploaded/pasted file to the HOST's per-terminal scratch
+        // dir so the bracketed-paste path resolves on the remote, not locally.
+        writeFile: ({ input }) => ({
+          path: writeWatcherFile(
+            input.terminalId,
+            input.name,
+            input.base64Data,
+          ),
         }),
       },
     },

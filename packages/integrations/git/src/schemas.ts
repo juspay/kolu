@@ -38,6 +38,8 @@ export const WorktreeNameSchema = z
 export const WorktreeCreateInputSchema = z.object({
   repoPath: z.string(),
   name: WorktreeNameSchema,
+  // P3: host whose endpoint serves this repo; absent ⇒ local
+  hostId: z.string().optional(),
 });
 
 export const WorktreeCreateOutputSchema = z.object({
@@ -47,6 +49,8 @@ export const WorktreeCreateOutputSchema = z.object({
 
 export const WorktreeRemoveInputSchema = z.object({
   worktreePath: z.string(),
+  // P3: host whose endpoint serves this repo; absent ⇒ local
+  hostId: z.string().optional(),
 });
 
 // --- Local diff review ---

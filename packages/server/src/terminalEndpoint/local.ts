@@ -33,8 +33,11 @@ import type {
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
+  TerminalEndpointFs,
+  TerminalEndpointGit,
   TerminalHandle,
 } from "kolu-common/terminalEndpoint";
+import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
@@ -49,7 +52,10 @@ import {
   type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import { cleanupTerminalScratch } from "../terminalScratch.ts";
+import {
+  cleanupTerminalScratch,
+  saveTerminalFile,
+} from "../terminalScratch.ts";
 import {
   applyInitialMetadata,
   createMetadata,
@@ -63,6 +69,7 @@ import {
   type ProviderHooks,
   type ProviderRecord,
   startProviders,
+  unwrapGit,
 } from "@kolu/terminal-dag";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
@@ -287,8 +294,29 @@ export function orphanMeta(liveEntry: PtyHostListEntry): TerminalMetadata {
 // ── Endpoint implementation ────────────────────────────────────────────
 
 class LocalTerminalEndpoint implements TerminalEndpoint {
-  readonly fs = localFs;
-  readonly git = localGit;
+  // The fs/git surfaces extend the shared `makeFsGit` adapters with the
+  // host-side ops a remote endpoint forwards over the watcher: worktree
+  // create/remove (kolu-git standalone functions, GitResult unwrapped to a
+  // thrown ORPCError) and file upload (kolu-server's per-terminal scratch).
+  // Built here so a single class shape implements the widened interfaces.
+  readonly fs: TerminalEndpointFs = {
+    ...localFs,
+    writeFile: async (terminalId, name, base64Data) => ({
+      path: saveTerminalFile(terminalId, name, base64Data),
+    }),
+  };
+  readonly git: TerminalEndpointGit = {
+    ...localGit,
+    // `worktreeCreate`/`worktreeRemove` are standalone kolu-git functions
+    // (not on the `makeFsGit` git object); `unwrapGit` maps each GitError code
+    // to a wire status and throws — the same unwrap the watcher and the legacy
+    // router handler used.
+    worktreeCreate: async (repoPath, name) =>
+      unwrapGit(await worktreeCreate(repoPath, name, log)),
+    worktreeRemove: async (worktreePath) => {
+      unwrapGit(await worktreeRemove(worktreePath, log));
+    },
+  };
 
   /** id → its provider-DAG + tap-bridge teardown. Its keys ARE the terminals
    *  with a live provider layer in this process. */

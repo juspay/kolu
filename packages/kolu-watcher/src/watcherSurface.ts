@@ -42,6 +42,7 @@ import {
   GitDiffModeSchema,
   GitDiffOutputSchema,
   GitStatusOutputSchema,
+  WorktreeCreateOutputSchema,
 } from "kolu-git/schemas";
 import { TerminalIdSchema, TerminalMetadataSchema } from "kolu-common/surface";
 import { z } from "zod";
@@ -50,8 +51,14 @@ import { z } from "zod";
  *  (minor = additive field/procedure/stream, major = breaking); internal
  *  refactors of the DAG / kolu-git do NOT bump it. kolu-server checks it
  *  against `system.version` (reused from the absorbed pty-host surface)
- *  before dialing — an incompatible skew is an honest forced restart. */
-export const WATCHER_CONTRACT_VERSION = "1.0";
+ *  before dialing — an incompatible skew is an honest forced restart.
+ *  1.1: added `git.worktreeCreate`/`git.worktreeRemove` + `fs.writeFile` (P3
+ *  remote parity — worktree ops and file upload run host-side). NOTE: there is
+ *  no runtime skew gate on THIS version today (the dial validates kaval's
+ *  `PTY_HOST_CONTRACT_VERSION`, not this); a stale watcher pinned mid-session
+ *  fails the new procedures per-call (a clear error), and a normal re-dial
+ *  re-realises the watcher from the server's drv map, picking up 1.1. */
+export const WATCHER_CONTRACT_VERSION = "1.1";
 
 const RepoInputSchema = z.object({ repoPath: z.string() });
 const RepoFileInputSchema = z.object({
@@ -104,12 +111,34 @@ export const watcherSurface = defineSurface({
         }),
         output: GitDiffOutputSchema,
       },
+      // (P3) worktree ops on the HOST's repo — kolu-server routes the
+      // worktreeCreate/Remove RPCs through the owning endpoint, so a remote
+      // tile's worktree lands on the remote host (where the repo is), not
+      // kolu-server's own filesystem.
+      worktreeCreate: {
+        input: z.object({ repoPath: z.string(), name: z.string() }),
+        output: WorktreeCreateOutputSchema,
+      },
+      worktreeRemove: {
+        input: z.object({ worktreePath: z.string() }),
+        output: z.void(),
+      },
     },
     fs: {
       listAll: { input: RepoInputSchema, output: FsListAllOutputSchema },
       readFile: {
         input: RepoFileInputSchema,
         output: z.object({ content: z.string(), truncated: z.boolean() }),
+      },
+      // (P3) write an uploaded/pasted file to the HOST's per-terminal scratch
+      // dir so the bracketed-paste path resolves on the remote, not locally.
+      writeFile: {
+        input: z.object({
+          terminalId: TerminalIdSchema,
+          name: z.string(),
+          base64Data: z.string(),
+        }),
+        output: z.object({ path: z.string() }),
       },
       // Raw bytes (base64) for the binary preview — kolu-server proxies the
       // iframe file route through this so a remote image/PDF/doc is served from

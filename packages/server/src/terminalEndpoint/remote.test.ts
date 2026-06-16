@@ -23,11 +23,17 @@ const fake = vi.hoisted(() => {
         hunks: [],
         binary: false,
       })),
+      worktreeCreate: vi.fn(async () => ({
+        path: "/r/.worktrees/wt",
+        branch: "wt",
+      })),
+      worktreeRemove: vi.fn(async () => undefined),
     },
     fs: {
       listAll: vi.fn(async () => ({ paths: ["README.md"] })),
       readFile: vi.fn(async () => ({ content: "x", truncated: false })),
       statFileMtimeMs: vi.fn(async () => ({ mtimeMs: 7 })),
+      writeFile: vi.fn(async () => ({ path: "/scratch/term/image.png" })),
     },
     terminal: {
       spawn: vi.fn(async () => ({ id: "t", pid: 99, cwd: "/r" })),
@@ -50,6 +56,15 @@ const fake = vi.hoisted(() => {
         platform: "linux",
         rcDir: "/h/.rc",
         path: "/usr/bin:/bin",
+      })),
+      // The absorbed pty-host `system.version` — the remote endpoint queries it
+      // once on connect to fold the remote kaval's identity + startedAt onto the
+      // published daemonStatus.
+      version: vi.fn(async () => ({
+        contractVersion: "3.0",
+        pid: 42,
+        startedAt: 1700,
+        identity: { staleKey: "rk-stale", navigableCommit: "rk-commit" },
       })),
       heartbeat: vi.fn(async () => ({ ts: 0 })),
     },
@@ -280,6 +295,57 @@ describe("RemoteTerminalEndpoint", () => {
         "[local] prod: copying derivation…",
         "[remote] building 'kaval.drv'",
       ],
+    });
+  });
+
+  // P3 (worktree): worktree create/remove route through the OWNING host's
+  // endpoint and forward to the watcher's `git.worktreeCreate`/`worktreeRemove`
+  // procedures so a remote tile's worktree lands on the remote host.
+  it("forwards worktree create/remove to the watcher client", async () => {
+    const ep = makeEndpoint();
+    const created = await ep.git.worktreeCreate("/r", "wt");
+    expect(created).toEqual({ path: "/r/.worktrees/wt", branch: "wt" });
+    expect(fake.surface.git.worktreeCreate).toHaveBeenCalledWith({
+      repoPath: "/r",
+      name: "wt",
+    });
+    await ep.git.worktreeRemove("/r/.worktrees/wt");
+    expect(fake.surface.git.worktreeRemove).toHaveBeenCalledWith({
+      worktreePath: "/r/.worktrees/wt",
+    });
+  });
+
+  // P3 (upload): a pasted/uploaded file is written to the REMOTE host's scratch
+  // via the watcher's `fs.writeFile`, returning the on-disk path kolu-server
+  // bracket-pastes into the terminal.
+  it("forwards file uploads to the watcher's fs.writeFile", async () => {
+    const ep = makeEndpoint();
+    const out = await ep.fs.writeFile("term-1", "image.png", "ZGF0YQ==");
+    expect(out).toEqual({ path: "/scratch/term/image.png" });
+    expect(fake.surface.fs.writeFile).toHaveBeenCalledWith({
+      terminalId: "term-1",
+      name: "image.png",
+      base64Data: "ZGF0YQ==",
+    });
+  });
+
+  // P3 (kaval identity): the endpoint queries `system.version` once on connect
+  // and folds the remote kaval's identity + startedAt onto every published
+  // daemonStatus, so the rail's per-host currency nudge + uptime read the same
+  // collection the local host does.
+  it("folds the remote kaval identity + startedAt onto daemonStatus", async () => {
+    makeEndpoint();
+    // Let the constructor's `queryKavalVersion()` (acquire → system.version)
+    // resolve and cache before driving a status publish.
+    await vi.waitFor(() =>
+      expect(fake.surface.system.version).toHaveBeenCalled(),
+    );
+    fake.pushState("connected");
+    expect(publishDaemonStatus).toHaveBeenLastCalledWith("prod", {
+      state: "connected",
+      progress: [],
+      identity: { staleKey: "rk-stale", navigableCommit: "rk-commit" },
+      startedAt: 1700,
     });
   });
 });

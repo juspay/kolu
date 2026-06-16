@@ -19,7 +19,17 @@ export function useWorktreeOps(deps: {
   ) {
     const id = toast.loading("Creating worktree…");
     try {
-      const result = await client.git.worktreeCreate({ repoPath, name });
+      // Route the worktree to the active terminal's host (P3) so a remote tile's
+      // worktree is created on the host the repo lives on; absent ⇒ local.
+      const activeTerminal = store.activeId();
+      const hostId = activeTerminal
+        ? store.getMetadata(activeTerminal)?.location?.hostId
+        : undefined;
+      const result = await client.git.worktreeCreate({
+        repoPath,
+        name,
+        hostId,
+      });
       toast.success(`Created worktree at ${result.path}`, { id });
       const newTerminalId = await deps.handleCreate(result.path);
       // Recent repos update reactively via trackRecentRepo → publishSystem
@@ -60,13 +70,15 @@ export function useWorktreeOps(deps: {
     if (!id) return;
     const meta = store.getMetadata(id);
     const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
+    // The terminal's host (P3) — remove the worktree on the host it lives on.
+    const hostId = meta?.location?.hostId;
     const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await deps.handleKill(subId);
     await deps.handleKill(id);
     if (worktreePath) {
       const tid = toast.loading("Removing worktree…");
       try {
-        await client.git.worktreeRemove({ worktreePath });
+        await client.git.worktreeRemove({ worktreePath, hostId });
         toast.success("Worktree removed", { id: tid });
       } catch (err) {
         toast.error(`Failed to remove worktree: ${(err as Error).message}`, {

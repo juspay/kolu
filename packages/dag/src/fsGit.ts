@@ -64,14 +64,29 @@ export function unwrapGit<T>(result: GitResult<T>): T {
   throw new ORPCError(status, { message });
 }
 
-/** Build the fs + git surfaces over the machine's real filesystem, scoped to
- *  `log`. The returned objects satisfy `TerminalEndpointFs`/`TerminalEndpointGit`
- *  directly (already-unwrapped values; failures throw `ORPCError`). */
+/** The repo-keyed fs/git reads shared by BOTH hosts — the part of
+ *  `TerminalEndpointFs`/`TerminalEndpointGit` that is a pure projection of
+ *  `kolu-git` over the machine's real filesystem. The host-BINDING methods
+ *  (`fs.writeFile`'s per-terminal scratch dir, `git.worktreeCreate/Remove`'s
+ *  routing) are NOT here: they differ by which host owns the scratch/repo, so
+ *  each consumer (`LocalTerminalEndpoint`, `kolu-watcher`) adds them on top of
+ *  this shared base. */
+export type BaseFs = Omit<TerminalEndpointFs, "writeFile">;
+export type BaseGit = Omit<
+  TerminalEndpointGit,
+  "worktreeCreate" | "worktreeRemove"
+>;
+
+/** Build the fs + git read surfaces over the machine's real filesystem, scoped
+ *  to `log` (already-unwrapped values; failures throw `ORPCError`). Returns the
+ *  shared BASE shapes — each consumer adds its host-binding `writeFile` /
+ *  worktree methods to complete the `TerminalEndpointFs`/`TerminalEndpointGit`
+ *  interfaces. */
 export function makeFsGit(log: Logger): {
-  fs: TerminalEndpointFs;
-  git: TerminalEndpointGit;
+  fs: BaseFs;
+  git: BaseGit;
 } {
-  const fs: TerminalEndpointFs = {
+  const fs: BaseFs = {
     async listAll(repoPath) {
       return { paths: unwrapGit(await listAll(repoPath, log)) };
     },
@@ -91,7 +106,7 @@ export function makeFsGit(log: Logger): {
       return subscribeFileChange(repoPath, filePath, onChange, log);
     },
   };
-  const git: TerminalEndpointGit = {
+  const git: BaseGit = {
     async getStatus(repoPath, mode: GitDiffMode) {
       return unwrapGit(await getStatus(repoPath, mode, log));
     },

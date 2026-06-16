@@ -25,6 +25,7 @@ import {
   type Accessor,
   type Component,
   createSignal,
+  For,
   onCleanup,
   Show,
 } from "solid-js";
@@ -35,9 +36,11 @@ import {
   kavalUpdatePending,
 } from "../kaval/KavalUpdateBadge";
 import {
+  activeHostIds,
   DAEMON_STATE_PRESENTATION,
+  daemonStatusFor,
   formatUptime,
-  localDaemonStatus,
+  LOCAL_HOST,
   toneDot,
   wsDot,
 } from "../kaval/useDaemonStatus";
@@ -71,19 +74,89 @@ const Divider: Component = () => (
   <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
 );
 
+/** One `kaval` rail column — the daemon serving a single host's terminals. The
+ *  whole column is a button onto `KavalInfoDialog` for THAT host. Locally this
+ *  is the one daemon kolu-server owns; with P3 ssh hosts dialed there is one
+ *  column per host (`activeHostIds()`), each reading its own `daemonStatusFor`.
+ *  The update nudge only ever fires for the LOCAL host (`kavalUpdatePending`
+ *  short-circuits remotes — a remote kaval is pinned to its watcher's build). */
+const KavalColumn: Component<{
+  hostId: string;
+  clockNow: Accessor<number>;
+  onOpen: (hostId: string) => void;
+}> = (props) => {
+  const daemon = (): ReturnType<typeof daemonStatusFor> =>
+    daemonStatusFor(props.hostId);
+  const dialogTitle = (): string =>
+    kavalUpdatePending(props.hostId)
+      ? "kaval — a newer build is available; click to restart and pick it up"
+      : "kaval daemon — click for details and how to attach with kaval-tui";
+  const label = (): string =>
+    props.hostId === LOCAL_HOST ? "kaval" : `kaval · ${props.hostId}`;
+  return (
+    <button
+      type="button"
+      onClick={() => props.onOpen(props.hostId)}
+      class="inline-flex items-center gap-1.5 rounded px-2 py-0.5 transition-colors hover:bg-surface-3/50"
+      title={dialogTitle()}
+    >
+      <span class="text-[9px] uppercase tracking-wide text-fg-3">
+        {label()}
+      </span>
+      <span
+        data-daemon-state={daemon()?.state ?? "unknown"}
+        data-host-id={props.hostId}
+        class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(daemon()?.state)}`}
+      />
+      {/* Connected → live uptime; any other known state → its label (e.g.
+          "not running", "restarting…"); unknown (pre-first-yield) → nothing. */}
+      <Show when={daemon()?.state}>
+        {(state) => (
+          <Show
+            when={state() === "connected"}
+            fallback={
+              <span class="text-[10px] text-fg-3">
+                {DAEMON_STATE_PRESENTATION[state()].label}
+              </span>
+            }
+          >
+            <Show when={daemon()?.startedAt}>
+              {(t) => (
+                <span class="tabular-nums text-[10px] text-fg-3">
+                  {formatUptime(props.clockNow() - t())}
+                </span>
+              )}
+            </Show>
+          </Show>
+        )}
+      </Show>
+      {/* B3.4: the running daemon is a build behind what the server would spawn.
+          A passive amber chip — the column's own click opens the dialog where
+          the running-vs-expected detail and the restart live. LOCAL host only. */}
+      <Show when={kavalUpdatePending(props.hostId)}>
+        <KavalUpdateBadge />
+      </Show>
+    </button>
+  );
+};
+
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // The server's build identity rides surface-app's `buildInfo` cell; `clientCommit`
   // is this bundle's baked commit.
   const pwa = useSurfaceApp<KoluBuildInfo>();
   const clockNow = getClockNow();
-  const daemon = localDaemonStatus;
-  const [kavalDialogOpen, setKavalDialogOpen] = createSignal(false);
+  // The open kaval dialog's hostId, or `false` when closed (P3 — one dialog,
+  // keyed by which host's column was clicked).
+  const [kavalDialogOpen, setKavalDialogOpen] = createSignal<string | false>(
+    false,
+  );
+  // The hostId the dialog describes — the open column's host, or LOCAL_HOST when
+  // closed (the dialog stays mounted; `open` gates it, the hostId is moot then).
+  const dialogHostId = (): string => {
+    const open = kavalDialogOpen();
+    return open === false ? LOCAL_HOST : open;
+  };
   const stale = clientStale;
-
-  const dialogTitle = (): string =>
-    kavalUpdatePending()
-      ? "kaval — a newer build is available; click to restart and pick it up"
-      : "kaval daemon — click for details and how to attach with kaval-tui";
 
   return (
     <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
@@ -130,56 +203,30 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         </Show>
       </span>
 
-      <Divider />
-
-      {/* kaval — the daemon serving your terminals. The whole column is a button:
-          click it for the daemon details, the restart, the running build + closure
-          hash, and how to reach these terminals from `kaval-tui`. */}
-      <button
-        type="button"
-        onClick={() => setKavalDialogOpen(true)}
-        class="inline-flex items-center gap-1.5 rounded px-2 py-0.5 transition-colors hover:bg-surface-3/50"
-        title={dialogTitle()}
-      >
-        <span class="text-[9px] uppercase tracking-wide text-fg-3">kaval</span>
-        <span
-          data-daemon-state={daemon()?.state ?? "unknown"}
-          class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(daemon()?.state)}`}
-        />
-        {/* Connected → live uptime; any other known state → its label (e.g.
-            "not running", "restarting…"); unknown (pre-first-yield) → nothing. */}
-        <Show when={daemon()?.state}>
-          {(state) => (
-            <Show
-              when={state() === "connected"}
-              fallback={
-                <span class="text-[10px] text-fg-3">
-                  {DAEMON_STATE_PRESENTATION[state()].label}
-                </span>
-              }
-            >
-              <Show when={daemon()?.startedAt}>
-                {(t) => (
-                  <span class="tabular-nums text-[10px] text-fg-3">
-                    {formatUptime(clockNow() - t())}
-                  </span>
-                )}
-              </Show>
-            </Show>
-          )}
-        </Show>
-        {/* B3.4: the running daemon is a build behind what the server would spawn.
-            A passive amber chip — the column's own click opens the dialog where
-            the running-vs-expected detail and the restart live. */}
-        <Show when={kavalUpdatePending()}>
-          <KavalUpdateBadge />
-        </Show>
-      </button>
+      {/* kaval — the daemon serving your terminals. One column per host: the
+          local daemon plus a column per dialed remote (P3, `activeHostIds()`).
+          The whole column is a button onto that host's `KavalInfoDialog`. */}
+      <For each={activeHostIds()}>
+        {(hostId) => (
+          <>
+            <Divider />
+            <KavalColumn
+              hostId={hostId}
+              clockNow={clockNow}
+              onOpen={setKavalDialogOpen}
+            />
+          </>
+        )}
+      </For>
 
       <KavalInfoDialog
-        open={kavalDialogOpen()}
-        onOpenChange={setKavalDialogOpen}
-        status={daemon()}
+        open={kavalDialogOpen() !== false}
+        onOpenChange={(open) => {
+          // A column click sets the open hostId; Escape/backdrop/close only ever
+          // CLOSE, so the dialog never needs a hostId to re-open from here.
+          if (!open) setKavalDialogOpen(false);
+        }}
+        hostId={dialogHostId()}
       />
     </div>
   );

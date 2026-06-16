@@ -18,7 +18,6 @@ import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
-import { worktreeCreate, worktreeRemove } from "kolu-git";
 import { prValue } from "anyforge/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
@@ -33,9 +32,10 @@ import {
   terminalNotFound,
   type TerminalProcess,
 } from "./terminal-registry.ts";
-import { endpointForTerminal } from "./terminalEndpoint/registry.ts";
-import { saveTerminalFile } from "./terminalScratch.ts";
-import { unwrapGit } from "./unwrapGit.ts";
+import {
+  endpointFor,
+  endpointForTerminal,
+} from "./terminalEndpoint/registry.ts";
 import {
   createTerminal,
   killAllTerminals,
@@ -181,7 +181,14 @@ export const appRouter = t.router({
       if (reason !== null) {
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
-      const path = saveTerminalFile(input.id, "image.png", input.data);
+      // Write to the terminal's OWNING endpoint's scratch (local or the remote
+      // host over the watcher) so the bracketed-paste path resolves where the
+      // PTY actually runs, not on kolu-server's filesystem.
+      const { path } = await endpointForTerminal(input.id).fs.writeFile(
+        input.id,
+        "image.png",
+        input.data,
+      );
       bracketedPastePath(entry, path);
       log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
@@ -193,7 +200,11 @@ export const appRouter = t.router({
       if (reason !== null) {
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
-      const path = saveTerminalFile(input.id, input.name, input.data);
+      const { path } = await endpointForTerminal(input.id).fs.writeFile(
+        input.id,
+        input.name,
+        input.data,
+      );
       bracketedPastePath(entry, path);
       log.info(
         { terminal: input.id, name: input.name, bytes, path },
@@ -297,9 +308,17 @@ export const appRouter = t.router({
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
-      log.info({ repo: input.repoPath, name: input.name }, "worktree create");
-      const result = unwrapGit(
-        await worktreeCreate(input.repoPath, input.name, log),
+      log.info(
+        { repo: input.repoPath, name: input.name, host: input.hostId },
+        "worktree create",
+      );
+      // Route through the OWNING host's endpoint (`endpointFor(hostId)`, not the
+      // terminal-id resolver) so a remote tile's worktree lands on the host the
+      // repo lives on; absent hostId ⇒ local. The endpoint unwraps GitResult and
+      // throws ORPCError on failure.
+      const result = await endpointFor(input.hostId).git.worktreeCreate(
+        input.repoPath,
+        input.name,
       );
       log.info(
         { repo: input.repoPath, path: result.path, branch: result.branch },
@@ -308,8 +327,11 @@ export const appRouter = t.router({
       return result;
     }),
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
-      log.info({ worktree: input.worktreePath }, "worktree remove");
-      unwrapGit(await worktreeRemove(input.worktreePath, log));
+      log.info(
+        { worktree: input.worktreePath, host: input.hostId },
+        "worktree remove",
+      );
+      await endpointFor(input.hostId).git.worktreeRemove(input.worktreePath);
     }),
   },
 });

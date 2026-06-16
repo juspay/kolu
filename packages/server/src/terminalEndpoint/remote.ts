@@ -125,8 +125,19 @@ function emitTerminalListChanged(): void {
  *  `daemonStatus.state` enum — deliberately WITHOUT widening it (the client adds
  *  the `provisioning`/`unreachable` PRESENTATION client-side). `copying` (cold
  *  `nix copy`) and `connecting` both read as the amber dialing state; a dropped
- *  link is `degraded` (still retrying); a `failed` give-up is `dead`. */
-function mapDaemonStatus(s: HostSessionState): DaemonStatus {
+ *  link is `degraded` (still retrying); a `failed` give-up is `dead`.
+ *
+ *  Folds the remote kaval's identity AND boot time (queried once per endpoint
+ *  and cached) onto the published status so the client derives per-host currency
+ *  nudges and shows the host's own uptime from `startedAt`, exactly like the
+ *  local host. */
+function mapDaemonStatus(
+  s: HostSessionState,
+  kavalVersion?: {
+    identity?: { staleKey: string; navigableCommit: string };
+    startedAt: number;
+  },
+): DaemonStatus {
   const state =
     s.connection === "connected"
       ? "connected"
@@ -139,7 +150,15 @@ function mapDaemonStatus(s: HostSessionState): DaemonStatus {
   // `nix copy`/realise + the remote watcher's stderr is visible on the host
   // chip, not just a static amber dot. `onState` fires on every progress line,
   // so the chip updates live. (Copied — the cell holds a readonly snapshot.)
-  return { state, progress: [...s.progressLines] };
+  const result: DaemonStatus = { state, progress: [...s.progressLines] };
+  // Fold the cached kaval identity + startedAt onto the status so the client's
+  // currency comparison, the dialog's running-vs-expected commit links, and the
+  // rail's uptime all read off the same collection the local host uses.
+  if (kavalVersion) {
+    if (kavalVersion.identity) result.identity = kavalVersion.identity;
+    result.startedAt = kavalVersion.startedAt;
+  }
+  return result;
 }
 
 /** A `TerminalHandle` whose control verbs forward through the watcher client to
@@ -222,6 +241,22 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
   private readonly session: HostSession<typeof watcherSurface.contract>;
   readonly fs: TerminalEndpointFs;
   readonly git: TerminalEndpointGit;
+  /** The remote kaval's identity + boot time, queried once on first connect
+   *  (via the absorbed `system.version`) and folded into every daemonStatus
+   *  publish so the rail's per-host currency nudge + uptime read the same
+   *  collection the local host does. Undefined until the query lands (or if it
+   *  fails — the status then publishes without them, a silent degrade). */
+  private cachedKavalVersion:
+    | {
+        identity?: { staleKey: string; navigableCommit: string };
+        startedAt: number;
+      }
+    | undefined;
+  /** The latest session state seen by `onState` — kept so `queryKavalVersion`
+   *  can RE-publish once the identity lands. `onState` only fires on state
+   *  CHANGES, so a host that reaches `connected` and stays put would otherwise
+   *  never carry its identity/uptime (the query resolves after that publish). */
+  private lastState: HostSessionState | undefined;
 
   constructor(private readonly opts: RemoteTerminalEndpointOptions) {
     this.session = getHostSession<typeof watcherSurface.contract>({
@@ -231,11 +266,51 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
     });
     this.fs = this.makeFs();
     this.git = this.makeGit();
+    // Query the remote kaval's version (identity + startedAt) once on first
+    // connect and cache it; fold it into every status publish below.
+    void this.queryKavalVersion();
     // The host's status rides the existing per-host daemonStatus collection.
-    this.session.onState((s) =>
-      publishDaemonStatus(opts.hostId, mapDaemonStatus(s)),
-    );
+    this.session.onState((s) => {
+      this.lastState = s;
+      publishDaemonStatus(
+        opts.hostId,
+        mapDaemonStatus(s, this.cachedKavalVersion),
+      );
+    });
     void this.bridge();
+  }
+
+  // ── Kaval identity ────────────────────────────────────────────────────
+
+  /** Query the remote kaval's `system.version` (the absorbed pty-host verb the
+   *  watcher forwards) once on first connect and cache `{ identity, startedAt }`
+   *  for the endpoint's lifetime. The cached value rides every subsequent
+   *  `onState` publish via `mapDaemonStatus`. A failure degrades silently — the
+   *  status simply publishes without identity/startedAt. */
+  private async queryKavalVersion(): Promise<void> {
+    try {
+      const v = await withClient(this.session, (c) =>
+        c.surface.system.version({}),
+      );
+      this.cachedKavalVersion = {
+        identity: v.identity,
+        startedAt: v.startedAt,
+      };
+      // Re-publish with the identity now in hand — the connect publish that
+      // already fired carried no version (the query hadn't resolved yet), and
+      // `onState` won't fire again for a host that's settled on `connected`.
+      if (this.lastState) {
+        publishDaemonStatus(
+          this.opts.hostId,
+          mapDaemonStatus(this.lastState, this.cachedKavalVersion),
+        );
+      }
+    } catch (err) {
+      log.error(
+        { host: this.opts.host, err },
+        "remote: failed to query kaval version",
+      );
+    }
   }
 
   // ── PTY ───────────────────────────────────────────────────────────────
@@ -424,6 +499,10 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
             c.surface.fileChange.get({ repoPath, filePath }, { signal }),
           onChange,
         ),
+      writeFile: (terminalId, name, base64Data) =>
+        withClient(this.session, (c) =>
+          c.surface.fs.writeFile({ terminalId, name, base64Data }),
+        ),
     };
   }
 
@@ -436,6 +515,14 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
       getDiff: (repoPath, filePath, mode, oldPath) =>
         withClient(this.session, (c) =>
           c.surface.git.getDiff({ repoPath, filePath, mode, oldPath }),
+        ),
+      worktreeCreate: (repoPath, name) =>
+        withClient(this.session, (c) =>
+          c.surface.git.worktreeCreate({ repoPath, name }),
+        ),
+      worktreeRemove: (worktreePath) =>
+        withClient(this.session, (c) =>
+          c.surface.git.worktreeRemove({ worktreePath }),
         ),
     };
   }

@@ -19,7 +19,7 @@ describe("watcherSurface contract", () => {
     // Reaching here at all means defineSurface did not throw on a duplicate
     // (key, verb) claim across the three composed concerns.
     expect(watcherSurface.contract).toBeTruthy();
-    expect(WATCHER_CONTRACT_VERSION).toBe("1.0");
+    expect(WATCHER_CONTRACT_VERSION).toBe("1.1");
   });
 
   it("pins terminalMetadata's value schema to kolu-common's (mirror cannot drift)", () => {

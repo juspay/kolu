@@ -10,7 +10,6 @@
 
 import Dialog from "@corvu/dialog";
 import { isCleanRef } from "@kolu/surface-app";
-import type { DaemonStatus } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { Show } from "solid-js";
 import Commit, { REPO_URL } from "../ui/Commit";
@@ -23,7 +22,9 @@ import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
+  daemonStatusFor,
   formatUptime,
+  LOCAL_HOST,
   toneDot,
 } from "./useDaemonStatus";
 
@@ -39,25 +40,35 @@ const Cmd: Component<{ children: string; note: string }> = (props) => (
 const KavalInfoDialog: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  status: DaemonStatus | undefined;
+  /** Which host's kaval this dialog describes (P3) — its status is read from the
+   *  shared `daemonStatus` collection. Restart + the update nudge are gated to
+   *  the LOCAL host (see `pending`/`isLocal`). */
+  hostId: string;
 }> = (props) => {
   const chrome = surface({ portalled: true });
+  // The host's live status, read from the shared collection so a remote host's
+  // identity/uptime ride the same surface the local host does.
+  const status = (): ReturnType<typeof daemonStatusFor> =>
+    daemonStatusFor(props.hostId);
+  // Restart + the update nudge belong to the LOCAL kaval only — a remote kaval is
+  // pinned to its watcher's Nix build (no server-expected counterpart to compare
+  // against, and remote restart/update is out of P3 scope).
+  const isLocal = (): boolean => props.hostId === LOCAL_HOST;
   // The build the server WOULD spawn — the `expected` operand of the currency
-  // nudge (the `reported` operand is `props.status.identity`), read through the
+  // nudge (the `reported` operand is `status().identity`), read through the
   // shared `expectedKaval` accessor so the surface path is named once; it drives
   // the running-vs-expected commit links + the "what changed in kaval" history link.
   //
-  // Derive the nudge predicate from the `props.status` the dialog already holds
-  // (the same `kavalStale` the rail uses), rather than `kavalUpdatePending()`
-  // re-reading the global daemon-status singleton. Gating the banner and its
-  // fallback on one memo means the gate, the displayed `running`, and the copy
-  // all read one snapshot — no mid-restart disagreement between the prop and the
-  // singleton.
+  // Derive the nudge predicate from the `status()` the dialog already holds
+  // (the same `kavalStale` the rail uses). Gating the banner and its fallback on
+  // one memo means the gate, the displayed `running`, and the copy all read one
+  // snapshot — no mid-restart disagreement. Remote hosts never nudge (`isLocal`).
   const pending = (): boolean =>
+    isLocal() &&
     kavalStale(
       expectedKaval()?.staleKey,
-      props.status?.identity?.staleKey,
-      props.status?.state,
+      status()?.identity?.staleKey,
+      status()?.state,
     );
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">
@@ -97,7 +108,7 @@ const KavalInfoDialog: Component<{
         {/* Live status */}
         <div class="mt-4 rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-xs">
           <Show
-            when={props.status}
+            when={status()}
             fallback={<span class="text-fg-3">status unavailable</span>}
           >
             {(s) => (
@@ -153,58 +164,67 @@ const KavalInfoDialog: Component<{
             captured and offered for restore. `onConfirm` closes this dialog
             before restarting — the recycle empties the canvas and surfaces the
             restore card, and a modal kaval dialog left open would overlay it
-            (the rail dialog is an info panel, not where you'd click Restore). */}
-        <div class="mt-3">
-          {/* B3.4: when the running daemon is a build behind what the server
-              would spawn, surface the running-vs-expected detail right above the
-              restart that picks it up (the read-site nudge's call-to-action). */}
-          <Show when={pending()}>
-            <div class="mb-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 leading-relaxed">
-              <p class="text-xs font-medium text-warning">
-                ⬆ A newer kaval is available
+            (the rail dialog is an info panel, not where you'd click Restore).
+
+            LOCAL host only: the supervised restart drives kolu-server's own
+            kaval, and the update nudge compares against THIS server's expected
+            build. A REMOTE kaval is pinned to its watcher's Nix build (no
+            server-expected counterpart, and remote restart is out of P3 scope),
+            so neither the nudge nor the restart appear for a remote host. */}
+        <Show when={isLocal()}>
+          <div class="mt-3">
+            {/* B3.4: when the running daemon is a build behind what the server
+                would spawn, surface the running-vs-expected detail right above the
+                restart that picks it up (the read-site nudge's call-to-action). */}
+            <Show when={pending()}>
+              <div class="mb-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 leading-relaxed">
+                <p class="text-xs font-medium text-warning">
+                  ⬆ A newer kaval is available
+                </p>
+                {/* The two builds' git COMMITS (clickable), not the closure
+                    staleKeys — those are nix content hashes, not GitHub-navigable. */}
+                <p class="mt-1 flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] text-fg-3">
+                  <span>running</span>
+                  <Commit sha={status()?.identity?.navigableCommit} />
+                  <span>· expected</span>
+                  <Commit sha={expectedKaval()?.navigableCommit} />
+                </p>
+                {/* GitHub can't path-filter a compare DIFF, but it CAN a commit
+                    HISTORY (commits/<ref>/<path>) — so link kaval's history at the
+                    expected build. Guarded like the commit links (a clean ref only). */}
+                <Show when={isCleanRef(expectedKaval()?.navigableCommit)}>
+                  <a
+                    href={`${REPO_URL}/commits/${expectedKaval()?.navigableCommit}/packages/kaval`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="mt-1 inline-block text-[11px] text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                  >
+                    What changed in kaval&nbsp;↗
+                  </a>
+                </Show>
+                <p class="mt-1 text-[11px] text-fg-3">
+                  Restart to pick it up — your terminals are captured first and
+                  offered for restore on the fresh daemon.
+                </p>
+              </div>
+            </Show>
+            <RestartKavalButton
+              status={status()}
+              tone="neutral"
+              onConfirm={() => {
+                props.onOpenChange(false);
+                void restartDaemon();
+              }}
+            />
+            <Show when={!pending()}>
+              <p class="mt-1.5 text-[11px] leading-relaxed text-fg-3">
+                Picks up a new build or recovers a stopped daemon. Your
+                terminals are captured first and offered for restore on the
+                fresh daemon.
               </p>
-              {/* The two builds' git COMMITS (clickable), not the closure
-                  staleKeys — those are nix content hashes, not GitHub-navigable. */}
-              <p class="mt-1 flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] text-fg-3">
-                <span>running</span>
-                <Commit sha={props.status?.identity?.navigableCommit} />
-                <span>· expected</span>
-                <Commit sha={expectedKaval()?.navigableCommit} />
-              </p>
-              {/* GitHub can't path-filter a compare DIFF, but it CAN a commit
-                  HISTORY (commits/<ref>/<path>) — so link kaval's history at the
-                  expected build. Guarded like the commit links (a clean ref only). */}
-              <Show when={isCleanRef(expectedKaval()?.navigableCommit)}>
-                <a
-                  href={`${REPO_URL}/commits/${expectedKaval()?.navigableCommit}/packages/kaval`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="mt-1 inline-block text-[11px] text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
-                >
-                  What changed in kaval&nbsp;↗
-                </a>
-              </Show>
-              <p class="mt-1 text-[11px] text-fg-3">
-                Restart to pick it up — your terminals are captured first and
-                offered for restore on the fresh daemon.
-              </p>
-            </div>
-          </Show>
-          <RestartKavalButton
-            status={props.status}
-            tone="neutral"
-            onConfirm={() => {
-              props.onOpenChange(false);
-              void restartDaemon();
-            }}
-          />
-          <Show when={!pending()}>
-            <p class="mt-1.5 text-[11px] leading-relaxed text-fg-3">
-              Picks up a new build or recovers a stopped daemon. Your terminals
-              are captured first and offered for restore on the fresh daemon.
-            </p>
-          </Show>
-        </div>
+            </Show>
+          </div>
+        </Show>
 
         {/* kaval-tui */}
         <div class="mt-4">

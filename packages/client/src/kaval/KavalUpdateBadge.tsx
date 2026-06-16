@@ -18,7 +18,7 @@ import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { Component } from "solid-js";
 import type { KoluBuildInfo } from "kolu-common/surface";
 import { kavalStale } from "./kavalCurrency";
-import { localDaemonStatus } from "./useDaemonStatus";
+import { daemonStatusFor, LOCAL_HOST } from "./useDaemonStatus";
 
 /** The server's *expected* kaval identity — the build it would spawn
  *  (`buildInfo.expectedKaval`: closure `staleKey` + git `navigableCommit`). Named
@@ -31,9 +31,16 @@ export const expectedKaval = (): KoluBuildInfo["expectedKaval"] =>
 /** True when the running kaval daemon is provably a build behind the server's
  *  expected build. Reads the surface-app model (`buildInfo.expectedKaval`) and
  *  the live `daemonStatus` — must be called under `<SurfaceAppProvider>`. Gate
- *  the nudge on this: `<Show when={kavalUpdatePending()}><KavalUpdateBadge /></Show>`. */
-export const kavalUpdatePending = (): boolean => {
-  const status = localDaemonStatus();
+ *  the nudge on this: `<Show when={kavalUpdatePending()}><KavalUpdateBadge /></Show>`.
+ *
+ *  `hostId` defaults to the LOCAL host so every existing call site is unchanged.
+ *  Only the LOCAL kaval can ever be pending: `expectedKaval` is THIS server's
+ *  baked closure id, which is comparable only to the daemon kolu-server itself
+ *  would spawn — a REMOTE kaval is pinned to its watcher's own Nix build, with no
+ *  server-expected counterpart to compare against, so it never nudges. */
+export const kavalUpdatePending = (hostId: string = LOCAL_HOST): boolean => {
+  if (hostId !== LOCAL_HOST) return false;
+  const status = daemonStatusFor(hostId);
   return kavalStale(
     expectedKaval()?.staleKey,
     status?.identity?.staleKey,
