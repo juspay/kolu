@@ -60,9 +60,13 @@ export function isAllowedWsOrigin({
   if (origin === undefined || origin.length === 0) return true;
   // Operator-configured allowlist (reverse proxy / tailscale-serve FQDN).
   if (allowedOrigins.includes(origin)) return true;
-  // Same-origin: the Origin's host:port must match the Host the request
+  // Same host:port: the Origin's host:port must match the Host the request
   // arrived on. `URL.host` carries the port when non-default and omits it
-  // when default, mirroring the browser's `Host` header.
+  // when default, mirroring the browser's `Host` header. This is a host:port
+  // match, NOT a full same-origin (scheme, host, port) match: the `Host`
+  // header carries no scheme to compare against, so a cross-scheme same
+  // host:port Origin (e.g. `https://` page reaching an `http://` Host) is
+  // intentionally allowed — not a CSWSH threat in practice.
   let originHost: string;
   try {
     originHost = new URL(origin).host;

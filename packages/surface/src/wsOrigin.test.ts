@@ -12,7 +12,7 @@ const allow = (
 ) => isAllowedWsOrigin({ origin, host, allowedOrigins });
 
 describe("isAllowedWsOrigin", () => {
-  it("allows a same-origin upgrade (the surface UI talking to itself)", () => {
+  it("allows a same host:port upgrade (the surface UI talking to itself)", () => {
     expect(allow("http://localhost:7720", "localhost:7720")).toBe(true);
     expect(allow("http://127.0.0.1:7720", "127.0.0.1:7720")).toBe(true);
     expect(allow("https://box.tailnet.ts.net", "box.tailnet.ts.net")).toBe(
