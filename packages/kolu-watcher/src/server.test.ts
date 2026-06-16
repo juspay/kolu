@@ -29,7 +29,7 @@ import {
 import { pino } from "pino";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildWatcherServer, type WatcherServer } from "./server.ts";
-import { watcherSurface } from "./watcherSurface.ts";
+import type { watcherSurface } from "./watcherSurface.ts";
 
 const silentLog = pino({ level: "silent" });
 

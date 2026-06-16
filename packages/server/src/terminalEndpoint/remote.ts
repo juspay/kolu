@@ -56,7 +56,7 @@ import type {
   TerminalEndpointGit,
   TerminalHandle,
 } from "kolu-common/terminalEndpoint";
-import { watcherSurface } from "kolu-watcher";
+import type { watcherSurface } from "kolu-watcher";
 import { log } from "../log.ts";
 import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
 import { composeRemoteSpawnInput } from "../ptyHost/index.ts";
