@@ -29,4 +29,9 @@ Feature: Remote host — kolu dials a remote over ssh
     And I type "localhost" in the palette
     And I press Enter
     Then the active terminal should show host chip "localhost"
+    # Maximize so the dock renders as a left SIBLING (not a floating overlay over
+    # the tile titlebar): the host chip is then fully visible — which also asserts
+    # it survives the posture change, and gives the evidence capture a clean frame.
+    When I press the maximize toggle shortcut
+    Then the active terminal should show host chip "localhost"
     And there should be no page errors
