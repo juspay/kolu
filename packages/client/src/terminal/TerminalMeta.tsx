@@ -15,16 +15,14 @@
 import { prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
 import type { TerminalMetadata } from "kolu-common/surface";
-import { type Component, createMemo, createSignal, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
 import {
   clientDaemonState,
-  DAEMON_STATE_PRESENTATION,
   LOCAL_HOST,
-  toneDot,
   useHostProgress,
 } from "../kaval/useDaemonStatus";
-import HostProgressPopover from "./HostProgressPopover";
+import { HostProgressButton } from "./HostProgressPopover";
 import { agentBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -49,45 +47,23 @@ function remoteHostId(meta: TerminalMetadata): string | undefined {
  *  the IdentityRail dot's attribute for e2e + theming. */
 const HostChip: Component<{ hostId: string }> = (props) => {
   const state = () => clientDaemonState(props.hostId) ?? "connecting";
-  const presentation = () => DAEMON_STATE_PRESENTATION[state()];
   /** One prepared shape — stripped `lines`, derived `latest`, and the
-   *  warming/failed gates — so the chip and its popover read the same object
-   *  and "which states show/pulse progress" lives in the one presentation
-   *  table, not an inline ternary here. Memoized: several JSX sites read it, and
-   *  a stable `lines` reference keeps the popover's `<For>` from re-reconciling. */
+   *  warming/failed gates — so the chip button and its popover read the same
+   *  object and "which states show/pulse progress" lives in the one
+   *  presentation table, not an inline ternary here. Memoized: several JSX sites
+   *  read it, and a stable `lines` reference keeps the popover's `<For>` from
+   *  re-reconciling. */
   const progress = createMemo(() => useHostProgress(props.hostId));
-  const hasLog = () => progress().lines.length > 0;
-  const [open, setOpen] = createSignal(false);
-  const [triggerEl, setTriggerEl] = createSignal<HTMLElement>();
   return (
     <span class="shrink-0 self-center inline-flex items-center gap-1 min-w-0">
-      <button
-        ref={setTriggerEl}
-        type="button"
-        data-testid="terminal-host-chip"
-        data-host-state={state()}
-        class="shrink-0 inline-flex items-center gap-1 rounded-full border border-border bg-transparent px-1.5 text-[9px] leading-4 text-fg-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        classList={{
-          "cursor-pointer hover:border-fg-3": hasLog(),
-          "cursor-default": !hasLog(),
-        }}
-        title={`Runs on ${props.hostId} — ${presentation().label}${
-          (progress().warming || progress().failed) && progress().latest
-            ? `\n${progress().latest}`
-            : ""
-        }`}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (hasLog()) setOpen((v) => !v);
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-        onDblClick={(e) => e.stopPropagation()}
-      >
-        <span
-          class={`h-[7px] w-[7px] rounded-full ${toneDot[presentation().tone]}`}
-        />
-        {props.hostId}
-      </button>
+      {/* The dot+name button toggles its anchored log; open-state, the trigger
+       *  ref, and the stopPropagation plumbing live inside HostProgressButton
+       *  (symmetric with PrUnavailableButton), not re-rolled here. */}
+      <HostProgressButton
+        hostId={props.hostId}
+        state={state()}
+        progress={progress()}
+      />
       {/* Live activity hint while dialing — turns a static amber chip into a
        *  visible "it's building" so a ~minute cold dial doesn't read as a hang.
        *  Pulses only while `warming`; hidden once connected. Click the chip for
@@ -117,14 +93,6 @@ const HostChip: Component<{ hostId: string }> = (props) => {
           </span>
         )}
       </Show>
-      <HostProgressPopover
-        open={open()}
-        onOpenChange={setOpen}
-        triggerRef={triggerEl()}
-        hostId={props.hostId}
-        state={state()}
-        lines={progress().lines}
-      />
     </span>
   );
 };
