@@ -53,25 +53,12 @@ const HostChip: Component<{ hostId: string }> = (props) => {
     <span class="shrink-0 self-center inline-flex items-center gap-1 min-w-0">
       {/* The dot+name button toggles its anchored log; open-state, the trigger
        *  ref, and the stopPropagation plumbing live inside HostProgressButton
-       *  (symmetric with PrUnavailableButton), not re-rolled here. */}
+       *  (symmetric with PrUnavailableButton), not re-rolled here. The live dial
+       *  PROGRESS itself is rendered prominently in the tile body by
+       *  `HostDialOverlay` (visible on mobile too, where this chip is not) — the
+       *  chip stays a compact title-bar status: dot health + host name + an
+       *  on-demand log peek. */}
       <HostProgressButton progress={progress()} />
-      {/* The latest dial line beside the chip — turns a static amber chip into a
-       *  visible "it's building" so a ~minute cold dial doesn't read as a hang,
-       *  and on a failed host the last line is the 'why'. Shown only while
-       *  mid-dial (`inLifecycle`); pulses only while `warming` so a dead host
-       *  doesn't read as still working. Click the chip for the full log. */}
-      <Show when={progress().inLifecycle && progress().latest}>
-        {(line) => (
-          <span
-            data-testid="terminal-host-progress-hint"
-            class="text-[9px] text-fg-3 truncate max-w-[16ch]"
-            classList={{ "animate-pulse": progress().warming }}
-            title={line()}
-          >
-            {line()}
-          </span>
-        )}
-      </Show>
     </span>
   );
 };

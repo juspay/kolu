@@ -55,6 +55,7 @@ import {
   createFileRefLinkProvider,
   fileRefAtCell,
 } from "./fileRefLinkProvider";
+import HostDialOverlay from "./HostDialOverlay";
 import ScrollToBottom from "./ScrollToBottom";
 import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
@@ -980,7 +981,10 @@ const Terminal: Component<{
     // find-in-page. The global dispatcher reads this marker via the
     // `findInTerminal` action's `focusScopeMarker` (input/actions.ts).
     <div
-      class="w-full h-full relative"
+      // `isolate`: make this wrapper a stacking context so the dial overlay's
+      // z-index (and the search/scroll FABs') stays contained here and can't
+      // reach the resize-handle's context outside the tile (ui/stackLayers.ts).
+      class="w-full h-full relative isolate"
       classList={{ hidden: !props.visible }}
       {...TERMINAL_SEARCH_ATTR_PROP}
     >
@@ -1022,6 +1026,12 @@ const Terminal: Component<{
         data-font-size={fontSize()}
         data-renderer={hasWebgl() ? "webgl" : "dom"}
       />
+      {/* Connecting screen for a REMOTE tile: while the host dials (the xterm
+       *  is mounted but not yet attached — a blank rectangle for ~a minute on a
+       *  cold dial), this paints the live provisioning log over it, then
+       *  unmounts on connect. No-op for local terminals. Last child so DOM order
+       *  layers it over the xterm without an explicit z-index. */}
+      <HostDialOverlay terminalId={props.terminalId} />
     </div>
   );
 };
