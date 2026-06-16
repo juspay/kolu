@@ -57,6 +57,7 @@ import {
   updateServerMetadata,
 } from "./metadata.ts";
 import {
+  bridgeStream,
   makeFsGit,
   type ProviderChannels,
   type ProviderHooks,
@@ -178,51 +179,20 @@ class PtyHostTerminalProxy implements TerminalHandle {
 }
 
 // ── Per-terminal provider bridge ───────────────────────────────────────
+// The tap-pump primitive (`bridgeStream`) is shared with kolu-watcher via
+// `@kolu/terminal-dag` — see its module doc. A thin module-local wrapper binds
+// this process's logger so the call sites keep the (source, signal, onEvent,
+// onError?) shape.
 
-/** Pump a pty-host tap stream into a callback until it ends or `signal` aborts
- *  (kill / exit). The contract stream call resolves to the async iterable (a
- *  `ClientPromiseResult`), so the source is awaited first. An aborted stream
- *  surfaces as a thrown error, so an aborted signal is treated as expected
- *  teardown, not a failure. */
-function bridgeStream<T>(
+/** Pump a pty-host tap stream into a callback, bound to kolu-server's logger.
+ *  The fenced primitive lives in `@kolu/terminal-dag`. */
+function bridgeTap<T>(
   source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
   signal: AbortSignal,
   onEvent: (value: T) => void,
-  // Called when the stream itself fails for a NON-abort reason (an abort is
-  // expected teardown and is always swallowed). Enrichment taps (cwd / title /
-  // command-run / foreground) omit it — a dropped enrichment stream just stops
-  // updating that field, logged generically. The exit tap supplies one because
-  // a dropped *exit* stream is a lifecycle problem, not a missing field.
   onError?: (err: unknown) => void,
 ): void {
-  void (async () => {
-    try {
-      const iter = await source;
-      for await (const value of iter) {
-        try {
-          onEvent(value);
-        } catch (err) {
-          // Per-event fence: a single bad event (a failed metadata publish, a
-          // scratch-cleanup fs error on exit, …) must NOT escape and end the
-          // `for await` loop — that would silence this tap (cwd / title /
-          // foreground / exit) for the terminal for good. Log and keep
-          // consuming. (This is the fence the dissolved agent metadata loop
-          // carried in `applyAgentEvent`; it moved here with the taps.)
-          log.error(
-            { err },
-            "pty-host tap onEvent threw (subscription kept alive)",
-          );
-        }
-      }
-    } catch (err) {
-      if (signal.aborted) return;
-      if (onError) {
-        onError(err);
-        return;
-      }
-      log.error({ err }, "pty-host tap subscription failed");
-    }
-  })();
+  bridgeStream(log, source, signal, onEvent, onError);
 }
 
 /** Wire the provider hooks to kolu-server's metadata + activity surfaces.
@@ -541,7 +511,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Bridge the raw VT taps onto the provider channels. cwd also lands on
     // persisted metadata (the bridge owns `m.cwd`; the git provider reads
     // `channels.cwd` to re-resolve git).
-    bridgeStream(
+    bridgeTap(
       ptyHostClient.surface.cwd.get({ id }, { signal }),
       signal,
       (msg) => {
@@ -551,17 +521,17 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         channels.cwd.publish(msg.cwd);
       },
     );
-    bridgeStream(
+    bridgeTap(
       ptyHostClient.surface.title.get({ id }, { signal }),
       signal,
       (msg) => channels.title.publish(msg.title),
     );
-    bridgeStream(
+    bridgeTap(
       ptyHostClient.surface.commandRun.get({ id }, { signal }),
       signal,
       (msg) => channels.commandRun.publish(msg.command),
     );
-    bridgeStream(
+    bridgeTap(
       ptyHostClient.surface.foreground.get({ id }, { signal }),
       signal,
       (msg) =>
@@ -575,7 +545,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Natural exit: the `exit` tap yields the code once. An intentional kill
     // aborts this signal first (see `teardownProviders`), so `handleExit` only
     // ever fires for a genuine exit.
-    bridgeStream(
+    bridgeTap(
       ptyHostClient.surface.exit.get({ id }, { signal }),
       signal,
       (msg) => this.handleExit(id, msg.exitCode),

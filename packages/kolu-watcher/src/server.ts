@@ -29,6 +29,7 @@ import {
   inMemoryChannelByName,
 } from "@kolu/surface/server";
 import {
+  bridgeStream,
   makeFsGit,
   type ProviderChannels,
   type ProviderHooks,
@@ -42,7 +43,7 @@ import type {
 } from "kolu-common/surface";
 import type { Logger } from "pino";
 import type { HostKaval } from "./kavalClient.ts";
-import { bridgeStream, forwardStream, tickStream } from "./streamBridge.ts";
+import { forwardStream, tickStream } from "./streamBridge.ts";
 import { watcherSurface } from "./watcherSurface.ts";
 
 export interface BuildWatcherServerOptions {
@@ -132,6 +133,7 @@ export function buildWatcherServer(
     };
 
     bridgeStream(
+      log,
       kaval.client.surface.cwd.get({ id }, { signal }),
       signal,
       (m) => {
@@ -141,16 +143,19 @@ export function buildWatcherServer(
       },
     );
     bridgeStream(
+      log,
       kaval.client.surface.title.get({ id }, { signal }),
       signal,
       (m) => channels.title.publish(m.title),
     );
     bridgeStream(
+      log,
       kaval.client.surface.commandRun.get({ id }, { signal }),
       signal,
       (m) => channels.commandRun.publish(m.command),
     );
     bridgeStream(
+      log,
       kaval.client.surface.foreground.get({ id }, { signal }),
       signal,
       (m) =>
@@ -163,6 +168,7 @@ export function buildWatcherServer(
     const stopProviders = startProviders(record, id, channels, hooks);
 
     bridgeStream(
+      log,
       kaval.client.surface.exit.get({ id }, { signal }),
       signal,
       () => stopProviderLayer(id),

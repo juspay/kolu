@@ -23,4 +23,5 @@ export {
   startProviders,
 } from "./providers.ts";
 export { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
+export { bridgeStream } from "./bridgeStream.ts";
 export { makeFsGit, unwrapGit } from "./fsGit.ts";
