@@ -38,10 +38,21 @@
         builtins.unsafeDiscardStringContext
           (import ./default.nix { inherit pkgs commitHash; }).kaval.drvPath);
       kavalAgentDrvsJson = builtins.toJSON kavalDrvBySystem;
+      # Per-system kolu-watcher .drv map (P3) — the analog of kavalDrvBySystem,
+      # baked onto the kolu server wrapper so kolu-server can ship the target-arch
+      # watcher closure to a remote host. Same JSON-less, IFD-free discipline: the
+      # watcher drv doesn't depend on the map, so building it this way can't cycle
+      # back through the koluBySystem that consumes it.
+      watcherDrvBySystem = eachSystem (pkgs:
+        builtins.unsafeDiscardStringContext
+          (import ./default.nix { inherit pkgs commitHash; }).kolu-watcher.drvPath);
+      koluWatcherAgentDrvsJson = builtins.toJSON watcherDrvBySystem;
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
       koluBySystem = eachSystem (pkgs:
-        import ./default.nix { inherit pkgs commitHash kavalAgentDrvsJson; });
+        import ./default.nix {
+          inherit pkgs commitHash kavalAgentDrvsJson koluWatcherAgentDrvsJson;
+        });
       # website/default.nix is self-contained — it resolves its own public/
       # asset symlinks (favicon, kaval logo), so the flake just imports it.
       websiteBySystem = eachSystem (pkgs: import ./website { inherit pkgs; });

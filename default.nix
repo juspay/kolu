@@ -36,6 +36,12 @@
   # threaded in here. Defaults to "{}" for a bare `nix-build default.nix` (no
   # --host map; --host then fails with a clear "run from the Nix wrapper" error).
 , kavalAgentDrvsJson ? "{}"
+  # Per-system `{ system → kolu-watcher .drv }` map, baked onto the kolu server
+  # wrapper as KOLU_WATCHER_AGENT_DRVS_JSON so kolu-server (P3) can ship the
+  # target-arch kolu-watcher derivation to a remote host (provisionAgent
+  # copies+realises it over ssh). Built across all systems in flake.nix and
+  # threaded in, exactly like kavalAgentDrvsJson. Defaults to "{}".
+, koluWatcherAgentDrvsJson ? "{}"
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -163,6 +169,22 @@ let
     if kavalBuildIdOverride != null
     then kavalBuildIdOverride
     else builtins.hashString "sha256" "${kavalSrc}";
+
+  # kolu-watcher's source closure (P3) — the package's own src, mirroring kaval's
+  # narrow hashed-set discipline. Unlike kaval, the watcher's RUNTIME closure
+  # legitimately pulls kolu app packages (the provider DAG via @kolu/terminal-dag,
+  # kolu-git, kolu-common); those are the broad allow-list in the watcher's OWN
+  # buildId.closure.test.ts. The .drv map (flake.nix) still tracks the full
+  # closure, so a DAG change re-provisions the remote watcher regardless — this
+  # narrow hash is the package's own staleKey, baked as KOLU_WATCHER_BUILD_ID.
+  watcherSrc = pkgs.lib.fileset.toSource {
+    root = ./packages;
+    fileset = pkgs.lib.fileset.unions [
+      (pkgs.lib.fileset.fileFilter isHashedSource ./packages/kolu-watcher/src)
+      ./packages/kolu-watcher/package.json
+    ];
+  };
+  watcherBuildId = builtins.hashString "sha256" "${watcherSrc}";
 
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
@@ -302,7 +324,9 @@ let
       --set KAVAL_BUILD_ID "${kavalBuildId}" \
       --set KAVAL_COMMIT_HASH "${commitHash}" \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
+      --set KOLU_WATCHER_BUILD_ID "${watcherBuildId}" \
+      --set-default KOLU_WATCHER_AGENT_DRVS_JSON '${koluWatcherAgentDrvsJson}' \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"
                if ! mkdir -p "$KOLU_DIAG_DIR" || ! cd "$KOLU_DIAG_DIR"; then
@@ -354,6 +378,31 @@ let
       --set KAVAL_BUILD_ID "${kavalBuildId}" \
       --set KAVAL_COMMIT_HASH "${commitHash}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+  '';
+
+  # kolu-watcher (P3, kaval-sessions): kolu's host-resident terminal watcher.
+  # kolu-server runs `ssh <host> kolu-watcher --stdio`; the watcher runs kolu's
+  # provider DAG + native fs/git host-side, fronts the host-local kaval (it spawns
+  # the baked KOLU_WATCHER_KAVAL_BIN when none is serving), and serves one combined
+  # surface over the ssh stdio. Unlike the kolu-agnostic kaval, its closure pulls
+  # kolu app code — which is why it is a SEPARATE process + derivation. Runs from
+  # the SAME built workspace closure as `kolu`. Launched `node --import <tsx loader>`
+  # (single-process, so SIGTERM reaches it — the same reason kaval uses this form).
+  # git is on PATH for kolu-git; no ssh/nix (kolu-server dials IN, the watcher
+  # never dials out).
+  kolu-watcher = pkgs.runCommand "kolu-watcher"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "kolu-watcher";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/kolu-watcher \
+      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+      --add-flags "${kolu}/packages/kolu-watcher/src/bin.ts" \
+      --set KOLU_WATCHER_BUILD_ID "${watcherBuildId}" \
+      --set KOLU_WATCHER_COMMIT_HASH "${commitHash}" \
+      --set KOLU_WATCHER_KAVAL_BIN "${kaval}/bin/kaval" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git ]}
   '';
 
   # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's
@@ -424,5 +473,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui kolu-watcher koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample // oduPackages

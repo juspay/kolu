@@ -631,9 +631,6 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@kolu/surface-daemon-supervisor':
-        specifier: workspace:*
-        version: link:../surface-daemon-supervisor
       '@kolu/terminal-dag':
         specifier: workspace:*
         version: link:../dag

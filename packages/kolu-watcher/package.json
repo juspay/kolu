@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
-    "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/terminal-dag": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",
