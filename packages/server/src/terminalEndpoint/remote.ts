@@ -135,7 +135,11 @@ function mapDaemonStatus(s: HostSessionState): DaemonStatus {
         : s.connection === "disconnected"
           ? "degraded"
           : "connecting"; // "copying" | "connecting"
-  return { state };
+  // Carry the dial-progress ring to the client so a cold dial's minute-long
+  // `nix copy`/realise + the remote watcher's stderr is visible on the host
+  // chip, not just a static amber dot. `onState` fires on every progress line,
+  // so the chip updates live. (Copied — the cell holds a readonly snapshot.)
+  return { state, progress: [...s.progressLines] };
 }
 
 /** A `TerminalHandle` whose control verbs forward through the watcher client to

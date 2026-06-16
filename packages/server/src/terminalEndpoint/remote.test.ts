@@ -71,7 +71,10 @@ const fake = vi.hoisted(() => {
   return {
     surface,
     session,
-    pushState: (connection: string) => onState?.({ connection }),
+    // The real HostSessionState always carries `progressLines` (cell-init []);
+    // model it so `mapDaemonStatus`'s `[...s.progressLines]` has a valid source.
+    pushState: (connection: string, progressLines: string[] = []) =>
+      onState?.({ connection, progressLines }),
   };
 });
 
@@ -244,18 +247,39 @@ describe("RemoteTerminalEndpoint", () => {
     fake.pushState("copying");
     expect(publishDaemonStatus).toHaveBeenLastCalledWith("prod", {
       state: "connecting",
+      progress: [],
     });
     fake.pushState("connected");
     expect(publishDaemonStatus).toHaveBeenLastCalledWith("prod", {
       state: "connected",
+      progress: [],
     });
     fake.pushState("disconnected");
     expect(publishDaemonStatus).toHaveBeenLastCalledWith("prod", {
       state: "degraded",
+      progress: [],
     });
     fake.pushState("failed");
     expect(publishDaemonStatus).toHaveBeenLastCalledWith("prod", {
       state: "dead",
+      progress: [],
+    });
+  });
+
+  it("carries the session's dial-progress lines to the client", () => {
+    makeEndpoint();
+    // The cold-dial progress ring rides each status so the host chip can show
+    // what a minute-long provision is doing instead of a static dot.
+    fake.pushState("copying", [
+      "[local] prod: copying derivation…",
+      "[remote] building 'kaval.drv'",
+    ]);
+    expect(publishDaemonStatus).toHaveBeenLastCalledWith("prod", {
+      state: "connecting",
+      progress: [
+        "[local] prod: copying derivation…",
+        "[remote] building 'kaval.drv'",
+      ],
     });
   });
 });

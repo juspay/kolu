@@ -661,6 +661,15 @@ export const DaemonStatusSchema = z.object({
    *  construct — it doesn't know the server's `XDG_RUNTIME_DIR`); set once at
    *  boot, constant for the daemon's life. Optional + additive. */
   socketPath: z.string().optional(),
+  /** Recent dial-progress lines for a REMOTE host (P3) — the last ~20 lines the
+   *  `HostSession` accumulated while reaching this state: `nix copy`/realise
+   *  output, the remote watcher's stderr, the connection transitions. Lets the
+   *  client show what a ~minute-long cold dial is actually doing instead of a
+   *  static "provisioning…" — otherwise the build looks like a hang. Empty/absent
+   *  for the local host (no ssh provisioning) and a steadily-connected remote.
+   *  kolu's soul (the supervisor's `EndpointStatus` never carries it); optional +
+   *  additive, so it forces no contract bump and never widens `ENDPOINT_STATES`. */
+  progress: z.array(z.string()).optional(),
 });
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export type DaemonState = DaemonStatus["state"];

@@ -15,14 +15,16 @@
 import { prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
 import type { TerminalMetadata } from "kolu-common/surface";
-import { type Component, Show } from "solid-js";
+import { type Component, createSignal, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
 import {
   clientDaemonState,
   DAEMON_STATE_PRESENTATION,
+  hostProgress,
   LOCAL_HOST,
   toneDot,
 } from "../kaval/useDaemonStatus";
+import HostProgressPopover, { stripProgressTag } from "./HostProgressPopover";
 import { agentBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -48,17 +50,68 @@ function remoteHostId(meta: TerminalMetadata): string | undefined {
 const HostChip: Component<{ hostId: string }> = (props) => {
   const state = () => clientDaemonState(props.hostId) ?? "connecting";
   const presentation = () => DAEMON_STATE_PRESENTATION[state()];
+  const lines = () => hostProgress(props.hostId);
+  /** Latest activity line (source tag stripped) for the inline hint + tooltip. */
+  const latest = () => {
+    const l = lines().at(-1);
+    return l ? stripProgressTag(l) : undefined;
+  };
+  /** Still working through its lifecycle — provisioning (a cold dial's
+   *  `nix copy`/build) or unreachable (retrying). A steadily-connected host
+   *  needs no progress UI, so the inline hint + popover are dropped there. */
+  const active = () => state() !== "connected";
+  const hasLog = () => lines().length > 0;
+  const [open, setOpen] = createSignal(false);
+  const [triggerEl, setTriggerEl] = createSignal<HTMLElement>();
   return (
-    <span
-      data-testid="terminal-host-chip"
-      data-host-state={state()}
-      class="shrink-0 self-center inline-flex items-center gap-1 rounded-full border border-border px-1.5 text-[9px] leading-4 text-fg-2"
-      title={`Runs on ${props.hostId} — ${presentation().label}`}
-    >
-      <span
-        class={`h-[7px] w-[7px] rounded-full ${toneDot[presentation().tone]}`}
+    <span class="shrink-0 self-center inline-flex items-center gap-1 min-w-0">
+      <button
+        ref={setTriggerEl}
+        type="button"
+        data-testid="terminal-host-chip"
+        data-host-state={state()}
+        class="shrink-0 inline-flex items-center gap-1 rounded-full border border-border bg-transparent px-1.5 text-[9px] leading-4 text-fg-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        classList={{
+          "cursor-pointer hover:border-fg-3": hasLog(),
+          "cursor-default": !hasLog(),
+        }}
+        title={`Runs on ${props.hostId} — ${presentation().label}${
+          active() && latest() ? `\n${latest()}` : ""
+        }`}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (hasLog()) setOpen((v) => !v);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onDblClick={(e) => e.stopPropagation()}
+      >
+        <span
+          class={`h-[7px] w-[7px] rounded-full ${toneDot[presentation().tone]}`}
+        />
+        {props.hostId}
+      </button>
+      {/* Live activity hint while dialing — turns a static amber chip into a
+       *  visible "it's building" so a ~minute cold dial doesn't read as a hang.
+       *  Hidden once connected; click the chip for the full log. */}
+      <Show when={active() && latest()}>
+        {(line) => (
+          <span
+            data-testid="terminal-host-progress-hint"
+            class="text-[9px] text-fg-3 truncate max-w-[16ch] animate-pulse"
+            title={line()}
+          >
+            {line()}
+          </span>
+        )}
+      </Show>
+      <HostProgressPopover
+        open={open()}
+        onOpenChange={setOpen}
+        triggerRef={triggerEl()}
+        hostId={props.hostId}
+        state={state()}
+        lines={lines()}
       />
-      {props.hostId}
     </span>
   );
 };

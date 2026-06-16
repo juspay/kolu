@@ -172,6 +172,15 @@ export function clientDaemonState(
   return state; // connected
 }
 
+/** Recent dial-progress lines for a REMOTE host (P3) — the `nix copy`/realise
+ *  output + the remote watcher's stderr the server's `HostSession` accumulated
+ *  on the way to this state. The host chip renders these so a minute-long cold
+ *  dial shows live activity (and a failure shows why) instead of a static dot.
+ *  Empty for the local host and before the first yield. */
+export function hostProgress(hostId: string): string[] {
+  return daemonStatusFor(hostId)?.progress ?? [];
+}
+
 /** True until the daemon-status stream has produced its FIRST value — i.e. the
  *  status is genuinely unknown, not "up". The canvas gates on this so a `dead`
  *  boot never flashes the normal empty workspace before the first status lands
