@@ -12,13 +12,14 @@ import type { SerializeAddon } from "@xterm/addon-serialize";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
 import type { ScrollLockEvent } from "../scrollLock";
+import type { RenderRecoveryProbes } from "./renderRecovery";
 
 /** Volatile per-terminal probes. Unlike the stable `xterm`/`serialize`
  *  handles above, these accessors may return null even during the terminal's
  *  lifetime (e.g. `webglAtlas` when the tile is unfocused and no WebGL addon
  *  is live). Namespaced under `probes` so the volatility contrast stays
  *  visible in the type. */
-export interface TerminalProbes {
+export interface TerminalProbes extends RenderRecoveryProbes {
   /** Dimensions of the live WebGL texture atlas canvas, or null if the
    *  terminal currently has no WebGL addon. */
   webglAtlas: () => { w: number; h: number } | null;
@@ -31,6 +32,10 @@ export interface TerminalProbes {
   /** Scroll-lock transition ring (newest last) — the #1272 forensic trail,
    *  dumped wholesale into Diagnostic Info's Copy JSON. */
   scrollLockEvents: () => ScrollLockEvent[];
+  // Render-pipeline probes (msSinceLastPaint, renderDebouncerPending, isPaused,
+  // synchronizedOutput) come from RenderRecoveryProbes — the parked-rAF freeze
+  // signals the Diagnostic dialog needs to tell a render stall from a write
+  // stall. See renderRecovery.ts.
 }
 
 export interface TerminalRefs {
