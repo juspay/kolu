@@ -1,0 +1,205 @@
+---
+title: Dock — telling repos apart at a glance
+description: 'The cards-mode dock groups rows by repo, but spends its whole colour budget on a per-branch rainbow and gives repo identity one 9.6px label that scrolls away. Shipped treatment A — repo colour moved onto a left-edge spine + a sticky tinted header (PR #1379). Calming the per-branch row rainbow was prototyped alongside but deliberately NOT shipped: branch colours stay, because they still tell branches apart within a repo.'
+kind: feature
+status: implemented
+maturity: seedling
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import D2 from "../../components/D2.astro";
+import PrLink from "../../components/PrLink.astro";
+
+The dock already groups rows by repo. But you can't *see* the grouping: the
+repo colour is one **9.6px** label that scrolls away, while every row label is
+painted a different **branch** hue — a rainbow that fights the grouping it sits
+inside.
+
+export const ProtoStyles = () => (
+  <style>{`
+  .dk-gal{display:flex;flex-wrap:wrap;gap:1.15rem;margin:1.3rem 0;align-items:flex-start}
+  .dk-fig{margin:0;display:flex;flex-direction:column;gap:.5rem}
+  .dk-cap{font:.72rem/1.35 ui-sans-serif,system-ui;color:#8b929d;max-width:262px}
+  .dk-cap b{color:#dadde2}
+  .dk{width:262px;background:#161618;border:1px solid #27272c;border-radius:12px;overflow:hidden;box-shadow:0 8px 26px -10px rgba(0,0,0,.7);font-family:ui-sans-serif,system-ui}
+  .dk-hd{display:flex;align-items:center;gap:.7rem;padding:.4rem .7rem;border-bottom:1px solid rgba(39,39,44,.7);color:#6f6f7c;font:.95rem/1 ui-monospace,monospace}
+  .dk-hd .sp{margin-left:auto;font-size:.8rem}
+  .dk-sec{position:relative}
+  .dk-sech{display:flex;align-items:center;gap:.5rem;padding:.36rem .7rem;background:color-mix(in oklch,#1f1f23 60%,transparent);border-top:1px solid rgba(39,39,44,.55);border-bottom:1px solid rgba(39,39,44,.55)}
+  .dk-name{font:700 .6rem/1 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--rc)}
+  .dk-count{margin-left:auto;font:.6rem/1 ui-monospace,monospace;color:#838390}
+  .dk-av{display:none}
+  .dk-row{padding:.42rem .7rem .42rem 1.1rem}
+  .dk-l1{display:grid;grid-template-columns:14px 1fr auto;gap:.5rem;align-items:center}
+  .dk-l2{padding-left:calc(14px + .5rem)}
+  .dk-pip{width:14px;display:flex;justify-content:center}
+  .dk-pip i{display:block;border-radius:50%}
+  .pip-unread i{width:9px;height:9px;background:#a78bfa;animation:dk-pulse 1.4s ease-in-out infinite}
+  .pip-working i{width:9px;height:9px;border:1.5px solid #5a9ea0;background:transparent}
+  .pip-idle i{width:5px;height:5px;background:#5c5c66}
+  .dk-lab{font:600 .82rem/1.25 ui-sans-serif,system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+  .dk-time{font:.6rem/1 ui-monospace,monospace;color:#838390}
+  .dk-sub{font:.63rem/1.3 ui-monospace,monospace;color:#9a9aa6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+  @keyframes dk-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+  /* calmed rows — repo owns the hue, labels go neutral (branch kept by a faint dot, see below) */
+  .dk.calm .dk-lab{color:#dde0e5!important}
+
+  /* ── A · SPINE + tinted header ── */
+  .v-spine .dk-sec{border-left:3px solid var(--rc)}
+  .v-spine .dk-sech{background:color-mix(in oklch,var(--rc) 15%,#1b1b1f)}
+  .v-spine .dk-name{color:color-mix(in oklch,var(--rc) 78%,#ffffff)}
+
+  /* ── B · avatar swatch ── */
+  .v-avatar .dk-av{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;background:var(--rc);color:#141416;font:700 .64rem/1 ui-monospace,monospace;flex:none}
+  .v-avatar .dk-name{color:#cdd0d6}
+
+  /* ── C · bold band ── */
+  .v-band .dk-sech{background:color-mix(in oklch,var(--rc) 90%,#161618);border-color:transparent}
+  .v-band .dk-name{color:#161618}
+  .v-band .dk-count{color:rgba(20,20,24,.65)}
+
+  @media (prefers-reduced-motion:reduce){.pip-unread i{animation:none}}
+  `}</style>
+);
+
+export const REPOS = [
+  { name: "KOLU", color: "oklch(0.7 0.16 255)", rows: [
+    { pip: "unread",  label: "kaval",              bc: "oklch(0.79 0.13 195)", sub: "Revert pull request 1288",      time: "now" },
+    { pip: "idle",    label: "feat/tile-placeme…", bc: "oklch(0.78 0.15 18)",  sub: "Checkout in current directory", time: "1h" },
+    { pip: "idle",    label: "zmosh",              bc: "oklch(0.72 0.16 305)", sub: "Research Kaval implementation", time: "3h" },
+  ]},
+  { name: "PANDOC", color: "oklch(0.8 0.16 115)", rows: [
+    { pip: "working", label: "haskell-flake-revamp", bc: "oklch(0.77 0.16 150)", sub: "Update flake.nix to use haskell…", time: "1m" },
+  ]},
+  { name: "PADAM", color: "oklch(0.7 0.18 350)", rows: [
+    { pip: "idle", label: "master", bc: "oklch(0.78 0.15 72)", sub: "Bootstrap Claude Code to video pipe…", time: "3m" },
+  ]},
+];
+
+export const Dock = (props) => (
+  <div class={`dk v-${props.variant}${props.calm ? " calm" : ""}`}>
+    <div class="dk-hd"><span>+</span><span>⌕</span><span class="sp">‹</span></div>
+    {REPOS.map((r) => (
+      <div class="dk-sec" style={`--rc:${r.color}`}>
+        <div class="dk-sech">
+          <span class="dk-av">{r.name[0]}</span>
+          <span class="dk-name">{r.name}</span>
+          <span class="dk-count">{r.rows.length}</span>
+        </div>
+        {r.rows.map((row) => (
+          <div class={`dk-row pip-${row.pip}`}>
+            <div class="dk-l1">
+              <span class="dk-pip"><i /></span>
+              <span class="dk-lab" style={`color:${row.bc}`}>{row.label}</span>
+              <span class="dk-time">{row.time}</span>
+            </div>
+            <div class="dk-l2"><span class="dk-sub">{row.sub}</span></div>
+          </div>
+        ))}
+      </div>
+    ))}
+  </div>
+);
+
+export const DockCard = (props) => (
+  <figure class="dk-fig">
+    <Dock variant={props.variant} calm={props.calm} />
+    <figcaption class="dk-cap">{props.children}</figcaption>
+  </figure>
+);
+
+<ProtoStyles />
+
+## The two colour systems
+
+`buildTerminalDisplayInfos` hands every render site two OKLCH hues — one per
+**repo** (`repoColor`), one per **branch** (`branchColor`, aliased
+`annotationColor`). Cards mode spends them backwards: repo gets a single tiny
+label, branch gets every row.
+
+<D2
+  caption="One palette, two axes — but the big sink is the wrong one. repoColor reaches only the 9.6px section name; branchColor paints every full-size row label. So the loudest colour on screen tracks branch, not the repo grouping the rows actually live in."
+  code={`direction: down
+src: "terminalDisplay.ts — assignColors(): oklch(0.75 0.14, golden-angle hue)"
+repo: "repoColor — per repo"
+branch: "branchColor = annotationColor — per branch"
+name: "section name · 9.6px mono  ◂ the only repo sink"
+row: "every row label · 13.6px  ◂ the rainbow"
+src -> repo
+src -> branch
+repo -> name
+branch -> row`}
+/>
+
+<div class="dk-gal">
+  <DockCard variant="today" calm={false}>
+    <b>Today.</b> Repo = the small coloured word on a grey band. The rows
+    below are a per-branch rainbow; nothing on a row carries its repo, so once
+    the header scrolls off you've lost the anchor.
+  </DockCard>
+</div>
+
+## Three repo treatments
+
+Same dock, repo colour moved onto a surface with real mass — and pinned so it
+survives the scroll. These prototypes also calm the rows to neutral to show the
+repo hue uncontested — but that second half was *not* shipped (see [The row
+rainbow](#the-row-rainbow) below: branch colours stay). The three differ only in
+*how loud* the repo signal gets; they compose.
+
+<div class="dk-gal">
+  <DockCard variant="spine" calm={true}>
+    <b>A · Spine + tinted header.</b> A continuous repo-colour bar down the
+    section's left edge (persists below the header) and a faintly repo-tinted
+    band — sticky in the real dock, so the label never leaves. Refined, low
+    clutter. <em>Recommended.</em>
+  </DockCard>
+  <DockCard variant="avatar" calm={true}>
+    <b>B · Avatar swatch.</b> A filled repo-colour tile + initial in each
+    header — the same vocabulary the rail-mode chips already use, so the two
+    dock modes finally rhyme. A bright colour blob, but only at the header.
+  </DockCard>
+  <DockCard variant="band" calm={true}>
+    <b>C · Bold band.</b> The whole header filled with the repo colour, dark
+    text. Maximum separation between repo zones — reads as hard section
+    breaks. Heaviest; most colour on screen.
+  </DockCard>
+</div>
+
+## The row rainbow
+
+The other half of the fix is the rows. Keep them branch-coloured and the repo
+treatment still fights the rainbow; calm them to neutral and repo owns the hue
+outright (branch stays distinguishable by the state pip and, if wanted, a faint
+dot). Same treatment A, both ways:
+
+<div class="dk-gal">
+  <DockCard variant="spine" calm={false}>
+    <b>Rainbow kept.</b> Branch hue on every label still pulls the eye off the
+    repo spine.
+  </DockCard>
+  <DockCard variant="spine" calm={true}>
+    <b>Rows calmed.</b> One hue per zone. The repo is the colour; the branch is
+    the word.
+  </DockCard>
+</div>
+
+## Recommendation
+
+<Callout kind="accent" title="Spine + sticky tinted header (branch colours kept)">
+**Shipped: treatment A** — <PrLink pr={1379} />. A continuous repo-colour **spine** down each section's
+left edge plus a faintly repo-tinted **sticky** header — the smallest, most
+reversible change that puts a *persistent* repo cue on every row and keeps the
+label on screen as the rows scroll, without the visual weight of a full colour
+band. The per-row **branch colours stay** (the rainbow was kept by choice — it
+still tells branches apart within a repo); the spine sits at the section's outer
+edge (x 0–3) and the active row's existing 3px accent left-stripe
+(<Cite file="packages/client/src/canvas/dock/Dock.tsx" lines="464" />) sits just
+inside it (x 3–6), so the two cues read together without overlapping. The same
+`.dock-cards-section*` treatment rides the mobile drawer, and rail mode already
+carries the repo colour in its section marks
+(<Cite file="packages/client/src/canvas/dock/Dock.tsx" lines="541" />), so every
+dock surface shares one repo-identity vocabulary.
+</Callout>
