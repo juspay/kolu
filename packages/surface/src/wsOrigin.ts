@@ -137,6 +137,9 @@ export function gateWsOrigin(
   ) {
     return false;
   }
+  // destroy() FIRST (the critical operation), then fire the observational
+  // `onReject` — a throwing reporter must never leave a cross-site socket able
+  // to upgrade. (Mirrors `gateStaleSocket`'s close-before-onReject invariant.)
   socket.destroy();
   policy.onReject?.(origin);
   return true;
