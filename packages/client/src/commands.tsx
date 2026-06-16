@@ -231,7 +231,21 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
               return null;
             },
             onSubmit: (target) => deps.handleCreate(undefined, target.trim()),
-            children: () => [],
+            // One commit row. A value-input submits ONLY by selecting a label
+            // child — the palette's Enter/click path routes through `onSubmit`
+            // for the highlighted `PaletteLabel`, so a value-input with no
+            // children can never be submitted (its `filtered()` is empty, Enter
+            // selects nothing). The worktree input gets this for free from its
+            // Plain-shell/agent rows; a host dial has no sub-choice, so this
+            // lone row exists purely to BE the selectable commit target.
+            children: (): PaletteLabel[] => [
+              {
+                kind: "label",
+                name: "Connect over ssh",
+                data: undefined,
+                icon: TerminalIcon,
+              },
+            ],
           } satisfies PaletteValueInput,
         ];
       },

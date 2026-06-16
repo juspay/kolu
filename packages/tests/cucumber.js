@@ -18,10 +18,20 @@ const cliHasFeatureArgs = process.argv
 // only make sense under X11 capture (`just record`, which sets KOLU_X11CAP).
 // In the plain `ci::e2e` lane they have no reason to resolve and flake (#1226),
 // so gate them behind KOLU_X11CAP — present only via `just record`.
+//
+// `@remote-host` (remote-host.feature, P3) is excluded for the SAME reason: it
+// performs a real nix dial of `localhost`-as-remote (resolve arch, realise the
+// kolu-watcher closure, spawn it + a kaval), which is heavy and has no reason to
+// resolve in the hermetic `ci::e2e` lane (its `just test-quick` server bakes no
+// `KOLU_WATCHER_AGENT_DRVS_JSON`, so the dial can't even complete there). It is
+// run on demand by the evidence harness with `CUCUMBER_TAGS='@remote-host'`
+// (which fully replaces this default) plus the watcher drv env supplied.
 const X11CAP = !!process.env.KOLU_X11CAP;
 const baseTags =
   process.env.CUCUMBER_TAGS ||
-  (X11CAP ? "not @skip" : "not @skip and not @recording");
+  (X11CAP
+    ? "not @skip and not @remote-host"
+    : "not @skip and not @recording and not @remote-host");
 
 // Platform-conditional skip. `@skip-darwin` scenarios run on Linux but are
 // excluded on aarch64-darwin, where macOS `fs.watch`/FSEvents makes some
