@@ -17,6 +17,21 @@
  * separate nix closure that may depend on kolu app packages).
  */
 export {
+  currentWatcherBuildId,
+  currentWatcherCommitHash,
+  currentWatcherIdentity,
+} from "./buildId.ts";
+export {
+  type ConnectHostKavalOptions,
+  connectHostKaval,
+  type HostKaval,
+} from "./kavalClient.ts";
+export {
+  type BuildWatcherServerOptions,
+  buildWatcherServer,
+  type WatcherServer,
+} from "./server.ts";
+export {
   WATCHER_CONTRACT_VERSION,
   type WatcherSurface,
   watcherSurface,
