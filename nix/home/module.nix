@@ -23,10 +23,16 @@ let
   ++ lib.optionals cfg.verbose [ "--verbose" ];
 
   # Shared by both supervisors. systemd wants `[ "KEY=val" ]`; launchd wants
-  # the attrset as a plist dict — converted at each call site.
-  envAttrs = lib.optionalAttrs (cfg.diagnostics.dir != null) {
-    KOLU_DIAG_DIR = cfg.diagnostics.dir;
-  };
+  # the attrset as a plist dict — converted at each call site. Carries the
+  # optional diagnostics dir and the optional WebSocket Origin allowlist.
+  envAttrs =
+    lib.optionalAttrs (cfg.diagnostics.dir != null)
+      {
+        KOLU_DIAG_DIR = cfg.diagnostics.dir;
+      }
+    // lib.optionalAttrs (cfg.allowedOrigins != [ ]) {
+      KOLU_ALLOWED_ORIGINS = lib.concatStringsSep "," cfg.allowedOrigins;
+    };
 in
 {
   options.services.kolu = {
@@ -62,6 +68,21 @@ in
       type = lib.types.port;
       default = 7681;
       description = "Port to listen on.";
+    };
+
+    allowedOrigins = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = lib.literalExpression ''[ "https://box.tailnet.ts.net" ]'';
+      description = ''
+        Extra browser origins allowed to reach kolu's unauthenticated RPC
+        surface — both the `/rpc/ws` WebSocket and the `/rpc/*` HTTP handler
+        (the `KOLU_ALLOWED_ORIGINS` env var — a Cross-Site WebSocket Hijacking
+        / cross-site-request defense). Same-origin requests are always allowed;
+        list additional origins here when a reverse proxy (e.g. `tailscale
+        serve`) serves the UI from a different origin than the `Host` kolu
+        receives. Empty leaves only the same-origin rule.
+      '';
     };
 
     verbose = lib.mkEnableOption "debug-level logging";
