@@ -69,6 +69,16 @@ export const useTerminalCrud = createSharedRoot(() => {
         if (panel.activeSubTab === id) {
           subPanel.setActiveSubTab(parentId, subs[0] ?? null);
         }
+        // A sub-terminal survives the close, so keyboard focus belongs in the
+        // sub-panel — the user just acted there. Re-assert "sub" the way create
+        // and `expandPanel` do; without it, if `focusTarget` had drifted to
+        // "main" (the main textarea's focus event, or the close-button click
+        // stealing focus), the surviving sub renders with `focused=false` and
+        // the main terminal keeps focus. Under load that "main" state is the
+        // common one at close time, so the surviving sub never grabs focus and
+        // "the sub-terminal should have keyboard focus" times out (the
+        // sub-terminal-close focus flake).
+        subPanel.setFocusTarget(parentId, "sub");
       }
       return;
     }
