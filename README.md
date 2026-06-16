@@ -237,7 +237,7 @@ pnpm monorepo:
 
 ### Communication
 
-All **browser** traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `packages/common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. _(The CLI client `kaval-tui` is the exception: it reaches the `kaval` daemon over its local **unix socket** speaking the `ptyHostSurface` contract — same oRPC framing, a different transport. The server reaches that same socket; both are clients of the daemon. See the `kaval-tui` row above.)_ Two communication patterns:
+All **browser** traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `packages/common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. _(The CLI client `kaval-tui` is the exception: it reaches the `kaval` daemon over its local **unix socket** speaking the `ptyHostSurface` contract — same oRPC framing, a different transport. The server reaches that same socket; both are clients of the daemon. See the `kaval-tui` row above.)_ That RPC surface is **unauthenticated**, so a **same-origin gate** (`@kolu/surface/ws-origin`, the CSWSH sibling of `gateStaleSocket`) runs before oRPC on **both** browser-reachable paths: `gateWsOrigin` rejects a cross-site `Origin` at the `/rpc/ws` upgrade, and `gateHttpRpcOrigin` 403s a cross-site call to the mounted `/rpc/*` HTTP handler (a `multipart/form-data` POST needs no CORS preflight, so the socket gate alone wouldn't cover it). Loopback binding doesn't defend this — the attacker page runs in the operator's own browser; a reverse-proxy / `tailscale serve` front-end whose origin differs from the forwarded `Host` is allowlisted via `KOLU_ALLOWED_ORIGINS`. Two communication patterns:
 
 | Pattern            | Semantics                                  | Client integration                    | Used for                                               |
 | ------------------ | ------------------------------------------ | ------------------------------------- | ------------------------------------------------------ |
@@ -369,6 +369,12 @@ A home-manager module runs kolu as a systemd user service on Linux and as a laun
 ```
 
 See [`nix/home/example/`](nix/home/example/) for a full configuration — a NixOS VM test exercises the systemd path on Linux, and a standalone home-manager activation build exercises the launchd path on Darwin.
+
+kolu's RPC surface is unauthenticated and same-origin-gated on both transports (see [Communication](#communication) above), so it serves only its own origin out of the box. If you front it with a reverse proxy or `tailscale serve` whose browser origin differs from the `Host` kolu receives, list that origin in `services.kolu.allowedOrigins` (which sets the `KOLU_ALLOWED_ORIGINS` env var) so the browser clears the same-origin check:
+
+```nix
+services.kolu.allowedOrigins = [ "https://box.tailnet.ts.net" ];
+```
 
 On macOS, the LaunchAgent writes stdout to `~/Library/Logs/kolu.out.log` and stderr to `~/Library/Logs/kolu.err.log`, so crashes and startup failures leave service logs alongside other user logs.
 

@@ -100,6 +100,19 @@ describe("buildSshProbeCommand", () => {
     // detection (~Interval×CountMax) rather than hang forever.
     assertKeepAlive(args);
   });
+
+  it("ends option parsing with `--` before the host (ssh option-injection guard)", () => {
+    // The host is handed to ssh as a bare positional. Without a `--`
+    // end-of-options marker, a host like `-oProxyCommand=<cmd>` is parsed by
+    // ssh as an OPTION and runs <cmd> via /bin/sh — RCE from a hostile host
+    // string. The separator makes the host a destination no matter what.
+    const evil = "-oProxyCommand=touch /tmp/pwned";
+    const { args } = buildSshProbeCommand(evil, "nix-store", "--realise", "x");
+    const sep = args.indexOf("--");
+    expect(sep).toBeGreaterThanOrEqual(0); // a separator exists
+    expect(args[sep + 1]).toBe(evil); // host immediately follows it
+    expect(args.slice(0, sep)).not.toContain(evil); // never an option-position token
+  });
 });
 
 describe("buildAgentCommand", () => {
@@ -127,6 +140,22 @@ describe("buildAgentCommand", () => {
       "--stdio",
     ]);
     assertKeepAlive(args);
+  });
+
+  it("ends option parsing with `--` before the host (ssh option-injection guard)", () => {
+    // Same bare-positional sink as buildSshProbeCommand: a `-oProxyCommand=…`
+    // host would otherwise be parsed as an ssh option (RCE). `--` forces it to
+    // a destination.
+    const evil = "-oProxyCommand=touch /tmp/pwned";
+    const { args } = buildAgentCommand({
+      host: evil,
+      agentPath: "/nix/store/x-agent",
+      binary: "my-agent",
+    });
+    const sep = args.indexOf("--");
+    expect(sep).toBeGreaterThanOrEqual(0);
+    expect(args[sep + 1]).toBe(evil);
+    expect(args.slice(0, sep)).not.toContain(evil);
   });
 });
 
