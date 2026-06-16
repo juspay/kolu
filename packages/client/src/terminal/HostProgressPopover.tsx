@@ -6,7 +6,13 @@
  *  progress to show. Mirrors `PrUnavailablePopover`/`PrUnavailableButton`'s
  *  anchored-popover + trigger shape. */
 
-import { type Component, createSignal, For, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 import {
   type ClientDaemonState,
@@ -73,8 +79,10 @@ const HostProgressPopover: Component<{
  *  component per render site. Owns its own open-state signal and trigger ref —
  *  mirroring `PrUnavailableButton`, so "a chip that toggles an anchored log
  *  popover" is expressed once. The button is the trigger (the dot is colored
- *  from the host's tone); clicking toggles the log only when there's something
- *  to show. The sibling inline progress hint stays in `HostChip`. */
+ *  from the host's tone); clicking toggles the log only while the host is
+ *  mid-lifecycle (warming/failed) with lines to show — a connected host drops
+ *  the trigger so its retained dial log can't be reopened as if current. The
+ *  sibling inline progress hint stays in `HostChip`. */
 export const HostProgressButton: Component<{
   state: ClientDaemonState;
   /** The host's prepared progress — `id`/`label` compose the tooltip (the SAME
@@ -83,11 +91,25 @@ export const HostProgressButton: Component<{
   progress: HostProgress;
 }> = (props) => {
   const tone = () => DAEMON_STATE_PRESENTATION[props.state].tone;
-  const hasLog = () => props.progress.lines.length > 0;
+  // The log is offered ONLY mid-lifecycle (provisioning / unreachable) and only
+  // when there's something to show. A `connected` host keeps its dial log in the
+  // published status (`markConnected` doesn't clear it), but the chip drops the
+  // trigger so the stale provisioning output can't be reopened as if current —
+  // the same warming/failed gate the inline hints in `HostChip` use, so the dot,
+  // the hint, and the popover trigger can't disagree about "still in lifecycle".
+  const canOpen = () =>
+    (props.progress.warming || props.progress.failed) &&
+    props.progress.lines.length > 0;
   const showLatest = () =>
     (props.progress.warming || props.progress.failed) && props.progress.latest;
   const [open, setOpen] = createSignal(false);
   const [triggerEl, setTriggerEl] = createSignal<HTMLElement>();
+  // Close (and keep closed) the moment the host leaves the show-progress
+  // lifecycle — e.g. a dial that completes while the popover is open mustn't
+  // strand the old log on screen over a now-connected host.
+  createEffect(() => {
+    if (!canOpen()) setOpen(false);
+  });
   return (
     <>
       <button
@@ -95,17 +117,23 @@ export const HostProgressButton: Component<{
         type="button"
         data-testid="terminal-host-chip"
         data-host-state={props.state}
+        // When there's no log to open the chip is a pure status indicator, not a
+        // control: drop it from the tab order and mark it `aria-disabled` so
+        // keyboard/AT users aren't handed a focusable no-op (the `<button>`
+        // element stays for the e2e contract + the dot's a11y label).
+        tabindex={canOpen() ? 0 : -1}
+        aria-disabled={!canOpen()}
         class="shrink-0 inline-flex items-center gap-1 rounded-full border border-border bg-transparent px-1.5 text-[9px] leading-4 text-fg-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         classList={{
-          "cursor-pointer hover:border-fg-3": hasLog(),
-          "cursor-default": !hasLog(),
+          "cursor-pointer hover:border-fg-3": canOpen(),
+          "cursor-default": !canOpen(),
         }}
         title={`Runs on ${props.progress.id} — ${props.progress.label}${
           showLatest() ? `\n${props.progress.latest}` : ""
         }`}
         onClick={(e) => {
           e.stopPropagation();
-          if (hasLog()) setOpen((v) => !v);
+          if (canOpen()) setOpen((v) => !v);
         }}
         onPointerDown={(e) => e.stopPropagation()}
         onDblClick={(e) => e.stopPropagation()}

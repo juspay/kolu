@@ -11,7 +11,9 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const statuses = vi.hoisted(() => new Map<string, { state: string }>());
+const statuses = vi.hoisted(
+  () => new Map<string, { state: string; progress?: string[] }>(),
+);
 
 vi.mock("../wire", () => ({
   app: {
@@ -41,6 +43,7 @@ import {
   type ClientDaemonState,
   clientDaemonState,
   DAEMON_STATE_PRESENTATION,
+  useHostProgress,
 } from "./useDaemonStatus";
 
 afterEach(() => statuses.clear());
@@ -98,6 +101,56 @@ describe("clientDaemonState — remote projection", () => {
 
   it("is undefined before a host's first status yield", () => {
     expect(clientDaemonState("ghost")).toBeUndefined();
+  });
+});
+
+describe("useHostProgress — the chip's show/open gate", () => {
+  it("strips the source tag off every line", () => {
+    statuses.set("prod", {
+      state: "connecting",
+      progress: ["[local] copying closure", "[remote] building watcher"],
+    });
+    expect(useHostProgress("prod").lines).toEqual([
+      "copying closure",
+      "building watcher",
+    ]);
+  });
+
+  it("flags a provisioning host as warming (live hint pulses, log opens)", () => {
+    statuses.set("prod", {
+      state: "connecting",
+      progress: ["[local] dialing"],
+    });
+    const p = useHostProgress("prod");
+    expect(p.warming).toBe(true);
+    expect(p.failed).toBe(false);
+    expect(p.latest).toBe("dialing");
+  });
+
+  it("flags an unreachable host as failed (no pulse), surfacing the last line", () => {
+    statuses.set("prod", {
+      state: "dead",
+      progress: ["[local] host unreachable: connection refused"],
+    });
+    const p = useHostProgress("prod");
+    expect(p.failed).toBe(true);
+    expect(p.warming).toBe(false);
+    expect(p.latest).toBe("host unreachable: connection refused");
+  });
+
+  it("drops the gate once connected even though the dial log is retained", () => {
+    // `markConnected` does NOT clear `progressLines`, so a connected host's
+    // status still carries the whole provisioning log. The chip must read
+    // neither warming nor failed here — that's the gate the click-popover and
+    // the inline hints share, so the stale log can't be reopened as if current.
+    statuses.set("prod", {
+      state: "connected",
+      progress: ["[local] copying closure", "[remote] watcher ready"],
+    });
+    const p = useHostProgress("prod");
+    expect(p.lines.length).toBeGreaterThan(0);
+    expect(p.warming).toBe(false);
+    expect(p.failed).toBe(false);
   });
 });
 
