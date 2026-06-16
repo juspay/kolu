@@ -159,8 +159,10 @@
       // `CellSpec<Note>` is not assignable to `CellSpec<unknown>` in these
       // invariant container/constraint positions, so the spec object a caller
       // writes would stop type-checking. The `any`s are confined to this one
-      // file's type plumbing (every value flows through Zod schemas at the
-      // edges), so the rule is scoped off here rather than repo-wide.
+      // file — the generic type plumbing plus the single runtime
+      // `(contract as any).surface` walk-by-string in `composeSurfaceContracts`
+      // — and every value flows through Zod schemas at the edges, so the rule is
+      // scoped off here rather than repo-wide.
       "includes": ["packages/surface/src/define.ts"],
       "linter": {
         "rules": {
