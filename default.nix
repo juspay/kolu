@@ -388,7 +388,13 @@ let
   # kolu app code — which is why it is a SEPARATE process + derivation. Runs from
   # the SAME built workspace closure as `kolu`. Launched `node --import <tsx loader>`
   # (single-process, so SIGTERM reaches it — the same reason kaval uses this form).
-  # git is on PATH for kolu-git; no ssh/nix (kolu-server dials IN, the watcher
+  # git is on PATH for kolu-git, and gh is pinned via KOLU_GH_BIN (as in the
+  # kolu-server wrapper) because the watcher runs the SAME provider DAG: its `pr`
+  # provider shells out to `gh pr view` IN the remote repo (resolved via the
+  # remote's git remote-tracking, so it must run host-side). Without it the
+  # provider threw "KOLU_GH_BIN is not set" and logged a level-50 `unknown` error
+  # every poll; where the remote gh isn't authed it now degrades to a graceful
+  # `not-authenticated` instead. No ssh/nix (kolu-server dials IN, the watcher
   # never dials out).
   kolu-watcher = pkgs.runCommand "kolu-watcher"
     {
@@ -402,6 +408,7 @@ let
       --set KOLU_WATCHER_BUILD_ID "${watcherBuildId}" \
       --set KOLU_WATCHER_COMMIT_HASH "${commitHash}" \
       --set KOLU_WATCHER_KAVAL_BIN "${kaval}/bin/kaval" \
+      --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git ]}
   '';
 
