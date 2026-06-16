@@ -15,9 +15,11 @@
  */
 
 import { ORPCError } from "@orpc/server";
+import type { TerminalId } from "kolu-common/surface";
 import type { TerminalEndpoint } from "kolu-common/terminalEndpoint";
 import { hostConfigFor } from "../hosts/registry.ts";
 import { LOCAL_HOST_ID } from "../ptyHost/index.ts";
+import { getTerminal } from "../terminal-registry.ts";
 import { localTerminalEndpoint } from "./local.ts";
 import { RemoteTerminalEndpoint } from "./remote.ts";
 
@@ -43,6 +45,14 @@ export function endpointFor(hostId?: string): TerminalEndpoint {
   });
   remoteEndpoints.set(hostId, endpoint);
   return endpoint;
+}
+
+/** Resolve the endpoint that OWNS an existing terminal id — reads the registry
+ *  entry's `location.hostId` (absent ⇒ local) and delegates to `endpointFor`.
+ *  The single home for "terminal id → owning endpoint", so id-keyed ops
+ *  (kill/attach) can't each re-spell the host-resolution rule. */
+export function endpointForTerminal(id: TerminalId): TerminalEndpoint {
+  return endpointFor(getTerminal(id)?.meta.location?.hostId);
 }
 
 /** Every endpoint with live state — the local one plus every dialed remote.

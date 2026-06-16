@@ -33,7 +33,11 @@ import type {
 // metadata-before-registry order still has to hold.
 // biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
-import { allEndpoints, endpointFor } from "./terminalEndpoint/registry.ts";
+import {
+  allEndpoints,
+  endpointFor,
+  endpointForTerminal,
+} from "./terminalEndpoint/registry.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import type { SessionSnapshot } from "./session.ts";
@@ -109,7 +113,7 @@ export async function killTerminal(
 ): Promise<TerminalInfo | undefined> {
   // Resolve the owning endpoint from the terminal's persisted host, so a remote
   // terminal's kill is forwarded to its watcher (absent ⇒ local).
-  return endpointFor(getTerminal(id)?.meta.location?.hostId).killTerminal(id);
+  return endpointForTerminal(id).killTerminal(id);
 }
 
 /** Set or clear a terminal's parent relationship. */
