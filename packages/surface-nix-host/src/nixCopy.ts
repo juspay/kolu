@@ -196,6 +196,16 @@ export async function provisionAgent(
         "--no-check-sigs",
         "--derivation",
         "--to",
+        // Third host→ssh sink, alongside buildAgentCommand/buildSshProbeCommand,
+        // which both end ssh option parsing with `--` before the host. This one
+        // cannot carry that guard: the host is interpolated into a nix
+        // `ssh-ng://` URI authority, and nix parses that URI and forks its OWN
+        // ssh — the `--` end-of-options token is an ssh-argv construct that has
+        // no place in a URI, so there is no shared `sshDestination()` helper to
+        // factor (URI form and argv form share no rendering). Whether nix's
+        // URI-authority parser makes a leading-`-` host inert before it reaches
+        // ssh is provider-specific and unverified here; treat this as the
+        // residual gap in the host→ssh `--` guard rather than a proven-safe site.
         `ssh-ng://${opts.host}`,
         opts.drvPath,
       ],
