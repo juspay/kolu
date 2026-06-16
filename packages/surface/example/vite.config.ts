@@ -15,6 +15,10 @@ export default defineConfig({
     },
   },
   build: {
+    // esnext (matches packages/client): this example ships modern code, and
+    // esbuild 0.28+ hard-errors when asked to lower SolidJS's destructuring
+    // output to vite's default browser target.
+    target: "esnext",
     outDir: "../../dist",
     emptyOutDir: true,
   },
