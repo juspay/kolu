@@ -45,10 +45,7 @@ export function bridgeStream<T>(
           // foreground / exit) for the terminal for good. Log and keep
           // consuming. (This is the fence the dissolved agent metadata loop
           // carried in `applyAgentEvent`; it moved here with the taps.)
-          log.error(
-            { err },
-            "pty tap onEvent threw (subscription kept alive)",
-          );
+          log.error({ err }, "pty tap onEvent threw (subscription kept alive)");
         }
       }
     } catch (err) {
