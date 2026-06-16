@@ -541,7 +541,14 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
       let client: WatcherClient;
       try {
         client = await cursor.next();
-      } catch {
+      } catch (err) {
+        // The cursor only rejects when the session is being torn down (destroy
+        // races the await); log it so a real failure here isn't indistinguishable
+        // from a clean shutdown, then exit the pump (the while-guard agrees).
+        log.error(
+          { host: this.opts.host, err },
+          "remote: bridge cursor failed",
+        );
         break;
       }
       try {
