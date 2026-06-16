@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeUploadName } from "./terminalScratch.ts";
+import { sanitizeUploadName } from "./upload.ts";
 
 describe("sanitizeUploadName", () => {
   it("preserves unicode letters and digits in the name", () => {
@@ -32,5 +32,6 @@ describe("sanitizeUploadName", () => {
   it("falls back to 'upload' when nothing survives", () => {
     expect(sanitizeUploadName("...")).toBe("upload");
     expect(sanitizeUploadName("")).toBe("upload");
+    expect(sanitizeUploadName("a/b/")).toBe("b"); // trailing slash stripped
   });
 });

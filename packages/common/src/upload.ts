@@ -110,3 +110,29 @@ export function sizeRejectionFor(label: string, bytes: number): string | null {
   }
   return null;
 }
+
+/** Sanitize a dropped/pasted filename into a SAFE per-terminal scratch basename.
+ *
+ *  THE single source of truth for both kolu-server's `terminalScratch.ts` and
+ *  the host-side `kolu-watcher/scratch.ts` — security-sensitive (path-escape
+ *  defense), so it lives here, in the one browser-safe shared module, rather
+ *  than being copied (a copy can drift; this can't). Sits next to the upload
+ *  size/extension guards it pairs with.
+ *
+ *  Strips the directory component, collapses anything outside a unicode-aware
+ *  allowlist (letters/numbers/combining-marks of any script + `._-`) to `_`,
+ *  drops leading dots (never a hidden file or `..`), and always returns a
+ *  non-empty string. `normalize("NFC")` composes decomposed input so a base
+ *  letter + combining accent isn't split. */
+export function sanitizeUploadName(rawName: string): string {
+  // basename WITHOUT node:path (this module is bundled into the browser client):
+  // the last segment after a POSIX `/` separator — matching node's `basename`
+  // on the POSIX hosts this runs on (a literal `\` is NOT a separator and is
+  // collapsed by the allowlist below). Trailing slashes are stripped first.
+  const base = rawName.replace(/\/+$/, "").split("/").pop() ?? "";
+  const sanitized = base
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N}\p{M}._-]/gu, "_");
+  const trimmed = sanitized.replace(/^\.+/, "");
+  return trimmed.length > 0 ? trimmed : "upload";
+}

@@ -8,34 +8,12 @@
  */
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join, parse } from "node:path";
+import { join, parse } from "node:path";
+import { sanitizeUploadName } from "kolu-common/upload";
 import { koluScratchDir } from "./koluRoot.ts";
 
 function dirFor(terminalId: string): string {
   return join(koluScratchDir, terminalId);
-}
-
-/** Strip everything but the basename and collapse any character that
- *  would let a dropped name escape the per-terminal directory or break
- *  shell tools that consume the path. Preserves the extension so the
- *  receiving agent still sees a meaningful suffix. Always returns a
- *  non-empty string. */
-export function sanitizeUploadName(rawName: string): string {
-  const base = basename(rawName);
-  // Unicode-aware allowlist: keep letters/numbers/combining-marks of any
-  // script (so `berichte_märz.pdf`, `文件.txt`, NFD-decomposed names survive)
-  // plus `._-`, and collapse everything else to `_`. This still strips the
-  // dangerous set — path separators (`/`, `\`), control chars, and shell
-  // metacharacters — that could escape the per-terminal dir or break the
-  // tools consuming the pasted path; only the old ASCII-only mangling of
-  // legitimate unicode letters is lifted. `normalize("NFC")` composes
-  // decomposed input first so a base letter + combining accent isn't split.
-  const sanitized = base
-    .normalize("NFC")
-    .replace(/[^\p{L}\p{N}\p{M}._-]/gu, "_");
-  // Strip leading dots so the result is never a hidden file or `..`.
-  const trimmed = sanitized.replace(/^\.+/, "");
-  return trimmed.length > 0 ? trimmed : "upload";
 }
 
 /** Pick a path that doesn't collide with an existing file in the same
@@ -66,7 +44,10 @@ export function saveTerminalFile(
   base64Data: string,
 ): string {
   const dir = dirFor(terminalId);
-  mkdirSync(dir, { recursive: true });
+  // mode 0700 (the parent `koluScratchDir` is already 0700 via ensureKoluRoot,
+  // but be explicit + consistent with the watcher's host-side scratch) so an
+  // uploaded secret is never group/world-readable.
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = uniquePath(dir, sanitizeUploadName(name));
   writeFileSync(path, Buffer.from(base64Data, "base64"));
   return path;

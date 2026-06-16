@@ -5,55 +5,44 @@
  * `fs.writeFile` procedure. The returned path is bracketed-pasted into the PTY
  * so agents that accept paste-as-file-path (codex, Claude Code) can read the
  * file from the HOST the terminal actually runs on, not kolu-server's machine.
+ * `cleanupWatcherFile` wipes a terminal's dir when it exits.
  *
- * This intentionally mirrors kolu-server's `terminalScratch.ts` across the
- * package boundary: the same `sanitizeUploadName` (security-sensitive — kept
- * VERBATIM) + `uniquePath` logic, writing under a host scratch ROOT instead of
- * kolu-server's `koluScratchDir`. The two copies are independent on purpose (no
- * cross-package import of node-fs scratch internals); a change to the sanitizer
- * must be made in both places.
+ * The host-side analogue of kolu-server's `terminalScratch.ts` (same shape,
+ * writing under a per-USER host scratch ROOT instead of `koluScratchDir`). The
+ * name sanitizer is the ONE shared `sanitizeUploadName` from `kolu-common/upload`
+ * — no duplicated security-sensitive copy to drift.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
-import { basename, join, parse } from "node:path";
+import { join, parse } from "node:path";
+import { sanitizeUploadName } from "kolu-common/upload";
 
-/** Per-host scratch root: `$XDG_RUNTIME_DIR/kolu-watcher-scratch`, falling back
- *  to the OS tmpdir when the host has no `XDG_RUNTIME_DIR`. */
+/** Per-USER host scratch root. Prefer `$XDG_RUNTIME_DIR` (on systemd hosts
+ *  `/run/user/$UID` — a user-private tmpfs, mode 0700), falling back to the OS
+ *  tmpdir. The uid is folded into the name so the tmpdir fallback (a shared,
+ *  world-writable `/tmp`) is never a predictable shared path two users collide
+ *  on, and every dir is created mode 0700 (below) so a pasted secret is never
+ *  group/world-readable. */
 const scratchRoot = join(
   process.env.XDG_RUNTIME_DIR ?? os.tmpdir(),
-  "kolu-watcher-scratch",
+  `kolu-watcher-scratch-${process.getuid?.() ?? "shared"}`,
 );
 
 function dirFor(terminalId: string): string {
+  // terminalId arrives UUID-validated over the wire (TerminalIdSchema =
+  // z.string().uuid()), so it can't contain a separator — but guard anyway so a
+  // future schema slip can never traverse out of the scratch root.
+  if (
+    terminalId.includes("/") ||
+    terminalId.includes("\\") ||
+    terminalId.includes("..")
+  ) {
+    throw new Error(
+      `unsafe terminal id for scratch: ${JSON.stringify(terminalId)}`,
+    );
+  }
   return join(scratchRoot, terminalId);
-}
-
-/** Strip everything but the basename and collapse any character that
- *  would let a dropped name escape the per-terminal directory or break
- *  shell tools that consume the path. Preserves the extension so the
- *  receiving agent still sees a meaningful suffix. Always returns a
- *  non-empty string.
- *
- *  This intentionally MIRRORS kolu-server's `terminalScratch.ts`
- *  `sanitizeUploadName` across the package boundary — keep the two copies in
- *  lockstep (it is security-sensitive; do not weaken either). */
-export function sanitizeUploadName(rawName: string): string {
-  const base = basename(rawName);
-  // Unicode-aware allowlist: keep letters/numbers/combining-marks of any
-  // script (so `berichte_märz.pdf`, `文件.txt`, NFD-decomposed names survive)
-  // plus `._-`, and collapse everything else to `_`. This still strips the
-  // dangerous set — path separators (`/`, `\`), control chars, and shell
-  // metacharacters — that could escape the per-terminal dir or break the
-  // tools consuming the pasted path; only the old ASCII-only mangling of
-  // legitimate unicode letters is lifted. `normalize("NFC")` composes
-  // decomposed input first so a base letter + combining accent isn't split.
-  const sanitized = base
-    .normalize("NFC")
-    .replace(/[^\p{L}\p{N}\p{M}._-]/gu, "_");
-  // Strip leading dots so the result is never a hidden file or `..`.
-  const trimmed = sanitized.replace(/^\.+/, "");
-  return trimmed.length > 0 ? trimmed : "upload";
 }
 
 /** Pick a path that doesn't collide with an existing file in the same
@@ -70,17 +59,26 @@ function uniquePath(dir: string, name: string): string {
 }
 
 /** Save base64-encoded data into the host's per-terminal scratch directory,
- *  creating the dir on first use. Returns the on-disk path so the caller can
- *  bracketed-paste it into the PTY. `name` is sanitized; a collision suffix
- *  (`-1`, `-2`, …) protects any prior file in the dir from being clobbered. */
+ *  creating the dir (mode 0700, owner-only) on first use. Returns the on-disk
+ *  path so the caller can bracketed-paste it into the PTY. `name` is sanitized;
+ *  a collision suffix (`-1`, `-2`, …) protects any prior file from clobbering. */
 export function writeWatcherFile(
   terminalId: string,
   name: string,
   base64Data: string,
 ): string {
   const dir = dirFor(terminalId);
-  mkdirSync(dir, { recursive: true });
+  // mode 0700 on every created dir (incl. the recursive root) so an uploaded
+  // secret is never group/world-readable, even under a shared `/tmp` fallback.
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = uniquePath(dir, sanitizeUploadName(name));
   writeFileSync(path, Buffer.from(base64Data, "base64"));
   return path;
+}
+
+/** Remove a terminal's scratch directory on exit. Safe to call when the dir
+ *  was never created (no upload happened). Mirrors kolu-server's
+ *  `cleanupTerminalScratch`. */
+export function cleanupWatcherFile(terminalId: string): void {
+  rmSync(dirFor(terminalId), { recursive: true, force: true });
 }

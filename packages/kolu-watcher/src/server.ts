@@ -22,7 +22,7 @@
  * without disturbing the running PTYs.
  */
 
-import { implement } from "@orpc/server";
+import { implement, ORPCError } from "@orpc/server";
 import {
   implementSurface,
   inMemoryChannel,
@@ -40,9 +40,10 @@ import {
 } from "@kolu/terminal-dag";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import { sizeRejectionFor } from "kolu-common/upload";
 import type { Logger } from "pino";
 import type { HostKaval } from "./kavalClient.ts";
-import { writeWatcherFile } from "./scratch.ts";
+import { cleanupWatcherFile, writeWatcherFile } from "./scratch.ts";
 import { forwardStream, tickStream } from "./streamBridge.ts";
 import { watcherSurface } from "./watcherSurface.ts";
 
@@ -183,6 +184,10 @@ export function buildWatcherServer(
     lc.abort.abort();
     lc.stopProviders();
     dropMeta(id);
+    // Wipe any uploaded scratch the terminal accumulated on the host (mirrors
+    // kolu-server's cleanupTerminalScratch) — otherwise pasted files leak on the
+    // remote host for the watcher's lifetime.
+    cleanupWatcherFile(id);
   }
 
   function stopAll(): void {
@@ -329,13 +334,21 @@ export function buildWatcherServer(
         }),
         // (P3) write an uploaded/pasted file to the HOST's per-terminal scratch
         // dir so the bracketed-paste path resolves on the remote, not locally.
-        writeFile: ({ input }) => ({
-          path: writeWatcherFile(
-            input.terminalId,
-            input.name,
-            input.base64Data,
-          ),
-        }),
+        writeFile: ({ input }) => {
+          // Defense-in-depth size guard: kolu-server's router already rejects
+          // oversize uploads, but the watcher is its own wire boundary, so cap
+          // before decoding/writing to the host disk.
+          const d = input.base64Data;
+          const padding = d.endsWith("==") ? 2 : d.endsWith("=") ? 1 : 0;
+          const bytes = Math.floor((d.length * 3) / 4) - padding;
+          const reason = sizeRejectionFor(input.name, bytes);
+          if (reason !== null) {
+            throw new ORPCError("BAD_REQUEST", { message: reason });
+          }
+          return {
+            path: writeWatcherFile(input.terminalId, input.name, d),
+          };
+        },
       },
     },
   });
