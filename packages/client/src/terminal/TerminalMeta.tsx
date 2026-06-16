@@ -59,11 +59,7 @@ const HostChip: Component<{ hostId: string }> = (props) => {
       {/* The dot+name button toggles its anchored log; open-state, the trigger
        *  ref, and the stopPropagation plumbing live inside HostProgressButton
        *  (symmetric with PrUnavailableButton), not re-rolled here. */}
-      <HostProgressButton
-        hostId={props.hostId}
-        state={state()}
-        progress={progress()}
-      />
+      <HostProgressButton state={state()} progress={progress()} />
       {/* Live activity hint while dialing — turns a static amber chip into a
        *  visible "it's building" so a ~minute cold dial doesn't read as a hang.
        *  Pulses only while `warming`; hidden once connected. Click the chip for

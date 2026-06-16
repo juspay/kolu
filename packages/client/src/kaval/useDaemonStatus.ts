@@ -194,6 +194,12 @@ export function stripProgressTag(line: string): string {
  *  the chip and its popover both consume so neither strips by hand and the
  *  "still working vs. given up" gates can't disagree with the dot's tone. */
 export type HostProgress = {
+  /** The host id, so the chip tooltip and the popover header compose the
+   *  `${id} — ${label}` string from one object rather than three sites. */
+  id: string;
+  /** The host's current presentation label (from {@link
+   *  DAEMON_STATE_PRESENTATION}) — the second half of that same string. */
+  label: string;
   /** Progress lines with the `[local]`/`[remote]` tag already stripped. */
   lines: string[];
   /** The most-recent line (stripped), or undefined when there's none — the
@@ -216,6 +222,8 @@ export function useHostProgress(hostId: string): HostProgress {
   const state = clientDaemonState(hostId) ?? "connecting";
   const presentation = DAEMON_STATE_PRESENTATION[state];
   return {
+    id: hostId,
+    label: presentation.label,
     lines,
     latest: lines.at(-1),
     warming: presentation.tone === "warming",

@@ -21,11 +21,10 @@ const HostProgressPopover: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   triggerRef?: HTMLElement;
-  hostId: string;
-  state: ClientDaemonState;
-  /** Progress lines, already source-tag-stripped by `useHostProgress` —
-   *  rendered verbatim so stripping has exactly one call site. */
-  lines: string[];
+  /** The host's prepared progress shape — the header reads `id`/`label` from the
+   *  SAME object the button tooltip composes from, and `lines` (already
+   *  source-tag-stripped by `useHostProgress`) are rendered verbatim. */
+  progress: HostProgress;
 }> = (props) => {
   const { panelRef, panelStyle } = useAnchoredPopover({
     triggerRef: () => props.triggerRef,
@@ -44,22 +43,20 @@ const HostProgressPopover: Component<{
           ref={panelRef}
           data-testid="terminal-host-progress"
           role="dialog"
-          aria-label={`${props.hostId} connection log`}
+          aria-label={`${props.progress.id} connection log`}
           class={`fixed z-50 ${chrome.class} p-2.5 w-[360px] max-w-[90vw]`}
           style={{ ...panelStyle(), ...chrome.style }}
         >
           <div class="flex items-center gap-1.5 mb-1.5 text-xs">
-            <span class="font-medium text-fg">{props.hostId}</span>
-            <span class="text-fg-3">
-              {DAEMON_STATE_PRESENTATION[props.state].label}
-            </span>
+            <span class="font-medium text-fg">{props.progress.id}</span>
+            <span class="text-fg-3">{props.progress.label}</span>
           </div>
           <Show
-            when={props.lines.length > 0}
+            when={props.progress.lines.length > 0}
             fallback={<p class="text-fg-3 text-xs">No activity yet.</p>}
           >
             <div class="font-mono text-[11px] leading-relaxed text-fg-2 max-h-56 overflow-y-auto space-y-0.5">
-              <For each={props.lines}>
+              <For each={props.progress.lines}>
                 {(line) => (
                   <div class="whitespace-pre-wrap break-words">{line}</div>
                 )}
@@ -79,13 +76,13 @@ const HostProgressPopover: Component<{
  *  from the host's tone); clicking toggles the log only when there's something
  *  to show. The sibling inline progress hint stays in `HostChip`. */
 export const HostProgressButton: Component<{
-  hostId: string;
   state: ClientDaemonState;
-  /** The host's prepared progress — `lines` feed the popover, `latest` the
-   *  tooltip, and the gates decide whether the tooltip surfaces it. */
+  /** The host's prepared progress — `id`/`label` compose the tooltip (the SAME
+   *  object the popover header reads), `lines` feed the popover, `latest` the
+   *  tooltip's last line, and the gates decide whether the tooltip surfaces it. */
   progress: HostProgress;
 }> = (props) => {
-  const presentation = () => DAEMON_STATE_PRESENTATION[props.state];
+  const tone = () => DAEMON_STATE_PRESENTATION[props.state].tone;
   const hasLog = () => props.progress.lines.length > 0;
   const showLatest = () =>
     (props.progress.warming || props.progress.failed) && props.progress.latest;
@@ -103,7 +100,7 @@ export const HostProgressButton: Component<{
           "cursor-pointer hover:border-fg-3": hasLog(),
           "cursor-default": !hasLog(),
         }}
-        title={`Runs on ${props.hostId} — ${presentation().label}${
+        title={`Runs on ${props.progress.id} — ${props.progress.label}${
           showLatest() ? `\n${props.progress.latest}` : ""
         }`}
         onClick={(e) => {
@@ -113,18 +110,14 @@ export const HostProgressButton: Component<{
         onPointerDown={(e) => e.stopPropagation()}
         onDblClick={(e) => e.stopPropagation()}
       >
-        <span
-          class={`h-[7px] w-[7px] rounded-full ${toneDot[presentation().tone]}`}
-        />
-        {props.hostId}
+        <span class={`h-[7px] w-[7px] rounded-full ${toneDot[tone()]}`} />
+        {props.progress.id}
       </button>
       <HostProgressPopover
         open={open()}
         onOpenChange={setOpen}
         triggerRef={triggerEl()}
-        hostId={props.hostId}
-        state={props.state}
-        lines={props.progress.lines}
+        progress={props.progress}
       />
     </>
   );
