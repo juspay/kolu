@@ -49,6 +49,18 @@ const fake = vi.hoisted(() => {
         },
       })),
     },
+    // The watcher's `terminalMetadata` collection the bridge mirrors. The
+    // streams are parked (never yield) — tests drive the mirror via the captured
+    // `mirrorRemoteCollection` callbacks, not these — they just need to exist so
+    // the bridge can build the mirror opts without throwing.
+    terminalMetadata: {
+      keys: vi.fn(async () => ({
+        async *[Symbol.asyncIterator]() {},
+      })),
+      get: vi.fn(async () => ({
+        async *[Symbol.asyncIterator]() {},
+      })),
+    },
     system: {
       info: vi.fn(async () => ({
         shell: "/bin/sh",
@@ -96,11 +108,40 @@ const fake = vi.hoisted(() => {
 const publishDaemonStatus = vi.hoisted(() => vi.fn());
 const registry = vi.hoisted(() => ({ entries: new Map<string, unknown>() }));
 
+// Capture the live `mirrorRemoteCollection` opts so a test can DRIVE the mirror
+// callbacks (`onUpsert`/`onRemove`/`onSnapshot`) deterministically — the real
+// pump never runs (its inner loop is parked), but the bridge still hands us the
+// callbacks it would have used.
+const mirror = vi.hoisted(
+  () =>
+    ({}) as {
+      opts?: {
+        onUpsert: (id: string, meta: unknown) => void;
+        onRemove: (id: string) => void;
+        onSnapshot?: (keys: ReadonlySet<string>) => void;
+      };
+    },
+);
+
 vi.mock("@kolu/surface-nix-host", () => ({
   getHostSession: () => fake.session,
-  // Park the mirror pump — the cursor never yields a client, so bridge() idles.
-  makeClientCursor: () => ({ next: () => new Promise<never>(() => {}) }),
-  mirrorRemoteCollection: () => new Promise<never>(() => {}),
+  // Yield the fake watcher client exactly once, then park — so the bridge runs
+  // its heartbeat + reaches `mirrorRemoteCollection` (capturing the callbacks)
+  // without looping forever.
+  makeClientCursor: () => {
+    let yielded = false;
+    return {
+      next: () => {
+        if (yielded) return new Promise<never>(() => {});
+        yielded = true;
+        return Promise.resolve({ surface: fake.surface });
+      },
+    };
+  },
+  mirrorRemoteCollection: (opts: typeof mirror.opts) => {
+    mirror.opts = opts;
+    return new Promise<never>(() => {});
+  },
 }));
 vi.mock("../ptyHost/daemonStatus.ts", () => ({ publishDaemonStatus }));
 vi.mock("../ptyHost/index.ts", () => ({
@@ -158,8 +199,21 @@ function makeEndpoint() {
 
 afterEach(() => {
   registry.entries.clear();
+  mirror.opts = undefined;
   vi.clearAllMocks();
 });
+
+/** A minimal SavedTerminal for the pre-register tests — only the fields
+ *  `preRegisterSavedTerminals` reads (`id`, `cwd`, + the client-persisted
+ *  `initial` fields it forwards). */
+function savedTerminal(id: string, cwd = "/r") {
+  return {
+    id,
+    cwd,
+    git: null,
+    lastActivityAt: 0,
+  } as unknown as import("kolu-common/surface").SavedTerminal;
+}
 
 describe("RemoteTerminalEndpoint", () => {
   it("forwards fs/git one-shots to the watcher client", async () => {
@@ -355,5 +409,99 @@ describe("RemoteTerminalEndpoint", () => {
       identity: { staleKey: "rk-stale", navigableCommit: "rk-commit" },
       startedAt: 1700,
     });
+  });
+
+  // P3 (warm boot-adoption parity): a durable host's saved terminals are
+  // pre-registered as SHADOW tiles at boot — BEFORE the mirror connects — so the
+  // adopted tile + its connecting overlay show during the re-dial. The shadow's
+  // proxy is NOT ready (the live PTY is unconfirmed), so an attach blocks until
+  // the mirror confirms it. We assert the tile is registered + published, and
+  // that an attach does NOT open the stream while the proxy is still ungated.
+  it("pre-registers saved terminals as shadow tiles (not ready until confirmed)", async () => {
+    const ep = makeEndpoint();
+    ep.preRegisterSavedTerminals([savedTerminal("term-pre", "/repo")]);
+    // Registered synchronously with the location stamped, and published to the
+    // collection so the client renders the tile during the dial.
+    expect(registry.entries.has("term-pre")).toBe(true);
+    const entry = registry.entries.get("term-pre") as {
+      meta: { location?: { hostId: string }; cwd: string };
+    };
+    expect(entry.meta.location).toEqual({ hostId: "prod" });
+    expect(entry.meta.cwd).toBe("/repo");
+    expect(surfaceCtx.collections.terminalMetadata.upsert).toHaveBeenCalledWith(
+      "term-pre",
+      expect.objectContaining({ location: { hostId: "prod" } }),
+    );
+    // The proxy is a shadow — `ready` is unresolved — so attach must NOT open the
+    // watcher stream yet (it awaits `ready` first).
+    void ep.attach("term-pre", new AbortController().signal);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fake.surface.terminalAttach.get).not.toHaveBeenCalled();
+    // Idempotent: a second call skips the already-registered terminal (the
+    // `getTerminal` guard) — no re-register, no duplicate upsert.
+    vi.mocked(surfaceCtx.collections.terminalMetadata.upsert).mockClear();
+    ep.preRegisterSavedTerminals([savedTerminal("term-pre", "/repo")]);
+    expect(
+      surfaceCtx.collections.terminalMetadata.upsert,
+    ).not.toHaveBeenCalled();
+  });
+
+  // The mirror confirming a pre-registered shadow's live PTY releases its proxy's
+  // ready gate, so a previously-blocked attach now proceeds.
+  it("marks a pre-registered shadow ready when the mirror confirms it", async () => {
+    const ep = makeEndpoint();
+    ep.preRegisterSavedTerminals([savedTerminal("term-confirm")]);
+    // Wait for the bridge to reach `mirrorRemoteCollection` and capture its
+    // callbacks (heartbeat + markConnected resolve first).
+    await vi.waitFor(() => expect(mirror.opts).toBeDefined());
+    const attachPromise = ep.attach(
+      "term-confirm",
+      new AbortController().signal,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    // Still gated — not yet confirmed.
+    expect(fake.surface.terminalAttach.get).not.toHaveBeenCalled();
+    // The mirror delivers this terminal's metadata: releases the ready gate.
+    mirror.opts?.onUpsert("term-confirm", {
+      cwd: "/r",
+      git: null,
+      pr: { kind: "absent" },
+      agent: null,
+      foreground: null,
+      lastActivityAt: 0,
+    });
+    await attachPromise;
+    expect(fake.surface.terminalAttach.get).toHaveBeenCalledWith(
+      { id: "term-confirm" },
+      expect.anything(),
+    );
+  });
+
+  // ORPHAN reconciliation: a pre-registered terminal whose shell exited while
+  // kolu was down is NOT in the watcher's first snapshot, so the bridge removes
+  // its dead tile rather than leaving a stuck connecting overlay.
+  it("removes a pre-registered orphan absent from the first mirror snapshot", async () => {
+    const ep = makeEndpoint();
+    ep.preRegisterSavedTerminals([
+      savedTerminal("term-live"),
+      savedTerminal("term-orphan"),
+    ]);
+    await vi.waitFor(() => expect(mirror.opts).toBeDefined());
+    // First snapshot lists only the still-living terminal — the orphan is gone.
+    mirror.opts?.onSnapshot?.(new Set(["term-live"]));
+    expect(registry.entries.has("term-orphan")).toBe(false);
+    expect(surfaceCtx.collections.terminalMetadata.remove).toHaveBeenCalledWith(
+      "term-orphan",
+    );
+    // The living one is untouched (it'll be confirmed by its own onUpsert).
+    expect(registry.entries.has("term-live")).toBe(true);
+    // A SECOND snapshot must NOT re-run the orphan pass — gated to the first.
+    vi.mocked(surfaceCtx.collections.terminalMetadata.remove).mockClear();
+    mirror.opts?.onSnapshot?.(new Set([]));
+    expect(
+      surfaceCtx.collections.terminalMetadata.remove,
+    ).not.toHaveBeenCalled();
   });
 });

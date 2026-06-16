@@ -16,6 +16,7 @@ import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { DEFAULT_PORT } from "kolu-common/config";
+import type { SavedTerminal } from "kolu-common/surface";
 import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
@@ -35,6 +36,7 @@ import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { listConfiguredHosts } from "./hosts/registry.ts";
 import { ensureLocalEndpoint } from "./ptyHost/index.ts";
 import { endpointFor, isRemoteHost } from "./terminalEndpoint/registry.ts";
+import { RemoteTerminalEndpoint } from "./terminalEndpoint/remote.ts";
 import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
@@ -355,12 +357,29 @@ await ensureLocalEndpoint({
 const bootDialHosts = new Set<string>(
   listConfiguredHosts().map((h) => h.hostId),
 );
+// Group the saved session's REMOTE terminals by their owning host, so each
+// dialed RemoteTerminalEndpoint can PRE-REGISTER its host's saved terminals as
+// shadow tiles before the metadata mirror connects (warm boot-adoption parity:
+// the adopted tile + its connecting overlay show DURING the re-dial, not after).
+const savedRemoteTerminals = new Map<string, SavedTerminal[]>();
 for (const t of getSavedSession()?.terminals ?? []) {
-  if (t.location?.hostId) bootDialHosts.add(t.location.hostId);
+  const hostId = t.location?.hostId;
+  if (!hostId) continue;
+  bootDialHosts.add(hostId);
+  const list = savedRemoteTerminals.get(hostId);
+  if (list) list.push(t);
+  else savedRemoteTerminals.set(hostId, [t]);
 }
 for (const hostId of bootDialHosts) {
   try {
-    endpointFor(hostId);
+    const endpoint = endpointFor(hostId);
+    // Pre-register this host's saved terminals (if any) so their tiles +
+    // connecting overlays render during the boot dial. Only a remote endpoint
+    // owns saved-terminal pre-registration; a misconfigured local hostId can't.
+    const saved = savedRemoteTerminals.get(hostId);
+    if (saved && endpoint instanceof RemoteTerminalEndpoint) {
+      endpoint.preRegisterSavedTerminals(saved);
+    }
   } catch (err) {
     log.error({ hostId, err }, "failed to dial remote host at boot");
   }

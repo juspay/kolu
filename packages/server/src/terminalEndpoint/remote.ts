@@ -43,6 +43,7 @@ import {
 import {
   type DaemonStatus,
   type InitialTerminalMetadata,
+  type SavedTerminal,
   type TerminalId,
   type TerminalInfo,
   type TerminalMetadata,
@@ -259,6 +260,13 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
    *  CHANGES, so a host that reaches `connected` and stays put would otherwise
    *  never carry its identity/uptime (the query resolves after that publish). */
   private lastState: HostSessionState | undefined;
+  /** Terminals pre-registered at boot from the saved session — shadow tiles
+   *  whose proxy is NOT yet ready (the live PTY is confirmed only when the
+   *  mirror first delivers its metadata). `onRemoteMeta` releases a confirmed
+   *  one's ready gate and drops it from this set; the bridge's first-snapshot
+   *  pass removes any left over (orphans whose shell exited while kolu was down,
+   *  so the watcher never lists them). See `preRegisterSavedTerminals`. */
+  private readonly preRegisteredIds = new Set<TerminalId>();
 
   constructor(private readonly opts: RemoteTerminalEndpointOptions) {
     this.session = getHostSession<typeof watcherSurface.contract>({
@@ -338,6 +346,52 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
     emitTerminalListChanged();
     void this.spawnAndWire(id, opts, proxy);
     return entry.info;
+  }
+
+  /** Pre-register a durable host's SAVED terminals at boot, BEFORE the metadata
+   *  mirror connects, so each adopted tile (and its connecting-screen overlay)
+   *  appears DURING the boot dial — warm boot-adoption parity with a fresh dial
+   *  / cold restore-spawn (both of which seed metadata synchronously). Without
+   *  this, an adopted tile only surfaces once the mirror's `onRemoteMeta` fires,
+   *  which is AFTER connect: a multi-second blank on a cold re-dial.
+   *
+   *  Each pre-registered terminal is a SHADOW: a `RemoteTerminalProxy` whose
+   *  `ready` is deliberately left UNRESOLVED. The mirror confirms the live PTY —
+   *  `onRemoteMeta` releases the gate (and enriches the metadata). The bridge's
+   *  first-snapshot pass reconciles any shadow the watcher never lists (an orphan
+   *  whose shell exited while kolu was down). Idempotent: a terminal already in
+   *  the registry (adopted by a mirror that raced this call) is skipped. */
+  preRegisterSavedTerminals(saved: SavedTerminal[]): void {
+    let changed = false;
+    for (const t of saved) {
+      // Already adopted by the mirror (it raced boot) — leave its live entry be.
+      if (getTerminal(t.id)) continue;
+      const initial: InitialTerminalMetadata = {
+        canvasLayout: t.canvasLayout,
+        themeName: t.themeName,
+        subPanel: t.subPanel,
+        rightPanel: t.rightPanel,
+        intent: t.intent,
+        lastActivityAt: t.lastActivityAt,
+      };
+      const meta = this.seedMeta(t.cwd, initial);
+      const proxy = new RemoteTerminalProxy(t.id, this.session);
+      // Deliberately NOT markReady'd: a shadow until the mirror confirms the
+      // live PTY (then `onRemoteMeta` releases the gate). Attaches/writes block
+      // on `ready` until then — the connecting overlay covers that window.
+      registerTerminal(t.id, {
+        info: { id: t.id, pid: 0 },
+        meta,
+        handle: proxy,
+      });
+      this.preRegisteredIds.add(t.id);
+      surfaceCtx.collections.terminalMetadata.upsert(t.id, meta);
+      changed = true;
+    }
+    if (changed) {
+      emitTerminalsDirty();
+      emitTerminalListChanged();
+    }
   }
 
   private async spawnAndWire(
@@ -595,6 +649,14 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
    *  (theme/layout/sub-panel/intent set by the browser). */
   private onRemoteMeta(id: TerminalId, remote: TerminalMetadata): void {
     let entry = getTerminal(id);
+    // The mirror confirming a PRE-REGISTERED shadow's live PTY: release its
+    // proxy's ready gate so attaches/writes (held since boot) proceed, then drop
+    // it from the set so this fires once. The entry already exists, so the
+    // copy-server-keys path below enriches it — this only flips the gate.
+    if (entry && this.preRegisteredIds.has(id)) {
+      (entry.handle as RemoteTerminalProxy).markReady(0);
+      this.preRegisteredIds.delete(id);
+    }
     if (!entry) {
       // Adopt a terminal the watcher has but kolu-server didn't spawn (the
       // "reconnect to the prod terminals" path) — register it under a remote
@@ -689,6 +751,15 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
         // watchdog (a cold provision runs far longer than its window).
         await client.surface.system.heartbeat({});
         this.session.markConnected();
+        // Reconcile pre-registered shadows against the watcher's FIRST live
+        // snapshot ONCE (per mirror connect): a shadow the watcher doesn't list
+        // is an ORPHAN — its shell exited while kolu was down — so remove its
+        // tile rather than leave a dead connecting overlay. A shadow the watcher
+        // DOES list is confirmed by `onRemoteMeta` (which also clears it from the
+        // set), so a later orphan pass would already see it gone. Gated to the
+        // first snapshot so a terminal closed AFTER reconnect is removed by the
+        // mirror's own `onRemove`, not re-classified as a boot orphan.
+        let reconciled = false;
         await mirrorRemoteCollection<TerminalId, TerminalMetadata>({
           label: `terminalMetadata@${this.opts.hostId}`,
           log: (m) => log.info({ host: this.opts.host }, m),
@@ -701,6 +772,17 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
             >,
           onUpsert: (id, meta) => this.onRemoteMeta(id, meta),
           onRemove: (id) => this.onRemoteRemove(id),
+          onSnapshot: (snapshotKeys) => {
+            if (reconciled) return;
+            reconciled = true;
+            const orphans = [...this.preRegisteredIds].filter(
+              (id) => !snapshotKeys.has(id),
+            );
+            for (const id of orphans) {
+              this.onRemoteRemove(id);
+              this.preRegisteredIds.delete(id);
+            }
+          },
         });
       } catch (err) {
         log.error({ host: this.opts.host, err }, "remote mirror pump ended");

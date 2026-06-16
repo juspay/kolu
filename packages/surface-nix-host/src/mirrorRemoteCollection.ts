@@ -28,6 +28,12 @@ export async function mirrorRemoteCollection<K, V>(opts: {
   get: (key: K, signal: AbortSignal) => Promise<AsyncIterable<V>>;
   onUpsert: (key: K, value: V) => void;
   onRemove: (key: K) => void;
+  /** Optional: fired after each `keys` snapshot has been reconciled into the
+   *  `open` map, with the full set of keys present in THIS snapshot. The bridge
+   *  uses this to reconcile pre-registered terminals against the watcher's first
+   *  live snapshot (orphans whose shell exited while kolu was down). Back-
+   *  compatible — callers that don't reconcile simply omit it. */
+  onSnapshot?: (keys: ReadonlySet<K>) => void;
 }): Promise<void> {
   const open = new Map<K, AbortController>();
   try {
@@ -59,6 +65,10 @@ export async function mirrorRemoteCollection<K, V>(opts: {
         open.delete(key);
         opts.onRemove(key);
       }
+      // The snapshot is fully reconciled into `open` now — surface the present
+      // key set so a caller can reconcile its own pre-state against this live
+      // snapshot (the bridge's orphan pass, gated to the first snapshot).
+      opts.onSnapshot?.(next);
     }
     opts.log(`${opts.label}: keys stream closed`);
   } catch (err) {
