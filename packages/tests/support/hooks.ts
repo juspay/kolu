@@ -823,9 +823,11 @@ Before(async function (this: KoluWorld, scenario) {
       });
     `);
   }
-  // KOLU_X11CAP: recordings want a quiet canvas — suppress the ambient tip
-  // banner unconditionally (it's desktop-always-on, not the startupTips pref).
-  if (X11CAP) {
+  // Recordings (KOLU_X11CAP) AND PR-evidence captures (KOLU_EVIDENCE) both want a
+  // quiet canvas — suppress the ambient tip banner unconditionally (it's
+  // desktop-always-on, not the startupTips pref, so it pops over the very content
+  // a capture is trying to show, e.g. a tile titlebar's host chip).
+  if (X11CAP || EVIDENCE) {
     await this.page.addInitScript(`
       document.addEventListener("DOMContentLoaded", function() {
         var style = document.createElement("style");
