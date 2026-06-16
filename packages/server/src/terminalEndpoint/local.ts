@@ -51,6 +51,7 @@ import {
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import {
+  applyInitialMetadata,
   createMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
@@ -342,14 +343,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     const meta: TerminalMetadata = { ...createMetadata(cwd) };
     if (opts.parentId) meta.parentId = opts.parentId;
-    const initial = opts.initialMetadata;
-    if (initial?.themeName) meta.themeName = initial.themeName;
-    if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
-    if (initial?.subPanel) meta.subPanel = initial.subPanel;
-    if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
-    if (initial?.intent) meta.intent = initial.intent;
-    if (initial?.lastActivityAt !== undefined)
-      meta.lastActivityAt = initial.lastActivityAt;
+    applyInitialMetadata(meta, opts.initialMetadata);
 
     const entry: TerminalProcess = {
       info: { id, pid: 0 },

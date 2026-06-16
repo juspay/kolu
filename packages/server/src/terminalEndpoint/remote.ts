@@ -65,7 +65,7 @@ import {
   type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import { createMetadata } from "./metadata.ts";
+import { applyInitialMetadata, createMetadata } from "./metadata.ts";
 
 type WatcherClient = AgentClient<typeof watcherSurface.contract>;
 
@@ -434,13 +434,7 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
       ...createMetadata(cwd),
       location: { hostId: this.opts.hostId },
     };
-    if (initial?.themeName) meta.themeName = initial.themeName;
-    if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
-    if (initial?.subPanel) meta.subPanel = initial.subPanel;
-    if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
-    if (initial?.intent) meta.intent = initial.intent;
-    if (initial?.lastActivityAt !== undefined)
-      meta.lastActivityAt = initial.lastActivityAt;
+    applyInitialMetadata(meta, initial);
     return meta;
   }
 

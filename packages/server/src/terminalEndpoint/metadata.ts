@@ -30,6 +30,7 @@
 
 import { prValue } from "anyforge/schemas";
 import {
+  type InitialTerminalMetadata,
   type LiveTerminalFields,
   prUnavailableReason,
   type ServerPersistedTerminalFields,
@@ -54,6 +55,26 @@ export function createMetadata(cwd: string): TerminalMetadata {
     foreground: null,
     lastActivityAt: 0,
   };
+}
+
+/** Seed a new terminal's client-persisted metadata from the
+ *  `InitialTerminalMetadata` a create supplied (#642 — seed before providers
+ *  run so the canvas default-cascade can't race a post-hoc setter). One copy of
+ *  the guarded if-chain, shared by BOTH endpoints' spawn paths so a future
+ *  `InitialTerminalMetadata` field can't be picked up on one host and dropped
+ *  on the other. `parentId` is NOT part of `InitialTerminalMetadata` (it's a
+ *  spawn opt) — the local path applies it separately. */
+export function applyInitialMetadata(
+  meta: TerminalMetadata,
+  initial?: InitialTerminalMetadata,
+): void {
+  if (initial?.themeName) meta.themeName = initial.themeName;
+  if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
+  if (initial?.subPanel) meta.subPanel = initial.subPanel;
+  if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
+  if (initial?.intent) meta.intent = initial.intent;
+  if (initial?.lastActivityAt !== undefined)
+    meta.lastActivityAt = initial.lastActivityAt;
 }
 
 /** Log + emit the current metadata snapshot to the surface collection.

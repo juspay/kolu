@@ -92,6 +92,7 @@ vi.mock("./metadata.ts", () => ({
     agent: null,
     foreground: null,
   }),
+  applyInitialMetadata: vi.fn(),
 }));
 vi.mock("../surfaceCtx.ts", () => ({
   surfaceCtx: {
