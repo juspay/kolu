@@ -38,3 +38,19 @@ Feature: Remote host — kolu dials a remote over ssh
     # full dial lifecycle, and holds the green state for the evidence capture.
     Then the host chip should reach the "connected" state
     And there should be no page errors
+
+  # The companion to the ad-hoc dial above: kolu RECOGNISES the hosts in the
+  # user's ssh config and lists them in "New terminal", so a host is picked, not
+  # retyped. The evidence harness plants a `KOLU_SSH_CONFIG` fixture with a few
+  # `Host` entries (one of them `localhost`) before the run.
+  Scenario: Recognise ~/.ssh/config hosts in the palette and dial one to green
+    When I open the command palette
+    And I select "New terminal" in the palette
+    # The ssh-config Host aliases are recognised and offered as pickable entries.
+    Then palette item "prod" should be visible
+    And palette item "localhost" should be visible
+    # Pick the ssh-config host — kolu dials it (over the loopback for `localhost`).
+    When I select "localhost" in the palette
+    And I press the maximize toggle shortcut
+    Then the host chip should reach the "connected" state
+    And there should be no page errors
