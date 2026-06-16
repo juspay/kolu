@@ -94,8 +94,7 @@ export const HostProgressButton: Component<{
   // the hint, and the popover trigger can't disagree about "still in lifecycle".
   const canOpen = () =>
     props.progress.inLifecycle && props.progress.lines.length > 0;
-  const showLatest = () =>
-    props.progress.inLifecycle && props.progress.latest;
+  const showLatest = () => props.progress.inLifecycle && props.progress.latest;
   const [open, setOpen] = createSignal(false);
   const [triggerEl, setTriggerEl] = createSignal<HTMLElement>();
   // Close (and keep closed) the moment the host leaves the show-progress
