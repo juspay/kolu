@@ -4,10 +4,13 @@
  *  layout. New domain state belongs in a `useXxx.ts` singleton, NOT here; the
  *  `app-shell-stays-thin` code-police rule + `App.shell.test.ts` enforce it.
  *
- *  Per #622 the workspace is mode-less: desktop is always the canvas; mobile
- *  is a single fullscreen tile with swipe nav. Per-terminal chrome (theme
- *  pill, agent indicator, screenshot, split toggle) lives on the tile title
- *  bar via `canvas/TileTitleActions`. The header is intentionally minimal. */
+ *  The workspace mounts one macro layout chosen by `layoutMode` (useMobile):
+ *  desktop is the spatial canvas; phone (below `sm`) is a single fullscreen
+ *  tile; compact (a roomy finger-driven handheld — unfolded foldables, tablets)
+ *  is a two-pane dock rail + active tile. (Per #622 it stays mode-less — one
+ *  layout per form factor, no in-app switch.) Per-terminal chrome (theme pill,
+ *  agent indicator, screenshot, split toggle) lives on the tile title bar via
+ *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";

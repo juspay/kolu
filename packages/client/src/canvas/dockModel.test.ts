@@ -263,9 +263,9 @@ describe("buildDockModel", () => {
     expect(m.columns[3]?.entries.map((e) => e.id)).toEqual(["t4"]);
     expect(m.entries.find((e) => e.id === "t1")?.bucket).toBe("idle");
     expect(m.entries.find((e) => e.id === "t3")?.bucket).toBe("idle");
-    // The agent metadata survives the bucket move — render-layer
-    // consumers (QuietRowBody, MobileDockDrawer) read this to paint
-    // the AgentIndicator on parked rows.
+    // The agent metadata survives the bucket move — the render layer
+    // (`DockRow` / `DockListRow`) reads `info.meta.agent` to paint the
+    // agent state pip and subline on parked rows.
     expect(m.entries.find((e) => e.id === "t1")?.info.meta.agent?.state).toBe(
       "waiting",
     );

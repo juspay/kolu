@@ -10,13 +10,15 @@
  *  outputs after reader-specific behaviors would couple this interface
  *  to their internals.
  *
- *  Mobile is a separate axis (device class, media query) and the *posture
- *  state* (`mode`, `canMaximize`) stays canvas-focused: which view to mount
- *  (`MobileTileView` vs `TerminalCanvas`) is decided one level up in App.tsx
- *  — different change frequency, different reactivity source, different blast
- *  radius. The one exception is `toggle()`, which guards on
- *  `supportsSpatialCanvas()` so a mobile/narrow hardware-keyboard press can't
- *  silently flip the persisted flag (see its doc below). Tracked: kolu#628. */
+ *  Form factor is a separate axis (`layoutMode`, media queries) and the
+ *  *posture state* (`mode`, `canMaximize`) stays canvas-focused: which view to
+ *  mount — the touch panes (`MobileTileView` / `CompactTileView`) vs the canvas
+ *  (`TerminalCanvas`) — is decided one level up in App.tsx — different change
+ *  frequency, different reactivity source, different blast radius. The one
+ *  exception is `toggle()`, which guards on `supportsSpatialCanvas()`
+ *  (desktop-only) so a non-desktop (phone or compact) hardware-keyboard press
+ *  can't silently flip the persisted flag (see its doc below). Tracked:
+ *  kolu#628. */
 
 import { supportsSpatialCanvas } from "../capabilities";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -62,11 +64,11 @@ export function useViewPosture() {
      *  with `mode()`'s own guard. */
     canMaximize,
     /** Toggle between tiled canvas and maximized. Single writer, and the
-     *  write guard: a no-op without a spatial canvas (mobile / narrow
-     *  viewport, where the canvas isn't mounted) or with zero terminals
-     *  (same `canMaximize` predicate as `mode()`'s read guard and the
+     *  write guard: a no-op without a spatial canvas (any non-desktop layout —
+     *  phone or compact — where the canvas isn't mounted) or with zero
+     *  terminals (same `canMaximize` predicate as `mode()`'s read guard and the
      *  affordance guard). Gating both surfaces here — not just the keyboard
-     *  caller — keeps a mobile hardware-keyboard press from silently
+     *  caller — keeps a non-desktop hardware-keyboard press from silently
      *  flipping the persisted `kolu-canvas-maximized` flag with no visible
      *  effect: the safety lives in the receptacle, not in each caller. */
     toggle: (): void => {

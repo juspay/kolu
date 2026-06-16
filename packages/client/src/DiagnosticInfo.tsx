@@ -91,7 +91,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     return {
       browser,
       session: {
-        viewport: layoutMode(),
+        layout: layoutMode(),
         wsStatus: wsStatus(),
         serverProcessId: serverProcessId(),
         activeId: props.activeId,
@@ -197,7 +197,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
 
         <Section title="Session">
           <div class="space-y-0.5">
-            <Row label="Viewport">
+            <Row label="Layout">
               <span class="text-fg">{layoutMode()}</span>
             </Row>
             <Row label="WS" variant="badge">

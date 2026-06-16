@@ -1,16 +1,19 @@
-/** MobileTileView — single fullscreen tile with swipe navigation.
+/** MobileTileView — the touch single-tile pane with swipe navigation.
  *
- *  On mobile the canvas (pan/zoom) and the desktop dock are
- *  disabled per #622. The active terminal fills the viewport; swipe-
- *  left/right cycles between terminals in workspace-switcher order.
+ *  Used directly as the phone layout, and reused by `CompactTileView` as the
+ *  compact (tablet / Z Fold unfolded) layout's terminal pane — there with
+ *  `hideDockDrawer`, since the compact layout supplies its own persistent dock
+ *  rail in place of the edge-drawer below. The active terminal fills the pane;
+ *  swipe-left/right cycles between terminals in workspace-switcher order. On the
+ *  phone the canvas (pan/zoom) and the desktop dock are disabled per #622.
  *
  *  Two chrome drawers mirror the desktop split (#903):
  *  - **Top pull-down** (`MobileChromeSheet`): global controls — palette,
  *    settings, inspector toggle. Trigger is the always-visible
  *    pull-handle row at the top of the terminal.
- *  - **Left swipe** (`MobileDockDrawer`): live-terminal navigator. The
- *    mobile mirror of the desktop dock; trigger is a thin
- *    handle pinned to the left edge.
+ *  - **Left swipe**: the live-terminal navigator — the `DockList` (shared with
+ *    the compact rail) in a left edge-drawer; trigger is a thin handle pinned to
+ *    the left edge. Suppressed under `hideDockDrawer`.
  *
  *  Both Corvu `Drawer`s live as siblings (not nested) so each has its
  *  own clean context — nesting put the chrome trigger inside the dock
@@ -22,7 +25,7 @@
 import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
-import MobileDockDrawer from "./canvas/dock/MobileDockDrawer";
+import { DockList } from "./canvas/dock/DockList";
 import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
@@ -282,10 +285,16 @@ const MobileTileView: Component<{
               class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
             />
             <Drawer.Content class="fixed top-0 left-0 bottom-0 z-50 w-[78vw] max-w-[20rem] bg-surface-1 border-r border-edge shadow-xl">
-              <MobileDockDrawer
-                onSelect={store.setActiveSilently}
-                onClose={() => onDockOpenChange(false)}
-              />
+              {/* The dock list, same `DockList` the compact rail mounts; the
+               *  phone drawer's one addition is dismiss-on-select. */}
+              <div data-testid="mobile-dock-sheet" class="flex flex-col h-full">
+                <DockList
+                  onSelect={(id) => {
+                    store.setActiveSilently(id);
+                    onDockOpenChange(false);
+                  }}
+                />
+              </div>
             </Drawer.Content>
           </Drawer.Portal>
         </Drawer>

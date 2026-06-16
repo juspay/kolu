@@ -49,7 +49,7 @@ const belowSm = createMediaQuery(`(width < ${SM_BREAKPOINT})`);
  *  looser input-affordance axis (any coarse primary pointer). */
 const handheld = createMediaQuery("(pointer: coarse) and (hover: none)");
 
-export type LayoutMode = "phone" | "compact" | "desktop";
+type LayoutMode = "phone" | "compact" | "desktop";
 
 /** Which macro layout to mount — the single fork `App.tsx` keys on. Below `sm`
  *  is always `phone` (preserving the historical "narrow viewport ⇒ phone layout"

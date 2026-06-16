@@ -39,12 +39,15 @@ const CompactTileView: Component<{
 
   return (
     <>
-      {/* Persistent dock rail — the always-visible terminal navigator. Fixed
-       *  width so the terminal pane (`flex-1` inside MobileTileView) takes the
-       *  rest; `shrink-0` keeps the rail from collapsing under a busy tile. */}
+      {/* Persistent dock rail — the always-visible terminal navigator. Kept
+       *  deliberately narrow: a roomy touch device (Z Fold 6 unfolded) wants its
+       *  width spent on the terminal, so the rail takes the minimum that keeps a
+       *  row's agent pip + a useful slice of its branch/intent label legible and
+       *  the terminal pane (`flex-1` inside MobileTileView) takes the rest.
+       *  `shrink-0` keeps the rail from collapsing under a busy tile. */}
       <aside
         data-testid="compact-dock-rail"
-        class="shrink-0 w-72 min-h-0 flex flex-col border-r border-edge bg-surface-1"
+        class="shrink-0 w-52 min-h-0 flex flex-col border-r border-edge bg-surface-1"
       >
         <DockList onSelect={store.setActiveSilently} />
       </aside>

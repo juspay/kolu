@@ -1,6 +1,6 @@
 /** DockList — the recency-sorted live-terminal list shared by the two touch
- *  layouts: the phone's left-edge swipe drawer (`MobileDockDrawer`) and the
- *  compact layout's persistent left rail (`CompactTileView`).
+ *  layouts: the phone's left-edge swipe drawer (inlined in `MobileTileView`)
+ *  and the compact layout's persistent left rail (`CompactTileView`).
  *
  *  Rows match the desktop bare-dock layout — `[agent] branch [pips] time` over a
  *  CSS subgrid — but with uniform `py-3` so every tap target clears the iOS /
