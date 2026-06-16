@@ -30,7 +30,7 @@
   },
   "peerDependencies": {
     "@hono/node-server": "^1.19.13",
-    "hono": "^4.12.16"
+    "hono": "^4.12.25"
   },
   "peerDependenciesMeta": {
     "@hono/node-server": {
@@ -43,7 +43,7 @@
   "devDependencies": {
     "@hono/node-server": "^1.19.13",
     "@types/node": "^22.0.0",
-    "hono": "^4.12.16",
+    "hono": "^4.12.25",
     "typescript": "^5.8.0",
     "vitest": "^4.1.0"
   }
