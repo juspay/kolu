@@ -190,6 +190,39 @@ export function stripProgressTag(line: string): string {
   return line.replace(/^\[(?:local|remote)\]\s*/, "");
 }
 
+/** A remote host's dial progress, ready for display — the single prepared shape
+ *  the chip and its popover both consume so neither strips by hand and the
+ *  "still working vs. given up" gates can't disagree with the dot's tone. */
+export type HostProgress = {
+  /** Progress lines with the `[local]`/`[remote]` tag already stripped. */
+  lines: string[];
+  /** The most-recent line (stripped), or undefined when there's none — the
+   *  inline hint + chip tooltip. */
+  latest: string | undefined;
+  /** The host is still coming up (`tone === "warming"`): pulse the live hint. */
+  warming: boolean;
+  /** The host has given up (`down`): surface its last line as the failure
+   *  reason, without the pulse. */
+  failed: boolean;
+};
+
+/** The prepared {@link HostProgress} shape for a host — {@link stripProgressTag}
+ *  applied exactly once here, plus the warming/failed gates derived from {@link
+ *  DAEMON_STATE_PRESENTATION} so every progress-display fact lives in one place.
+ *  The chip reads `latest`/`lines`/`warming`/`failed`; the popover renders
+ *  `lines` verbatim with no re-stripping. */
+export function useHostProgress(hostId: string): HostProgress {
+  const lines = hostProgress(hostId).map(stripProgressTag);
+  const state = clientDaemonState(hostId) ?? "connecting";
+  const presentation = DAEMON_STATE_PRESENTATION[state];
+  return {
+    lines,
+    latest: lines.at(-1),
+    warming: presentation.tone === "warming",
+    failed: presentation.down,
+  };
+}
+
 /** True until the daemon-status stream has produced its FIRST value — i.e. the
  *  status is genuinely unknown, not "up". The canvas gates on this so a `dead`
  *  boot never flashes the normal empty workspace before the first status lands

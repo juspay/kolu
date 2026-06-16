@@ -15,15 +15,14 @@
 import { prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
 import type { TerminalMetadata } from "kolu-common/surface";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
 import {
   clientDaemonState,
   DAEMON_STATE_PRESENTATION,
-  hostProgress,
   LOCAL_HOST,
-  stripProgressTag,
   toneDot,
+  useHostProgress,
 } from "../kaval/useDaemonStatus";
 import HostProgressPopover from "./HostProgressPopover";
 import { agentBucket } from "../canvas/dockModel";
@@ -51,20 +50,13 @@ function remoteHostId(meta: TerminalMetadata): string | undefined {
 const HostChip: Component<{ hostId: string }> = (props) => {
   const state = () => clientDaemonState(props.hostId) ?? "connecting";
   const presentation = () => DAEMON_STATE_PRESENTATION[state()];
-  const lines = () => hostProgress(props.hostId);
-  /** Latest activity line (source tag stripped) for the inline hint + tooltip. */
-  const latest = () => {
-    const l = lines().at(-1);
-    return l ? stripProgressTag(l) : undefined;
-  };
-  /** Both gates read the one presentation table so the chip cannot disagree
-   *  with the dot's own tone. `warming` = the host is still coming up (a cold
-   *  dial's `nix copy`/build) — it pulses the inline "it's building" hint.
-   *  `failed` = the host has given up (`down`) — its last line is the failure
-   *  reason, surfaced WITHOUT the pulse so a dead host doesn't read as busy. */
-  const warming = () => presentation().tone === "warming";
-  const failed = () => presentation().down;
-  const hasLog = () => lines().length > 0;
+  /** One prepared shape — stripped `lines`, derived `latest`, and the
+   *  warming/failed gates — so the chip and its popover read the same object
+   *  and "which states show/pulse progress" lives in the one presentation
+   *  table, not an inline ternary here. Memoized: several JSX sites read it, and
+   *  a stable `lines` reference keeps the popover's `<For>` from re-reconciling. */
+  const progress = createMemo(() => useHostProgress(props.hostId));
+  const hasLog = () => progress().lines.length > 0;
   const [open, setOpen] = createSignal(false);
   const [triggerEl, setTriggerEl] = createSignal<HTMLElement>();
   return (
@@ -80,7 +72,9 @@ const HostChip: Component<{ hostId: string }> = (props) => {
           "cursor-default": !hasLog(),
         }}
         title={`Runs on ${props.hostId} — ${presentation().label}${
-          (warming() || failed()) && latest() ? `\n${latest()}` : ""
+          (progress().warming || progress().failed) && progress().latest
+            ? `\n${progress().latest}`
+            : ""
         }`}
         onClick={(e) => {
           e.stopPropagation();
@@ -98,7 +92,7 @@ const HostChip: Component<{ hostId: string }> = (props) => {
        *  visible "it's building" so a ~minute cold dial doesn't read as a hang.
        *  Pulses only while `warming`; hidden once connected. Click the chip for
        *  the full log. */}
-      <Show when={warming() && latest()}>
+      <Show when={progress().warming && progress().latest}>
         {(line) => (
           <span
             data-testid="terminal-host-progress-hint"
@@ -112,7 +106,7 @@ const HostChip: Component<{ hostId: string }> = (props) => {
       {/* Failure reason for a host that has given up (`down`) — the last
        *  progress line is the 'why'. Rendered WITHOUT the pulse so a dead host
        *  doesn't read as still working. */}
-      <Show when={failed() && latest()}>
+      <Show when={progress().failed && progress().latest}>
         {(line) => (
           <span
             data-testid="terminal-host-progress-fail"
@@ -129,7 +123,7 @@ const HostChip: Component<{ hostId: string }> = (props) => {
         triggerRef={triggerEl()}
         hostId={props.hostId}
         state={state()}
-        lines={lines()}
+        lines={progress().lines}
       />
     </span>
   );

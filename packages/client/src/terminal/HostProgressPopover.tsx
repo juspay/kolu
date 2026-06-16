@@ -10,7 +10,6 @@ import { Portal } from "solid-js/web";
 import {
   type ClientDaemonState,
   DAEMON_STATE_PRESENTATION,
-  stripProgressTag,
 } from "../kaval/useDaemonStatus";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -21,6 +20,8 @@ const HostProgressPopover: Component<{
   triggerRef?: HTMLElement;
   hostId: string;
   state: ClientDaemonState;
+  /** Progress lines, already source-tag-stripped by `useHostProgress` —
+   *  rendered verbatim so stripping has exactly one call site. */
   lines: string[];
 }> = (props) => {
   const { panelRef, panelStyle } = useAnchoredPopover({
@@ -57,9 +58,7 @@ const HostProgressPopover: Component<{
             <div class="font-mono text-[11px] leading-relaxed text-fg-2 max-h-56 overflow-y-auto space-y-0.5">
               <For each={props.lines}>
                 {(line) => (
-                  <div class="whitespace-pre-wrap break-words">
-                    {stripProgressTag(line)}
-                  </div>
+                  <div class="whitespace-pre-wrap break-words">{line}</div>
                 )}
               </For>
             </div>
