@@ -1,14 +1,17 @@
-/** RightPanelDrawer — mobile-only host for the right panel.
+/** RightPanelDrawer — the touch-layout host for the right panel, shared by
+ *  BOTH handheld layouts (phone and compact). App.tsx mounts it for the
+ *  `P.union("phone", "compact")` arm; only the desktop layout hosts the panel
+ *  differently (see below).
  *
- *  On mobile, the right panel hosts as a `@corvu/drawer side="bottom"`.
- *  Visibility is the session-local `useRightPanel.drawerOpen()` signal
- *  — dismissing the drawer on a phone is not the same volatility as
+ *  On the touch layouts, the right panel hosts as a `@corvu/drawer
+ *  side="bottom"`. Visibility is the session-local `useRightPanel.drawerOpen()`
+ *  signal — dismissing the drawer on a handheld is not the same volatility as
  *  toggling the desktop chrome preference (see `useRightPanel.ts`).
  *
  *  On desktop the right panel is hosted by a `@corvu/resizable`
  *  `Resizable` wired up in `App.tsx` — the outer horizontal split between
  *  the canvas and the panel. Both visibility seams — desktop uncollapse
- *  and mobile drawer-open — are dispatched imperatively from
+ *  and touch-layout drawer-open — are dispatched imperatively from
  *  `openInCodeTab` itself; there is no `on(pendingOpen, ...)` subscriber
  *  here for the same reason.
  *

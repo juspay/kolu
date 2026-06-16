@@ -44,7 +44,7 @@ import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
-import { isMobile, isTouch } from "../useMobile";
+import { isDesktop, isTouch } from "../useMobile";
 import {
   ChevronRightIcon,
   FileBrowseIcon,
@@ -134,9 +134,10 @@ const CodeTab: Component<{
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
 
-  // Coarse-pointer modality (`isTouch`, not `isMobile`): roomier rows are a
-  // tap-target affordance, so a coarse-pointer tablet wider than `sm` wants
-  // them too. The DOM sizing reads it reactively (`(pointer: coarse)` can flip
+  // Coarse-pointer modality (`isTouch`, the input axis — not the `layoutMode`
+  // size/fork axis): roomier rows are a tap-target affordance, so a
+  // coarse-pointer device wants them in every layout (phone, compact, and a
+  // touch desktop). The DOM sizing reads it reactively (`(pointer: coarse)` can flip
   // mid-mount — a 2-in-1 docking/undocking — and `data-touch` should follow),
   // while Pierre's tree density snapshots it (below) because Pierre captures
   // `density` once at construction (like `initialExpansion`), so a reactive
@@ -888,14 +889,15 @@ const CodeTab: Component<{
                   <div
                     class="h-full w-full min-h-0"
                     ref={(el) => {
-                      // Keyed on `isMobile` (the mobile drawer layout), NOT
-                      // `isTouch`: the workaround is for iOS native scroll
-                      // failing to reach Pierre's shadow scroller below the
-                      // *portaled* drawer (see pierreTouchScroll.ts). A touch
-                      // tablet on the desktop split uses the non-portaled
-                      // Resizable panel where native scroll works — attaching
-                      // the driver there would preventDefault working scroll.
-                      if (isMobile()) attachPierreTouchScroll(el);
+                      // Keyed on the drawer-hosted layouts (`!isDesktop()` —
+                      // phone + compact), NOT `isTouch`: the workaround is for
+                      // iOS native scroll failing to reach Pierre's shadow
+                      // scroller below the *portaled* drawer (see
+                      // pierreTouchScroll.ts). The desktop split hosts the tree
+                      // in the non-portaled Resizable panel where native scroll
+                      // works — attaching the driver there would preventDefault
+                      // working scroll.
+                      if (!isDesktop()) attachPierreTouchScroll(el);
                     }}
                   >
                     <FileTree

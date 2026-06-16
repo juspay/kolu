@@ -419,10 +419,19 @@ const ciArgs = [
   "--headless=new",
 ];
 
+/** The touch-context viewport. A phone (`@mobile`) is a tall 390×844; a roomy
+ *  touch device (`@compact` — a Z Fold 6 unfolded, a tablet) is a near-square
+ *  900×1000 that clears the `sm` breakpoint so `layoutMode` resolves to
+ *  `compact` rather than `phone`. Both run with `hasTouch + isMobile`, which
+ *  flips the primary pointer to `(pointer: coarse) and (hover: none)`. */
+const PHONE_VIEWPORT = { width: 390, height: 844 };
+const COMPACT_VIEWPORT = { width: 900, height: 1000 };
+
 async function newScenarioPage(
   isMobile: boolean,
   chrome: "app" | "browser",
   vp: { width: number; height: number } = X11_VIEWPORT,
+  touchViewport: { width: number; height: number } = PHONE_VIEWPORT,
 ): Promise<{ context: BrowserContext; page: Page }> {
   // KOLU_X11CAP app-mode: a frameless `--app=` window (the installed-PWA look)
   // needs its own persistent context — Playwright drives the page Chrome opens
@@ -461,7 +470,7 @@ async function newScenarioPage(
       // KOLU_X11CAP browser-chrome: viewport null → the page fills the headful
       // window (sized by the launch args, i.e. 2560×1440 physical).
       viewport: isMobile
-        ? { width: 390, height: 844 }
+        ? touchViewport
         : X11CAP
           ? null
           : EVIDENCE
@@ -780,9 +789,15 @@ Before(async function (this: KoluWorld, scenario) {
   ]);
 
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
-  // mounts the mobile drag handle). Without the tag, scenarios run in the
-  // desktop context unchanged.
-  const isMobile = scenario.pickle.tags.some((t) => t.name === "@mobile");
+  // mounts the mobile drag handle). @compact → emulate a roomy touch device
+  // (Z Fold 6 unfolded / tablet): same touch context, but a near-square 900×1000
+  // viewport past the `sm` breakpoint, so `layoutMode` resolves to `compact`.
+  // Both share the touch context; they differ only in viewport size. Without
+  // either tag, scenarios run in the desktop context unchanged.
+  const isCompact = scenario.pickle.tags.some((t) => t.name === "@compact");
+  const isMobile =
+    isCompact || scenario.pickle.tags.some((t) => t.name === "@mobile");
+  const touchViewport = isCompact ? COMPACT_VIEWPORT : PHONE_VIEWPORT;
 
   // KOLU_X11CAP: the recording (keyed by scenario name) decides app-mode vs
   // browser chrome and its capture viewport — read it so the launch + grab match.
@@ -791,7 +806,7 @@ Before(async function (this: KoluWorld, scenario) {
   const vp = rec?.viewport ?? X11_VIEWPORT;
 
   this.browser = browser;
-  const created = await newScenarioPage(isMobile, chrome, vp);
+  const created = await newScenarioPage(isMobile, chrome, vp, touchViewport);
   this.context = created.context;
   this.page = created.page;
   // Disable CSS transitions/animations so Corvu dialogs open/close instantly.

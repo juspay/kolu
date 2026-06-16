@@ -1,23 +1,22 @@
-/** MobileDockDrawer — left-edge swipe drawer carrying the dock
- *  terminal list on mobile.
+/** DockList — the recency-sorted live-terminal list shared by the two touch
+ *  layouts: the phone's left-edge swipe drawer (inlined in `MobileTileView`)
+ *  and the compact layout's persistent left rail (`CompactTileView`).
  *
- *  Mobile mirror of the desktop dock (#903): the dock is the canonical
- *  live-terminal navigator, so on mobile it gets the standard iOS /
- *  Android "navigation drawer" gesture — swipe from the left edge, or
- *  tap the thin left-edge handle, to reveal the terminal list.
+ *  Rows match the desktop bare-dock layout — `[agent] branch [pips] time` over a
+ *  CSS subgrid — but with uniform `py-3` so every tap target clears the iOS /
+ *  Android 44-48 px minimum. No reply input and no xterm buffer tail; the user's
+ *  intent here is "switch to that other terminal", not "respond inline".
  *
- *  Rows match the desktop bare-dock layout — `[agent] branch [pips]
- *  time` over a CSS subgrid — but with uniform `py-3` so every tap
- *  target clears the iOS / Android 44-48 px minimum. No reply input
- *  and no xterm buffer tail; the user's intent here is "switch to
- *  that other terminal", not "respond inline".
+ *  Row order mirrors the desktop dock: same `useDockOrder` singleton, so every
+ *  surface (desktop dock, phone drawer, compact rail) agrees on group order, row
+ *  order, and which rows the activity window hides.
  *
- *  Row order mirrors the desktop dock: same `useDockOrder` singleton,
- *  so the mobile drawer and desktop never disagree on group order, row
- *  order, or which rows are hidden by the activity window. */
+ *  Renders as a fragment (header · scroll list · hidden footer); the host
+ *  supplies a `flex flex-col h-full` container and decides selection semantics —
+ *  the drawer dismisses on select, the rail does not. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
+import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";
@@ -30,19 +29,10 @@ import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
 
-const MobileDockDrawer: Component<{
-  onSelect: (id: TerminalId) => void;
-  onClose: () => void;
-}> = (props) => {
+export function DockList(props: { onSelect: (id: TerminalId) => void }) {
   const tree = useDockOrder();
-
-  function handleSelect(id: TerminalId) {
-    props.onSelect(id);
-    props.onClose();
-  }
-
   return (
-    <div data-testid="mobile-dock-sheet" class="flex flex-col h-full">
+    <>
       <div class="px-3 py-2 border-b border-edge/50 shrink-0">
         <span class="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-fg-3">
           Terminals
@@ -50,7 +40,9 @@ const MobileDockDrawer: Component<{
       </div>
       <div class="flex-1 min-h-0 overflow-y-auto">
         <For each={tree().groups}>
-          {(group) => <MobileSection group={group} onSelect={handleSelect} />}
+          {(group) => (
+            <DockListSection group={group} onSelect={props.onSelect} />
+          )}
         </For>
       </div>
       <HiddenFooter
@@ -59,9 +51,9 @@ const MobileDockDrawer: Component<{
         testId="mobile-dock-hidden-footer"
         chipTestIdPrefix="mobile-dock-window"
       />
-    </div>
+    </>
   );
-};
+}
 
 /** Repo section — a repo-colored left-edge spine plus a faintly
  *  repo-tinted sticky header (uppercase name + row count) over the
@@ -69,61 +61,66 @@ const MobileDockDrawer: Component<{
  *  classes so both surfaces carry one repo-identity vocabulary.
  *  Always rendered, matching the desktop dock's "section headers
  *  always on" policy. */
-const MobileSection: Component<{
+function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
-}> = (props) => (
+}) {
   // Subgrid container — same shape as the desktop dock. Four cols:
   // agent · branch · sub-count · time. PR pip lives on line 2 (left)
   // alongside the subline, anchored to col 2 left edge so PR icons
   // align across every section.
   //
-  // Mobile right gutter (`pr-3` / `-mr-3`) happens to match the
-  // desktop `DOCK_CARDS_GUTTER_*` value today, but the two are kept
-  // separate because they encode different volatility — mobile's
-  // tight gutter is a touch-density choice, desktop's is the chrome-
-  // density vocabulary. Promote to a shared `MOBILE_DOCK_GUTTER_*`
-  // constant the moment a second file consumes it.
-  <section
-    data-testid="mobile-dock-section"
-    data-repo={props.group.name}
-    style={{ "--repo-color": props.group.color }}
-    class="dock-cards-section grid grid-cols-[20px_minmax(0,1fr)_auto_auto] gap-x-3 pl-6 pr-3"
-  >
-    <div
-      data-testid="mobile-dock-section-header"
-      class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 border-y border-edge/30"
+  // Right gutter (`pr-3` / `-mr-3`) happens to match the desktop
+  // `DOCK_CARDS_GUTTER_*` value today, but the two are kept separate
+  // because they encode different volatility — this tight gutter is a
+  // touch-density choice, desktop's is the chrome-density vocabulary.
+  // Promote to a shared constant the moment a third file consumes it.
+  return (
+    <section
+      data-testid="mobile-dock-section"
+      data-repo={props.group.name}
+      style={{ "--repo-color": props.group.color }}
+      class="dock-cards-section grid grid-cols-[20px_minmax(0,1fr)_auto_auto] gap-x-3 pl-6 pr-3"
     >
-      <span
-        data-testid="mobile-dock-section-name"
-        class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-        style={{ color: "var(--repo-color)" }}
+      <div
+        data-testid="mobile-dock-section-header"
+        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 border-y border-edge/30"
       >
-        {props.group.name}
-      </span>
-      <span class="ml-auto font-mono text-[0.65rem] tabular-nums text-fg-3 shrink-0">
-        {props.group.rows.length}
-      </span>
-    </div>
-    <For each={props.group.rows}>
-      {(row) => (
-        <MobileRow id={row.id} bucket={row.bucket} onSelect={props.onSelect} />
-      )}
-    </For>
-  </section>
-);
+        <span
+          data-testid="mobile-dock-section-name"
+          class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+          style={{ color: "var(--repo-color)" }}
+        >
+          {props.group.name}
+        </span>
+        <span class="ml-auto font-mono text-[0.65rem] tabular-nums text-fg-3 shrink-0">
+          {props.group.rows.length}
+        </span>
+      </div>
+      <For each={props.group.rows}>
+        {(row) => (
+          <DockListRow
+            id={row.id}
+            bucket={row.bucket}
+            onSelect={props.onSelect}
+          />
+        )}
+      </For>
+    </section>
+  );
+}
 
-/** Mobile counterpart to `Dock.tsx`'s `DockRow`. Geometry is shared
+/** Touch counterpart to `Dock.tsx`'s `DockRow`. Geometry is shared
  *  (two-line subgrid, agent slot + branch + sub-count + time on
  *  line 1, PR pip + subline on line 2); the two diverge on touch
  *  target sizing, the Corvu drag-to-dismiss pointer-down trap, and
  *  the absence of a `Cmd+N` shortcut hint. Update both files when
  *  row geometry changes. */
-const MobileRow: Component<{
+function DockListRow(props: {
   id: TerminalId;
   bucket: DockRowBucket;
   onSelect: (id: TerminalId) => void;
-}> = (props) => {
+}) {
   const store = useTerminalStore();
   const combined = createDockRowData(props.id);
   const active = () => store.activeId() === props.id;
@@ -148,7 +145,8 @@ const MobileRow: Component<{
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
           // stopPropagation on pointerdown keeps Corvu Drawer's
-          // drag-to-dismiss from claiming the tap.
+          // drag-to-dismiss from claiming the tap (no-op in the rail,
+          // load-bearing in the phone drawer).
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => props.onSelect(props.id)}
           onKeyDown={(e) => {
@@ -157,7 +155,7 @@ const MobileRow: Component<{
               props.onSelect(props.id);
             }
           }}
-          // Right side stays at the call site because mobile uses
+          // Right side stays at the call site because the touch list uses
           // `-mr-3 pr-3` (12 px) — the tighter touch-gutter — while
           // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
           // side is symmetric between the two surfaces, so it ships
@@ -214,6 +212,4 @@ const MobileRow: Component<{
       )}
     </Show>
   );
-};
-
-export default MobileDockDrawer;
+}

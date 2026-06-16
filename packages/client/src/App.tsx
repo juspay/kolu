@@ -4,10 +4,13 @@
  *  layout. New domain state belongs in a `useXxx.ts` singleton, NOT here; the
  *  `app-shell-stays-thin` code-police rule + `App.shell.test.ts` enforce it.
  *
- *  Per #622 the workspace is mode-less: desktop is always the canvas; mobile
- *  is a single fullscreen tile with swipe nav. Per-terminal chrome (theme
- *  pill, agent indicator, screenshot, split toggle) lives on the tile title
- *  bar via `canvas/TileTitleActions`. The header is intentionally minimal. */
+ *  The workspace mounts one macro layout chosen by `layoutMode` (useMobile):
+ *  desktop is the spatial canvas; phone (below `sm`) is a single fullscreen
+ *  tile; compact (a roomy finger-driven handheld — unfolded foldables, tablets)
+ *  is a two-pane dock rail + active tile. (Per #622 it stays mode-less — one
+ *  layout per form factor, no in-app switch.) Per-terminal chrome (theme pill,
+ *  agent indicator, screenshot, split toggle) lives on the tile title bar via
+ *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
@@ -21,7 +24,7 @@ import {
   Switch,
 } from "solid-js";
 import { Toaster } from "solid-sonner";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
@@ -39,6 +42,7 @@ import { createCommands } from "./commands";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
+import CompactTileView from "./CompactTileView";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
@@ -61,7 +65,7 @@ import { useTerminals } from "./terminal/useTerminals";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
-import { isMobile } from "./useMobile";
+import { isDesktop, layoutMode } from "./useMobile";
 import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
 import { useServerIdentity } from "./useServerIdentity";
@@ -329,10 +333,10 @@ const App: Component = () => {
       />
       {/* Desktop chrome — docked top bar carrying identity and global
        *  controls. The workspace switcher retired in favor of the
-       *  dock's mega level (#903). Mobile has its own
-       *  pull-down sheet (see MobileTileView) and does not render this
+       *  dock's mega level (#903). The touch layouts have their own
+       *  pull-down sheet (see MobileTileView) and do not render this
        *  band. */}
-      <Show when={!isMobile()}>
+      <Show when={isDesktop()}>
         <ChromeBar
           status={wsStatus()}
           onOpenPalette={() => commandPalette.openDialog()}
@@ -399,8 +403,10 @@ const App: Component = () => {
                *  no clickable affordance (#1202). The empty Dock is just its
                *  header; the `relative` parent anchors its tiled-posture float
                *  (`top-12 left-4`), the only posture reachable at zero tiles.
-               *  Mobile keeps its own pull-down nav. */}
-              <Show when={!isMobile()}>
+               *  The touch layouts mount no tile view (and so no pull-down nav)
+               *  at zero terminals — `EmptyState`'s own `onCreate` button is
+               *  their tappable path to the first terminal instead. */}
+              <Show when={isDesktop()}>
                 <Dock {...dockPalette} />
               </Show>
               <EmptyState
@@ -408,30 +414,62 @@ const App: Component = () => {
                 savedSession={session.savedSession() ?? undefined}
                 isRestoring={session.isRestoring()}
                 onRestore={(opts) => void session.handleRestoreSession(opts)}
+                onCreate={dockPalette.onCreate}
               />
             </div>
           </Match>
           <Match when={mode().kind === "workspace"}>
-            {match(isMobile())
-              .with(true, () => (
-                <RightPanelDrawer
-                  terminalId={store.activeId()}
-                  meta={store.activeMeta()}
-                  themeName={activeThemeName()}
-                  onThemeClick={() => commandPalette.openGroup("Set theme")}
-                  contentClass="flex-col"
-                >
-                  <MobileTileView
-                    orderedIds={orderedIds()}
-                    status={wsStatus()}
-                    appTitle={appTitle()}
-                    onOpenPalette={() => commandPalette.openDialog()}
-                    renderBody={renderMobileTileBody}
-                    bottomBar={<MobileKeyBar />}
-                  />
-                </RightPanelDrawer>
-              ))
-              .with(false, () => (
+            {match(layoutMode())
+              .with(P.union("phone", "compact"), (m) => {
+                // One touch host for both handheld layouts: the same
+                // bottom-sheet `RightPanelDrawer` wrapping a touch tile view.
+                // They diverge only on two axes — the phone stacks its single
+                // fullscreen tile in a column (`contentClass="flex-col"`) while
+                // the roomier compact (Z Fold unfolded, tablets) keeps the
+                // default row, and the tile view is `MobileTileView` vs
+                // `CompactTileView`. The inner tile props are identical, so
+                // they live in one `tileProps` object.
+                //
+                // The reactive reads stay GETTERS (not eager calls): Solid's JSX
+                // prop spread preserves the getters (mergeProps-style, not an
+                // eager copy), so each re-runs `orderedIds()` / `wsStatus()` /
+                // `appTitle()` when the tile view reads the prop, and tracks them.
+                // An eager `orderedIds: orderedIds()` would snapshot the value at
+                // mount — a freshly-created terminal would never reach the body's
+                // `<For each={props.orderedIds}>`.
+                const tileProps = {
+                  get orderedIds() {
+                    return orderedIds();
+                  },
+                  get status() {
+                    return wsStatus();
+                  },
+                  get appTitle() {
+                    return appTitle();
+                  },
+                  onOpenPalette: () => commandPalette.openDialog(),
+                  renderBody: renderMobileTileBody,
+                  bottomBar: <MobileKeyBar />,
+                };
+                return (
+                  <RightPanelDrawer
+                    terminalId={store.activeId()}
+                    meta={store.activeMeta()}
+                    themeName={activeThemeName()}
+                    onThemeClick={() => commandPalette.openGroup("Set theme")}
+                    contentClass={m === "phone" ? "flex-col" : undefined}
+                  >
+                    {/* `m` is a fixed match-arm value, not a signal, so a plain
+                     *  ternary picks the tile view — no reactive `<Show>` needed. */}
+                    {m === "phone" ? (
+                      <MobileTileView {...tileProps} />
+                    ) : (
+                      <CompactTileView {...tileProps} />
+                    )}
+                  </RightPanelDrawer>
+                );
+              })
+              .with("desktop", () => (
                 // Desktop host: horizontal `@corvu/resizable` split between
                 // the canvas and the right panel. `sizes=[1, 0]` collapses
                 // the panel to zero width while keeping it mounted — this

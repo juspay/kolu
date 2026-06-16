@@ -1,7 +1,7 @@
 /** Dock row ranking — the single source for "what live terminals does
  *  the dock show, in what order".
  *
- *  Desktop `Dock.tsx`, `MobileDockDrawer.tsx`, and the `Cmd+1..9`
+ *  Desktop `Dock.tsx`, the touch `DockList.tsx`, and the `Cmd+1..9`
  *  keyboard shortcut all read the same `rankDockRows` output, so the
  *  visual row order and the row that a numeric shortcut activates can
  *  never disagree. Without this single source the Alt-held hint chips
