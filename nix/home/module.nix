@@ -75,12 +75,13 @@ in
       default = [ ];
       example = lib.literalExpression ''[ "https://box.tailnet.ts.net" ]'';
       description = ''
-        Extra browser origins allowed to open kolu's WebSocket RPC surface
+        Extra browser origins allowed to reach kolu's unauthenticated RPC
+        surface — both the `/rpc/ws` WebSocket and the `/rpc/*` HTTP handler
         (the `KOLU_ALLOWED_ORIGINS` env var — a Cross-Site WebSocket Hijacking
-        defense). Same-origin requests are always allowed; list additional
-        origins here when a reverse proxy (e.g. `tailscale serve`) serves the
-        UI from a different origin than the `Host` kolu receives. Empty leaves
-        only the same-origin rule.
+        / cross-site-request defense). Same-origin requests are always allowed;
+        list additional origins here when a reverse proxy (e.g. `tailscale
+        serve`) serves the UI from a different origin than the `Host` kolu
+        receives. Empty leaves only the same-origin rule.
       '';
     };
 
