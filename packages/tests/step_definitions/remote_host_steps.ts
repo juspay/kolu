@@ -24,3 +24,17 @@ Then(
     );
   },
 );
+
+/** Wait until the host chip reflects a projected daemon state via its
+ *  `data-host-state` attribute. Asserting "connected" proves the dial walked the
+ *  FULL lifecycle (provisioning → connected) — not merely that a sync-shadow chip
+ *  appeared — and holds the green state on screen for the evidence capture. */
+Then(
+  "the host chip should reach the {string} state",
+  async function (this: KoluWorld, state: string) {
+    const chip = this.page.locator(
+      `[data-testid="terminal-host-chip"][data-host-state="${state}"]`,
+    );
+    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);

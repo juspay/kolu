@@ -33,5 +33,8 @@ Feature: Remote host — kolu dials a remote over ssh
     # the tile titlebar): the host chip is then fully visible — which also asserts
     # it survives the posture change, and gives the evidence capture a clean frame.
     When I press the maximize toggle shortcut
-    Then the active terminal should show host chip "localhost"
+    # Wait for the dial to walk provisioning → connected: the chip's health dot
+    # turns green. This is the real payoff (a live remote terminal), proves the
+    # full dial lifecycle, and holds the green state for the evidence capture.
+    Then the host chip should reach the "connected" state
     And there should be no page errors
