@@ -671,6 +671,7 @@ describe("outstandingBackgroundTasks", () => {
             type: "tool_result",
             tool_use_id: "tu-paste",
             content:
+              // biome-ignore lint/suspicious/noTemplateCurlyInString: literal fixture — pasted user content that merely contains the characters of a template placeholder, not an unfilled template.
               "content: `Workflow launched in background. Task ID: ${taskId}`",
           },
         ],

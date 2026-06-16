@@ -691,7 +691,6 @@ export function isContractVersionCompatible(
  *  Keeping it here lets a browser-reached common module value-import it
  *  without dragging `@orpc/server` into the client bundle. */
 export function composeSurfaceContracts<
-  // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   const E extends Record<string, Surface<any>>,
 >(
   entries: E,
@@ -704,7 +703,6 @@ export function composeSurfaceContracts<
 } {
   const surface: Record<string, unknown> = {};
   for (const [key, s] of Object.entries(entries)) {
-    // biome-ignore lint/suspicious/noExplicitAny: contract walk-by-string
     surface[key] = (s.contract as any).surface;
   }
   return { surface } as {

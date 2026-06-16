@@ -218,6 +218,7 @@ function projectB(a: SourceA) {
         // B.log fixes the upstream node id ("a") in the projection, so B's
         // `log` takes no input and is a valid static resource.
         log: deriveStream(
+          // biome-ignore lint/suspicious/noConfusingVoidType: `void` is the surface's no-input encoding — pins this stream's input type to match the `StreamHandlerDeps<void, …>` slot it derives.
           (_input: void, opts) => client.surface.nodeLog.get({ id: "a" }, opts),
           (line) => line,
         ),

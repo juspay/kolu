@@ -97,10 +97,13 @@
         // every signal change.
         "useSolidForComponent": "error"
       },
-      // Each disable below is a Phase-1 scoping decision. Re-enabling is the
-      // charter of a follow-up PR (one per rule class) — additive, not
-      // structural. The baseline stays `recommended: true` so rules
-      // promoted in future Biome releases surface on the next upgrade.
+      // `ci::biome` runs with `--error-on-warnings`, so there is no silent
+      // advisory tier: every `recommended` rule either fails the build or is
+      // explicitly turned off here (or scoped off in `overrides`) with the
+      // reason it stays advisory. The baseline stays `recommended: true` so
+      // rules promoted in future Biome releases surface on the next upgrade —
+      // and, because the gate is strict, must be triaged (fix or off) in the
+      // PR that bumps Biome rather than accruing as invisible debt (#1362).
       "suspicious": {
         // Terminal code legitimately parses ANSI escape sequences —
         // the rule is a permanent false positive against xterm diagnostics.
@@ -115,6 +118,17 @@
         // Tailwind `!important` overrides are intentional in kolu's
         // rare CSS escape-hatches.
         "noImportantStyles": "off"
+      },
+      "style": {
+        // The `!` non-null assertion is a sanctioned escape hatch here:
+        // `Map.get(k)` after a `.has(k)` guard, array indices the surrounding
+        // code proves present, and similar spots where the value is known
+        // non-null. Replacing them with runtime guards would only add branches
+        // that can never execute. The load-bearing safety rules
+        // (noFloatingPromises, noMisusedPromises, noImportCycles) are promoted
+        // to `error` separately — `!` carries no such hazard, so it stays off
+        // rather than advisory-but-unenforced.
+        "noNonNullAssertion": "off"
       },
       "correctness": {
         // Project-domain rule: 293 sites of bare relative imports that
@@ -138,6 +152,26 @@
     }
   },
   "overrides": [
+    {
+      // `defineSurface`'s generic machinery is a library over *heterogeneous*
+      // descriptor maps: `Record<string, CellSpec<any, any>>` and the mapped
+      // types that walk it. `unknown` can't stand in — a concrete
+      // `CellSpec<Note>` is not assignable to `CellSpec<unknown>` in these
+      // invariant container/constraint positions, so the spec object a caller
+      // writes would stop type-checking. The `any`s are confined to this one
+      // file — the generic type plumbing plus the single runtime
+      // `(contract as any).surface` walk-by-string in `composeSurfaceContracts`
+      // — and every value flows through Zod schemas at the edges, so the rule is
+      // scoped off here rather than repo-wide.
+      "includes": ["packages/surface/src/define.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
     {
       // Test code uses idioms production code doesn't: async generators
       // that throw before yielding (error-path tests) and assign-in-expr

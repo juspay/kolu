@@ -357,11 +357,15 @@ body {
 }
 
 /* Reduced motion: hold the ants / comet still — the themed ring still reads,
- * it just stops moving. */
+ * it just stops moving. The `[data-aura]` qualifier is load-bearing: the
+ * per-state animations are declared at `[data-canvas-tile][data-aura="…"]`
+ * specificity (0,3,1), so a bare `[data-canvas-tile] .tile-aura` reset (0,2,1)
+ * would lose the cascade and never actually stop the motion. Match the
+ * animating selectors' specificity so this override wins. */
 @media (prefers-reduced-motion: reduce) {
-  [data-canvas-tile] .tile-aura,
-  [data-canvas-tile] .tile-aura::before,
-  [data-canvas-tile] .tile-aura::after {
+  [data-canvas-tile][data-aura] .tile-aura,
+  [data-canvas-tile][data-aura] .tile-aura::before,
+  [data-canvas-tile][data-aura] .tile-aura::after {
     animation: none;
   }
 }

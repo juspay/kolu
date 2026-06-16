@@ -160,10 +160,12 @@ surface-app-example-build: install
 fmt: install
     {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
 
-# Biome lint — recommended preset with each currently-noisy rule explicitly
-# off in biome.jsonc. Each disabled rule has a follow-up PR slot (#710).
+# Biome lint — recommended preset with each deliberately-advisory rule
+# explicitly off (with a reason) in biome.jsonc. `--error-on-warnings` makes
+# the gate fail on *any* warning, not just errors, so warning-severity lint
+# debt can no longer accrue invisibly on master (#1362).
 biome: install
-    {{ nix_shell }} biome lint .
+    {{ nix_shell }} biome lint --error-on-warnings .
 
 
 # Atlas sync gate. The check lives in the docs/atlas module

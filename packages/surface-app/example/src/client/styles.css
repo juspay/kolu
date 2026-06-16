@@ -54,9 +54,6 @@ body {
 .rail .sep {
   color: #4a4f59;
 }
-.rail .muted {
-  color: var(--dim);
-}
 .rail .srv {
   color: var(--good);
 }

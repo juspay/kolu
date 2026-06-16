@@ -693,7 +693,7 @@ Then(
     // froze on the pre-edit body for >20 s under the post-build storm.
     await pollFor({
       observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
-      isDone: (text) => text !== null && text.includes(expected),
+      isDone: (text) => text?.includes(expected) ?? false,
       onTimeout: (last) =>
         new Error(
           `iframe preview never contained "${expected}"; last body text: ${JSON.stringify(last)}`,
@@ -966,7 +966,7 @@ Then(
     // CI load, like the iframe preview above.
     await pollFor({
       observe: () => md.textContent({ timeout: 1_000 }).catch(() => null),
-      isDone: (text) => text !== null && text.includes(expected),
+      isDone: (text) => text?.includes(expected) ?? false,
       onTimeout: (last) =>
         new Error(
           `markdown preview never contained "${expected}"; last text: ${JSON.stringify(last)}`,

@@ -302,6 +302,7 @@ describe("stdio link over loopback", () => {
     // uncaught error during a test fails the run, so the green run IS the
     // evidence nothing escaped — strip the `.catch` in `framedSend` and this
     // test errors with the exact teardown-time `write EPIPE`.
+    // biome-ignore lint/correctness/noUnusedVariables: read only as a type via `typeof contract` below — this test drives the link itself, not the contract value, so the runtime binding is intentionally unused.
     const contract = { ping: oc.input(z.object({})).output(z.string()) };
 
     const read = new PassThrough(); // never fed — the request stays in flight

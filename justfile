@@ -72,13 +72,20 @@ _dev: install _dev-parallel
 [parallel]
 _dev-parallel: server client
 
-# Run TypeScript type checking + Biome lint across all packages — fast static-correctness gate
+# Run TypeScript type checking + Biome lint across all packages — fast static-correctness gate.
+# Typecheck stays inline; the lint half delegates to ci::biome so the gate flag
+# lives in exactly one recipe and local==CI is guaranteed by construction.
+# `--no-deps` skips ci::biome's own `install` dep — our top-level `install` already
+# ran the same `pnpm install`, so this avoids a redundant second install.
 check: install
-    {{ nix_shell }} sh -c 'pnpm typecheck && biome lint .'
+    {{ nix_shell }} pnpm typecheck
+    just --no-deps ci::biome
 
-# Biome lint only — mirrors ci::biome. Format stays on Prettier for now (see biome.jsonc).
+# Biome lint only — delegates to ci::biome, the single source of truth for the gate.
+# `install` runs here (node_modules must exist for a cold `just lint`); `--no-deps`
+# then skips ci::biome's duplicate install dep.
 lint: install
-    {{ nix_shell }} biome lint .
+    just --no-deps ci::biome
 
 # Run server with auto-reload. Honors KOLU_DEV_SERVER_PORT if set (e.g. by
 # `just dev`), otherwise the server CLI falls back to its default port.
