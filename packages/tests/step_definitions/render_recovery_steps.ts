@@ -14,11 +14,12 @@ interface RenderProbeWindow {
 When(
   "I stall the focused terminal's render loop",
   async function (this: KoluWorld) {
-    await this.page.evaluate((sel) => {
+    await this.page.evaluate(async (sel) => {
       const el = document.querySelector(sel);
       const term = (
         el as unknown as {
           __xterm?: {
+            options?: { cursorBlink?: boolean };
             onRender(cb: () => void): { dispose(): void };
             _core?: {
               _renderService?: {
@@ -35,6 +36,16 @@ When(
       const w = window as unknown as RenderProbeWindow;
       w.__paintCount = 0;
       w.__syncRefreshes = 0;
+      // Turn OFF the cursor blink for the stall. Kolu runs xterm with
+      // `cursorBlink: true` (Terminal.tsx), so the cursor repaints every
+      // ~600ms INDEPENDENT of buffer output — and it paints through the cursor
+      // path, NOT the `refreshRows` the swallow below intercepts. On a slow
+      // runner a blink tick landing during the `waitForBufferContains` wait in
+      // the "screen has not repainted" assertion bumps `__paintCount` to a
+      // non-zero, flaking it (#320). Disabling blink removes that output-
+      // independent paint source; the `the window regains focus` path tests the
+      // FORCED sync repaint, which blink has nothing to do with.
+      if (term.options) term.options.cursorBlink = false;
       // NOTE on the `__name`-avoidance shapes below: esbuild's keep-names
       // transform decorates any NAME-INFERRED function (an arrow assigned to a
       // variable/property, or an object-literal value) with a `__name(...)`
@@ -74,6 +85,19 @@ When(
         },
       ];
       rs.refreshRows = swallow[0];
+      // Drain any render already in flight when this step ran — a frame queued
+      // by the terminal's focus/creation can paint AFTER `onRender` is attached,
+      // counting against a stall it predates. Two rAFs outlast one queued frame;
+      // re-zero after, so `__paintCount` measures ONLY paints the output that
+      // follows causes (and there should be none — its refresh is swallowed).
+      // This can't mask the bug: an output-driven paint happens later, after
+      // this reset, and still counts.
+      await new Promise((resolve) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => resolve(undefined)),
+        ),
+      );
+      w.__paintCount = 0;
     }, ACTIVE_TERMINAL);
   },
 );
