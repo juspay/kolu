@@ -98,17 +98,17 @@ export function buildWatcherServer(
     // field set otherwise shared via @kolu/terminal-dag's initialServerMeta.
     const meta = initialServerMeta(cwd, { pr: { kind: "absent" } });
     const record: ProviderRecord = { pid, meta, currentAgent: null };
-    publishMeta(id, { ...meta });
+    publishMeta(id, meta);
 
     const hooks: ProviderHooks = {
       log,
       updateServerMetadata: (_record, mutate) => {
         mutate(meta);
-        publishMeta(id, { ...meta });
+        publishMeta(id, meta);
       },
       updateServerLiveMetadata: (_record, mutate) => {
         mutate(meta);
-        publishMeta(id, { ...meta });
+        publishMeta(id, meta);
       },
       // No activity feed on the watcher — recent-repos/agents are kolu-server's
       // cross-terminal MRUs, derived browser-side. The DAG omits them safely.
@@ -124,7 +124,7 @@ export function buildWatcherServer(
       signal,
       (m) => {
         meta.cwd = m.cwd;
-        publishMeta(id, { ...meta });
+        publishMeta(id, meta);
         channels.cwd.publish(m.cwd);
       },
     );
@@ -201,42 +201,42 @@ export function buildWatcherServer(
         source: (input, signal) =>
           forwardStream(
             kaval.client.surface.terminalAttach.get(input, { signal }),
-            signal ?? new AbortController().signal,
+            signal,
           ),
       },
       cwd: {
         source: (input, signal) =>
           forwardStream(
             kaval.client.surface.cwd.get(input, { signal }),
-            signal ?? new AbortController().signal,
+            signal,
           ),
       },
       title: {
         source: (input, signal) =>
           forwardStream(
             kaval.client.surface.title.get(input, { signal }),
-            signal ?? new AbortController().signal,
+            signal,
           ),
       },
       commandRun: {
         source: (input, signal) =>
           forwardStream(
             kaval.client.surface.commandRun.get(input, { signal }),
-            signal ?? new AbortController().signal,
+            signal,
           ),
       },
       foreground: {
         source: (input, signal) =>
           forwardStream(
             kaval.client.surface.foreground.get(input, { signal }),
-            signal ?? new AbortController().signal,
+            signal,
           ),
       },
       exit: {
         source: (input, signal) =>
           forwardStream(
             kaval.client.surface.exit.get(input, { signal }),
-            signal ?? new AbortController().signal,
+            signal,
           ),
       },
       // fs change notifications — re-served from the host's parcel watchers.
@@ -244,7 +244,7 @@ export function buildWatcherServer(
         source: (input, signal) =>
           tickStream(
             (onChange) => fs.subscribeRepoChange(input.repoPath, onChange),
-            signal ?? new AbortController().signal,
+            signal,
           ),
       },
       fileChange: {
@@ -252,7 +252,7 @@ export function buildWatcherServer(
           tickStream(
             (onChange) =>
               fs.subscribeFileChange(input.repoPath, input.filePath, onChange),
-            signal ?? new AbortController().signal,
+            signal,
           ),
       },
     },
@@ -304,8 +304,12 @@ export function buildWatcherServer(
     },
   });
 
+  // Spread here, not at the call sites: the collection upsert needs a fresh
+  // object reference for change detection, but that is the collection's concern,
+  // not every publisher's — so the per-terminal `meta` it owns is copied once,
+  // here, rather than spread at each of the four publish sites.
   publishMeta = (id, meta) =>
-    fragment.ctx.collections.terminalMetadata.upsert(id, meta);
+    fragment.ctx.collections.terminalMetadata.upsert(id, { ...meta });
   dropMeta = (id) => fragment.ctx.collections.terminalMetadata.remove(id);
 
   // Pick up terminals already alive on an adopted kaval (a watcher restart, or

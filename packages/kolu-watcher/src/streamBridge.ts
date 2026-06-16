@@ -18,16 +18,16 @@
  *  kaval's snapshot-then-delta framing for the absorbed streams. */
 export async function* forwardStream<T>(
   source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
-  signal: AbortSignal,
+  signal: AbortSignal | undefined,
 ): AsyncGenerator<T> {
   try {
     const iterable = await source;
     for await (const value of iterable) {
-      if (signal.aborted) return;
+      if (signal?.aborted) return;
       yield value;
     }
   } catch (err) {
-    if (signal.aborted) return;
+    if (signal?.aborted) return;
     throw err;
   }
 }
@@ -39,7 +39,7 @@ export async function* forwardStream<T>(
  *  so a tick carries no payload, only "something changed, read again". */
 export async function* tickStream(
   subscribe: (onChange: () => void) => () => void,
-  signal: AbortSignal,
+  signal: AbortSignal | undefined,
 ): AsyncGenerator<Record<string, never>> {
   let pending = false;
   let wake: (() => void) | null = null;
@@ -49,15 +49,15 @@ export async function* tickStream(
     wake = null;
   };
   const unsubscribe = subscribe(notify);
-  signal.addEventListener("abort", notify, { once: true });
+  signal?.addEventListener("abort", notify, { once: true });
   try {
-    while (!signal.aborted) {
+    while (!signal?.aborted) {
       if (!pending) {
         await new Promise<void>((resolve) => {
           wake = resolve;
         });
       }
-      if (signal.aborted) return;
+      if (signal?.aborted) return;
       pending = false;
       yield {};
     }
