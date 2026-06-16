@@ -32,7 +32,13 @@ export type TerminalKey = {
  *  `TerminalIdentity` (with `id`) is only required by `computeTerminalKeys`
  *  because it returns a Map keyed by id. Splitting these lets `terminalKey`
  *  be called from places (e.g. `buildTerminalDisplayInfos`) that don't yet
- *  know the id, without forcing them to fabricate one. */
+ *  know the id, without forcing them to fabricate one.
+ *
+ *  NOT to be confused with the terminal record's P3 `location` field
+ *  (`{ hostId }` on `ServerPersistedTerminalFieldsSchema`): that is the
+ *  *which host* discriminator used for endpoint resolution, whereas this
+ *  `TerminalLocation` is the *which repo/cwd* display projection feeding
+ *  the workspace-switcher label. Two different axes, same English word. */
 export type TerminalLocation = {
   git: GitInfo | null;
   cwd: string;

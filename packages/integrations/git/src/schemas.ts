@@ -96,6 +96,11 @@ export type GitBaseRef = z.infer<typeof GitBaseRefSchema>;
 export const GitStatusInputSchema = z.object({
   repoPath: z.string(),
   mode: GitDiffModeSchema,
+  /** Host whose endpoint serves this repo (P3, kaval-sessions). Absent ⇒
+   *  local. The server resolves the owning `TerminalEndpoint` from it, so
+   *  a remote terminal's Code tab reads fs/git over the ssh link instead
+   *  of this machine. Omitted by pre-P3 clients ⇒ local ⇒ unchanged. */
+  hostId: z.string().optional(),
 });
 
 export const GitStatusOutputSchema = z.object({
@@ -116,6 +121,8 @@ export const GitDiffInputSchema = z.object({
   /** Original path before rename/copy — passed from the file list so
    *  getDiff can read old content at the correct path. */
   oldPath: z.string().optional(),
+  /** Host whose endpoint serves this repo (P3). Absent ⇒ local. */
+  hostId: z.string().optional(),
 });
 
 /** Raw parts needed by the client-side diff renderer (`@pierre/diffs`'s
@@ -151,6 +158,8 @@ export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
 export const FsListAllInputSchema = z.object({
   /** Absolute path to the repo root. */
   repoPath: z.string(),
+  /** Host whose endpoint serves this repo (P3). Absent ⇒ local. */
+  hostId: z.string().optional(),
 });
 
 export const FsListAllOutputSchema = z.object({
@@ -169,6 +178,8 @@ export const FsReadFileInputSchema = z.object({
   repoPath: z.string(),
   /** Path relative to repo root. */
   filePath: z.string(),
+  /** Host whose endpoint serves this repo (P3). Absent ⇒ local. */
+  hostId: z.string().optional(),
 });
 
 /** Discriminated by `kind`. Text files yield their content; binary-
