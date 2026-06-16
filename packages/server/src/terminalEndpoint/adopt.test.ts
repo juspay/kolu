@@ -46,6 +46,7 @@ const sentinel: SavedTerminal = {
     selectedFileByMode: { local: "a.ts", branch: "b.ts", browse: "c.ts" },
   },
   intent: "sentinel intent line\nsecond line",
+  location: { hostId: "sentinel-host" },
 };
 
 describe("adoption preserves the whole record — the #1275 lossy-adoption class", () => {
