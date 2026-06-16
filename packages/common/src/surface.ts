@@ -211,6 +211,14 @@ export const ServerPersistedTerminalFieldsSchema = z.object({
    *  semantic-key transition (`kind`/`sessionId`/`state`). Idle terminals
    *  stay at `0` and fall back to canvas position. */
   lastActivityAt: z.number().default(0),
+  /** Which host this terminal's PTY lives on (P3, kaval-sessions).
+   *  Absent ⇒ local — old sessions and every pre-P3 terminal deserialize
+   *  as local, so the field is optional rather than defaulted. `hostId`
+   *  matches a `daemonStatus` collection key; the client resolves the
+   *  tile's endpoint and host chip from it, and survives a restart of a
+   *  host that is currently down (the tile renders its host tag before
+   *  the dial reconnects). */
+  location: z.object({ hostId: z.string() }).optional(),
 });
 
 /**

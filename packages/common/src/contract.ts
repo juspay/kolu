@@ -40,6 +40,13 @@ export const TerminalCreateInputSchema = z
   .object({
     cwd: z.string().optional(),
     parentId: TerminalIdSchema.optional(),
+    /** Target host the terminal is spawned on. Omitted (or `"local"`)
+     *  spawns on this kolu-server's local kaval — the only host before
+     *  P3 (kaval-sessions). A non-local hostId routes the spawn to a
+     *  remote endpoint dialed over ssh; it matches a `daemonStatus`
+     *  collection key. Additive/optional so existing callers are
+     *  unchanged. */
+    hostId: z.string().optional(),
   })
   .merge(InitialTerminalMetadataSchema);
 

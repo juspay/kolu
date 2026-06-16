@@ -77,6 +77,13 @@ export interface PtySpawnOpts {
   cwd?: string;
   parentId?: string;
   initialMetadata?: InitialTerminalMetadata;
+  /** Host the PTY is spawned on (P3, kaval-sessions). Absent ⇒ local.
+   *  The lifecycle layer resolves the owning endpoint from this before
+   *  calling `spawnPty`; the local endpoint ignores it (absent == local),
+   *  a remote endpoint dials the matching host. Persisted onto the
+   *  terminal record's `location` so kill/attach/restore route back to
+   *  the same endpoint. */
+  hostId?: string;
 }
 
 /** Control surface for one running terminal. Read/write on the PTY and
