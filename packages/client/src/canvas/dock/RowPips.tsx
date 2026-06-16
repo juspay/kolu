@@ -1,10 +1,12 @@
 /** Presence pips that ride on every dock row.
  *
- *  Three independent change axes share this file because each
+ *  Several independent change axes share this file because each
  *  produces a small JSX cell consumed identically by both the
  *  desktop dock and the mobile drawer. The file groups them so the
- *  two callers can `import { StatePip, PrPip, SubCountCell }`
- *  rather than reach into three single-export modules:
+ *  two callers can `import { StatePip, PrPip, RemotePip, SubCountCell }`
+ *  rather than reach into separate single-export modules
+ *  (`RemotePip` names a remote terminal's host + health dot — line 2,
+ *  beside `PrPip`; renders nothing for a local terminal):
  *
  *    - `StatePip` (row-state-only visualization) — first grid
  *      column. Always renders a cell so subgrid placement stays
@@ -46,6 +48,12 @@
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import { type Component, createMemo, Match, Show, Switch } from "solid-js";
+import {
+  clientDaemonState,
+  DAEMON_STATE_PRESENTATION,
+  LOCAL_HOST,
+  toneDot,
+} from "../../kaval/useDaemonStatus";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
@@ -94,6 +102,39 @@ export const PrPip: Component<{ meta: TerminalMetadata }> = (props) => {
             {(checks) => <ChecksIndicator status={checks()} />}
           </Show>
         </a>
+      )}
+    </Show>
+  );
+};
+
+/** Inline remote-host pip — names the machine a remote terminal runs on, with
+ *  that host's health dot (green connected · amber provisioning · red
+ *  unreachable), mirroring the tile title bar's HostChip. Renders nothing for a
+ *  local terminal, so the dock marks remote rows without touching local ones. */
+export const RemotePip: Component<{ meta: TerminalMetadata }> = (props) => {
+  const hostId = (): string | undefined => {
+    const h = props.meta.location?.hostId;
+    return h && h !== LOCAL_HOST ? h : undefined;
+  };
+  return (
+    <Show when={hostId()}>
+      {(h) => (
+        <span
+          data-testid="dock-row-host-pip"
+          class="flex items-center gap-1 text-fg-3 shrink-0"
+          title={`Runs on ${h()}`}
+        >
+          <span
+            class={`h-[6px] w-[6px] rounded-full ${
+              toneDot[
+                DAEMON_STATE_PRESENTATION[
+                  clientDaemonState(h()) ?? "connecting"
+                ].tone
+              ]
+            }`}
+          />
+          {h()}
+        </span>
       )}
     </Show>
   );

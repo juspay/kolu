@@ -84,7 +84,13 @@ import { chipInitials } from "./chipInitials";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
+import {
+  createDockRowData,
+  PrPip,
+  RemotePip,
+  StatePip,
+  SubCountCell,
+} from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
 
@@ -495,6 +501,7 @@ const DockRow: Component<{
            *  process title, or an invisible placeholder keeping the
            *  row two-line tall). */}
           <div class="col-start-2 col-end-[-1] flex items-center gap-1.5 min-w-0">
+            <RemotePip meta={c().meta} />
             <PrPip meta={c().meta} />
             <Show
               when={rowSubline(c().meta)}

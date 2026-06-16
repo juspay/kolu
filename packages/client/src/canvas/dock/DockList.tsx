@@ -25,7 +25,13 @@ import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
+import {
+  createDockRowData,
+  PrPip,
+  RemotePip,
+  StatePip,
+  SubCountCell,
+} from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
 
@@ -181,6 +187,7 @@ function DockListRow(props: {
            *  the left (anchored to col 2 left edge so it aligns
            *  across every section), subline text following. */}
           <div class="col-start-2 col-end-[-1] flex items-center gap-1.5 min-w-0">
+            <RemotePip meta={c().meta} />
             <PrPip meta={c().meta} />
             <Show
               when={rowSubline(c().meta)}
