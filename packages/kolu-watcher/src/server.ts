@@ -50,6 +50,11 @@ export interface BuildWatcherServerOptions {
   /** The host-local kaval the watcher forwards pty verbs/taps to. */
   kaval: HostKaval;
   log: Logger;
+  /** The user's LOGIN PATH on the host (P3), captured by `bin.ts`. When set it
+   *  OVERRIDES the path in `system.info` so a remote PTY gets the user's normal
+   *  tools instead of the watcher's restricted Nix PATH. Undefined ⇒ serve
+   *  kaval's reported path unchanged (the pre-P3 behaviour + tests). */
+  loginPath?: string;
 }
 
 export interface WatcherServer {
@@ -69,7 +74,7 @@ interface ProviderLifecycle {
 export function buildWatcherServer(
   opts: BuildWatcherServerOptions,
 ): WatcherServer {
-  const { kaval, log } = opts;
+  const { kaval, log, loginPath } = opts;
   const { fs, git } = makeFsGit(log);
 
   const metaStore = new Map<TerminalId, TerminalMetadata>();
@@ -285,7 +290,14 @@ export function buildWatcherServer(
       system: {
         version: ({ input }) => kaval.client.surface.system.version(input),
         heartbeat: ({ input }) => kaval.client.surface.system.heartbeat(input),
-        info: ({ input }) => kaval.client.surface.system.info(input),
+        // Override kaval's reported PATH with the user's LOGIN PATH (P3) so a
+        // remote PTY gets the user's tools, not the watcher's restricted Nix
+        // PATH. `composeRemoteSpawnInput` (kolu-server) consumes `info.path` as
+        // the spawned shell's PATH. Undefined loginPath ⇒ pass through unchanged.
+        info: async ({ input }) => {
+          const i = await kaval.client.surface.system.info(input);
+          return loginPath ? { ...i, path: loginPath } : i;
+        },
       },
       git: {
         getStatus: ({ input }) => git.getStatus(input.repoPath, input.mode),

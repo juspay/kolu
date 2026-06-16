@@ -15,11 +15,44 @@
  * fd 2 for exactly this reason; never `console.log` here.
  */
 
+import { execFileSync } from "node:child_process";
+import os from "node:os";
 import { parseArgs } from "node:util";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import pino from "pino";
 import { connectHostKaval } from "./kavalClient.ts";
 import { buildWatcherServer } from "./server.ts";
+
+/** Capture the user's LOGIN PATH on the host (P3 remote shell parity).
+ *
+ *  A remote PTY otherwise inherits the watcher's restricted Nix PATH
+ *  (node+git+gh) — the watcher is launched over a NON-login ssh session, and
+ *  `kaval.system.info` reports the watcher process's own PATH, which
+ *  `composeRemoteSpawnInput` then hands the spawned shell. The shell's rc still
+ *  sources (the prompt renders), but the user's profile tools (zoxide etc.,
+ *  living in ~/.nix-profile/bin and the like) aren't on PATH because nothing
+ *  added the login dirs. So run the user's LOGIN shell once
+ *  (`<shell> -l -c 'echo "$PATH"'`): /etc/profile + the user's profile build the
+ *  real login PATH (incl. the nix profile dirs), and the watcher serves THAT as
+ *  `system.info.path`. Bounded by a 5s timeout; ANY failure (no shell, hang,
+ *  empty) falls back to the watcher's own PATH — degraded, never worse than
+ *  before. (A `fish` login shell prints `$PATH` space-separated; rare, and the
+ *  non-empty result is still trusted — bash/zsh, the common case, are correct.) */
+function captureLoginPath(log: pino.Logger): string | undefined {
+  const shell = os.userInfo().shell || process.env.SHELL || "/bin/sh";
+  try {
+    const out = execFileSync(shell, ["-l", "-c", 'echo "$PATH"'], {
+      timeout: 5000,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (out.length > 0) return out;
+    log.warn({ shell }, "login PATH capture empty — using watcher PATH");
+  } catch (err) {
+    log.warn({ shell, err }, "login PATH capture failed — using watcher PATH");
+  }
+  return undefined;
+}
 
 const USAGE = `kolu-watcher — kolu's host-resident terminal watcher (P3)
 
@@ -65,7 +98,8 @@ async function main(): Promise<void> {
     socketOverride: values.socket,
     log: (msg) => log.info(msg),
   });
-  const server = buildWatcherServer({ kaval, log });
+  const loginPath = captureLoginPath(log);
+  const server = buildWatcherServer({ kaval, log, loginPath });
 
   let torn = false;
   const teardown = (): void => {
