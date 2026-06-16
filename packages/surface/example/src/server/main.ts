@@ -11,6 +11,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
@@ -19,6 +20,9 @@ import { appRouter } from "./router";
 
 const PORT = Number(process.env.PORT ?? 7700);
 const HOST = process.env.HOST ?? "127.0.0.1";
+// CSWSH gate: same-origin always allowed; `ALLOWED_ORIGINS` lists extra
+// browser origins for a reverse-proxy front-end. See the upgrade handler.
+const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 const DIST_DIR = process.env.KOLU_SURFACE_EXAMPLE_DIST;
 
 const app = new Hono();
@@ -84,6 +88,8 @@ wss.on("connection", (peer) => {
 });
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.startsWith("/rpc/ws")) {
+    // CSWSH gate — reject a cross-site browser Origin before oRPC upgrades.
+    if (gateWsOrigin(req, socket, { allowedOrigins: ALLOWED_ORIGINS })) return;
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
     });

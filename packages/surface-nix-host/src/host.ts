@@ -166,7 +166,22 @@ export function buildAgentCommand(opts: {
   }
   return {
     command: "ssh",
-    args: [...SSH_COMMON_OPTS, ...controlArgv(), opts.host, exe, "--stdio"],
+    // `--` ends ssh's option parsing so the host is ALWAYS read as a
+    // destination, never as an option. Without it a host like
+    // `-oProxyCommand=<cmd>` is parsed by ssh as an option and runs `<cmd>`
+    // via /bin/sh "to establish the connection" — remote code execution from
+    // a hostile host string. The separator closes that structurally for every
+    // caller of this builder, independent of any host-validity check upstream;
+    // a real ssh destination never starts with `-`, so it rejects no
+    // legitimate host. (`opts.host` is a bare positional here, the sink.)
+    args: [
+      ...SSH_COMMON_OPTS,
+      ...controlArgv(),
+      "--",
+      opts.host,
+      exe,
+      "--stdio",
+    ],
   };
 }
 
@@ -187,6 +202,9 @@ export function buildSshProbeCommand(
   }
   return {
     command: "ssh",
-    args: [...SSH_COMMON_OPTS, ...controlArgv(), host, ...remoteArgv],
+    // `--` ends ssh's option parsing so `host` can never be read as an option
+    // (`-oProxyCommand=<cmd>` → RCE). See `buildAgentCommand` for the full
+    // rationale; `host` is the bare-positional sink here too.
+    args: [...SSH_COMMON_OPTS, ...controlArgv(), "--", host, ...remoteArgv],
   };
 }

@@ -9,6 +9,7 @@ import {
   installPwaManifest,
   startWsHeartbeat,
 } from "@kolu/surface-app/server";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -288,6 +289,13 @@ if (clientDist) {
 
 const { host, port } = argv.flags;
 
+// CSWSH defense: extra browser origins (beyond same-origin) allowed to open
+// the unauthenticated `/rpc/ws` RPC surface. Empty by default — loopback +
+// same-origin is the common case; set `KOLU_ALLOWED_ORIGINS` (comma-separated)
+// for a reverse-proxy / `tailscale serve` front-end whose browser origin
+// differs from the `Host` it forwards. See `gateWsOrigin` below.
+const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
+
 // --- pty-host daemon (kaval) endpoint, B2 "the door" ---
 // Flip the topology: instead of running the pty-host in-process and serving it
 // on a socket, the server SPAWNS a `kaval` daemon (always-recycle boot policy)
@@ -394,6 +402,22 @@ wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "", `http://${req.headers.host}`);
   if (url.pathname === "/rpc/ws") {
+    // CSWSH gate: reject a cross-site browser Origin before oRPC ever sees the
+    // socket. The RPC surface is unauthenticated and cookie-less, so without
+    // this any page the operator visits could open `/rpc/ws` and drive every
+    // procedure (create/write terminals). Loopback binding does NOT help — the
+    // attacker page runs in the operator's own browser. Non-browser clients
+    // send no Origin and pass; same-origin UI traffic passes; see
+    // `@kolu/surface/ws-origin`.
+    if (
+      gateWsOrigin(req, socket, {
+        allowedOrigins,
+        onReject: (origin) =>
+          log.warn({ origin }, "rejecting ws upgrade: disallowed Origin"),
+      })
+    ) {
+      return;
+    }
     // Pass the pre-parsed `url` as a 3rd arg so the connection handler reads
     // `pid` without re-parsing `req.url`.
     wss.handleUpgrade(req, socket, head, (ws) => {

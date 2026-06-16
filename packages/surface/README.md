@@ -718,6 +718,31 @@ interface Channel<T> {
 }
 ```
 
+### WebSocket Origin gate (`@kolu/surface/ws-origin`)
+
+The CSWSH (Cross-Site WebSocket Hijacking) defense for the `/rpc/ws` upgrade. A surface RPC socket carries no credentials, so any web page the operator visits could otherwise open `ws://<host>/rpc/ws` and drive the served surface — and **loopback binding does not help**, because the attacker page runs in the operator's own browser. The browser attaches an `Origin` header to the upgrade; this gate verifies it. It's the transport-security sibling of surface-app's `gateStaleSocket` — call it in your `.on("upgrade")` handler, before `handleUpgrade`.
+
+```ts
+gateWsOrigin(req, socket, { allowedOrigins, onReject? }): boolean
+  // true  → rejected (socket destroyed); the caller returns WITHOUT upgrading
+  // false → proceed. Allows: no Origin (non-browser client), same-origin
+  //         (Origin host:port === Host header), or an Origin in allowedOrigins.
+
+isAllowedWsOrigin({ origin, host, allowedOrigins }): boolean  // the pure predicate
+parseAllowedOrigins(raw): string[]  // comma-separated env value → trimmed list
+```
+
+```ts
+server.on("upgrade", (req, socket, head) => {
+  if (req.url?.startsWith("/rpc/ws")) {
+    if (gateWsOrigin(req, socket, { allowedOrigins })) return; // CSWSH gate
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+  } else socket.destroy();
+});
+```
+
+`allowedOrigins` is the consumer's deployment policy — `parseAllowedOrigins` of a `*_ALLOWED_ORIGINS` env var — the escape hatch for a reverse-proxy / `tailscale serve` front-end whose browser origin differs from the `Host` it forwards. Empty leaves only the same-origin rule.
+
 ### Projection (`@kolu/surface/project`)
 
 Derive a surface B from a live client of surface A — a server that's a client (imports the server layer, so it's *not* on the browser-safe root). See [Projection](#projection-a-server-thats-a-client) above.

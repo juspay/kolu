@@ -31,6 +31,7 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { destroyAllSessions, getHostSession } from "@kolu/surface-nix-host";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import { RPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
@@ -40,6 +41,10 @@ import { buildRouter } from "./router";
 const HOST = process.env.HOST ?? "localhost";
 const DRV_PATH = process.env.KOLU_AGENT_DRV;
 const PORT = Number(process.env.PORT ?? 7720);
+// CSWSH gate: this demo binds 0.0.0.0 (below), so the Origin check is what
+// keeps a cross-site page from driving the unauthenticated RPC surface.
+// Same-origin always passes; `ALLOWED_ORIGINS` lists reverse-proxy origins.
+const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 
 /** Tag every parent-side log so `[server]` lines are visually distinct
  *  from `[host:<h> local]` (HostSession) and `[host:<h> remote]`
@@ -129,10 +134,26 @@ async function main(): Promise<void> {
       ) => void;
     }
   ).on("upgrade", (req, socket, head) => {
-    const r = req as { url?: string };
+    const r = req as {
+      url?: string;
+      headers?: { origin?: string | string[]; host?: string | string[] };
+    };
     const s = socket as { destroy: () => void };
     if (r.url !== "/rpc/ws") {
       s.destroy();
+      return;
+    }
+    // CSWSH gate — reject a cross-site browser Origin before oRPC upgrades.
+    // Especially load-bearing here: this demo binds all interfaces.
+    if (
+      gateWsOrigin({ headers: r.headers ?? {} }, s, {
+        allowedOrigins: ALLOWED_ORIGINS,
+        onReject: (origin) =>
+          log(
+            `rejecting ws upgrade: disallowed Origin ${JSON.stringify(origin)}`,
+          ),
+      })
+    ) {
       return;
     }
     wss.handleUpgrade(
