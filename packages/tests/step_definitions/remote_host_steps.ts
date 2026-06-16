@@ -32,8 +32,13 @@ Then(
 Then(
   "the host chip should reach the {string} state",
   async function (this: KoluWorld, state: string) {
+    // Scope to the active canvas tile. The chip renders on BOTH the canvas tile
+    // and the dock's list entry for the same terminal, so a page-global locator
+    // matches two elements once each reaches `connected` (a fast loopback dial
+    // gets both there at once) and Playwright strict mode throws. The active-tile
+    // scope — same as the assertion above — keeps it to the one titlebar chip.
     const chip = this.page.locator(
-      `[data-testid="terminal-host-chip"][data-host-state="${state}"]`,
+      `[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-host-chip"][data-host-state="${state}"]`,
     );
     await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
