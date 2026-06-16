@@ -17,11 +17,7 @@ import { prUnavailableSource } from "kolu-common/surface";
 import type { TerminalMetadata } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
-import {
-  clientDaemonState,
-  LOCAL_HOST,
-  useHostProgress,
-} from "../kaval/useDaemonStatus";
+import { LOCAL_HOST, useHostProgress } from "../kaval/useDaemonStatus";
 import { HostProgressButton } from "./HostProgressPopover";
 import { agentBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
@@ -46,43 +42,30 @@ function remoteHostId(meta: TerminalMetadata): string | undefined {
  *  styling shared with StaleBadge/KavalUpdateBadge; `data-host-state` mirrors
  *  the IdentityRail dot's attribute for e2e + theming. */
 const HostChip: Component<{ hostId: string }> = (props) => {
-  const state = () => clientDaemonState(props.hostId) ?? "connecting";
-  /** One prepared shape — stripped `lines`, derived `latest`, and the
-   *  warming/failed gates — so the chip button and its popover read the same
-   *  object and "which states show/pulse progress" lives in the one
-   *  presentation table, not an inline ternary here. Memoized: several JSX sites
-   *  read it, and a stable `lines` reference keeps the popover's `<For>` from
-   *  re-reconciling. */
+  /** One prepared shape — `state`/`tone`, stripped `lines`, derived `latest`,
+   *  and the warming/failed/inLifecycle gates — so the chip button and its
+   *  popover read the same object and "which states show/pulse progress" lives
+   *  in the one presentation table, not an inline ternary here. Memoized:
+   *  several JSX sites read it, and a stable `lines` reference keeps the
+   *  popover's `<For>` from re-reconciling. */
   const progress = createMemo(() => useHostProgress(props.hostId));
   return (
     <span class="shrink-0 self-center inline-flex items-center gap-1 min-w-0">
       {/* The dot+name button toggles its anchored log; open-state, the trigger
        *  ref, and the stopPropagation plumbing live inside HostProgressButton
        *  (symmetric with PrUnavailableButton), not re-rolled here. */}
-      <HostProgressButton state={state()} progress={progress()} />
-      {/* Live activity hint while dialing — turns a static amber chip into a
-       *  visible "it's building" so a ~minute cold dial doesn't read as a hang.
-       *  Pulses only while `warming`; hidden once connected. Click the chip for
-       *  the full log. */}
-      <Show when={progress().warming && progress().latest}>
+      <HostProgressButton progress={progress()} />
+      {/* The latest dial line beside the chip — turns a static amber chip into a
+       *  visible "it's building" so a ~minute cold dial doesn't read as a hang,
+       *  and on a failed host the last line is the 'why'. Shown only while
+       *  mid-dial (`inLifecycle`); pulses only while `warming` so a dead host
+       *  doesn't read as still working. Click the chip for the full log. */}
+      <Show when={progress().inLifecycle && progress().latest}>
         {(line) => (
           <span
             data-testid="terminal-host-progress-hint"
-            class="text-[9px] text-fg-3 truncate max-w-[16ch] animate-pulse"
-            title={line()}
-          >
-            {line()}
-          </span>
-        )}
-      </Show>
-      {/* Failure reason for a host that has given up (`down`) — the last
-       *  progress line is the 'why'. Rendered WITHOUT the pulse so a dead host
-       *  doesn't read as still working. */}
-      <Show when={progress().failed && progress().latest}>
-        {(line) => (
-          <span
-            data-testid="terminal-host-progress-fail"
             class="text-[9px] text-fg-3 truncate max-w-[16ch]"
+            classList={{ "animate-pulse": progress().warming }}
             title={line()}
           >
             {line()}

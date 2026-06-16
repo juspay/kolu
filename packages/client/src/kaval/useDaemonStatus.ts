@@ -197,9 +197,15 @@ export type HostProgress = {
   /** The host id, so the chip tooltip and the popover header compose the
    *  `${id} — ${label}` string from one object rather than three sites. */
   id: string;
+  /** The host's projected client state — drives the chip's `data-host-state`
+   *  (the e2e + theming hook) straight off this object, no second lookup. */
+  state: ClientDaemonState;
   /** The host's current presentation label (from {@link
    *  DAEMON_STATE_PRESENTATION}) — the second half of that same string. */
   label: string;
+  /** The status-dot tone (from the same presentation row) so the dot reads this
+   *  object instead of re-deriving the tone from `state` a second time. */
+  tone: DaemonTone;
   /** Progress lines with the `[local]`/`[remote]` tag already stripped. */
   lines: string[];
   /** The most-recent line (stripped), or undefined when there's none — the
@@ -210,24 +216,33 @@ export type HostProgress = {
   /** The host has given up (`down`): surface its last line as the failure
    *  reason, without the pulse. */
   failed: boolean;
+  /** Still mid-dial (`warming || failed`) — the single gate the inline hint, the
+   *  chip's open-trigger, and the popover share for "show progress at all", so
+   *  they can't disagree about whether the host is in its lifecycle. */
+  inLifecycle: boolean;
 };
 
 /** The prepared {@link HostProgress} shape for a host — {@link stripProgressTag}
- *  applied exactly once here, plus the warming/failed gates derived from {@link
- *  DAEMON_STATE_PRESENTATION} so every progress-display fact lives in one place.
- *  The chip reads `latest`/`lines`/`warming`/`failed`; the popover renders
- *  `lines` verbatim with no re-stripping. */
+ *  applied exactly once here, plus every display fact (`state`/`tone`/`label`
+ *  and the warming/failed/inLifecycle gates) derived from {@link
+ *  DAEMON_STATE_PRESENTATION} so the chip and popover read this one object and
+ *  re-derive nothing. The popover renders `lines` verbatim with no re-stripping. */
 export function useHostProgress(hostId: string): HostProgress {
   const lines = hostProgress(hostId).map(stripProgressTag);
   const state = clientDaemonState(hostId) ?? "connecting";
   const presentation = DAEMON_STATE_PRESENTATION[state];
+  const warming = presentation.tone === "warming";
+  const failed = presentation.down;
   return {
     id: hostId,
+    state,
     label: presentation.label,
+    tone: presentation.tone,
     lines,
     latest: lines.at(-1),
-    warming: presentation.tone === "warming",
-    failed: presentation.down,
+    warming,
+    failed,
+    inLifecycle: warming || failed,
   };
 }
 
