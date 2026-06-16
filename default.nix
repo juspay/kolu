@@ -80,6 +80,7 @@ let
       ./packages/dag
       ./packages/kaval
       ./packages/kaval-tui
+      ./packages/kolu-watcher
       ./packages/server
       ./packages/client
       ./packages/transcript-core
