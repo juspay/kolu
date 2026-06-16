@@ -204,6 +204,10 @@ export function gateHttpRpcOrigin(
   ) {
     return undefined;
   }
+  // Build the 403 FIRST (the reject signal), then fire the observational
+  // `onReject` — a throwing reporter must never suppress the rejection the
+  // caller returns. Mirrors `gateWsOrigin`'s destroy-before-onReject invariant.
+  const rejected = new Response("cross-site Origin rejected", { status: 403 });
   policy.onReject?.(origin);
-  return new Response("cross-site Origin rejected", { status: 403 });
+  return rejected;
 }
