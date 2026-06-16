@@ -181,6 +181,15 @@ export function hostProgress(hostId: string): string[] {
   return daemonStatusFor(hostId)?.progress ?? [];
 }
 
+/** Drop the `[local]`/`[remote]` source tag the server's `HostSession` prefixes
+ *  onto each progress line — the message already reads clearly and the tag is
+ *  noise in the UI. Co-located with {@link hostProgress} (the data it strips) so
+ *  the producer's prefix format and its stripper share one home; the tag stays
+ *  on the host's stderr deliberately, so this is a display-only projection. */
+export function stripProgressTag(line: string): string {
+  return line.replace(/^\[(?:local|remote)\]\s*/, "");
+}
+
 /** True until the daemon-status stream has produced its FIRST value — i.e. the
  *  status is genuinely unknown, not "up". The canvas gates on this so a `dead`
  *  boot never flashes the normal empty workspace before the first status lands

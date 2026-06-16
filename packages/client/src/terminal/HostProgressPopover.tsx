@@ -10,15 +10,10 @@ import { Portal } from "solid-js/web";
 import {
   type ClientDaemonState,
   DAEMON_STATE_PRESENTATION,
+  stripProgressTag,
 } from "../kaval/useDaemonStatus";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
-
-/** Drop the `[local]`/`[remote]` source tag the server prefixes — the message
- *  already reads clearly, the tag is noise for the user. */
-export function stripProgressTag(line: string): string {
-  return line.replace(/^\[(?:local|remote)\]\s*/, "");
-}
 
 const HostProgressPopover: Component<{
   open: boolean;

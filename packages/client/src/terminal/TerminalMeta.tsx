@@ -22,9 +22,10 @@ import {
   DAEMON_STATE_PRESENTATION,
   hostProgress,
   LOCAL_HOST,
+  stripProgressTag,
   toneDot,
 } from "../kaval/useDaemonStatus";
-import HostProgressPopover, { stripProgressTag } from "./HostProgressPopover";
+import HostProgressPopover from "./HostProgressPopover";
 import { agentBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
