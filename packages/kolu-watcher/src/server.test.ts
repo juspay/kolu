@@ -69,8 +69,11 @@ function makeFakeKaval() {
     },
     procedures: {
       terminal: {
+        // kolu-server mints a UUID terminal id; the watcher's terminalMetadata
+        // collection is keyed by TerminalIdSchema (uuid), so the fake must echo
+        // a real uuid or the keys-stream validation rejects it.
         spawn: ({ input }) => ({
-          id: input.id ?? "fake-terminal",
+          id: input.id ?? crypto.randomUUID(),
           pid: 4242,
           cwd: input.cwd,
         }),
