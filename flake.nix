@@ -103,5 +103,15 @@
             };
           });
         });
+      # The per-system agent .drv maps as JSON, exposed so a FROM-SOURCE dev
+      # server (`just dev`) can export KAVAL_AGENT_DRVS_JSON /
+      # KOLU_WATCHER_AGENT_DRVS_JSON exactly as the Nix wrapper bakes them
+      # (`default.nix` --set-default) — ONE source of truth for prod and dev. The
+      # wrapper carries it for the packaged binary; without exposing it here a
+      # `pnpm dev` server has an EMPTY map and every remote dial fails
+      # ("no kolu-watcher derivation baked for system=…"). Pure eval over all
+      # `systems`, so a CROSS-arch dial still finds the target's drv. Read with
+      # `nix eval --raw .#koluWatcherAgentDrvsJson` (a JSON string, not a drv).
+      inherit kavalAgentDrvsJson koluWatcherAgentDrvsJson;
     };
 }

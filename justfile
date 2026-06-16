@@ -41,6 +41,14 @@ dev SERVER_PORT="" CLIENT_PORT="":
     set -euo pipefail
     export KOLU_DEV_SERVER_PORT="{{ SERVER_PORT }}"
     export KOLU_DEV_CLIENT_PORT="{{ CLIENT_PORT }}"
+    # Populate the per-system agent .drv maps so a FROM-SOURCE dev server can dial
+    # remotes (P2 `kaval-tui --host`, P3 remote watcher) exactly like the packaged
+    # binary — the Nix wrapper bakes these, but `pnpm dev` would otherwise run with
+    # an EMPTY map and every remote dial fails ("no kolu-watcher derivation baked
+    # for system=…"). Eval'd once here (warm: ~instant) and inherited by `server`;
+    # graceful `{}` fallback keeps local-only dev working if eval ever fails.
+    export KOLU_WATCHER_AGENT_DRVS_JSON="$(nix eval --raw .#koluWatcherAgentDrvsJson 2>/dev/null || echo '{}')"
+    export KAVAL_AGENT_DRVS_JSON="$(nix eval --raw .#kavalAgentDrvsJson 2>/dev/null || echo '{}')"
     echo "→ server http://localhost:${KOLU_DEV_SERVER_PORT:-7681}"
     echo "→ client http://localhost:${KOLU_DEV_CLIENT_PORT:-5173}"
     {{ nix_shell }} just _dev
