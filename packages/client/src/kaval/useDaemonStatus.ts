@@ -172,20 +172,12 @@ export function clientDaemonState(
   return state; // connected
 }
 
-/** Recent dial-progress lines for a REMOTE host (P3) — the `nix copy`/realise
- *  output + the remote watcher's stderr the server's `HostSession` accumulated
- *  on the way to this state. The host chip renders these so a minute-long cold
- *  dial shows live activity (and a failure shows why) instead of a static dot.
- *  Empty for the local host and before the first yield. */
-export function hostProgress(hostId: string): string[] {
-  return daemonStatusFor(hostId)?.progress ?? [];
-}
-
 /** Drop the `[local]`/`[remote]` source tag the server's `HostSession` prefixes
  *  onto each progress line — the message already reads clearly and the tag is
- *  noise in the UI. Co-located with {@link hostProgress} (the data it strips) so
- *  the producer's prefix format and its stripper share one home; the tag stays
- *  on the host's stderr deliberately, so this is a display-only projection. */
+ *  noise in the UI. Co-located with {@link useHostProgress} (which applies it to
+ *  every line) so the producer's prefix format and its stripper share one home;
+ *  the tag stays on the host's stderr deliberately, so this is a display-only
+ *  projection. */
 export function stripProgressTag(line: string): string {
   return line.replace(/^\[(?:local|remote)\]\s*/, "");
 }
@@ -228,7 +220,10 @@ export type HostProgress = {
  *  DAEMON_STATE_PRESENTATION} so the chip and popover read this one object and
  *  re-derive nothing. The popover renders `lines` verbatim with no re-stripping. */
 export function useHostProgress(hostId: string): HostProgress {
-  const lines = hostProgress(hostId).map(stripProgressTag);
+  // The server's `HostSession` dial-progress ring (`nix copy`/realise output +
+  // the remote watcher's stderr) — empty for the local host and before the first
+  // status yield — with each line's `[local]`/`[remote]` source tag stripped.
+  const lines = (daemonStatusFor(hostId)?.progress ?? []).map(stripProgressTag);
   const state = clientDaemonState(hostId) ?? "connecting";
   const presentation = DAEMON_STATE_PRESENTATION[state];
   const warming = presentation.tone === "warming";
