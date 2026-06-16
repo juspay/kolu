@@ -145,6 +145,7 @@ vi.mock("../terminal-registry.ts", () => ({
 }));
 
 import { TerminalServerMetadataSchema } from "kolu-common/surface";
+import { surfaceCtx } from "../surfaceCtx.ts";
 import { RemoteTerminalEndpoint, SERVER_META_KEYS } from "./remote.ts";
 
 function makeEndpoint() {
@@ -182,6 +183,13 @@ describe("RemoteTerminalEndpoint", () => {
       meta: { location?: { hostId: string } };
     };
     expect(entry.meta.location).toEqual({ hostId: "prod" });
+    // The seed metadata is published to the collection SYNCHRONOUSLY (not only
+    // once the mirror delivers it post-connect), so the client renders the tile
+    // — and its connecting-screen overlay — during the dial, not seconds later.
+    expect(surfaceCtx.collections.terminalMetadata.upsert).toHaveBeenCalledWith(
+      "term-1",
+      expect.objectContaining({ location: { hostId: "prod" } }),
+    );
   });
 
   // The mirror copies the watcher's server-owned half onto the registry entry

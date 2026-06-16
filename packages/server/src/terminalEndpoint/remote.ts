@@ -326,6 +326,14 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
       handle: proxy,
     };
     registerTerminal(id, entry);
+    // Publish the seed metadata (location.hostId + cwd) to the collection NOW,
+    // synchronously. The client renders a tile only once that terminal has a
+    // `terminalMetadata` entry (`terminalIds = meta.keys().filter(has-metadata)`)
+    // — and the mirror only delivers a remote terminal's metadata AFTER the dial
+    // connects. Without this seed the tile (and its connecting-screen overlay)
+    // wouldn't appear until connect — a multi-second blank on a cold dial. The
+    // mirror's `onRemoteMeta` enriches this same entry (git/agent/…) post-connect.
+    surfaceCtx.collections.terminalMetadata.upsert(id, meta);
     emitTerminalsDirty();
     emitTerminalListChanged();
     void this.spawnAndWire(id, opts, proxy);
