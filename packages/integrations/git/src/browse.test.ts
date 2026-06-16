@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAll, readFile, statFileMtimeMs } from "./browse.ts";
+import { listAll, readFile, readFileBytes, statFileMtimeMs } from "./browse.ts";
 
 describe("listAll", () => {
   let tmpDir: string;
@@ -104,6 +104,50 @@ describe("readFile", () => {
     const result = await readFile(tmpDir, "alias.txt");
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.content).toBe("inside\n");
+  });
+});
+
+describe("readFileBytes (the binary-preview read)", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-readbytes-test-"));
+  });
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns raw bytes as base64, untruncated and undecoded", async () => {
+    // A byte sequence that is NOT valid UTF-8 — the text `readFile` would
+    // U+FFFD-mangle it; `readFileBytes` must round-trip it exactly.
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe]);
+    fs.writeFileSync(path.join(tmpDir, "image.png"), bytes);
+    const result = await readFileBytes(tmpDir, "image.png");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(Buffer.from(result.value.bytesBase64, "base64")).toEqual(bytes);
+  });
+
+  it("applies the same path-traversal guard as readFile", async () => {
+    const result = await readFileBytes(tmpDir, "../../etc/passwd");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("PATH_ESCAPES_ROOT");
+  });
+
+  it("rejects a symlink that escapes the repo root", async () => {
+    const outside = fs.mkdtempSync(
+      path.join(os.tmpdir(), "kolu-readbytes-outside-"),
+    );
+    try {
+      const secret = path.join(outside, "secret.bin");
+      fs.writeFileSync(secret, Buffer.from([0x00, 0x01]));
+      fs.symlinkSync(secret, path.join(tmpDir, "leak.png"));
+      const result = await readFileBytes(tmpDir, "leak.png");
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("PATH_ESCAPES_ROOT");
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });
 

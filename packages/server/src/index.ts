@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
-import { createDirServer } from "@kolu/serve-dir";
+import { contentTypeForPath, createDirServer } from "@kolu/serve-dir";
 import {
   gateStaleSocket,
   installFreshStatic,
@@ -34,7 +34,7 @@ import { log } from "./log.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { listConfiguredHosts } from "./hosts/registry.ts";
 import { ensureLocalEndpoint } from "./ptyHost/index.ts";
-import { endpointFor } from "./terminalEndpoint/registry.ts";
+import { endpointFor, isRemoteHost } from "./terminalEndpoint/registry.ts";
 import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
@@ -224,16 +224,51 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   // decoration, and diff are all repo-relative); switching the injected root
   // to the terminal's `$PWD` (`meta.cwd`) is a one-line change here, deferred
   // because it's a browse-model/decoration product decision, not this refactor.
-  const root = getTerminal(terminalId)?.meta.git?.repoRoot;
+  const entry = getTerminal(terminalId);
+  const root = entry?.meta.git?.repoRoot;
   if (!root) return c.text("terminal has no repo", 404);
 
-  // The agnostic receptacle owns range/content-type/the lexical guard and
-  // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
-  // above) rewrites it downstream for text/html. Range header is read from the
-  // request inside. We inject kolu's realpath guard (`previewRealpathGuard`)
-  // so a repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
-  // rejected with 403 before any byte is read — the stage the lexical guard
-  // inside `@kolu/serve-dir` can't cover.
+  // P3: a REMOTE terminal's file lives on another machine, so `createDirServer`
+  // (which reads kolu-server's OWN filesystem) would 404 — or serve an
+  // unrelated local file at the same path. Proxy the bytes through the watcher
+  // instead: the repo-relative path is the decoded tail, and the watcher's
+  // `readFileBytes` applies the SAME realpath/traversal guard (`assertRealpathUnder`)
+  // on the host before reading a byte. Content-type comes from the agnostic
+  // `contentTypeForPath`, and the artifact-sdk middleware (mounted above on this
+  // prefix) still decorates a text/html response. Video loses range-seeking over
+  // the proxy (the iframe gets the whole file) — an accepted degradation; images,
+  // PDFs, svg, and html all serve correctly.
+  const hostId = entry?.meta.location?.hostId;
+  if (isRemoteHost(hostId)) {
+    try {
+      const filePath = decodeURIComponent(rawTail);
+      const { bytesBase64 } = await endpointFor(hostId).fs.readFileBytes(
+        root,
+        filePath,
+      );
+      return new Response(Buffer.from(bytesBase64, "base64"), {
+        headers: {
+          "content-type": contentTypeForPath(filePath),
+          // The URL is mtime-keyed (`?v=<mtime>`), so a stable file is safe to
+          // cache hard; a change mints a fresh URL.
+          "cache-control": "private, max-age=31536000, immutable",
+        },
+      });
+    } catch (err) {
+      // A guard rejection (PATH_ESCAPES_ROOT), a malformed `%`-tail, or a
+      // missing file → 404, matching serve-dir's behavior for the local path.
+      log.error({ terminalId, hostId, err }, "remote file preview failed");
+      return c.text("file unavailable", 404);
+    }
+  }
+
+  // Local terminal: the agnostic receptacle owns range/content-type/the lexical
+  // guard and returns a Fetch `Response`; the artifact-sdk HTML decorator
+  // (mounted above) rewrites it downstream for text/html. Range header is read
+  // from the request inside. We inject kolu's realpath guard
+  // (`previewRealpathGuard`) so a repo-local symlink escaping the root
+  // (`leak.html -> /etc/passwd`) is rejected with 403 before any byte is read —
+  // the stage the lexical guard inside `@kolu/serve-dir` can't cover.
   return createDirServer(root, previewRealpathGuard(root)).fetch(
     rawTail,
     c.req.raw,

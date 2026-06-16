@@ -127,6 +127,27 @@ export async function readFile(
   }
 }
 
+/** Read a file's RAW bytes (base64-encoded) under the same path-traversal +
+ *  realpath guard as `readFile`. Unlike `readFile` it neither decodes to UTF-8
+ *  nor truncates — it is the binary-preview read (images / PDFs / docs) the
+ *  iframe file route serves. For a REMOTE terminal kolu-server forwards this
+ *  over the watcher so the bytes come from the host the file actually lives on. */
+export async function readFileBytes(
+  repoPath: string,
+  filePath: string,
+  log?: Logger,
+): Promise<GitResult<{ bytesBase64: string }>> {
+  const resolved = await resolveExistingUnder(repoPath, filePath, log);
+  if (!resolved.ok) return resolved as GitResult<{ bytesBase64: string }>;
+  try {
+    const buf = await fsReadFile(resolved.value.abs);
+    return ok({ bytesBase64: buf.toString("base64") });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return err({ code: "GIT_FAILED", message: `Failed to read file: ${msg}` });
+  }
+}
+
 /** Stat a file's mtime in ms-since-epoch, used to cache-bust the iframe URL
  *  for binary previewable kinds. Same path-traversal guard as `readFile`. */
 export async function statFileMtimeMs(

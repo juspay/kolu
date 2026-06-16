@@ -74,7 +74,7 @@ import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
-import { endpointFor, isRemoteHost } from "./terminalEndpoint/registry.ts";
+import { endpointFor } from "./terminalEndpoint/registry.ts";
 // kaval's OWN identity assembler — read in the SERVER process it returns the
 // server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
 // spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
@@ -237,23 +237,13 @@ const koluDeps: Omit<
       read: async (input): Promise<FsReadFileOutput> => {
         const endpoint = endpointFor(input.hostId);
         if (isBinaryPreviewable(input.filePath)) {
-          // The binary preview's `url` is served by the local
-          // `/api/terminals/:id/file/*` route, which reads bytes off
-          // kolu-server's OWN filesystem (`createDirServer(repoRoot)`). For a
-          // REMOTE terminal those bytes live on a different machine, so minting
-          // that URL would 404 — or, worse, silently serve an UNRELATED local
-          // file that happens to share the absolute path. There is no
-          // watcher-proxying preview route yet, so fail CLOSED with a typed
-          // error the Code-tab's `onError` toasts, rather than returning a URL
-          // that resolves against the wrong filesystem. (Text reads already
-          // route correctly over the watcher below; only the binary URL is
-          // local-FS-bound.)
-          if (isRemoteHost(input.hostId)) {
-            throw new ORPCError("NOT_IMPLEMENTED", {
-              message:
-                "Binary/preview files on remote hosts aren't viewable yet",
-            });
-          }
+          // The binary preview's `url` is served by the
+          // `/api/terminals/:id/file/*` route. For a LOCAL terminal that route
+          // reads kolu-server's own filesystem (`createDirServer(repoRoot)`);
+          // for a REMOTE terminal it proxies the bytes through the watcher
+          // (`endpointFor(hostId).fs.readFileBytes`), so the URL resolves
+          // against the host the file lives on either way. `statFileMtimeMs`
+          // already routes over the watcher for the cache-busting `?v=` key.
           const mtimeMs = await endpoint.fs.statFileMtimeMs(
             input.repoPath,
             input.filePath,

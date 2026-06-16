@@ -6,7 +6,7 @@
 // Name generation
 export { randomName } from "memorable-names";
 // File tree browsing
-export { listAll, readFile, statFileMtimeMs } from "./browse.ts";
+export { listAll, readFile, readFileBytes, statFileMtimeMs } from "./browse.ts";
 // Equality predicates for streamed snapshot dedup
 export {
   fsListAllOutputEqual,

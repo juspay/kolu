@@ -401,6 +401,10 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
         withClient(this.session, (c) =>
           c.surface.fs.readFile({ repoPath, filePath }),
         ),
+      readFileBytes: (repoPath, filePath) =>
+        withClient(this.session, (c) =>
+          c.surface.fs.readFileBytes({ repoPath, filePath }),
+        ),
       statFileMtimeMs: (repoPath, filePath) =>
         withClient(this.session, (c) =>
           c.surface.fs.statFileMtimeMs({ repoPath, filePath }),

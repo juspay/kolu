@@ -297,6 +297,8 @@ export function buildWatcherServer(
       fs: {
         listAll: ({ input }) => fs.listAll(input.repoPath),
         readFile: ({ input }) => fs.readFile(input.repoPath, input.filePath),
+        readFileBytes: ({ input }) =>
+          fs.readFileBytes(input.repoPath, input.filePath),
         statFileMtimeMs: async ({ input }) => ({
           mtimeMs: await fs.statFileMtimeMs(input.repoPath, input.filePath),
         }),

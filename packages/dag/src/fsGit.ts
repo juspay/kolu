@@ -24,6 +24,7 @@ import {
   type GitResult,
   listAll,
   readFile,
+  readFileBytes,
   statFileMtimeMs,
   subscribeFileChange,
   subscribeRepoChange,
@@ -76,6 +77,9 @@ export function makeFsGit(log: Logger): {
     },
     async readFile(repoPath, filePath) {
       return unwrapGit(await readFile(repoPath, filePath, log));
+    },
+    async readFileBytes(repoPath, filePath) {
+      return unwrapGit(await readFileBytes(repoPath, filePath, log));
     },
     async statFileMtimeMs(repoPath, filePath) {
       return unwrapGit(await statFileMtimeMs(repoPath, filePath, log));

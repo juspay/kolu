@@ -128,6 +128,14 @@ export interface TerminalEndpointFs {
     repoPath: string,
     filePath: string,
   ): Promise<{ content: string; truncated: boolean }>;
+  /** Raw file bytes (base64) under the same guard as `readFile` — the
+   *  binary-preview read the iframe file route serves. A remote endpoint
+   *  forwards it over the watcher so the bytes come from the host the file
+   *  lives on, not kolu-server's own filesystem. */
+  readFileBytes(
+    repoPath: string,
+    filePath: string,
+  ): Promise<{ bytesBase64: string }>;
   statFileMtimeMs(repoPath: string, filePath: string): Promise<number>;
   subscribeRepoChange(repoPath: string, onChange: () => void): () => void;
   subscribeFileChange(

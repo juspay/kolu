@@ -111,6 +111,13 @@ export const watcherSurface = defineSurface({
         input: RepoFileInputSchema,
         output: z.object({ content: z.string(), truncated: z.boolean() }),
       },
+      // Raw bytes (base64) for the binary preview — kolu-server proxies the
+      // iframe file route through this so a remote image/PDF/doc is served from
+      // the host the file lives on, not kolu-server's own filesystem.
+      readFileBytes: {
+        input: RepoFileInputSchema,
+        output: z.object({ bytesBase64: z.string() }),
+      },
       statFileMtimeMs: {
         input: RepoFileInputSchema,
         output: z.object({ mtimeMs: z.number() }),
