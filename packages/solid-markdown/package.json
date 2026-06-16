@@ -24,7 +24,7 @@
   "dependencies": {
     "@kolu/html-escape": "workspace:*",
     "@kolu/url-shape": "workspace:*",
-    "dompurify": "^3.2.4",
+    "dompurify": "^3.4.9",
     "marked": "^18.0.2",
     "marked-alert": "^2.1.2",
     "marked-footnote": "^1.2.4",
