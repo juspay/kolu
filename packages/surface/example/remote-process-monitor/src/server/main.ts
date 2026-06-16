@@ -30,8 +30,13 @@
 
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
+import {
+  gateWsOrigin,
+  type OriginGateRequest,
+  parseAllowedOrigins,
+  type UpgradeSocket,
+} from "@kolu/surface/ws-origin";
 import { destroyAllSessions, getHostSession } from "@kolu/surface-nix-host";
-import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import { RPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
@@ -134,11 +139,8 @@ async function main(): Promise<void> {
       ) => void;
     }
   ).on("upgrade", (req, socket, head) => {
-    const r = req as {
-      url?: string;
-      headers?: { origin?: string | string[]; host?: string | string[] };
-    };
-    const s = socket as { destroy: () => void };
+    const r = req as OriginGateRequest & { url?: string };
+    const s = socket as UpgradeSocket;
     if (r.url !== "/rpc/ws") {
       s.destroy();
       return;
