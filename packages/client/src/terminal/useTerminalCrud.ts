@@ -107,6 +107,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   async function handleCreate(
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    hostId?: string,
   ): Promise<TerminalId> {
     // The one create chokepoint — keyboard (`Cmd+T`/`Cmd+Enter`), palette
     // "New terminal", the Dock `+`, worktree ops, and session restore's
@@ -119,7 +120,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     // momentarily-stale `current` connection). Creation must wait for
     // `connected` (F3). `throw` (not a silent return) so the restore loop
     // aborts cleanly rather than half-creating.
-    if (refuseIfWarming())
+    // The warming gate checks the TARGET host (P3): a remote terminal must wait
+    // for ITS host's kaval to be connected, not the local one.
+    if (refuseIfWarming(hostId))
       throw new Error("daemon warming: terminal creation deferred");
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
@@ -140,6 +143,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     const info = await client.terminal
       .create({
         cwd,
+        hostId,
         themeName: theme,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
@@ -161,9 +165,11 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
     // Split creation reaches `client.terminal.create` directly (not via
-    // `handleCreate`), so it needs the same warming guard — the split
-    // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
-    if (refuseIfWarming()) return;
+    // `handleCreate`), so it needs the same warming guard — checked against the
+    // parent's host, since a sub-terminal inherits its parent's endpoint (P3).
+    // The split shortcut (Ctrl+`+Shift) and TileTitleActions stay live while
+    // warming. The server inherits the parent's host from `parentId`.
+    if (refuseIfWarming(store.getMetadata(parentId)?.location?.hostId)) return;
     const info = await client.terminal
       .create({ cwd, parentId })
       .catch((err: Error) => {

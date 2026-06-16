@@ -16,7 +16,8 @@ import type { WsStatus } from "../rpc/rpc";
 import { app } from "../wire";
 import { announceReattach } from "./reattachAnnounce";
 
-/** The one host today; R-2's ssh hosts add more keys to the same collection. */
+/** The local host's key. Remote (P3, kaval-sessions) ssh hosts add more keys to
+ *  the same `daemonStatus` collection, keyed by hostId. */
 export const LOCAL_HOST = "local";
 
 /** A daemon state's coarse tone — the warming-up/up/down bucket every display
@@ -24,17 +25,27 @@ export const LOCAL_HOST = "local";
  *  coming up), declared once here rather than re-collapsed at each dot map. */
 export type DaemonTone = "ok" | "warming" | "down";
 
+/** The states a display site renders — the wire `DaemonState` PLUS two
+ *  client-only projections for the ssh-host lifecycle (P3). `provisioning`
+ *  (cold `nix copy` / dialing a remote) and `unreachable` (a remote host that
+ *  dropped) are NEVER on the wire — the `daemonStatus.state` enum stays its 5
+ *  members (so the shared surface, and drishti, are untouched). They are
+ *  derived at read sites from a remote host's wire state by {@link
+ *  clientDaemonState}, so a remote host chip reads "provisioning…/unreachable"
+ *  where a local one would read "starting…/stopped". */
+export type ClientDaemonState = DaemonState | "provisioning" | "unreachable";
+
 /** The single source of truth for "what does daemon state X mean visually."
- *  One row per state, keyed by `DaemonState`, so a new state is a compile-forced
- *  row instead of N independent edits across the dialog, rail, and gate. Every
- *  presentation a consumer needs is derived from this table: the dot class from
- *  `tone` (via {@link toneDot}), the dialog/rail label from `label`, the App.tsx
- *  warming-canvas message from `canvasLabel`, and the DegradedCanvas narrowing
- *  from `down`. The table is client-only — the tones, labels, and Tailwind
- *  classes are projections of the state, not part of the wire
- *  `DaemonStatusSchema`. */
+ *  One row per `ClientDaemonState`, so a new state is a compile-forced row
+ *  instead of N independent edits across the dialog, rail, chip, and gate.
+ *  Every presentation a consumer needs is derived from this table: the dot
+ *  class from `tone` (via {@link toneDot}), the dialog/rail/chip label from
+ *  `label`, the App.tsx warming-canvas message from `canvasLabel`, and the
+ *  DegradedCanvas narrowing from `down`. The table is client-only — the tones,
+ *  labels, and Tailwind classes are projections of the state, not part of the
+ *  wire `DaemonStatusSchema`. */
 export const DAEMON_STATE_PRESENTATION: Record<
-  DaemonState,
+  ClientDaemonState,
   { tone: DaemonTone; label: string; canvasLabel: string; down: boolean }
 > = {
   connecting: {
@@ -65,6 +76,19 @@ export const DAEMON_STATE_PRESENTATION: Record<
     tone: "down",
     label: "not running",
     canvasLabel: "Not running",
+    down: true,
+  },
+  // ── client-only remote projections (P3) ──
+  provisioning: {
+    tone: "warming",
+    label: "provisioning…",
+    canvasLabel: "Provisioning…",
+    down: false,
+  },
+  unreachable: {
+    tone: "down",
+    label: "unreachable — session preserved",
+    canvasLabel: "Unreachable",
     down: true,
   },
 };
@@ -107,14 +131,45 @@ export const wsTone: Record<WsStatus, DaemonTone> = {
  *  through this single helper, so a connection-tone change is made once. */
 export const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
 
+// No explicit `keys` ⇒ the framework subscribes to the collection's SERVER keys
+// stream, so the client tracks EVERY host the server publishes (local + each
+// configured/dialed remote, P3) without the client having to enumerate them.
 const sub = app.collections.daemonStatus.use({
-  keys: () => [LOCAL_HOST],
   onError: (err) => toast.error(`Daemon status error: ${err.message}`),
 });
 
+/** Every host the server is reporting a daemon status for — `["local"]` today,
+ *  plus a key per dialed remote (P3). Drives the per-host chip subscriptions and
+ *  the command-palette recent-hosts list. */
+export function activeHostIds(): string[] {
+  return sub.keys();
+}
+
+/** A host's daemon status, or undefined before its first server yield. Defaults
+ *  to the local host so every existing call site is unchanged. */
+export function daemonStatusFor(hostId = LOCAL_HOST): DaemonStatus | undefined {
+  return sub.byKey(hostId)?.();
+}
+
 /** The local daemon's status, or undefined before the first server yield. */
 export function localDaemonStatus(): DaemonStatus | undefined {
-  return sub.byKey(LOCAL_HOST)?.();
+  return daemonStatusFor(LOCAL_HOST);
+}
+
+/** The CLIENT presentation-state for a host — the wire state for the local host,
+ *  but a remote host's ssh lifecycle projected onto the friendlier P3 labels:
+ *  a remote that is dialing/provisioning reads `provisioning`, and a remote that
+ *  dropped reads `unreachable` (vs the local "starting…/stopped"). Undefined
+ *  before the first yield. The chip + per-tile state read through this. */
+export function clientDaemonState(
+  hostId: string,
+): ClientDaemonState | undefined {
+  const state = daemonStatusFor(hostId)?.state;
+  if (!state) return undefined;
+  if (hostId === LOCAL_HOST) return state;
+  if (state === "connecting" || state === "restarting") return "provisioning";
+  if (state === "degraded" || state === "dead") return "unreachable";
+  return state; // connected
 }
 
 /** True until the daemon-status stream has produced its FIRST value — i.e. the
@@ -125,8 +180,8 @@ export function localDaemonStatus(): DaemonStatus | undefined {
  *  and then snap to DegradedCanvas. `pending` is undefined before `byKey` has a
  *  subscription, which is itself the pre-first-value state, so treat that as
  *  pending too. */
-export function daemonStatusPending(): boolean {
-  return sub.byKey(LOCAL_HOST)?.pending() ?? true;
+export function daemonStatusPending(hostId = LOCAL_HOST): boolean {
+  return sub.byKey(hostId)?.pending() ?? true;
 }
 
 /** The single projection of "is the daemon down, and which kind" — `dead`
@@ -134,8 +189,10 @@ export function daemonStatusPending(): boolean {
  *  up (or still loading, so a brief load never flashes the degraded surface).
  *  Drives the DegradedCanvas gate AND its `state` prop, so the down-sub-union
  *  is named in one place rather than re-derived by an inline ternary. */
-export function downState(): "dead" | "degraded" | undefined {
-  const state = localDaemonStatus()?.state;
+export function downState(
+  hostId = LOCAL_HOST,
+): "dead" | "degraded" | undefined {
+  const state = daemonStatusFor(hostId)?.state;
   if (!state) return undefined;
   // The down-sub-union is whichever states the presentation table marks `down`.
   // Today that is exactly `dead`/`degraded`; the cast holds because no non-down
@@ -170,8 +227,8 @@ export function isWarming(state: DaemonState | undefined): boolean {
  *  would call `client.terminal.create` against the daemon the recycle is about to
  *  kill (or a momentarily-`current` old connection). Terminal creation must wait
  *  for `connected`. */
-export function daemonWarming(): boolean {
-  return isWarming(localDaemonStatus()?.state);
+export function daemonWarming(hostId = LOCAL_HOST): boolean {
+  return isWarming(daemonStatusFor(hostId)?.state);
 }
 
 /** The warming-canvas message for the current daemon state — the verbier,
@@ -181,8 +238,8 @@ export function daemonWarming(): boolean {
  *  and defaults to the boot-`connecting` copy before the first status yield —
  *  the canvas only shows this while `daemonWarming()`, so the default is moot in
  *  practice but keeps the read total without a non-null assertion. */
-export function warmingCanvasLabel(): string {
-  const state = localDaemonStatus()?.state;
+export function warmingCanvasLabel(hostId = LOCAL_HOST): string {
+  const state = daemonStatusFor(hostId)?.state;
   return DAEMON_STATE_PRESENTATION[state ?? "connecting"].canvasLabel;
 }
 
@@ -191,8 +248,8 @@ export function warmingCanvasLabel(): string {
  *  create paths in `useTerminalCrud` call this so the predicate AND the copy
  *  live once; each caller keeps only its own throw-vs-return decision on the
  *  boolean. */
-export function refuseIfWarming(): boolean {
-  if (daemonWarming()) {
+export function refuseIfWarming(hostId = LOCAL_HOST): boolean {
+  if (daemonWarming(hostId)) {
     toast.warning("Daemon is starting — try again in a moment");
     return true;
   }

@@ -216,6 +216,23 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 },
               ]
             : []),
+          // Connect to a remote host over ssh (P3, kaval-sessions): type an ssh
+          // target (alias or user@host) and a terminal opens on that machine.
+          {
+            kind: "value",
+            name: "Connect to host…",
+            description: "Open a terminal on a remote host over ssh",
+            prefill: () => "",
+            placeholder: "ssh target — alias or user@host",
+            validate: (v) => {
+              const t = v.trim();
+              if (t.length === 0) return "Enter an ssh target";
+              if (/\s/.test(t)) return "No spaces in an ssh target";
+              return null;
+            },
+            onSubmit: (target) => deps.handleCreate(undefined, target.trim()),
+            children: () => [],
+          } satisfies PaletteValueInput,
         ];
       },
     },

@@ -14,8 +14,15 @@
 
 import { prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
+import type { TerminalMetadata } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
+import {
+  clientDaemonState,
+  DAEMON_STATE_PRESENTATION,
+  LOCAL_HOST,
+  toneDot,
+} from "../kaval/useDaemonStatus";
 import { agentBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -26,6 +33,35 @@ import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
+
+/** The host a terminal runs on, or undefined when it's local — absence of a
+ *  chip IS the "local" signal, so the chip renders only for remote terminals. */
+function remoteHostId(meta: TerminalMetadata): string | undefined {
+  const hostId = meta.location?.hostId;
+  return hostId && hostId !== LOCAL_HOST ? hostId : undefined;
+}
+
+/** The per-tile host chip (P3): the machine name + a 7px health dot colored
+ *  from that host's projected daemon state. Reuses the warning-pill chip
+ *  styling shared with StaleBadge/KavalUpdateBadge; `data-host-state` mirrors
+ *  the IdentityRail dot's attribute for e2e + theming. */
+const HostChip: Component<{ hostId: string }> = (props) => {
+  const state = () => clientDaemonState(props.hostId) ?? "connecting";
+  const presentation = () => DAEMON_STATE_PRESENTATION[state()];
+  return (
+    <span
+      data-testid="terminal-host-chip"
+      data-host-state={state()}
+      class="shrink-0 self-center inline-flex items-center gap-1 rounded-full border border-border px-1.5 text-[9px] leading-4 text-fg-2"
+      title={`Runs on ${props.hostId} — ${presentation().label}`}
+    >
+      <span
+        class={`h-[7px] w-[7px] rounded-full ${toneDot[presentation().tone]}`}
+      />
+      {props.hostId}
+    </span>
+  );
+};
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
@@ -67,6 +103,12 @@ const TerminalMeta: Component<{
             </Show>
             <Show when={info().meta.git?.isWorktree}>
               <WorktreeBadge />
+            </Show>
+            {/* Host chip (P3): present ONLY for a remote terminal — its absence
+             *  means local. Names the machine; the dot carries that host's
+             *  health (green connected · amber provisioning · red unreachable). */}
+            <Show when={remoteHostId(info().meta)}>
+              {(hostId) => <HostChip hostId={hostId()} />}
             </Show>
             {/* Foreground process title — OSC 2 string when present.
              *  Replaces what used to be the cwd slot; cwd is now a

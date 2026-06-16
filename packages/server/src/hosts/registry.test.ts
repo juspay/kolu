@@ -47,9 +47,14 @@ describe("listConfiguredHosts", () => {
 });
 
 describe("hostConfigFor", () => {
-  it("returns undefined for an unconfigured host", () => {
+  it("returns undefined for an empty / local hostId (not a remote dial)", () => {
+    expect(hostConfigFor("")).toBeUndefined();
+    expect(hostConfigFor("local")).toBeUndefined();
+  });
+
+  it("dials an unconfigured hostId AS the ssh target verbatim (ad-hoc hosts)", () => {
     vi.stubEnv("KOLU_HOSTS_JSON", JSON.stringify({ prod: "nix@prod" }));
-    expect(hostConfigFor("staging")).toBeUndefined();
+    expect(hostConfigFor("nix@adhoc-box")?.host).toBe("nix@adhoc-box");
   });
 
   it("returns the ssh target + a deferred resolveDrvPath for a configured host", () => {

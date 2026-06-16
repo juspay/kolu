@@ -72,15 +72,19 @@ export function listConfiguredHosts(): ConfiguredHost[] {
   return Object.entries(map).map(([hostId, host]) => ({ hostId, host }));
 }
 
-/** Resolve a host's dial config, or `undefined` if `hostId` isn't configured.
- *  Validates the drv map eagerly (so a config error throws here, synchronously),
- *  leaving only the per-host arch probe deferred. */
+/** Resolve a host's dial config. A `hostId` in KOLU_HOSTS_JSON dials its named
+ *  ssh target; any OTHER non-empty hostId is dialed AS the ssh target verbatim
+ *  (so a user can type `nix@box` straight into the palette without pre-config —
+ *  KOLU_HOSTS_JSON just provides friendly aliases). Returns undefined only for
+ *  an empty/local hostId. Validates the drv map eagerly (a config error throws
+ *  here, synchronously), leaving only the per-host arch probe deferred. */
 export function hostConfigFor(hostId: string): HostDialConfig | undefined {
+  if (!hostId || hostId === "local") return undefined;
   const found = listConfiguredHosts().find((h) => h.hostId === hostId);
-  if (!found) return undefined;
+  const host = found?.host ?? hostId;
   const drvBySystem = watcherDrvBySystem();
   return {
-    host: found.host,
-    resolveDrvPath: () => resolveWatcherAgentDrv(found.host, drvBySystem),
+    host,
+    resolveDrvPath: () => resolveWatcherAgentDrv(host, drvBySystem),
   };
 }
