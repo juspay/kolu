@@ -19,6 +19,7 @@
  * arch probe stays deferred (`resolveWatcherAgentDrv`).
  */
 
+import { LOCAL_HOST_ID } from "../ptyHost/index.ts";
 import { resolveWatcherAgentDrv } from "./watcherDrv.ts";
 
 export interface ConfiguredHost {
@@ -79,7 +80,7 @@ export function listConfiguredHosts(): ConfiguredHost[] {
  *  an empty/local hostId. Validates the drv map eagerly (a config error throws
  *  here, synchronously), leaving only the per-host arch probe deferred. */
 export function hostConfigFor(hostId: string): HostDialConfig | undefined {
-  if (!hostId || hostId === "local") return undefined;
+  if (!hostId || hostId === LOCAL_HOST_ID) return undefined;
   const found = listConfiguredHosts().find((h) => h.hostId === hostId);
   const host = found?.host ?? hostId;
   const drvBySystem = watcherDrvBySystem();
