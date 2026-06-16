@@ -30,17 +30,14 @@ import {
 } from "@kolu/surface/server";
 import {
   bridgeStream,
+  initialServerMeta,
   makeFsGit,
   type ProviderChannels,
   type ProviderHooks,
   type ProviderRecord,
   startProviders,
 } from "@kolu/terminal-dag";
-import type {
-  TerminalId,
-  TerminalMetadata,
-  TerminalServerMetadata,
-} from "kolu-common/surface";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import type { Logger } from "pino";
 import type { HostKaval } from "./kavalClient.ts";
 import { forwardStream, tickStream } from "./streamBridge.ts";
@@ -59,20 +56,6 @@ export interface WatcherServer {
   /** Stop every provider DAG and drop the kaval connection. The durable kaval
    *  daemon is NOT stopped — it outlives this link by design. */
   dispose: () => void;
-}
-
-/** The server-persisted + live fields a freshly-spawned terminal starts with,
- *  before its DAG resolves git/PR/agent. Client-persisted fields (theme, layout,
- *  …) are kolu-server's concern, not the watcher's — absent here (all optional). */
-function initialServerMeta(cwd: string): TerminalServerMetadata {
-  return {
-    cwd,
-    git: null,
-    lastActivityAt: 0,
-    pr: { kind: "absent" },
-    agent: null,
-    foreground: null,
-  };
 }
 
 interface ProviderLifecycle {
@@ -110,7 +93,10 @@ export function buildWatcherServer(
       foreground: inMemoryChannel(),
       git: inMemoryChannel(),
     };
-    const meta = initialServerMeta(cwd);
+    // Watcher seeds `pr: absent`; kolu-server's createMetadata seeds `pending`
+    // (its PR provider is about to poll). The one deliberate difference, the
+    // field set otherwise shared via @kolu/terminal-dag's initialServerMeta.
+    const meta = initialServerMeta(cwd, { pr: { kind: "absent" } });
     const record: ProviderRecord = { pid, meta, currentAgent: null };
     publishMeta(id, { ...meta });
 

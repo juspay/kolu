@@ -29,6 +29,7 @@
  */
 
 import { prValue } from "anyforge/schemas";
+import { initialServerMeta } from "@kolu/terminal-dag";
 import {
   type InitialTerminalMetadata,
   type LiveTerminalFields,
@@ -45,16 +46,15 @@ import type { TerminalProcess } from "../terminal-registry.ts";
 /** Create initial metadata state for a new terminal. `lastActivityAt: 0`
  *  means "no agent transition observed yet" — the only event that lifts
  *  the recency clock. Idle terminals tie at 0 and fall back to canvas
- *  position. */
+ *  position.
+ *
+ *  The server-owned field set comes from `@kolu/terminal-dag`'s shared
+ *  `initialServerMeta` (the same constructor kolu-watcher uses) so the two
+ *  hosts can't fork the default record; kolu-server seeds `pr: pending` (its PR
+ *  provider is about to poll), the one deliberate difference from the watcher's
+ *  `absent`. */
 export function createMetadata(cwd: string): TerminalMetadata {
-  return {
-    cwd,
-    git: null,
-    pr: { kind: "pending" },
-    agent: null,
-    foreground: null,
-    lastActivityAt: 0,
-  };
+  return initialServerMeta(cwd, { pr: { kind: "pending" } });
 }
 
 /** Seed a new terminal's client-persisted metadata from the
