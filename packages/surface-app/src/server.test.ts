@@ -13,7 +13,6 @@
 import { implementSurfaces, inMemoryChannelByName } from "@kolu/surface/server";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import {
   NOTIFICATION_SW_SOURCE,
   STALE_PROCESS_CLOSE_CODE,

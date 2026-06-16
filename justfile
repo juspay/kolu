@@ -66,11 +66,11 @@ _dev-parallel: server client
 
 # Run TypeScript type checking + Biome lint across all packages — fast static-correctness gate
 check: install
-    {{ nix_shell }} sh -c 'pnpm typecheck && biome lint .'
+    {{ nix_shell }} sh -c 'pnpm typecheck && biome lint --error-on-warnings .'
 
-# Biome lint only — mirrors ci::biome. Format stays on Prettier for now (see biome.jsonc).
+# Biome lint only — mirrors ci::biome (warnings fail, matching the CI gate).
 lint: install
-    {{ nix_shell }} biome lint .
+    {{ nix_shell }} biome lint --error-on-warnings .
 
 # Run server with auto-reload. Honors KOLU_DEV_SERVER_PORT if set (e.g. by
 # `just dev`), otherwise the server CLI falls back to its default port.

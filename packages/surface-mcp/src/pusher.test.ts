@@ -131,7 +131,6 @@ describe("ResourcePusher", () => {
   });
 
   it("aborting a single-URI unsubscribe produces no unhandled rejection", async () => {
-    const source = makeSource();
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
       client: () => ({ id: 1 }),

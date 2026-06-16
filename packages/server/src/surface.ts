@@ -49,7 +49,7 @@ import type {
   SavedSession,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { koluSurface, surfaces } from "kolu-common/surface";
+import { type koluSurface, surfaces } from "kolu-common/surface";
 import {
   type FsReadFileOutput,
   fsListAllOutputEqual,
