@@ -351,6 +351,8 @@ export const RecentRepoSchema = z.object({
   repoRoot: z.string(),
   repoName: z.string(),
   lastSeen: z.number(),
+  // P3: host the repo/agent lives on; absent ⇒ local
+  hostId: z.string().optional(),
 });
 
 /** A normalized agent CLI invocation (e.g. "claude --model sonnet").
@@ -363,6 +365,8 @@ export const RecentAgentSchema = z.object({
    *  not pollute the MRU. */
   command: z.string(),
   lastSeen: z.number(),
+  // P3: host the repo/agent lives on; absent ⇒ local
+  hostId: z.string().optional(),
 });
 
 /** Server-derived activity feed: recent repos cd'd into and recent agent

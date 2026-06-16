@@ -56,7 +56,9 @@ import type {
   TerminalEndpointGit,
   TerminalHandle,
 } from "kolu-common/terminalEndpoint";
+import { basename } from "node:path";
 import type { watcherSurface } from "kolu-watcher";
+import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
 import { composeRemoteSpawnInput } from "../ptyHost/index.ts";
@@ -599,6 +601,13 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
       registerTerminal(id, entry);
       emitTerminalListChanged();
     }
+    // Capture the PREVIOUS repo + agent BEFORE the copy loop below overwrites
+    // `entry.meta.git` / `entry.meta.lastAgentCommand`, so the activity-feed
+    // tracking can fire only on a CHANGE (as the local git/agent providers do)
+    // rather than on every status tick the mirror pumps through.
+    const prevRepoRoot = entry.meta.git?.mainRepoRoot;
+    const prevAgentCommand = entry.meta.lastAgentCommand;
+
     // Copy the server-owned half of `remote` as a UNIT (the
     // `TerminalServerMetadata` partition driven off the schema, sans
     // `location`), so a new server/live field rides for free rather than being
@@ -611,6 +620,27 @@ export class RemoteTerminalEndpoint implements TerminalEndpoint {
     }
     entry.meta.location = { hostId: this.opts.hostId };
     surfaceCtx.collections.terminalMetadata.upsert(id, entry.meta);
+
+    // P3: the metadata mirror is the remote endpoint's only hook into the
+    // activity feed (it runs no provider DAG of its own — that lives in the
+    // watcher), so it tracks the remote terminal's repo + agent here, stamped
+    // with this host's `hostId`. Track on CHANGE only, matching the local
+    // git/agent providers: the git provider tracks `mainRepoRoot`/`repoName`
+    // (we mirror that root + key), the agent tracker tracks the normalized
+    // `lastAgentCommand`. Without this, a remote terminal never appears in the
+    // recent-repos / recent-agents feeds (the P3 bug).
+    const git = entry.meta.git;
+    if (git && git.mainRepoRoot !== prevRepoRoot) {
+      trackRecentRepo(
+        git.mainRepoRoot,
+        git.repoName || basename(git.mainRepoRoot),
+        this.opts.hostId,
+      );
+    }
+    const agentCommand = entry.meta.lastAgentCommand;
+    if (agentCommand && agentCommand !== prevAgentCommand) {
+      trackRecentAgent(agentCommand, this.opts.hostId);
+    }
   }
 
   private onRemoteRemove(id: TerminalId): void {

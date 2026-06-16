@@ -48,12 +48,20 @@ function upsertMru<T>(
   return list.slice(0, max);
 }
 
-/** Get recent repos, most-recently-seen first. Filters out repos that no
+/** Get recent repos, most-recently-seen first. Filters out LOCAL repos that no
  *  longer exist on disk and back-writes the trimmed list so subsequent
- *  reads don't re-stat. */
+ *  reads don't re-stat.
+ *
+ *  P3: a REMOTE entry (`hostId !== undefined`) is kept unconditionally — its
+ *  `repoRoot` lives on the remote host's filesystem, not this one, so an
+ *  `existsOnDisk` check against the LOCAL fs would wrongly evict every remote
+ *  repo (the actual P3 bug). We only stat-check local entries; cheaply
+ *  stat-checking a remote host's fs from here isn't possible. */
 function getRecentRepos(): RecentRepo[] {
   const feed = surfaceCtx.cells.activityFeed.get();
-  const live = feed.recentRepos.filter((r) => existsOnDisk(r.repoRoot));
+  const live = feed.recentRepos.filter(
+    (r) => r.hostId !== undefined || existsOnDisk(r.repoRoot),
+  );
   if (live.length < feed.recentRepos.length) {
     surfaceCtx.cells.activityFeed.set({ ...feed, recentRepos: live });
   }
@@ -73,13 +81,20 @@ export function getActivityFeed(): ActivityFeed {
   };
 }
 
-/** Upsert a repo into the recent repos list and publish. */
-export function trackRecentRepo(repoRoot: string, repoName: string): void {
+/** Upsert a repo into the recent repos list and publish. `hostId` is the host
+ *  the repo lives on (P3); absent ⇒ local. The MRU dedup key folds in `hostId`
+ *  so the SAME `repoRoot` on different hosts — or local vs remote — stays a
+ *  DISTINCT entry (a `/code/kolu` on prod must not collapse onto the local one). */
+export function trackRecentRepo(
+  repoRoot: string,
+  repoName: string,
+  hostId?: string,
+): void {
   const feed = surfaceCtx.cells.activityFeed.get();
   const next = upsertMru(
     feed.recentRepos,
-    { repoRoot, repoName, lastSeen: Date.now() },
-    (r) => r.repoRoot,
+    { repoRoot, repoName, lastSeen: Date.now(), hostId },
+    (r) => `${r.hostId ?? ""}\0${r.repoRoot}`,
     (r) => r.lastSeen,
     MAX_RECENT_REPOS,
   );
@@ -89,17 +104,19 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
 /** Upsert a normalized agent command into the recent agents MRU.
  *  Called from `LocalTerminalEndpoint`'s agent-command tracker whenever the preexec OSC 633;E
  *  handler fires with a command whose first token matches a known agent
- *  binary. The `command` string is the normalized form produced by
- *  `parseAgentCommand` — raw prompt text has already been stripped. */
-export function trackRecentAgent(command: string): void {
+ *  binary, and (P3) from `RemoteTerminalEndpoint`'s metadata mirror when a
+ *  remote terminal's `lastAgentCommand` changes. The `command` string is the
+ *  normalized form produced by `parseAgentCommand` — raw prompt text has
+ *  already been stripped. */
+export function trackRecentAgent(command: string, hostId?: string): void {
   const feed = surfaceCtx.cells.activityFeed.get();
   const next = upsertMru(
     feed.recentAgents,
-    { command, lastSeen: Date.now() },
-    (a) => a.command,
+    { command, lastSeen: Date.now(), hostId },
+    (a) => `${a.hostId ?? ""}\0${a.command}`,
     (a) => a.lastSeen,
     MAX_RECENT_AGENTS,
   );
   surfaceCtx.cells.activityFeed.set({ ...feed, recentAgents: next });
-  log.info({ command, total: next.length }, "recent agent tracked");
+  log.info({ command, hostId, total: next.length }, "recent agent tracked");
 }
