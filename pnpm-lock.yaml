@@ -733,6 +733,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
+      '@kolu/surface-nix-host':
+        specifier: workspace:*
+        version: link:../surface-nix-host
       '@kolu/terminal-dag':
         specifier: workspace:*
         version: link:../dag
@@ -802,6 +805,9 @@ importers:
       kolu-transcript-html:
         specifier: workspace:*
         version: link:../transcript-html
+      kolu-watcher:
+        specifier: workspace:*
+        version: link:../kolu-watcher
       pino:
         specifier: ^10.3.1
         version: 10.3.1

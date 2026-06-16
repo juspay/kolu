@@ -74,14 +74,12 @@ import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
-import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
+import { endpointFor } from "./terminalEndpoint/registry.ts";
 // kaval's OWN identity assembler — read in the SERVER process it returns the
 // server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
 // spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
 // *reported* identity, which rides `daemonStatus.identity`, not buildInfo.
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
-
-const localEndpoint = localTerminalEndpoint;
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -205,39 +203,41 @@ const koluDeps: Omit<
   },
 
   streams: {
-    // fs/git streams are per-host one-shot ops bound to this endpoint.
-    // P3 adds remote-endpoint impls behind the same TerminalEndpointFs /
-    // TerminalEndpointGit seam — this block reads them off `localEndpoint`
-    // and never names a host.
+    // fs/git streams resolve their endpoint per-input from `hostId` (P3):
+    // a remote terminal's Code tab reads fs/git over its watcher, a local one
+    // (absent/`"local"` hostId) off the local endpoint — byte-identical to the
+    // pre-P3 path for every existing client, which omits hostId.
     gitStatus: {
       read: async (input) =>
-        localEndpoint.git.getStatus(input.repoPath, input.mode),
+        endpointFor(input.hostId).git.getStatus(input.repoPath, input.mode),
       install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
+        endpointFor(input.hostId).fs.subscribeRepoChange(input.repoPath, cb),
       isEqual: gitStatusOutputEqual,
     },
     gitDiff: {
       read: async (input) =>
-        localEndpoint.git.getDiff(
+        endpointFor(input.hostId).git.getDiff(
           input.repoPath,
           input.filePath,
           input.mode,
           input.oldPath,
         ),
       install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
+        endpointFor(input.hostId).fs.subscribeRepoChange(input.repoPath, cb),
       isEqual: gitDiffOutputEqual,
     },
     fsListAll: {
-      read: async (input) => localEndpoint.fs.listAll(input.repoPath),
+      read: async (input) =>
+        endpointFor(input.hostId).fs.listAll(input.repoPath),
       install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
+        endpointFor(input.hostId).fs.subscribeRepoChange(input.repoPath, cb),
       isEqual: fsListAllOutputEqual,
     },
     fsReadFile: {
       read: async (input): Promise<FsReadFileOutput> => {
+        const endpoint = endpointFor(input.hostId);
         if (isBinaryPreviewable(input.filePath)) {
-          const mtimeMs = await localEndpoint.fs.statFileMtimeMs(
+          const mtimeMs = await endpoint.fs.statFileMtimeMs(
             input.repoPath,
             input.filePath,
           );
@@ -250,14 +250,14 @@ const koluDeps: Omit<
             ),
           };
         }
-        const { content, truncated } = await localEndpoint.fs.readFile(
+        const { content, truncated } = await endpoint.fs.readFile(
           input.repoPath,
           input.filePath,
         );
         return { kind: "text", content, truncated };
       },
       install: (input, cb) =>
-        localEndpoint.fs.subscribeFileChange(
+        endpointFor(input.hostId).fs.subscribeFileChange(
           input.repoPath,
           input.filePath,
           cb,

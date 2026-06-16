@@ -32,7 +32,9 @@ import {
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
+import { listConfiguredHosts } from "./hosts/registry.ts";
 import { ensureLocalEndpoint } from "./ptyHost/index.ts";
+import { endpointFor } from "./terminalEndpoint/registry.ts";
 import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
@@ -303,6 +305,20 @@ await ensureLocalEndpoint({
   onStatus: publishDaemonStatus,
   onAdopted: adoptSurvivingSession,
 });
+
+// Dial every configured remote host (P3, kaval-sessions). Constructing each
+// RemoteTerminalEndpoint pins its ssh session, starts the metadata mirror, and
+// publishes the host's daemonStatus row — so the client sees the host (and any
+// terminals already alive on it adopt back) without an explicit user dial. This
+// is fire-and-forget by construction: an unreachable host folds into the
+// HostSession's own reconnect loop, so a down host never blocks boot.
+for (const { hostId } of listConfiguredHosts()) {
+  try {
+    endpointFor(hostId);
+  } catch (err) {
+    log.error({ hostId, err }, "failed to dial configured host at boot");
+  }
+}
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);

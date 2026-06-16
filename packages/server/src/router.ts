@@ -33,7 +33,7 @@ import {
   terminalNotFound,
   type TerminalProcess,
 } from "./terminal-registry.ts";
-import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
+import { endpointFor } from "./terminalEndpoint/registry.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
 import {
@@ -83,14 +83,19 @@ export const appRouter = t.router({
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>
-      createTerminal(input.cwd, input.parentId, {
-        themeName: input.themeName,
-        canvasLayout: input.canvasLayout,
-        subPanel: input.subPanel,
-        rightPanel: input.rightPanel,
-        lastActivityAt: input.lastActivityAt,
-        intent: input.intent,
-      }),
+      createTerminal(
+        input.cwd,
+        input.parentId,
+        {
+          themeName: input.themeName,
+          canvasLayout: input.canvasLayout,
+          subPanel: input.subPanel,
+          rightPanel: input.rightPanel,
+          lastActivityAt: input.lastActivityAt,
+          intent: input.intent,
+        },
+        input.hostId,
+      ),
     ),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
@@ -147,11 +152,12 @@ export const appRouter = t.router({
      * guarantees no output is lost between snapshot and live stream.
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
-      requireTerminal(input.id);
-      const { snapshot, deltas } = await localTerminalEndpoint.attach(
-        input.id,
-        signal,
-      );
+      const entry = requireTerminal(input.id);
+      // Route attach to the terminal's owning endpoint (a remote terminal
+      // streams over its watcher; absent location ⇒ local).
+      const { snapshot, deltas } = await endpointFor(
+        entry.meta.location?.hostId,
+      ).attach(input.id, signal);
       if (snapshot) yield snapshot;
       for await (const data of deltas) yield data;
     }),

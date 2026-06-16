@@ -22,24 +22,22 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
-// Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
-// before `terminalEndpoint/local.ts` is what makes the surface cycle
-// converge with `localTerminalEndpoint` already initialized by the time
-// the top-level `localEndpoint` reference below reads it. Reversing these
-// two (biome's alphabetical preference) puts the cycle entry-point at the
-// deeper `activity.ts → surface.ts` branch and trips a TDZ on
-// `localTerminalEndpoint`.
+// Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts` before
+// `terminalEndpoint/registry.ts` (which transitively pulls
+// `terminalEndpoint/local.ts`) is what makes the surface cycle converge with
+// `localTerminalEndpoint` already initialized. Reversing these two (biome's
+// alphabetical preference) puts the cycle entry-point at the deeper
+// `activity.ts → surface.ts` branch and trips a TDZ on `localTerminalEndpoint`
+// (#1005). `endpointFor` reads that singleton at CALL time (never module top
+// level), so the registry indirection adds no NEW init-order hazard — but the
+// metadata-before-registry order still has to hold.
 // biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
-import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
+import { allEndpoints, endpointFor } from "./terminalEndpoint/registry.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import type { SessionSnapshot } from "./session.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
-
-// A single local endpoint today. P3 will select the endpoint per call
-// site (e.g. a sub-terminal inheriting its parent's endpoint).
-const localEndpoint = localTerminalEndpoint;
 
 // Re-export registry accessors + type so external callers (router.ts,
 // diagnostics.ts, index.ts) keep a single import path.
@@ -84,14 +82,21 @@ export function createTerminal(
   cwd?: string,
   parentId?: string,
   initial?: InitialTerminalMetadata,
+  hostId?: string,
 ): TerminalInfo {
   const id = crypto.randomUUID();
-  // P3 will select the endpoint per create — e.g. a sub-terminal
-  // inheriting its parent's endpoint; today every terminal is local.
-  return localEndpoint.spawnPty(id, {
+  // Select the endpoint per create (P3): an explicit hostId, else inherit the
+  // parent's host (a sub-terminal opens on the same machine as its parent),
+  // else local. The resolved host is also persisted onto the new terminal's
+  // `location` so kill/attach/restore route back to the same endpoint.
+  const host =
+    hostId ??
+    (parentId ? getTerminal(parentId)?.meta.location?.hostId : undefined);
+  return endpointFor(host).spawnPty(id, {
     cwd,
     parentId,
     initialMetadata: initial,
+    hostId: host,
   });
 }
 
@@ -102,7 +107,9 @@ export function createTerminal(
 export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
-  return localEndpoint.killTerminal(id);
+  // Resolve the owning endpoint from the terminal's persisted host, so a remote
+  // terminal's kill is forwarded to its watcher (absent ⇒ local).
+  return endpointFor(getTerminal(id)?.meta.location?.hostId).killTerminal(id);
 }
 
 /** Set or clear a terminal's parent relationship. */
@@ -250,5 +257,7 @@ export function setTerminalIntent(id: TerminalId, intent: string): void {
  *  scenarios. Async since #951 R4c (awaits the daemon's killAll over the
  *  socket before draining the registry). */
 export async function killAllTerminals(): Promise<void> {
-  await localEndpoint.killAllTerminals();
+  // Fan out across the local endpoint and every dialed remote — each clears its
+  // own terminals from the shared registry.
+  await Promise.all(allEndpoints().map((ep) => ep.killAllTerminals()));
 }
