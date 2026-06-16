@@ -11,7 +11,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
-import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
+import {
+  gateHttpRpcOrigin,
+  gateWsOrigin,
+  parseAllowedOrigins,
+} from "@kolu/surface/ws-origin";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
@@ -31,6 +35,14 @@ const app = new Hono();
 // biome-ignore lint/suspicious/noExplicitAny: see WsRPCHandler note below
 const httpHandler = new RPCHandler(appRouter as any);
 app.use("/rpc/*", async (c, next) => {
+  // CSWSH gate, HTTP arm — same policy as the `/rpc/ws` upgrade below. The HTTP
+  // RPC transport is browser-reachable too (a cross-site `multipart/form-data`
+  // POST deserializes into procedure input with no preflight), so the Origin
+  // check must run on BOTH transports. See `gateHttpRpcOrigin`.
+  const rejected = gateHttpRpcOrigin(c.req.raw, {
+    allowedOrigins: ALLOWED_ORIGINS,
+  });
+  if (rejected) return rejected;
   const { matched, response } = await httpHandler.handle(c.req.raw, {
     prefix: "/rpc",
   });

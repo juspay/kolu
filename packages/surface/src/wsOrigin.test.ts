@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  gateHttpRpcOrigin,
   gateWsOrigin,
   isAllowedWsOrigin,
   parseAllowedOrigins,
@@ -138,5 +139,59 @@ describe("gateWsOrigin", () => {
       ),
     ).toBe(false);
     expect(socket.destroyed).toBe(false);
+  });
+});
+
+describe("gateHttpRpcOrigin", () => {
+  /** Build a real Fetch `Request` the way a browser would emit one, so the
+   *  test exercises the actual `Headers.get` path the gate uses. A cross-site
+   *  `multipart/form-data` POST is a CORS-"simple" request — no preflight — so
+   *  it really would reach the oRPC HTTP codec without this gate. */
+  const formPost = (origin: string | undefined, host: string) =>
+    new Request("http://localhost:7720/rpc/terminal/create", {
+      method: "POST",
+      headers: {
+        host,
+        "content-type": "multipart/form-data; boundary=x",
+        ...(origin !== undefined && { origin }),
+      },
+    });
+
+  it("rejects a cross-site multipart/form-data POST with a 403 (the CSWSH HTTP vector)", () => {
+    const rejections: (string | undefined)[] = [];
+    const res = gateHttpRpcOrigin(
+      formPost("https://evil.example", "localhost:7720"),
+      { allowedOrigins: [], onReject: (o) => rejections.push(o) },
+    );
+    expect(res).toBeInstanceOf(Response);
+    expect(res?.status).toBe(403);
+    expect(rejections).toEqual(["https://evil.example"]);
+  });
+
+  it("proceeds (returns undefined) for a same host:port browser POST", () => {
+    expect(
+      gateHttpRpcOrigin(formPost("http://localhost:7720", "localhost:7720"), {
+        allowedOrigins: [],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("proceeds for a non-browser client with no Origin (CLI, curl, server-to-server)", () => {
+    expect(
+      gateHttpRpcOrigin(formPost(undefined, "localhost:7720"), {
+        allowedOrigins: [],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("honors the explicit allowlist for a reverse-proxy front-end", () => {
+    expect(
+      gateHttpRpcOrigin(
+        formPost("https://box.tailnet.ts.net", "127.0.0.1:7720"),
+        {
+          allowedOrigins: ["https://box.tailnet.ts.net"],
+        },
+      ),
+    ).toBeUndefined();
   });
 });

@@ -718,30 +718,48 @@ interface Channel<T> {
 }
 ```
 
-### WebSocket Origin gate (`@kolu/surface/ws-origin`)
+### RPC Origin gate (`@kolu/surface/ws-origin`)
 
-The CSWSH (Cross-Site WebSocket Hijacking) defense for the `/rpc/ws` upgrade. A surface RPC socket carries no credentials, so any web page the operator visits could otherwise open `ws://<host>/rpc/ws` and drive the served surface — and **loopback binding does not help**, because the attacker page runs in the operator's own browser. The browser attaches an `Origin` header to the upgrade; this gate verifies it. It's the transport-security sibling of surface-app's `gateStaleSocket` — call it in your `.on("upgrade")` handler, before `handleUpgrade`.
+The CSWSH (Cross-Site WebSocket Hijacking) defense for the unauthenticated RPC surface — on **both** transports it travels over. A surface RPC endpoint carries no credentials, so any web page the operator visits could otherwise reach `<host>/rpc/…` and drive the served surface — and **loopback binding does not help**, because the attacker page runs in the operator's own browser. The browser attaches an `Origin` header; these gates verify it. They are the transport-security sibling of surface-app's `gateStaleSocket`.
+
+Gate **both** the `/rpc/ws` upgrade *and* the `/rpc/*` HTTP handler: a WebSocket upgrade is exempt from CORS preflight, and an HTTP RPC call is reachable from a cross-site `multipart/form-data` POST (a CORS-"simple" request that the oRPC codec deserializes straight into procedure input — the attacker can't read the response, but the mutation's side effect already happened). Gating only the socket leaves the HTTP front door open.
 
 ```ts
+// WebSocket — call in your .on("upgrade") handler, before handleUpgrade:
 gateWsOrigin(req, socket, { allowedOrigins, onReject? }): boolean
   // true  → rejected (socket destroyed); the caller returns WITHOUT upgrading
-  // false → proceed. Allows: no Origin (non-browser client), same-origin
-  //         (Origin host:port === Host header), or an Origin in allowedOrigins.
+  // false → proceed.
 
-isAllowedWsOrigin({ origin, host, allowedOrigins }): boolean  // the pure predicate
+// HTTP — call in your /rpc/* middleware, before RPCHandler.handle:
+gateHttpRpcOrigin(req, { allowedOrigins, onReject? }): Response | undefined
+  // Response (403) → rejected; the middleware returns it WITHOUT handling
+  // undefined      → proceed.
+
+// Both allow: no Origin (non-browser client), same host:port (Origin
+// host:port === Host header), or an Origin in allowedOrigins.
+isAllowedWsOrigin({ origin, host, allowedOrigins }): boolean  // the shared predicate
 parseAllowedOrigins(raw): string[]  // comma-separated env value → trimmed list
 ```
 
 ```ts
+// HTTP RPC mount
+app.use("/rpc/*", async (c, next) => {
+  const rejected = gateHttpRpcOrigin(c.req.raw, { allowedOrigins });
+  if (rejected) return rejected; // CSWSH gate (HTTP arm)
+  const { matched, response } = await rpcHandler.handle(c.req.raw, { prefix: "/rpc" });
+  return matched ? response : next();
+});
+
+// WebSocket upgrade
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.startsWith("/rpc/ws")) {
-    if (gateWsOrigin(req, socket, { allowedOrigins })) return; // CSWSH gate
+    if (gateWsOrigin(req, socket, { allowedOrigins })) return; // CSWSH gate (WS arm)
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   } else socket.destroy();
 });
 ```
 
-`allowedOrigins` is the consumer's deployment policy — `parseAllowedOrigins` of a `*_ALLOWED_ORIGINS` env var — the escape hatch for a reverse-proxy / `tailscale serve` front-end whose browser origin differs from the `Host` it forwards. Empty leaves only the same-origin rule.
+`allowedOrigins` is the consumer's deployment policy — `parseAllowedOrigins` of a `*_ALLOWED_ORIGINS` env var — the escape hatch for a reverse-proxy / `tailscale serve` front-end whose browser origin differs from the `Host` it forwards. Empty leaves only the same host:port rule. Both gates share the same value and the same `isAllowedWsOrigin` predicate.
 
 ### Projection (`@kolu/surface/project`)
 

@@ -9,7 +9,11 @@ import {
   installPwaManifest,
   startWsHeartbeat,
 } from "@kolu/surface-app/server";
-import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
+import {
+  gateHttpRpcOrigin,
+  gateWsOrigin,
+  parseAllowedOrigins,
+} from "@kolu/surface/ws-origin";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
@@ -85,6 +89,14 @@ const argv = cli({
 
 const PWA_BACKGROUND_COLOR = "#0c0c0e";
 
+// CSWSH defense: extra browser origins (beyond same-origin) allowed to reach
+// the unauthenticated RPC surface — on BOTH transports, the `/rpc/ws` upgrade
+// and the `/rpc/*` HTTP handler. Empty by default — loopback + same-origin is
+// the common case; set `KOLU_ALLOWED_ORIGINS` (comma-separated) for a
+// reverse-proxy / `tailscale serve` front-end whose browser origin differs
+// from the `Host` it forwards. See `gateWsOrigin` / `gateHttpRpcOrigin` below.
+const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
+
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
@@ -134,6 +146,21 @@ const rpcPlugins = [
 // biome-ignore lint/suspicious/noExplicitAny: see comment above
 const rpcHandler = new RPCHandler(appRouter as any, { plugins: rpcPlugins });
 app.use("/rpc/*", async (c, next) => {
+  // CSWSH gate, HTTP arm: the WebSocket upgrade is NOT the only browser path
+  // into the unauthenticated RPC surface. The oRPC HTTP codec deserializes a
+  // cross-site `multipart/form-data` POST (a CORS-"simple" request, no
+  // preflight) straight into procedure input, and no-input mutations
+  // (`terminal.killAll`, `daemon.restart`) need no body at all — so a page the
+  // operator visits could drive these over plain HTTP even with `/rpc/ws`
+  // gated. Reject a cross-site browser Origin here too, with the SAME policy.
+  // Non-browser clients (no Origin) and same host:port traffic pass; kolu's own
+  // UI never uses this transport (it drives every call over `/rpc/ws`).
+  const rejected = gateHttpRpcOrigin(c.req.raw, {
+    allowedOrigins,
+    onReject: (origin) =>
+      log.warn({ origin }, "rejecting HTTP RPC: disallowed Origin"),
+  });
+  if (rejected) return rejected;
   const { matched, response } = await rpcHandler.handle(c.req.raw, {
     prefix: "/rpc",
     context: {},
@@ -288,13 +315,6 @@ if (clientDist) {
 }
 
 const { host, port } = argv.flags;
-
-// CSWSH defense: extra browser origins (beyond same-origin) allowed to open
-// the unauthenticated `/rpc/ws` RPC surface. Empty by default — loopback +
-// same-origin is the common case; set `KOLU_ALLOWED_ORIGINS` (comma-separated)
-// for a reverse-proxy / `tailscale serve` front-end whose browser origin
-// differs from the `Host` it forwards. See `gateWsOrigin` below.
-const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
 
 // --- pty-host daemon (kaval) endpoint, B2 "the door" ---
 // Flip the topology: instead of running the pty-host in-process and serving it

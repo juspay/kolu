@@ -17,7 +17,11 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { implementSurfaces, publisherChannel } from "@kolu/surface/server";
-import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
+import {
+  gateHttpRpcOrigin,
+  gateWsOrigin,
+  parseAllowedOrigins,
+} from "@kolu/surface/ws-origin";
 import { installSurfaceApp, surfaceAppServer } from "@kolu/surface-app/server";
 import { resolveCommit } from "@kolu/surface-app/vite";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
@@ -119,6 +123,14 @@ const app = new Hono();
 
 const httpHandler = new RPCHandler(appRouter);
 app.use("/rpc/*", async (c, next) => {
+  // CSWSH gate, HTTP arm — same policy as the `/rpc/ws` upgrade below. The HTTP
+  // RPC transport is browser-reachable too (a cross-site `multipart/form-data`
+  // POST deserializes into procedure input with no preflight), so the Origin
+  // check must run on BOTH transports. See `gateHttpRpcOrigin`.
+  const rejected = gateHttpRpcOrigin(c.req.raw, {
+    allowedOrigins: ALLOWED_ORIGINS,
+  });
+  if (rejected) return rejected;
   const { matched, response } = await httpHandler.handle(c.req.raw, {
     prefix: "/rpc",
   });
