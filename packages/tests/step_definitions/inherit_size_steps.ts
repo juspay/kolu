@@ -43,7 +43,7 @@ async function setCanvasLayout(
 }
 
 When(
-  "I resize canvas tile {int} to width {int} and height {int}",
+  "I resize created terminal {int} to width {int} and height {int}",
   async function (this: KoluWorld, index: number, w: number, h: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index} in this scenario`);
@@ -93,62 +93,39 @@ When(
 );
 
 When(
-  "I resize the active canvas tile to width {int} and height {int}",
-  async function (this: KoluWorld, w: number, h: number) {
-    // The active tile is the most recently created one (last in createdTerminalIds).
-    const index = this.createdTerminalIds.length;
+  "I click created terminal {int}",
+  async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
-    assert.ok(id, "No terminals created in this scenario");
-    const current = await this.page.evaluate(
+    assert.ok(id, `No terminal created at index ${index} in this scenario`);
+    // Dispatch mousedown directly (same approach as canvas_steps.ts).
+    await this.page.evaluate(
       ({ sel, tileId }: { sel: string; tileId: string }) => {
-        const inner = document.querySelector(
+        const tile = document.querySelector(
           `${sel} [data-terminal-id="${tileId}"]`,
-        );
-        const tile = inner?.closest("[style*='left']") as HTMLElement | null;
+        ) as HTMLElement | null;
         if (!tile) throw new Error(`Tile for ${tileId} not found`);
-        return {
-          x: parseFloat(tile.style.left),
-          y: parseFloat(tile.style.top),
-        };
+        const rect = tile.getBoundingClientRect();
+        tile.dispatchEvent(
+          new MouseEvent("mousedown", {
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2,
+            bubbles: true,
+          }),
+        );
       },
       { sel: CANVAS_SELECTOR, tileId: id },
     );
-    await setCanvasLayout(this, id, { x: current.x, y: current.y, w, h });
-    await this.page.waitForFunction(
-      ({
-        sel,
-        tileId,
-        wantW,
-        wantH,
-      }: {
-        sel: string;
-        tileId: string;
-        wantW: number;
-        wantH: number;
-      }) => {
-        const inner = document.querySelector(
-          `${sel} [data-terminal-id="${tileId}"]`,
-        );
-        const tile = inner?.closest("[style*='left']") as HTMLElement | null;
-        if (!tile) return false;
-        return (
-          Math.abs(parseFloat(tile.style.width) - wantW) < 1 &&
-          Math.abs(parseFloat(tile.style.height) - wantH) < 1
-        );
-      },
-      { sel: CANVAS_SELECTOR, tileId: id, wantW: w, wantH: h },
-      { timeout: POLL_TIMEOUT },
-    );
+    await this.waitForFrame();
   },
 );
 
 Then(
-  "canvas tile {int} should have width {int} and height {int}",
+  "created terminal {int} should have width {int} and height {int}",
   async function (this: KoluWorld, index: number, w: number, h: number) {
     const dims = await getTileDimensions(this, index);
     assert.ok(
       Math.abs(dims.w - w) < 1 && Math.abs(dims.h - h) < 1,
-      `Expected tile ${index} to be ${w}×${h}, got ${dims.w}×${dims.h}`,
+      `Expected terminal ${index} to be ${w}×${h}, got ${dims.w}×${dims.h}`,
     );
   },
 );

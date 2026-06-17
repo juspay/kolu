@@ -16,7 +16,8 @@ const [pendingSize, setPendingSize] = createSignal<{
 } | null>(null);
 
 /** Store the size to inherit for the next created tile. Called by
- *  `handleCreate` before `setActiveSilently`. */
+ *  `handleCreate` before the create RPC (the server push during the await
+ *  triggers the canvas placement effect, which consumes the signal). */
 export function setInheritSize(size: { w: number; h: number }) {
   setPendingSize(size);
 }
