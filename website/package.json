@@ -16,7 +16,7 @@
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.1.1",
     "@fontsource-variable/jetbrains-mono": "^5.1.2",
-    "astro": "^6.1.10"
+    "astro": "^6.4.6"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.8",
