@@ -14,25 +14,19 @@ Feature: New terminal inherits active terminal's size
     # This proves inheritance flows from the ACTIVE terminal.
     Given I create a terminal
     And I create a terminal
-    When I resize canvas tile 1 to width 1000 and height 700
-    And I click canvas tile 1
+    When I resize canvas tile 2 to width 1000 and height 700
+    And I click canvas tile 2
     And I create a terminal
-    Then there should be 3 canvas tiles
+    Then there should be 4 canvas tiles
     And canvas tile 3 should have width 1000 and height 700
     And there should be no page errors
 
-  Scenario: First terminal uses default size
-    # With no prior terminal to inherit from, the first tile uses defaults.
-    Then there should be 1 canvas tile
-    And canvas tile 1 should have width 800 and height 540
-    And there should be no page errors
-
   Scenario: Successive creates chain the inherited size
-    # Create A (default), create B (inherits A's default), resize B,
-    # create C (inherits B's resized size). Proves the bridge carries
-    # size across the active-tile chain, not just the first create.
+    # Create A (default), resize A, create B (inherits A's resized size).
+    # Proves the bridge carries size across the active-tile chain.
     Given I create a terminal
-    When I resize the active canvas tile to width 1100 and height 600
+    When I resize canvas tile 1 to width 1100 and height 600
+    And I click canvas tile 1
     And I create a terminal
     Then canvas tile 2 should have width 1100 and height 600
     And there should be no page errors

@@ -142,20 +142,6 @@ When(
   },
 );
 
-When(
-  "I click canvas tile {int}",
-  async function (this: KoluWorld, index: number) {
-    const id = this.createdTerminalIds[index - 1];
-    assert.ok(id, `No terminal created at index ${index} in this scenario`);
-    const tile = this.page.locator(
-      `${CANVAS_SELECTOR} [data-terminal-id="${id}"]`,
-    );
-    await tile.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await tile.click();
-    await this.waitForFrame();
-  },
-);
-
 Then(
   "canvas tile {int} should have width {int} and height {int}",
   async function (this: KoluWorld, index: number, w: number, h: number) {

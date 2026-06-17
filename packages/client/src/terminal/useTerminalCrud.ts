@@ -132,6 +132,12 @@ export const useTerminalCrud = createSharedRoot(() => {
       (peerBgs
         ? pickTheme(availableThemes, { spread: true, peerBgs })
         : undefined);
+    // Inherit the active tile's size for the new terminal. Set BEFORE
+    // the create RPC — the server push during the await triggers the
+    // canvas placement effect, which consumes the signal. If we set
+    // after the await, the effect has already run with no size to inherit.
+    const activeLayout = store.activeMeta()?.canvasLayout;
+    if (activeLayout) setInheritSize({ w: activeLayout.w, h: activeLayout.h });
     const info = await client.terminal
       .create({
         cwd,
@@ -146,11 +152,6 @@ export const useTerminalCrud = createSharedRoot(() => {
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;
       });
-    // Inherit the active tile's size for the new terminal. Read BEFORE
-    // `setActiveSilently` — after that call, `activeId` is the new tile
-    // (which has no layout yet), so we'd have nothing to inherit from.
-    const activeLayout = store.activeMeta()?.canvasLayout;
-    if (activeLayout) setInheritSize({ w: activeLayout.w, h: activeLayout.h });
     // `setActiveSilently`: the canvas's cascade-placement effect bumps
     // the centering signal once the new tile's pending layout is set —
     // calling `activate` here would race the layout and read undefined.
