@@ -511,7 +511,7 @@ importers:
         version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
+        version: 1.13.13(ws@8.21.0)
       '@xterm/addon-serialize':
         specifier: ^0.14.0
         version: 0.14.0
@@ -650,13 +650,13 @@ importers:
         version: 1.13.13
       '@orpc/experimental-pino':
         specifier: ^1.13.13
-        version: 1.13.13(pino@10.3.1)(ws@8.20.1)
+        version: 1.13.13(pino@10.3.1)(ws@8.21.0)
       '@orpc/experimental-publisher':
         specifier: ^1.13.13
         version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
+        version: 1.13.13(ws@8.21.0)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -718,8 +718,8 @@ importers:
         specifier: ^5.9.0
         version: 5.9.0
       ws:
-        specifier: ^8.20.1
-        version: 8.20.1
+        specifier: ^8.21.0
+        version: 8.21.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -892,7 +892,7 @@ importers:
         version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
+        version: 1.13.13(ws@8.21.0)
       '@orpc/standard-server':
         specifier: ^1.13.13
         version: 1.13.13
@@ -969,7 +969,7 @@ importers:
         version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
+        version: 1.13.13(ws@8.21.0)
       hono:
         specifier: ^4.12.25
         version: 4.12.25
@@ -980,8 +980,8 @@ importers:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
-        specifier: ^8.20.1
-        version: 8.20.1
+        specifier: ^8.21.0
+        version: 8.21.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1015,7 +1015,7 @@ importers:
         version: link:../surface
       '@orpc/server':
         specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
+        version: 1.13.13(ws@8.21.0)
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1079,7 +1079,7 @@ importers:
     devDependencies:
       '@orpc/server':
         specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
+        version: 1.13.13(ws@8.21.0)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1115,7 +1115,7 @@ importers:
         version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
+        version: 1.13.13(ws@8.21.0)
       hono:
         specifier: ^4.12.25
         version: 4.12.25
@@ -1126,8 +1126,8 @@ importers:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
-        specifier: ^8.20.1
-        version: 8.20.1
+        specifier: ^8.21.0
+        version: 8.21.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1176,7 +1176,7 @@ importers:
         version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
+        version: 1.13.13(ws@8.21.0)
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1213,7 +1213,7 @@ importers:
         version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
-        version: 1.13.13(ws@8.20.1)
+        version: 1.13.13(ws@8.21.0)
       hono:
         specifier: ^4.12.25
         version: 4.12.25
@@ -1224,8 +1224,8 @@ importers:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
-        specifier: ^8.20.1
-        version: 8.20.1
+        specifier: ^8.21.0
+        version: 8.21.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -4160,8 +4160,8 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  ws@8.20.1:
-    resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -4597,7 +4597,7 @@ snapshots:
     dependencies:
       '@hono/node-server': 1.19.13(hono@4.12.25)
       hono: 4.12.25
-      ws: 8.20.1
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -4739,10 +4739,10 @@ snapshots:
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
-  '@orpc/experimental-pino@1.13.13(pino@10.3.1)(ws@8.20.1)':
+  '@orpc/experimental-pino@1.13.13(pino@10.3.1)(ws@8.21.0)':
     dependencies:
       '@orpc/client': 1.13.13
-      '@orpc/server': 1.13.13(ws@8.20.1)
+      '@orpc/server': 1.13.13(ws@8.21.0)
       '@orpc/shared': 1.13.13
       pino: 10.3.1
     transitivePeerDependencies:
@@ -4761,7 +4761,7 @@ snapshots:
 
   '@orpc/interop@1.13.13': {}
 
-  '@orpc/server@1.13.13(ws@8.20.1)':
+  '@orpc/server@1.13.13(ws@8.21.0)':
     dependencies:
       '@orpc/client': 1.13.13
       '@orpc/contract': 1.13.13
@@ -4775,7 +4775,7 @@ snapshots:
       '@orpc/standard-server-peer': 1.13.13
       cookie: 1.1.1
     optionalDependencies:
-      ws: 8.20.1
+      ws: 8.21.0
     transitivePeerDependencies:
       - '@opentelemetry/api'
       - fastify
@@ -6924,7 +6924,7 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  ws@8.20.1: {}
+  ws@8.21.0: {}
 
   xmlbuilder@15.1.1: {}
 
