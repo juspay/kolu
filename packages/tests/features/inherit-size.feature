@@ -20,7 +20,7 @@ Feature: New terminal inherits active terminal's size
     And I click created terminal 1
     And I create a terminal
     Then there should be 4 canvas tiles
-    And created terminal 2 should have width 1000 and height 700
+    And created terminal 3 should have width 1000 and height 700
     And there should be no page errors
 
   Scenario: Successive creates chain the inherited size
