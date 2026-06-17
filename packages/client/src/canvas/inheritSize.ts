@@ -19,7 +19,6 @@ const [pendingSize, setPendingSize] = createSignal<{
  *  `handleCreate` before the create RPC (the server push during the await
  *  triggers the canvas placement effect, which consumes the signal). */
 export function setInheritSize(size: { w: number; h: number }) {
-  console.log('[inheritSize] Setting inherit size:', size);
   setPendingSize(size);
 }
 
@@ -28,7 +27,6 @@ export function setInheritSize(size: { w: number; h: number }) {
  *  no size was pending (first terminal, or creation path that didn't set). */
 export function consumeInheritSize(): { w: number; h: number } | null {
   const size = pendingSize();
-  console.log('[inheritSize] Consuming inherit size:', size);
   setPendingSize(null);
   return size;
 }

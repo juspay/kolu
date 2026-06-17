@@ -137,7 +137,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     // canvas placement effect, which consumes the signal. If we set
     // after the await, the effect has already run with no size to inherit.
     const activeLayout = store.activeMeta()?.canvasLayout;
-    console.log('[handleCreate] Active layout:', activeLayout, 'from activeMeta:', store.activeMeta());
     if (activeLayout) setInheritSize({ w: activeLayout.w, h: activeLayout.h });
     const info = await client.terminal
       .create({
