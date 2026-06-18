@@ -247,6 +247,26 @@ describe("parseAgentCommand", () => {
     );
   });
 
+  // Regression (codex review F2, round 4): a BARE leading `~` whose quoted
+  // remainder contains a LITERAL quote of the opposite type. A shell strips the
+  // delimiters but keeps the literal quote: `~/"Bob's Project"` is the path
+  // `$HOME/Bob's Project` (the `'` is literal content of the `"…"` run), and
+  // `~/'a"b c'` is `$HOME/a"b c` (the `"` is literal content of the `'…'` run).
+  // The earlier blanket `replace(/['"]/g, "")` dropped those literal quotes too,
+  // corrupting the path; `decodeShellLiteral` strips only the delimiters. Each
+  // expected form is bash-verified to re-decode (with `~` expansion) to the
+  // exact path the source command produced.
+  it("preserves a literal quote inside the opposite-type quoted tilde remainder", () => {
+    // `'` is literal content inside `"…"` → it must survive
+    expect(parseAgentCommand(`claude --add-dir ~/"Bob's Project"`)).toBe(
+      `claude --add-dir ~/Bob''\\''s Project'`,
+    );
+    // `"` is literal content inside `'…'` → it must survive
+    expect(parseAgentCommand(`claude --add-dir ~/'a"b c'`)).toBe(
+      `claude --add-dir ~/a'"b c'`,
+    );
+  });
+
   // Regression (codex review F3): a flag value containing an apostrophe is
   // single-quoted with the canonical `'\''` idiom; the normalized form must
   // re-tokenize (via shellSplit, the inverse of shellJoin) back to one token.
@@ -370,6 +390,23 @@ describe("resumeAgentCommand", () => {
     expect(resumeAgentCommand(`claude --add-dir ~/My' Projects'`)).toBe(
       `claude -c --add-dir ~/My' Projects'`,
     );
+  });
+
+  // Regression (codex review F2, round 4): the bare-tilde form carrying a
+  // literal opposite-type quote (`~/Bob''\''s Project'`, produced by
+  // parseAgentCommand for `~/"Bob's Project"`) must survive the resume splice
+  // VERBATIM — the verbatim tail splice keeps the canonical `'\''` idiom and the
+  // bare tilde prefix intact.
+  it("preserves a bare tilde with a literal-quote remainder across the resume splice", () => {
+    const normalized = `claude --add-dir ~/Bob''\\''s Project'`;
+    const resumed = resumeAgentCommand(normalized);
+    expect(resumed).toBe(`claude -c --add-dir ~/Bob''\\''s Project'`);
+    expect(shellSplit(resumed as string)).toEqual([
+      "claude",
+      "-c",
+      "--add-dir",
+      "~/Bob's Project",
+    ]);
   });
 });
 

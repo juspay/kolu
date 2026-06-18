@@ -112,6 +112,39 @@ function basename(s: string): string {
 const SAFE_BARE_CHAR = /[A-Za-z0-9@%_+=:,./~-]/;
 
 /**
+ * Decode a `string-argv` token (which retains the quote syntax it found) into
+ * the shell-true literal value, stripping only syntactic quote DELIMITERS while
+ * preserving a literal quote character that is content INSIDE the opposite quote
+ * type. A POSIX shell decodes `~/"Bob's Project"` to `~/Bob's Project` (the `'`
+ * is literal content of the `"…"` run) and `~/'a"b c'` to `~/a"b c` (the `"` is
+ * literal content of the `'…'` run); blanket-stripping every `'`/`"` would lose
+ * those literal quotes (codex review F2, round 4).
+ *
+ * Scope: only `'…'` and `"…"` delimiters are handled. `$`, backtick and
+ * backslash escaping are intentionally NOT decoded — `string-argv` already
+ * word-splits an unquoted backslash-escaped space upstream (a pre-existing
+ * tokenizer divergence, not something this normalizer can repair), and these
+ * are agent-CLI path values, not arbitrary shell. */
+function decodeShellLiteral(value: string): string {
+  let out = "";
+  let quote: "'" | '"' | null = null;
+  for (const c of value) {
+    if (quote === null) {
+      if (c === "'" || c === '"') {
+        quote = c; // open delimiter — dropped
+        continue;
+      }
+      out += c;
+    } else if (c === quote) {
+      quote = null; // matching close delimiter — dropped
+    } else {
+      out += c; // literal content (incl. the opposite quote char)
+    }
+  }
+  return out;
+}
+
+/**
  * Render a value whose SOURCE began with a BARE leading `~` (so a shell expands
  * the tilde) but which still needs quoting for some later character — the
  * classic case being a space, e.g. `--add-dir ~/'My Projects'`.
@@ -123,16 +156,13 @@ const SAFE_BARE_CHAR = /[A-Za-z0-9@%_+=:,./~-]/;
  * keep the maximal leading bare-safe run (`~/My`, `~/.config/x`, …) unquoted and
  * force-quote only the remainder.
  *
- * The recovered literal: `string-argv` does NOT strip a quote that appears
- * mid-token — `~/'My Projects'` tokenizes to the literal `~/'My Projects'`
- * (quote chars retained). Since this branch is only reached for a bare-leading-
- * `~` token (a leading quote would make the source quoted, handled elsewhere),
- * the only `'`/`"` in the value are that retained quote syntax, so stripping
- * them recovers the shell-true value (verified against bash for the single-,
- * double-, and mixed-quote forms).
+ * `decodeShellLiteral` recovers the shell-true value from the quote-retaining
+ * `string-argv` token (verified against bash for the single-, double-, and
+ * mixed-/nested-quote forms — a literal quote inside the opposite quote type
+ * survives, only the delimiters are dropped).
  */
 function renderBareTildeValue(value: string): string {
-  const literal = value.replace(/['"]/g, ""); // drop string-argv's retained quote syntax
+  const literal = decodeShellLiteral(value);
   let end = 0;
   while (end < literal.length && SAFE_BARE_CHAR.test(literal[end] ?? "")) end++;
   const prefix = literal.slice(0, end);
