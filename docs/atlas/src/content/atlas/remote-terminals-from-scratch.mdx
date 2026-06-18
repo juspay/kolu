@@ -1,11 +1,11 @@
 ---
 title: Remote terminals from scratch — host-as-authority, vertical slices
-description: If we threw away PR #1385 AND its design and started from the goal, what would we build? A clean-slate design for kolu remote terminals — the host is the sole source of truth for its own live terminals, kolu persists only a dial-list, endpoint/location is first-class, and awareness is split honestly between PTY-taps (in-server) and the host-side DAG (git/PR/agent). The boot bug is designed out of existence; the feature ships as thin vertical slices.
+description: If we threw away PR #1385 AND its design and started from the goal, what would we build? A clean-slate design for kolu remote terminals — the host is the sole source of truth for its own live terminals, kolu persists only a dial-list, endpoint/location is first-class, and awareness is split honestly between PTY-taps (in-server) and the host-side DAG (git/PR/agent). The boot bug is designed out of existence; it ships as twelve risk-isolated slices — local-only bug-proofing first, the watcher (the fat phase) proven over a loopback harness before ssh.
 kind: feature
 status: proposed
 maturity: seedling
 parents: [kaval-sessions]
-updated: 2026-06-17
+updated: 2026-06-18
 ---
 
 import D2 from "../../components/D2.astro";
@@ -36,12 +36,14 @@ kaval: "remote kaval\\ndurable PTY · atomic terminal.list\\nlogin-PATH system.i
 agent: "host agent\\ngit/PR/agent DAG + native fs/git\\nnot the PTY path" { class: agent }
 fs: "host files · git · ~/.claude" { class: host }
 browser -> server: oRPC
-server -> kaval: PTY
-server -> agent: "fs/git"
+server -> kaval: "PTY (ssh)"
+server -> agent: "fs/git · getHostSession"
 kaval -> server: "taps · list → tiles"
 agent -> fs: reads
 `}
 />
+
+*The host agent's fs/git is dialed over `getHostSession` (Nix realise + agent-command; an ssh prefix only when the host isn't localhost) — there is no separate "loopback transport" in the production path. The loopback link below is a net-new **test harness**, not a second transport.*
 
 The load-bearing principles:
 
@@ -66,55 +68,75 @@ The load-bearing principles:
 - **`preRegisterSavedTerminals` → shadow tiles + the settle-window orphan reconcile** <Commit sha="fbc06c31" />. <Pill variant="hi">reject</Pill> Deleted, not re-timed — replaced by the one atomic `terminal.list` + synchronous seed.
 - **Optional `hostId` ("absent ⇒ local") threaded through the contract.** <Pill variant="hi">reject</Pill> Made explicit and non-optional on the terminal surfaces (and finished off in the activity feed).
 
-## Ten slices
+## Twelve risk-isolated slices
 
-Risk-first and vertical: every slice is independently mergeable, and the first remote PR puts a real durable shell on screen. The corrected dependency DAG (the long pole is **P1 → P2 → P4a → P4b → P7 → P9**):
+Each slice isolates one *risk*, not one tidy chunk — and they are **not** uniformly small (see the scorecard). The local-only bug-proofing lands first; the watcher (the fat phase) is built parallel and proven over a loopback harness before any ssh. The long pole is **P1 → P2 → P4a → P3 → P4c → P4d → P7 → P9**.
 
 <D2
-  caption="Phase dependency DAG, boxes coloured by kind: grey = refactor · purple = bug-proofing · green = feature. The structural bug-proofing (P1/P2/P2b) lands first as cheap local-only refactors. P4a is the walking skeleton — a kaval-direct durable shell with NO host agent. P3 (the boot-race dissolution) reads the atomic terminal.list that P4a establishes, so P4a precedes it. The host agent appears only at P4b (awareness) and P7 (fs/git) — where files must be read where they live."
+  caption="Phase dependency DAG — boxes coloured by kind (grey = refactor · purple = bug-proofing · green = feature). P4w (harden the kolu-watcher package + its Nix closure) is the FAT cost centre and runs in PARALLEL with P4a — it imports nothing from the PTY endpoint. Existence comes from kaval's atomic terminal.list (P3, via the kaval-direct shell P4a), NEVER the watcher — so the watcher is built (P4w) and consumed over a loopback harness (P4c) without ever being the canvas-existence signal. P4d is where it first goes over ssh."
   code={`direction: down
 classes: {
   refactor: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#5b6470" }
   feature: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#1b7a3a" }
   bugproof: { style.fill: "#efebff"; style.stroke: "#d4cbff"; style.font-color: "#5a3ff0" }
 }
-P1: "P1 · endpoint first-class" { class: refactor }
-P2: "P2 · dial-list = sole boot authority" { class: bugproof }
+P1: "P1 · location non-optional" { class: refactor }
+P2: "P2 · dial-list (sole boot authority)" { class: bugproof }
 P2b: "P2b · host-aware activity feed" { class: bugproof }
-P4a: "P4a · kaval-direct remote SHELL" { class: feature }
-P3: "P3 · boot via one terminal.list" { class: refactor }
-P4b: "P4b · host-side DAG (git/agent)" { class: feature }
+P4a: "P4a · kaval-direct shell (ssh)" { class: feature }
+P4w: "P4w · harden kolu-watcher (FAT)" { class: feature }
+P3: "P3 · boot via kaval's terminal.list" { class: refactor }
+P4c: "P4c · consume watcher (loopback)" { class: feature }
+P4d: "P4d · watcher over ssh (provision)" { class: feature }
 P5: "P5 · health + dial progress" { class: feature }
 P6: "P6 · host picker (ssh-config)" { class: feature }
-P7: "P7 · Code tab fs/git" { class: feature }
+P7: "P7 · Code tab fs/git (ssh)" { class: feature }
 P9: "P9 · multiplex + degrade" { class: feature }
 P1 -> P2
 P1 -> P2b
 P1 -> P4a
+P1 -> P4w
 P2 -> P4a
+P2 -> P4w
 P2 -> P3
 P4a -> P3
-P4a -> P4b
+P4a -> P4c
+P4w -> P4c
+P3 -> P4c
+P4c -> P4d
 P4a -> P5
 P4a -> P6
-P4b -> P7
+P4d -> P7
 P5 -> P9
 P7 -> P9
 `}
 />
 
-| Phase | Kind | Ships | Retires the risk of… |
-| --- | --- | --- | --- |
-| **P1** | <Pill>refactor</Pill> | delete `hostId`-absent-means-local on the terminal/endpoint surfaces; `location` non-optional, `local` explicit; migrate saved records | the restore-to-wrong-endpoint seam — *before* remote code leans on optionality (compile error, not silent respawn) |
-| **P2** | <Pill variant="fix">bug-proof</Pill> | a persisted `Set<hostId>` dial-list as the *sole* boot-dial authority; autosave excludes remote terminals (tested); neuter the client respawn-by-`hostId` branch | autosave-prunes-durable-terminals + boot-stops-re-dialing — made structurally unreachable |
-| **P2b** | <Pill variant="fix">bug-proof</Pill> | `RecentRepo`/`RecentAgent` `hostId` non-optional; route every prune-stat through `endpointFor(record.hostId).fs`, tolerant of a down host | local-fs assumptions reaching remote records (the remote-repo prune) — a cheap local-world refactor |
-| **P4a** | <Pill variant="ok">feature</Pill> | a kaval-direct durable remote **shell** with PTY-tap awareness (cwd/title/foreground) and the **host login PATH**; fs/git + git/agent show a typed "not yet" | *does kolu put a durable remote shell on the canvas over real ssh+Nix, with no host agent?* — the walking skeleton |
-| **P3** | <Pill>refactor</Pill> | replace shadow/orphan/settle-window with `adoptHost`: dial → `await` one `terminal.list` → seed → project; client `isLoading` waits per host | the whole cold-boot re-adoption race — *dissolved*, even against a cold host agent |
-| **P4b** | <Pill variant="ok">feature</Pill> | the **host agent** (watcher reborn) runs the git/PR/agent DAG host-side and *enriches* tiles — never adds/removes membership | the scariest move: remote awareness that reads the host's real fs/home, proven bisectable from the dial mechanics |
-| **P5** | <Pill variant="ok">feature</Pill> | per-host health chip + cold-dial progress, with a *pinned* `onState → ENDPOINT_STATES` projection table (copying/disconnected/failed have no direct member) | a minute-long dial looking hung; the lossy state projection being hand-waved |
-| **P6** | <Pill variant="ok">feature</Pill> | the new-tile palette lists `~/.ssh/config` ∪ `KOLU_HOSTS_JSON` hosts; pick one or type an ad-hoc target | retyping ssh targets — *list every host, dial only on demand* |
-| **P7** | <Pill variant="ok">feature</Pill> | the **Code tab**: native fs/git on the *same* host agent (one host process, not a new binary), reading the host's real files | proving the watcher's old PTY-forwarding was never needed — fs/git as an additive surface |
-| **P9** | <Pill variant="ok">feature</Pill> | many tiles per host + multiple hosts sharing one ssh `ControlMaster`; graceful degradation; lazy per-binary provisioning | does the pooled link scale across a real canvas, and does one dead host degrade instead of stalling? |
+| Phase | Kind | Cost | Ships | Retires the risk of… |
+| --- | --- | --- | --- | --- |
+| **P1** | <Pill>refactor</Pill> | thin | make `location` **non-optional** (this *reverses* #1385's shipped `.optional()` design); migrate pre-P3 saved terminals; rewrite the "no location = local" test | restore-to-wrong-endpoint — a dropped host becomes a compile error, not a silent local respawn |
+| **P2** | <Pill variant="fix">bug-proof</Pill> | thin | a `Set<hostId>` dial-list as the *sole* boot-dial authority; autosave excludes remote terminals (tested); neuter the client respawn-by-`hostId` branch | autosave-prunes + boot-stops-re-dialing — structurally unreachable |
+| **P2b** | <Pill variant="fix">bug-proof</Pill> | thin | `RecentRepo`/`RecentAgent` `hostId` non-optional; prune-stat via `endpointFor(record.hostId).fs`, tolerant of a down host | local-fs assumptions reaching remote records |
+| **P4a** | <Pill variant="ok">feature</Pill> | moderate | a kaval-direct durable remote **shell** over real ssh+Nix, PTY-tap awareness + the host **login PATH**; fs/git + git/agent show a typed "not yet" | the walking skeleton — a durable remote shell with **no host agent** |
+| **P4w** | <Pill variant="ok">feature</Pill> | **fat** | harden/complete `packages/kolu-watcher` (it already exists): surface + host-side DAG + native fs/git + bin + the Nix drv/closure-allow-list test/drv-map + a **new atomic `terminal.list` snapshot**; in-process tested, CI cross-arch; **no consumer** | the cross-arch Nix-closure risk (real deps: `@kolu/terminal-dag`, `kolu-git`, `gh`, `node`) — *parallel with P4a* |
+| **P3** | <Pill>refactor</Pill> | moderate | `adoptHost`: dial → `await` kaval's **atomic** `terminal.list` → seed → project; client `isLoading` waits per host; delete the settle window | the cold-boot re-adoption race — existence is **kaval's atomic list, never the watcher's incremental mirror** |
+| **P4c** | <Pill variant="ok">feature</Pill> | moderate† | a **net-new session-injection seam** on `RemoteTerminalEndpoint` + a Nix-free harness pointing a real endpoint at a real `kolu-watcher` over a loopback link — proving the mirror/pump/gating hermetically | consumption correctness over a local link — **ssh-free, but not Nix-free on the production path** |
+| **P4d** | <Pill variant="ok">feature</Pill> | moderate | route the injected session through `getHostSession`: provisioning (nix copy→realise→pin) + the agent-command ssh prefix | the genuinely-remote surface: cross-arch `.drv`, ssh reconnect/recheck/`ControlMaster`, `nix copy` over ssh-ng — *only a real box exercises these* |
+| **P5** | <Pill variant="ok">feature</Pill> | moderate | per-host health chip + cold-dial progress, with a *pinned* `onState → ENDPOINT_STATES` table | a minute-long dial looking hung; the lossy state projection |
+| **P6** | <Pill variant="ok">feature</Pill> | thin | the palette lists `~/.ssh/config` ∪ `KOLU_HOSTS_JSON` hosts; pick one or type a target | retyping ssh targets — list every host, dial on demand |
+| **P7** | <Pill variant="ok">feature</Pill> | moderate | the **Code tab**: native fs/git on the *same* host agent, over ssh | the watcher's old PTY-forwarding was never needed — fs/git as an additive surface |
+| **P9** | <Pill variant="ok">feature</Pill> | moderate | many tiles/host + multiple hosts on one ssh `ControlMaster`; graceful degradation; lazy per-binary provisioning | does the pooled link scale, and does one dead host degrade instead of stall? |
+
+### Honest cost scorecard
+
+Calling every slice "thin" was wrong. The honest split:
+
+- **Cheap, regardless of which remote path ships — P1 · P2 · P2b (+ P6).** Pure local-world refactors/UX; do them first — they turn the #1385 bug classes into compile errors and failing tests with no remote code.
+- **Moderate — P4a, P3, P4d, P5, P7, P9.** Real but contained.
+- **†Heavier than it looks — P4c.** The consumption *logic* (mirror, awareness pump, field-gating) already ships and is unit-tested against a *mock*; P4c's real deliverable is **net-new**: a session-injection seam on `RemoteTerminalEndpoint` plus a Nix-free harness — not a free hermetic test.
+- **Fat — the cost centre — P4w.** Hardening `packages/kolu-watcher` and its **Nix closure**, which carries real deps (`@kolu/terminal-dag`, `kolu-git`, `gh`, `node`) guarded by `buildId.closure.test.ts`. The genuinely platform-dependent work — and exactly why it's split off so it lands and stabilises alone, parallel to P4a.
+
+> **Caveat:** P1–P4d map to commits on the **still-open <PrLink pr={1385} />**, not merged trunk. "Each slice merges independently and stays green" is a per-slice *goal to re-validate*, not an established fact.
 
 ## The four bug classes, dissolved by construction
 
@@ -122,7 +144,7 @@ The point of designing afresh is that #1385's bugs become *unreachable*, not *fi
 
 | #1385 bug class | The construction that makes it impossible |
 | --- | --- |
-| **Cold-boot re-adoption race** (shadows wiped on an empty/partial frame; autosave prunes the session; boot stops re-dialing) | Existence is one atomic `terminal.list` + a synchronous seed (no streamed enumeration to mis-settle); kolu persists only a dial-list (no record to prune); the client gate waits per host so a remote-only boot shows "dialing", never a blank canvas. |
+| **Cold-boot re-adoption race** (shadows wiped on an empty/partial frame; autosave prunes the session; boot stops re-dialing) | Existence comes from **kaval's atomic `terminal.list`** (dialed directly), *never* the watcher's incremental mirror — so there's no empty→partial→full enumeration to mis-settle, and the watcher only *enriches* existing keys. kolu persists only a dial-list (no record to prune); the client gate waits per host so a remote-only boot shows "dialing", never a blank canvas. (#1385's settle window existed precisely *because* it routed existence through the watcher's incremental enumeration — this design removes that cause, it doesn't re-time it.) |
 | **Env leak** (remote PTY gets a restricted PATH) | Spawn is `{argv,env,initFiles}` fully-specified; env is built fresh from `system.info` — *and* the host **login PATH** is captured host-side (moved into kaval's `system.info`), so a kaval-direct dial reports it. An e2e asserts the PTY's PATH carries the user's profile dirs. |
 | **Remote-repo prune** (recent-repos stat'd against local fs) | Reachability is an endpoint question: every record carries its `hostId`, and prune-stat routes through `endpointFor(record.hostId).fs`, tolerant of a down host. A unit test asserts a remote record is never stat'd against local fs. |
 | **Restore-to-wrong-endpoint** (saved `hostId` dropped → respawn locally) | `location` is non-optional (a drop is a compile error); restore is *dial + adopt the host's list*, never read-record-and-spawn; the client respawn-by-`hostId` branch is neutered. |
@@ -137,8 +159,18 @@ The provider DAG splits cleanly by **where its inputs live**:
 - **PTY-tap signals** — cwd, title, foreground, command — ride kaval's wire taps. These *can* run in kolu-server, and the kaval-direct shell slice (P4a) ships them with **no host agent**. That is a genuine surface-sharing win.
 - **fs-derived signals** — git branch/dirty state, PR status, agent detection — read the host's own filesystem and home dir (`git/resolve.ts` runs `simpleGit` on the terminal's cwd; the claude/codex/opencode detectors read `~/.claude` under `os.homedir()`). Run *in kolu-server* against a remote cwd/pid, they inspect the **wrong machine** — empty git state, no PR, no agent, or a collision where a remote pid matches a local session file.
 
-So git/PR/agent awareness *must* run on the host (P4b) — which is **exactly why kolu-watcher exists**. The fresh design keeps that role and renames it the **host agent**, dropping only its PTY-forwarding. The honest scope: the host agent is the *awareness host* and the *fs/git host*, never the PTY path and never the canvas-existence signal. A from-scratch design that skipped this would re-learn #1385's lesson the hard way.
+So git/PR/agent awareness *must* run on the host (P4w, the host agent) — which is **exactly why kolu-watcher exists**. The fresh design keeps that role and renames it the **host agent**, dropping only its PTY-forwarding. The honest scope: the host agent is the *awareness host* and the *fs/git host*, never the PTY path and never the canvas-existence signal. A from-scratch design that skipped this would re-learn #1385's lesson the hard way.
 </Callout>
+
+## Local first, then ssh — what loopback actually buys
+
+The watcher's consumption is **transport-agnostic** — whether its awareness enriches the right tiles, whether the field-gating keeps the in-server taps and the host DAG from clobbering each other — so it can be proven over a **local loopback link** (P4c) before any ssh exists. But the shipped tree does *not* match a clean "swap loopback for ssh" story, so the framing has to be honest:
+
+- **It's ssh-free, but not Nix-free.** The real consumer (`RemoteTerminalEndpoint → getHostSession → HostSession`) *always* runs `nix-store --realise` before any link — even for `localhost` (the copy is a no-op, the realise is a local build). The harness skips ssh, not Nix.
+- **The swap point is net-new.** `remote.ts` hardwires `getHostSession`; there is no injection seam today (the only Nix-free loopback runs live in tests via `vi.mock`). So P4c *builds* a session-injection seam — it isn't a free byproduct.
+- **The correctness logic already exists.** The mirror, the awareness pump, and the field-gating ship today, unit-tested against a *mock*. P4c's delta is joining that live logic to a *real* watcher over a *real* link.
+
+So the punchline is narrower than "local vs remote is only the transport": **loopback retires the consumption-correctness risk; going remote (P4d) is not a one-line swap.** It adds provisioning (nix copy → realise → pin), the agent-command ssh prefix, and the genuinely-remote surface loopback can't touch — **cross-arch `.drv` resolution, ssh reconnect/recheck/keepalive, `ControlMaster` multiplexing, `nix copy` over ssh-ng**. Those are retired only by the `@remote-host` e2e on a real box. (`localhost`-as-remote — how #1385's e2e runs — drops only the ssh *prefix*; it still realises a closure and still runs the agent-command path.)
 
 ## Versus the resequencing
 
@@ -151,4 +183,4 @@ A pragmatic blend is available: the structural bug-proofing here (**P1/P2/P2b** 
 
 ## Status
 
-**Proposed — a clean-slate alternative to finishing <PrLink pr={1385} /> in layers, and a child of [kaval-sessions](kaval-sessions.html).** This design was built from the goal, grounded in the shipped foundation by reading the real repo, judged by a panel, and adversarially verified — the verification is what forced the awareness split (the draft's "no host agent, full awareness" thesis was provably wrong) and the seed-from-`terminal.list` existence model. It is *not* committed; it is the "if we started over" answer to weigh against finishing what we have. The recommended first move either way is the **P1/P2/P2b** structural trio — pure local-world refactors that make the #1385 bug classes unreachable before any remote code is written.
+**Proposed — a clean-slate alternative to finishing <PrLink pr={1385} /> in layers, and a child of [kaval-sessions](kaval-sessions.html).** This design was built from the goal, grounded in the shipped foundation by reading the real repo, judged by a panel, and adversarially verified — the verification forced the awareness split (the draft's "no host agent, full awareness" thesis was provably wrong), the seed-from-kaval's-`terminal.list` existence model, *and* the honest loopback framing (ssh-free but not Nix-free; going remote keeps real risk). The long pole is **P1 → P2 → P4a → P3 → P4c → P4d → P7 → P9**, with the fat watcher phase (**P4w**) riding parallel to P4a. It is *not* committed — and P1–P4d map to commits on the still-open <PrLink pr={1385} />, not merged trunk, so "merges independently / stays green" is a per-slice goal to re-validate. The recommended first move either way is the **P1/P2/P2b** structural trio — pure local-world refactors that make the #1385 bug classes unreachable before any remote code is written.
