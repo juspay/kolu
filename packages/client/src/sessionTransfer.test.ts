@@ -1,4 +1,4 @@
-import type { SavedSession } from "kolu-common/surface";
+import { LOCAL_LOCATION, type SavedSession } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 
 // `sessionTransfer` imports `solid-sonner` (for toast) at module scope, which
@@ -10,7 +10,15 @@ vi.mock("solid-sonner", () => ({ toast: {} }));
 import { parseSavedSession } from "./sessionTransfer";
 
 const valid: SavedSession = {
-  terminals: [{ id: "t1", cwd: "/home/user", git: null, lastActivityAt: 0 }],
+  terminals: [
+    {
+      id: "t1",
+      cwd: "/home/user",
+      git: null,
+      location: LOCAL_LOCATION,
+      lastActivityAt: 0,
+    },
+  ],
   activeTerminalId: "t1",
   savedAt: 1_700_000_000_000,
 };

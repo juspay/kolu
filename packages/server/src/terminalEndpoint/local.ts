@@ -23,6 +23,7 @@
 
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
+import { LOCAL_LOCATION } from "kolu-common/surface";
 import type {
   SavedTerminal,
   TerminalId,
@@ -326,7 +327,7 @@ export function adoptedMeta(
 ): TerminalMetadata {
   const { id: _id, ...persisted } = record;
   return {
-    ...createMetadata(liveEntry.cwd),
+    ...createMetadata(liveEntry.cwd, LOCAL_LOCATION),
     ...persisted,
     cwd: liveEntry.cwd,
     foreground: liveForeground(liveEntry),
@@ -343,7 +344,7 @@ export function adoptedMeta(
  *  surviving taps. */
 export function orphanMeta(liveEntry: PtyHostListEntry): TerminalMetadata {
   return {
-    ...createMetadata(liveEntry.cwd),
+    ...createMetadata(liveEntry.cwd, LOCAL_LOCATION),
     foreground: liveForeground(liveEntry),
   };
 }
@@ -375,7 +376,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // and let the `res.cwd` correction below install the single authority.
     const cwd = opts.cwd ?? "";
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
-    const meta: TerminalMetadata = { ...createMetadata(cwd) };
+    const meta: TerminalMetadata = { ...createMetadata(cwd, LOCAL_LOCATION) };
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;

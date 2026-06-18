@@ -1,4 +1,4 @@
-import type { TerminalMetadata } from "kolu-common/surface";
+import { LOCAL_LOCATION, type TerminalMetadata } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { chipInitials } from "./chipInitials";
@@ -11,6 +11,7 @@ function info(group: string, label: string): TerminalDisplayInfo {
     meta: {
       cwd: "/tmp",
       git: null,
+      location: LOCAL_LOCATION,
       pr: { kind: "absent" },
       agent: null,
       foreground: null,
@@ -25,6 +26,7 @@ function meta(intent?: string): TerminalMetadata {
   return {
     cwd: "/tmp",
     git: null,
+    location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent: null,
     foreground: null,

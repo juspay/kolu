@@ -242,6 +242,14 @@ export function useSessionRestore(deps: {
       // so the canvas cascade effect sees the saved layout on its first run
       // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
+        // `t.location` is deliberately NOT forwarded: the create seam carries
+        // only client-owned `InitialTerminalMetadata`, and the *endpoint* owns
+        // location — so each terminal re-spawns at `LOCAL_LOCATION`. That is
+        // correct while every terminal is local, but it means restore here is
+        // read-record-and-respawn, not "dial the saved host + adopt". P3
+        // replaces this loop with dial+adopt; until then a remote terminal
+        // would silently restore locally, so remote terminals must not ship
+        // before P3 lands.
         const newId = await deps.handleCreate(t.cwd, {
           themeName: t.themeName,
           canvasLayout: t.canvasLayout,

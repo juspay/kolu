@@ -1,4 +1,4 @@
-import type { TerminalMetadata } from "kolu-common/surface";
+import { LOCAL_LOCATION, type TerminalMetadata } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import { assignColors, buildTerminalDisplayInfos } from "./terminalDisplay";
@@ -7,6 +7,7 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
     cwd: "/home/user/project",
     git: null,
+    location: LOCAL_LOCATION,
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
