@@ -106,6 +106,39 @@ function basename(s: string): string {
 }
 
 /**
+ * POSIX-quote one argv token for safe re-execution by a shell.
+ *
+ * The normalize/resume helpers tokenize a raw command line via `string-argv`
+ * (which strips the shell quoting) and then re-emit the kept tokens as a
+ * single command-line string. That string is later run by a shell — written
+ * into a PTY by the worktree-create, recent-agents, and session-restore
+ * paths — so any token the shell would otherwise re-split or re-interpret
+ * must be re-quoted: a `--settings '{"k": v}'` JSON value, an
+ * `--append-system-prompt "two words"` value, anything carrying whitespace,
+ * quotes, braces, `$`, … Without this the round-trip is lossy — a captured
+ * `--settings '{"ultracode": true}'` was stored unquoted and word-split on
+ * re-run (`Error: Settings file not found: {ultracode:`).
+ *
+ * A token that is already a safe bare word is returned unquoted so the common
+ * case (`claude --model sonnet`) stays clean; everything else is wrapped in
+ * single quotes with embedded single quotes escaped the canonical `'\''` way.
+ * (A structurally identical quoter for copy-pasteable CLI attach hints lives
+ * at `kaval-tui/src/render.ts`; kept separate because `anyagent` is a lower-
+ * level package and must not depend on `kaval-tui`.)
+ */
+function shellQuoteArg(token: string): string {
+  if (token !== "" && /^[A-Za-z0-9@%_+=:,./-]+$/.test(token)) return token;
+  return `'${token.replace(/'/g, "'\\''")}'`;
+}
+
+/** Join normalized argv tokens into a single shell-parseable command line,
+ *  re-quoting each token so a shell re-parsing the result reproduces exactly
+ *  the tokens it was built from (no value silently splits into two args). */
+function shellJoin(argv: readonly string[]): string {
+  return argv.map(shellQuoteArg).join(" ");
+}
+
+/**
  * Resume-form transforms for agents that support conversation continuity.
  * Shape: `Record<AgentName, (argv) => argv>` — the Record key union is the
  * exact set of resume-capable agents, so adding an agent forces adding a
@@ -215,7 +248,7 @@ export function parseAgentCommand(raw: string): string | null {
       i++;
     }
   }
-  return kept.join(" ");
+  return shellJoin(kept);
 }
 
 /**
@@ -229,5 +262,5 @@ export function resumeAgentCommand(normalized: string): string | null {
   if (!argv) return null;
   const agent = argv[0];
   if (!(agent in AGENT_RESUME)) return null;
-  return AGENT_RESUME[agent as ResumableAgent](argv).join(" ");
+  return shellJoin(AGENT_RESUME[agent as ResumableAgent](argv));
 }
