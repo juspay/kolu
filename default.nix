@@ -75,6 +75,7 @@ let
       ./packages/nonempty
       ./packages/shared
       ./packages/terminal-themes
+      ./packages/terminal-providers
       ./packages/memorable-names
       ./packages/terminal-protocol
       ./packages/kaval

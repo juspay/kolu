@@ -660,9 +660,6 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
-      anyagent:
-        specifier: workspace:*
-        version: link:../integrations/anyagent
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
@@ -693,9 +690,6 @@ importers:
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
-      kolu-github:
-        specifier: workspace:*
-        version: link:../integrations/github
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode

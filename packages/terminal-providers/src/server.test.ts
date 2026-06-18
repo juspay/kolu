@@ -7,12 +7,28 @@
  * link-swap's contract.
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import pino from "pino";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildWatcherServer } from "./server.ts";
 
 const silent = pino({ level: "silent" });
 const ID = "11111111-1111-4111-8111-111111111111";
+
+// A fresh empty dir as the watched cwd: a bare `mkdtemp` directory is never a
+// git repo, so the git provider stays at its `git: null` seed and emits no
+// persisted-awareness delta. Watching a shared path (e.g. `/tmp`) would make the
+// command-run delta assertion below order-dependent on whether that path
+// happened to be inside a git checkout on the host.
+let cwd: string;
+beforeEach(() => {
+  cwd = mkdtempSync(join(tmpdir(), "watcher-server-"));
+});
+afterEach(() => {
+  rmSync(cwd, { recursive: true, force: true });
+});
 
 /** Read the next value from a collection `get` stream's iterator. */
 async function next<T>(it: AsyncIterator<T>): Promise<T> {
@@ -26,7 +42,7 @@ describe("buildWatcherServer over directLink", () => {
     const watcher = buildWatcherServer({ log: silent });
     const client = watcher.client;
     try {
-      await client.surface.terminal.watch({ id: ID, pid: 4242, cwd: "/tmp" });
+      await client.surface.terminal.watch({ id: ID, pid: 4242, cwd });
 
       // Persisted-awareness snapshot — the providers' seed: no git, no command,
       // recency at 0. (cwd / foreground / location are deliberately absent — the
@@ -63,13 +79,13 @@ describe("buildWatcherServer over directLink", () => {
     const watcher = buildWatcherServer({ log: silent });
     const client = watcher.client;
     try {
-      await client.surface.terminal.watch({ id: ID, pid: 1, cwd: "/tmp" });
+      await client.surface.terminal.watch({ id: ID, pid: 1, cwd });
       await client.surface.signal.commandRun({ id: ID, command: "claude" });
       await client.surface.terminal.unwatch({ id: ID });
 
       // Re-watching reseeds from scratch — the unwatch cleared the prior
       // lastAgentCommand, so the fresh snapshot is back to the seed.
-      await client.surface.terminal.watch({ id: ID, pid: 1, cwd: "/tmp" });
+      await client.surface.terminal.watch({ id: ID, pid: 1, cwd });
       const persisted = await client.surface.persistedAwareness.get({
         key: ID,
       });
