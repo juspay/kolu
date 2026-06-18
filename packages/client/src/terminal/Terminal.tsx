@@ -185,7 +185,7 @@ const Terminal: Component<{
   const canUseWebgl = () =>
     props.visible && terminalStore.holdsWebgl(props.terminalId);
   /** Dispatch on user renderer policy:
-   *  - `auto`: honor the capability gate (WebGL on focused+visible only).
+   *  - `auto`: honor the capability gate (see `canUseWebgl`).
    *  - `webgl`: WebGL on every tile (opt-in; reintroduces #575 risk at scale).
    *  - `dom`: force DOM everywhere (stable font on focus swap, lower GPU). */
   const shouldUseWebgl = () =>
