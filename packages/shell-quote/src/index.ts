@@ -96,6 +96,8 @@ export function shellSplit(line: string): string[] {
     }
     if (c === "'") {
       // Consume to the matching close quote; every byte inside is literal.
+      // close === -1 means an unterminated quote — impossible from `shellJoin`
+      // output (it always balances); defensively consume to end rather than throw.
       const close = line.indexOf("'", i + 1);
       const end = close === -1 ? line.length : close;
       push(line.slice(i + 1, end));

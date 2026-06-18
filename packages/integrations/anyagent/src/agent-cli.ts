@@ -119,7 +119,9 @@ function basename(s: string): string {
  *                              (`--last` skips the interactive picker)
  *   opencode `--continue`    → continue most-recent session in cwd
  *
- * All markers are safe bare words, so they need no quoting. `parseAgentCommand`
+ * Each marker is spliced into the command as a RAW string (not re-quoted argv),
+ * so a multi-word marker like `resume --last` works as written; the tokens are
+ * plain flags/identifiers with no shell-significant characters. `parseAgentCommand`
  * strips `-c`/`--continue`/`--resume`/`-r` during normalization (per
  * juspay/kolu#467), so the input is always resume-free — no idempotency case.
  */
