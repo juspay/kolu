@@ -137,7 +137,16 @@ const TRANSFORM_EPSILON = 1e-3;
  *  Pure (no DOM) so the geometry is unit-testable; the DOM read lives in
  *  `patchTransformAwareMouseCoords`. Returns the input unchanged when there is
  *  no effective scale, so untransformed terminals (split / sub-panels,
- *  zoom = 1) get a strict identity. */
+ *  zoom = 1) get a strict identity.
+ *
+ *  Reciprocal of `Terminal.tsx`'s `fileRefAtPoint` (touch tap → file ref): both
+ *  enforce the one pointer→cell invariant under zoom, but from opposite ends of
+ *  the same canvas scale. xterm OWNS its internal divisor (the UNtransformed CSS
+ *  cell size), so its path can't change the divisor and must correct the INPUT
+ *  point here. kolu OWNS the touch divisor and derives the cell size from the
+ *  POST-transform rect (`rect.width / cols`), so its tap path is correct by
+ *  construction and needs no correction. Two separately-owned divisors, one
+ *  invariant — do not merge them; keep both in step if you touch one. */
 export function unscaleEventPoint(
   clientX: number,
   clientY: number,

@@ -545,6 +545,17 @@ const Terminal: Component<{
             // the rect offsets, since a tap is 2D (the touch-scroll handler
             // below needs only `clientHeight`, one dimension, so the two
             // don't share a geometry helper). Then hit-tests the link parser.
+            //
+            // Why this is transform-correct without an `unscaleEventPoint`-style
+            // correction (cf. `xtermInternals.ts`): kolu OWNS this touch divisor
+            // and derives the cell size from the POST-transform rect
+            // (`rect.width / cols`), so under a zoomed canvas tile the divisor
+            // already grows with the rect and the pixel lands on the right cell
+            // by construction. xterm OWNS its own internal divisor (the
+            // UNtransformed CSS cell size) and so its path must instead
+            // inverse-scale the INPUT point via `unscaleEventPoint`. Same
+            // pointer→cell invariant, two separately-owned divisors — do not
+            // merge them; keep both in step if you touch one.
             const fileRefAtPoint = (
               clientX: number,
               clientY: number,
