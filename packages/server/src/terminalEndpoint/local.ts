@@ -143,9 +143,20 @@ const localGit: TerminalEndpointGit = {
  *  own kaval / derives its own MRUs). */
 const watcherServer = buildWatcherServer({
   log,
-  readScreenText: (id, tailLines) =>
-    getTerminal(id)?.handle.getScreenText(undefined, undefined, tailLines) ??
-    Promise.resolve(""),
+  readScreenText: (id, tailLines) => {
+    // Surface a missing terminal as NOT_FOUND — the same shape pty-host's
+    // "no PTY with id" throws — so the providers' `isNotFoundError` classifies
+    // the benign teardown race (the poll's terminal vanished between schedule
+    // and read) as such. Swallowing it to "" instead would collapse that race
+    // and a genuine lookup miss into the same empty-screen answer, defeating
+    // the providers' NOT_FOUND debug path.
+    const t = getTerminal(id);
+    if (!t)
+      throw Object.assign(new Error(`no terminal with id ${id}`), {
+        code: "NOT_FOUND",
+      });
+    return t.handle.getScreenText(undefined, undefined, tailLines);
+  },
   trackRecentRepo,
   trackRecentAgent,
 });
