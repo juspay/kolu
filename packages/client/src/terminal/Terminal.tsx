@@ -69,7 +69,10 @@ import {
   trackDispose,
   trackLoseContextCalled,
 } from "./webglTracker";
-import { readBufferBytes } from "./xtermInternals";
+import {
+  patchTransformAwareMouseCoords,
+  readBufferBytes,
+} from "./xtermInternals";
 
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
@@ -484,6 +487,13 @@ const Terminal: Component<{
           term.loadAddon(serializeAddon);
 
           term.open(containerRef);
+          // Canvas tiles render xterm inside a CSS `scale(zoom)` transform
+          // (`tileTransformCSS`); teach xterm's mouse hit-testing to inverse it
+          // so text selection, link hover, and TUI mouse reporting land on the
+          // cell under the pointer at any zoom (#1400). Must follow `open()` —
+          // that's when `_core._mouseCoordsService` is constructed. Strict
+          // no-op for untransformed terminals (split / sub-panels, zoom = 1).
+          patchTransformAwareMouseCoords(term);
           // Click-to-focus on the host div's own padding only. xterm's own
           // click handler already focuses canvas clicks on desktop, and on
           // touch the .xterm-screen pointerup handler below owns that path

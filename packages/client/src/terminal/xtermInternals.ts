@@ -97,3 +97,140 @@ export function readBufferBytes(
   if (!primary || !alternate) return null;
   return { primary: sum(primary), alternate: sum(alternate) };
 }
+
+/** Effective scale within this of 1 takes the cheap no-op path in
+ *  `unscaleEventPoint`, keeping the common untransformed case (non-canvas /
+ *  zoom-1) a strict identity. Not correctness-critical: scale is measured as
+ *  `rect.width / offsetWidth`, and because `offsetWidth` is integer-rounded
+ *  while `.xterm-screen`'s width is fractional (`css.canvas.width`), the
+ *  measured scale sits slightly off 1 even at true zoom 1 — by up to
+ *  `0.5 / offsetWidth`, which exceeds this band only for sub-500px terminals.
+ *  When it does, the applied correction is still bounded to ≈0.5px at the far
+ *  edge (the scale deviation cancels against the offset) — sub-cell, well
+ *  inside xterm's half-cell selection tolerance. So a missed band is harmless;
+ *  the band just avoids pointless math when clearly untransformed. */
+const TRANSFORM_EPSILON = 1e-3;
+
+/** Map a viewport pixel `(clientX, clientY)` into `element`'s *pre-transform*
+ *  coordinate space, given the element's transform-inclusive bounding `rect`
+ *  and its transform-free layout size (`offsetWidth/Height`).
+ *
+ *  xterm hit-tests the mouse by subtracting the screen element's
+ *  `getBoundingClientRect()` — which already folds in ancestor CSS transforms —
+ *  then dividing by the element's *untransformed* CSS cell size. Under the
+ *  canvas `scale(zoom)` tile transform (`tileTransformCSS`) the two disagree,
+ *  so the computed column/row drifts by the zoom factor in both axes, growing
+ *  with distance from the tile origin (#1400). Pre-dividing the event offset by
+ *  the element's effective scale makes xterm's own unchanged math land on the
+ *  right cell. The border-box top-left is a fixed point of the map (offset 0 →
+ *  0), so a pure pan (translate, scale 1) needs no correction and is returned
+ *  unchanged.
+ *
+ *  Pure (no DOM) so the geometry is unit-testable; the DOM read lives in
+ *  `patchTransformAwareMouseCoords`. Returns the input unchanged when there is
+ *  no effective scale, so untransformed terminals (split / sub-panels,
+ *  zoom = 1) get a strict identity. */
+export function unscaleEventPoint(
+  clientX: number,
+  clientY: number,
+  rect: { left: number; top: number; width: number; height: number },
+  layoutWidth: number,
+  layoutHeight: number,
+): { clientX: number; clientY: number } {
+  const scaleX = layoutWidth > 0 ? rect.width / layoutWidth : 1;
+  const scaleY = layoutHeight > 0 ? rect.height / layoutHeight : 1;
+  if (
+    Math.abs(scaleX - 1) < TRANSFORM_EPSILON &&
+    Math.abs(scaleY - 1) < TRANSFORM_EPSILON
+  ) {
+    return { clientX, clientY };
+  }
+  return {
+    clientX: rect.left + (clientX - rect.left) / scaleX,
+    clientY: rect.top + (clientY - rect.top) / scaleY,
+  };
+}
+
+/** Minimal structural view of xterm's private `_core._mouseCoordsService`. Both
+ *  methods read only `clientX/clientY` off the event (modifiers/buttons are
+ *  read off the original event by `MouseService` before it calls in), so a
+ *  corrected `{ clientX, clientY }` stand-in is a sufficient first argument. */
+interface MouseCoordsShape {
+  getCoords(
+    event: { clientX: number; clientY: number },
+    element: HTMLElement,
+    colCount: number,
+    rowCount: number,
+    isSelection?: boolean,
+  ): [number, number] | undefined;
+  getMouseReportCoords(
+    event: { clientX: number; clientY: number },
+    element: HTMLElement,
+  ): { col: number; row: number; x: number; y: number } | undefined;
+  /** Set once we've wrapped this instance so a re-entrant call is a no-op. */
+  __koluTransformPatched?: boolean;
+}
+
+/** Make xterm's mouse hit-testing aware of ancestor CSS transforms so text
+ *  selection, link hover, and TUI mouse reporting land on the cell under the
+ *  pointer when a canvas tile is zoomed (#1400).
+ *
+ *  Both coordinate entry points xterm exposes — `getCoords` (selection + links,
+ *  via `SelectionService`) and `getMouseReportCoords` (mouse reporting to apps
+ *  like opencode, via `MouseService`) — live on the single private
+ *  `_core._mouseCoordsService` and both funnel through
+ *  `getCoordsRelativeToElement`, which reads the transform-inclusive
+ *  `getBoundingClientRect()`. We wrap each to inverse-scale the event point
+ *  first (`unscaleEventPoint`) and delegate the rest to xterm's own math, so
+ *  there is no cell metric to keep in sync.
+ *
+ *  Not covered (and uncoverable by wrapping the service): xterm's
+ *  `SelectionService._getMouseEventScrollAmount` calls the free
+ *  `getCoordsRelativeToElement` directly, not via the service, to size the
+ *  drag-past-the-edge auto-scroll. Under zoom its trigger band/speed stay off
+ *  by the zoom factor — but that affects only *how fast* the buffer auto-scrolls
+ *  while drag-selecting beyond a zoomed tile, never *which* cell is selected
+ *  (the anchor/extent go through the wrapped `getCoords`). Left as a known
+ *  residual for #1400.
+ *
+ *  Idempotent and null-guarded: if a future beta renames the service or its
+ *  methods, this degrades to a no-op (selection keeps xterm's default, possibly
+ *  zoom-offset, behavior) instead of throwing. Call once after `term.open()` —
+ *  that is when `_core._mouseCoordsService` is constructed. */
+export function patchTransformAwareMouseCoords(term: XTerm): void {
+  const svc = core<{ _mouseCoordsService?: MouseCoordsShape }>(
+    term,
+  )?._mouseCoordsService;
+  if (!svc || svc.__koluTransformPatched) return;
+  const getCoords = svc.getCoords;
+  const getMouseReportCoords = svc.getMouseReportCoords;
+  if (
+    typeof getCoords !== "function" ||
+    typeof getMouseReportCoords !== "function"
+  ) {
+    return;
+  }
+  const corrected = (
+    event: { clientX: number; clientY: number },
+    element: HTMLElement,
+  ) =>
+    unscaleEventPoint(
+      event.clientX,
+      event.clientY,
+      element.getBoundingClientRect(),
+      element.offsetWidth,
+      element.offsetHeight,
+    );
+  svc.getCoords = (event, element, colCount, rowCount, isSelection) =>
+    getCoords.call(
+      svc,
+      corrected(event, element),
+      element,
+      colCount,
+      rowCount,
+      isSelection,
+    );
+  svc.getMouseReportCoords = (event, element) =>
+    getMouseReportCoords.call(svc, corrected(event, element), element);
+  svc.__koluTransformPatched = true;
+}
