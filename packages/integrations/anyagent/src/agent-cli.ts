@@ -210,6 +210,19 @@ export function agentKindFromCommand(command: string): AgentKind | null {
 }
 
 /**
+ * Extract the agent binary basename (the head token) from a command line —
+ * typically the normalized output of `parseAgentCommand`. Tokenizes the same
+ * way `agentKindFromCommand` does so the joined wire format stays fully
+ * encapsulated: consumers ask anyagent "what's the agent here?" instead of
+ * re-splitting the joined string and depending on the head token never being
+ * quoted. Returns `null` for an empty command.
+ */
+export function agentNameFromCommand(command: string): string | null {
+  const head = parseArgsStringToArgv(command.trim())[0];
+  return head === undefined ? null : basename(head);
+}
+
+/**
  * Parse a raw command line. Returns the normalized agent invocation
  * string (e.g. `"claude --model sonnet"`) if the first token resolves
  * to a known agent binary, or `null` otherwise.
