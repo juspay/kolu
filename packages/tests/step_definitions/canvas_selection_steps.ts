@@ -1,15 +1,10 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import { ACTIVE_TERMINAL, waitForBufferContains } from "../support/buffer.ts";
+import { ACTIVE_TERMINAL } from "../support/buffer.ts";
+import { POLL_TIMEOUT } from "../support/world.ts";
 import type { KoluWorld } from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
-const LEFT = "L".repeat(30);
-const RIGHT = "R".repeat(30);
-/** One terminal row: 30 "L" cells then 30 "R" cells. */
-const MARKER = LEFT + RIGHT;
-/** First "R" column (0-based) — i.e. the left/right boundary. */
-const BOUNDARY = LEFT.length;
 /** Print the marker as a tall block of identical rows. The zoom hit-test
  *  offset is 2D — it shifts the selected row as well as the column — so a
  *  single marker row would let the (vertically) offset selection miss it and
@@ -17,6 +12,17 @@ const BOUNDARY = LEFT.length;
  *  row, so the bug surfaces as right-half "R" cells (illustrative) rather than
  *  an ambiguous empty selection. */
 const MARKER_ROWS = 15;
+
+// The marker is sized to the LIVE terminal width at print time (see the print
+// step) so it never wraps — macOS cell metrics yield a narrower grid than linux,
+// and a wrapped row would break the exact full-row match below (darwin CI, where
+// a fixed 60-char marker wrapped). Each marker row is `markerBoundary` "L" cells
+// then `markerBoundary` "R" cells; `markerBoundary` is the first "R" column
+// (0-based). Set per scenario by the print step before any other step reads them.
+// Module scope is safe: cucumber runs each scenario's steps serially in one
+// worker process.
+let markerLine = "";
+let markerBoundary = 0;
 
 type CellPixel = { x: number; y: number } | null;
 
@@ -52,8 +58,8 @@ async function markerCellPixel(
         const text = active.getLine(row)?.translateToString(true) ?? "";
         if (text.trim() !== marker) continue;
         const rect = screen.getBoundingClientRect();
-        // Guard against a zero-sized rect (detached / off-screen element) —
-        // dividing by a zero dimension would produce NaN pixel coords.
+        // A zero-sized rect (detached / unmeasured) would make every column map
+        // to rect.left — return null so callers treat it as "not measurable".
         if (rect.width <= 0 || rect.height <= 0) return null;
         const cellW = rect.width / term.cols;
         const cellH = rect.height / term.rows;
@@ -64,7 +70,7 @@ async function markerCellPixel(
       }
       return null;
     },
-    { sel: ACTIVE_TERMINAL, marker: MARKER, targetCol: col },
+    { sel: ACTIVE_TERMINAL, marker: markerLine, targetCol: col },
   );
 }
 
@@ -79,8 +85,52 @@ async function canvasZoom(world: KoluWorld): Promise<number> {
 When(
   "I print a marker block in the terminal",
   async function (this: KoluWorld) {
-    await this.terminalRun(`yes ${MARKER} | head -n ${MARKER_ROWS}`);
-    await waitForBufferContains(this.page, MARKER);
+    // Size the marker to the live grid width so it occupies exactly one row on
+    // any platform (cols differ between macOS and linux for the same viewport).
+    const cols = await this.page.evaluate((sel) => {
+      const c = document.querySelector(sel) as
+        | (HTMLElement & { __xterm?: { cols: number } })
+        | null;
+      return c?.__xterm?.cols ?? 0;
+    }, ACTIVE_TERMINAL);
+    assert.ok(
+      cols >= 30,
+      `terminal too narrow for the marker test (cols=${cols})`,
+    );
+    markerBoundary = Math.floor((cols - 2) / 2); // -2 leaves margin so it never wraps
+    markerLine = "L".repeat(markerBoundary) + "R".repeat(markerBoundary);
+    await this.terminalRun(`yes ${markerLine} | head -n ${MARKER_ROWS}`);
+    // Wait for a real unwrapped marker ROW — NOT just the buffer containing the
+    // string, which the command echo (`yes <marker> | head …`) also satisfies.
+    await this.page.waitForFunction(
+      ({ sel, marker }) => {
+        type Line = { translateToString(trim?: boolean): string };
+        const c = document.querySelector(sel) as
+          | (HTMLElement & {
+              __xterm?: {
+                rows: number;
+                buffer: {
+                  active: {
+                    viewportY: number;
+                    getLine(i: number): Line | undefined;
+                  };
+                };
+              };
+            })
+          | null;
+        const term = c?.__xterm;
+        if (!term) return false;
+        const top = term.buffer.active.viewportY;
+        for (let r = top; r < top + term.rows; r++) {
+          const text =
+            term.buffer.active.getLine(r)?.translateToString(true) ?? "";
+          if (text.trim() === marker) return true;
+        }
+        return false;
+      },
+      { sel: ACTIVE_TERMINAL, marker: markerLine },
+      { timeout: POLL_TIMEOUT },
+    );
     await this.waitForFrame();
   },
 );
@@ -91,7 +141,7 @@ When(
     // Anchor the ctrl+wheel zoom on the marker itself so the first marker row
     // stays under the cursor (zoomTowardPoint keeps the cursor point fixed) —
     // the drag pixels can't be clipped out of view by the zoom.
-    const anchor = await markerCellPixel(this, Math.floor(BOUNDARY / 2));
+    const anchor = await markerCellPixel(this, Math.floor(markerBoundary / 2));
     assert.ok(anchor, "marker block not found before zoom");
     // Playwright's mouse.wheel can't carry ctrlKey, so dispatch the WheelEvent
     // directly (matching canvas.feature's zoom step). deltaY -300 → factor
@@ -124,12 +174,12 @@ When(
   async function (this: KoluWorld) {
     const z = await canvasZoom(this);
     // Smallest left-half visual column whose *uncorrected* (zoom-offset) image
-    // lands in the right half: ceil((vs + 0.5) * z) >= BOUNDARY. +1 for margin.
-    const vs = Math.ceil(BOUNDARY / z - 0.5) + 1;
-    const ve = BOUNDARY - 2; // stay safely inside the L half
+    // lands in the right half: ceil((vs + 0.5) * z) >= markerBoundary. +1 margin.
+    const vs = Math.ceil(markerBoundary / z - 0.5) + 1;
+    const ve = markerBoundary - 2; // stay safely inside the L half
     assert.ok(
       vs <= ve,
-      `canvas zoom ${z} too low to separate halves (vs=${vs}, ve=${ve})`,
+      `canvas zoom ${z} too low to separate halves (vs=${vs}, ve=${ve}, boundary=${markerBoundary})`,
     );
     const start = await markerCellPixel(this, vs);
     const end = await markerCellPixel(this, ve);
