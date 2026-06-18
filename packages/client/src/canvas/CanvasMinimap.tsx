@@ -171,11 +171,15 @@ const CanvasMinimap: Component<{
     return { x: pos.x, y: pos.y, w: vw * s, h: vh * s };
   });
 
-  // ── Minimap rendered dimensions (shrink-to-fit) ──
+  // ── Minimap box dimensions — asymmetric by design (see PANEL SEAM): `minW`
+  //    is a FLOOR (applied as `min-width`; the box may render wider when the
+  //    zoom bar is the wider half), while `h` is the EXACT height (the height
+  //    constraint wins the scale, so the box is exactly this tall). `minW` is
+  //    NOT the rendered width — don't read it as such. ──
   const mapDims = createMemo(() => {
     const b = bounds();
     const s = minimapScale();
-    return { w: b.w * s, h: b.h * s };
+    return { minW: b.w * s, h: b.h * s };
   });
 
   // ── Viewport rect drag ──
@@ -265,7 +269,10 @@ const CanvasMinimap: Component<{
         class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden"
         // `min-width` (not `width`) is fact (2) of the PANEL SEAM — see the
         // container comment above.
-        style={{ "min-width": `${mapDims().w}px`, height: `${mapDims().h}px` }}
+        style={{
+          "min-width": `${mapDims().minW}px`,
+          height: `${mapDims().h}px`,
+        }}
         classList={{
           "cursor-default": !hoveringViewport() && !draggingViewport(),
           "cursor-grab": hoveringViewport() && !draggingViewport(),
