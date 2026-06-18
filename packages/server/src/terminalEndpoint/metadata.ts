@@ -30,6 +30,7 @@
 
 import { prValue } from "anyforge/schemas";
 import {
+  type HostLocation,
   type LiveTerminalFields,
   prUnavailableReason,
   type ServerPersistedTerminalFields,
@@ -44,11 +45,22 @@ import type { TerminalProcess } from "../terminal-registry.ts";
 /** Create initial metadata state for a new terminal. `lastActivityAt: 0`
  *  means "no agent transition observed yet" — the only event that lifts
  *  the recency clock. Idle terminals tie at 0 and fall back to canvas
- *  position. */
-export function createMetadata(cwd: string): TerminalMetadata {
+ *  position.
+ *
+ *  `location` is required, not defaulted: the **owning endpoint** declares
+ *  where the terminal lives (the local endpoint passes `LOCAL_LOCATION`; a
+ *  remote endpoint passes `{ kind: "remote", hostId }`). Threading it as an
+ *  explicit argument — rather than hardcoding `{ kind: "local" }` here — keeps
+ *  the endpoint the sole authority on its own terminals' host and makes a
+ *  dropped location a compile error at every spawn site. */
+export function createMetadata(
+  cwd: string,
+  location: HostLocation,
+): TerminalMetadata {
   return {
     cwd,
     git: null,
+    location,
     pr: { kind: "pending" },
     agent: null,
     foreground: null,

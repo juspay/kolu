@@ -1,5 +1,9 @@
 import type { PtyHostListEntry } from "kaval";
-import type { SavedSession, SavedTerminal } from "kolu-common/surface";
+import {
+  LOCAL_LOCATION,
+  type SavedSession,
+  type SavedTerminal,
+} from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { reconcile } from "./reconcile.ts";
 
@@ -8,7 +12,13 @@ function live(id: string, pid = 1000): PtyHostListEntry {
   return { id, pid, cwd: "/x", lastActivity: 0 };
 }
 function term(id: string): SavedTerminal {
-  return { id, cwd: "/x", git: null, lastActivityAt: 0 };
+  return {
+    id,
+    cwd: "/x",
+    git: null,
+    location: LOCAL_LOCATION,
+    lastActivityAt: 0,
+  };
 }
 function saved(...terminals: SavedTerminal[]): SavedSession {
   return { terminals, activeTerminalId: terminals[0]?.id ?? null, savedAt: 1 };

@@ -1,6 +1,10 @@
 import * as assert from "node:assert";
 import { confStore } from "@kolu/surface/server";
-import type { SavedSession, SavedTerminal } from "kolu-common/surface";
+import {
+  LOCAL_LOCATION,
+  type SavedSession,
+  type SavedTerminal,
+} from "kolu-common/surface";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import {
@@ -30,6 +34,7 @@ const terminal: SavedTerminal = {
     mainRepoRoot: "/home/user/project",
     remoteUrl: null,
   },
+  location: LOCAL_LOCATION,
   lastActivityAt: 0,
 };
 
@@ -106,9 +111,28 @@ describe("session persistence", () => {
 
   it("preserves multiple terminals with array order", () => {
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", git: null, lastActivityAt: 0 },
-      { id: "b", cwd: "/b", git: null, lastActivityAt: 0 },
-      { id: "c", cwd: "/c", git: null, parentId: "a", lastActivityAt: 0 },
+      {
+        id: "a",
+        cwd: "/a",
+        git: null,
+        location: LOCAL_LOCATION,
+        lastActivityAt: 0,
+      },
+      {
+        id: "b",
+        cwd: "/b",
+        git: null,
+        location: LOCAL_LOCATION,
+        lastActivityAt: 0,
+      },
+      {
+        id: "c",
+        cwd: "/c",
+        git: null,
+        location: LOCAL_LOCATION,
+        parentId: "a",
+        lastActivityAt: 0,
+      },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
@@ -124,10 +148,17 @@ describe("session persistence", () => {
         id: "a",
         cwd: "/a",
         git: null,
+        location: LOCAL_LOCATION,
         themeName: "Dracula",
         lastActivityAt: 0,
       },
-      { id: "b", cwd: "/b", git: null, lastActivityAt: 0 },
+      {
+        id: "b",
+        cwd: "/b",
+        git: null,
+        location: LOCAL_LOCATION,
+        lastActivityAt: 0,
+      },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
@@ -143,8 +174,20 @@ describe("session persistence", () => {
     const t1 = 1_700_000_000_000;
     const t2 = 1_700_000_900_000;
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", git: null, lastActivityAt: t1 },
-      { id: "b", cwd: "/b", git: null, lastActivityAt: t2 },
+      {
+        id: "a",
+        cwd: "/a",
+        git: null,
+        location: LOCAL_LOCATION,
+        lastActivityAt: t1,
+      },
+      {
+        id: "b",
+        cwd: "/b",
+        git: null,
+        location: LOCAL_LOCATION,
+        lastActivityAt: t2,
+      },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();

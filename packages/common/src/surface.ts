@@ -170,6 +170,37 @@ export const RightPanelPerTerminalStateSchema = z.object({
     .optional(),
 });
 
+/**
+ * Where a terminal's endpoint lives — a closed sum, not a host-id string.
+ *
+ * `{ kind: "local" }` is the in-process PTY (this kolu-server). `{ kind:
+ * "remote", hostId }` is a dialed host (kaval-sessions). Modelling the local
+ * case as a distinct *variant* — rather than a reserved `"local"` string in
+ * the same namespace as remote host ids — makes a whole bug class
+ * unrepresentable: a remote host that happens to be named `local` in
+ * `~/.ssh/config` is `{ kind: "remote", hostId: "local" }`, which can never
+ * be confused with the in-process endpoint `{ kind: "local" }`. `hostId`
+ * matches the rest of the system's host-identity spelling (`getHostSession`,
+ * the daemon-status keys).
+ */
+export const HostLocationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local") }),
+  z.object({ kind: z.literal("remote"), hostId: z.string() }),
+]);
+
+export type HostLocation = z.infer<typeof HostLocationSchema>;
+
+/** The in-process endpoint's location — the singleton `{ kind: "local" }`.
+ *  `location` is never mutated after spawn (a terminal does not migrate
+ *  hosts), so sharing this one value across every local terminal is safe and
+ *  saves re-spelling the literal at each spawn/restore site. Frozen so the
+ *  "never mutated" invariant is enforced at runtime, not just by convention:
+ *  an accidental in-place write throws instead of silently aliasing every
+ *  local terminal's metadata. */
+export const LOCAL_LOCATION: HostLocation = Object.freeze({
+  kind: "local",
+} as const);
+
 // ── Terminal metadata fields, organized by write-authority + persistence ──
 //
 // Invariant: every terminal-metadata field appears in EXACTLY ONE of
@@ -202,6 +233,20 @@ export const RightPanelPerTerminalStateSchema = z.object({
 export const ServerPersistedTerminalFieldsSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
+  /** Where this terminal's endpoint lives — `{ kind: "local" }` for an
+   *  in-process PTY, `{ kind: "remote", hostId }` for a dialed host (kaval-
+   *  sessions). See `HostLocationSchema`. Non-optional and explicit by
+   *  construction: a terminal's host is the value of this field, never the
+   *  *absence* of a host id. So any code that **constructs** a terminal's
+   *  metadata — spawn and host adoption — must name its host: a dropped
+   *  location is a compile error there, not a silent local respawn against the
+   *  wrong machine. (The client "Restore session" path re-creates terminals
+   *  through the create seam, which deliberately omits `location` because the
+   *  *endpoint* owns it; P3 replaces that path with dial-the-host +
+   *  adopt-its-list, so remote terminals must not ship before then.) Set once
+   *  at spawn and never mutated thereafter — a terminal does not migrate hosts
+   *  — so although it rides this server-writable base, no provider writes it. */
+  location: HostLocationSchema,
   /** Normalized agent CLI invocation last observed in this terminal (e.g.
    *  `"claude --model sonnet"`). Preserved across intervening non-agent
    *  input; drives the "resume agent on restore" offer in EmptyState.

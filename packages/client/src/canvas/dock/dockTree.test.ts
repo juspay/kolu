@@ -1,4 +1,4 @@
-import type { TerminalId } from "kolu-common/surface";
+import { LOCAL_LOCATION, type TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
@@ -21,6 +21,7 @@ function makeGetInfo(
       meta: {
         cwd: "/tmp",
         git: null,
+        location: LOCAL_LOCATION,
         pr: { kind: "absent" },
         agent: null,
         foreground: null,

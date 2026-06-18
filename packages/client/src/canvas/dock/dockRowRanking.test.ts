@@ -1,7 +1,8 @@
-import type {
-  AgentInfo,
-  TerminalId,
-  TerminalMetadata,
+import {
+  type AgentInfo,
+  LOCAL_LOCATION,
+  type TerminalId,
+  type TerminalMetadata,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
@@ -23,6 +24,7 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
     cwd: "/tmp",
     git: null,
+    location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent: null,
     foreground: null,

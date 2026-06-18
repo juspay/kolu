@@ -8,6 +8,7 @@
  * cadence — either over-saving or losing data on restart.
  */
 
+import { LOCAL_LOCATION } from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
@@ -28,6 +29,7 @@ function fakeTerminal(): TerminalProcess {
     meta: {
       cwd: "/tmp",
       git: null,
+      location: LOCAL_LOCATION,
       pr: { kind: "pending" },
       agent: null,
       foreground: null,

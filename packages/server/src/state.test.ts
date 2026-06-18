@@ -1,5 +1,7 @@
+import { LOCAL_LOCATION } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import {
+  backfillLocation_1_26_0,
   backfillRemoteUrl_1_25_0,
   migrateLegacyTerminal_1_18_0,
 } from "./state.ts";
@@ -161,5 +163,34 @@ describe("backfillRemoteUrl_1_25_0", () => {
       git: null,
     });
     expect(migrated).toEqual({ id: "t", cwd: "/tmp", git: null });
+  });
+});
+
+describe("backfillLocation_1_26_0", () => {
+  it("no location ⇒ { kind: local } (every pre-1.26 terminal was in-process)", () => {
+    const migrated = backfillLocation_1_26_0({
+      id: "term-1",
+      cwd: "/home/alice/app",
+      git: null,
+    });
+    expect(migrated).toEqual({
+      id: "term-1",
+      cwd: "/home/alice/app",
+      git: null,
+      location: LOCAL_LOCATION,
+    });
+  });
+
+  it("is idempotent — a record that already carries a location passes through", () => {
+    // A future remote terminal (or a re-run of the migration): the saved
+    // location wins, never clobbered back to local — including a remote host
+    // that happens to be named "local", which the DU keeps distinct.
+    const record = {
+      id: "t",
+      cwd: "/r",
+      git: null,
+      location: { kind: "remote", hostId: "local" },
+    };
+    expect(backfillLocation_1_26_0(record)).toEqual(record);
   });
 });
