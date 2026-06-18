@@ -1,0 +1,154 @@
+---
+title: Remote terminals from scratch — host-as-authority, vertical slices
+description: If we threw away PR #1385 AND its design and started from the goal, what would we build? A clean-slate design for kolu remote terminals — the host is the sole source of truth for its own live terminals, kolu persists only a dial-list, endpoint/location is first-class, and awareness is split honestly between PTY-taps (in-server) and the host-side DAG (git/PR/agent). The boot bug is designed out of existence; the feature ships as thin vertical slices.
+kind: feature
+status: proposed
+maturity: seedling
+parents: [kaval-sessions]
+updated: 2026-06-17
+---
+
+import D2 from "../../components/D2.astro";
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Commit from "../../components/Commit.astro";
+import Pill from "../../components/Pill.astro";
+
+**Assume we throw away both <PrLink pr={1385} /> *and* its design, and start from the goal.** One way to ship it is a *resequencing* of #1385 — reverse-engineering safe horizontal *layers* out of the code we already have, which keeps the watcher in the PTY path, keeps `hostId`-absent-means-local threaded through the contract, keeps persisted remote-terminal records, and merely *re-times* the cold-boot orphan reconcile (the `fbc06c31` 10-second settle band-aid). This note does the opposite: it designs **vertically and risk-first against a cleaner core**, and instead of re-timing the boot race it **removes the race's inputs**. It stands on the shipped substrate (kaval, `getHostSession`, the `TerminalEndpoint` seam — all merged and validated) and rebuilds only the part #1385 got wrong: how kolu-the-app *consumes* that substrate.
+
+## The core model
+
+One thesis, and everything follows: **the host is the sole source of truth for its own live terminals, and kolu persists only a dial-list** — the set of `hostId`s to re-dial, never a remote-terminal record. A remote tile is just a local `TerminalEndpoint` (the shipped PTY·fs·git seam) whose surfaces are bound to an ssh transport; *local vs remote is only the transport*.
+
+<D2
+  caption="The fresh architecture, coloured by process boundary (blue = kolu-server · green = remote kaval · amber = host agent). The browser only ever talks to kolu-server. A remote tile's PTY is dialed DIRECTLY at the host's durable kaval — its taps feed cwd/title/foreground awareness in-server, and its atomic terminal.list seeds the tiles. The host agent (the watcher reborn) runs the git/PR/agent DAG and serves native fs/git where the files live — never in the PTY path, never the canvas-existence signal. kolu persists only a dial-list."
+  code={`direction: down
+classes: {
+  client: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#475569" }
+  server: { style.fill: "#e7eefb"; style.stroke: "#c3d4f3"; style.font-color: "#2563eb" }
+  pty: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#15803d" }
+  agent: { style.fill: "#fbf1dc"; style.stroke: "#ecd9ab"; style.font-color: "#b45309" }
+  host: { style.fill: "#f1f5f9"; style.stroke: "#e2e8f0"; style.font-color: "#475569" }
+}
+browser: "browser\\ncanvas · Code tab · chip" { class: client }
+server: "kolu-server\\nendpoint seam · dial-list\\nlocation non-optional" { class: server }
+kaval: "remote kaval\\ndurable PTY · atomic terminal.list\\nlogin-PATH system.info" { class: pty }
+agent: "host agent\\ngit/PR/agent DAG + native fs/git\\nnot the PTY path" { class: agent }
+fs: "host files · git · ~/.claude" { class: host }
+browser -> server: oRPC
+server -> kaval: PTY
+server -> agent: "fs/git"
+kaval -> server: "taps · list → tiles"
+agent -> fs: reads
+`}
+/>
+
+The load-bearing principles:
+
+- **Existence comes from one atomic pull, never a stream.** Boot, restore, and reconnect collapse into *one* routine: dial the host, `await` a single complete kaval `terminal.list`, **synchronously seed** a `terminalMetadata` entry (cwd + location) for every listed id so the client's membership filter (`meta.keys()`) reaches its full set in one tick, then project. There is no shadow tile and no empty→partial→full enumeration for the boot race to mis-settle on.
+- **Persist only a dial-list.** Persist a record only for an endpoint that *dies with you* (the local PTY). The durable remote kaval outlives you, so you persist only `Set<hostId>` to re-dial — and that dial-list is the *sole* boot-dial authority. A remote-located terminal can never enter `SavedSession.terminals` (unit-tested), so no autosave can ever prune it.
+- **Endpoint is first-class.** `location` is non-optional on the terminal surfaces; `local` (`LOCAL_HOST_ID`) is an explicit value, not the *absence* of a `hostId`. A dropped location becomes a compile error, not a silent local respawn.
+- **Awareness is split by where its inputs live** — the one place a naïve clean-slate (and #1385's own framing) goes wrong. See below.
+
+## What we stand on, what we throw away
+
+### Stand on (the shipped foundation is correct)
+
+- The **`TerminalEndpoint` PTY·fs·git seam** — the one correct shape; local and remote are the same interface over different transports.
+- **`getHostSession` / `HostSession`** — the genuinely hard, already-solved physics: ssh reach + Nix provision + the ref-counted reconnect/give-up machine. The host-as-truth model leans on its reconnect loop to re-pull `terminal.list`.
+- **kaval + its atomic `terminal.list`** — a durable remote PTY with *zero* kolu logic on the host, plus the complete-list pull that is the real canvas-existence signal.
+- The **synchronous `seedMeta` upsert** at spawn — the client paints a tile only when its metadata has arrived, so this is *kept* and generalized to seed every id from the list.
+
+### Throw away (this is the #1385 design being rejected)
+
+- **The watcher forwarding the PTY.** <Pill variant="hi">reject</Pill> Putting the PTY data path through the most-volatile host process. Dial kaval *directly* for the PTY; the host agent keeps the PTY out of its path.
+- **Persisted remote-terminal records + the dual boot-dial authority.** <Pill variant="hi">reject</Pill> Replaced by the dial-list, which *supersedes* the `savedRemoteTerminals → bootDialHosts` branch.
+- **`preRegisterSavedTerminals` → shadow tiles + the settle-window orphan reconcile** <Commit sha="fbc06c31" />. <Pill variant="hi">reject</Pill> Deleted, not re-timed — replaced by the one atomic `terminal.list` + synchronous seed.
+- **Optional `hostId` ("absent ⇒ local") threaded through the contract.** <Pill variant="hi">reject</Pill> Made explicit and non-optional on the terminal surfaces (and finished off in the activity feed).
+
+## Ten slices
+
+Risk-first and vertical: every slice is independently mergeable, and the first remote PR puts a real durable shell on screen. The corrected dependency DAG (the long pole is **P1 → P2 → P4a → P4b → P7 → P9**):
+
+<D2
+  caption="Phase dependency DAG, boxes coloured by kind: grey = refactor · purple = bug-proofing · green = feature. The structural bug-proofing (P1/P2/P2b) lands first as cheap local-only refactors. P4a is the walking skeleton — a kaval-direct durable shell with NO host agent. P3 (the boot-race dissolution) reads the atomic terminal.list that P4a establishes, so P4a precedes it. The host agent appears only at P4b (awareness) and P7 (fs/git) — where files must be read where they live."
+  code={`direction: down
+classes: {
+  refactor: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#5b6470" }
+  feature: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#1b7a3a" }
+  bugproof: { style.fill: "#efebff"; style.stroke: "#d4cbff"; style.font-color: "#5a3ff0" }
+}
+P1: "P1 · endpoint first-class" { class: refactor }
+P2: "P2 · dial-list = sole boot authority" { class: bugproof }
+P2b: "P2b · host-aware activity feed" { class: bugproof }
+P4a: "P4a · kaval-direct remote SHELL" { class: feature }
+P3: "P3 · boot via one terminal.list" { class: refactor }
+P4b: "P4b · host-side DAG (git/agent)" { class: feature }
+P5: "P5 · health + dial progress" { class: feature }
+P6: "P6 · host picker (ssh-config)" { class: feature }
+P7: "P7 · Code tab fs/git" { class: feature }
+P9: "P9 · multiplex + degrade" { class: feature }
+P1 -> P2
+P1 -> P2b
+P1 -> P4a
+P2 -> P4a
+P2 -> P3
+P4a -> P3
+P4a -> P4b
+P4a -> P5
+P4a -> P6
+P4b -> P7
+P5 -> P9
+P7 -> P9
+`}
+/>
+
+| Phase | Kind | Ships | Retires the risk of… |
+| --- | --- | --- | --- |
+| **P1** | <Pill>refactor</Pill> | delete `hostId`-absent-means-local on the terminal/endpoint surfaces; `location` non-optional, `local` explicit; migrate saved records | the restore-to-wrong-endpoint seam — *before* remote code leans on optionality (compile error, not silent respawn) |
+| **P2** | <Pill variant="fix">bug-proof</Pill> | a persisted `Set<hostId>` dial-list as the *sole* boot-dial authority; autosave excludes remote terminals (tested); neuter the client respawn-by-`hostId` branch | autosave-prunes-durable-terminals + boot-stops-re-dialing — made structurally unreachable |
+| **P2b** | <Pill variant="fix">bug-proof</Pill> | `RecentRepo`/`RecentAgent` `hostId` non-optional; route every prune-stat through `endpointFor(record.hostId).fs`, tolerant of a down host | local-fs assumptions reaching remote records (the remote-repo prune) — a cheap local-world refactor |
+| **P4a** | <Pill variant="ok">feature</Pill> | a kaval-direct durable remote **shell** with PTY-tap awareness (cwd/title/foreground) and the **host login PATH**; fs/git + git/agent show a typed "not yet" | *does kolu put a durable remote shell on the canvas over real ssh+Nix, with no host agent?* — the walking skeleton |
+| **P3** | <Pill>refactor</Pill> | replace shadow/orphan/settle-window with `adoptHost`: dial → `await` one `terminal.list` → seed → project; client `isLoading` waits per host | the whole cold-boot re-adoption race — *dissolved*, even against a cold host agent |
+| **P4b** | <Pill variant="ok">feature</Pill> | the **host agent** (watcher reborn) runs the git/PR/agent DAG host-side and *enriches* tiles — never adds/removes membership | the scariest move: remote awareness that reads the host's real fs/home, proven bisectable from the dial mechanics |
+| **P5** | <Pill variant="ok">feature</Pill> | per-host health chip + cold-dial progress, with a *pinned* `onState → ENDPOINT_STATES` projection table (copying/disconnected/failed have no direct member) | a minute-long dial looking hung; the lossy state projection being hand-waved |
+| **P6** | <Pill variant="ok">feature</Pill> | the new-tile palette lists `~/.ssh/config` ∪ `KOLU_HOSTS_JSON` hosts; pick one or type an ad-hoc target | retyping ssh targets — *list every host, dial only on demand* |
+| **P7** | <Pill variant="ok">feature</Pill> | the **Code tab**: native fs/git on the *same* host agent (one host process, not a new binary), reading the host's real files | proving the watcher's old PTY-forwarding was never needed — fs/git as an additive surface |
+| **P9** | <Pill variant="ok">feature</Pill> | many tiles per host + multiple hosts sharing one ssh `ControlMaster`; graceful degradation; lazy per-binary provisioning | does the pooled link scale across a real canvas, and does one dead host degrade instead of stalling? |
+
+## The four bug classes, dissolved by construction
+
+The point of designing afresh is that #1385's bugs become *unreachable*, not *fixed*:
+
+| #1385 bug class | The construction that makes it impossible |
+| --- | --- |
+| **Cold-boot re-adoption race** (shadows wiped on an empty/partial frame; autosave prunes the session; boot stops re-dialing) | Existence is one atomic `terminal.list` + a synchronous seed (no streamed enumeration to mis-settle); kolu persists only a dial-list (no record to prune); the client gate waits per host so a remote-only boot shows "dialing", never a blank canvas. |
+| **Env leak** (remote PTY gets a restricted PATH) | Spawn is `{argv,env,initFiles}` fully-specified; env is built fresh from `system.info` — *and* the host **login PATH** is captured host-side (moved into kaval's `system.info`), so a kaval-direct dial reports it. An e2e asserts the PTY's PATH carries the user's profile dirs. |
+| **Remote-repo prune** (recent-repos stat'd against local fs) | Reachability is an endpoint question: every record carries its `hostId`, and prune-stat routes through `endpointFor(record.hostId).fs`, tolerant of a down host. A unit test asserts a remote record is never stat'd against local fs. |
+| **Restore-to-wrong-endpoint** (saved `hostId` dropped → respawn locally) | `location` is non-optional (a drop is a compile error); restore is *dial + adopt the host's list*, never read-record-and-spawn; the client respawn-by-`hostId` branch is neutered. |
+
+## The honest correction: awareness is split
+
+The seductive clean-slate idea — and the one the *adversarial review killed* — was "the first remote slice needs no host agent at all, and the provider DAG just runs in kolu-server over kaval's taps." Half true, and the half that's false is exactly the half #1385's existence already proves.
+
+<Callout kind="warn" title="Why git/PR/agent awareness MUST run host-side">
+The provider DAG splits cleanly by **where its inputs live**:
+
+- **PTY-tap signals** — cwd, title, foreground, command — ride kaval's wire taps. These *can* run in kolu-server, and the kaval-direct shell slice (P4a) ships them with **no host agent**. That is a genuine surface-sharing win.
+- **fs-derived signals** — git branch/dirty state, PR status, agent detection — read the host's own filesystem and home dir (`git/resolve.ts` runs `simpleGit` on the terminal's cwd; the claude/codex/opencode detectors read `~/.claude` under `os.homedir()`). Run *in kolu-server* against a remote cwd/pid, they inspect the **wrong machine** — empty git state, no PR, no agent, or a collision where a remote pid matches a local session file.
+
+So git/PR/agent awareness *must* run on the host (P4b) — which is **exactly why kolu-watcher exists**. The fresh design keeps that role and renames it the **host agent**, dropping only its PTY-forwarding. The honest scope: the host agent is the *awareness host* and the *fs/git host*, never the PTY path and never the canvas-existence signal. A from-scratch design that skipped this would re-learn #1385's lesson the hard way.
+</Callout>
+
+## Versus the resequencing
+
+A layered *resequencing* of #1385's existing code and this from-scratch design are two real options, and they differ in kind:
+
+- **Resequencing** (finish #1385's design in safe slices) is *layer-completion of the existing design*: lower review risk, faster to start (the code exists), but it preserves the worst coupling — the watcher in the PTY path, persisted remote records, the settle-window band-aid, optional-`hostId` everywhere. You ship the same architecture in safe slices.
+- **from-scratch** is *dissolution-by-construction on a cleaner core*: more up-front rewrite, but the four bug classes become unreachable, the PTY is dialed straight at kaval, and the boot model is one atomic pull. Every remote PR is demoable from the first one, and the load-bearing awareness split is isolated and honestly scoped.
+
+A pragmatic blend is available: the structural bug-proofing here (**P1/P2/P2b** — endpoint-first-class, dial-list, host-aware feed) is cheap, local-only, and *worth doing regardless of which path ships the remote code*. They convert the bug classes into compile errors and failing tests on the world we already have.
+
+## Status
+
+**Proposed — a clean-slate alternative to finishing <PrLink pr={1385} /> in layers, and a child of [kaval-sessions](kaval-sessions.html).** This design was built from the goal, grounded in the shipped foundation by reading the real repo, judged by a panel, and adversarially verified — the verification is what forced the awareness split (the draft's "no host agent, full awareness" thesis was provably wrong) and the seed-from-`terminal.list` existence model. It is *not* committed; it is the "if we started over" answer to weigh against finishing what we have. The recommended first move either way is the **P1/P2/P2b** structural trio — pure local-world refactors that make the #1385 bug classes unreachable before any remote code is written.
