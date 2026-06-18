@@ -76,20 +76,30 @@ interface WatcherLifecycle {
   stop: () => void;
 }
 
-/** The providers' record seed for a freshly-watched terminal. Only the
- *  host-side fields it produces (git / pr / agent / lastAgentCommand /
- *  lastActivityAt) are ever published as awareness; `cwd` seeds the providers'
- *  read-once cwd, and `location`/`foreground` are inert placeholders the
- *  providers never read (the endpoint owns them in-server). */
+/** Seed `record.meta` for a freshly-watched terminal. This is NOT a hand-copy of
+ *  `createMetadata` (it deliberately does not own that concept — `createMetadata`
+ *  lives in kolu-server, on the wrong side of the dependency direction to import
+ *  here): the watcher only ever reads `cwd` (the providers' read-once cwd) and
+ *  publishes the `persistedOf`/`liveOf` projections, so this seeds exactly those —
+ *  the persisted defaults (`git: null`, `lastActivityAt: 0`; `lastAgentCommand`
+ *  absent until the agent-command tracker fires) and the live defaults
+ *  (`pr: { kind: "pending" }`, `agent: null`). `location`/`foreground` are NEVER
+ *  published (the endpoint owns them in-server); they are null placeholders here
+ *  solely because the over-wide `TerminalServerMetadata` type — `record.meta`'s
+ *  type — demands them. */
 function initialMeta(cwd: string): TerminalServerMetadata {
   return {
+    // The only field the providers read.
     cwd,
+    // Persisted-awareness defaults (`persistedOf` publishes these).
     git: null,
-    location: LOCAL_LOCATION,
+    lastActivityAt: 0,
+    // Live-awareness defaults (`liveOf` publishes these).
     pr: { kind: "pending" },
     agent: null,
+    // Never published — type-only placeholders the endpoint owns in-server.
+    location: LOCAL_LOCATION,
     foreground: null,
-    lastActivityAt: 0,
   };
 }
 
