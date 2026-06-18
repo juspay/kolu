@@ -714,24 +714,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         return; // watch failed — already logged; nothing to fold
       }
       if (signal.aborted) return;
+      // `a` IS exactly the persisted-/live-awareness subset (its schema is the
+      // `.pick` that declares the partition), so spread it WHOLE rather than
+      // copying field-by-field — a new awareness field rides the spread for free
+      // and the "fold every published field back" rule stays mechanical (the
+      // same whole-record discipline `adoptedMeta` uses, per #1275).
       bridgeStream(
         watcherClient.surface.persistedAwareness.get({ key: id }, { signal }),
         signal,
-        (a) =>
-          updateServerMetadata(entry, id, (m) => {
-            m.git = a.git;
-            m.lastAgentCommand = a.lastAgentCommand;
-            m.lastActivityAt = a.lastActivityAt;
-          }),
+        (a) => updateServerMetadata(entry, id, (m) => Object.assign(m, a)),
       );
       bridgeStream(
         watcherClient.surface.liveAwareness.get({ key: id }, { signal }),
         signal,
-        (a) =>
-          updateServerLiveMetadata(entry, id, (m) => {
-            m.pr = a.pr;
-            m.agent = a.agent;
-          }),
+        (a) => updateServerLiveMetadata(entry, id, (m) => Object.assign(m, a)),
       );
     })();
 

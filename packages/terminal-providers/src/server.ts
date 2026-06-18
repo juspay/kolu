@@ -46,7 +46,9 @@ import {
 } from "./providers.ts";
 import {
   type LiveAwareness,
+  LiveAwarenessSchema,
   type PersistedAwareness,
+  PersistedAwarenessSchema,
   type WatcherContract,
   watcherSurface,
 } from "./watcherSurface.ts";
@@ -91,16 +93,32 @@ function initialMeta(cwd: string): TerminalServerMetadata {
   };
 }
 
-const persistedOf = (m: TerminalServerMetadata): PersistedAwareness => ({
-  git: m.git,
-  lastAgentCommand: m.lastAgentCommand,
-  lastActivityAt: m.lastActivityAt,
-});
+/** Project the metadata onto a schema's own key set. Keyed off
+ *  `Schema.keyof().options` — the awareness schemas' `.pick` keys ARE the
+ *  partition — so adding a field to a `.pick` in `watcherSurface.ts` widens
+ *  the projection automatically; the field list isn't re-enumerated here. */
+function projectOnto<K extends keyof TerminalServerMetadata>(
+  m: TerminalServerMetadata,
+  keys: readonly K[],
+): Pick<TerminalServerMetadata, K> {
+  const out = {} as Pick<TerminalServerMetadata, K>;
+  for (const k of keys) out[k] = m[k];
+  return out;
+}
 
-const liveOf = (m: TerminalServerMetadata): LiveAwareness => ({
-  pr: m.pr,
-  agent: m.agent,
-});
+// The awareness schemas' key sets, derived from the `.pick`ed schemas
+// themselves (the single source of truth for the persisted-vs-live partition),
+// so `persistedOf`/`liveOf` can't drift from the published shape.
+const PERSISTED_KEYS = PersistedAwarenessSchema.keyof()
+  .options as readonly (keyof PersistedAwareness & keyof TerminalServerMetadata)[];
+const LIVE_KEYS = LiveAwarenessSchema.keyof()
+  .options as readonly (keyof LiveAwareness & keyof TerminalServerMetadata)[];
+
+const persistedOf = (m: TerminalServerMetadata): PersistedAwareness =>
+  projectOnto(m, PERSISTED_KEYS);
+
+const liveOf = (m: TerminalServerMetadata): LiveAwareness =>
+  projectOnto(m, LIVE_KEYS);
 
 export function buildWatcherServer(opts: BuildWatcherServerOptions) {
   const { log } = opts;
