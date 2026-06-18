@@ -198,6 +198,8 @@ const CanvasMinimap: Component<{
 
   function handleMapPointerDown(e: PointerEvent) {
     const map = e.currentTarget as HTMLDivElement;
+    // `rect.left`/`rect.top` is the content origin — assumes the map box is
+    // left-anchored and only grows rightward (see PANEL SEAM on the container).
     const rect = map.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
@@ -213,6 +215,8 @@ const CanvasMinimap: Component<{
 
   function handleMapPointerMove(e: PointerEvent) {
     const map = e.currentTarget as HTMLDivElement;
+    // `rect.left`/`rect.top` is the content origin — assumes the map box is
+    // left-anchored and only grows rightward (see PANEL SEAM on the container).
     const rect = map.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
