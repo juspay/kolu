@@ -105,6 +105,41 @@ function basename(s: string): string {
   return slash === -1 ? s : s.slice(slash + 1);
 }
 
+/** Chars that carry no shell meaning — a maximal leading run of these is safe
+ *  to leave BARE. Mirrors `@kolu/shell-quote`'s `SAFE_BARE_WORD` charset (kept
+ *  local: this is a per-char predicate over a value's prefix, not the leaf's
+ *  whole-token test). */
+const SAFE_BARE_CHAR = /[A-Za-z0-9@%_+=:,./~-]/;
+
+/**
+ * Render a value whose SOURCE began with a BARE leading `~` (so a shell expands
+ * the tilde) but which still needs quoting for some later character — the
+ * classic case being a space, e.g. `--add-dir ~/'My Projects'`.
+ *
+ * Why this exists: a flat `forceQuoteArg` would wrap the whole value in single
+ * quotes, putting the leading `~` INSIDE the quotes and suppressing expansion —
+ * replaying a literal `~/My Projects` instead of `$HOME/My Projects`. The shell
+ * only expands a `~` that is followed by an UNQUOTED `/` (or end-of-word), so we
+ * keep the maximal leading bare-safe run (`~/My`, `~/.config/x`, …) unquoted and
+ * force-quote only the remainder.
+ *
+ * The recovered literal: `string-argv` does NOT strip a quote that appears
+ * mid-token — `~/'My Projects'` tokenizes to the literal `~/'My Projects'`
+ * (quote chars retained). Since this branch is only reached for a bare-leading-
+ * `~` token (a leading quote would make the source quoted, handled elsewhere),
+ * the only `'`/`"` in the value are that retained quote syntax, so stripping
+ * them recovers the shell-true value (verified against bash for the single-,
+ * double-, and mixed-quote forms).
+ */
+function renderBareTildeValue(value: string): string {
+  const literal = value.replace(/['"]/g, ""); // drop string-argv's retained quote syntax
+  let end = 0;
+  while (end < literal.length && SAFE_BARE_CHAR.test(literal[end] ?? "")) end++;
+  const prefix = literal.slice(0, end);
+  const rest = literal.slice(end);
+  return rest === "" ? prefix : prefix + forceQuoteArg(rest);
+}
+
 /**
  * Per-token quoting provenance for a raw command line, recovered by walking the
  * source in lockstep with `parseArgsStringToArgv`'s argv.
@@ -242,14 +277,23 @@ export function parseAgentCommand(raw: string): string | null {
   // Used only to keep a quoted literal `~` from re-expanding (see below).
   const quoted = quotedStarts(trimmed);
 
-  // Render a kept value, preserving the one quoting bit `string-argv` drops:
-  // a leading `~` that the SOURCE quoted is a literal path and must stay quoted
-  // (suppress expansion); an unquoted leading `~` stays bare so it re-expands.
-  // Every other token defers to `shellQuoteArg`.
-  const renderValue = (value: string, argvIndex: number): string =>
-    value.startsWith("~") && quoted[argvIndex] === true
-      ? forceQuoteArg(value)
-      : shellQuoteArg(value);
+  // Render a kept value, preserving the quoting bits `string-argv` drops:
+  //  - a leading `~` the SOURCE quoted is a literal path → keep it quoted
+  //    (suppress expansion) via `forceQuoteArg`;
+  //  - a leading `~` the source left BARE must re-expand on rerun → keep the
+  //    tilde prefix bare. `shellQuoteArg` already does this for a fully-safe
+  //    value (`~/projects/foo`), but a value that needs quoting for a LATER
+  //    char (a space, e.g. `~/'My Projects'`) would be fully wrapped — putting
+  //    the `~` inside the quotes — so `renderBareTildeValue` keeps the bare
+  //    prefix and quotes only the remainder;
+  //  - every other token defers to `shellQuoteArg`.
+  const renderValue = (value: string, argvIndex: number): string => {
+    if (value.startsWith("~")) {
+      if (quoted[argvIndex] === true) return forceQuoteArg(value);
+      return renderBareTildeValue(value);
+    }
+    return shellQuoteArg(value);
+  };
 
   // Keep only allowlisted flags + their values, each POSIX-quoted as we go.
   // Joining pre-quoted tokens (rather than calling `shellJoin` on raw tokens)

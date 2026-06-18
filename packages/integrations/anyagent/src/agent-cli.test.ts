@@ -226,6 +226,27 @@ describe("parseAgentCommand", () => {
     ).toBe(`claude --add-dir ~/keep --settings '~/literal'`);
   });
 
+  // Regression (codex review F2, round 3): a BARE leading `~` whose remainder
+  // is quoted for a SPACE (`--add-dir ~/'My Projects'`). A shell expands the
+  // bare `~` even though the rest of the word is quoted, so the normalized form
+  // must keep the tilde prefix bare and quote only the space-containing
+  // remainder — a flat `forceQuoteArg` would wrap the `~` and replay a literal
+  // path. `string-argv` retains the mid-token quote chars (the token is the
+  // literal `~/'My Projects'`); we recover the shell-true value and re-render.
+  it("keeps the tilde bare when only a later (spaced) segment needs quoting", () => {
+    expect(parseAgentCommand(`claude --add-dir ~/'My Projects'`)).toBe(
+      `claude --add-dir ~/My' Projects'`,
+    );
+    // double-quoted remainder of a bare tilde behaves identically
+    expect(parseAgentCommand(`claude --add-dir ~/"My Projects"`)).toBe(
+      `claude --add-dir ~/My' Projects'`,
+    );
+    // a quoted segment deeper in the path still keeps the bare tilde prefix
+    expect(parseAgentCommand(`claude --add-dir ~/.config/'x y'`)).toBe(
+      `claude --add-dir ~/.config/x' y'`,
+    );
+  });
+
   // Regression (codex review F3): a flag value containing an apostrophe is
   // single-quoted with the canonical `'\''` idiom; the normalized form must
   // re-tokenize (via shellSplit, the inverse of shellJoin) back to one token.
@@ -338,6 +359,16 @@ describe("resumeAgentCommand", () => {
     // ...while an UNQUOTED tilde stays bare (still expands on rerun).
     expect(resumeAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
       `claude -c --add-dir ~/projects/foo`,
+    );
+  });
+
+  // Regression (codex review F2, round 3): the bare-tilde + quoted-remainder
+  // form (`~/My' Projects'`, produced by parseAgentCommand) must survive the
+  // resume splice with its bare tilde prefix intact, so the auto-typed restore
+  // command still expands `~` to $HOME.
+  it("preserves a bare tilde with a quoted remainder across the resume splice", () => {
+    expect(resumeAgentCommand(`claude --add-dir ~/My' Projects'`)).toBe(
+      `claude -c --add-dir ~/My' Projects'`,
     );
   });
 });
