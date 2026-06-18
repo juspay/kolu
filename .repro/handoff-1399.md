@@ -30,6 +30,37 @@ client is `chromium:cs0` (Chromium's GPU/compositor), and the `ProduceSkia` +
 Mutter `stack_position` signatures point *below* kolu. This test will either find
 churn under your setup or confirm the cause is in the compositor/Mesa stack.
 
+## Your case is a slow leak — start with these two (cheap, safe)
+
+Your two clues — **Firefox/LibreWolf is a clean workaround**, and the crash hits
+**~2–3 h** into a 5–6-terminal Chromium session — say this is a *slow
+accumulation in Chromium's GPU process*, not an acute oscillation. Two
+zero/low-risk experiments beat the synthetic probe here:
+
+**1. Renderer bisection (one setting, no risk, decisive).** kolu renders
+terminals with xterm's **WebGL** addon by default (`auto`). On Chromium + a
+weaker GPU, WebGL contexts churn as you switch focus across tiles (kolu caps it
+to the focused tile — see the #575/#591/#606 history). Set **Settings → terminal
+renderer → `dom`** (no WebGL at all) and use kolu normally for a day or two:
+- crash **stops** → it's the WebGL / GPU-context path in Chromium → that's the
+  culprit class, and `dom` is your immediate fix (matches Firefox-works);
+- crash **persists** → it's Chromium's 2D/SharedImage compositing more broadly.
+Either outcome narrows it hard, for free.
+
+**2. Passive long-session monitor (observe the leak, no stress).** Run
+[`.repro/live/monitor-1399.sh`](.repro/live/monitor-1399.sh) in a terminal during
+your normal session and leave it: `bash .repro/live/monitor-1399.sh`. Every 30 s
+it logs discrete-GPU **VRAM%**, **gpu_busy**, **Chromium GPU-process RSS**, Mutter
+`stack_position` count, and any kernel GPU-fault (with a loud alert). If VRAM or
+GPU-process RSS climbs over hours and never falls back on idle, that's the leak
+captured — send the JSONL. This is what actually matches a 2–3 h timescale (the
+short synthetic probe below won't catch a slow leak).
+
+It would also help to grab **Debug → Diagnostic info** (Copy JSON) at the start
+of a session and again after ~2 h — compare WebGL `aliveDetached` / canvas count.
+
+---
+
 > ⚠️ **Safety.** A real amdgpu MODE1 reset crashes your whole Wayland session
 > (gnome-shell, Xwayland, browsers). **Save all work first.** Keep a kernel-log
 > watch open and stop the instant a fault line appears. This test only resizes /
