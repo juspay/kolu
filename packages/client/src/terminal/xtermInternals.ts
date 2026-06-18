@@ -98,7 +98,7 @@ export function readBufferBytes(
   return { primary: sum(primary), alternate: sum(alternate) };
 }
 
-/** Effective scale within this of 1 takes the cheap no-op path in
+/** An effective scale within this band of 1 takes the cheap no-op path in
  *  `unscaleEventPoint`, keeping the common untransformed case (non-canvas /
  *  zoom-1) a strict identity. Not correctness-critical: scale is measured as
  *  `rect.width / offsetWidth`, and because `offsetWidth` is integer-rounded
