@@ -213,10 +213,11 @@ interface MouseCoordsShape {
  *  still divides a *post-transform* `getBoundingClientRect()` offset by that
  *  now-*unscaled* cell, the exact asymmetry we correct. xterm #3242 ("selection
  *  affected by CSS scaling transforms") was closed as a duplicate of #2488 on
- *  the assumption the measurement fix covered selection; it did not. Still
- *  present on `@xterm/xterm` master as of 2026-06, so a pnpm-overrides pin bump
- *  won't retire this wrap — only an upstream coord-path fix would, at which point
- *  it becomes a no-op and can be deleted.
+ *  the assumption the measurement fix covered selection; it did not. Filed the
+ *  unfinished coord-path half upstream as xtermjs/xterm.js#6023. Still present on
+ *  `@xterm/xterm` master as of 2026-06, so a pnpm-overrides pin bump won't retire
+ *  this wrap — only the #6023 coord-path fix would, at which point it becomes a
+ *  no-op and can be deleted.
  *
  *  Not covered (and uncoverable by wrapping the service): xterm's
  *  `SelectionService._getMouseEventScrollAmount` calls the free
