@@ -912,19 +912,60 @@ Then(
   },
 );
 
+// Per-tile renderer assertion. Indexes top-level (non-sub-terminal) visible
+// tiles in creation order — same ordering as "I click canvas tile {int}".
+// Excludes [data-sub-terminal] so an open split pane does not shift the index
+// of subsequent tiles. WebGL load/unload is async (effect + addon
+// construction), so poll rather than read once. `{word}` is `webgl` or `dom`.
 Then(
-  "the focused canvas tile should use the webgl renderer",
-  async function (this: KoluWorld) {
+  "canvas tile {int} should use the {word} renderer",
+  async function (this: KoluWorld, index: number, want: string) {
     await this.page.waitForFunction(
-      (sel: string) => {
-        // The active tile is rendered inside a CanvasTile wrapper that flags
-        // itself via data-active="true" (see CanvasTile.tsx).
-        const active = document.querySelector(`${sel} [data-active="true"]`);
-        if (!active) return false;
-        const terminal = active.querySelector("[data-terminal-id]");
-        return terminal?.getAttribute("data-renderer") === "webgl";
+      ({ sel, i, w }: { sel: string; i: number; w: string }) => {
+        const tile = document
+          .querySelectorAll(
+            `${sel} [data-terminal-id][data-visible]:not([data-sub-terminal])`,
+          )
+          .item(i) as HTMLElement | null;
+        return tile?.getAttribute("data-renderer") === w;
       },
-      CANVAS_SELECTOR,
+      { sel: CANVAS_SELECTOR, i: index - 1, w: want },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+// Main pane vs. active split of the active tile — for the active-split-inherit
+// scenario, where both must end up on WebGL. The active tile carries
+// data-active="true"; its main pane is the non-sub Terminal, its focused split
+// is the one visible [data-sub-terminal].
+Then(
+  "the main terminal should use the {word} renderer",
+  async function (this: KoluWorld, want: string) {
+    await this.page.waitForFunction(
+      ({ sel, w }: { sel: string; w: string }) => {
+        const main = document.querySelector(
+          `${sel} [data-active="true"] [data-terminal-id][data-visible]:not([data-sub-terminal])`,
+        );
+        return main?.getAttribute("data-renderer") === w;
+      },
+      { sel: CANVAS_SELECTOR, w: want },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the focused sub-terminal should use the {word} renderer",
+  async function (this: KoluWorld, want: string) {
+    await this.page.waitForFunction(
+      ({ sel, w }: { sel: string; w: string }) => {
+        const sub = document.querySelector(
+          `${sel} [data-active="true"] [data-sub-terminal][data-visible]`,
+        );
+        return sub?.getAttribute("data-renderer") === w;
+      },
+      { sel: CANVAS_SELECTOR, w: want },
       { timeout: POLL_TIMEOUT },
     );
   },
