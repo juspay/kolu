@@ -246,7 +246,8 @@ const Terminal: Component<{
     // Chrome's ~16-context-per-tab budget, at which point Chrome starts
     // evicting live contexts — including the focused tile's — producing a
     // flicker across every tile. loseContext() releases GPU memory in the
-    // current microtask, keeping the live set at 1.
+    // current microtask, keeping the live set within the WebGL budget (≤4 —
+    // the 2 most-recently-active tiles plus their active splits, #1403).
     if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
     webglCanvas
       ?.getContext("webgl2")
@@ -309,7 +310,9 @@ const Terminal: Component<{
     ),
   );
 
-  // Hand the single WebGL context to whichever tile is focused+visible.
+  // Reconcile this terminal's WebGL context against `shouldUseWebgl()`: load
+  // when it enters the budget (recently-active tile or its active split),
+  // unload when it leaves — holding ≤4 contexts at once (#1403).
   // defer: true — onMount handles the initial load before xterm is constructed.
   createEffect(
     on(
