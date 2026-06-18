@@ -205,6 +205,19 @@ interface MouseCoordsShape {
  *  first (`unscaleEventPoint`) and delegate the rest to xterm's own math, so
  *  there is no cell metric to keep in sync.
  *
+ *  This is a known-but-unfixed gap in xterm's OWN coordinate path, not a kolu
+ *  quirk. xterm #2488 (xtermjs/xterm.js PR #4366, shipped 5.3.0) made char
+ *  *measurement* transform-agnostic — `CharSizeService` now measures via
+ *  `measureText` / `offsetWidth`, so `css.cell.width` ignores an ancestor
+ *  `scale()` — but the hit-test was never reconciled: `getCoordsRelativeToElement`
+ *  still divides a *post-transform* `getBoundingClientRect()` offset by that
+ *  now-*unscaled* cell, the exact asymmetry we correct. xterm #3242 ("selection
+ *  affected by CSS scaling transforms") was closed as a duplicate of #2488 on
+ *  the assumption the measurement fix covered selection; it did not. Still
+ *  present on `@xterm/xterm` master as of 2026-06, so a pnpm-overrides pin bump
+ *  won't retire this wrap — only an upstream coord-path fix would, at which point
+ *  it becomes a no-op and can be deleted.
+ *
  *  Not covered (and uncoverable by wrapping the service): xterm's
  *  `SelectionService._getMouseEventScrollAmount` calls the free
  *  `getCoordsRelativeToElement` directly, not via the service, to size the
