@@ -173,7 +173,10 @@ function processBasename(proc: string): string {
 export function startProcessProvider(
   record: ProviderRecord,
   terminalId: TerminalId,
-  channels: ProviderChannels,
+  // The process observer reads ONLY the foreground + title taps (see body), so
+  // its parameter states exactly that: the cwd/commandRun/git channels the wider
+  // `ProviderChannels` carries are the host-side providers' inputs, not this one's.
+  channels: Pick<ProviderChannels, "foreground" | "title">,
   hooks: ProviderHooks,
 ): () => void {
   const plog = hooks.log.child({ provider: "process", terminal: terminalId });

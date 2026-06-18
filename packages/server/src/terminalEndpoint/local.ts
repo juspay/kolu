@@ -33,7 +33,6 @@ import { directLink } from "@kolu/surface/links/direct";
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
   buildWatcherServer,
-  type ProviderChannels,
   type ProviderHooks,
   type ProviderRecord,
   startProcessProvider,
@@ -66,7 +65,7 @@ import {
   subscribeFileChange,
   subscribeRepoChange,
 } from "kolu-git";
-import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
+import type { GitDiffMode } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
@@ -624,15 +623,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     );
 
     // The in-server foreground/process observer (no filesystem — the note's
-    // split). It consumes only the foreground + title channels; the rest of
-    // `ProviderChannels` is unused here (the host-side providers consume the
-    // relayed signals over the link).
-    const inServerChannels: ProviderChannels = {
-      cwd: inMemoryChannel<string>(),
+    // split). It consumes only the foreground + title channels (the host-side
+    // providers consume the relayed signals over the link), so we build exactly
+    // those two — its narrowed parameter type makes the omission honest.
+    const inServerChannels = {
       title: inMemoryChannel<string>(),
-      commandRun: inMemoryChannel<string>(),
       foreground: inMemoryChannel<ForegroundSample>(),
-      git: inMemoryChannel<GitInfo | null>(),
     };
     const stopProcess = startProcessProvider(
       record,
