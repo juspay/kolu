@@ -912,35 +912,20 @@ Then(
   },
 );
 
-Then(
-  "the focused canvas tile should use the webgl renderer",
-  async function (this: KoluWorld) {
-    await this.page.waitForFunction(
-      (sel: string) => {
-        // The active tile is rendered inside a CanvasTile wrapper that flags
-        // itself via data-active="true" (see CanvasTile.tsx).
-        const active = document.querySelector(`${sel} [data-active="true"]`);
-        if (!active) return false;
-        const terminal = active.querySelector("[data-terminal-id]");
-        return terminal?.getAttribute("data-renderer") === "webgl";
-      },
-      CANVAS_SELECTOR,
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
-// Per-tile renderer assertion. Indexes the same visible-tile NodeList as
-// "I click canvas tile {int}" (creation order), so tile N here is the tile N
-// you clicked. WebGL load/unload is async (the effect + addon construction),
-// so poll rather than read once. `{word}` is `webgl` or `dom`.
+// Per-tile renderer assertion. Indexes top-level (non-sub-terminal) visible
+// tiles in creation order — same ordering as "I click canvas tile {int}".
+// Excludes [data-sub-terminal] so an open split pane does not shift the index
+// of subsequent tiles. WebGL load/unload is async (effect + addon
+// construction), so poll rather than read once. `{word}` is `webgl` or `dom`.
 Then(
   "canvas tile {int} should use the {word} renderer",
   async function (this: KoluWorld, index: number, want: string) {
     await this.page.waitForFunction(
       ({ sel, i, w }: { sel: string; i: number; w: string }) => {
         const tile = document
-          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .querySelectorAll(
+            `${sel} [data-terminal-id][data-visible]:not([data-sub-terminal])`,
+          )
           .item(i) as HTMLElement | null;
         return tile?.getAttribute("data-renderer") === w;
       },
