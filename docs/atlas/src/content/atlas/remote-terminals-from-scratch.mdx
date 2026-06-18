@@ -49,7 +49,7 @@ The load-bearing principles:
 
 - **Existence comes from one atomic pull, never a stream.** Boot, restore, and reconnect collapse into *one* routine: dial the host, `await` a single complete kaval `terminal.list`, **synchronously seed** a `terminalMetadata` entry (cwd + location) for every listed id so the client's membership filter (`meta.keys()`) reaches its full set in one tick, then project. There is no shadow tile and no empty→partial→full enumeration for the boot race to mis-settle on.
 - **Persist only a dial-list.** Persist a record only for an endpoint that *dies with you* (the local PTY). The durable remote kaval outlives you, so you persist only `Set<hostId>` to re-dial — and that dial-list is the *sole* boot-dial authority. A remote-located terminal can never enter `SavedSession.terminals` (unit-tested), so no autosave can ever prune it.
-- **Endpoint is first-class.** `location` is non-optional on the terminal surfaces; `local` (`LOCAL_HOST_ID`) is an explicit value, not the *absence* of a `hostId`. A dropped location becomes a compile error, not a silent local respawn.
+- **Endpoint is first-class.** `location` is a non-optional **discriminated union** — `{ kind: "local" }` or `{ kind: "remote", hostId }` — so `local` is an explicit *variant*, not a reserved host-id string (a remote host aliased `local` in `~/.ssh/config` can't collide with the in-process endpoint). A dropped location is a compile error, not a silent local respawn. *(Shipped — <PrLink pr={1402} />.)*
 - **Awareness is split by where its inputs live** — the one place a naïve clean-slate (and #1385's own framing) goes wrong. See below.
 
 ## What we stand on, what we throw away
@@ -66,7 +66,7 @@ The load-bearing principles:
 - **The watcher forwarding the PTY.** <Pill variant="hi">reject</Pill> Putting the PTY data path through the most-volatile host process. Dial kaval *directly* for the PTY; the host agent keeps the PTY out of its path.
 - **Persisted remote-terminal records + the dual boot-dial authority.** <Pill variant="hi">reject</Pill> Replaced by the dial-list, which *supersedes* the `savedRemoteTerminals → bootDialHosts` branch.
 - **`preRegisterSavedTerminals` → shadow tiles + the settle-window orphan reconcile** <Commit sha="fbc06c31" />. <Pill variant="hi">reject</Pill> Deleted, not re-timed — replaced by the one atomic `terminal.list` + synchronous seed.
-- **Optional `hostId` ("absent ⇒ local") threaded through the contract.** <Pill variant="hi">reject</Pill> Made explicit and non-optional on the terminal surfaces (and finished off in the activity feed).
+- **Optional `hostId` ("absent ⇒ local") threaded through the contract.** <Pill variant="hi">reject</Pill> Replaced by the non-optional `location` *sum* on the terminal surfaces — `{kind:"local"}` ∣ `{kind:"remote",hostId}` (P1, shipped <PrLink pr={1402} />); the activity feed's `hostId` is finished off in P2b.
 
 ## Ten risk-isolated slices
 
@@ -80,7 +80,7 @@ classes: {
   feature: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#1b7a3a" }
   bugproof: { style.fill: "#efebff"; style.stroke: "#d4cbff"; style.font-color: "#5a3ff0" }
 }
-P1: "P1 · location non-optional" { class: refactor }
+P1: "P1 · location non-optional ✓ shipped" { class: refactor }
 P2: "P2 · dial-list (sole boot authority)" { class: bugproof }
 P2b: "P2b · host-aware activity feed" { class: bugproof }
 P4a: "P4a · kaval-direct shell (ssh)" { class: feature }
@@ -109,7 +109,7 @@ P5 -> P9
 
 | Phase | Kind | Cost | Ships | Retires the risk of… |
 | --- | --- | --- | --- | --- |
-| **P1** | <Pill>refactor</Pill> | thin | make `location` **non-optional** (this *reverses* #1385's shipped `.optional()` design); migrate pre-P3 saved terminals; rewrite the "no location = local" test | restore-to-wrong-endpoint — a dropped host becomes a compile error, not a silent local respawn |
+| **P1** <Pill variant="ok">shipped</Pill> <PrLink pr={1402} /> | <Pill>refactor</Pill> | thin | `location` is now a non-optional **discriminated union** (`{kind:"local"}` ∣ `{kind:"remote",hostId}`) — collision-proof vs a reserved `local` string; migrates pre-1.26 saved terminals; the seam `createMetadata(cwd, location)` makes a dropped location a compile error at every spawn site | restore-to-wrong-endpoint — a dropped host is a compile error, not a silent local respawn |
 | **P2** | <Pill variant="fix">bug-proof</Pill> | thin | a `Set<hostId>` dial-list as the *sole* boot-dial authority; autosave excludes remote terminals (tested); neuter the client respawn-by-`hostId` branch | autosave-prunes + boot-stops-re-dialing — structurally unreachable |
 | **P2b** | <Pill variant="fix">bug-proof</Pill> | thin | `RecentRepo`/`RecentAgent` `hostId` non-optional; prune-stat via `endpointFor(record.hostId).fs`, tolerant of a down host | local-fs assumptions reaching remote records |
 | **P4a** | <Pill variant="ok">feature</Pill> | moderate | a kaval-direct durable remote **shell** over real ssh+Nix, PTY-tap awareness + the host **login PATH**; fs/git + git/agent show a typed "not yet" | the walking skeleton — a durable remote shell with **no host agent** |
@@ -128,7 +128,7 @@ Calling every slice "thin" was wrong. The honest split:
 - **Moderate — P4a, P3, P4d, P5, P9.** Real but contained. P4d is the only genuinely-remote slice (provisioning + the ssh link + cross-arch/reconnect/`ControlMaster`/ssh-ng), but its *consumption* code is already proven natively in P4w — going remote only changes the link.
 - **Fat — the cost centre — P4w.** *The whole kolu-watcher in one go*: harden the package + its **Nix closure** (real deps `@kolu/terminal-dag`, `kolu-git`, `gh`, `node`, guarded by `buildId.closure.test.ts`) **and** wire local consumption natively via `directLink`. It carries the platform risk *and* the consumption refactor — but it lands **natively and hermetically** (no ssh, no Nix to run it locally), and remote (P4d) then only changes the link.
 
-> **Caveat:** P1–P4d map to commits on the **still-open <PrLink pr={1385} />**, not merged trunk. "Each slice merges independently and stays green" is a per-slice *goal to re-validate*, not an established fact.
+> **Caveat:** **P1 is now on master** (<PrLink pr={1402} />) — landed directly on trunk as the recommended first move, *not* cherry-picked from #1385, and with a better shape than this note first proposed (a discriminated union, not a reserved `LOCAL_HOST_ID` string). P2–P4d are still ahead and map to commits on the open <PrLink pr={1385} />, so "merges independently and stays green" is a per-slice *goal to re-validate* for those.
 
 ## The four bug classes, dissolved by construction
 
@@ -183,4 +183,4 @@ A pragmatic blend is available: the structural bug-proofing here (**P1/P2/P2b** 
 
 ## Status
 
-**Proposed — a clean-slate alternative to finishing <PrLink pr={1385} /> in layers, and a child of [kaval-sessions](kaval-sessions.html).** This design was built from the goal, grounded in the shipped foundation by reading the real repo, judged by a panel, and adversarially verified — the verification forced the awareness split (the draft's "no host agent, full awareness" thesis was provably wrong) and the seed-from-kaval's-`terminal.list` existence model; a later pass found the sharper consumption model — `@kolu/surface`'s **`directLink`** lets the whole watcher be built *and* consumed natively in-process (one phase, **P4w**), so going remote (**P4d**) is just swapping the link to `stdioLink`, which collapsed the watcher work from four slices to two. The long pole is **P1 → P2 → P4a → P3 → P4d → P9**, with the fat watcher phase (**P4w**) riding parallel to P4a. It is *not* committed — and P1–P4d map to commits on the still-open <PrLink pr={1385} />, not merged trunk, so "merges independently / stays green" is a per-slice goal to re-validate. The recommended first move either way is the **P1/P2/P2b** structural trio — pure local-world refactors that make the #1385 bug classes unreachable before any remote code is written.
+**Proposed — a clean-slate alternative to finishing <PrLink pr={1385} /> in layers, and a child of [kaval-sessions](kaval-sessions.html).** This design was built from the goal, grounded in the shipped foundation by reading the real repo, judged by a panel, and adversarially verified — the verification forced the awareness split (the draft's "no host agent, full awareness" thesis was provably wrong) and the seed-from-kaval's-`terminal.list` existence model; a later pass found the sharper consumption model — `@kolu/surface`'s **`directLink`** lets the whole watcher be built *and* consumed natively in-process (one phase, **P4w**), so going remote (**P4d**) is just swapping the link to `stdioLink`, which collapsed the watcher work from four slices to two. The long pole is **P1 → P2 → P4a → P3 → P4d → P9**, with the fat watcher phase (**P4w**) riding parallel to P4a. It is *not* committed — and P1–P4d map to commits on the still-open <PrLink pr={1385} />, not merged trunk, so "merges independently / stays green" is a per-slice goal to re-validate. The structural trio **P1/P2/P2b** is the recommended first move either way — pure local-world refactors that make the #1385 bug classes unreachable before any remote code is written. **P1 has landed on master** (<PrLink pr={1402} />), in a *better* shape than first proposed: `location` is a discriminated union (`{kind:"local"}` ∣ `{kind:"remote",hostId}`), so a remote host aliased `local` can never collide with the in-process endpoint. Next: **P2** (dial-list) and **P2b** (host-aware feed).
