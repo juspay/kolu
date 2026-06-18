@@ -71,4 +71,40 @@ describe("unscaleEventPoint", () => {
       clientY: 17,
     });
   });
+
+  it("round-trips the documented scale-about-(0,0) forward map", () => {
+    // The inverse is only valid while the ancestor transform uses
+    // `transform-origin: 0 0` (CanvasTile's `tileTransformCSS` contract): the
+    // border-box top-left is the fixed point. Pin that by composing the forward
+    // map xterm's transformed rect implies — a point scales about the element's
+    // top-left, `screenX = rect.left + (logicalX - rect.left) * scaleX` — and
+    // asserting `unscaleEventPoint` recovers the original logical point. If
+    // CanvasTile ever moves to a non-0/0 origin, this fixed point shifts and
+    // this test breaks, so forward/inverse can't silently desync.
+    const layoutWidth = 400;
+    const layoutHeight = 300;
+    const scaleX = 2;
+    const scaleY = 1.5;
+    const r = rect(100, 50, layoutWidth * scaleX, layoutHeight * scaleY);
+    const forward = (logicalX: number, logicalY: number) => ({
+      clientX: r.left + (logicalX - r.left) * scaleX,
+      clientY: r.top + (logicalY - r.top) * scaleY,
+    });
+    for (const [logicalX, logicalY] of [
+      [r.left, r.top], // the fixed point itself
+      [250, 175],
+      [r.left + layoutWidth, r.top + layoutHeight], // far edge
+    ]) {
+      const screen = forward(logicalX, logicalY);
+      const out = unscaleEventPoint(
+        screen.clientX,
+        screen.clientY,
+        r,
+        layoutWidth,
+        layoutHeight,
+      );
+      expect(out.clientX).toBeCloseTo(logicalX, 9);
+      expect(out.clientY).toBeCloseTo(logicalY, 9);
+    }
+  });
 });

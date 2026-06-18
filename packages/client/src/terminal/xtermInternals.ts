@@ -126,6 +126,14 @@ const TRANSFORM_EPSILON = 1e-3;
  *  0), so a pure pan (translate, scale 1) needs no correction and is returned
  *  unchanged.
  *
+ *  The border-box top-left is the fixed point ONLY while the ancestor transform
+ *  uses `transform-origin: 0 0` (CanvasTile.tsx sets this for `tileTransformCSS`,
+ *  documented in canvas/viewport/coordinates.ts); a non-0/0 origin would move
+ *  the fixed point and invalidate inverting about `rect.left`/`rect.top`. The
+ *  round-trip test in `xtermInternals.test.ts` composes that documented
+ *  scale-about-(0,0) forward map and asserts this inverse recovers the point, so
+ *  the two can't silently drift from the `transform-origin: 0 0` contract.
+ *
  *  Pure (no DOM) so the geometry is unit-testable; the DOM read lives in
  *  `patchTransformAwareMouseCoords`. Returns the input unchanged when there is
  *  no effective scale, so untransformed terminals (split / sub-panels,
