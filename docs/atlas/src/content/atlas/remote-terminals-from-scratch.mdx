@@ -84,7 +84,7 @@ P1: "P1 · location non-optional ✓ shipped" { class: refactor }
 P2: "P2 · dial-list (sole boot authority)" { class: bugproof }
 P2b: "P2b · host-aware activity feed" { class: bugproof }
 P4a: "P4a · kaval-direct shell (ssh)" { class: feature }
-P4w: "P4w · terminal-dag + directLink (local)" { class: refactor }
+P4w: "P4w · terminal-providers + directLink" { class: refactor }
 P3: "P3 · boot via kaval's terminal.list" { class: refactor }
 P4d: "P4d · watcher over ssh · Nix (FAT)" { class: feature }
 P5: "P5 · health + dial progress" { class: feature }
@@ -179,7 +179,7 @@ A layered *resequencing* of #1385's existing code and this from-scratch design a
 - **Resequencing** (finish #1385's design in safe slices) is *layer-completion of the existing design*: lower review risk, faster to start (the code exists), but it preserves the worst coupling — the watcher in the PTY path, persisted remote records, the settle-window band-aid, optional-`hostId` everywhere. You ship the same architecture in safe slices.
 - **from-scratch** is *dissolution-by-construction on a cleaner core*: more up-front rewrite, but the four bug classes become unreachable, the PTY is dialed straight at kaval, and the boot model is one atomic pull. Every remote PR is demoable from the first one, and the load-bearing awareness split is isolated and honestly scoped.
 
-A pragmatic blend is available: the structural bug-proofing here (**P1/P2/P2b** — endpoint-first-class, dial-list, host-aware feed) is cheap, local-only, and *worth doing regardless of which path ships the remote code* — they convert the bug classes into compile errors and failing tests on the world we already have. **P4w earns its place in that set too**: extracting the provider pipeline into `@kolu/terminal-providers` and putting it behind a clean surface is better modularity and testability *on its own* — a good refactor even if remote never ships (the `directLink` rewire is the seam that *also* makes remote a link-swap, and it drops the misleading "DAG" name while it's in there).
+A pragmatic blend is available: the structural bug-proofing here (**P1/P2/P2b** — endpoint-first-class, dial-list, host-aware feed) is cheap, local-only, and *worth doing regardless of which path ships the remote code* — they convert the bug classes into compile errors and failing tests on the world we already have. **P4w earns its place in that set too**: extracting the provider pipeline into `@kolu/terminal-providers` and putting it behind a clean surface is better modularity and testability *on its own* — a good refactor even if remote never ships (the `directLink` rewire is the seam that *also* makes remote a link-swap).
 
 ## Status
 
