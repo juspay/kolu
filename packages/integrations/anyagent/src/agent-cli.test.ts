@@ -205,66 +205,35 @@ describe("parseAgentCommand", () => {
     );
   });
 
-  // Regression (codex review F2, round 2): the OPPOSITE provenance. If the
-  // SOURCE quoted the tilde (`--settings '~/x'`), the user meant a literal `~`
-  // path and expansion must stay suppressed. `string-argv` strips the quotes,
-  // so both forms tokenize to the identical token `~/x`; `parseAgentCommand`
-  // recovers the one bit that distinguishes them (did the source token begin
-  // with a quote?) and re-quotes the literal case. Without this, the round-1
-  // bare-by-default would silently turn a literal `~` into an expanding one.
-  it("re-quotes a quoted leading-tilde value so it stays literal on rerun", () => {
+  // Accepted trade-off (juspay/kolu#1407): `string-argv` strips the source
+  // quotes, so a quoted-literal tilde (`--settings '~/x'`) and a bare one
+  // (`--settings ~/x`) tokenize to the IDENTICAL token `~/x`. We intentionally
+  // do NOT recover the source's quote provenance, so both normalize to a bare
+  // (expanding) `~`. Preserving the rare quoted-literal-tilde case is not worth
+  // the machinery — the overwhelmingly common case is an unquoted path.
+  it("normalizes a quoted leading tilde to a bare (expanding) one", () => {
     expect(parseAgentCommand(`claude --settings '~/x'`)).toBe(
-      `claude --settings '~/x'`,
+      `claude --settings ~/x`,
     );
     expect(parseAgentCommand(`claude --settings "~/x"`)).toBe(
-      `claude --settings '~/x'`,
-    );
-    // A quoted `~` next to an unquoted `~` in the same line: each keeps its own
-    // provenance (the forward source walk doesn't confuse the two tokens).
-    expect(
-      parseAgentCommand(`claude --add-dir ~/keep --settings '~/literal'`),
-    ).toBe(`claude --add-dir ~/keep --settings '~/literal'`);
-  });
-
-  // Regression (codex review F2, round 3): a BARE leading `~` whose remainder
-  // is quoted for a SPACE (`--add-dir ~/'My Projects'`). A shell expands the
-  // bare `~` even though the rest of the word is quoted, so the normalized form
-  // must keep the tilde prefix bare and quote only the space-containing
-  // remainder — a flat `forceQuoteArg` would wrap the `~` and replay a literal
-  // path. `string-argv` retains the mid-token quote chars (the token is the
-  // literal `~/'My Projects'`); we recover the shell-true value and re-render.
-  it("keeps the tilde bare when only a later (spaced) segment needs quoting", () => {
-    expect(parseAgentCommand(`claude --add-dir ~/'My Projects'`)).toBe(
-      `claude --add-dir ~/My' Projects'`,
-    );
-    // double-quoted remainder of a bare tilde behaves identically
-    expect(parseAgentCommand(`claude --add-dir ~/"My Projects"`)).toBe(
-      `claude --add-dir ~/My' Projects'`,
-    );
-    // a quoted segment deeper in the path still keeps the bare tilde prefix
-    expect(parseAgentCommand(`claude --add-dir ~/.config/'x y'`)).toBe(
-      `claude --add-dir ~/.config/x' y'`,
+      `claude --settings ~/x`,
     );
   });
 
-  // Regression (codex review F2, round 4): a BARE leading `~` whose quoted
-  // remainder contains a LITERAL quote of the opposite type. A shell strips the
-  // delimiters but keeps the literal quote: `~/"Bob's Project"` is the path
-  // `$HOME/Bob's Project` (the `'` is literal content of the `"…"` run), and
-  // `~/'a"b c'` is `$HOME/a"b c` (the `"` is literal content of the `'…'` run).
-  // The earlier blanket `replace(/['"]/g, "")` dropped those literal quotes too,
-  // corrupting the path; `decodeShellLiteral` strips only the delimiters. Each
-  // expected form is bash-verified to re-decode (with `~` expansion) to the
-  // exact path the source command produced.
-  it("preserves a literal quote inside the opposite-type quoted tilde remainder", () => {
-    // `'` is literal content inside `"…"` → it must survive
-    expect(parseAgentCommand(`claude --add-dir ~/"Bob's Project"`)).toBe(
-      `claude --add-dir ~/Bob''\\''s Project'`,
-    );
-    // `"` is literal content inside `'…'` → it must survive
-    expect(parseAgentCommand(`claude --add-dir ~/'a"b c'`)).toBe(
-      `claude --add-dir ~/a'"b c'`,
-    );
+  // Accepted trade-off (juspay/kolu#1407): a tilde value that ALSO needs quoting
+  // for a space loses expansion on rerun. Without the source-provenance
+  // machinery, `string-argv` retains the mid-token quotes (the token is the
+  // literal `~/'My Projects'`) and we quote the whole thing, so the `~` ends up
+  // literal — a rare degradation we accept. The property that MUST still hold —
+  // the one the original bug broke — is that the value stays ONE argument and
+  // never word-splits on its space.
+  it("keeps a spaced tilde value as a single argument (tilde no longer expands)", () => {
+    const normalized = parseAgentCommand(`claude --add-dir ~/'My Projects'`);
+    expect(shellSplit(normalized as string)).toEqual([
+      "claude",
+      "--add-dir",
+      `~/'My Projects'`,
+    ]);
   });
 
   // Regression (codex review F3): a flag value containing an apostrophe is
@@ -368,45 +337,13 @@ describe("resumeAgentCommand", () => {
     ]);
   });
 
-  // Regression (codex review F2, round 2): the resume splice must preserve the
-  // tail's quoting VERBATIM. A quoted literal `~` (already correctly quoted by
-  // parseAgentCommand) must stay quoted across resume — a shellSplit+shellJoin
-  // round-trip would re-bare it and silently re-introduce tilde expansion.
-  it("preserves a quoted literal tilde across the resume splice", () => {
-    expect(resumeAgentCommand(`claude --settings '~/x'`)).toBe(
-      `claude -c --settings '~/x'`,
-    );
-    // ...while an UNQUOTED tilde stays bare (still expands on rerun).
+  // The resume splice keeps the tail VERBATIM (head + marker + raw tail), so a
+  // bare tilde stays bare and still expands on rerun — there is no
+  // shellSplit+shellJoin round-trip that could re-quote it.
+  it("preserves a bare tilde across the resume splice", () => {
     expect(resumeAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
       `claude -c --add-dir ~/projects/foo`,
     );
-  });
-
-  // Regression (codex review F2, round 3): the bare-tilde + quoted-remainder
-  // form (`~/My' Projects'`, produced by parseAgentCommand) must survive the
-  // resume splice with its bare tilde prefix intact, so the auto-typed restore
-  // command still expands `~` to $HOME.
-  it("preserves a bare tilde with a quoted remainder across the resume splice", () => {
-    expect(resumeAgentCommand(`claude --add-dir ~/My' Projects'`)).toBe(
-      `claude -c --add-dir ~/My' Projects'`,
-    );
-  });
-
-  // Regression (codex review F2, round 4): the bare-tilde form carrying a
-  // literal opposite-type quote (`~/Bob''\''s Project'`, produced by
-  // parseAgentCommand for `~/"Bob's Project"`) must survive the resume splice
-  // VERBATIM — the verbatim tail splice keeps the canonical `'\''` idiom and the
-  // bare tilde prefix intact.
-  it("preserves a bare tilde with a literal-quote remainder across the resume splice", () => {
-    const normalized = `claude --add-dir ~/Bob''\\''s Project'`;
-    const resumed = resumeAgentCommand(normalized);
-    expect(resumed).toBe(`claude -c --add-dir ~/Bob''\\''s Project'`);
-    expect(shellSplit(resumed as string)).toEqual([
-      "claude",
-      "-c",
-      "--add-dir",
-      "~/Bob's Project",
-    ]);
   });
 });
 

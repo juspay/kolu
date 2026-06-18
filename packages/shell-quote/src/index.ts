@@ -26,20 +26,18 @@
  *  flags this is used on (`--settings ~/x`, `--add-dir ~/y`). Tilde is only an
  *  expansion at a word's start, so keeping it bare mid-word is inert.
  *
- *  This bare-by-default is correct ONLY when the source `~` was itself
- *  unquoted (the overwhelmingly common case). A source that QUOTED the tilde
- *  (`--settings '~/x'`) meant a literal `~` and must be re-quoted to suppress
- *  expansion; that provenance is not visible at the token level, so the
- *  re-quoting is the caller's job via `forceQuoteArg` (see `@kolu/anyagent`'s
- *  `parseAgentCommand`). */
+ *  Tilde is left bare unconditionally. A source that QUOTED the tilde
+ *  (`--settings '~/x'`, meaning a literal `~` path) is indistinguishable at the
+ *  token level — a tokenizer has already stripped the quotes — so it replays as
+ *  an expanding `~` too. That quoted-literal-tilde case is rare and is
+ *  intentionally not preserved (juspay/kolu#1407). */
 const SAFE_BARE_WORD = /^[A-Za-z0-9@%_+=:,./~-]+$/;
 
-/** Wrap a token in single quotes unconditionally, escaping any embedded single
- *  quote the canonical `'\''` way. The single quoting/escaping rule lives in
- *  exactly one place; both `shellQuoteArg` and any caller that has decided a
- *  token MUST be quoted (e.g. to suppress tilde expansion for a value the user
- *  originally quoted) route through here. */
-export function forceQuoteArg(token: string): string {
+/** Wrap a token in single quotes, escaping any embedded single quote the
+ *  canonical `'\''` way — close the run, emit an escaped bare quote, reopen.
+ *  Internal helper so the single quoting/escaping rule lives in exactly one
+ *  place; `shellQuoteArg` routes its needs-quoting branch through it. */
+function forceQuoteArg(token: string): string {
   return `'${token.replace(/'/g, "'\\''")}'`;
 }
 

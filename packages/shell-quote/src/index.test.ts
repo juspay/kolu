@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  forceQuoteArg,
-  shellJoin,
-  shellQuoteArg,
-  shellSplit,
-} from "./index.ts";
+import { shellJoin, shellQuoteArg, shellSplit } from "./index.ts";
 
 describe("shellQuoteArg", () => {
   it("leaves a safe bare word (ssh target / plain socket path) unquoted", () => {
@@ -45,23 +40,6 @@ describe("shellQuoteArg", () => {
 
   it("quotes the empty string (a bare empty arg would just vanish)", () => {
     expect(shellQuoteArg("")).toBe("''");
-  });
-});
-
-describe("forceQuoteArg", () => {
-  it("quotes a token even when it would be a safe bare word", () => {
-    // A caller forces quoting to override a bare-word default — e.g. a leading
-    // `~` the user QUOTED in source, which must stay literal (no expansion).
-    expect(forceQuoteArg("~/x")).toBe("'~/x'");
-    expect(forceQuoteArg("sonnet")).toBe("'sonnet'");
-  });
-
-  it("escapes an embedded single quote the canonical '\\'' way", () => {
-    expect(forceQuoteArg("a'b")).toBe("'a'\\''b'");
-  });
-
-  it("round-trips through shellSplit", () => {
-    expect(shellSplit(forceQuoteArg("~/x"))).toEqual(["~/x"]);
   });
 });
 

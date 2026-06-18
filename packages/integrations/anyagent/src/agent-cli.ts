@@ -29,7 +29,7 @@
  * drops real positionals.
  */
 
-import { forceQuoteArg, shellQuoteArg, shellSplit } from "@kolu/shell-quote";
+import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 
 /** Flags that cause the CLI to print info and exit immediately.
@@ -103,114 +103,6 @@ const STABLE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
 function basename(s: string): string {
   const slash = s.lastIndexOf("/");
   return slash === -1 ? s : s.slice(slash + 1);
-}
-
-/** Chars that carry no shell meaning — a maximal leading run of these is safe
- *  to leave BARE. Mirrors `@kolu/shell-quote`'s `SAFE_BARE_WORD` charset (kept
- *  local: this is a per-char predicate over a value's prefix, not the leaf's
- *  whole-token test). */
-const SAFE_BARE_CHAR = /[A-Za-z0-9@%_+=:,./~-]/;
-
-/**
- * Decode a `string-argv` token (which retains the quote syntax it found) into
- * the shell-true literal value, stripping only syntactic quote DELIMITERS while
- * preserving a literal quote character that is content INSIDE the opposite quote
- * type. A POSIX shell decodes `~/"Bob's Project"` to `~/Bob's Project` (the `'`
- * is literal content of the `"…"` run) and `~/'a"b c'` to `~/a"b c` (the `"` is
- * literal content of the `'…'` run); blanket-stripping every `'`/`"` would lose
- * those literal quotes (codex review F2, round 4).
- *
- * Scope: only `'…'` and `"…"` delimiters are handled. `$`, backtick and
- * backslash escaping are intentionally NOT decoded — `string-argv` already
- * word-splits an unquoted backslash-escaped space upstream (a pre-existing
- * tokenizer divergence, not something this normalizer can repair), and these
- * are agent-CLI path values, not arbitrary shell. */
-function decodeShellLiteral(value: string): string {
-  let out = "";
-  let quote: "'" | '"' | null = null;
-  for (const c of value) {
-    if (quote === null) {
-      if (c === "'" || c === '"') {
-        quote = c; // open delimiter — dropped
-        continue;
-      }
-      out += c;
-    } else if (c === quote) {
-      quote = null; // matching close delimiter — dropped
-    } else {
-      out += c; // literal content (incl. the opposite quote char)
-    }
-  }
-  return out;
-}
-
-/**
- * Render a value whose SOURCE began with a BARE leading `~` (so a shell expands
- * the tilde) but which still needs quoting for some later character — the
- * classic case being a space, e.g. `--add-dir ~/'My Projects'`.
- *
- * Why this exists: a flat `forceQuoteArg` would wrap the whole value in single
- * quotes, putting the leading `~` INSIDE the quotes and suppressing expansion —
- * replaying a literal `~/My Projects` instead of `$HOME/My Projects`. The shell
- * only expands a `~` that is followed by an UNQUOTED `/` (or end-of-word), so we
- * keep the maximal leading bare-safe run (`~/My`, `~/.config/x`, …) unquoted and
- * force-quote only the remainder.
- *
- * `decodeShellLiteral` recovers the shell-true value from the quote-retaining
- * `string-argv` token (verified against bash for the single-, double-, and
- * mixed-/nested-quote forms — a literal quote inside the opposite quote type
- * survives, only the delimiters are dropped).
- */
-function renderBareTildeValue(value: string): string {
-  const literal = decodeShellLiteral(value);
-  let end = 0;
-  while (end < literal.length && SAFE_BARE_CHAR.test(literal[end] ?? "")) end++;
-  const prefix = literal.slice(0, end);
-  const rest = literal.slice(end);
-  return rest === "" ? prefix : prefix + forceQuoteArg(rest);
-}
-
-/**
- * Per-token quoting provenance for a raw command line, recovered by walking the
- * source in lockstep with `parseArgsStringToArgv`'s argv.
- *
- * Why this exists: `string-argv` strips quotes, so `--settings ~/x` and
- * `--settings '~/x'` tokenize to the IDENTICAL token `~/x`. But the two mean
- * different things on re-execution — bare `~` expands to `$HOME`, a quoted `~`
- * is a literal path. Bare-by-default (our `shellQuoteArg`) is right for the
- * unquoted case; for the quoted case we must re-quote to suppress expansion.
- * The token alone cannot tell them apart, so we recover the one bit that
- * matters — "did this token's source begin with a quote?" — straight from the
- * raw line.
- *
- * `quotedStarts(raw)[i]` is `true` iff the i-th argv token's source span began
- * with `'` or `"`. We only walk far enough to answer per kept value; a monotone
- * forward cursor (not substring search) keeps this robust against repeated
- * tokens. We never need to fully re-tokenize — we only inspect the first
- * non-whitespace char of each token's source.
- */
-function quotedStarts(raw: string): boolean[] {
-  const starts: boolean[] = [];
-  let i = 0;
-  while (i < raw.length) {
-    while (i < raw.length && /\s/.test(raw[i] ?? "")) i++; // skip inter-token whitespace
-    if (i >= raw.length) break;
-    const c = raw[i];
-    starts.push(c === "'" || c === '"');
-    // Advance past this whole token's source: a run of unquoted chars and/or
-    // balanced quoted segments, ending at the next unquoted whitespace. This
-    // mirrors how a POSIX tokenizer groups e.g. `foo'bar baz'` into one token.
-    while (i < raw.length && !/\s/.test(raw[i] ?? "")) {
-      const ch = raw[i];
-      if (ch === "'" || ch === '"') {
-        const close = raw.indexOf(ch, i + 1);
-        i = close === -1 ? raw.length : close + 1;
-      } else {
-        i++;
-      }
-    }
-  }
-  return starts;
 }
 
 /**
@@ -292,8 +184,7 @@ export function agentNameFromCommand(command: string): string | null {
  * to a known agent binary, or `null` otherwise.
  */
 export function parseAgentCommand(raw: string): string | null {
-  const trimmed = raw.trim();
-  const [head, ...args] = parseArgsStringToArgv(trimmed);
+  const [head, ...args] = parseArgsStringToArgv(raw.trim());
   if (head === undefined) return null;
 
   const agent = basename(head);
@@ -303,34 +194,9 @@ export function parseAgentCommand(raw: string): string | null {
   // Exit-immediately flags → not an agent session.
   if (args.some((t) => EXIT_FLAGS.has(t))) return null;
 
-  // Did each source token begin with a quote? `args[i]` is argv index `i + 1`.
-  // Used only to keep a quoted literal `~` from re-expanding (see below).
-  const quoted = quotedStarts(trimmed);
-
-  // Render a kept value, preserving the quoting bits `string-argv` drops:
-  //  - a leading `~` the SOURCE quoted is a literal path → keep it quoted
-  //    (suppress expansion) via `forceQuoteArg`;
-  //  - a leading `~` the source left BARE must re-expand on rerun → keep the
-  //    tilde prefix bare. `shellQuoteArg` already does this for a fully-safe
-  //    value (`~/projects/foo`), but a value that needs quoting for a LATER
-  //    char (a space, e.g. `~/'My Projects'`) would be fully wrapped — putting
-  //    the `~` inside the quotes — so `renderBareTildeValue` keeps the bare
-  //    prefix and quotes only the remainder;
-  //  - every other token defers to `shellQuoteArg`.
-  const renderValue = (value: string, argvIndex: number): string => {
-    if (value.startsWith("~")) {
-      if (quoted[argvIndex] === true) return forceQuoteArg(value);
-      return renderBareTildeValue(value);
-    }
-    return shellQuoteArg(value);
-  };
-
-  // Keep only allowlisted flags + their values, each POSIX-quoted as we go.
-  // Joining pre-quoted tokens (rather than calling `shellJoin` on raw tokens)
-  // is what lets the tilde-provenance override above sit per-token; the wire
-  // format is still "each token quoted, space-joined", so `shellSplit` remains
-  // the exact inverse. Anything else (unknown flags, positionals) is dropped.
-  const kept: string[] = [shellQuoteArg(agent)];
+  // Keep only allowlisted flags + their values. Anything else (unknown flags,
+  // positional args) is dropped.
+  const kept: string[] = [agent];
   for (let i = 0; i < args.length; i++) {
     const t = args[i];
     if (t === undefined) break;
@@ -343,15 +209,24 @@ export function parseAgentCommand(raw: string): string | null {
       continue;
     }
     // Stable flag — keep verbatim
-    kept.push(shellQuoteArg(t));
+    kept.push(t);
     // If the next token is a non-flag value (e.g. `--model sonnet`),
-    // attach it to the flag, preserving leading-`~` quoting provenance.
+    // attach it to the flag as-is.
     if (next !== undefined && !next.startsWith("-")) {
-      kept.push(renderValue(next, i + 2));
+      kept.push(next);
       i++;
     }
   }
-  return kept.join(" ");
+
+  // Re-quote each kept token so the joined command survives shell re-execution:
+  // `string-argv` strips the source quoting, so a value carrying spaces, JSON,
+  // or other shell-significant characters would word-split on rerun without it
+  // (`--settings '{"ultracode": true}'` → `Error: Settings file not found:
+  // {ultracode:`). A safe bare word — including a leading `~`, kept bare so the
+  // shell re-expands it to the same home path the source used — is left as-is.
+  // `shellJoin`'s exact inverse is `shellSplit` (see `@kolu/shell-quote`), which
+  // the resume/head-extraction paths use to reparse this wire format.
+  return shellJoin(kept);
 }
 
 /**
