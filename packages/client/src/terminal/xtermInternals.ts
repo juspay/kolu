@@ -156,12 +156,11 @@ export function unscaleEventPoint(
 ): { clientX: number; clientY: number } {
   const scaleX = layoutWidth > 0 ? rect.width / layoutWidth : 1;
   const scaleY = layoutHeight > 0 ? rect.height / layoutHeight : 1;
-  if (
+  const nearIdentity =
     Math.abs(scaleX - 1) < TRANSFORM_EPSILON &&
-    Math.abs(scaleY - 1) < TRANSFORM_EPSILON
-  ) {
-    return { clientX, clientY };
-  }
+    Math.abs(scaleY - 1) < TRANSFORM_EPSILON;
+  // Common untransformed case (split / sub-panel, zoom 1): skip the math.
+  if (nearIdentity) return { clientX, clientY };
   return {
     clientX: rect.left + (clientX - rect.left) / scaleX,
     clientY: rect.top + (clientY - rect.top) / scaleY,
