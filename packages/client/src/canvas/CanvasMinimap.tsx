@@ -240,6 +240,15 @@ const CanvasMinimap: Component<{
       suppressNextClick = false;
       return;
     }
+    // PANEL SEAM dead-zone: the map box can render wider than its scaled
+    // content (it stretches to the zoom-bar floor — see container comment).
+    // That extra right-hand width is inert padding with no represented tile
+    // space, so a click there must NOT pan — otherwise localX/minimapScale
+    // maps it far past the bounding box's upper X. Tiles map [0, minW] onto
+    // the full bounds width, so reject any click past minW. (Height always
+    // equals scaled content, so only width grows a dead zone.)
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    if (e.clientX - rect.left > mapDims().minW) return;
     handleMinimapClick(e, viewport, minimapScale(), bounds());
   }
 
