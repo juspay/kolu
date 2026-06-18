@@ -84,9 +84,12 @@ export const useTerminalStore = createSharedRoot(() => {
     const budget = webglTileBudget();
     const parentId = metadata.getMetadata(id)?.parentId ?? null;
     if (parentId === null) return budget.includes(id);
+    const panel = subPanel.getSubPanel(parentId);
+    // A collapsed split is invisible — it must not hold a WebGL context.
+    // Mirror focusedId's collapsed guard so holdsWebgl is self-contained and
+    // any future consumer doesn't need to re-check props.visible externally.
     return (
-      budget.includes(parentId) &&
-      subPanel.getSubPanel(parentId).activeSubTab === id
+      budget.includes(parentId) && !panel.collapsed && panel.activeSubTab === id
     );
   }
 
