@@ -804,8 +804,14 @@ When(
       CANVAS_SELECTOR,
     );
     if (ids.length === 0) throw new Error("No canvas tiles to stack");
+    const STACK_X = 200;
+    // >> tile width (700) so the stacked column's height/width ratio (~7x) far
+    // exceeds the minimap's MAP_W/MAP_H aspect (1.5), forcing the height term
+    // to win the scale and collapse the map to a sliver — the exact tall-narrow
+    // shape from the bug.
+    const TALL_GAP_PX = 6000;
     for (const [i, id] of ids.entries()) {
-      await setCanvasLayoutById(this, id, 200, i * 6000);
+      await setCanvasLayoutById(this, id, STACK_X, i * TALL_GAP_PX);
     }
   },
 );
