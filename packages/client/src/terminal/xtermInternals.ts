@@ -154,8 +154,13 @@ export function unscaleEventPoint(
   layoutWidth: number,
   layoutHeight: number,
 ): { clientX: number; clientY: number } {
-  const scaleX = layoutWidth > 0 ? rect.width / layoutWidth : 1;
-  const scaleY = layoutHeight > 0 ? rect.height / layoutHeight : 1;
+  // Guard both ends: layoutWidth/Height === 0 prevents division by layoutWidth;
+  // rect.width/Height === 0 (element detached or zero-sized) prevents later
+  // division by scaleX/scaleY at the return site below.
+  const scaleX =
+    layoutWidth > 0 && rect.width > 0 ? rect.width / layoutWidth : 1;
+  const scaleY =
+    layoutHeight > 0 && rect.height > 0 ? rect.height / layoutHeight : 1;
   const nearIdentity =
     Math.abs(scaleX - 1) < TRANSFORM_EPSILON &&
     Math.abs(scaleY - 1) < TRANSFORM_EPSILON;

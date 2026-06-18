@@ -52,6 +52,9 @@ async function markerCellPixel(
         const text = active.getLine(row)?.translateToString(true) ?? "";
         if (text.trim() !== marker) continue;
         const rect = screen.getBoundingClientRect();
+        // Guard against a zero-sized rect (detached / off-screen element) —
+        // dividing by a zero dimension would produce NaN pixel coords.
+        if (rect.width <= 0 || rect.height <= 0) return null;
         const cellW = rect.width / term.cols;
         const cellH = rect.height / term.rows;
         return {
