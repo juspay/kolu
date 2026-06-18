@@ -1,0 +1,38 @@
+{
+  "name": "@kolu/terminal-providers",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@kolu/surface": "workspace:*",
+    "@orpc/contract": "^1.13.13",
+    "@orpc/server": "^1.13.13",
+    "anyagent": "workspace:*",
+    "anyforge": "workspace:*",
+    "kaval": "workspace:*",
+    "kolu-claude-code": "workspace:*",
+    "kolu-codex": "workspace:*",
+    "kolu-common": "workspace:*",
+    "kolu-git": "workspace:*",
+    "kolu-github": "workspace:*",
+    "kolu-opencode": "workspace:*",
+    "pino": "^10.3.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.0"
+  }
+}

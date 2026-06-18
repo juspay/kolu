@@ -1,11 +1,14 @@
-/** Per-terminal provider DAG, parameterized over `ProviderHooks` +
- *  `ProviderChannels` + `ProviderRecord` so the host is the only thing
- *  that varies. kolu-server's local endpoint (`./local.ts`) instantiates it,
- *  feeding it the pty-host's raw taps over the `ptyHostSurface` contract; a
- *  remote ssh pty-host serves the same taps in #951 R-2 — same DAG, different
- *  transport.
+/** Per-terminal awareness providers — git / PR / agent detection, the
+ *  foreground/process observer, and the agent-command tracker. Each is
+ *  parameterized over `ProviderHooks` + `ProviderChannels` + `ProviderRecord`
+ *  so the host is the only thing that varies: kolu-server runs the
+ *  foreground/process provider in-process against the pty-host's taps
+ *  (`./local.ts`), and `buildWatcherServer` (`./server.ts`) runs the git / PR /
+ *  agent providers behind a surface so kolu-server consumes their output over a
+ *  link — `directLink` locally today, an ssh `stdioLink` later. Local vs remote
+ *  is only the link.
  *
- *  Provider DAG:
+ *  The providers:
  *
  *    cwd:<id>          ─►  git watcher           ─►  PR watcher
  *                                                    (lives on m.pr)
@@ -20,7 +23,7 @@
  *
  *  Note on `git` channel: the PR provider chains off the
  *  `git` channel that the git provider publishes — so the channel
- *  has to be provided by the host (the agent creates a per-terminal
+ *  has to be provided by the host (the host creates a per-terminal
  *  in-memory channel for it).
  *
  *  ## Host contract
@@ -29,9 +32,9 @@
  *  cwd) and is not re-read afterwards; subsequent cwd changes flow
  *  ONLY through `channels.cwd`. Hosts must publish every cwd change to
  *  that channel — they are NOT required to keep `record.meta.cwd` in
- *  sync, though the agent happens to (its cwd bridge writes through
- *  `hooks.updateServerMetadata` so the persisted+published metadata
- *  stays current for clients). Any host that satisfies the
+ *  sync, though the local endpoint happens to (its cwd bridge writes
+ *  through `hooks.updateServerMetadata` so the persisted+published
+ *  metadata stays current for clients). Any host that satisfies the
  *  `ProviderChannels`/`ProviderHooks` shape and publishes cwd to the
  *  channel will get correct agent / git resolution.
  */
@@ -63,10 +66,10 @@ import type {
 import { opencodeProvider } from "kolu-opencode";
 import type { ForegroundSample } from "kaval";
 import type { Channel } from "@kolu/surface/server";
-import { log } from "../log.ts";
+import type { Logger } from "pino";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 
-/** Minimal "terminal record" shape the provider DAG needs. The local endpoint
+/** Minimal "terminal record" shape the providers need. The local endpoint
  *  (`./local.ts`) constructs one per terminal; the providers only touch
  *  `pid` + `meta` + `currentAgent` from here. `meta` is
  *  `TerminalServerMetadata` — the canonical
@@ -78,9 +81,10 @@ export interface ProviderRecord {
    *  spawn. The agent detectors compare it to the foreground pid to decide
    *  "shell idle" (foreground IS the shell). No longer a `PtyHandle`: the
    *  live reads (process name + foreground pid) that used to come off the
-   *  handle synchronously now arrive over `channels.foreground`, so the DAG
-   *  has zero sync dependency on the PTY host — which is what lets it run on
-   *  the far side of a socket from pty-host (R4c) or ssh (R-2). */
+   *  handle synchronously now arrive over `channels.foreground`, so the
+   *  providers have zero sync dependency on the PTY host — which is what lets
+   *  them run on the far side of a link from the host (`directLink` today, ssh
+   *  later). */
   pid: number;
   meta: TerminalServerMetadata;
   /** Ephemeral basename of the agent binary at the foreground right
@@ -99,8 +103,8 @@ export interface ProviderChannels {
   commandRun: Channel<string>;
   /** Foreground samples (`{process, foregroundPid}`) from pty-host's
    *  foreground tap — the channel form of the old synchronous
-   *  `ptyHandle.process` / `.foregroundPid` reads, so the DAG works across a
-   *  socket. The host pushes a current snapshot first, then changes. */
+   *  `ptyHandle.process` / `.foregroundPid` reads, so the providers work across
+   *  a link. The host pushes a current snapshot first, then changes. */
   foreground: Channel<ForegroundSample>;
   git: Channel<GitInfo | null>;
 }
@@ -111,16 +115,21 @@ export interface ProviderChannels {
  *  `metadata.ts` enforces): writing `m.agent` through
  *  `updateServerMetadata` is a compile error, so the
  *  `terminals:dirty` autosave firehose can't be reintroduced by a new
- *  provider. The local endpoint (`makeHooks` in `./local.ts`) wires these
- *  straight to kolu-server's metadata + activity surfaces; the same fence
- *  applies there.
+ *  provider. The local endpoint wires these straight to kolu-server's metadata
+ *  + activity surfaces; `buildWatcherServer` (`./server.ts`) wires them to the
+ *  served awareness collections. The same fence applies on both.
  *
  *  `record` is passed to every hook so a host whose update function isn't
  *  already keyed by terminal id (e.g. one with a global publish surface)
- *  can look the record up in its own registry to dispatch the write. The
- *  endpoint already has the entry + id captured in `makeHooks`'s per-terminal
- *  closure, so it ignores the argument — hence the `_record` prefix. */
+ *  can look the record up in its own registry to dispatch the write. Hosts
+ *  that already have the entry + id captured in a per-terminal closure ignore
+ *  the argument — hence the `_record` prefix at those call sites. */
 export interface ProviderHooks {
+  /** The host's logger. Threaded through the hooks (not imported) so the
+   *  providers carry no dependency on any one host's logging module — the
+   *  local endpoint passes kolu-server's logger; `buildWatcherServer` passes
+   *  its own. */
+  log: Logger;
   updateServerMetadata: (
     record: ProviderRecord,
     mutate: (meta: ServerPersistedTerminalFields) => void,
@@ -136,9 +145,9 @@ export interface ProviderHooks {
   /** Optional — read the terminal's current rendered screen as VT-resolved
    *  plain text. Provided by hosts that can reach the PTY screen buffer (the
    *  local endpoint, via pty-host's `getScreenText`); omitted by hosts that
-   *  can't. Async + host-supplied, so the DAG keeps its zero *synchronous*
-   *  dependency on the PTY host — a remote ssh pty-host serves the same read
-   *  over the wire. Drives `AgentProvider.screenScrape` promotion (Claude's
+   *  can't. Async + host-supplied, so the providers keep their zero
+   *  *synchronous* dependency on the PTY host — `buildWatcherServer` injects a
+   *  host-provided reader. Drives `AgentProvider.screenScrape` promotion (Claude's
    *  `AskUserQuestion` / `ExitPlanMode` — #905); without it, screen scrape is
    *  simply inactive.
    *
@@ -156,13 +165,18 @@ function processBasename(proc: string): string {
   return path.basename(proc);
 }
 
-function startProcessProvider(
+/** The foreground/process observer — `m.foreground` (process name + title). It
+ *  needs no filesystem, only the pty-host's `foreground`/`title` taps, so it
+ *  runs **in-server** in kolu-server (the note's split: PTY-tap signals run
+ *  in-server; git / PR / agent run host-side in the watcher). Exported so the
+ *  local endpoint runs it directly. */
+export function startProcessProvider(
   record: ProviderRecord,
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
 ): () => void {
-  const plog = log.child({ provider: "process", terminal: terminalId });
+  const plog = hooks.log.child({ provider: "process", terminal: terminalId });
   // Foreground `{name, title}` — one concept, two coherent fields, so it's one
   // value not four scattered bindings. The name is tracked from
   // `channels.foreground` (the pty-host tap) rather than read synchronously
@@ -220,7 +234,7 @@ function startGitProvider(
   channels: ProviderChannels,
   hooks: ProviderHooks,
 ): () => void {
-  const plog = log.child({ provider: "git", terminal: terminalId });
+  const plog = hooks.log.child({ provider: "git", terminal: terminalId });
   plog.debug({ cwd: record.meta.cwd }, "started");
   const watcher = subscribeGitInfo(
     record.meta.cwd,
@@ -299,7 +313,7 @@ function startPrProvider(
   channels: ProviderChannels,
   hooks: ProviderHooks,
 ): () => void {
-  const plog = log.child({ provider: "pr", terminal: terminalId });
+  const plog = hooks.log.child({ provider: "pr", terminal: terminalId });
   plog.debug("started");
   // The dispatcher routes each resolve to the forge picked from the remote;
   // with one forge today that's always the gh adapter.
@@ -365,7 +379,7 @@ function startAgentCommandTracker(
       }
     },
     onError: (err) =>
-      log.error(
+      hooks.log.error(
         { err, terminal: terminalId, channel: "commandRun" },
         "publisher subscription failed",
       ),
@@ -425,8 +439,8 @@ function getActivation(kind: string): ExternalChangesActivation {
 /** After a command-run mark, re-run agent-session resolution across the
  *  settle window (the agent writes its session file a beat after the mark).
  *  This is the *consumer* schedule and is independent of pty-host's
- *  foreground-sample burst: the DAG also reconciles whenever the foreground
- *  tap pushes a fresh sample, so foreground freshness rides the primitive's
+ *  foreground-sample burst: the agent detector also reconciles whenever the
+ *  foreground tap pushes a fresh sample, so foreground freshness rides the primitive's
  *  own settle window — these delays only re-check the agent-state files. */
 const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
 
@@ -481,7 +495,10 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   channels: ProviderChannels,
   hooks: ProviderHooks,
 ): () => void {
-  const plog = log.child({ provider: provider.kind, terminal: terminalId });
+  const plog = hooks.log.child({
+    provider: provider.kind,
+    terminal: terminalId,
+  });
   let current: {
     watcher: AgentWatcher;
     key: string;
@@ -506,8 +523,8 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   let stopped = false;
   let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
   // CWD source-of-truth for this provider's lifetime: seeded once from
-  // `record.meta.cwd` (the spawn-time cwd a host writes before calling
-  // `startProviders`) and updated only via the `cwd` channel. Reading
+  // `record.meta.cwd` (the spawn-time cwd a host writes before starting the
+  // providers) and updated only via the `cwd` channel. Reading
   // `record.meta.cwd` inside `reconcile()` would make agent detection
   // depend on the host mutating `record.meta` synchronously before each
   // channel publish — a hidden contract the agent happens to honor (its
@@ -518,7 +535,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   // Foreground source-of-truth for this provider, tracked from
   // `channels.foreground` (seeded empty → "shell idle" until the first
   // sample arrives). Same rationale as `currentCwd`: read it from the
-  // channel, not a synchronous handle, so the DAG is transport-agnostic.
+  // channel, not a synchronous handle, so the providers are transport-agnostic.
   let currentForeground: ForegroundSample = {
     process: "",
     foregroundPid: undefined,
@@ -551,7 +568,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
       registeredForExternal = true;
       if (!activation.installed) {
         activation.installed = true;
-        const slog = log.child({ provider: provider.kind });
+        const slog = hooks.log.child({ provider: provider.kind });
         provider.externalChanges.install(
           () => {
             // Every reconciler is a `reconcile` (above) and cannot throw, so
@@ -772,11 +789,15 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   };
 }
 
-/** Start every per-terminal provider for one terminal. The local endpoint
- *  (`./local.ts`) calls this with its channels + hooks. Provider order matters
- *  only for the agent-command tracker — it must come first so its stash is
- *  populated before agent detectors reconcile. */
-export function startProviders(
+/** Start the **host-side** awareness providers for one terminal — git, PR, the
+ *  three agent detectors, and the agent-command tracker, the ones that read the
+ *  host's own filesystem (`~/.claude`, `~/.codex`, the repo's `.git`) and so
+ *  must run where the terminal lives. `buildWatcherServer` (`./server.ts`) calls
+ *  this; the foreground/process observer is NOT here — it needs no filesystem
+ *  and runs in-server (`startProcessProvider`). Provider order matters only for
+ *  the agent-command tracker: it must come first so its stash is populated
+ *  before the agent detectors reconcile. */
+export function startWatcherProviders(
   record: ProviderRecord,
   terminalId: TerminalId,
   channels: ProviderChannels,
@@ -811,7 +832,6 @@ export function startProviders(
     channels,
     hooks,
   );
-  const stopProcess = startProcessProvider(record, terminalId, channels, hooks);
   return () => {
     stopAgentCommand();
     stopGit();
@@ -819,6 +839,5 @@ export function startProviders(
     stopClaude();
     stopCodex();
     stopOpenCode();
-    stopProcess();
   };
 }

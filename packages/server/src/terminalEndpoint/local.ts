@@ -3,26 +3,42 @@
  * `kolu-server` is a client of a separately spawned kaval daemon, and reaches
  * it through the typed `ptyHostSurface` contract via the stable `ptyHostClient`
  * forwarding facade (`../ptyHost/index.ts`) over that daemon's own socket. This
- * endpoint forwards spawn/kill/write/resize/attach through that client AND
- * **runs the per-terminal provider DAG** (`./providers.ts`) against the
- * pty-host's raw tap streams (cwd · title · command-run · foreground).
+ * endpoint forwards spawn/kill/write/resize/attach through that client and owns
+ * the pty-host taps (cwd · title · command-run · foreground), wiring the
+ * per-terminal awareness from them.
  *
- * Why route through the contract rather than call `PtyHost` directly: the
- * consumer here is then written against `PtyHostClient` — the exact shape the
- * daemon (over a unix socket) or a remote ssh pty-host serves. The provider DAG
- * has zero synchronous dependency on the host (it reads taps, not a
- * `PtyHandle`), so it runs identically across the wire. The kaval daemon serves
- * its own socket, which `kaval-tui` reaches directly — a second consumer of the
- * one host, and nothing in this file changes for it. See
- * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
+ * Awareness is **split** (the note: PTY-tap signals run in-server; git / PR /
+ * agent run host-side):
+ *   - The foreground/process observer (`startProcessProvider`) — no filesystem,
+ *     just the foreground/title taps — runs **in-server**, here, writing
+ *     `m.foreground` straight onto the terminal's metadata.
+ *   - The git / PR / agent providers — which read the host's own filesystem —
+ *     run behind `@kolu/terminal-providers`' `buildWatcherServer`, consumed
+ *     in-process over `directLink` (the no-wire identity link). This endpoint
+ *     relays the taps to it as `signal.*` calls and folds its `persisted`/`live`
+ *     awareness collections back onto the metadata. A later phase swaps only the
+ *     link (`directLink` → ssh `stdioLink`) for a remote host — *local vs remote
+ *     is only the link* — so this consumer is invariant under that swap.
+ *
+ * The providers have zero synchronous dependency on the host (they read taps,
+ * not a `PtyHandle`), which is what lets them run on the far side of a link.
  *
  * `TerminalEndpoint.fs/git` stay on this side — the local surfaces shell out to
- * `kolu-git` directly; a remote endpoint (P3) mirrors the same surfaces over the
+ * `kolu-git` directly; a remote endpoint mirrors the same surfaces over the
  * link.
  */
 
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
+import { directLink } from "@kolu/surface/links/direct";
 import { inMemoryChannel } from "@kolu/surface/server";
+import {
+  buildWatcherServer,
+  type ProviderChannels,
+  type ProviderHooks,
+  type ProviderRecord,
+  startProcessProvider,
+  type WatcherContract,
+} from "@kolu/terminal-providers";
 import { LOCAL_LOCATION } from "kolu-common/surface";
 import type {
   SavedTerminal,
@@ -71,12 +87,6 @@ import {
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
-import {
-  type ProviderChannels,
-  type ProviderHooks,
-  type ProviderRecord,
-  startProviders,
-} from "./providers.ts";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
@@ -122,6 +132,25 @@ const localGit: TerminalEndpointGit = {
     return unwrapGit(await getDiff(repoPath, filePath, mode, log, oldPath));
   },
 };
+
+// ── The host-side awareness providers, served in-process ──────────────────
+
+/** The git / PR / agent providers run behind `buildWatcherServer` and are
+ *  consumed over `directLink` — the no-wire identity link. Built once per
+ *  process (mirrors `ptyHostClient`); each watched terminal is driven through
+ *  the typed client below. The injected host capabilities — screen reads for the
+ *  agent screen-scrape promoter (#905) and the cross-terminal activity MRUs —
+ *  reach back into this process (in-process today; a remote watcher reads its
+ *  own kaval / derives its own MRUs). */
+const watcherServer = buildWatcherServer({
+  log,
+  readScreenText: (id, tailLines) =>
+    getTerminal(id)?.handle.getScreenText(undefined, undefined, tailLines) ??
+    Promise.resolve(""),
+  trackRecentRepo,
+  trackRecentAgent,
+});
+const watcherClient = directLink<WatcherContract>(watcherServer.router);
 
 // ── The contract-backed terminal handle ─────────────────────────────────
 
@@ -261,36 +290,43 @@ function bridgeStream<T>(
   })();
 }
 
-/** Wire the provider hooks to kolu-server's metadata + activity surfaces.
- *  `record.meta` IS `entry.meta` (same object), so a provider mutating its
- *  record is publishing kolu-server state directly. */
-function makeHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
+/** Fire-and-forget a relayed tap signal to the host-side providers. The tap is
+ *  the authority and the call is cheap (a microtask over `directLink`), so it is
+ *  not awaited; a failure is logged, never surfaced — a dropped relay just stops
+ *  updating that provider's input, mirroring the enrichment-tap stance. */
+function pushSignal(call: Promise<unknown>, id: TerminalId): void {
+  void call.catch((err) =>
+    log.error({ err, terminal: id }, "watcher: signal relay failed"),
+  );
+}
+
+/** Hooks for the **in-server** foreground/process provider. `record.meta` IS
+ *  `entry.meta` (same object), so the provider mutating its record publishes
+ *  kolu-server state directly. The host-side providers' activity MRUs +
+ *  screen-scrape reach kolu-server through `buildWatcherServer`'s options, not
+ *  here; the process provider needs neither. */
+function makeInServerHooks(
+  entry: TerminalProcess,
+  id: TerminalId,
+): ProviderHooks {
   return {
+    log,
     updateServerMetadata: (_record, mutate) =>
       updateServerMetadata(entry, id, mutate),
     updateServerLiveMetadata: (_record, mutate) =>
       updateServerLiveMetadata(entry, id, mutate),
-    trackRecentRepo,
-    trackRecentAgent,
-    // The screen-scrape promoter (Claude's AskUserQuestion / ExitPlanMode, #905)
-    // reads the rendered screen through the pty-host handle. `getScreenText`
-    // waits on `ready`, so it's safe even if a poll tick races spawn. The
-    // promoter passes its detector's `tailLines` so only the screen bottom is
-    // read — not the full (up to 50k-line) scrollback — each poll.
-    readScreenText: (tailLines) =>
-      entry.handle.getScreenText(undefined, undefined, tailLines),
   };
 }
 
-/** Everything needed to stop one terminal's provider DAG + tap bridges: abort
- *  the tap-stream subscriptions and stop the watchers. */
+/** Everything needed to stop one terminal's providers + tap bridges: abort
+ *  the tap-stream subscriptions and stop the in-server / host-side providers. */
 interface TerminalLifecycle {
   abort: AbortController;
   stopProviders: () => void;
 }
 
 /** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
- *  (contract 2.1). The provider DAG re-derives the authoritative value from the
+ *  (contract 2.1). The providers re-derive the authoritative value from the
  *  surviving foreground tap (which replays a snapshot on subscribe), so this is
  *  only the pre-tap value the tile renders for the boot frame — null when the
  *  daemon reports no foreground name. `title` is unknown to the foreground field,
@@ -355,7 +391,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   readonly fs = localFs;
   readonly git = localGit;
 
-  /** id → its provider-DAG + tap-bridge teardown. Its keys ARE the terminals
+  /** id → its providers + tap-bridge teardown. Its keys ARE the terminals
    *  with a live provider layer in this process. */
   private readonly lifecycles = new Map<TerminalId, TerminalLifecycle>();
 
@@ -365,7 +401,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Sync shadow: register a connecting entry (proxy handle + default
     // metadata) so the tile renders immediately — the `TerminalEndpoint.
     // spawnPty` sync-shadow contract. The pty-host resolves the authoritative
-    // cwd / pid on the async tail below; the provider DAG starts there too.
+    // cwd / pid on the async tail below; the providers start there too.
     //
     // The shadow only needs a placeholder cwd until the spawn echoes back the
     // resolved value (`res.cwd` at the `spawnAndWire` tail). We deliberately do
@@ -406,7 +442,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  caller-built `meta` (a whole saved record via `adoptedMeta`, or an orphan's
    *  live-snapshot defaults via `orphanMeta`; either way the live fields
    *  pr/agent/foreground are re-derived by the providers, the freshness
-   *  guarantee), release the handle at the live pid, and re-run the provider DAG
+   *  guarantee), release the handle at the live pid, and re-run the providers
    *  against the surviving taps. The sibling of `spawnPty`/`spawnAndWire` minus
    *  the spawn RPC: both converge on `startProviderLayer`, and a wiring failure
    *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
@@ -477,7 +513,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   /** Async tail of `spawnPty`: confirm the PTY spawned, then start the
-   *  provider DAG against its taps. On failure unwinds the shadow. */
+   *  providers against its taps. On failure unwinds the shadow. */
   private async spawnAndWire(
     id: TerminalId,
     opts: PtySpawnOpts,
@@ -501,7 +537,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
     proxy.markReady(res.pid);
     entry.info.pid = res.pid;
-    // Seed the authoritative resolved cwd before starting the DAG (the git
+    // Seed the authoritative resolved cwd before starting the providers (the git
     // watcher reads `record.meta.cwd` at start).
     updateServerMetadata(entry, id, (m) => {
       m.cwd = res.cwd;
@@ -555,10 +591,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.unwindSpawnShadow(id);
   }
 
-  /** Start the per-terminal provider DAG against the pty-host's tap streams.
-   *  The DAG runs HERE, in kolu-server, so it's always the current build's
-   *  code (the freshness guarantee — the most-edited code never rides the
-   *  long-lived pty-host). */
+  /** Wire one terminal's awareness from the pty-host's tap streams. The
+   *  in-server foreground/process observer runs HERE (no filesystem); the
+   *  host-side git / PR / agent providers run behind `buildWatcherServer`,
+   *  driven over `directLink`. Either way the providers are the current build's
+   *  code, never riding the long-lived pty-host (the freshness guarantee). */
   private startProviderLayer(
     id: TerminalId,
     entry: TerminalProcess,
@@ -566,23 +603,48 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): void {
     const abort = new AbortController();
     const { signal } = abort;
-    const channels: ProviderChannels = {
+    const record: ProviderRecord = {
+      pid,
+      meta: entry.meta,
+      currentAgent: null,
+    };
+
+    // Begin watching the host-side providers. Fire-and-forget: the signal
+    // relays + awareness subscribe below tolerate it resolving on a later
+    // microtask, and `watch` resolves before any tap event (a tap awaits its
+    // stream first). `record.meta.cwd` is the spawn-time cwd the providers read
+    // once.
+    const watched = watcherClient.surface.terminal.watch({
+      id,
+      pid,
+      cwd: record.meta.cwd,
+    });
+    watched.catch((err) =>
+      log.error({ err, terminal: id }, "watcher: watch failed"),
+    );
+
+    // The in-server foreground/process observer (no filesystem — the note's
+    // split). It consumes only the foreground + title channels; the rest of
+    // `ProviderChannels` is unused here (the host-side providers consume the
+    // relayed signals over the link).
+    const inServerChannels: ProviderChannels = {
       cwd: inMemoryChannel<string>(),
       title: inMemoryChannel<string>(),
       commandRun: inMemoryChannel<string>(),
       foreground: inMemoryChannel<ForegroundSample>(),
       git: inMemoryChannel<GitInfo | null>(),
     };
-    const record: ProviderRecord = {
-      pid,
-      meta: entry.meta,
-      currentAgent: null,
-    };
-    const hooks = makeHooks(entry, id);
+    const stopProcess = startProcessProvider(
+      record,
+      id,
+      inServerChannels,
+      makeInServerHooks(entry, id),
+    );
 
-    // Bridge the raw VT taps onto the provider channels. cwd also lands on
-    // persisted metadata (the bridge owns `m.cwd`; the git provider reads
-    // `channels.cwd` to re-resolve git).
+    // Bridge the raw VT taps. cwd lands on persisted metadata in-server (the
+    // bridge owns `m.cwd`); every tap also relays to the host-side providers as
+    // a `signal.*` call, and foreground/title additionally feed the in-server
+    // process observer.
     bridgeStream(
       ptyHostClient.surface.cwd.get({ id }, { signal }),
       signal,
@@ -590,29 +652,80 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         updateServerMetadata(entry, id, (m) => {
           m.cwd = msg.cwd;
         });
-        channels.cwd.publish(msg.cwd);
+        pushSignal(watcherClient.surface.signal.cwd({ id, cwd: msg.cwd }), id);
       },
     );
     bridgeStream(
       ptyHostClient.surface.title.get({ id }, { signal }),
       signal,
-      (msg) => channels.title.publish(msg.title),
+      (msg) => {
+        inServerChannels.title.publish(msg.title);
+        pushSignal(
+          watcherClient.surface.signal.title({ id, title: msg.title }),
+          id,
+        );
+      },
     );
     bridgeStream(
       ptyHostClient.surface.commandRun.get({ id }, { signal }),
       signal,
-      (msg) => channels.commandRun.publish(msg.command),
+      (msg) =>
+        pushSignal(
+          watcherClient.surface.signal.commandRun({ id, command: msg.command }),
+          id,
+        ),
     );
     bridgeStream(
       ptyHostClient.surface.foreground.get({ id }, { signal }),
       signal,
-      (msg) =>
-        channels.foreground.publish({
+      (msg) => {
+        inServerChannels.foreground.publish({
           process: msg.process,
           foregroundPid: msg.foregroundPid,
-        }),
+        });
+        pushSignal(
+          watcherClient.surface.signal.foreground({
+            id,
+            process: msg.process,
+            foregroundPid: msg.foregroundPid,
+          }),
+          id,
+        );
+      },
     );
-    const stopProviders = startProviders(record, id, channels, hooks);
+
+    // Fold the host-side providers' awareness back onto the terminal's metadata,
+    // split along the same persisted-vs-live write fence `metadata.ts` enforces
+    // — so live churn (pr polls, agent stream sub-info) never fires
+    // `terminals:dirty`. Subscribed after `watch` resolves, so the collection
+    // `get` reads a valid seeded snapshot first, then deltas.
+    void (async () => {
+      try {
+        await watched;
+      } catch {
+        return; // watch failed — already logged; nothing to fold
+      }
+      if (signal.aborted) return;
+      bridgeStream(
+        watcherClient.surface.persistedAwareness.get({ key: id }, { signal }),
+        signal,
+        (a) =>
+          updateServerMetadata(entry, id, (m) => {
+            m.git = a.git;
+            m.lastAgentCommand = a.lastAgentCommand;
+            m.lastActivityAt = a.lastActivityAt;
+          }),
+      );
+      bridgeStream(
+        watcherClient.surface.liveAwareness.get({ key: id }, { signal }),
+        signal,
+        (a) =>
+          updateServerLiveMetadata(entry, id, (m) => {
+            m.pr = a.pr;
+            m.agent = a.agent;
+          }),
+      );
+    })();
 
     // Natural exit: the `exit` tap yields the code once. An intentional kill
     // aborts this signal first (see `teardownProviders`), so `handleExit` only
@@ -639,10 +752,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     );
 
-    this.lifecycles.set(id, { abort, stopProviders });
+    this.lifecycles.set(id, {
+      abort,
+      stopProviders: () => {
+        stopProcess();
+        void watcherClient.surface.terminal
+          .unwatch({ id })
+          .catch((err) =>
+            log.error({ err, terminal: id }, "watcher: unwatch failed"),
+          );
+      },
+    });
   }
 
-  /** Stop a terminal's provider DAG + tap bridges (idempotent). Aborting the
+  /** Stop a terminal's providers + tap bridges (idempotent). Aborting the
    *  signal ends every tap subscription — including the `exit` tap, so a kill
    *  that calls this BEFORE the pty-host kill can't trip `handleExit`. */
   private teardownProviders(id: TerminalId): void {

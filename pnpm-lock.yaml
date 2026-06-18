@@ -642,6 +642,9 @@ importers:
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
+      '@kolu/terminal-providers':
+        specifier: workspace:*
+        version: link:../terminal-providers
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -1263,6 +1266,64 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/terminal-providers:
+    dependencies:
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.21.0)
+      anyagent:
+        specifier: workspace:*
+        version: link:../integrations/anyagent
+      anyforge:
+        specifier: workspace:*
+        version: link:../integrations/anyforge
+      kaval:
+        specifier: workspace:*
+        version: link:../kaval
+      kolu-claude-code:
+        specifier: workspace:*
+        version: link:../integrations/claude-code
+      kolu-codex:
+        specifier: workspace:*
+        version: link:../integrations/codex
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
+      kolu-git:
+        specifier: workspace:*
+        version: link:../integrations/git
+      kolu-github:
+        specifier: workspace:*
+        version: link:../integrations/github
+      kolu-opencode:
+        specifier: workspace:*
+        version: link:../integrations/opencode
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
