@@ -333,24 +333,48 @@ Feature: Canvas workspace
     Then the canvas tile should be at x=320 y=420
     And there should be no page errors
 
-  Scenario: WebGL context is held only by the focused tile
+  Scenario: WebGL is budgeted to the 2 most-recently-active tiles
+    # The budget holds WebGL on the 2 most-recently-active tiles (not just the
+    # focused one), so ping-ponging between two terminals never crosses the
+    # WebGL↔DOM boundary — the ~7.7% font reflow on focus swap is gone (#1403).
     Given I create a terminal
-    Then there should be 2 canvas tiles
-    And exactly 1 canvas tile should use the webgl renderer
-    And the focused canvas tile should use the webgl renderer
+    And I create a terminal
+    Then there should be 3 canvas tiles
+    # 3 tiles, budget 2: the 2 newest hold WebGL, the oldest (tile 1) falls to DOM.
+    And exactly 2 canvas tiles should use the webgl renderer
+    And canvas tile 1 should use the dom renderer
     When I click canvas tile 1
-    Then exactly 1 canvas tile should use the webgl renderer
-    And the focused canvas tile should use the webgl renderer
+    Then exactly 2 canvas tiles should use the webgl renderer
+    And canvas tile 1 should use the webgl renderer
+    When I click canvas tile 2
+    # The key guarantee: switching to tile 2 leaves tile 1 on WebGL (under the old
+    # N=1 policy it would have swapped to DOM here). Both ping-pong tiles stay WebGL.
+    Then canvas tile 1 should use the webgl renderer
+    And canvas tile 2 should use the webgl renderer
+    And exactly 2 canvas tiles should use the webgl renderer
+    And there should be no page errors
+
+  Scenario: A held tile's active split inherits its WebGL renderer
+    # A budgeted tile's renderer covers its main pane AND its active split, so
+    # focusing into the split never drops the main pane to DOM — the 7.7%
+    # divergence can't appear side-by-side inside one tile (#1403).
+    When I create a sub-terminal via command palette
+    Then the sub-terminal should have keyboard focus
+    And the focused sub-terminal should use the webgl renderer
+    And the main terminal should use the webgl renderer
     And there should be no page errors
 
   Scenario: Renderer preference "webgl" forces WebGL on every tile
     Given I create a terminal
-    Then there should be 2 canvas tiles
-    And exactly 1 canvas tile should use the webgl renderer
+    And I create a terminal
+    Then there should be 3 canvas tiles
+    # auto budgets WebGL to the 2 most-recently-active tiles (#1403)…
+    And exactly 2 canvas tiles should use the webgl renderer
     When I click the settings button
     Then the settings popover should be visible
     When I click the "webgl" renderer button
-    Then exactly 2 canvas tiles should use the webgl renderer
+    # …"webgl" overrides the budget and forces every tile onto WebGL.
+    Then exactly 3 canvas tiles should use the webgl renderer
     And there should be no page errors
 
   Scenario: Double-clicking the title bar maximizes the tile
