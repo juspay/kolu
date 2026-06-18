@@ -191,18 +191,39 @@ describe("parseAgentCommand", () => {
     ).toBe(`claude --append-system-prompt 'be terse please'`);
   });
 
-  // Regression (codex review F2): a leading-`~` path value must stay BARE in
-  // the normalized form. The preexec mark captures the command's shell SOURCE
-  // before tilde expansion, so re-quoting `~/…` would suppress expansion and
-  // replay a literal `~` path (Claude would then fail to find the settings
+  // Regression (codex review F2): an UNQUOTED leading-`~` path value must stay
+  // BARE in the normalized form. The preexec mark captures the command's shell
+  // SOURCE before tilde expansion, so re-quoting `~/…` would suppress expansion
+  // and replay a literal `~` path (Claude would then fail to find the settings
   // file). The normalized form keeps it unquoted so the rerun re-expands it.
-  it("keeps a leading-tilde path value unquoted so it re-expands on rerun", () => {
+  it("keeps an unquoted leading-tilde path value bare so it re-expands on rerun", () => {
     expect(parseAgentCommand(`claude --settings ~/.claude/settings.json`)).toBe(
       `claude --settings ~/.claude/settings.json`,
     );
     expect(parseAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
       `claude --add-dir ~/projects/foo`,
     );
+  });
+
+  // Regression (codex review F2, round 2): the OPPOSITE provenance. If the
+  // SOURCE quoted the tilde (`--settings '~/x'`), the user meant a literal `~`
+  // path and expansion must stay suppressed. `string-argv` strips the quotes,
+  // so both forms tokenize to the identical token `~/x`; `parseAgentCommand`
+  // recovers the one bit that distinguishes them (did the source token begin
+  // with a quote?) and re-quotes the literal case. Without this, the round-1
+  // bare-by-default would silently turn a literal `~` into an expanding one.
+  it("re-quotes a quoted leading-tilde value so it stays literal on rerun", () => {
+    expect(parseAgentCommand(`claude --settings '~/x'`)).toBe(
+      `claude --settings '~/x'`,
+    );
+    expect(parseAgentCommand(`claude --settings "~/x"`)).toBe(
+      `claude --settings '~/x'`,
+    );
+    // A quoted `~` next to an unquoted `~` in the same line: each keeps its own
+    // provenance (the forward source walk doesn't confuse the two tokens).
+    expect(
+      parseAgentCommand(`claude --add-dir ~/keep --settings '~/literal'`),
+    ).toBe(`claude --add-dir ~/keep --settings '~/literal'`);
   });
 
   // Regression (codex review F3): a flag value containing an apostrophe is
@@ -304,6 +325,20 @@ describe("resumeAgentCommand", () => {
       "--append-system-prompt",
       "don't be verbose",
     ]);
+  });
+
+  // Regression (codex review F2, round 2): the resume splice must preserve the
+  // tail's quoting VERBATIM. A quoted literal `~` (already correctly quoted by
+  // parseAgentCommand) must stay quoted across resume — a shellSplit+shellJoin
+  // round-trip would re-bare it and silently re-introduce tilde expansion.
+  it("preserves a quoted literal tilde across the resume splice", () => {
+    expect(resumeAgentCommand(`claude --settings '~/x'`)).toBe(
+      `claude -c --settings '~/x'`,
+    );
+    // ...while an UNQUOTED tilde stays bare (still expands on rerun).
+    expect(resumeAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
+      `claude -c --add-dir ~/projects/foo`,
+    );
   });
 });
 

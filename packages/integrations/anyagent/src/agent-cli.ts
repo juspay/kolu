@@ -29,8 +29,7 @@
  * drops real positionals.
  */
 
-import { shellJoin, shellSplit } from "@kolu/shell-quote";
-import { type NonEmpty, nonEmpty } from "nonempty";
+import { forceQuoteArg, shellQuoteArg, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 
 /** Flags that cause the CLI to print info and exit immediately.
@@ -107,41 +106,72 @@ function basename(s: string): string {
 }
 
 /**
- * Resume-form transforms for agents that support conversation continuity.
- * Shape: `Record<AgentName, (argv) => argv>` — the Record key union is the
- * exact set of resume-capable agents, so adding an agent forces adding a
- * transform (type error if omitted). This is a narrower table than
- * `STABLE_FLAGS`: detection-only agents (`aider`, `goose`, `gemini`,
- * `cursor-agent`) are absent here and `resumeAgentCommand` returns `null`
- * for them.
+ * Per-token quoting provenance for a raw command line, recovered by walking the
+ * source in lockstep with `parseArgsStringToArgv`'s argv.
  *
- * The transforms splice a resume marker into the normalized argv:
+ * Why this exists: `string-argv` strips quotes, so `--settings ~/x` and
+ * `--settings '~/x'` tokenize to the IDENTICAL token `~/x`. But the two mean
+ * different things on re-execution — bare `~` expands to `$HOME`, a quoted `~`
+ * is a literal path. Bare-by-default (our `shellQuoteArg`) is right for the
+ * unquoted case; for the quoted case we must re-quote to suppress expansion.
+ * The token alone cannot tell them apart, so we recover the one bit that
+ * matters — "did this token's source begin with a quote?" — straight from the
+ * raw line.
+ *
+ * `quotedStarts(raw)[i]` is `true` iff the i-th argv token's source span began
+ * with `'` or `"`. We only walk far enough to answer per kept value; a monotone
+ * forward cursor (not substring search) keeps this robust against repeated
+ * tokens. We never need to fully re-tokenize — we only inspect the first
+ * non-whitespace char of each token's source.
+ */
+function quotedStarts(raw: string): boolean[] {
+  const starts: boolean[] = [];
+  let i = 0;
+  while (i < raw.length) {
+    while (i < raw.length && /\s/.test(raw[i] ?? "")) i++; // skip inter-token whitespace
+    if (i >= raw.length) break;
+    const c = raw[i];
+    starts.push(c === "'" || c === '"');
+    // Advance past this whole token's source: a run of unquoted chars and/or
+    // balanced quoted segments, ending at the next unquoted whitespace. This
+    // mirrors how a POSIX tokenizer groups e.g. `foo'bar baz'` into one token.
+    while (i < raw.length && !/\s/.test(raw[i] ?? "")) {
+      const ch = raw[i];
+      if (ch === "'" || ch === '"') {
+        const close = raw.indexOf(ch, i + 1);
+        i = close === -1 ? raw.length : close + 1;
+      } else {
+        i++;
+      }
+    }
+  }
+  return starts;
+}
+
+/**
+ * Resume markers spliced in right after the agent binary for agents that
+ * support conversation continuity. The `Record` key union is the exact set of
+ * resume-capable agents, so adding an agent forces adding a marker (type error
+ * if omitted). Narrower than `STABLE_FLAGS`: detection-only agents (`aider`,
+ * `goose`, `gemini`, `cursor-agent`) are absent and `resumeAgentCommand`
+ * returns `null` for them.
+ *
+ * Each value is the literal token sequence inserted after the head:
  *   claude `-c`              → continue most-recent conversation in cwd
  *   codex `resume --last`    → subcommand form; last session in cwd
  *                              (`--last` skips the interactive picker)
  *   opencode `--continue`    → continue most-recent session in cwd
  *
- * `parseAgentCommand` strips `-c`/`--continue`/`--resume`/`-r` during
- * normalization (per juspay/kolu#467), so the input to these transforms is
- * always resume-free — no idempotency special-case needed.
+ * All markers are safe bare words, so they need no quoting. `parseAgentCommand`
+ * strips `-c`/`--continue`/`--resume`/`-r` during normalization (per
+ * juspay/kolu#467), so the input is always resume-free — no idempotency case.
  */
 type ResumableAgent = "claude" | "codex" | "opencode";
 
-/** Insert one or more "resume" tokens after the agent binary in a
- *  normalized argv. Non-emptiness is in the parameter type — the
- *  positional read `argv[0]` is total. */
-function withResumeFlags(argv: NonEmpty<string>, ...flags: string[]): string[] {
-  const [head, ...rest] = argv;
-  return [head, ...flags, ...rest];
-}
-
-const AGENT_RESUME: Record<
-  ResumableAgent,
-  (argv: NonEmpty<string>) => string[]
-> = {
-  claude: (argv) => withResumeFlags(argv, "-c"),
-  codex: (argv) => withResumeFlags(argv, "resume", "--last"),
-  opencode: (argv) => withResumeFlags(argv, "--continue"),
+const AGENT_RESUME: Record<ResumableAgent, string> = {
+  claude: "-c",
+  codex: "resume --last",
+  opencode: "--continue",
 };
 
 /**
@@ -197,7 +227,8 @@ export function agentNameFromCommand(command: string): string | null {
  * to a known agent binary, or `null` otherwise.
  */
 export function parseAgentCommand(raw: string): string | null {
-  const [head, ...args] = parseArgsStringToArgv(raw.trim());
+  const trimmed = raw.trim();
+  const [head, ...args] = parseArgsStringToArgv(trimmed);
   if (head === undefined) return null;
 
   const agent = basename(head);
@@ -207,9 +238,25 @@ export function parseAgentCommand(raw: string): string | null {
   // Exit-immediately flags → not an agent session.
   if (args.some((t) => EXIT_FLAGS.has(t))) return null;
 
-  // Keep only allowlisted flags + their values.
-  // Anything else (unknown flags, positional args) is dropped.
-  const kept: string[] = [agent];
+  // Did each source token begin with a quote? `args[i]` is argv index `i + 1`.
+  // Used only to keep a quoted literal `~` from re-expanding (see below).
+  const quoted = quotedStarts(trimmed);
+
+  // Render a kept value, preserving the one quoting bit `string-argv` drops:
+  // a leading `~` that the SOURCE quoted is a literal path and must stay quoted
+  // (suppress expansion); an unquoted leading `~` stays bare so it re-expands.
+  // Every other token defers to `shellQuoteArg`.
+  const renderValue = (value: string, argvIndex: number): string =>
+    value.startsWith("~") && quoted[argvIndex] === true
+      ? forceQuoteArg(value)
+      : shellQuoteArg(value);
+
+  // Keep only allowlisted flags + their values, each POSIX-quoted as we go.
+  // Joining pre-quoted tokens (rather than calling `shellJoin` on raw tokens)
+  // is what lets the tilde-provenance override above sit per-token; the wire
+  // format is still "each token quoted, space-joined", so `shellSplit` remains
+  // the exact inverse. Anything else (unknown flags, positionals) is dropped.
+  const kept: string[] = [shellQuoteArg(agent)];
   for (let i = 0; i < args.length; i++) {
     const t = args[i];
     if (t === undefined) break;
@@ -222,15 +269,15 @@ export function parseAgentCommand(raw: string): string | null {
       continue;
     }
     // Stable flag — keep verbatim
-    kept.push(t);
+    kept.push(shellQuoteArg(t));
     // If the next token is a non-flag value (e.g. `--model sonnet`),
-    // attach it to the flag as-is.
+    // attach it to the flag, preserving leading-`~` quoting provenance.
     if (next !== undefined && !next.startsWith("-")) {
-      kept.push(next);
+      kept.push(renderValue(next, i + 2));
       i++;
     }
   }
-  return shellJoin(kept);
+  return kept.join(" ");
 }
 
 /**
@@ -240,13 +287,16 @@ export function parseAgentCommand(raw: string): string | null {
  * assumed already normalized — callers should not pass raw user input.
  */
 export function resumeAgentCommand(normalized: string): string | null {
-  // `normalized` is the output of `parseAgentCommand` (a `shellJoin` result),
-  // so reparse it with `shellJoin`'s exact inverse — NOT `parseArgsStringToArgv`,
-  // which mis-tokenizes the canonical `'\''` idiom this can contain (e.g. a
-  // `--append-system-prompt "don't"` value).
-  const argv = nonEmpty(shellSplit(normalized.trim()));
-  if (!argv) return null;
-  const agent = argv[0];
-  if (!(agent in AGENT_RESUME)) return null;
-  return shellJoin(AGENT_RESUME[agent as ResumableAgent](argv));
+  const trimmed = normalized.trim();
+  // The agent basename is always a safe bare word, so `shellSplit` reads the
+  // head reliably. We only need it to look up the agent — we do NOT re-render
+  // the tail. Splicing the resume marker as a STRING between head and tail
+  // keeps the already-correct quoting of the tail VERBATIM: a re-tokenize +
+  // re-join round-trip would (a) lose the literal-`~` quoting `parseAgentCommand`
+  // recovered (F2) and (b) risk re-mangling the canonical `'\''` idiom (F3).
+  const head = shellSplit(trimmed)[0];
+  if (head === undefined || !(head in AGENT_RESUME)) return null;
+  const marker = AGENT_RESUME[head as ResumableAgent];
+  const tail = trimmed.slice(head.length).trimStart(); // everything after the head token
+  return tail === "" ? `${head} ${marker}` : `${head} ${marker} ${tail}`;
 }

@@ -24,8 +24,24 @@
  *  original run used. Single-quoting `~` would instead suppress that expansion
  *  and replay a literal `~` path, which is the wrong semantics for the path
  *  flags this is used on (`--settings ~/x`, `--add-dir ~/y`). Tilde is only an
- *  expansion at a word's start, so keeping it bare mid-word is inert. */
+ *  expansion at a word's start, so keeping it bare mid-word is inert.
+ *
+ *  This bare-by-default is correct ONLY when the source `~` was itself
+ *  unquoted (the overwhelmingly common case). A source that QUOTED the tilde
+ *  (`--settings '~/x'`) meant a literal `~` and must be re-quoted to suppress
+ *  expansion; that provenance is not visible at the token level, so the
+ *  re-quoting is the caller's job via `forceQuoteArg` (see `@kolu/anyagent`'s
+ *  `parseAgentCommand`). */
 const SAFE_BARE_WORD = /^[A-Za-z0-9@%_+=:,./~-]+$/;
+
+/** Wrap a token in single quotes unconditionally, escaping any embedded single
+ *  quote the canonical `'\''` way. The single quoting/escaping rule lives in
+ *  exactly one place; both `shellQuoteArg` and any caller that has decided a
+ *  token MUST be quoted (e.g. to suppress tilde expansion for a value the user
+ *  originally quoted) route through here. */
+export function forceQuoteArg(token: string): string {
+  return `'${token.replace(/'/g, "'\\''")}'`;
+}
 
 /** POSIX-quote one argv token for safe re-execution by a shell.
  *
@@ -33,11 +49,10 @@ const SAFE_BARE_WORD = /^[A-Za-z0-9@%_+=:,./~-]+$/;
  *  unquoted so the common case (`claude --model sonnet`, `nix@prod`,
  *  `/run/…/pty-host.sock`, `~/.claude/settings.json`) stays clean. Everything
  *  else (whitespace, glob, `$`, backtick, quotes, `;`, `&`, newline, …) and the
- *  empty string is wrapped in single quotes, with any embedded single quote
- *  escaped the canonical `'\''` way. */
+ *  empty string is wrapped in single quotes (see `forceQuoteArg`). */
 export function shellQuoteArg(token: string): string {
   if (token !== "" && SAFE_BARE_WORD.test(token)) return token;
-  return `'${token.replace(/'/g, "'\\''")}'`;
+  return forceQuoteArg(token);
 }
 
 /** Join argv tokens into a single shell-parseable command line, re-quoting
