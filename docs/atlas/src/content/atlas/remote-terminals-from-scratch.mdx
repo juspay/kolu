@@ -1,6 +1,6 @@
 ---
 title: Remote terminals from scratch — host-as-authority, vertical slices
-description: If we threw away PR #1385 AND its design and started from the goal, what would we build? A clean-slate design for kolu remote terminals — the host is the sole source of truth for its own live terminals, kolu persists only a dial-list, endpoint/location is first-class, and awareness is split honestly between PTY-taps (in-server) and the host-side DAG (git/PR/agent). The boot bug is designed out of existence; it ships as twelve risk-isolated slices — local-only bug-proofing first, the watcher (the fat phase) proven over a loopback harness before ssh.
+description: If we threw away PR #1385 AND its design and started from the goal, what would we build? A clean-slate design for kolu remote terminals — the host is the sole source of truth for its own live terminals, kolu persists only a dial-list, endpoint/location is first-class, and awareness is split honestly between PTY-taps (in-server) and the host-side DAG (git/PR/agent). The boot bug is designed out of existence; it ships as ten risk-isolated slices — the whole watcher built and consumed natively in-process via `directLink` before it goes remote over `stdioLink` (ssh).
 kind: feature
 status: proposed
 maturity: seedling
@@ -37,13 +37,13 @@ agent: "host agent\\ngit/PR/agent DAG + native fs/git\\nnot the PTY path" { clas
 fs: "host files · git · ~/.claude" { class: host }
 browser -> server: oRPC
 server -> kaval: "PTY (ssh)"
-server -> agent: "fs/git · getHostSession"
+server -> agent: "fs/git · link (direct ∣ stdio)"
 kaval -> server: "taps · list → tiles"
 agent -> fs: reads
 `}
 />
 
-*The host agent's fs/git is dialed over `getHostSession` (Nix realise + agent-command; an ssh prefix only when the host isn't localhost) — there is no separate "loopback transport" in the production path. The loopback link below is a net-new **test harness**, not a second transport.*
+*The host agent runs **where the files live**, and `@kolu/surface`'s **link** is the only thing that varies: **`directLink`** when that's the same process (local — in-process, no wire, no serialization, no Nix) and **`stdioLink`** over ssh when it's a remote host. The diagram shows the remote topology; locally the host agent **fuses into kolu-server** via `directLink(buildWatcherServer(...).router)`. Same `watcherSurface`, same server code — only the link changes.*
 
 The load-bearing principles:
 
@@ -68,12 +68,12 @@ The load-bearing principles:
 - **`preRegisterSavedTerminals` → shadow tiles + the settle-window orphan reconcile** <Commit sha="fbc06c31" />. <Pill variant="hi">reject</Pill> Deleted, not re-timed — replaced by the one atomic `terminal.list` + synchronous seed.
 - **Optional `hostId` ("absent ⇒ local") threaded through the contract.** <Pill variant="hi">reject</Pill> Made explicit and non-optional on the terminal surfaces (and finished off in the activity feed).
 
-## Twelve risk-isolated slices
+## Ten risk-isolated slices
 
-Each slice isolates one *risk*, not one tidy chunk — and they are **not** uniformly small (see the scorecard). The local-only bug-proofing lands first; the watcher (the fat phase) is built parallel and proven over a loopback harness before any ssh. The long pole is **P1 → P2 → P4a → P3 → P4c → P4d → P7 → P9**.
+Each slice isolates one *risk*. The local-only bug-proofing lands first; then **the whole kolu-watcher is one phase** (**P4w**) — built *and* wired natively in-process via `directLink` — and going remote (**P4d**) is just swapping the link to `stdioLink` plus provisioning. `directLink` is what collapses the old build/consume/Code-tab split: the consumption code is identical, so it's proven once, natively, and the link is the only thing remote changes. The long pole is **P1 → P2 → P4a → P3 → P4d → P9**.
 
 <D2
-  caption="Phase dependency DAG — boxes coloured by kind (grey = refactor · purple = bug-proofing · green = feature). P4w (harden the kolu-watcher package + its Nix closure) is the FAT cost centre and runs in PARALLEL with P4a — it imports nothing from the PTY endpoint. Existence comes from kaval's atomic terminal.list (P3, via the kaval-direct shell P4a), NEVER the watcher — so the watcher is built (P4w) and consumed over a loopback harness (P4c) without ever being the canvas-existence signal. P4d is where it first goes over ssh."
+  caption="Phase dependency DAG — boxes coloured by kind (grey = refactor · purple = bug-proofing · green = feature). P4w does the WHOLE kolu-watcher in one go: build the package AND consume it natively in-process via directLink (no wire, no Nix) — the fat phase, parallel with P4a. P4d then swaps the link to stdioLink + provisioning to go remote, delivering badges AND the Code tab together. Existence comes from kaval's atomic terminal.list (P3), never the watcher."
   code={`direction: down
 classes: {
   refactor: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#5b6470" }
@@ -84,31 +84,26 @@ P1: "P1 · location non-optional" { class: refactor }
 P2: "P2 · dial-list (sole boot authority)" { class: bugproof }
 P2b: "P2b · host-aware activity feed" { class: bugproof }
 P4a: "P4a · kaval-direct shell (ssh)" { class: feature }
-P4w: "P4w · harden kolu-watcher (FAT)" { class: feature }
+P4w: "P4w · kolu-watcher · directLink (FAT)" { class: feature }
 P3: "P3 · boot via kaval's terminal.list" { class: refactor }
-P4c: "P4c · consume watcher (loopback)" { class: feature }
-P4d: "P4d · watcher over ssh (provision)" { class: feature }
+P4d: "P4d · watcher over ssh (stdioLink)" { class: feature }
 P5: "P5 · health + dial progress" { class: feature }
 P6: "P6 · host picker (ssh-config)" { class: feature }
-P7: "P7 · Code tab fs/git (ssh)" { class: feature }
 P9: "P9 · multiplex + degrade" { class: feature }
 P1 -> P2
 P1 -> P2b
 P1 -> P4a
 P1 -> P4w
 P2 -> P4a
-P2 -> P4w
 P2 -> P3
 P4a -> P3
-P4a -> P4c
-P4w -> P4c
-P3 -> P4c
-P4c -> P4d
+P4a -> P4d
+P4w -> P4d
+P3 -> P4d
 P4a -> P5
 P4a -> P6
-P4d -> P7
+P4d -> P9
 P5 -> P9
-P7 -> P9
 `}
 />
 
@@ -118,13 +113,11 @@ P7 -> P9
 | **P2** | <Pill variant="fix">bug-proof</Pill> | thin | a `Set<hostId>` dial-list as the *sole* boot-dial authority; autosave excludes remote terminals (tested); neuter the client respawn-by-`hostId` branch | autosave-prunes + boot-stops-re-dialing — structurally unreachable |
 | **P2b** | <Pill variant="fix">bug-proof</Pill> | thin | `RecentRepo`/`RecentAgent` `hostId` non-optional; prune-stat via `endpointFor(record.hostId).fs`, tolerant of a down host | local-fs assumptions reaching remote records |
 | **P4a** | <Pill variant="ok">feature</Pill> | moderate | a kaval-direct durable remote **shell** over real ssh+Nix, PTY-tap awareness + the host **login PATH**; fs/git + git/agent show a typed "not yet" | the walking skeleton — a durable remote shell with **no host agent** |
-| **P4w** | <Pill variant="ok">feature</Pill> | **fat** | harden/complete `packages/kolu-watcher` (it already exists): surface + host-side DAG + native fs/git + bin + the Nix drv/closure-allow-list test/drv-map + a **new atomic `terminal.list` snapshot**; in-process tested, CI cross-arch; **no consumer** | the cross-arch Nix-closure risk (real deps: `@kolu/terminal-dag`, `kolu-git`, `gh`, `node`) — *parallel with P4a* |
+| **P4w** | <Pill variant="ok">feature</Pill> | **fat** | **the whole kolu-watcher in one go**: harden/complete the package (surface + host-side DAG + native fs/git + bin + Nix drv/closure-test/drv-map + an atomic `terminal.list` snapshot) **and** wire kolu-server to consume it for LOCAL terminals via `directLink(buildWatcherServer(…).router)` — native, in-process, **no wire, no Nix**; a behavior-preserving refactor of today's in-process DAG/fs-git onto the unified surface | the cross-arch Nix closure **and** the *entire* consumption (mirror, awareness pump, fs/git, gating) — proven once, natively; the link is all that remote then changes |
 | **P3** | <Pill>refactor</Pill> | moderate | `adoptHost`: dial → `await` kaval's **atomic** `terminal.list` → seed → project; client `isLoading` waits per host; delete the settle window | the cold-boot re-adoption race — existence is **kaval's atomic list, never the watcher's incremental mirror** |
-| **P4c** | <Pill variant="ok">feature</Pill> | moderate† | a **net-new session-injection seam** on `RemoteTerminalEndpoint` + a Nix-free harness pointing a real endpoint at a real `kolu-watcher` over a loopback link — proving the mirror/pump/gating hermetically | consumption correctness over a local link — **ssh-free, but not Nix-free on the production path** |
-| **P4d** | <Pill variant="ok">feature</Pill> | moderate | route the injected session through `getHostSession`: provisioning (nix copy→realise→pin) + the agent-command ssh prefix | the genuinely-remote surface: cross-arch `.drv`, ssh reconnect/recheck/`ControlMaster`, `nix copy` over ssh-ng — *only a real box exercises these* |
+| **P4d** | <Pill variant="ok">feature</Pill> | moderate | **go remote**: swap the consumer's link from `directLink` to `stdioLink` via `getHostSession` (provision: nix copy→realise→pin + the ssh prefix). Same consumption code as P4w — remote tiles get git/PR/agent **badges** *and* the **Code tab** in one | the genuinely-remote surface only a real box exercises: cross-arch `.drv`, ssh reconnect/recheck/`ControlMaster`, `nix copy` over ssh-ng |
 | **P5** | <Pill variant="ok">feature</Pill> | moderate | per-host health chip + cold-dial progress, with a *pinned* `onState → ENDPOINT_STATES` table | a minute-long dial looking hung; the lossy state projection |
 | **P6** | <Pill variant="ok">feature</Pill> | thin | the palette lists `~/.ssh/config` ∪ `KOLU_HOSTS_JSON` hosts; pick one or type a target | retyping ssh targets — list every host, dial on demand |
-| **P7** | <Pill variant="ok">feature</Pill> | moderate | the **Code tab**: native fs/git on the *same* host agent, over ssh | the watcher's old PTY-forwarding was never needed — fs/git as an additive surface |
 | **P9** | <Pill variant="ok">feature</Pill> | moderate | many tiles/host + multiple hosts on one ssh `ControlMaster`; graceful degradation; lazy per-binary provisioning | does the pooled link scale, and does one dead host degrade instead of stall? |
 
 ### Honest cost scorecard
@@ -132,9 +125,8 @@ P7 -> P9
 Calling every slice "thin" was wrong. The honest split:
 
 - **Cheap, regardless of which remote path ships — P1 · P2 · P2b (+ P6).** Pure local-world refactors/UX; do them first — they turn the #1385 bug classes into compile errors and failing tests with no remote code.
-- **Moderate — P4a, P3, P4d, P5, P7, P9.** Real but contained.
-- **†Heavier than it looks — P4c.** The consumption *logic* (mirror, awareness pump, field-gating) already ships and is unit-tested against a *mock*; P4c's real deliverable is **net-new**: a session-injection seam on `RemoteTerminalEndpoint` plus a Nix-free harness — not a free hermetic test.
-- **Fat — the cost centre — P4w.** Hardening `packages/kolu-watcher` and its **Nix closure**, which carries real deps (`@kolu/terminal-dag`, `kolu-git`, `gh`, `node`) guarded by `buildId.closure.test.ts`. The genuinely platform-dependent work — and exactly why it's split off so it lands and stabilises alone, parallel to P4a.
+- **Moderate — P4a, P3, P4d, P5, P9.** Real but contained. P4d is the only genuinely-remote slice (provisioning + the ssh link + cross-arch/reconnect/`ControlMaster`/ssh-ng), but its *consumption* code is already proven natively in P4w — going remote only changes the link.
+- **Fat — the cost centre — P4w.** *The whole kolu-watcher in one go*: harden the package + its **Nix closure** (real deps `@kolu/terminal-dag`, `kolu-git`, `gh`, `node`, guarded by `buildId.closure.test.ts`) **and** wire local consumption natively via `directLink`. It carries the platform risk *and* the consumption refactor — but it lands **natively and hermetically** (no ssh, no Nix to run it locally), and remote (P4d) then only changes the link.
 
 > **Caveat:** P1–P4d map to commits on the **still-open <PrLink pr={1385} />**, not merged trunk. "Each slice merges independently and stays green" is a per-slice *goal to re-validate*, not an established fact.
 
@@ -162,15 +154,23 @@ The provider DAG splits cleanly by **where its inputs live**:
 So git/PR/agent awareness *must* run on the host (P4w, the host agent) — which is **exactly why kolu-watcher exists**. The fresh design keeps that role and renames it the **host agent**, dropping only its PTY-forwarding. The honest scope: the host agent is the *awareness host* and the *fs/git host*, never the PTY path and never the canvas-existence signal. A from-scratch design that skipped this would re-learn #1385's lesson the hard way.
 </Callout>
 
-## Local first, then ssh — what loopback actually buys
+## One surface, two links — `directLink` (in-process) vs `stdioLink` (ssh)
 
-The watcher's consumption is **transport-agnostic** — whether its awareness enriches the right tiles, whether the field-gating keeps the in-server taps and the host DAG from clobbering each other — so it can be proven over a **local loopback link** (P4c) before any ssh exists. But the shipped tree does *not* match a clean "swap loopback for ssh" story, so the framing has to be honest:
+The watcher's consumption is **transport-agnostic**, and `@kolu/surface` already ships the in-process link to prove it *natively* — no socket, no Nix. `directLink` is **"the identity element of the link family"**: given a served router it returns a client that calls the handlers **directly — no wire, no serialization round-trip**. The framework names this exact use:
 
-- **It's ssh-free, but not Nix-free.** The real consumer (`RemoteTerminalEndpoint → getHostSession → HostSession`) *always* runs `nix-store --realise` before any link — even for `localhost` (the copy is a no-op, the realise is a local build). The harness skips ssh, not Nix.
-- **The swap point is net-new.** `remote.ts` hardwires `getHostSession`; there is no injection seam today (the only Nix-free loopback runs live in tests via `vi.mock`). So P4c *builds* a session-injection seam — it isn't a free byproduct.
-- **The correctness logic already exists.** The mirror, the awareness pump, and the field-gating ship today, unit-tested against a *mock*. P4c's delta is joining that live logic to a *real* watcher over a *real* link.
+> run the exact same consumer code against an in-process implementation that it will later run against a socket/ssh-served one: **only the link changes.**
 
-So the punchline is narrower than "local vs remote is only the transport": **loopback retires the consumption-correctness risk; going remote (P4d) is not a one-line swap.** It adds provisioning (nix copy → realise → pin), the agent-command ssh prefix, and the genuinely-remote surface loopback can't touch — **cross-arch `.drv` resolution, ssh reconnect/recheck/keepalive, `ControlMaster` multiplexing, `nix copy` over ssh-ng**. Those are retired only by the `@remote-host` e2e on a real box. (`localhost`-as-remote — how #1385's e2e runs — drops only the ssh *prefix*; it still realises a closure and still runs the agent-command path.)
+So the watcher is consumed identically in both worlds — the link is the sole variable:
+
+```
+local   →  directLink( buildWatcherServer(localDeps).router )   // in-process · no wire · no Nix · no ssh
+remote  →  stdioLink ( getHostSession(...) )                     // host-side · provisioned · over ssh
+```
+
+- **P4w consumes via `directLink`** — native, in-process, **genuinely hermetic** (ssh-free *and* Nix-free, because `directLink` never touches `getHostSession`). This is the production *local* path, not a test harness: today's in-process DAG/fs-git is refactored onto the watcher surface behind a zero-overhead direct client. The watcher's own tests already drive the **full** surface — collections and change-streams included — through `directLink`.
+- **P4d swaps to `stdioLink`** via `getHostSession`. The consumption code is unchanged; what's new is provisioning (nix copy → realise → pin) and the genuinely-remote surface `directLink` can't exercise: **cross-arch `.drv` resolution, ssh reconnect/recheck/keepalive, `ControlMaster`, `nix copy` over ssh-ng** — retired by the `@remote-host` e2e on a real box.
+
+This is what makes *"local vs remote is only the transport"* literally and natively true: **same `watcherSurface`, same `buildWatcherServer`, the link is the only thing that changes** — and the local link is a real production transport, not a loopback hack. (`directLink`'s one honest difference, per its own doc: no retry-plugin context — there's no transport to retry over, which is exactly right for talking to your own process.)
 
 ## Versus the resequencing
 
@@ -183,4 +183,4 @@ A pragmatic blend is available: the structural bug-proofing here (**P1/P2/P2b** 
 
 ## Status
 
-**Proposed — a clean-slate alternative to finishing <PrLink pr={1385} /> in layers, and a child of [kaval-sessions](kaval-sessions.html).** This design was built from the goal, grounded in the shipped foundation by reading the real repo, judged by a panel, and adversarially verified — the verification forced the awareness split (the draft's "no host agent, full awareness" thesis was provably wrong), the seed-from-kaval's-`terminal.list` existence model, *and* the honest loopback framing (ssh-free but not Nix-free; going remote keeps real risk). The long pole is **P1 → P2 → P4a → P3 → P4c → P4d → P7 → P9**, with the fat watcher phase (**P4w**) riding parallel to P4a. It is *not* committed — and P1–P4d map to commits on the still-open <PrLink pr={1385} />, not merged trunk, so "merges independently / stays green" is a per-slice goal to re-validate. The recommended first move either way is the **P1/P2/P2b** structural trio — pure local-world refactors that make the #1385 bug classes unreachable before any remote code is written.
+**Proposed — a clean-slate alternative to finishing <PrLink pr={1385} /> in layers, and a child of [kaval-sessions](kaval-sessions.html).** This design was built from the goal, grounded in the shipped foundation by reading the real repo, judged by a panel, and adversarially verified — the verification forced the awareness split (the draft's "no host agent, full awareness" thesis was provably wrong) and the seed-from-kaval's-`terminal.list` existence model; a later pass found the sharper consumption model — `@kolu/surface`'s **`directLink`** lets the whole watcher be built *and* consumed natively in-process (one phase, **P4w**), so going remote (**P4d**) is just swapping the link to `stdioLink`, which collapsed the watcher work from four slices to two. The long pole is **P1 → P2 → P4a → P3 → P4d → P9**, with the fat watcher phase (**P4w**) riding parallel to P4a. It is *not* committed — and P1–P4d map to commits on the still-open <PrLink pr={1385} />, not merged trunk, so "merges independently / stays green" is a per-slice goal to re-validate. The recommended first move either way is the **P1/P2/P2b** structural trio — pure local-world refactors that make the #1385 bug classes unreachable before any remote code is written.
