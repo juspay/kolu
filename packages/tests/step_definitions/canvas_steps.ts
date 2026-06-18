@@ -930,6 +930,62 @@ Then(
   },
 );
 
+// Per-tile renderer assertion. Indexes the same visible-tile NodeList as
+// "I click canvas tile {int}" (creation order), so tile N here is the tile N
+// you clicked. WebGL load/unload is async (the effect + addon construction),
+// so poll rather than read once. `{word}` is `webgl` or `dom`.
+Then(
+  "canvas tile {int} should use the {word} renderer",
+  async function (this: KoluWorld, index: number, want: string) {
+    await this.page.waitForFunction(
+      ({ sel, i, w }: { sel: string; i: number; w: string }) => {
+        const tile = document
+          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .item(i) as HTMLElement | null;
+        return tile?.getAttribute("data-renderer") === w;
+      },
+      { sel: CANVAS_SELECTOR, i: index - 1, w: want },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+// Main pane vs. active split of the active tile — for the active-split-inherit
+// scenario, where both must end up on WebGL. The active tile carries
+// data-active="true"; its main pane is the non-sub Terminal, its focused split
+// is the one visible [data-sub-terminal].
+Then(
+  "the main terminal should use the {word} renderer",
+  async function (this: KoluWorld, want: string) {
+    await this.page.waitForFunction(
+      ({ sel, w }: { sel: string; w: string }) => {
+        const main = document.querySelector(
+          `${sel} [data-active="true"] [data-terminal-id][data-visible]:not([data-sub-terminal])`,
+        );
+        return main?.getAttribute("data-renderer") === w;
+      },
+      { sel: CANVAS_SELECTOR, w: want },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the focused sub-terminal should use the {word} renderer",
+  async function (this: KoluWorld, want: string) {
+    await this.page.waitForFunction(
+      ({ sel, w }: { sel: string; w: string }) => {
+        const sub = document.querySelector(
+          `${sel} [data-active="true"] [data-sub-terminal][data-visible]`,
+        );
+        return sub?.getAttribute("data-renderer") === w;
+      },
+      { sel: CANVAS_SELECTOR, w: want },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 When(
   "I click minimap tile rect {int}",
   async function (this: KoluWorld, index: number) {
