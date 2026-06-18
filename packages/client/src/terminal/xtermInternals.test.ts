@@ -90,11 +90,12 @@ describe("unscaleEventPoint", () => {
       clientX: r.left + (logicalX - r.left) * scaleX,
       clientY: r.top + (logicalY - r.top) * scaleY,
     });
-    for (const [logicalX, logicalY] of [
+    const cases: [number, number][] = [
       [r.left, r.top], // the fixed point itself
       [250, 175],
       [r.left + layoutWidth, r.top + layoutHeight], // far edge
-    ]) {
+    ];
+    for (const [logicalX, logicalY] of cases) {
       const screen = forward(logicalX, logicalY);
       const out = unscaleEventPoint(
         screen.clientX,
