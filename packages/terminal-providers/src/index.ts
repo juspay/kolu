@@ -9,7 +9,10 @@
  * The providers carry no dependency on kolu-server: the host is injected
  * (`ProviderHooks` + `ProviderChannels`). kolu-server runs the in-server
  * foreground/process provider (`startProcessProvider`) directly and consumes the
- * host-side providers through `buildWatcherServer`.
+ * host-side providers through the no-wire `directLink` `client`
+ * `buildWatcherServer` owns (the in-process half of the
+ * `createInProcessPtyHost` shape; the over-the-wire `servedRouter` half is
+ * deferred to the `stdioLink` swap).
  */
 export {
   type ProviderChannels,

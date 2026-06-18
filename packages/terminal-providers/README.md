@@ -41,12 +41,16 @@ serves their output as the `watcherSurface`:
   `liveAwareness` (`pr` · `agent`). `cwd` / `foreground` / `location` are absent —
   they stay in-server.
 
-It returns `implementSurface`'s router — the **transport-agnostic** half. Feed it
-to `directLink` for the no-wire in-process client kolu-server uses today, or to
-`serveOverStdio` over ssh for a remote host later. The consumer is written against
+It returns `implementSurface`'s router — the **transport-agnostic** half — plus
+the no-wire `directLink` `client` it owns beside that router, the in-process
+client kolu-server consumes today. A remote host serves the same router over
+`serveOverStdio` later. The consumer is written against
 `ContractRouterClient<typeof watcherSurface.contract>` either way, so **local vs
-remote is only the link**. This mirrors kaval's `servePtyHost` /
-`createInProcessPtyHost` exactly — the blessed pattern for an in-process surface.
+remote is only the link**. This mirrors the **in-process** (`router` +
+`directLink` `client`) half of kaval's `createInProcessPtyHost` — the blessed
+pattern for an in-process surface. Its wire-wrap half (`servedRouter`, the
+contract-router serving over a socket needs) is deferred to P4d, since nothing
+serves the watcher over the wire until the `stdioLink` swap.
 
 ```
             kolu-server (LocalTerminalEndpoint)
@@ -65,7 +69,7 @@ back into the host (in-process today; a remote watcher reads its own kaval).
 
 ## API
 
-- `buildWatcherServer(opts)` → `{ router, dispose }` — the host-side providers as a served surface.
+- `buildWatcherServer(opts)` → `{ router, client, dispose }` — the host-side providers as a served surface (`client` is the no-wire `directLink` consumed in-process).
 - `watcherSurface` — the contract; `PersistedAwareness` / `LiveAwareness` value types.
 - `startProcessProvider(record, id, channels, hooks)` — the in-server foreground/process observer.
 - `startWatcherProviders(record, id, channels, hooks)` — the host-side providers (used by `buildWatcherServer`).

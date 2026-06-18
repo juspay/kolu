@@ -6,13 +6,15 @@
  * collections.
  *
  * It returns `implementSurface`'s router, the **transport-agnostic** half of the
- * serving — feed it to `directLink` for the in-process client kolu-server's
- * local endpoint uses today (the no-wire identity link), or to `serveOverStdio`
- * over ssh for a remote host later. The consumer is written against
- * `ContractRouterClient<typeof watcherSurface.contract>` either way, so *local
- * vs remote is only the link*. This mirrors kaval's `servePtyHost` /
- * `createInProcessPtyHost` exactly — the blessed pattern for an in-process
- * surface.
+ * serving, plus the no-wire `directLink` `client` it owns beside that router —
+ * the in-process client kolu-server's local endpoint consumes today. A remote
+ * host serves the same router over `serveOverStdio` later. The consumer is
+ * written against `ContractRouterClient<typeof watcherSurface.contract>` either
+ * way, so *local vs remote is only the link*. This mirrors the **in-process**
+ * (`router` + `directLink` `client`) half of kaval's `createInProcessPtyHost` —
+ * the blessed pattern for an in-process surface. The wire-wrap half
+ * (`servedRouter`, the contract-router the StandardRPCHandler routes over a
+ * socket) is deferred to P4d, since it has no caller until the `stdioLink` swap.
  *
  * The watcher is **minus PTY-forwarding**: it never taps kaval. kolu-server owns
  * the pty-host taps (in-server) and relays the signals the providers consume via
@@ -24,6 +26,7 @@
  * watcher reads its own kaval / derives its own MRUs).
  */
 
+import { directLink } from "@kolu/surface/links/direct";
 import {
   implementSurface,
   inMemoryChannel,
@@ -44,6 +47,7 @@ import {
 import {
   type LiveAwareness,
   type PersistedAwareness,
+  type WatcherContract,
   watcherSurface,
 } from "./watcherSurface.ts";
 
@@ -220,9 +224,14 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
   };
 
   return {
-    /** The `implementSurface` fragment router — feed straight to `directLink`
-     *  in-process (or `serveOverStdio` over ssh later). */
+    /** The raw `implementSurface` fragment router, for advanced in-process use
+     *  (or `serveOverStdio` over ssh later, once it's wrapped in a top-level
+     *  contract router — the deferred P4d half). */
     router: fragment.router,
+    /** The no-wire `directLink` client kolu-server's local endpoint consumes
+     *  today — owned here, beside the router it wraps, the way
+     *  `createInProcessPtyHost` owns its `client`. */
+    client: directLink<WatcherContract>(fragment.router),
     /** Stop every watched terminal's providers. */
     dispose: () => {
       for (const id of [...lifecycles.keys()]) stopWatching(id);

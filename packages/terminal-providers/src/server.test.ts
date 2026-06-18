@@ -7,11 +7,9 @@
  * link-swap's contract.
  */
 
-import { directLink } from "@kolu/surface/links/direct";
 import pino from "pino";
 import { describe, expect, it } from "vitest";
 import { buildWatcherServer } from "./server.ts";
-import type { WatcherContract } from "./watcherSurface.ts";
 
 const silent = pino({ level: "silent" });
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -26,7 +24,7 @@ async function next<T>(it: AsyncIterator<T>): Promise<T> {
 describe("buildWatcherServer over directLink", () => {
   it("seeds and serves a watched terminal's awareness, then pushes deltas", async () => {
     const watcher = buildWatcherServer({ log: silent });
-    const client = directLink<WatcherContract>(watcher.router);
+    const client = watcher.client;
     try {
       await client.surface.terminal.watch({ id: ID, pid: 4242, cwd: "/tmp" });
 
@@ -63,7 +61,7 @@ describe("buildWatcherServer over directLink", () => {
 
   it("drops a terminal's awareness on unwatch", async () => {
     const watcher = buildWatcherServer({ log: silent });
-    const client = directLink<WatcherContract>(watcher.router);
+    const client = watcher.client;
     try {
       await client.surface.terminal.watch({ id: ID, pid: 1, cwd: "/tmp" });
       await client.surface.signal.commandRun({ id: ID, command: "claude" });

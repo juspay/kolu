@@ -29,14 +29,12 @@
  */
 
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
-import { directLink } from "@kolu/surface/links/direct";
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
   buildWatcherServer,
   type ProviderHooks,
   type ProviderRecord,
   startProcessProvider,
-  type WatcherContract,
 } from "@kolu/terminal-providers";
 import { LOCAL_LOCATION } from "kolu-common/surface";
 import type {
@@ -160,7 +158,10 @@ const watcherServer = buildWatcherServer({
   trackRecentRepo,
   trackRecentAgent,
 });
-const watcherClient = directLink<WatcherContract>(watcherServer.router);
+// The no-wire `directLink` client `buildWatcherServer` owns — consumed ready,
+// not re-derived from the raw router here (the in-process link belongs beside
+// the router it wraps, mirroring `createInProcessPtyHost`).
+const watcherClient = watcherServer.client;
 
 // ── The contract-backed terminal handle ─────────────────────────────────
 
