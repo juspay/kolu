@@ -37,23 +37,6 @@ export function sanitizeCell(value: string): string {
   return value.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
 }
 
-/** POSIX-quote one argument for a copy-pasteable shell command line. We print
- *  "attach with `… --host X`" / "`… --socket P`" hints meant to be pasted back
- *  into a shell, and the value is whatever the user typed (an ssh target, or a
- *  socket path that may legitimately contain spaces — `/tmp/my sock`). Echoing
- *  it raw would re-split on spaces (the pasted command targets the wrong thing)
- *  or let metacharacters/backticks change what runs. Wrap in single quotes and
- *  escape any embedded single quote the canonical `'\''` way; a value that is
- *  already a safe bare word is returned unquoted so the common `nix@prod` /
- *  `/run/…/pty-host.sock` hint stays clean. */
-export function shellQuoteArg(value: string): string {
-  // A conservative "needs no quoting" set: the chars that appear in ssh targets
-  // and socket paths and carry no shell meaning. Anything else (space, glob,
-  // `$`, backtick, quotes, `;`, `&`, newline, …) forces quoting.
-  if (value !== "" && /^[A-Za-z0-9@%_+=:,./-]+$/.test(value)) return value;
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
 /** Collapse a leading `$HOME` to `~` for a shorter, familiar cwd. */
 export function tildeify(cwd: string, home?: string): string {
   if (home === undefined || home === "") return cwd;
