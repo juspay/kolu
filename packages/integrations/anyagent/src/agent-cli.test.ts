@@ -1,5 +1,6 @@
 /** Unit tests for agent CLI parsing and normalization. */
 
+import { shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 import { describe, expect, it } from "vitest";
 import {
@@ -190,6 +191,37 @@ describe("parseAgentCommand", () => {
     ).toBe(`claude --append-system-prompt 'be terse please'`);
   });
 
+  // Regression (codex review F2): a leading-`~` path value must stay BARE in
+  // the normalized form. The preexec mark captures the command's shell SOURCE
+  // before tilde expansion, so re-quoting `~/…` would suppress expansion and
+  // replay a literal `~` path (Claude would then fail to find the settings
+  // file). The normalized form keeps it unquoted so the rerun re-expands it.
+  it("keeps a leading-tilde path value unquoted so it re-expands on rerun", () => {
+    expect(parseAgentCommand(`claude --settings ~/.claude/settings.json`)).toBe(
+      `claude --settings ~/.claude/settings.json`,
+    );
+    expect(parseAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
+      `claude --add-dir ~/projects/foo`,
+    );
+  });
+
+  // Regression (codex review F3): a flag value containing an apostrophe is
+  // single-quoted with the canonical `'\''` idiom; the normalized form must
+  // re-tokenize (via shellSplit, the inverse of shellJoin) back to one token.
+  it("round-trips a flag value containing an apostrophe", () => {
+    const normalized = parseAgentCommand(
+      `claude --append-system-prompt "don't be verbose"`,
+    );
+    expect(normalized).toBe(
+      `claude --append-system-prompt 'don'\\''t be verbose'`,
+    );
+    expect(shellSplit(normalized as string)).toEqual([
+      "claude",
+      "--append-system-prompt",
+      "don't be verbose",
+    ]);
+  });
+
   // The chosen quote style is an implementation detail; the invariant that
   // actually matters is that the normalized string re-tokenizes to the same
   // argv it was built from — i.e. no value silently splits into two args.
@@ -254,6 +286,24 @@ describe("resumeAgentCommand", () => {
     expect(resumeAgentCommand(`claude --settings '{"ultracode": true}'`)).toBe(
       `claude -c --settings '{"ultracode": true}'`,
     );
+  });
+
+  // Regression (codex review F3): the resume reparse must use shellSplit, not
+  // string-argv — a value carrying the canonical `'\''` apostrophe idiom would
+  // otherwise shatter into several tokens and corrupt the spliced command.
+  it("round-trips an apostrophe value across the resume splice", () => {
+    const resumed = resumeAgentCommand(
+      `claude --append-system-prompt 'don'\\''t be verbose'`,
+    );
+    expect(resumed).toBe(
+      `claude -c --append-system-prompt 'don'\\''t be verbose'`,
+    );
+    expect(shellSplit(resumed as string)).toEqual([
+      "claude",
+      "-c",
+      "--append-system-prompt",
+      "don't be verbose",
+    ]);
   });
 });
 

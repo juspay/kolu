@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { shellQuoteArg } from "./index.ts";
+import { shellJoin, shellQuoteArg, shellSplit } from "./index.ts";
 
 describe("shellQuoteArg", () => {
   it("leaves a safe bare word (ssh target / plain socket path) unquoted", () => {
     expect(shellQuoteArg("nix@prod")).toBe("nix@prod");
     expect(shellQuoteArg("/run/user/1000/kaval-9221/pty-host.sock")).toBe(
       "/run/user/1000/kaval-9221/pty-host.sock",
+    );
+  });
+
+  it("leaves a leading-tilde path BARE so the shell re-expands it", () => {
+    // The preexec mark captures `~/…` as the user typed it (pre-expansion);
+    // quoting it would suppress expansion and replay a literal `~` path.
+    expect(shellQuoteArg("~/.claude/settings.json")).toBe(
+      "~/.claude/settings.json",
     );
   });
 
@@ -32,5 +40,41 @@ describe("shellQuoteArg", () => {
 
   it("quotes the empty string (a bare empty arg would just vanish)", () => {
     expect(shellQuoteArg("")).toBe("''");
+  });
+});
+
+describe("shellSplit", () => {
+  it("is the exact inverse of shellJoin (round-trips every token shape)", () => {
+    // The property that matters: a consumer reparsing its OWN joined output
+    // gets back exactly the argv it joined — including the embedded-single-
+    // quote idiom that a general tokenizer (string-argv) shatters.
+    const cases: string[][] = [
+      ["claude", "--model", "sonnet"],
+      ["claude", "--settings", `{"ultracode": true}`],
+      ["codex", "--config", `model_reasoning_effort="xhigh"`],
+      ["claude", "--append-system-prompt", "be terse please"],
+      ["claude", "--append-system-prompt", "don't do that"],
+      ["claude", "--add-dir", "~/.claude"],
+      ["a", "", "b"], // empty token survives
+      ["weird", "a'b'c", "x  y"],
+    ];
+    for (const argv of cases) {
+      expect(shellSplit(shellJoin(argv))).toEqual(argv);
+    }
+  });
+
+  it("parses the canonical '\\'' idiom that string-argv cannot", () => {
+    // shellJoin(["don't"]) === "'don'\\''t'" — one token, an embedded quote.
+    expect(shellSplit(`'don'\\''t'`)).toEqual(["don't"]);
+  });
+
+  it("ignores leading/trailing/extra whitespace between tokens", () => {
+    expect(shellSplit("  claude   --model    sonnet  ")).toEqual([
+      "claude",
+      "--model",
+      "sonnet",
+    ]);
+    expect(shellSplit("")).toEqual([]);
+    expect(shellSplit("   ")).toEqual([]);
   });
 });

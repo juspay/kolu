@@ -29,7 +29,7 @@
  * drops real positionals.
  */
 
-import { shellJoin } from "@kolu/shell-quote";
+import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { type NonEmpty, nonEmpty } from "nonempty";
 import { parseArgsStringToArgv } from "string-argv";
 
@@ -179,14 +179,15 @@ export function agentKindFromCommand(command: string): AgentKind | null {
 
 /**
  * Extract the agent binary basename (the head token) from a command line —
- * typically the normalized output of `parseAgentCommand`. Tokenizes the same
- * way `agentKindFromCommand` does so the joined wire format stays fully
- * encapsulated: consumers ask anyagent "what's the agent here?" instead of
- * re-splitting the joined string and depending on the head token never being
- * quoted. Returns `null` for an empty command.
+ * typically the normalized output of `parseAgentCommand`. Tokenizes with
+ * `shellSplit` (the exact inverse of the `shellJoin` that produced the
+ * normalized form, see `@kolu/shell-quote`) so the joined wire format stays
+ * fully encapsulated: consumers ask anyagent "what's the agent here?" instead
+ * of re-splitting the joined string and depending on the head token never
+ * being quoted. Returns `null` for an empty command.
  */
 export function agentNameFromCommand(command: string): string | null {
-  const head = parseArgsStringToArgv(command.trim())[0];
+  const head = shellSplit(command.trim())[0];
   return head === undefined ? null : basename(head);
 }
 
@@ -239,7 +240,11 @@ export function parseAgentCommand(raw: string): string | null {
  * assumed already normalized — callers should not pass raw user input.
  */
 export function resumeAgentCommand(normalized: string): string | null {
-  const argv = nonEmpty(parseArgsStringToArgv(normalized.trim()));
+  // `normalized` is the output of `parseAgentCommand` (a `shellJoin` result),
+  // so reparse it with `shellJoin`'s exact inverse — NOT `parseArgsStringToArgv`,
+  // which mis-tokenizes the canonical `'\''` idiom this can contain (e.g. a
+  // `--append-system-prompt "don't"` value).
+  const argv = nonEmpty(shellSplit(normalized.trim()));
   if (!argv) return null;
   const agent = argv[0];
   if (!(agent in AGENT_RESUME)) return null;
