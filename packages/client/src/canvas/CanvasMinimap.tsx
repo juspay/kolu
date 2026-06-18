@@ -238,13 +238,26 @@ const CanvasMinimap: Component<{
   return (
     <div
       data-testid="canvas-minimap"
-      class="absolute bottom-4 left-4 z-20 flex flex-col items-start gap-px"
+      // `items-stretch`: the panel is a single connected pill (rounded-top map
+      // + rounded-bottom zoom bar sharing one border), so both halves must
+      // share a width. The container shrink-to-fits (absolute, no width) to its
+      // widest child, then stretches both halves to match — so the panel never
+      // narrows below the zoom bar's natural content width. A tall, narrow tile
+      // box can shrink the map well below that; without this floor the bar's
+      // controls would be clipped by its `overflow-hidden`.
+      class="absolute bottom-4 left-4 z-20 flex flex-col items-stretch gap-px"
     >
       {/* Minimap visualization */}
       <div
         data-testid="minimap-map"
         class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden"
-        style={{ width: `${mapDims().w}px`, height: `${mapDims().h}px` }}
+        // `min-width`, not `width`: the map renders at least as wide as its
+        // scaled content but stretches to the panel width (see the
+        // `items-stretch` note above) when the zoom bar is the wider half.
+        // Tile coordinates stay anchored to the left edge, so the extra width
+        // is inert right-padding — gesture math reads the box's left as the
+        // content origin.
+        style={{ "min-width": `${mapDims().w}px`, height: `${mapDims().h}px` }}
         classList={{
           "cursor-default": !hoveringViewport() && !draggingViewport(),
           "cursor-grab": hoveringViewport() && !draggingViewport(),
@@ -431,10 +444,13 @@ const CanvasMinimap: Component<{
         />
       </div>
 
-      {/* Zoom bar — sits flush below the map */}
+      {/* Zoom bar — sits flush below the map. No explicit width: it sizes to
+          its controls' natural width, which becomes the panel's floor (the
+          container shrink-to-fits to it, then `items-stretch` widens the map to
+          match). */}
       <div
+        data-testid="minimap-zoombar"
         class="flex items-center gap-px bg-surface-2/80 backdrop-blur-sm border border-t-0 border-edge/40 overflow-hidden rounded-b-lg"
-        style={{ width: `${mapDims().w}px` }}
       >
         <button
           type="button"

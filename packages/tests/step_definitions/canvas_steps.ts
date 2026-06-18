@@ -6,6 +6,7 @@ const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
 const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
 const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
+const MINIMAP_ZOOMBAR_SELECTOR = '[data-testid="minimap-zoombar"]';
 const TILE_SELECTOR = '[data-testid="canvas-tile"]';
 
 async function waitForCanvas(world: KoluWorld) {
@@ -784,6 +785,51 @@ Then("the minimap map should be visible", async function (this: KoluWorld) {
     { timeout: POLL_TIMEOUT },
   );
 });
+
+// Stack every visible canvas tile in a single column with a large vertical
+// gap, so the tile bounding box becomes far taller than it is wide. That is
+// the shape that collapses the minimap's shrink-to-fit width (the height
+// constraint wins the scale), which used to drag the zoom bar below the
+// width its controls need.
+When(
+  "I stack every canvas tile in a tall, narrow column",
+  async function (this: KoluWorld) {
+    const ids: string[] = await this.page.evaluate(
+      (sel: string) =>
+        Array.from(
+          document.querySelectorAll(`${sel} [data-terminal-id][data-visible]`),
+        )
+          .map((el) => (el as HTMLElement).getAttribute("data-terminal-id"))
+          .filter((id): id is string => id !== null),
+      CANVAS_SELECTOR,
+    );
+    if (ids.length === 0) throw new Error("No canvas tiles to stack");
+    for (const [i, id] of ids.entries()) {
+      await setCanvasLayoutById(this, id, 200, i * 6000);
+    }
+  },
+);
+
+// The zoom bar lives below the map and packs fixed-width controls on one
+// `overflow-hidden` row. If the panel is forced narrower than that content,
+// the controls are clipped (scrollWidth exceeds clientWidth) — the bug. A
+// panel that floors at the bar's natural width never overflows.
+Then(
+  "the minimap zoom bar should not clip its controls",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => {
+        const bar = document.querySelector(sel) as HTMLElement | null;
+        if (!bar) return false;
+        // Sub-pixel rounding can leave a 1px discrepancy even when nothing
+        // is actually clipped.
+        return bar.scrollWidth <= bar.clientWidth + 1;
+      },
+      MINIMAP_ZOOMBAR_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 When("I save the canvas viewport state", async function (this: KoluWorld) {
   const state = await this.page.evaluate((sel: string) => {
