@@ -120,7 +120,8 @@ function projectOnto<K extends keyof TerminalServerMetadata>(
 // themselves (the single source of truth for the persisted-vs-live partition),
 // so `persistedOf`/`liveOf` can't drift from the published shape.
 const PERSISTED_KEYS = PersistedAwarenessSchema.keyof()
-  .options as readonly (keyof PersistedAwareness & keyof TerminalServerMetadata)[];
+  .options as readonly (keyof PersistedAwareness &
+  keyof TerminalServerMetadata)[];
 const LIVE_KEYS = LiveAwarenessSchema.keyof()
   .options as readonly (keyof LiveAwareness & keyof TerminalServerMetadata)[];
 
@@ -136,62 +137,12 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
   const liveStore = new Map<TerminalId, LiveAwareness>();
   const lifecycles = new Map<TerminalId, WatcherLifecycle>();
 
-  // Wired after `implementSurface` so the provider hooks can publish into the
-  // collections (whose `upsert` mutates the stores AND pushes per-key deltas to
-  // subscribers — the `ctx` methods do both, the plain `Map` ops only the first).
-  let publishPersisted: (id: TerminalId, v: PersistedAwareness) => void =
-    () => {};
-  let publishLive: (id: TerminalId, v: LiveAwareness) => void = () => {};
-  let dropAwareness: (id: TerminalId) => void = () => {};
-
-  /** Begin watching a terminal: per-terminal channels for the signals to feed,
-   *  a record seeded at `cwd`/`pid`, hooks that publish into the awareness
-   *  collections, and the host-side providers. Idempotent per id. Seeds the
-   *  initial awareness BEFORE returning, so kolu-server's subsequent `get`
-   *  subscribe reads a valid snapshot. */
-  function startWatching(id: TerminalId, pid: number, cwd: string): void {
-    if (lifecycles.has(id)) return;
-    const channels: ProviderChannels = {
-      cwd: inMemoryChannel<string>(),
-      title: inMemoryChannel<string>(),
-      commandRun: inMemoryChannel<string>(),
-      foreground: inMemoryChannel(),
-      git: inMemoryChannel(),
-    };
-    const meta = initialMeta(cwd);
-    const record: ProviderRecord = { pid, meta, currentAgent: null };
-    const hooks: ProviderHooks = {
-      log,
-      updateServerMetadata: (_record, mutate) => {
-        mutate(meta);
-        publishPersisted(id, persistedOf(meta));
-      },
-      updateServerLiveMetadata: (_record, mutate) => {
-        mutate(meta);
-        publishLive(id, liveOf(meta));
-      },
-      trackRecentRepo: opts.trackRecentRepo,
-      trackRecentAgent: opts.trackRecentAgent,
-      readScreenText: opts.readScreenText
-        ? (tailLines) => opts.readScreenText!(id, tailLines)
-        : undefined,
-    };
-    publishPersisted(id, persistedOf(meta));
-    publishLive(id, liveOf(meta));
-    const stop = startWatcherProviders(record, id, channels, hooks);
-    lifecycles.set(id, { channels, stop });
-  }
-
-  /** Stop watching a terminal — tear its providers down and drop its mirrored
-   *  awareness. Idempotent. */
-  function stopWatching(id: TerminalId): void {
-    const lc = lifecycles.get(id);
-    if (!lc) return;
-    lifecycles.delete(id);
-    lc.stop();
-    dropAwareness(id);
-  }
-
+  // Build the fragment FIRST — its collection ops touch only the plain stores,
+  // and its procedures reference the hoisted `startWatching`/`stopWatching`
+  // declarations below (a function declaration is visible before its textual
+  // position; the procedures only CALL them post-construction, by which point
+  // the publish writers below are bound). The procedures' channel-publish arms
+  // depend only on `lifecycles`.
   const fragment = implementSurface(watcherSurface, {
     channel: inMemoryChannelByName(),
     collections: {
@@ -243,13 +194,70 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
     },
   });
 
-  publishPersisted = (id, v) =>
+  // The real publish writers, `const`-bound to the collection ctx (whose `upsert`
+  // mutates the stores AND pushes per-key deltas to subscribers — the plain `Map`
+  // ops only the first). No `let`-seeded no-op reassigned later: the hooks below
+  // close over these consts, and a hook can only fire from inside `startWatching`,
+  // which is only reachable via a procedure call (post-construction) — so the
+  // writers are always the real ones by the time any publish happens.
+  const publishPersisted = (id: TerminalId, v: PersistedAwareness): void =>
     fragment.ctx.collections.persistedAwareness.upsert(id, v);
-  publishLive = (id, v) => fragment.ctx.collections.liveAwareness.upsert(id, v);
-  dropAwareness = (id) => {
+  const publishLive = (id: TerminalId, v: LiveAwareness): void =>
+    fragment.ctx.collections.liveAwareness.upsert(id, v);
+  const dropAwareness = (id: TerminalId): void => {
     fragment.ctx.collections.persistedAwareness.remove(id);
     fragment.ctx.collections.liveAwareness.remove(id);
   };
+
+  /** Begin watching a terminal: per-terminal channels for the signals to feed,
+   *  a record seeded at `cwd`/`pid`, hooks that publish into the awareness
+   *  collections, and the host-side providers. Idempotent per id. Seeds the
+   *  initial awareness BEFORE returning, so kolu-server's subsequent `get`
+   *  subscribe reads a valid snapshot. (A hoisted function declaration so the
+   *  fragment's `watch` procedure above can reference it.) */
+  function startWatching(id: TerminalId, pid: number, cwd: string): void {
+    if (lifecycles.has(id)) return;
+    const channels: ProviderChannels = {
+      cwd: inMemoryChannel<string>(),
+      title: inMemoryChannel<string>(),
+      commandRun: inMemoryChannel<string>(),
+      foreground: inMemoryChannel(),
+      git: inMemoryChannel(),
+    };
+    const meta = initialMeta(cwd);
+    const record: ProviderRecord = { pid, meta, currentAgent: null };
+    const hooks: ProviderHooks = {
+      log,
+      updateServerMetadata: (_record, mutate) => {
+        mutate(meta);
+        publishPersisted(id, persistedOf(meta));
+      },
+      updateServerLiveMetadata: (_record, mutate) => {
+        mutate(meta);
+        publishLive(id, liveOf(meta));
+      },
+      trackRecentRepo: opts.trackRecentRepo,
+      trackRecentAgent: opts.trackRecentAgent,
+      readScreenText: opts.readScreenText
+        ? (tailLines) => opts.readScreenText!(id, tailLines)
+        : undefined,
+    };
+    publishPersisted(id, persistedOf(meta));
+    publishLive(id, liveOf(meta));
+    const stop = startWatcherProviders(record, id, channels, hooks);
+    lifecycles.set(id, { channels, stop });
+  }
+
+  /** Stop watching a terminal — tear its providers down and drop its mirrored
+   *  awareness. Idempotent. (Hoisted so the fragment's `unwatch` procedure can
+   *  reference it.) */
+  function stopWatching(id: TerminalId): void {
+    const lc = lifecycles.get(id);
+    if (!lc) return;
+    lifecycles.delete(id);
+    lc.stop();
+    dropAwareness(id);
+  }
 
   return {
     /** The raw `implementSurface` fragment router, for advanced in-process use
