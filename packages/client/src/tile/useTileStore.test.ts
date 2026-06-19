@@ -18,7 +18,6 @@ const bag = vi.hoisted(() => ({
   activeId: (() => null) as () => TerminalId | null,
   activate: vi.fn(),
   setActiveSilently: vi.fn(),
-  mruOrder: (() => []) as () => TerminalId[],
   persistCanvasLayout: vi.fn(),
 }));
 
@@ -29,7 +28,6 @@ vi.mock("../terminal/useTerminalStore", () => ({
     activeId: bag.activeId,
     activate: bag.activate,
     setActiveSilently: bag.setActiveSilently,
-    mruOrder: bag.mruOrder,
   }),
 }));
 vi.mock("../terminal/persistCanvasLayout", () => ({
@@ -113,6 +111,5 @@ describe("useTileStore selection (one source of truth)", () => {
     expect(store.activeId).toBe(bag.activeId);
     expect(store.activate).toBe(bag.activate);
     expect(store.setActiveSilently).toBe(bag.setActiveSilently);
-    expect(store.mruOrder).toBe(bag.mruOrder);
   });
 });

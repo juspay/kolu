@@ -4,7 +4,7 @@
  *  LIVENESS:
  *
  *    The Tile owns      → identity (TileId), the TileContent union, canvas
- *                         layout access, active/selection, MRU, tile count.
+ *                         layout access, active/selection, tile count.
  *    The Terminal owns  → PTY · xterm · agent · attach stream · repo/branch
  *                         identity · the live body (getMetadata / getDisplayInfo
  *                         / focusedId).
@@ -83,7 +83,7 @@ export const useTileStore = createSharedRoot(() => {
     // Layout — the registry hides the storage home (terminal metadata today).
     getLayout,
     setLayout,
-    // Selection / MRU — re-exposed from view state (one source of truth). The
+    // Selection — re-exposed from view state (one source of truth). The
     // active TILE may be any content kind; a terminal-content consumer that
     // needs the active TERMINAL keeps reading `store.activeId()` (identical
     // today — PR 2 narrows via `focusedId` / `terminalIdOf` once a sleeping
@@ -93,7 +93,6 @@ export const useTileStore = createSharedRoot(() => {
     activeId: store.activeId,
     activate: store.activate,
     setActiveSilently: store.setActiveSilently,
-    mruOrder: store.mruOrder,
   };
 });
 
