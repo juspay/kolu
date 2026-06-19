@@ -1,5 +1,6 @@
-/** The Tile model — identity + a content union — that the canvas, dock, and
- *  selection read through, so they stay agnostic to what a tile holds.
+/** The Tile model — a stable identity ({@link TileId}) plus a content union
+ *  ({@link TileContent}) — that the canvas, dock, and selection read through,
+ *  so they stay agnostic to what a tile holds.
  *
  *  A first-class Tile separates tile PRESENCE (it exists, sits somewhere on the
  *  canvas, can be the active/focused tile, has a dock row) from terminal
@@ -34,9 +35,3 @@ export type TileId = TerminalId;
  *  Adding a kind is one new arm here plus one new `<Match>`/`.with(...)` at each
  *  dispatch — the silo becomes unrepresentable. */
 export type TileContent = { kind: "terminal"; terminalId: TerminalId };
-
-/** A first-class tile: stable identity plus the content it currently holds. */
-export interface Tile {
-  readonly id: TileId;
-  readonly content: TileContent;
-}
