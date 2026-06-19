@@ -16,7 +16,12 @@ import { useViewState } from "../useViewState";
 import { terminalListSub } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalMetadata } from "./useTerminalMetadata";
-import { admitWebglTiles, WEBGL_CONTEXT_CAP } from "./webglBudget";
+import {
+  admitWebglTiles,
+  isActiveSplit,
+  tileWebglCost,
+  WEBGL_CONTEXT_CAP,
+} from "./webglBudget";
 
 export const useTerminalStore = createSharedRoot(() => {
   const view = useViewState();
@@ -53,16 +58,14 @@ export const useTerminalStore = createSharedRoot(() => {
   const webglTileBudget = createMemo(() => {
     const live = new Set(metadata.terminalIds());
     const ordered = view.mruOrder().filter((id) => live.has(id));
-    // A tile costs one context for its main pane, plus one for an expanded,
-    // active split (mirrors holdsWebgl's split rule below), so the running count
-    // is the true number of live WebGL contexts — admitting the full working set
-    // churn-free (#1399) while staying under Chrome's per-tab limit (#575).
+    // `tileWebglCost` is the one home for a tile's context cost (main pane + an
+    // expanded, active split), so the running count is the true number of live
+    // WebGL contexts — admitting the full working set churn-free (#1399) while
+    // staying under Chrome's per-tab limit (#575). `holdsWebgl` below maps the
+    // same split rule down to individual terminals via `isActiveSplit`.
     return admitWebglTiles(
       ordered,
-      (id) => {
-        const panel = subPanel.getSubPanel(id);
-        return 1 + (!panel.collapsed && panel.activeSubTab ? 1 : 0);
-      },
+      (id) => tileWebglCost(subPanel.getSubPanel(id)),
       WEBGL_CONTEXT_CAP,
     );
   });
@@ -82,12 +85,11 @@ export const useTerminalStore = createSharedRoot(() => {
     const parentId = metadata.getMetadata(id)?.parentId ?? null;
     if (parentId === null) return budget.includes(id);
     const panel = subPanel.getSubPanel(parentId);
-    // A collapsed split is invisible — it must not hold a WebGL context.
-    // Mirror focusedId's collapsed guard so holdsWebgl is self-contained and
-    // any future consumer doesn't need to re-check props.visible externally.
-    return (
-      budget.includes(parentId) && !panel.collapsed && panel.activeSubTab === id
-    );
+    // A budgeted tile's slot covers exactly its active split (a collapsed split
+    // is invisible and holds no context). `isActiveSplit` is the same predicate
+    // `tileWebglCost` builds the budget from, so this per-terminal grant and the
+    // budgeted count can't drift apart.
+    return budget.includes(parentId) && isActiveSplit(panel, id);
   }
 
   return {

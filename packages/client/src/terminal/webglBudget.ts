@@ -22,6 +22,42 @@ import type { TerminalId } from "kolu-common/surface";
  *  so a higher cap only raises a bounded steady-state baseline, not a leak. */
 export const WEBGL_CONTEXT_CAP = 12;
 
+/** The minimal slice of a tile's sub-panel state that determines its WebGL
+ *  footprint — pure booleans/ids, no SolidJS store, so the cost model is
+ *  node-testable in isolation. */
+interface PanelWebglShape {
+  collapsed: boolean;
+  activeSubTab: TerminalId | null;
+}
+
+/** Does this tile have an expanded, active split? The single home for the
+ *  split-cost axis (#1399): a split that is collapsed is invisible and holds no
+ *  context, an expanded one with an active sub-tab does. Both `tileWebglCost`
+ *  and the store's `holdsWebgl` build on this one sub-fact, so the budgeted
+ *  count and the per-terminal grant can't drift apart. */
+function hasActiveSplit(panel: PanelWebglShape): boolean {
+  return !panel.collapsed && panel.activeSubTab !== null;
+}
+
+/** Whether `childId` is the tile's expanded, active split — i.e. the one
+ *  sub-terminal that inherits the tile's WebGL slot. */
+export function isActiveSplit(
+  panel: PanelWebglShape,
+  childId: TerminalId,
+): boolean {
+  return hasActiveSplit(panel) && panel.activeSubTab === childId;
+}
+
+/** A tile's WebGL-context cost: 1 for its main pane, +1 for an expanded, active
+ *  split. The load-bearing half of the #575 bound — `admitWebglTiles` counts
+ *  these against the cap, so this must equal the real number of Chrome contexts
+ *  the tile holds (= the count of terminals under it for which the store's
+ *  `holdsWebgl` is true). Shares `hasActiveSplit` with `isActiveSplit` so the
+ *  split rule is written exactly once. */
+export function tileWebglCost(panel: PanelWebglShape): number {
+  return 1 + (hasActiveSplit(panel) ? 1 : 0);
+}
+
 /** Greedily admit `ordered` tiles (most-recently-active first) until the next
  *  one would push live WebGL contexts past `cap`. `costOf(id)` is a tile's
  *  context cost: 1 for its main pane, +1 for an expanded, active split. Pure (no

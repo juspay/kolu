@@ -15,7 +15,12 @@
 
 import { describe, expect, it } from "vitest";
 import type { TerminalId } from "kolu-common/surface";
-import { admitWebglTiles, WEBGL_CONTEXT_CAP } from "./webglBudget";
+import {
+  admitWebglTiles,
+  isActiveSplit,
+  tileWebglCost,
+  WEBGL_CONTEXT_CAP,
+} from "./webglBudget";
 
 const ids = (n: number): TerminalId[] =>
   Array.from({ length: n }, (_, i) => `t${i}` as TerminalId);
@@ -53,5 +58,73 @@ describe("admitWebglTiles (#1399 WebGL context budget)", () => {
   it("the shipped default cap holds a realistic 6-terminal set churn-free", () => {
     expect(WEBGL_CONTEXT_CAP).toBeGreaterThanOrEqual(6);
     expect(admitWebglTiles(ids(6), one, WEBGL_CONTEXT_CAP)).toEqual(ids(6));
+  });
+});
+
+const SUB = "sub" as TerminalId;
+
+describe("tileWebglCost (the #575 cost model, pinned directly)", () => {
+  it("a tile with no split costs 1 (main pane only)", () => {
+    expect(tileWebglCost({ collapsed: false, activeSubTab: null })).toBe(1);
+  });
+
+  it("a tile with an expanded, active split costs 2 (main + split)", () => {
+    expect(tileWebglCost({ collapsed: false, activeSubTab: SUB })).toBe(2);
+  });
+
+  it("a collapsed split costs 1 — it's invisible, holds no context", () => {
+    expect(tileWebglCost({ collapsed: true, activeSubTab: SUB })).toBe(1);
+  });
+});
+
+describe("isActiveSplit (which child inherits the tile's WebGL slot)", () => {
+  it("true only for the active, non-collapsed split child", () => {
+    expect(isActiveSplit({ collapsed: false, activeSubTab: SUB }, SUB)).toBe(
+      true,
+    );
+  });
+
+  it("false for a non-active sibling", () => {
+    expect(
+      isActiveSplit(
+        { collapsed: false, activeSubTab: SUB },
+        "other" as TerminalId,
+      ),
+    ).toBe(false);
+  });
+
+  it("false when the split is collapsed", () => {
+    expect(isActiveSplit({ collapsed: true, activeSubTab: SUB }, SUB)).toBe(
+      false,
+    );
+  });
+
+  it("false when there is no active split", () => {
+    expect(isActiveSplit({ collapsed: false, activeSubTab: null }, SUB)).toBe(
+      false,
+    );
+  });
+});
+
+describe("cost ↔ grant agreement (the unenforced invariant, mechanized)", () => {
+  // The store's holdsWebgl grants a budgeted tile's main pane plus, per child,
+  // `isActiveSplit`. `tileWebglCost` MUST equal the number of terminals under
+  // the tile for which that grant holds, or admitWebglTiles miscounts real
+  // Chrome contexts (#575). These mirror the store's logic over the SAME
+  // predicates, so a future split-rule change keeps both sides in step.
+  const children = [SUB, "sibling" as TerminalId];
+  const grantedCount = (panel: {
+    collapsed: boolean;
+    activeSubTab: TerminalId | null;
+  }) =>
+    1 /* main pane, always granted to a budgeted tile */ +
+    children.filter((id) => isActiveSplit(panel, id)).length;
+
+  it.each([
+    ["no split", { collapsed: false, activeSubTab: null }],
+    ["active split", { collapsed: false, activeSubTab: SUB }],
+    ["collapsed split", { collapsed: true, activeSubTab: SUB }],
+  ] as const)("cost equals granted-terminal count: %s", (_label, panel) => {
+    expect(tileWebglCost(panel)).toBe(grantedCount(panel));
   });
 });
