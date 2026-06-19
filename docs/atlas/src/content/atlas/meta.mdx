@@ -8,6 +8,7 @@ updated: 2026-06-19
 ---
 
 import Svg from "../../components/Svg.astro";
+import PrLink from "../../components/PrLink.astro";
 import Cite from "../../components/Cite.astro";
 import Callout from "../../components/Callout.astro";
 import Roadmap from "../../components/Roadmap.astro";
@@ -150,7 +151,7 @@ working at every stage.
 
 <Roadmap>
   <Milestone status="now" label="Publication gate">**Confidentiality — a correctness bug, not a feature.** Merge-to-master is public today (<Cite file="website/default.nix" /> copies *all* of `dist/`; `draft` only hides from the index). Add a per-note opt-**in** allowlist (fail-fast: nothing public unless it declares `public: true`) and gate the Nix copy on it. Pure config + Nix; no schema rework. Unblocks a confidential note — or a second team — ever landing.</Milestone>
-  <Milestone status="now" label="Derived backlinks">Parse `./slug.html` + `parents` at build, invert to a `backlinks` map, render "Referenced by", and **fail the build on any dead internal link**. Zero new authoring surface; reuses the existing link mechanism.</Milestone>
+  <Milestone status="done" label="Derived backlinks"><PrLink pr={1426} /> — parse `./slug.html` + `parents` at build, invert to a `backlinks` map, render "Referenced by", and **fail the build on any dead internal link**. Zero new authoring surface; reuses the existing link mechanism.</Milestone>
   <Milestone status="next" label="tags + in-repo search">Add optional `tags: string[]` (no migration) and a **Pagefind** index shipped *into* the committed `dist/` so search works in both the Code tab and the public mirror. Trigger it when note count nears the few-hundred where index-as-search breaks — not at 50.</Milestone>
   <Milestone status="next" label="Graph view + MoC hubs">**Deferred** until backlinks prove the edge set is dense and the Code-tab JS question is settled (verify the renderer, or commit to a static SVG/adjacency fallback). The aspirational tree/graph — once it's non-trivial and won't bloat `dist/`.</Milestone>
   <Milestone status="next" label="Federation A → C">Option A (one `project` field + slug prefix) the moment a second project shares the monorepo; the Option C aggregator only when a *separate* repo appears, and only after its owner + cost are decided. **Never** the stale-fallback resolver.</Milestone>
