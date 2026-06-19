@@ -8,7 +8,8 @@ maturity: seedling
 
 import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
-import D2 from "../../components/D2.astro";
+import Svg from "../../components/Svg.astro";
+import colourAxes from "../../diagrams/dock-repo-colour-axes.svg?raw";
 import PrLink from "../../components/PrLink.astro";
 
 The dock already groups rows by repo. But you can't *see* the grouping: the
@@ -119,18 +120,9 @@ export const DockCard = (props) => (
 `annotationColor`). Cards mode spends them backwards: repo gets a single tiny
 label, branch gets every row.
 
-<D2
-  caption="One palette, two axes — but the big sink is the wrong one. repoColor reaches only the 9.6px section name; branchColor paints every full-size row label. So the loudest colour on screen tracks branch, not the repo grouping the rows actually live in."
-  code={`direction: down
-src: "terminalDisplay.ts — assignColors(): oklch(0.75 0.14, golden-angle hue)"
-repo: "repoColor — per repo"
-branch: "branchColor = annotationColor — per branch"
-name: "section name · 9.6px mono  ◂ the only repo sink"
-row: "every row label · 13.6px  ◂ the rainbow"
-src -> repo
-src -> branch
-repo -> name
-branch -> row`}
+<Svg
+  svg={colourAxes}
+  caption="One palette, two axes — but the big sink is the wrong one. repoColor (cool blue) reaches only the 9.6px section name; branchColor (hot orange) paints every full-size row label. So the loudest colour on screen tracks branch, not the repo grouping the rows actually live in."
 />
 
 <div class="dk-gal">

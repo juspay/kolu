@@ -166,7 +166,7 @@ earns scoped styles + typed props as a real `.astro`).
 - **Flat, ancestry-free slugs** — the filename is a handle, not a path; both category and hierarchy are metadata (`kind`, `parents`), not the filename.
 - **Each row shows a `maturity` dot + status flags; drafts are hidden** from the build.
 - **A nested ToC** (`<Toc>`) is auto-inserted from each note's headings — the box above.
-- **Dead-link checking stays a generic linter**, not a bespoke gate.
+- **Backlinks are derived, never authored** — a build pass inverts every note's `./slug.html` links + `parents` into a *Referenced by* list on each page (the inbound half of the graph the index never showed), reusing the edges the Atlas already has rather than a hand-kept `backlinks:` field. An internal `./slug.html` pointing at a missing note now **fails the build** — a dead note link surfaces at build time, not as a 404 in the committed dist; general/external link checking still belongs to a generic linter. See [meta](./meta.html).
 
 ## Proposals — the contributor intake lane
 
