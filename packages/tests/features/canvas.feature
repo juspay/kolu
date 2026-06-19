@@ -333,25 +333,28 @@ Feature: Canvas workspace
     Then the canvas tile should be at x=320 y=420
     And there should be no page errors
 
-  Scenario: WebGL is budgeted to the 2 most-recently-active tiles
-    # The budget holds WebGL on the 2 most-recently-active tiles (not just the
-    # focused one), so ping-ponging between two terminals never crosses the
-    # WebGL↔DOM boundary — the ~7.7% font reflow on focus swap is gone (#1403).
+  Scenario: WebGL is admitted to the whole working set under the context cap
+    # The budget admits the most-recently-active tiles that fit under
+    # WEBGL_CONTEXT_CAP (12), counting each tile's real Chrome contexts — so a
+    # realistic multi-terminal session keeps WebGL on every tile and focus
+    # switches churn nothing: the ~7.7% font reflow on focus swap never happens,
+    # and the focus-churn VRAM leak (Chrome+AMD) is gone (#1399). Eviction past
+    # the cap is pinned in webglBudget.test.ts (CI-runnable without a GPU).
     Given I create a terminal
     And I create a terminal
     Then there should be 3 canvas tiles
-    # 3 tiles, budget 2: the 2 newest hold WebGL, the oldest (tile 1) falls to DOM.
-    And exactly 2 canvas tiles should use the webgl renderer
-    And canvas tile 1 should use the dom renderer
+    # 3 tiles cost 3 contexts, well under the cap of 12 — all hold WebGL.
+    And exactly 3 canvas tiles should use the webgl renderer
+    And canvas tile 1 should use the webgl renderer
     When I click canvas tile 1
-    Then exactly 2 canvas tiles should use the webgl renderer
+    Then exactly 3 canvas tiles should use the webgl renderer
     And canvas tile 1 should use the webgl renderer
     When I click canvas tile 2
-    # The key guarantee: switching to tile 2 leaves tile 1 on WebGL (under the old
-    # N=1 policy it would have swapped to DOM here). Both ping-pong tiles stay WebGL.
+    # The key guarantee: ping-ponging focus never crosses the WebGL↔DOM boundary
+    # (under the old N=1 policy a non-focused tile would have swapped to DOM).
     Then canvas tile 1 should use the webgl renderer
     And canvas tile 2 should use the webgl renderer
-    And exactly 2 canvas tiles should use the webgl renderer
+    And exactly 3 canvas tiles should use the webgl renderer
     And there should be no page errors
 
   Scenario: A held tile's active split inherits its WebGL renderer
@@ -368,8 +371,8 @@ Feature: Canvas workspace
     Given I create a terminal
     And I create a terminal
     Then there should be 3 canvas tiles
-    # auto budgets WebGL to the 2 most-recently-active tiles (#1403)…
-    And exactly 2 canvas tiles should use the webgl renderer
+    # auto admits the whole working set under the context cap — here all 3 (#1399)…
+    And exactly 3 canvas tiles should use the webgl renderer
     When I click the settings button
     Then the settings popover should be visible
     When I click the "webgl" renderer button
