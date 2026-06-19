@@ -178,7 +178,17 @@ The plan of record — which is also just what the field does (small hot buffer 
 
 ### <Pill variant="ok">1</Pill> Keep the in-RAM mirror small & constant
 
-Size the headless mirror to what the *live* jobs actually need — viewport + a small window for the metadata OSC handlers, device-query replies, screen-scrape tail, and cold-attach repaint — capped by **bytes**, not 50 K lines. That's ~25–50× smaller per terminal; the linear-growth OOM is gone and **shells are never reaped — the survivability guarantee is untouched**. This also dissolves the earlier "should we reap idle terminals?" tension: with a small mirror, an idle terminal costs almost nothing, so it can live forever as designed.
+Size the headless mirror to what the *live* jobs actually need — viewport + a small window for the metadata OSC handlers, device-query replies, screen-scrape tail, and cold-attach repaint — capped by **bytes**, not 50 K lines. **Shells are never reaped — the survivability guarantee is untouched**; a small mirror makes an idle terminal nearly free, which also dissolves the "should we reap idle terminals?" tension.
+
+**Measured, not extrapolated** — re-running the accumulation repro under a fixed 512 MB old-space cap at three mirror sizes:
+
+| Mirror scrollback | V8 heap / terminal | Terms → OOM (512 MB cap) | → at the 4 GB ceiling |
+| --- | --- | --- | --- |
+| **50 K (today)** | ~16 MB | **32** | ~256 terminals |
+| 10 K | ~3.9 MB | **130** (4.1×) | ~1,050 |
+| 2 K | ~1.0 MB | **≥396 — no OOM** (≥12×) | ~4,000 |
+
+A ~2 K mirror turns a ~256-terminal ceiling into ~4,000 (and cuts external `ArrayBuffer` RSS ~15× too). The gain is **sub-linear** — a 25× line cut buys ~16×, not 25× — because a fixed ~0.5–1 MB/terminal floor (node-pty handle, `Entry`, channels, the `Terminal` instance) doesn't shrink. Two honest bounds: the cap only helps terminals that *exceed* it (a 500-line terminal is unaffected — but the deep-scrollback agent terminals that *do* drive the OOM benefit fully), and it *raises* the ceiling rather than removing the linear-in-count growth (that's what #2/#3 + reaping are for).
 
 ### <Pill variant="ok">2</Pill> Deep history → the on-disk transcript log (#417)
 
