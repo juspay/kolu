@@ -374,10 +374,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       (req) => {
         if (!req) return;
         safeApply(() => {
+          // Consume the request only once the reveal has actually run — if the
+          // tree isn't live yet (defensive; the deferred effect runs post-mount)
+          // or `revealDirectory` throws, leave it pending so the next mount's
+          // constructor path can still apply it, rather than silently dropping it.
           if (!tree) return;
           revealDirectory(tree, req.path);
+          props.onRevealHandled?.();
         }, props.onError);
-        props.onRevealHandled?.();
       },
       { defer: true },
     ),
