@@ -537,7 +537,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   /** Recover from "the PTY exists on the daemon but sensor wiring failed":
-   *  log the wiring error under `reason`, tear down any partial providers, kill
+   *  log the wiring error under `reason`, tear down any partial sensors, kill
    *  the orphaned PTY (a kill failure is logged, not thrown — there's nothing
    *  left to do), and unwind the sync shadow. Extracted as the one reap policy
    *  so B3.3's survivor-adoption path can share it — one place to change how a
