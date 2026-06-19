@@ -62,8 +62,9 @@ export function tileWebglCost(panel: PanelWebglShape): number {
  *  unit-testable in isolation.
  *
  *  **Precondition:** `costOf(id)` must return a positive integer for every id.
- *  A zero or negative cost would cause the loop to never advance past the cap
- *  check. */
+ *  A non-positive cost would let a tile be admitted without advancing the running
+ *  total toward `cap`, silently over-admitting past Chrome's context limit — the
+ *  #575 failure this cap exists to prevent — so it throws rather than over-admit. */
 export function admitWebglTiles(
   ordered: readonly TerminalId[],
   costOf: (id: TerminalId) => number,
@@ -73,7 +74,10 @@ export function admitWebglTiles(
   let contexts = 0;
   for (const id of ordered) {
     const cost = costOf(id);
-    if (cost <= 0) throw new Error(`admitWebglTiles: costOf returned ${cost} for tile ${id}; cost must be > 0`);
+    if (cost <= 0)
+      throw new Error(
+        `admitWebglTiles: costOf returned ${cost} for tile ${id}; cost must be > 0`,
+      );
     if (contexts + cost > cap) break;
     held.push(id);
     contexts += cost;
