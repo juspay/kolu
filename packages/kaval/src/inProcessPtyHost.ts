@@ -307,7 +307,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   // daemon's diagnostics can log the terms/heap curve without a round-trip
   // through the wire client. The mirror count is the leak's independent variable
   // (kaval-heap-oom.mdx), so it's the column to watch.
-  return { ...surface, terminalCount: () => host.list().length };
+  return { ...surface, terminalCount: () => host.size() };
 }
 
 /** The raw `implementSurface` fragment router — the `.router` field of

@@ -252,6 +252,9 @@ export interface PtyHost {
    *  data read — distinct from `getCwd(id) !== undefined`, which happens to
    *  coincide today only because cwd is always set at spawn). */
   has(id: PtyId): boolean;
+  /** Count of live PTYs — O(1) off the entry map, no list materialization.
+   *  (Diagnostics samples this as the leak's independent variable.) */
+  size(): number;
   /** Foreground process group leader pid, or `undefined`. */
   getForegroundPid(id: PtyId): number | undefined;
   /** Current foreground process name, or `undefined` if gone. */
@@ -702,6 +705,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         foregroundProcess: entry.proc.process,
       })),
     has: (id) => entries.has(id),
+    size: () => entries.size,
     getForegroundPid,
     getProcess: (id) => entries.get(id)?.proc.process,
     getCwd: (id) => entries.get(id)?.cwd,
