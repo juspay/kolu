@@ -2,7 +2,7 @@
 title: "Sleeping terminals — freeze idle work, wake it in place"
 description: A plan of record for Sleep/Wake — put an idle terminal to sleep (its PTY, WebGL context, xterm, and agent all released) yet keep a record that wakes in place with full session-restore fidelity. A sleeping tile holds its position on the canvas (sized to its content), shows in the Dock and switcher in both modes, and is the dormant-tile primitive a future "planned terminal" would share. Reuse the session-restore spine; add one persisted cell and two RPCs. Its quiet twin — alerts everywhere get to be louder.
 kind: feature
-status: proposed
+status: implemented
 maturity: seedling
 parents: [phantom-running-background, second-brain]
 ---
@@ -406,5 +406,7 @@ The calls the brief settled — now locked:
   position and nudges the occupant aside, reusing the existing placement engine
   (`placementPolicy.ts`). <Pill variant="ok">decided</Pill>
 
-With the brief fully settled, this note is ready to advance from *proposed*
-toward an implementation PR.
+With the brief fully settled, the design landed as code in <PrLink pr={1431} />:
+the `sleepingTerminals` cell + `terminal.sleep`/`wake` RPCs, the
+`useSleepingTerminals` orchestration, the palette + per-tile ☾ triggers, and the
+folded tile across the canvas and Dock.
