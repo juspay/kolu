@@ -49,21 +49,21 @@ export type FileTreeProps = {
    *  the rebuild; expansion never falls out of sync with a path swap,
    *  and the wrapper holds no separate per-path expansion state. */
   expandPaths?: readonly string[];
-  /** A one-shot request to **reveal** a directory: open it and its ancestors
+  /** A **standing** request to reveal a directory: open it and its ancestors
    *  so the row exists and its children show, then scroll it into view. Unlike
    *  `selectedPath` this changes no selection — it's the terminal folder-link
    *  front door bringing a folder on-screen. The `path` is a trailing-slash
-   *  folder key (`packages/client/`). Applied at mount *and* whenever the
-   *  request object changes (a fresh object re-reveals the same folder on a
-   *  repeat click). Mount application is load-bearing: a folder clicked from a
-   *  diff view switches to browse and mounts this tree with the request already
-   *  set, which a deferred effect would skip. The host should clear it via
-   *  `onRevealHandled` so a later remount can't re-scroll to a stale folder and
-   *  fight the selected file's own scroll. Null when no reveal is pending. */
+   *  folder key (`packages/client/`). Re-applied at **every mount** (via
+   *  `initialExpandedPaths`, like `selectedPath`'s ancestors) and on each
+   *  request-object change, so it **survives a tree remount** — the live
+   *  `fsListAll` stream resubscribes and briefly empties `paths`, which
+   *  unmounts/remounts this tree under load; a consume-once request would be
+   *  lost in that window and the folder would come back collapsed. The host
+   *  keeps the request alive until the user navigates elsewhere (a file pick or
+   *  a view switch) and clears it then, so the reveal is robust without
+   *  re-scrolling to a stale folder forever. A fresh object re-reveals the same
+   *  folder on a repeat click. Null when no reveal is pending. */
   revealRequest?: { path: string } | null;
-  /** Called once a `revealRequest` has been applied, so the host can clear it
-   *  (consume-once). */
-  onRevealHandled?: () => void;
   /** Initial folder expansion — captured at construction and **not
    *  reactive**. Pierre takes this once in its constructor; later prop
    *  changes are silently ignored. Re-mount the component (e.g. by
@@ -179,13 +179,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   const fileSet = createMemo(() => new Set(props.paths));
 
   onMount(() => {
-    // A directory reveal can be pending *before* this tree mounts — a folder
-    // clicked from a diff view switches to browse and mounts us with the
-    // request already set. Apply it through the constructor (expand it + its
-    // ancestors via `initialExpandedPaths`, the reliable path that mirrors
-    // selectedPath's ancestors) rather than a post-render `expand()`, which
-    // races Pierre's first paint and dropped the reveal intermittently. The
-    // deferred effect below handles later (same-view) reveals once mounted.
+    // A directory reveal can be standing when this tree mounts — both for a
+    // folder clicked from a diff view (mounts us with the request already set)
+    // and, crucially, for *every remount* the live fsListAll stream triggers
+    // under load (it briefly empties `paths`, unmounting then remounting us).
+    // Apply it through the constructor (expand it + its ancestors via
+    // `initialExpandedPaths`, the reliable path that mirrors selectedPath's
+    // ancestors) rather than a post-render `expand()`, which races Pierre's
+    // first paint and dropped the reveal intermittently. Because the host keeps
+    // the request standing (clearing it only on a real navigation), this
+    // re-application is what makes the reveal survive a remount.
     const reveal = props.revealRequest;
     safeApply(() => {
       // Snapshot read of `props.selectedPath` for `initialExpandedPaths`.
@@ -239,9 +242,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       appliedPaths = props.paths;
       if (props.shadowCss) injectShadowCss(container, props.shadowCss);
     }, props.onError);
-    // Consume the at-mount reveal so a remount can't replay it, matching the
-    // deferred effect's consume-once on post-mount reveals.
-    if (reveal) props.onRevealHandled?.();
+    // Deliberately do NOT clear the request here: it stays standing so this
+    // exact application repeats on every remount (the host clears it on a real
+    // navigation). That re-application is what keeps the reveal alive across an
+    // fsListAll-driven unmount/remount under load.
   });
 
   // Push path-inventory changes into Pierre as in-place mutations, not a
@@ -361,26 +365,21 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ),
   );
 
-  // Apply a directory reveal that arrives *after* mount (terminal folder-link
-  // front door clicked while already in this view). Deferred — the at-mount
-  // case is handled by the constructor in `onMount` above (the reliable path);
-  // here the tree is live, so `getItem().expand()` + `scrollToPath` is safe,
-  // the same mechanism the post-mount selection effect uses. `onRevealHandled`
-  // clears the request once applied (consume-once), so a remount can't re-reveal
-  // a stale folder and fight the selected file's mount-time scroll.
+  // Apply a directory reveal that *changes* after mount (the folder-link front
+  // door clicked while already in this view, or a fresh request for the same
+  // folder). Deferred — the at-mount and remount cases are handled by `onMount`
+  // re-applying the standing request; here the tree is live, so
+  // `getItem().expand()` + `scrollToPath` is safe, the same mechanism the
+  // post-mount selection effect uses. The request is left standing (not
+  // consumed) so `onMount` can replay it across an fsListAll-driven remount.
   createEffect(
     on(
       () => props.revealRequest,
       (req) => {
         if (!req) return;
         safeApply(() => {
-          // Consume the request only once the reveal has actually run — if the
-          // tree isn't live yet (defensive; the deferred effect runs post-mount)
-          // or `revealDirectory` throws, leave it pending so the next mount's
-          // constructor path can still apply it, rather than silently dropping it.
           if (!tree) return;
           revealDirectory(tree, req.path);
-          props.onRevealHandled?.();
         }, props.onError);
       },
       { defer: true },

@@ -401,6 +401,11 @@ const CodeTab: Component<{
       slotKey,
       () => {
         setSearchQuery("");
+        // Retire any standing folder reveal too — it was scoped to the previous
+        // repo/view. Clearing here can't clobber a folder click that *causes*
+        // the view switch: that switch fires this effect while fsListAll is
+        // still loading, before the gated resolution effect sets `revealDir`.
+        setRevealDir(null);
       },
       { defer: true },
     ),
@@ -432,11 +437,16 @@ const CodeTab: Component<{
 
   // Directory-reveal target for the terminal folder-link front door. A folder
   // ref (`packages/client/`) isn't a selectable file, so instead of `select`ing
-  // it we hand the tree a one-shot "reveal this directory" request — expand it +
-  // its ancestors and scroll it into view, leaving the shown file untouched. A
-  // fresh object per request re-fires the reveal even on a repeat click of the
-  // same folder; `FileTree` clears it via `onRevealHandled` once applied
-  // (consume-once), so a later tree remount can't re-scroll to a stale folder.
+  // it we hand the tree a "reveal this directory" request — expand it + its
+  // ancestors and scroll it into view, leaving the shown file untouched. The
+  // request **stands** (it is not consumed) so `FileTree` re-applies it on every
+  // remount: the live `fsListAll` stream resubscribes under load and briefly
+  // unmounts/remounts the tree, and a consume-once reveal was lost in that
+  // window (the folder came back collapsed — a darwin-CI flake). It is cleared
+  // on the next real navigation instead — a file pick (`handleSelect`) or a
+  // repo/view switch (the `slotKey` effect) — so it never re-scrolls to a stale
+  // folder forever. A fresh object per request re-fires the reveal on a repeat
+  // click of the same folder.
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
 
   // Honor every `openInCodeTab` request — terminal file-ref clicks,
@@ -626,6 +636,10 @@ const CodeTab: Component<{
     // the previous signal value through Pierre's internal churn lets the
     // selected file survive right-panel tab toggles (#818).
     if (path === null) return;
+    // A genuine file pick is a navigation away from any standing folder reveal,
+    // so retire it — otherwise its directory would keep re-expanding on every
+    // remount. (The picked file's own ancestors keep that folder open anyway.)
+    setRevealDir(null);
     // Tree-click to a different file ends the click-targeted-highlight
     // session — otherwise navigating back to the originally-targeted
     // file in the tree would resurrect the line range, surprising the
@@ -938,10 +952,10 @@ const CodeTab: Component<{
                       selectedPath={selectedPath()}
                       onSelect={handleSelect}
                       // Terminal folder-link front door: a folder ref reveals
-                      // (expands + scrolls to) the directory here, consumed once
-                      // so a later remount can't re-scroll to a stale folder.
+                      // (expands + scrolls to) the directory here. The request
+                      // stands so a remount re-reveals it (`revealDir` above);
+                      // it's cleared on the next navigation, not on apply.
                       revealRequest={revealDir()}
-                      onRevealHandled={() => setRevealDir(null)}
                       initialExpansion={isDiffView() ? "open" : "closed"}
                       search={false}
                       expandPaths={treeSearch().expandedAncestors}
