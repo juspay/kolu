@@ -45,7 +45,10 @@ type Identity = PtyHostIdentity | undefined;
 
 /** The single local kaval host's id — the daemon-status key the endpoint reports
  *  under and consumers (e.g. boot adoption's `setAdoptedCount`) read by. Owned
- *  here, where `ensureLocalEndpoint` defines the daemon's identity/lifecycle. */
+ *  here, where `ensureLocalEndpoint` defines the daemon's identity/lifecycle.
+ *  This is a *daemon* identity (the kaval host), distinct from a terminal's
+ *  `location` (a `HostLocation` DU in kolu-common); a terminal placed on the
+ *  local endpoint carries `{ kind: "local" }`, not this string. */
 export const LOCAL_HOST_ID = "local";
 
 let endpoint: Endpoint<PtyHostClient, Identity> | undefined;

@@ -21,6 +21,7 @@ import {
   type ActivityFeed,
   ActivityFeedSchema,
   DEFAULT_PREFERENCES,
+  LOCAL_LOCATION,
   type Preferences,
   PreferencesSchema,
   SavedSessionSchema,
@@ -108,6 +109,26 @@ export function backfillRemoteUrl_1_25_0(
   };
 }
 
+/** Backfill `location = { kind: "local" }` on a restored terminal saved before
+ *  `location` became a required field. Every terminal that could have been
+ *  persisted before this migration was an in-process (local) PTY — remote
+ *  terminals do not yet exist — so the only honest backfill is the local
+ *  variant. Without it, the now-required `location` on `SavedTerminalSchema`
+ *  rejects every legacy session at startup (the same
+ *  EVENT_ITERATOR_VALIDATION_FAILED class as #1237 / #1244).
+ *
+ *  Idempotent: a record that already carries a `location` (a future remote
+ *  terminal, or a re-run of this migration) is left untouched.
+ *
+ *  Exported so `state.test.ts` can exercise the backfill directly without a
+ *  `Conf` store. */
+export function backfillLocation_1_26_0(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("location" in t) return t;
+  return { ...t, location: LOCAL_LOCATION };
+}
+
 /** What conf stores to disk — survives server restart. Internal: clients see
  *  the per-domain shapes (Preferences / ActivityFeed / SavedSession), not
  *  this aggregate. Adding a new domain key requires a migration entry below. */
@@ -124,7 +145,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.25.0";
+const SCHEMA_VERSION = "1.26.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -494,6 +515,24 @@ export const store = new Conf<PersistedState>({
       const terminals = (
         session.terminals as unknown as Record<string, unknown>[]
       ).map(backfillRemoteUrl_1_25_0);
+      store.set("session", {
+        ...session,
+        terminals: terminals as typeof session.terminals,
+      });
+    },
+    // `SavedTerminal.location` added and made required — a terminal's host is
+    // now a first-class, non-optional `HostLocation` sum (`{ kind: "local" }`
+    // for an in-process PTY), not the absence of a host id, so a restore can
+    // never silently respawn a remote terminal locally. Every pre-1.26 session
+    // predates remote terminals, so backfill the local variant on each restored
+    // terminal (see `backfillLocation_1_26_0`); without it the now-required
+    // field rejects the whole session at startup.
+    "1.26.0": (store: Conf<PersistedState>) => {
+      const session = store.get("session");
+      if (!session) return;
+      const terminals = (
+        session.terminals as unknown as Record<string, unknown>[]
+      ).map(backfillLocation_1_26_0);
       store.set("session", {
         ...session,
         terminals: terminals as typeof session.terminals,

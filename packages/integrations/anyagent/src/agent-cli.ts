@@ -29,7 +29,7 @@
  * drops real positionals.
  */
 
-import { type NonEmpty, nonEmpty } from "nonempty";
+import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 
 /** Flags that cause the CLI to print info and exit immediately.
@@ -106,41 +106,31 @@ function basename(s: string): string {
 }
 
 /**
- * Resume-form transforms for agents that support conversation continuity.
- * Shape: `Record<AgentName, (argv) => argv>` — the Record key union is the
- * exact set of resume-capable agents, so adding an agent forces adding a
- * transform (type error if omitted). This is a narrower table than
- * `STABLE_FLAGS`: detection-only agents (`aider`, `goose`, `gemini`,
- * `cursor-agent`) are absent here and `resumeAgentCommand` returns `null`
- * for them.
+ * Resume markers spliced in right after the agent binary for agents that
+ * support conversation continuity. The `Record` key union is the exact set of
+ * resume-capable agents, so adding an agent forces adding a marker (type error
+ * if omitted). Narrower than `STABLE_FLAGS`: detection-only agents (`aider`,
+ * `goose`, `gemini`, `cursor-agent`) are absent and `resumeAgentCommand`
+ * returns `null` for them.
  *
- * The transforms splice a resume marker into the normalized argv:
+ * Each value is the literal token sequence inserted after the head:
  *   claude `-c`              → continue most-recent conversation in cwd
  *   codex `resume --last`    → subcommand form; last session in cwd
  *                              (`--last` skips the interactive picker)
  *   opencode `--continue`    → continue most-recent session in cwd
  *
- * `parseAgentCommand` strips `-c`/`--continue`/`--resume`/`-r` during
- * normalization (per juspay/kolu#467), so the input to these transforms is
- * always resume-free — no idempotency special-case needed.
+ * Each marker is spliced into the command as a RAW string (not re-quoted argv),
+ * so a multi-word marker like `resume --last` works as written; the tokens are
+ * plain flags/identifiers with no shell-significant characters. `parseAgentCommand`
+ * strips `-c`/`--continue`/`--resume`/`-r` during normalization (per
+ * juspay/kolu#467), so the input is always resume-free — no idempotency case.
  */
 type ResumableAgent = "claude" | "codex" | "opencode";
 
-/** Insert one or more "resume" tokens after the agent binary in a
- *  normalized argv. Non-emptiness is in the parameter type — the
- *  positional read `argv[0]` is total. */
-function withResumeFlags(argv: NonEmpty<string>, ...flags: string[]): string[] {
-  const [head, ...rest] = argv;
-  return [head, ...flags, ...rest];
-}
-
-const AGENT_RESUME: Record<
-  ResumableAgent,
-  (argv: NonEmpty<string>) => string[]
-> = {
-  claude: (argv) => withResumeFlags(argv, "-c"),
-  codex: (argv) => withResumeFlags(argv, "resume", "--last"),
-  opencode: (argv) => withResumeFlags(argv, "--continue"),
+const AGENT_RESUME: Record<ResumableAgent, string> = {
+  claude: "-c",
+  codex: "resume --last",
+  opencode: "--continue",
 };
 
 /**
@@ -177,6 +167,20 @@ export function agentKindFromCommand(command: string): AgentKind | null {
 }
 
 /**
+ * Extract the agent binary basename (the head token) from a command line —
+ * typically the normalized output of `parseAgentCommand`. Tokenizes with
+ * `shellSplit` (the exact inverse of the `shellJoin` that produced the
+ * normalized form, see `@kolu/shell-quote`) so the joined wire format stays
+ * fully encapsulated: consumers ask anyagent "what's the agent here?" instead
+ * of re-splitting the joined string and depending on the head token never
+ * being quoted. Returns `null` for an empty command.
+ */
+export function agentNameFromCommand(command: string): string | null {
+  const head = shellSplit(command.trim())[0];
+  return head === undefined ? null : basename(head);
+}
+
+/**
  * Parse a raw command line. Returns the normalized agent invocation
  * string (e.g. `"claude --model sonnet"`) if the first token resolves
  * to a known agent binary, or `null` otherwise.
@@ -192,8 +196,8 @@ export function parseAgentCommand(raw: string): string | null {
   // Exit-immediately flags → not an agent session.
   if (args.some((t) => EXIT_FLAGS.has(t))) return null;
 
-  // Keep only allowlisted flags + their values.
-  // Anything else (unknown flags, positional args) is dropped.
+  // Keep only allowlisted flags + their values. Anything else (unknown flags,
+  // positional args) is dropped.
   const kept: string[] = [agent];
   for (let i = 0; i < args.length; i++) {
     const t = args[i];
@@ -215,7 +219,16 @@ export function parseAgentCommand(raw: string): string | null {
       i++;
     }
   }
-  return kept.join(" ");
+
+  // Re-quote each kept token so the joined command survives shell re-execution:
+  // `string-argv` strips the source quoting, so a value carrying spaces, JSON,
+  // or other shell-significant characters would word-split on rerun without it
+  // (`--settings '{"ultracode": true}'` → `Error: Settings file not found:
+  // {ultracode:`). A safe bare word — including a leading `~`, kept bare so the
+  // shell re-expands it to the same home path the source used — is left as-is.
+  // `shellJoin`'s exact inverse is `shellSplit` (see `@kolu/shell-quote`), which
+  // the resume/head-extraction paths use to reparse this wire format.
+  return shellJoin(kept);
 }
 
 /**
@@ -225,9 +238,16 @@ export function parseAgentCommand(raw: string): string | null {
  * assumed already normalized — callers should not pass raw user input.
  */
 export function resumeAgentCommand(normalized: string): string | null {
-  const argv = nonEmpty(parseArgsStringToArgv(normalized.trim()));
-  if (!argv) return null;
-  const agent = argv[0];
-  if (!(agent in AGENT_RESUME)) return null;
-  return AGENT_RESUME[agent as ResumableAgent](argv).join(" ");
+  const trimmed = normalized.trim();
+  // The agent basename is always a safe bare word, so `shellSplit` reads the
+  // head reliably. We only need it to look up the agent — we do NOT re-render
+  // the tail. Splicing the resume marker as a STRING between head and tail
+  // keeps the already-correct quoting of the tail VERBATIM: a re-tokenize +
+  // re-join round-trip would (a) lose the literal-`~` quoting `parseAgentCommand`
+  // recovered (F2) and (b) risk re-mangling the canonical `'\''` idiom (F3).
+  const head = shellSplit(trimmed)[0];
+  if (head === undefined || !(head in AGENT_RESUME)) return null;
+  const marker = AGENT_RESUME[head as ResumableAgent];
+  const tail = trimmed.slice(head.length).trimStart(); // everything after the head token
+  return tail === "" ? `${head} ${marker}` : `${head} ${marker} ${tail}`;
 }

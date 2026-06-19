@@ -25,6 +25,11 @@ function liveEntry(over: Partial<PtyHostListEntry> = {}): PtyHostListEntry {
 const sentinel: SavedTerminal = {
   id: "term-sentinel",
   cwd: "/sentinel/cwd",
+  // Deliberately the REMOTE variant: `adoptedMeta` seeds `createMetadata(_,
+  // LOCAL_LOCATION)` then spreads the persisted record over it, so a distinct
+  // host proves the saved `location` wins the round-trip rather than
+  // coincidentally matching the `{ kind: "local" }` seed.
+  location: { kind: "remote", hostId: "sentinel-host" },
   git: {
     repoRoot: "/sentinel/repo",
     repoName: "sentinel-repo",

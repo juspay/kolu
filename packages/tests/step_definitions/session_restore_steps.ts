@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as os from "node:os";
 import { Given, Then, When } from "@cucumber/cucumber";
-import type { SavedTerminal } from "kolu-common/surface";
+import { LOCAL_LOCATION, type SavedTerminal } from "kolu-common/surface";
 import { pollFor } from "../support/poll.ts";
 import {
   HYDRATION_TIMEOUT,
@@ -41,7 +41,15 @@ async function postSavedSessionPayload(
     savedAt: number;
     activeTerminalId?: string;
   } = {
-    terminals,
+    // Stamp the now-required `location` (local) here so the call sites stay
+    // focused on what they test (cwd/themeName/lastAgentCommand) and never
+    // re-spell it. Unlike `lastActivityAt` — which the server backfills from
+    // its Zod `.default(0)` when it validates this payload — `location` has no
+    // default (a required host has no honest one), so the helper must supply
+    // it; this package is transpiled-not-typechecked, so this runtime stamp,
+    // not the compiler, is what enforces it. A terminal that sets its own
+    // `location` (a future remote case) wins via the spread.
+    terminals: terminals.map((t) => ({ location: LOCAL_LOCATION, ...t })),
     savedAt: world.savedSessionSavedAt,
   };
   if (activeTerminalId !== undefined)

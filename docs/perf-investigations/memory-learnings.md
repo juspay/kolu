@@ -203,7 +203,9 @@ allocation pressure.
 - `yn` — xterm `CoreBrowserTerminal`
 - `Dl` — xterm `InputHandler`
 - `Qt` — xterm `WebglAddon`
-- `xr` — xterm `WebglRenderer` (correctly ≤1 at a time — focused tile)
+- `xr` — xterm `WebglRenderer` (≤ the WebGL budget at a time — the 2
+  most-recently-active tiles + their active splits since #1403; was ≤1,
+  the focused tile only)
 - `Ht` — xterm `CursorBlinkStateManager` (addon-webgl; Chapter 2's
   leak site)
 - `tE` / `lU` — xterm `CharSizeService` / `AtlasPage`
@@ -220,8 +222,12 @@ property shape (e.g. an object with `_animationTimeRestarted` +
 
 Healthy steady-state:
 
-- `totalCreated - disposed == aliveInDom == 1` — only the focused tile
-  is undisposed.
+- `totalCreated - disposed == aliveInDom`, and `aliveInDom ≤ 4` — only
+  budgeted terminals are undisposed: the 2 most-recently-active tiles plus
+  each one's active split (#1403). In a single-tile session that's 1;
+  before the N=2 budget it was always exactly 1 (the focused tile). The
+  count tracks the live layout, so use the budget ceiling (4), not a fixed
+  1, as the leak threshold below.
 - `contextsLost == aliveDetached` — every detached canvas's GPU is
   released.
 - Every `contextlost` event in the tape has `defaultPrevented: false`
@@ -232,7 +238,7 @@ Violation patterns:
 
 | Violation                                                                 | Diagnosis                                                                                   |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `totalCreated - disposed > 1` and orphan tape has only `{kind: "create"}` | Async-onMount cleanup race — another `await` before `onCleanup(...)` registers. Fix: #598.  |
+| `totalCreated - disposed > 4` (over the WebGL budget) and orphan tape has only `{kind: "create"}` | Async-onMount cleanup race — another `await` before `onCleanup(...)` registers. Fix: #598.  |
 | `aliveDetached > contextsLost`                                            | `loseContext()` isn't firing. Check canvas selector (#596) or xterm preventDefault.         |
 | `yn._store._isDisposed=true` for retained Rn                              | Cleanup runs, memory retained externally. Likely #607 / #609 shape. Run `orphan-paths.mjs`. |
 | `contextlost` with `defaultPrevented: true` time-adjacent to active use   | xterm's listener ran before disposal — schedules a 3 s restoration timer.                   |

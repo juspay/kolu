@@ -1,4 +1,8 @@
-import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
+import {
+  type AgentInfo,
+  LOCAL_LOCATION,
+  type TerminalMetadata,
+} from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import type { IdleBucketKey } from "../terminal/activityWindow";
@@ -41,6 +45,7 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
     cwd: "/home/user/kolu",
     git: makeGit(),
+    location: LOCAL_LOCATION,
     pr: { kind: "absent" },
     agent: null,
     foreground: null,

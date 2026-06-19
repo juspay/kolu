@@ -69,7 +69,10 @@ import {
   trackDispose,
   trackLoseContextCalled,
 } from "./webglTracker";
-import { readBufferBytes } from "./xtermInternals";
+import {
+  patchTransformAwareMouseCoords,
+  readBufferBytes,
+} from "./xtermInternals";
 
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
@@ -168,13 +171,21 @@ const Terminal: Component<{
     webgl?.clearTextureAtlas();
   }
 
-  /** Capability: only the focused+visible tile is allowed to hold a WebGL
-   *  context — Chrome's per-tab limit (~16) is quickly exhausted in canvas
-   *  mode where every tile renders simultaneously (issue #575). Non-focused
-   *  tiles fall back to xterm's built-in DOM renderer via `WebglAddon.dispose()`. */
-  const canUseWebgl = () => props.visible && props.focused !== false;
+  /** Capability: a terminal may hold a WebGL context only when it's both
+   *  rendering (`visible`) and within the WebGL budget — the 2 most-recently-
+   *  active tiles plus each one's active split (`store.holdsWebgl`, #1403).
+   *  Budgeting by recency rather than the single focused tile keeps WebGL on
+   *  both sides of an A↔B switch, so the ~7.7% font reflow on focus swap is
+   *  gone, while still bounding live contexts to ≤4 — far under Chrome's ~16/tab
+   *  limit (#575). Terminals outside the budget fall back to xterm's built-in
+   *  DOM renderer via `WebglAddon.dispose()`. The `visible` guard keeps mobile
+   *  (one visible tile) and collapsed splits off WebGL regardless of recency.
+   *  Distinct from `isFocused` (zoom + `data-focused`): a budgeted tile holds
+   *  WebGL even when it isn't the focused one. */
+  const canUseWebgl = () =>
+    props.visible && terminalStore.holdsWebgl(props.terminalId);
   /** Dispatch on user renderer policy:
-   *  - `auto`: honor the capability gate (WebGL on focused+visible only).
+   *  - `auto`: honor the capability gate (see `canUseWebgl`).
    *  - `webgl`: WebGL on every tile (opt-in; reintroduces #575 risk at scale).
    *  - `dom`: force DOM everywhere (stable font on focus swap, lower GPU). */
   const shouldUseWebgl = () =>
@@ -235,7 +246,8 @@ const Terminal: Component<{
     // Chrome's ~16-context-per-tab budget, at which point Chrome starts
     // evicting live contexts — including the focused tile's — producing a
     // flicker across every tile. loseContext() releases GPU memory in the
-    // current microtask, keeping the live set at 1.
+    // current microtask, keeping the live set within the WebGL budget (≤4 —
+    // the 2 most-recently-active tiles plus their active splits, #1403).
     if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
     webglCanvas
       ?.getContext("webgl2")
@@ -298,7 +310,9 @@ const Terminal: Component<{
     ),
   );
 
-  // Hand the single WebGL context to whichever tile is focused+visible.
+  // Reconcile this terminal's WebGL context against `shouldUseWebgl()`: load
+  // when it enters the budget (recently-active tile or its active split),
+  // unload when it leaves — holding ≤4 contexts at once (#1403).
   // defer: true — onMount handles the initial load before xterm is constructed.
   createEffect(
     on(
@@ -484,6 +498,13 @@ const Terminal: Component<{
           term.loadAddon(serializeAddon);
 
           term.open(containerRef);
+          // Canvas tiles render xterm inside a CSS `scale(zoom)` transform
+          // (`tileTransformCSS`); teach xterm's mouse hit-testing to inverse it
+          // so text selection, link hover, and TUI mouse reporting land on the
+          // cell under the pointer at any zoom (#1400). Must follow `open()` —
+          // that's when `_core._mouseCoordsService` is constructed. Strict
+          // no-op for untransformed terminals (split / sub-panels, zoom = 1).
+          patchTransformAwareMouseCoords(term);
           // Click-to-focus on the host div's own padding only. xterm's own
           // click handler already focuses canvas clicks on desktop, and on
           // touch the .xterm-screen pointerup handler below owns that path
@@ -535,6 +556,17 @@ const Terminal: Component<{
             // the rect offsets, since a tap is 2D (the touch-scroll handler
             // below needs only `clientHeight`, one dimension, so the two
             // don't share a geometry helper). Then hit-tests the link parser.
+            //
+            // Why this is transform-correct without an `unscaleEventPoint`-style
+            // correction (cf. `xtermInternals.ts`): kolu OWNS this touch divisor
+            // and derives the cell size from the POST-transform rect
+            // (`rect.width / cols`), so under a zoomed canvas tile the divisor
+            // already grows with the rect and the pixel lands on the right cell
+            // by construction. xterm OWNS its own internal divisor (the
+            // UNtransformed CSS cell size) and so its path must instead
+            // inverse-scale the INPUT point via `unscaleEventPoint`. Same
+            // pointer→cell invariant, two separately-owned divisors — do not
+            // merge them; keep both in step if you touch one.
             const fileRefAtPoint = (
               clientX: number,
               clientY: number,
