@@ -146,9 +146,10 @@ const CanvasTile: Component<{
   // forced the maximized tile into a sibling render branch — see #988).
   // Transform formula lives in `coordinates.ts` alongside `canvasTransformCSS`
   // so pan/zoom math stays in one file.
-  const tiledStyle = () => {
+  const tiledStyle = (): JSX.CSSProperties => {
     const l = layout();
     return {
+      position: "absolute",
       left: `${l.x}px`,
       top: `${l.y}px`,
       width: `${l.w}px`,
@@ -182,35 +183,75 @@ const CanvasTile: Component<{
     };
   };
 
-  // A `"covered"` tile shares the maximized tile's box — full canvas viewport
-  // via `inset-0` (classList below) — and differs only by being
-  // `visibility: hidden` and lacking `z-40` (the maximized sibling paints over
-  // it). Two invariants ride on this:
+  // Per-mode presentation: ONE switch on `props.mode` is the sole place that
+  // decides geometry + layer + decoration + visibility, returning a complete,
+  // self-sufficient box. `maximized` and `covered` literally reuse the same
+  // `fullViewportBox` (`position: absolute; inset: 0`), so "covered shares the
+  // maximized tile's box" is one source of truth a reader verifies at a glance
+  // rather than an invariant assembled from `inset-0` (classList) agreeing with
+  // a deliberately-geometry-less `style`. The style object alone is always a
+  // legal box — no mode's geometry depends on a second structure firing in
+  // lockstep. Two invariants ride on the maximized/covered equality:
   //
-  //  - It hides INTRINSICALLY (`visibility: hidden`), not by relying on the
-  //    maximized tile's `z-40` cover. During the window where `activeId`
+  //  - A covered tile hides INTRINSICALLY (`visibility: hidden`), not by relying
+  //    on the maximized tile's `z-40` cover. During the window where `activeId`
   //    already points at a just-created tile that hasn't entered `terminalIds`
   //    yet, no maximized tile exists — a covered tile carrying only `inert`
   //    would paint, flashing the canvas for a frame (regressed in #989, which
   //    dropped the pre-#988 `visibility: hidden`). Keep the subtree mounted
   //    (`visibility`, not `display`) so xterm keeps writing its buffer and the
   //    dock previews stay populated (#904).
-  //  - It is the SAME SIZE as the maximized tile. Switching the active terminal
-  //    in maximized posture is then a pure visibility/z-index swap: no tile
-  //    changes border-box size, so `Terminal`'s ResizeObserver never fires
-  //    `fit()` — no xterm grid reflow, no repaint, and no server PTY resize on
-  //    switch. (Were covered tiles sized to their small canvas-layout rect — as
-  //    they are when `tiled` — every switch would resize BOTH the revealed and
-  //    the hidden xterm and refit them: the per-switch "re-render".) Tradeoff:
-  //    ENTERING maximized posture now sizes every covered tile's PTY to the
-  //    viewport grid once — a one-time SIGWINCH per tile on the posture toggle,
-  //    not a per-switch cost.
-  const tileStyle = (): JSX.CSSProperties =>
-    isMaximized()
-      ? { "background-color": bg() }
-      : isCovered()
-        ? { "background-color": bg(), visibility: "hidden" }
-        : tiledStyle();
+  //  - A covered tile is the SAME SIZE as the maximized tile (both are
+  //    `fullViewportBox`). Switching the active terminal in maximized posture is
+  //    then a pure visibility/z-index swap: no tile changes border-box size, so
+  //    `Terminal`'s ResizeObserver never fires `fit()` — no xterm grid reflow,
+  //    no repaint, and no server PTY resize on switch. (Were covered tiles sized
+  //    to their small canvas-layout rect — as they are when `tiled` — every
+  //    switch would resize BOTH the revealed and the hidden xterm and refit
+  //    them: the per-switch "re-render".) Tradeoff: ENTERING maximized posture
+  //    now sizes every covered tile's PTY to the viewport grid once — a one-time
+  //    SIGWINCH per tile on the posture toggle, not a per-switch cost.
+  const presentation = createMemo(
+    (): {
+      style: JSX.CSSProperties;
+      classes: Record<string, boolean>;
+    } => {
+      // The full canvas viewport box, shared verbatim by maximized and covered so
+      // their border-box is structurally identical. Since #988 dropped the
+      // pan/zoom wrapper div, the nearest positioned ancestor is `canvas-grid-bg`
+      // (real viewport rect, untransformed), so `inset: 0` resolves cleanly to the
+      // canvas's screen-space without any inverse-transform tricks. The dock sits
+      // outside this container as a flex sibling in maximized posture
+      // (TerminalCanvas), so the tile naturally fills the remaining viewport
+      // without needing a left-inset (#904).
+      const fullViewportBox: JSX.CSSProperties = {
+        position: "absolute",
+        inset: 0,
+        "background-color": bg(),
+      };
+      switch (props.mode) {
+        case "maximized":
+          // Only the maximized tile takes `z-40`, so it paints above its hidden
+          // covered siblings.
+          return {
+            style: { ...fullViewportBox, "z-index": 40 },
+            classes: { "border-transparent": true },
+          };
+        case "covered":
+          return {
+            style: { ...fullViewportBox, visibility: "hidden" },
+            classes: { "border-transparent": true },
+          };
+        default:
+          // Tiled: absolute-positioned at the saved canvas layout, with rounded
+          // corners and a repo-colour border.
+          return {
+            style: tiledStyle(),
+            classes: { "rounded-xl": true },
+          };
+      }
+    },
+  );
 
   return (
     <div
@@ -237,24 +278,11 @@ const CanvasTile: Component<{
       // because it hides *and* prevents focus without that conflict.
       inert={isCovered()}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
-      classList={{
-        // Maximized AND covered tiles use `absolute inset-0` to fill the canvas
-        // container — one shared box, so an active-id switch never resizes an
-        // xterm (see tileStyle). Since #988 dropped the pan/zoom wrapper div,
-        // the nearest positioned ancestor is `canvas-grid-bg` (real viewport
-        // rect, untransformed), so `inset-0` resolves cleanly to the canvas's
-        // screen-space without any inverse-transform tricks. The dock sits
-        // outside this container as a flex sibling in maximized posture
-        // (TerminalCanvas), so the tile naturally fills the remaining viewport
-        // without needing a left-inset (#904). Only the maximized tile takes
-        // `z-40`, so it paints above its hidden covered siblings.
-        absolute: true,
-        "inset-0": isMaximized() || isCovered(),
-        "z-40": isMaximized(),
-        "rounded-xl": props.mode === "tiled",
-        "border-transparent": isMaximized() || isCovered(),
-      }}
-      style={tileStyle()}
+      // Geometry, layer, and visibility all live in `presentation().style` (one
+      // complete box per mode); the classList carries only non-geometric,
+      // mode-specific decoration (rounded corners vs. transparent border).
+      classList={{ ...presentation().classes }}
+      style={presentation().style}
       onMouseDown={() => props.onSelect()}
     >
       {/* Title bar — uses tile foreground at low opacity for guaranteed
