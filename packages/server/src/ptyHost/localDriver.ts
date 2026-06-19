@@ -19,8 +19,11 @@
  * The dev-flag filter is by construction: kaval's argv is built fresh here, so
  * kolu's own `process.execArgv` (an `--inspect`, a heap-snapshot flag) never
  * propagates to the daemon; and `NODE_OPTIONS` is scrubbed of those same dev
- * flags before it reaches kaval, so a kolu launched with diagnostics doesn't
- * make kaval write heap snapshots too.
+ * flags before it reaches kaval — so kaval never opens the server's inspector or
+ * writes the server's snapshots into the *server's* cwd. kaval IS the heap-OOM
+ * site (kaval-heap-oom.mdx), so it is instrumented deliberately on its OWN
+ * terms: `daemonEnv` forwards `KOLU_DIAG_DIR` and kaval's nix wrapper arms its
+ * own heap-snapshot hooks under a kaval-private subdir.
  */
 
 import { createRequire } from "node:module";
@@ -95,10 +98,12 @@ export function resolveKavalLaunch(socketPath: string): {
   };
 }
 
-/** Strip dev-only flags from a `NODE_OPTIONS` string so a kolu started with
- *  diagnostics doesn't make the spawned kaval inherit them (and start writing
- *  its own heap snapshots / open an inspector). Returns undefined if nothing of
- *  value remains, so the var is dropped rather than set to empty. */
+/** Strip dev-only flags from a `NODE_OPTIONS` string so the spawned kaval
+ *  doesn't inherit the SERVER's — which would point kaval's heap snapshots at
+ *  the server's cwd and share its inspector. kaval still gets its own snapshot
+ *  hooks (its nix wrapper, keyed off the forwarded `KOLU_DIAG_DIR`); this scrub
+ *  only stops the server's leaking in. Returns undefined if nothing of value
+ *  remains, so the var is dropped rather than set to empty. */
 function scrubNodeOptions(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
   const kept = raw
@@ -126,6 +131,15 @@ function daemonEnv(): Record<string, string> {
   }
   const nodeOptions = scrubNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
+  // Forward the diagnostics base dir so the SPAWNED kaval — the actual heap-OOM
+  // site (kaval-heap-oom.mdx) — arms its OWN heap-snapshot hooks + periodic
+  // heap/terms log under it. We scrub the server's `--heapsnapshot*` from
+  // NODE_OPTIONS above (they'd point kaval's captures at the SERVER's cwd and
+  // share its inspector); kaval's nix wrapper re-derives its own per-invocation
+  // subdir from KOLU_DIAG_DIR instead, and kaval's diagnostics reads it directly.
+  if (process.env.KOLU_DIAG_DIR) {
+    env.KOLU_DIAG_DIR = process.env.KOLU_DIAG_DIR;
+  }
   return env;
 }
 

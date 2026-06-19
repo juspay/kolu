@@ -17,13 +17,13 @@ export const DEFAULT_PORT = 7681;
 /** Default font size for the terminal (px). */
 export const DEFAULT_FONT_SIZE = 14;
 
-/** Scrollback buffer size in lines. Sized for multi-hour Claude sessions
- *  so PDF export (see `exportScrollbackAsPdf.ts`) captures a useful window —
- *  the export reads from this same ring buffer. Per-line memory in xterm
- *  is small, so 50K is low tens of MB per terminal in the worst case.
+/** The CLIENT's visible scrollback, in lines — what the browser xterm retains
+ *  and what `exportScrollbackAsPdf.ts` serializes. Sized for multi-hour Claude
+ *  sessions so scroll-back and PDF export capture a useful window. This is the
+ *  user's own tab (one terminal on screen at a time), so the memory lives in the
+ *  browser, not the server.
  *
- *  Single source of truth for both the client's visible scrollback and the
- *  server's headless ring buffer — the local backend reads this and passes
- *  it to `kaval`'s `spawn` so the server-side headless terminal
- *  stays in lock-step with what the client renders. */
+ *  A distinct axis from the SERVER-side per-terminal headless-mirror depth,
+ *  which is deliberately smaller and lives where the mirror lives — kaval's
+ *  `DEFAULT_MIRROR_SCROLLBACK` (see `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`). */
 export const DEFAULT_SCROLLBACK = 50_000;

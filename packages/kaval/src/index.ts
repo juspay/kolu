@@ -52,6 +52,10 @@ export {
 } from "./inProcessPtyHost.ts";
 export {
   createPtyHost,
+  // VALUE export (the per-terminal mirror-depth constant): a type-only re-export
+  // would collapse it to nothing at runtime. The server imports this as the
+  // scrollback it sends, so the same number governs every spawn path.
+  DEFAULT_MIRROR_SCROLLBACK,
   type ForegroundSample,
   type PtyAttachment,
   type PtyHandle,

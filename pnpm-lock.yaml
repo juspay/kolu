@@ -361,6 +361,22 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/heap-diag:
+    dependencies:
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../log
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/html-escape:
     devDependencies:
       typescript:
@@ -590,6 +606,9 @@ importers:
 
   packages/kaval:
     dependencies:
+      '@kolu/heap-diag':
+        specifier: workspace:*
+        version: link:../heap-diag
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -723,6 +742,9 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/heap-diag':
+        specifier: workspace:*
+        version: link:../heap-diag
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir

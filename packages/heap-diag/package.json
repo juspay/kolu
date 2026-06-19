@@ -1,5 +1,5 @@
 {
-  "name": "kaval",
+  "name": "@kolu/heap-diag",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -15,20 +15,10 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@kolu/heap-diag": "workspace:*",
-    "@kolu/surface": "workspace:*",
-    "@kolu/surface-daemon": "workspace:*",
-    "@kolu/terminal-protocol": "workspace:*",
-    "@orpc/contract": "^1.13.13",
-    "@orpc/server": "^1.13.13",
-    "@xterm/addon-serialize": "^0.14.0",
-    "@xterm/headless": "^6.0.0",
-    "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist",
-    "zod": "^4.3.6"
+    "@kolu/log": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.8.0",
     "vitest": "^4.1.0"
   }

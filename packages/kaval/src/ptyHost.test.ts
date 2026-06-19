@@ -292,6 +292,58 @@ describe("createPtyHost", () => {
     expect(await firstEvent(host.subscribeTitle(id))).toBe("my title");
   });
 
+  it("trims the headless mirror to its configured scrollback under heavy output", async () => {
+    // The per-terminal mirror is what accumulates in kaval's heap, so it must
+    // honour the (small) spawn scrollback: FIRSTLINE drops, LASTLINE stays, and
+    // the buffer is bounded — not the full 400+ lines. See kaval-heap-oom.mdx.
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: [
+        "-c",
+        "printf 'FIRSTLINE\\n'; for i in $(seq 1 400); do printf 'fill%s\\n' \"$i\"; done; printf 'LASTLINE\\n'; sleep 30",
+      ],
+      env: shellEnv,
+      cwd: "/tmp",
+      rows: 24,
+      scrollback: 50,
+    });
+    await waitFor(() => host.getScreenText(id).includes("LASTLINE"));
+    const text = host.getScreenText(id);
+    expect(text).toContain("LASTLINE");
+    expect(text).not.toContain("FIRSTLINE");
+    expect(text.split("\n").length).toBeLessThan(120);
+  });
+
+  it("still serves the live jobs at a small mirror (metadata, scrape tail, cold-attach repaint)", async () => {
+    // Shrinking the mirror must NOT starve the jobs that read it: the OSC
+    // metadata taps are parse-time callbacks (depth-independent), and the
+    // scrape tail + cold-attach snapshot only need the visible screen — all
+    // still work when output far exceeds the tiny scrollback.
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: [
+        "-c",
+        "printf '\\033]7;file://localhost/tmp/deep\\033\\\\'; for i in $(seq 1 400); do printf 'fill%s\\n' \"$i\"; done; printf 'TAILMARK\\n'; sleep 30",
+      ],
+      env: shellEnv,
+      cwd: "/tmp",
+      rows: 24,
+      scrollback: 50,
+    });
+    // (a) metadata: OSC 7 cwd is parsed regardless of mirror depth.
+    await waitFor(() => host.getCwd(id) === "/tmp/deep");
+    expect(host.getCwd(id)).toBe("/tmp/deep");
+    // (b) screen-scrape tail still reads the recent screen.
+    await waitFor(() => host.getScreenText(id).includes("TAILMARK"));
+    expect(host.getScreenText(id, undefined, undefined, 24)).toContain(
+      "TAILMARK",
+    );
+    // (c) a cold-attaching client repaints the recent output from the snapshot.
+    expect(host.attach(id).snapshot).toContain("TAILMARK");
+  });
+
   it("answers XTVERSION (CSI > q) so a querying child is unblocked", async () => {
     host = createPtyHost({ log: silentLog });
     // Emit the XTVERSION query (CSI > 0 q) and idle. The headless handler writes

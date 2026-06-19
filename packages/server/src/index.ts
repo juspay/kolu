@@ -14,12 +14,14 @@ import {
   gateWsOrigin,
   parseAllowedOrigins,
 } from "@kolu/surface/ws-origin";
+import { startHeapDiagnostics } from "@kolu/heap-diag";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
+import { getPendingSummaryFetches } from "kolu-claude-code";
 import { DEFAULT_PORT } from "kolu-common/config";
 import {
   TERMINAL_FILE_ROUTE_BASE,
@@ -27,7 +29,6 @@ import {
 } from "kolu-common/preview";
 import { configureNixShellEnv } from "kolu-pty";
 import { type WebSocket, WebSocketServer } from "ws";
-import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import {
   previewRealpathGuard,
@@ -36,6 +37,7 @@ import {
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
+import { publisherSize } from "./publisher.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint } from "./ptyHost/index.ts";
 import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
@@ -43,7 +45,11 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
-import { snapshotSession } from "./terminals.ts";
+import {
+  countActiveClaudeSessions,
+  snapshotSession,
+  terminalCount,
+} from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({
@@ -358,7 +364,23 @@ const server = serve(
       },
       "kolu listening",
     );
-    startDiagnostics();
+    // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs
+    // the heap curve with the server's subsystem counts (the column that climbs
+    // monotonically alongside rss is the leak site). See kaval-heap-oom.mdx.
+    startHeapDiagnostics({
+      log,
+      snapshotPrefix: "baseline",
+      // "diag" preserves the server's long-standing log events
+      // (diag_enabled / diag / diag_baseline_snapshot_*) that grep/alerting
+      // depend on — kept decoupled from the snapshot file basename above.
+      logPrefix: "diag",
+      extraColumns: () => ({
+        terminals: terminalCount(),
+        publisherSize: publisherSize(),
+        claudeSessions: countActiveClaudeSessions(),
+        pendingSummaryFetches: getPendingSummaryFetches(),
+      }),
+    });
   },
 );
 

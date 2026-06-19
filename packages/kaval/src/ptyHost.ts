@@ -34,8 +34,22 @@ import { Channel } from "./channel.ts";
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
-/** Default headless scrollback when a spawn doesn't override it. */
-const DEFAULT_SCROLLBACK = 10_000;
+/** The per-live-terminal headless-mirror depth, in lines — the SINGLE source of
+ *  truth for "how deep a mirror kaval keeps per terminal". It lives in kaval
+ *  because the mirror lives in kaval: this is the number every spawn path lands
+ *  on when it doesn't override scrollback (the in-process host, kaval-tui's
+ *  `composeCreateInput`), AND the value the server's `composeSpawnInput` imports
+ *  and sends explicitly — so all three paths provably agree.
+ *
+ *  Deliberately smaller than the CLIENT's visible scrollback (kolu-common's
+ *  `DEFAULT_SCROLLBACK`, a distinct axis the user sees in their own tab): kaval
+ *  keeps one mirror per live terminal and live terminals accumulate without
+ *  bound, so a large shared depth × unbounded terminals exhausted the heap and
+ *  SIGABRT'd the daemon. The mirror only needs enough to feed live readers and
+ *  repaint a cold-attaching client; a warm client keeps its own buffer and PDF
+ *  export reads the client buffer, so shrinking it regresses neither. See
+ *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`. */
+export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
 /** How many exited-PTY exit codes to retain after teardown, so a late
  *  `exitPromise(id)` resolves with the real code rather than a fabricated
  *  one. Bounded so the map can't grow without limit. */
@@ -238,6 +252,9 @@ export interface PtyHost {
    *  data read — distinct from `getCwd(id) !== undefined`, which happens to
    *  coincide today only because cwd is always set at spawn). */
   has(id: PtyId): boolean;
+  /** Count of live PTYs — O(1) off the entry map, no list materialization.
+   *  (Diagnostics samples this as the leak's independent variable.) */
+  size(): number;
   /** Foreground process group leader pid, or `undefined`. */
   getForegroundPid(id: PtyId): number | undefined;
   /** Current foreground process name, or `undefined` if gone. */
@@ -311,7 +328,7 @@ function readForegroundPid(proc: pty.IPty): number | undefined {
 
 export function createPtyHost(opts: PtyHostOptions): PtyHost {
   const { log } = opts;
-  const defaultScrollback = opts.defaultScrollback ?? DEFAULT_SCROLLBACK;
+  const defaultScrollback = opts.defaultScrollback ?? DEFAULT_MIRROR_SCROLLBACK;
   const generateId = opts.generateId ?? (() => randomUUID());
   const entries = new Map<PtyId, Entry>();
   // Bounded tombstone of exit codes for PTYs that have exited and been torn
@@ -688,6 +705,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         foregroundProcess: entry.proc.process,
       })),
     has: (id) => entries.has(id),
+    size: () => entries.size,
     getForegroundPid,
     getProcess: (id) => entries.get(id)?.proc.process,
     getCwd: (id) => entries.get(id)?.cwd,
