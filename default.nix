@@ -278,6 +278,28 @@ let
     sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' "$shell"
   '';
 
+  # The opt-in heap-capture --run hook, defined ONCE for every kolu-family
+  # wrapper (koluBin + kaval) — the Nix half of the same capability `@kolu/heap-
+  # diag` is the TS half of. When KOLU_DIAG_DIR is set, it computes a per-
+  # invocation subdir (named `<prefix><timestamp>-<pid>`), cds into it, and
+  # injects the V8 heap-snapshot flags into NODE_OPTIONS. The cd is load-bearing:
+  # both --heapsnapshot-signal and --heapsnapshot-near-heap-limit write to cwd
+  # (nodejs/node#47842), so landing in the per-invocation dir makes all capture
+  # paths (baseline, SIGUSR2, near-OOM) correlate to one directory. mkdir/cd
+  # failure is FATAL (exit 1), never a silent degrade. Unset = passthrough, zero
+  # overhead. `prefix` namespaces a daemon's captures under the server's diag
+  # tree (kaval forwards KOLU_DIAG_DIR and lands in `kaval-…`).
+  diagRunHook = prefix: ''
+    if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
+      KOLU_DIAG_DIR="$KOLU_DIAG_DIR/${prefix}$(date +%Y%m%dT%H%M%S)-$$"
+      if ! mkdir -p "$KOLU_DIAG_DIR" || ! cd "$KOLU_DIAG_DIR"; then
+        echo "kolu: failed to set up diag dir $KOLU_DIAG_DIR (check permissions)" >&2
+        exit 1
+      fi
+      export KOLU_DIAG_DIR
+      export NODE_OPTIONS="--heapsnapshot-near-heap-limit=3 --heapsnapshot-signal=SIGUSR2 ''${NODE_OPTIONS:-}"
+    fi'';
+
   # Base wrapper: tsx + env vars + PATH. Does NOT set KOLU_STATE_DIR —
   # callers must provide it (state.ts crashes with a clear error if missing).
   # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
@@ -288,13 +310,6 @@ let
       meta.mainProgram = "kolu";
     } ''
     mkdir -p $out/bin
-    # If KOLU_DIAG_DIR is set, the --run hook computes a per-invocation
-    # subdir, cds into it, and injects V8 heap-snapshot flags into
-    # NODE_OPTIONS. The cd is load-bearing: both --heapsnapshot-signal
-    # and --heapsnapshot-near-heap-limit write to cwd (nodejs/node#47842),
-    # so landing in the per-invocation dir makes all capture paths
-    # (baseline, SIGUSR2, near-OOM) correlate to one directory.
-    # Unset = passthrough, zero overhead.
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu \
       --add-flags "${koluStamped}/packages/server/src/index.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
@@ -304,15 +319,7 @@ let
       --set KAVAL_COMMIT_HASH "${commitHash}" \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
-      --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
-               KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"
-               if ! mkdir -p "$KOLU_DIAG_DIR" || ! cd "$KOLU_DIAG_DIR"; then
-                 echo "kolu: failed to set up diag dir $KOLU_DIAG_DIR (check permissions)" >&2
-                 exit 1
-               fi
-               export KOLU_DIAG_DIR
-               export NODE_OPTIONS="--heapsnapshot-near-heap-limit=3 --heapsnapshot-signal=SIGUSR2 ''${NODE_OPTIONS:-}"
-             fi'
+      --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
 
   # Production wrapper: koluBin + default KOLU_STATE_DIR.
@@ -363,10 +370,11 @@ let
     # before the thrash zone. With the small server mirror this is ~750-terminal
     # headroom (3× the pre-fix crash point). See kaval-heap-oom.mdx.
     #
-    # The diag --run hook mirrors koluBin's: when KOLU_DIAG_DIR is forwarded
-    # (localDriver's daemonEnv), kaval cds into its OWN per-invocation subdir and
-    # arms the V8 heap-snapshot flags, so the next near-OOM dumps a snapshot that
-    # names the leak in the real workload. Unset = passthrough, zero overhead.
+    # `--run (diagRunHook "kaval-")` arms the same opt-in heap capture as koluBin
+    # (the hook is defined once, above): when KOLU_DIAG_DIR is forwarded
+    # (localDriver's daemonEnv), kaval cds into its OWN `kaval-…` subdir and arms
+    # the V8 heap-snapshot flags, so the next near-OOM dumps a snapshot that names
+    # the leak in the real workload. Unset = passthrough, zero overhead.
     makeWrapper ${pkgs.nodejs}/bin/node $out/bin/kaval \
       --add-flags "--max-old-space-size=3072" \
       --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
@@ -374,15 +382,7 @@ let
       --set KAVAL_BUILD_ID "${kavalBuildId}" \
       --set KAVAL_COMMIT_HASH "${commitHash}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]} \
-      --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
-               KOLU_DIAG_DIR="$KOLU_DIAG_DIR/kaval-$(date +%Y%m%dT%H%M%S)-$$"
-               if ! mkdir -p "$KOLU_DIAG_DIR" || ! cd "$KOLU_DIAG_DIR"; then
-                 echo "kaval: failed to set up diag dir $KOLU_DIAG_DIR (check permissions)" >&2
-                 exit 1
-               fi
-               export KOLU_DIAG_DIR
-               export NODE_OPTIONS="--heapsnapshot-near-heap-limit=3 --heapsnapshot-signal=SIGUSR2 ''${NODE_OPTIONS:-}"
-             fi'
+      --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
 
   # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's
