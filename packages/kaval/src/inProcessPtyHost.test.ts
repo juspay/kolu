@@ -64,7 +64,7 @@ describe("createInProcessPtyHost — identity-link-specific mechanism", () => {
 
   it("an aborted exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {
     // The mechanism `local.ts` relies on to keep an intentional kill silent:
-    // `teardownProviders` aborts the exit-tap signal BEFORE the kill, so the
+    // `teardownSensors` aborts the exit-tap signal BEFORE the kill, so the
     // tap ends via abort rather than yielding an exit code that would become a
     // `terminalExit`. Verify the contract honors that abort.
     const client = makeClient();

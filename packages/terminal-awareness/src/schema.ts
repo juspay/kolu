@@ -1,9 +1,9 @@
 /**
  * The generic terminal-awareness value — the server-derived slice of a
- * terminal's metadata, owned where it is PRODUCED (the provider set in this
+ * terminal's metadata, owned where it is PRODUCED (the sensor set in this
  * package) rather than by any app.
  *
- * `AwarenessValue` is exactly the fields the providers compute: a terminal's
+ * `AwarenessValue` is exactly the fields the sensors compute: a terminal's
  * cwd · git context · last agent command · activity recency (the persisted
  * half) plus its forge PR · agent status · foreground process (the live half).
  * It is composed from the vendor-neutral leaf schemas (anyforge · kolu-git ·
@@ -15,10 +15,10 @@
  * client-persisted UI fields. So the awareness value is not carved out of
  * kolu's record — kolu's record extends this generic base. That inversion is
  * what lets `arivu` (the standalone daemon) and `arivu-tui` (the viewer) reuse
- * the providers with zero dependency on any kolu-app package.
+ * the sensors with zero dependency on any kolu-app package.
  *
- * The persisted-vs-live partition is the same write fence the providers honor
- * through `ProviderHooks` (and that kolu's `metadata.ts` enforces): persisted
+ * The persisted-vs-live partition is the same write fence the sensors honor
+ * through `AwarenessSink` (and that kolu's `metadata.ts` enforces): persisted
  * fields flow through the autosave-arming mutator, live fields through the
  * quiet one. The two halves are kept as distinct sub-schemas so a hook's
  * mutator type can be narrowed to exactly one half.

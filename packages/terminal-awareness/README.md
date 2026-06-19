@@ -10,26 +10,27 @@ the shape of that derived state.
 
 ## What it does
 
-`startProviders(record, id, channels, hooks, log)` starts one set of watchers
-for a terminal and returns a teardown. Each watcher owns a single source:
+`startAwareness(record, id, signals, sink, log)` starts one bank of sensors for
+a terminal and returns a teardown. Each sensor watches a single source and
+derives one field:
 
-| Watcher | Watches | Derives |
+| Sensor | Watches | Derives |
 | --- | --- | --- |
 | git | the repo's `.git` — branch, dirtiness, remote | `git` |
 | pr | the forge, for the branch's PR + checks | `pr` |
 | agent ×3 | Claude Code / Codex / OpenCode session state | `agent` |
 | foreground | the tty's foreground process | `foreground` |
-| command tracker | the shell's pre-exec command marks | `lastAgentCommand` |
+| command | the shell's pre-exec command marks | `lastAgentCommand` |
 
-The host feeds a terminal's raw signals in through `ProviderChannels` (the cwd ·
-title · command-run · foreground taps) and tells the watchers how to store and
-publish each result through `ProviderHooks`. The watchers do the deriving; the
+The host feeds a terminal's raw signals in through `AwarenessSignals` (the cwd ·
+title · command-run · foreground taps) and tells the sensors how to store and
+publish each result through `AwarenessSink`. The sensors do the deriving; the
 host owns everything else.
 
 ## What it knows nothing about
 
 It is **host-agnostic**. It doesn't own the PTY (that's [`kaval`](../kaval/)),
-doesn't decide how a host stores or ships the result (that's `ProviderHooks`),
+doesn't decide how a host stores or ships the result (that's `AwarenessSink`),
 and carries no app concepts: `AwarenessValue` has no terminal `location`, no
 theme, no layout — those belong to whatever app embeds it, built _on top of_ the
 awareness value. Its one ambient dependency, a logger, is passed in rather than
@@ -37,9 +38,9 @@ imported, so the package names no host package and reaches only for the
 vendor-neutral source libraries it derives from (`anyforge` for PRs, `kolu-git`
 for git, the per-agent packages for agent state).
 
-`kolu-server` embeds it: it runs the watchers in-process for each local terminal
+`kolu-server` embeds it: it runs the sensors in-process for each local terminal
 and folds each result into the terminal metadata it serves to the browser.
 
-Two entry points keep the boundary clean: the default import pulls the watchers
+Two entry points keep the boundary clean: the default import pulls the sensors
 (they run on Node, alongside `kaval`); `@kolu/terminal-awareness/schema` is the
 `AwarenessValue` schema alone — pure `zod`, safe to import from a browser bundle.

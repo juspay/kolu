@@ -1,14 +1,14 @@
 /**
- * `@kolu/terminal-awareness` — the per-terminal awareness provider set (git ·
+ * `@kolu/terminal-awareness` — the per-terminal awareness sensor set (git ·
  * PR · agent · foreground) plus the generic `AwarenessValue` schema it
  * produces, lifted out of kolu-server so a standalone daemon (`arivu`) and
- * kolu-server share ONE copy of the freshness-critical provider code.
+ * kolu-server share ONE copy of the freshness-critical sensor code.
  *
  * The package names no kolu-app package: its lone host coupling — a logger —
- * is injected as a `startProviders` parameter. Consumers that only need the
- * schemas (no providers, no node/kaval runtime) import `./schema` directly.
+ * is injected as a `startAwareness` parameter. Consumers that only need the
+ * schemas (no sensors, no node/kaval runtime) import `./schema` directly.
  */
 
 export * from "./agentRecency.ts";
-export * from "./providers.ts";
+export * from "./sensors.ts";
 export * from "./schema.ts";
