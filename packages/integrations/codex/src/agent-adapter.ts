@@ -1,7 +1,7 @@
 /**
- * Codex's AgentProvider — wires the package's existing helpers
+ * Codex's AgentAdapter — wires the package's existing helpers
  * (`findSessionByDirectory`, `createCodexWatcher`, `subscribeCodexDb`)
- * into the shared `AgentProvider<Session, Info>` contract from anyagent.
+ * into the shared `AgentAdapter<Session, Info>` contract from anyagent.
  *
  * `externalChanges` IS implemented here — unlike OpenCode, Codex can
  * have a running `codex` TUI process whose thread row doesn't exist in
@@ -16,14 +16,14 @@
  */
 
 import fs from "node:fs";
-import { type AgentProvider, matchesAgent } from "anyagent";
+import { type AgentAdapter, matchesAgent } from "anyagent";
 import { CODEX_DIR } from "./config.ts";
 import { type CodexSession, findSessionByDirectory } from "./core.ts";
 import type { CodexInfo } from "./schemas.ts";
 import { createCodexWatcher } from "./session-watcher.ts";
 import { subscribeCodexDb } from "./wal-watcher.ts";
 
-export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
+export const codexAdapter: AgentAdapter<CodexSession, CodexInfo> = {
   kind: "codex",
 
   resolveSession(state, log) {

@@ -11,12 +11,12 @@
  *  last-seen context (PRs can be created/updated externally).
  *
  *  Does not own: the git source, metadata publishing, terminal lifecycle,
- *  or *which* forge answers — the single `provider` is injected, so the
+ *  or *which* forge answers — the single `adapter` is injected, so the
  *  watcher is forge-agnostic without ever naming a forge, mirroring how
- *  `startAgentSensor` takes one `AgentProvider`. */
+ *  `startAgentSensor` takes one `AgentAdapter`. */
 
 import type { Logger } from "kolu-shared";
-import type { PrGitContext, PrProvider } from "./provider.ts";
+import type { PrGitContext, ForgeAdapter } from "./adapter.ts";
 import {
   type PrResult,
   prResultEqual,
@@ -53,12 +53,12 @@ function gitContextEqual(
   );
 }
 
-/** Subscribe to PR changes for a terminal. `provider` is the single
+/** Subscribe to PR changes for a terminal. `adapter` is the single
  *  injected forge adapter that resolves every PR for this watcher — the
- *  watcher is forge-agnostic because the provider is injected, mirroring
- *  how `startAgentSensor` takes one `AgentProvider`. */
+ *  watcher is forge-agnostic because the adapter is injected, mirroring
+ *  how `startAgentSensor` takes one `AgentAdapter`. */
 export function subscribePr<S extends PrUnavailableSourceBase>(
-  provider: PrProvider<S>,
+  adapter: ForgeAdapter<S>,
   onChange: (pr: PrResult<S>) => void,
   log?: Logger,
 ): PrWatcher {
@@ -83,7 +83,7 @@ export function subscribePr<S extends PrUnavailableSourceBase>(
 
   async function fetchAndEmit(git: PrGitContext): Promise<void> {
     try {
-      const pr = await provider.resolve(git, log);
+      const pr = await adapter.resolve(git, log);
       // Drop a result whose git context is no longer current. A resolve is
       // async, so a branch/repo switch (or leaving the repo via
       // `setGit(null)`) can land `lastGit` on a different context — or null —
@@ -94,7 +94,7 @@ export function subscribePr<S extends PrUnavailableSourceBase>(
       if (!gitContextEqual(git, lastGit)) return;
       emit(pr);
     } catch (err) {
-      // The provider contract says resolve() classifies failures into
+      // The adapter contract says resolve() classifies failures into
       // PrResult and never throws. Guard anyway so a misbehaving adapter
       // degrades this terminal's PR metadata instead of escaping the
       // floated call as an unhandled rejection; the next poll retries.

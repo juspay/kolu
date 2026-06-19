@@ -41,7 +41,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import type {
   AgentInfoShape,
-  AgentProvider,
+  AgentAdapter,
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
@@ -50,14 +50,14 @@ import {
   agentNameFromCommand,
   parseAgentCommand,
 } from "anyagent";
-import type { PrProvider } from "anyforge";
+import type { ForgeAdapter } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
-import { claudeCodeProvider } from "kolu-claude-code";
-import { codexProvider } from "kolu-codex";
+import { claudeCodeAdapter } from "kolu-claude-code";
+import { codexAdapter } from "kolu-codex";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
-import { githubPrProvider } from "kolu-github";
-import { opencodeProvider } from "kolu-opencode";
+import { githubForgeAdapter } from "kolu-github";
+import { opencodeAdapter } from "kolu-opencode";
 import type { ForegroundSample } from "kaval";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
@@ -162,7 +162,7 @@ export interface AwarenessSink {
    *  local endpoint, via pty-host's `getScreenText`); omitted by hosts that
    *  can't. Async + host-supplied, so the sensor set keeps its zero *synchronous*
    *  dependency on the PTY host — a remote ssh pty-host serves the same read
-   *  over the wire. Drives `AgentProvider.screenScrape` promotion (Claude's
+   *  over the wire. Drives `AgentAdapter.screenScrape` promotion (Claude's
    *  `AskUserQuestion` / `ExitPlanMode` — #905); without it, screen scrape is
    *  simply inactive.
    *
@@ -285,14 +285,14 @@ function startGitSensor(
  *  `"github"`) so the registry key and the adapter agree by construction: a
  *  phase-1 forge that adds an adapter must add the matching `FORGE_ADAPTERS` key
  *  or the `Record<ForgeKind, …>` below stops type-checking. */
-type ForgeKind = (typeof githubPrProvider)["kind"];
+type ForgeKind = (typeof githubForgeAdapter)["kind"];
 
 /** Forge adapter per kind. Typed at the closed `PrUnavailableSource` union:
- *  each adapter's concrete source is a member, so a `PrProvider<GhUnavailable…>`
+ *  each adapter's concrete source is a member, so a `ForgeAdapter<GhUnavailable…>`
  *  assigns covariantly with no cast, and the dispatcher's result lands in the
  *  metadata `PrResult` directly. */
-const FORGE_ADAPTERS: Record<ForgeKind, PrProvider<PrUnavailableSource>> = {
-  github: githubPrProvider,
+const FORGE_ADAPTERS: Record<ForgeKind, ForgeAdapter<PrUnavailableSource>> = {
+  github: githubForgeAdapter,
 };
 
 /** Map a repo's `origin` remote URL to the forge that resolves its PRs. Every
@@ -307,14 +307,14 @@ function detectForge(remoteUrl: string | null): ForgeKind {
   }
 }
 
-/** A `PrProvider` that routes each resolve to the forge `detectForge` picks
- *  from the git context's remote. Keeps `subscribePr`'s one-provider contract
+/** A `ForgeAdapter` that routes each resolve to the forge `detectForge` picks
+ *  from the git context's remote. Keeps `subscribePr`'s one-adapter contract
  *  intact while supporting per-resolve forge selection: the remote can change
  *  mid-session (`git remote set-url`), and consulting the registry on every
  *  resolve re-routes without tearing the watcher down. With one forge it always
- *  resolves to `githubPrProvider`, so behavior is identical to injecting it
+ *  resolves to `githubForgeAdapter`, so behavior is identical to injecting it
  *  directly. */
-const dispatchingForgeAdapter: PrProvider<PrUnavailableSource> = {
+const dispatchingForgeAdapter: ForgeAdapter<PrUnavailableSource> = {
   kind: "forge-dispatch",
   resolve: (git, log) =>
     FORGE_ADAPTERS[detectForge(git.remoteUrl)].resolve(git, log),
@@ -429,11 +429,11 @@ interface ExternalChangesActivation {
   installed: boolean;
 }
 
-/** External-change activation registry, keyed by provider kind. Coordinates
+/** External-change activation registry, keyed by adapter kind. Coordinates
  *  the "install the watcher once, then fan out to every terminal's
  *  reconciler" behavior.
  *
- *  Process-scoped by contract: `AgentProvider.externalChanges.install` is
+ *  Process-scoped by contract: `AgentAdapter.externalChanges.install` is
  *  documented as fired "at most once per process… no uninstall" (anyagent),
  *  matching the underlying singletons (Codex's WAL watcher, Claude's
  *  SESSIONS_DIR watcher). So this registry — the install gate AND the
@@ -461,7 +461,7 @@ function getActivation(kind: string): ExternalChangesActivation {
  *  own settle window — these delays only re-check the agent-state files. */
 const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
 
-/** Cadence of the screen-scrape poll (`AgentProvider.screenScrape`). The prompt
+/** Cadence of the screen-scrape poll (`AgentAdapter.screenScrape`). The prompt
  *  appears asynchronously after the JSONL settles to `waiting` and produces no
  *  fs event, so the scrape needs its own ~1 s clock to catch it. Runs ONLY
  *  while the agent is in a pollable (idle) state, so it's off the hot path. */
@@ -506,14 +506,14 @@ function publishAgentField(
 }
 
 function startAgentSensor<Session, Info extends AgentInfoShape>(
-  provider: AgentProvider<Session, Info>,
+  adapter: AgentAdapter<Session, Info>,
   record: AwarenessRecord,
   terminalId: TerminalId,
   signals: AwarenessSignals,
   sink: AwarenessSink,
   log: Logger,
 ): () => void {
-  const plog = log.child({ provider: provider.kind, terminal: terminalId });
+  const plog = log.child({ provider: adapter.kind, terminal: terminalId });
   let current: {
     watcher: AgentWatcher;
     key: string;
@@ -523,21 +523,21 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
   // scrape merges against this (not the published metadata, which it may itself
   // have promoted). Null between sessions; reset in `destroyCurrent`.
   let latestInfo: Info | null = null;
-  // The published agent metadata, but only when it's this provider's own —
-  // i.e. the `published?.kind === provider.kind` narrowing, defined once and
+  // The published agent metadata, but only when it's this adapter's own —
+  // i.e. the `published?.kind === adapter.kind` narrowing, defined once and
   // shared by both writers that ask "has the published state diverged from
   // this candidate?": the watcher callback (to *skip* the raw publish the
   // poll owns) and the poll tick (to *do* the republish). Returns null when
-  // nothing is published yet, or when a different provider owns the tile, so
+  // nothing is published yet, or when a different adapter owns the tile, so
   // a caller can read the divergence test declaratively off the result.
   const publishedAgent = (): AgentInfo | null => {
     const published = record.meta.agent;
-    return published?.kind === provider.kind ? published : null;
+    return published?.kind === adapter.kind ? published : null;
   };
   let registeredForExternal = false;
   let stopped = false;
   let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
-  // CWD source-of-truth for this provider's lifetime: seeded once from
+  // CWD source-of-truth for this adapter's lifetime: seeded once from
   // `record.meta.cwd` (the spawn-time cwd a host writes before calling
   // `startAwareness`) and updated only via the `cwd` channel. Reading
   // `record.meta.cwd` inside `reconcile()` would make agent detection
@@ -547,7 +547,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
   // a future host on the same `AwarenessSignals`/`AwarenessSink` shape
   // could not be expected to know about.
   let currentCwd = record.meta.cwd;
-  // Foreground source-of-truth for this provider, tracked from
+  // Foreground source-of-truth for this adapter, tracked from
   // `signals.foreground` (seeded empty → "shell idle" until the first
   // sample arrives). Same rationale as `currentCwd`: read it from the
   // channel, not a synchronous handle, so the sensor set is transport-agnostic.
@@ -577,14 +577,14 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
       currentCwd,
       record.currentAgent,
     );
-    if (!registeredForExternal && provider.externalChanges?.isPresent(state)) {
-      const activation = getActivation(provider.kind);
+    if (!registeredForExternal && adapter.externalChanges?.isPresent(state)) {
+      const activation = getActivation(adapter.kind);
       activation.reconcilers.add(reconcile);
       registeredForExternal = true;
       if (!activation.installed) {
         activation.installed = true;
-        const slog = log.child({ provider: provider.kind });
-        provider.externalChanges.install(
+        const slog = log.child({ provider: adapter.kind });
+        adapter.externalChanges.install(
           () => {
             // Every reconciler is a `reconcile` (above) and cannot throw, so
             // the fan-out needs no per-callback guard.
@@ -595,14 +595,14 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
         );
       }
     }
-    const next = provider.resolveSession(state, plog);
-    const nextKey = next ? provider.sessionKey(next) : null;
+    const next = adapter.resolveSession(state, plog);
+    const nextKey = next ? adapter.sessionKey(next) : null;
     if ((current?.key ?? null) === nextKey) return;
     const hadCurrent = current !== null;
     destroyCurrent();
     if (!next || !nextKey) {
       if (hadCurrent) plog.debug("agent session ended");
-      if (record.meta.agent?.kind === provider.kind) {
+      if (record.meta.agent?.kind === adapter.kind) {
         publishAgentField(record, sink, null);
       }
       return;
@@ -610,7 +610,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     plog.debug({ session: nextKey }, "agent session matched");
     current = {
       key: nextKey,
-      watcher: provider.createWatcher(
+      watcher: adapter.createWatcher(
         next,
         (info) => {
           // The watcher's data-source-derived info is the source of truth; the
@@ -633,7 +633,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
           // *structural* divergence, so a held prompt's summary update still lands
           // on the next tick rather than waiting for it to clear.
           const published = publishedAgent();
-          const scrape = provider.screenScrape;
+          const scrape = adapter.screenScrape;
           // Suppress only when a live promotion sits over a still-pollable state
           // AND this host can run the poll that settles it back (`readScreenText`
           // is optional; a screen-less host gets a no-op poll, so it must always
@@ -665,7 +665,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     latestInfo = null;
   }
 
-  /** Arm the idle-gated screen-scrape poll, or a no-op when this provider
+  /** Arm the idle-gated screen-scrape poll, or a no-op when this adapter
    *  doesn't scrape or the host can't read the screen. While `isPollable` holds
    *  for the latest watcher info, read the rendered screen each tick and, if the
    *  scrape promotes it (e.g. `waiting → awaiting_user`), republish the promoted
@@ -679,7 +679,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
    *  demote. Recursive
    *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
   function startScreenScrapePoll(): () => void {
-    const scrape = provider.screenScrape;
+    const scrape = adapter.screenScrape;
     const readScreen = sink.readScreenText;
     if (!scrape || !readScreen) return () => {};
     let pollStopped = false;
@@ -797,7 +797,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     cleanupCwd();
     cleanupCommandRun();
     if (registeredForExternal) {
-      activations.get(provider.kind)?.reconcilers.delete(reconcile);
+      activations.get(adapter.kind)?.reconcilers.delete(reconcile);
     }
     destroyCurrent();
     plog.debug("stopped");
@@ -838,7 +838,7 @@ export function startAwareness(
   );
   const stopPr = startPrSensor(record, terminalId, gitChannel, sink, log);
   const stopClaude = startAgentSensor(
-    claudeCodeProvider,
+    claudeCodeAdapter,
     record,
     terminalId,
     signals,
@@ -846,7 +846,7 @@ export function startAwareness(
     log,
   );
   const stopCodex = startAgentSensor(
-    codexProvider,
+    codexAdapter,
     record,
     terminalId,
     signals,
@@ -854,7 +854,7 @@ export function startAwareness(
     log,
   );
   const stopOpenCode = startAgentSensor(
-    opencodeProvider,
+    opencodeAdapter,
     record,
     terminalId,
     signals,

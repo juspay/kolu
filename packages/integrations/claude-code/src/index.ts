@@ -6,17 +6,17 @@
  *                            tail, state derivation, fs.watch helpers, shared
  *                            SESSIONS_DIR watcher, SDK summary fetch)
  *   - `session-watcher.ts` — per-session lifecycle object built on `core`
- *   - `agent-provider.ts`  — `AgentProvider` instance the server consumes
+ *   - `agent-adapter.ts`  — `AgentAdapter` instance the server consumes
  *   - `schemas.ts`         — zod schemas + types (browser-safe)
  *
- * `core` is the only thing `session-watcher` and `agent-provider` import
+ * `core` is the only thing `session-watcher` and `agent-adapter` import
  * from this package. `index.ts` is a pure barrel — anything imported via
  * `kolu-claude-code` flows through here so the public surface stays in
- * one place, and `session-watcher` / `agent-provider` never have to reach
+ * one place, and `session-watcher` / `agent-adapter` never have to reach
  * back through it (which was the #710 noImportCycles hit).
  */
 
-export { claudeCodeProvider } from "./agent-provider.ts";
+export { claudeCodeAdapter } from "./agent-adapter.ts";
 
 export {
   type BackgroundTask,

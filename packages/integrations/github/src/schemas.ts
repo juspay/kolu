@@ -51,7 +51,7 @@ export function reasonForGhCode(code: GhUnavailableCode): string {
  *  `github.ts` reference it, so the tag a reader must recognize as "the same
  *  forge" lives in exactly one place rather than two hand-aligned literals.
  *
- *  Distinct from the adapter's in-process `PrProvider.kind` ("github", see
+ *  Distinct from the adapter's in-process `ForgeAdapter.kind` ("github", see
  *  `resolve.ts`): that key drives dispatch/registry lookup, this tag is a
  *  persisted discriminant matched on the client (`surface.ts`), so the two
  *  values can't be merged without a wire-format change. */

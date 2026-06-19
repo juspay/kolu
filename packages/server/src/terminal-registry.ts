@@ -75,7 +75,7 @@ export const terminalCount = (): number => terminals.size;
 
 /** Number of terminals currently hosting a Claude Code session. Derived
  *  from `entry.meta.agent` — the agent detectors inside
- *  `LocalTerminalEndpoint` (driven by `claudeCodeProvider` from
+ *  `LocalTerminalEndpoint` (driven by `claudeCodeAdapter` from
  *  `kolu-claude-code`) set it on session match and clear it on
  *  teardown. Exported for diagnostics. */
 export function countActiveClaudeSessions(): number {
