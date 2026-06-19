@@ -10,7 +10,7 @@ vi.mock("./core.ts", () => ({
 }));
 vi.mock("./session-watcher.ts", () => ({ createOpenCodeWatcher: vi.fn() }));
 
-const { opencodeProvider } = await import("./agent-provider.ts");
+const { opencodeAdapter } = await import("./agent-adapter.ts");
 
 const noopLog: Logger = {
   debug: () => {},
@@ -29,7 +29,7 @@ function makeState(over: Partial<AgentTerminalState>): AgentTerminalState {
   };
 }
 
-describe("opencodeProvider.resolveSession", () => {
+describe("opencodeAdapter.resolveSession", () => {
   beforeEach(() => {
     findSessionMock.mockReset();
   });
@@ -37,7 +37,7 @@ describe("opencodeProvider.resolveSession", () => {
   it("matches when the kernel basename is 'opencode' (native install)", () => {
     findSessionMock.mockReturnValue({ id: "s1" });
     const state = makeState({ readForegroundBasename: () => "opencode" });
-    expect(opencodeProvider.resolveSession(state, noopLog)).toEqual({
+    expect(opencodeAdapter.resolveSession(state, noopLog)).toEqual({
       id: "s1",
     });
     expect(findSessionMock).toHaveBeenCalledWith("/repo", noopLog);
@@ -49,7 +49,7 @@ describe("opencodeProvider.resolveSession", () => {
       readForegroundBasename: () => "node",
       lastAgentCommandName: "opencode",
     });
-    expect(opencodeProvider.resolveSession(state, noopLog)).toEqual({
+    expect(opencodeAdapter.resolveSession(state, noopLog)).toEqual({
       id: "s2",
     });
     expect(findSessionMock).toHaveBeenCalledWith("/repo", noopLog);
@@ -60,7 +60,7 @@ describe("opencodeProvider.resolveSession", () => {
       readForegroundBasename: () => "node",
       lastAgentCommandName: null,
     });
-    expect(opencodeProvider.resolveSession(state, noopLog)).toBeNull();
+    expect(opencodeAdapter.resolveSession(state, noopLog)).toBeNull();
     expect(findSessionMock).not.toHaveBeenCalled();
   });
 });

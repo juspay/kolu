@@ -31,7 +31,7 @@
  * WAL covers both.
  *
  * Structure note: this file holds the leaf module. Peers `session-watcher.ts`,
- * `wal-watcher.ts`, and `agent-provider.ts` import from here; `index.ts` is
+ * `wal-watcher.ts`, and `agent-adapter.ts` import from here; `index.ts` is
  * a pure barrel re-exporting from all of them plus `schemas.ts` / `config.ts`.
  */
 

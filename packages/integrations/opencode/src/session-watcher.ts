@@ -6,7 +6,7 @@
  * timer, DB lifetime, equality-gated dispatch, and lifecycle logs;
  * this file only owns the per-event `refresh` body.
  *
- * The server's opencode provider creates one of these per matched
+ * The server's opencode adapter creates one of these per matched
  * session and replaces it on session change.
  */
 
