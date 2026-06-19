@@ -111,7 +111,7 @@ const escapes = [
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
     <h2 class="kv-head">how it fits together</h2>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mb-6">
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mb-6">
       One daemon owns the terminals; everything else is a client.{" "}
       <code class="mono text-ink">kolu</code> no longer runs PTYs in-process — it
       spawns its <em>own</em> <code class="mono text-ink">kaval</code> and dials
@@ -225,59 +225,53 @@ const escapes = [
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
     <h2 class="kv-head">run the pair</h2>
-    <ol class="space-y-6 max-w-xl">
-      <li class="grid grid-cols-[1.6rem_1fr] gap-3">
-        <span class="mono text-amber text-sm pt-0.5">1</span>
+    <ol class="space-y-7 max-w-xl">
+      <li class="grid grid-cols-[1.8rem_1fr] gap-4">
+        <span class="kv-step">1</span>
         <div>
-          <p class="text-ink-dim text-sm leading-relaxed">
+          <p class="text-ink-dim text-[0.95rem] leading-relaxed">
             Start the daemon. It claims its socket and stands watch — leave it
             running in a pane, a service, wherever.
           </p>
-          <p class="mono text-ink-dim text-sm leading-relaxed mt-2">
-            <code class="text-ink">nix run github:juspay/kolu#kaval</code>
-          </p>
+          <div class="kv-term">
+            <span class="cmd">nix run github:juspay/kolu#kaval</span>
+          </div>
         </div>
       </li>
-      <li class="grid grid-cols-[1.6rem_1fr] gap-3">
-        <span class="mono text-amber text-sm pt-0.5">2</span>
+      <li class="grid grid-cols-[1.8rem_1fr] gap-4">
+        <span class="kv-step">2</span>
         <div>
-          <p class="text-ink-dim text-sm leading-relaxed">
+          <p class="text-ink-dim text-[0.95rem] leading-relaxed">
             Drive it from any other shell. kaval-tui finds the running daemon on
             its own — no socket path to remember.
           </p>
-          <p class="mono text-ink-dim text-sm leading-relaxed mt-2">
-            <code class="text-ink"
-              >nix run github:juspay/kolu#kaval-tui -- create</code
+          <div class="kv-term">
+            <span class="cmd">nix run github:juspay/kolu#kaval-tui -- create</span>
+            <span class="cmd">nix run github:juspay/kolu#kaval-tui -- list</span>
+            <span class="cmd"
+              >nix run github:juspay/kolu#kaval-tui -- attach &lt;id&gt;</span
             >
-            <br />
-            <code class="text-ink"
-              >nix run github:juspay/kolu#kaval-tui -- list</code
-            >
-            <br />
-            <code class="text-ink"
-              >nix run github:juspay/kolu#kaval-tui -- attach &lt;id&gt;</code
-            >
-          </p>
+          </div>
         </div>
       </li>
     </ol>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <h2 class="kv-head">drive a running kolu</h2>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+    <h2 class="kv-head">drive a running <span class="kv-prog">kolu</span></h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
       kolu doesn't run terminals in-process anymore — it spawns a kaval daemon
       of its own and is just another client of it. So the same{" "}
       <code class="mono text-ink">kaval-tui</code> reaches the terminals you have
       open in kolu, from the shell, with <span class="text-ink">no flags</span>:
     </p>
-    <p class="mono text-ink-dim text-sm leading-relaxed mt-4 max-w-xl">
-      <code class="text-ink">kaval-tui list</code>
-      <span class="text-ink-muted"> # the terminals open in your kolu</span>
-      <br />
-      <code class="text-ink">kaval-tui snapshot &lt;id&gt; | grep BUILD-</code>
-    </p>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mt-4">
+    <div class="kv-term">
+      <span class="cmd"
+        >kaval-tui list<span class="cmt">          # the terminals open in your kolu</span></span
+      >
+      <span class="cmd">kaval-tui snapshot &lt;id&gt; | grep BUILD-</span>
+    </div>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
       kaval-tui discovers the daemon by scanning the per-user runtime dir — both
       a standalone <code class="mono text-ink">kaval</code> and every kolu (each
       kolu-server namespaces its daemon by listen port). One running → it's
@@ -287,22 +281,22 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <h2 class="kv-head">reach a remote kaval — over ssh</h2>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+    <h2 class="kv-head">
+      reach a remote <span class="kv-prog">kaval</span> — over ssh
+    </h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
       <code class="mono text-ink">--host &lt;ssh&gt;</code> drives a kaval on{" "}
       <span class="text-ink">another machine</span>, with nothing to install
       there first. kaval-tui provisions the daemon with Nix (ships the
       right-arch build over ssh, realises it), runs it, and dials it — every
       subcommand works exactly as it does locally, just pointed at the remote.
     </p>
-    <p class="mono text-ink-dim text-sm leading-relaxed mt-4 max-w-xl">
-      <code class="text-ink">kaval-tui create --host nix@prod</code>
-      <br />
-      <code class="text-ink">kaval-tui list&nbsp;&nbsp;&nbsp;--host nix@prod</code>
-      <br />
-      <code class="text-ink">kaval-tui attach --host nix@prod &lt;id&gt;</code>
-    </p>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mt-4">
+    <div class="kv-term">
+      <span class="cmd">kaval-tui create --host nix@prod</span>
+      <span class="cmd">kaval-tui list   --host nix@prod</span>
+      <span class="cmd">kaval-tui attach --host nix@prod &lt;id&gt;</span>
+    </div>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
       The remote daemon is <span class="text-ink">durable</span>: a terminal you
       create outlives the ssh link, so create on prod and attach to it later —
       even after you closed the laptop and changed networks. One shared daemon
@@ -310,7 +304,7 @@ const escapes = [
       with <code class="mono text-ink">--socket</code>; it needs passwordless ssh
       and your user trusted by the remote's Nix daemon.
     </p>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mt-4">
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
       A remote terminal runs in the <span class="text-ink">host's</span>{" "}
       environment, not yours: its <code class="mono text-ink">$SHELL</code>,{" "}
       <code class="mono text-ink">$HOME</code>, and{" "}
@@ -326,8 +320,8 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <h2 class="kv-head">what kaval owns</h2>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+    <h2 class="kv-head">what <span class="kv-prog">kaval</span> owns</h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
       Under the daemon sits a single primitive — a multi-client PTY owner. One
       host owns any number of PTYs; each PTY is a real shell child paired with a
       headless screen mirror, fanned out to any number of consumers. It owns{" "}
@@ -339,7 +333,7 @@ const escapes = [
     <div class="mt-5 grid sm:grid-cols-2 gap-x-8 gap-y-5">
       <div>
         <p class="mono text-ink text-sm mb-1.5">race-free attach</p>
-        <p class="text-ink-dim text-sm leading-relaxed">
+        <p class="text-ink-dim text-[0.95rem] leading-relaxed">
           A late-joining client gets a screen snapshot and then live deltas with
           no gap and no overlap — every byte lands in exactly one of the two, so
           the screen reconstructs perfectly and then streams.
@@ -347,7 +341,7 @@ const escapes = [
       </div>
       <div>
         <p class="mono text-ink text-sm mb-1.5">drop-slow-subscriber</p>
-        <p class="text-ink-dim text-sm leading-relaxed">
+        <p class="text-ink-dim text-[0.95rem] leading-relaxed">
           A wedged client that stops draining its output is dropped rather than
           pinning the daemon's memory without bound — kaval-tui then transparently
           re-subscribes and gets a fresh snapshot.
@@ -355,23 +349,28 @@ const escapes = [
       </div>
     </div>
     <div class="mt-6 grid grid-cols-[7rem_1fr] gap-x-6 gap-y-2.5 max-w-xl">
-      <h3 class="kv-subhead !mb-0 col-span-2">taps kaval surfaces per terminal</h3>
+      <h3 class="kv-subhead !mb-0 col-span-2">
+        taps <span class="kv-prog">kaval</span> surfaces per terminal
+      </h3>
       <code class="mono text-ink text-sm">screen</code>
-      <p class="text-ink-dim text-sm leading-relaxed">snapshot + live deltas</p>
+      <p class="text-ink-dim text-[0.95rem] leading-relaxed">snapshot + live deltas</p>
       <code class="mono text-ink text-sm">cwd</code>
-      <p class="text-ink-dim text-sm leading-relaxed">from OSC 7 reports</p>
+      <p class="text-ink-dim text-[0.95rem] leading-relaxed">from OSC 7 reports</p>
       <code class="mono text-ink text-sm">title</code>
-      <p class="text-ink-dim text-sm leading-relaxed">from OSC 0/2 changes</p>
+      <p class="text-ink-dim text-[0.95rem] leading-relaxed">from OSC 0/2 changes</p>
       <code class="mono text-ink text-sm">command</code>
-      <p class="text-ink-dim text-sm leading-relaxed">from OSC 633 preexec</p>
+      <p class="text-ink-dim text-[0.95rem] leading-relaxed">from OSC 633 preexec</p>
       <code class="mono text-ink text-sm">exit</code>
-      <p class="text-ink-dim text-sm leading-relaxed">the child's exit code</p>
+      <p class="text-ink-dim text-[0.95rem] leading-relaxed">the child's exit code</p>
     </div>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <h2 class="kv-head">the sibling — arivu, awareness over kaval</h2>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+    <h2 class="kv-head">
+      the sibling — <span class="kv-prog">arivu</span>, awareness over{" "}
+      <span class="kv-prog">kaval</span>
+    </h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
       kaval owns the PTYs and surfaces the raw taps above;{" "}
       <code class="mono text-ink">arivu</code> (Tamil <em>aṟivu</em> — "the
       faculty of knowing") is the sibling that turns them into{" "}
@@ -384,19 +383,19 @@ const escapes = [
       browser; the runtime is just{" "}
       <code class="mono text-ink">node · git · gh</code>.
     </p>
-    <p class="mono text-ink-dim text-sm leading-relaxed mt-4 max-w-xl">
-      <code class="text-ink">nix run github:juspay/kolu#arivu</code>
-      <span class="text-ink-muted"> # awareness over the running kaval</span>
-      <br />
-      <code class="text-ink">nix run github:juspay/kolu#arivu-tui -- list</code>
-    </p>
+    <div class="kv-term">
+      <span class="cmd"
+        >nix run github:juspay/kolu#arivu<span class="cmt">       # awareness over the running kaval</span></span
+      >
+      <span class="cmd">nix run github:juspay/kolu#arivu-tui -- list</span>
+    </div>
     <pre
       class="mt-4 overflow-x-auto rounded-lg border border-rule px-4 py-3 mono text-xs text-ink-dim leading-relaxed"
     ><code>ID        BRANCH         PR        AGENT             FOREGROUND
 a3f10000  feat/dial-ssh  #1412 ✓   claude · working  node
 b7c20000  master         —         codex · waiting   codex
 c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mt-4">
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
       Where <code class="mono text-ink">kaval-tui</code> shows what's{" "}
       <em>running</em> in each PTY, <code class="mono text-ink">arivu-tui</code>{" "}
       shows what each terminal <em>is in</em> — a "what is every agent doing,
@@ -413,7 +412,7 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <h2 class="kv-head">commands · kaval-tui</h2>
+    <h2 class="kv-head">commands · <span class="kv-prog">kaval-tui</span></h2>
     {
       commands.map((c) => (
         <div class="border-t border-rule py-5 grid md:grid-cols-[16rem_1fr] gap-2 md:gap-8">
@@ -423,7 +422,7 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
               <div class="mono text-ink-dim text-xs mt-1">{c.flags}</div>
             )}
           </div>
-          <p class="text-ink-dim text-sm leading-relaxed">{c.what}</p>
+          <p class="text-ink-dim text-[0.95rem] leading-relaxed">{c.what}</p>
         </div>
       ))
     }
@@ -431,7 +430,7 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
     <h2 class="kv-head">detaching — the ssh model</h2>
-    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
       While attached, <em>nothing</em> is intercepted except a{" "}
       <code class="mono text-ink">~</code> typed at the start of a line
       (right after Enter — session start counts too). Mid-line tildes, every
@@ -443,20 +442,20 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
         escapes.map((e) => (
           <div class="border-t border-rule py-3.5 grid grid-cols-[5rem_1fr] gap-6">
             <code class="mono text-amber text-sm">{e.keys}</code>
-            <p class="text-ink-dim text-sm leading-relaxed">{e.what}</p>
+            <p class="text-ink-dim text-[0.95rem] leading-relaxed">{e.what}</p>
           </div>
         ))
       }
     </div>
-    <p class="mono text-ink-dim text-sm leading-relaxed mt-5">
-      // ~ clashes (nested ssh?) — rebind it:{" "}
-      <code class="text-ink">kaval-tui attach &lt;id&gt; --escape %</code>
-    </p>
+    <div class="kv-term">
+      <span class="note">// ~ clashes (nested ssh?) — rebind it:</span>
+      <span class="cmd">kaval-tui attach &lt;id&gt; --escape %</span>
+    </div>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-24">
     <h2 class="kv-head">fine print</h2>
-    <ul class="text-ink-dim text-sm leading-relaxed max-w-xl space-y-3">
+    <ul class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl space-y-3">
       <li>
         A standalone kaval's socket lives at{" "}
         <code class="mono text-ink">$XDG_RUNTIME_DIR/kaval/pty-host.sock</code>{" "}
@@ -519,38 +518,51 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
      same lowercase tech-sans as the hero, with a tall electric-purple bar as
      the section marker — the accent grounds the heading instead of *being* it. */
   .kv-head {
-    display: flex;
-    align-items: center;
-    gap: 0.9rem;
+    position: relative;
     margin-top: 0.2rem;
     margin-bottom: 1.6rem;
+    padding-left: 1.15rem;
     font-family: var(--font-sans);
     font-size: clamp(1.7rem, 1.05rem + 2.1vw, 2.35rem);
     font-weight: 700;
     letter-spacing: -0.03em;
-    line-height: 1.02;
+    line-height: 1.12;
     color: var(--color-ink);
     text-transform: none;
+    text-wrap: balance;
   }
+  /* Accent bar as an absolutely-positioned rail, NOT a flex sibling — so the
+     heading text (with inline program-name spans) flows as normal prose
+     instead of every word becoming a spread-apart flex item. */
   .kv-head::before {
     content: "";
-    flex: none;
-    align-self: stretch;
+    position: absolute;
+    left: 0;
+    top: 0.16em;
+    bottom: 0.16em;
     width: 5px;
-    min-height: 1.15em;
     border-radius: 3px;
     background: var(--color-amber);
     box-shadow: 0 0 14px -1px
       color-mix(in srgb, var(--color-amber) 60%, transparent);
   }
 
+  /* Program names inside a heading (kaval, kolu, arivu, kaval-tui) — they are
+     code identifiers, so set them apart from the prose: amber, in the mono
+     face, sized and weighted to sit flush with the bold sans around them. */
+  .kv-prog {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    font-size: 0.82em;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--color-amber);
+  }
+
   /* Sub-heading inside a section (e.g. "taps kaval surfaces"). A clear step
      below the H2 but still a real heading — semibold tech-sans, ink, led by an
-     amber terminal caret that echoes the PTY rows in the diagram. */
+     amber terminal caret. Plain inline flow so program-name spans don't break. */
   .kv-subhead {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.55rem;
     font-family: var(--font-sans);
     font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.2rem);
     font-weight: 650;
@@ -559,10 +571,60 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
     text-transform: none;
   }
   .kv-subhead::before {
-    content: "▸";
-    font-size: 0.85em;
+    content: "▸ ";
     font-weight: 700;
     color: var(--color-amber);
+  }
+
+  /* Terminal command card — the page is about a terminal tool, so commands
+     live in a real prompt block (one sunk panel, an amber `$` per line),
+     not a scattered row of individually-bordered inline pills. */
+  .kv-term {
+    margin-top: 1.1rem;
+    max-width: 36rem;
+    border: 1px solid var(--color-rule);
+    border-radius: 0.7rem;
+    background: var(--color-void-sunk);
+    padding: 0.95rem 1.1rem;
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    font-size: 0.85rem;
+    line-height: 1.95;
+    overflow-x: auto;
+  }
+  .kv-term .cmd {
+    display: block;
+    white-space: pre;
+    color: var(--color-ink);
+  }
+  .kv-term .cmd::before {
+    content: "$ ";
+    color: var(--color-amber);
+    font-weight: 600;
+  }
+  .kv-term .cmt {
+    color: var(--color-ink-muted);
+  }
+  .kv-term .note {
+    display: block;
+    white-space: pre;
+    color: var(--color-ink-muted);
+  }
+
+  /* Numbered step badge for "run the pair" — an amber-tinted chip, not a bare
+     digit floating in the margin. */
+  .kv-step {
+    display: grid;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-amber) 42%, transparent);
+    color: var(--color-amber);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 700;
   }
 
   /* "How it fits together" architecture diagram. Colours pull from the global
