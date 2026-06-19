@@ -1,6 +1,6 @@
 /** Per-terminal provider DAG, parameterized over `ProviderHooks` +
  *  `ProviderChannels` + `ProviderRecord` so the host is the only thing
- *  that varies. kolu-server's local endpoint (`./local.ts`) instantiates it,
+ *  that varies. kolu-server's local endpoint (`local.ts`) instantiates it,
  *  feeding it the pty-host's raw taps over the `ptyHostSurface` contract; a
  *  remote ssh pty-host serves the same taps in #951 R-2 — same DAG, different
  *  transport.
@@ -67,11 +67,11 @@ import type {
 import { opencodeProvider } from "kolu-opencode";
 import type { ForegroundSample } from "kaval";
 import type { Channel } from "@kolu/surface/server";
-import { log } from "../log.ts";
+import type { Logger } from "pino";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 
 /** Minimal "terminal record" shape the provider DAG needs. The local endpoint
- *  (`./local.ts`) constructs one per terminal; the providers only touch
+ *  (`local.ts`) constructs one per terminal; the providers only touch
  *  `pid` + `meta` + `currentAgent` from here. `meta` is
  *  `TerminalServerMetadata` — the canonical
  *  `ServerPersistedTerminalFields ∪ LiveTerminalFields` union from
@@ -94,7 +94,7 @@ export interface ProviderRecord {
 }
 
 /** Per-terminal channels the providers subscribe to. The local endpoint
- *  (`./local.ts`) creates a fresh in-memory channel of each kind per terminal
+ *  (`local.ts`) creates a fresh in-memory channel of each kind per terminal
  *  and feeds them from the pty-host's tap streams; a remote pty-host serves
  *  the same taps. */
 export interface ProviderChannels {
@@ -115,7 +115,7 @@ export interface ProviderChannels {
  *  `metadata.ts` enforces): writing `m.agent` through
  *  `updateServerMetadata` is a compile error, so the
  *  `terminals:dirty` autosave firehose can't be reintroduced by a new
- *  provider. The local endpoint (`makeHooks` in `./local.ts`) wires these
+ *  provider. The local endpoint (`makeHooks` in `local.ts`) wires these
  *  straight to kolu-server's metadata + activity surfaces; the same fence
  *  applies there.
  *
@@ -165,6 +165,7 @@ function startProcessProvider(
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
+  log: Logger,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
   // Foreground `{name, title}` — one concept, two coherent fields, so it's one
@@ -223,6 +224,7 @@ function startGitProvider(
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
+  log: Logger,
 ): () => void {
   const plog = log.child({ provider: "git", terminal: terminalId });
   plog.debug({ cwd: record.meta.cwd }, "started");
@@ -302,6 +304,7 @@ function startPrProvider(
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
+  log: Logger,
 ): () => void {
   const plog = log.child({ provider: "pr", terminal: terminalId });
   plog.debug("started");
@@ -354,6 +357,7 @@ function startAgentCommandTracker(
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
+  log: Logger,
 ): () => void {
   return channels.commandRun.consume({
     onEvent: (raw) => {
@@ -486,6 +490,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
+  log: Logger,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
   let current: {
@@ -779,7 +784,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
 }
 
 /** Start every per-terminal provider for one terminal. The local endpoint
- *  (`./local.ts`) calls this with its channels + hooks. Provider order matters
+ *  (`local.ts`) calls this with its channels + hooks + a logger. Provider order matters
  *  only for the agent-command tracker — it must come first so its stash is
  *  populated before agent detectors reconcile. */
 export function startProviders(
@@ -787,21 +792,24 @@ export function startProviders(
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
+  log: Logger,
 ): () => void {
   const stopAgentCommand = startAgentCommandTracker(
     record,
     terminalId,
     channels,
     hooks,
+    log,
   );
-  const stopGit = startGitProvider(record, terminalId, channels, hooks);
-  const stopPr = startPrProvider(record, terminalId, channels, hooks);
+  const stopGit = startGitProvider(record, terminalId, channels, hooks, log);
+  const stopPr = startPrProvider(record, terminalId, channels, hooks, log);
   const stopClaude = startAgentProvider(
     claudeCodeProvider,
     record,
     terminalId,
     channels,
     hooks,
+    log,
   );
   const stopCodex = startAgentProvider(
     codexProvider,
@@ -809,6 +817,7 @@ export function startProviders(
     terminalId,
     channels,
     hooks,
+    log,
   );
   const stopOpenCode = startAgentProvider(
     opencodeProvider,
@@ -816,8 +825,15 @@ export function startProviders(
     terminalId,
     channels,
     hooks,
+    log,
   );
-  const stopProcess = startProcessProvider(record, terminalId, channels, hooks);
+  const stopProcess = startProcessProvider(
+    record,
+    terminalId,
+    channels,
+    hooks,
+    log,
+  );
   return () => {
     stopAgentCommand();
     stopGit();
