@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 660" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Sleep and Wake are session-restore scoped to one terminal: sleep snapshots the live terminal into a new sleepingTerminals cell and tears down the PTY; the cell is projected as a sleeping tile on the canvas, a sleeping row in the Dock, and a sleeping card in the switcher; Wake replays the saved record through the existing handleRestoreSession and resumes the agent in place.">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5f6b80"/>
+    </marker>
+    <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1B7A3A"/>
+    </marker>
+    <style>
+      .live  { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.6; }
+      .reuse { fill:#E6F4EA; stroke:#1B7A3A; stroke-width:1.6; }
+      .new   { fill:#FBF1DC; stroke:#B8860B; stroke-width:1.6; }
+      .ntitle { fill:#0A0F25; font-size:14.5px; font-weight:650; }
+      .nsub   { fill:#5b6470; font-size:11.5px; }
+      .nmono  { fill:#0A2A14; font-size:12.5px; font-weight:650; font-family:ui-monospace,monospace; }
+      .nmonoA { fill:#5a3a00; font-size:12.5px; font-weight:650; font-family:ui-monospace,monospace; }
+      .edge   { stroke:#5f6b80; stroke-width:1.7; fill:none; }
+      .edgeG  { stroke:#1B7A3A; stroke-width:1.9; fill:none; }
+      .edgeF  { stroke:#5f6b80; stroke-width:1.4; fill:none; stroke-dasharray:4 4; }
+      .echip  { fill:#ffffff; stroke:#9aa3b2; stroke-width:1; }
+      .elabel { fill:#27303f; font-size:11.5px; }
+      .step   { fill:#0A0F25; font-size:12px; font-weight:700; }
+      .legtxt { fill:#27303f; font-size:11.5px; }
+    </style>
+  </defs>
+
+  <!-- title + legend -->
+  <text class="title" x="40" y="30" fill="#0A0F25" font-size="15" font-weight="700">Sleep / Wake — session-restore, scoped to one terminal</text>
+  <rect x="606" y="18" width="14" height="14" rx="3" class="reuse"/>
+  <text class="legtxt" x="626" y="30">reused verbatim</text>
+  <rect x="748" y="18" width="14" height="14" rx="3" class="new"/>
+  <text class="legtxt" x="768" y="30">new surface</text>
+  <rect x="876" y="18" width="14" height="14" rx="3" class="live"/>
+  <text class="legtxt" x="896" y="30">live</text>
+
+  <!-- LEFT COLUMN: the lifecycle cycle -->
+  <rect class="live" x="90" y="66" width="240" height="86" rx="9"/>
+  <text class="ntitle" x="110" y="98">Live terminal</text>
+  <text class="nsub"   x="110" y="120">xterm · PTY · WebGL context</text>
+  <text class="nsub"   x="110" y="138">agent process</text>
+
+  <rect class="reuse" x="90" y="208" width="240" height="80" rx="9"/>
+  <text class="nmono"  x="110" y="238">snapshotTerminal(id)</text>
+  <text class="nsub"   x="110" y="258">strip pr/agent/foreground</text>
+  <text class="nsub"   x="110" y="276">→ SavedTerminal[ ] (+ subs)</text>
+
+  <rect class="reuse" x="382" y="214" width="184" height="68" rx="9"/>
+  <text class="nmono"  x="400" y="242">handleKillWithSubs</text>
+  <text class="nsub"   x="400" y="264">free PTY · WebGL · xterm</text>
+
+  <rect class="new" x="90" y="348" width="240" height="100" rx="9"/>
+  <text class="nmonoA" x="110" y="378">sleepingTerminals</text>
+  <text class="nsub"   x="110" y="398">surface cell · conf / on disk</text>
+  <text class="nsub"   x="110" y="416">read-only stream to client</text>
+  <text class="nsub"   x="110" y="434">peer of the `session` cell</text>
+
+  <rect class="reuse" x="90" y="520" width="252" height="92" rx="9"/>
+  <text class="nmono"  x="110" y="550">handleRestoreSession</text>
+  <text class="nmono"  x="110" y="568">  ({ session })</text>
+  <text class="nsub"   x="110" y="590">respawn + resumeAgentCommand</text>
+
+  <!-- RIGHT COLUMN: the sleeping projections -->
+  <rect class="new" x="650" y="86" width="300" height="120" rx="9"/>
+  <text class="ntitle" x="672" y="116">Sleeping tile — canvas slot</text>
+  <text class="nsub"   x="672" y="138">holds its position, sized to</text>
+  <text class="nsub"   x="672" y="156">content · dimmed · ☾</text>
+  <text class="nsub"   x="672" y="180">click to wake in place</text>
+  <text class="nsub"   x="672" y="198">(canvas mode)</text>
+
+  <rect class="new" x="650" y="240" width="300" height="86" rx="9"/>
+  <text class="ntitle" x="672" y="270">Sleeping row — Dock</text>
+  <text class="nsub"   x="672" y="292">new `sleeping` bucket + pip glyph</text>
+  <text class="nsub"   x="672" y="312">present in both modes</text>
+
+  <rect class="new" x="650" y="360" width="300" height="86" rx="9"/>
+  <text class="ntitle" x="672" y="390">Sleeping card — switcher</text>
+  <text class="nsub"   x="672" y="412">Sleeping column in WorkspaceGrid</text>
+  <text class="nsub"   x="672" y="432">carries intent · $PWD · agent</text>
+
+  <!-- EDGES: sleep pipeline -->
+  <path class="edge" d="M210 152 L210 208" marker-end="url(#arr)"/>
+  <rect class="echip" x="222" y="168" width="62" height="20" rx="5"/>
+  <text class="step"  x="231" y="182">① Sleep</text>
+
+  <path class="edge" d="M330 248 L382 248" marker-end="url(#arr)"/>
+  <rect class="echip" x="336" y="196" width="48" height="19" rx="5"/>
+  <text class="step"  x="343" y="210">③ kill</text>
+
+  <path class="edge" d="M210 288 L210 348" marker-end="url(#arr)"/>
+  <rect class="echip" x="222" y="306" width="104" height="20" rx="5"/>
+  <text class="elabel" x="230" y="320">② persist first</text>
+
+  <!-- EDGES: cell → sleeping projections (read-only stream, both modes) -->
+  <path class="edgeF" d="M330 372 C 470 360, 520 150, 650 146" marker-end="url(#arr)"/>
+  <path class="edgeF" d="M330 392 C 480 392, 520 284, 650 283" marker-end="url(#arr)"/>
+  <path class="edgeF" d="M330 416 C 470 430, 520 404, 650 403" marker-end="url(#arr)"/>
+  <rect class="echip" x="396" y="332" width="156" height="20" rx="5"/>
+  <text class="elabel" x="404" y="346">render · read-only stream</text>
+
+  <!-- EDGE: wake (click a sleeping surface) → restore -->
+  <path class="edge" d="M650 403 C 470 470, 430 566, 342 566" marker-end="url(#arr)"/>
+  <rect class="echip" x="436" y="508" width="112" height="20" rx="5"/>
+  <text class="step"  x="444" y="522">④ Wake (click)</text>
+
+  <!-- EDGE: restore → live (close the loop, far-left arc) -->
+  <path class="edgeG" d="M90 560 C 44 560, 44 110, 90 110" marker-end="url(#arrG)"/>
+  <text class="elabel" x="20" y="330" transform="rotate(-90 20 330)" fill="#1B7A3A">agent resumed in place</text>
+</svg>
