@@ -50,6 +50,18 @@ export interface CategoryGroup {
 export const toParents = (p: string | string[] | undefined): string[] =>
   p === undefined ? [] : Array.isArray(p) ? p : [p];
 
+/** Resolve a note's `parents` to the ids of the notes it actually edges to: drop
+ *  self-references and parents that name no existing note. The edge semantics —
+ *  "a `parents` entry whose target exists is an edge; self/missing drops" — live
+ *  here once, so the index's tree and the backlink graph agree on what an edge is. */
+export const resolveParents = (
+  noteById: Map<string, CollectionEntry<"atlas">>,
+  note: CollectionEntry<"atlas">,
+): string[] =>
+  toParents(note.data.parents).filter(
+    (pid) => pid !== note.id && noteById.has(pid),
+  );
+
 // Pin the collation locale so the build is idempotent across machines — a bare
 // localeCompare() follows the host's LANG/LC_COLLATE, which would reorder the
 // index (and churn the committed dist) on a differently-configured box.
@@ -81,9 +93,7 @@ export function buildCategoryGroups(
   for (const n of notes) {
     const node = nodes.get(n.id)!;
     const cat = n.data.kind as Category;
-    const parentIds = toParents(n.data.parents).filter(
-      (pid) => pid !== n.id && noteById.has(pid),
-    );
+    const parentIds = resolveParents(noteById, n);
     const sameCat = parentIds.filter(
       (pid) => noteById.get(pid)!.data.kind === cat,
     );

@@ -1,5 +1,5 @@
 import type { CollectionEntry } from "astro:content";
-import { toParents } from "./indexTree";
+import { resolveParents } from "./indexTree";
 
 /** A reference to another note — the shape a backlink renders from. */
 export interface NoteRef {
@@ -58,9 +58,7 @@ export function buildAtlasGraph(notes: CollectionEntry<"atlas">[]): AtlasGraph {
       }
       link(target, n.id);
     }
-    for (const pid of toParents(n.data.parents)) {
-      if (byId.has(pid)) link(pid, n.id);
-    }
+    for (const pid of resolveParents(byId, n)) link(pid, n.id);
   }
 
   // Pin the collation locale so the order is host-independent (check-sync).
