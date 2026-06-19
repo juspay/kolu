@@ -254,7 +254,11 @@ const App: Component = () => {
   const mode = createMemo<CanvasMode>(() =>
     canvasMode({
       isLoading: session.isLoading,
-      terminalCount: () => store.terminalIds().length,
+      // Sleeping tiles count as canvas content: with the last live terminal
+      // slept, the canvas must stay mounted so its folded sleeping tiles show
+      // — otherwise the empty-state welcome card would hide them.
+      terminalCount: () =>
+        store.terminalIds().length + sleeping.records().length,
     }),
   );
   // Narrow the tagged union for the down/warming arms. Plain functions, not
