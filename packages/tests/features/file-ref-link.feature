@@ -105,6 +105,76 @@ Feature: File-ref autolinking in terminal
     Then the directory "lib/ui" should be expanded in the file browser
     And the file browser should show a file "lib/ui/button.ts"
 
+  Scenario: Clicking a single-segment trailing-slash folder ref reveals the directory
+    # `ls -F` prints top-level directories as `src/`. The trailing slash must be
+    # part of the clickable token (the regex used to drop it / not match a
+    # single-segment folder at all), and the click reveals the directory in the
+    # All-files tree just like a multi-segment folder ref.
+    When I run "git init /tmp/kolu-file-ref-folder-slash && cd /tmp/kolu-file-ref-folder-slash"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p widgets && (cd widgets && printf 'a\n' > one.txt && printf 'b\n' > two.txt)"
+    And I run "git add . && git commit -m files"
+    And I run "echo 'inspect widgets/ now'"
+    And I trigger the terminal file-ref link "widgets/"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the Code tab mode should be "browse"
+    And the directory "widgets" should be expanded in the file browser
+    And the file browser should show a file "widgets/one.txt"
+
+  Scenario: Clicking a folder ref while a non-matching filter is active still reveals it
+    # The folder reveal resolves against the FULL repo tree, but the mounted tree
+    # shows only the filtered projection. A folder outside the active filter has
+    # no row to reveal, so the request would be silently consumed with nothing on
+    # screen. The directory branch clears the filter first, so the target row
+    # exists and the reveal lands.
+    #
+    # Open the browser + apply the filter through the UI (not a prior terminal
+    # ref-click) so the scenario exercises exactly one terminal ref-click — the
+    # folder click under an active, non-matching filter.
+    When I run "git init /tmp/kolu-file-ref-folder-filter && cd /tmp/kolu-file-ref-folder-filter"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p tools && (cd tools && printf 'a\n' > build.ts && printf 'b\n' > lint.ts)"
+    And I run "mkdir -p lib && (cd lib && printf 'x\n' > index.ts)"
+    And I run "git add . && git commit -m files"
+    And I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the Code tab
+    And I click the Code tab mode "browse"
+    # Filter to `index` so only `lib/index.ts` projects — `tools/` is hidden.
+    And I type "index" into the Code tab filter
+    Then the file browser should not show a file "tools/build.ts"
+    When I run "echo 'inspect tools/ now'"
+    And I trigger the terminal file-ref link "tools/"
+    Then the directory "tools" should be expanded in the file browser
+    And the file browser should show a file "tools/build.ts"
+    And the Code tab filter input should contain ""
+
+  Scenario: A folder ref with a line suffix fails closed instead of revealing the folder
+    # `mods/core:12` carries a `:line`, which only makes sense for a file. The
+    # resolver must NOT reveal `mods/core/` and silently drop the `:12` — it fails
+    # closed to the not-found toast, leaving the folder collapsed (its child stays
+    # hidden). The browser is opened via the UI and `mods/` expanded by a tree
+    # click so `core/` shows as a collapsed sibling row; the single terminal
+    # ref-click on `mods/core:12` must NOT expand it or surface its child.
+    When I run "git init /tmp/kolu-file-ref-folder-line && cd /tmp/kolu-file-ref-folder-line"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p mods && (cd mods && mkdir -p core && printf 'a\n' > core/one.txt && printf 'x\n' > main.txt)"
+    And I run "git add . && git commit -m files"
+    And I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the Code tab
+    And I click the Code tab mode "browse"
+    # Expand `mods/` so `core/` is a visible collapsed row; its child is hidden.
+    And I click the directory "mods" in the file browser
+    Then the file browser should show a directory "mods/core"
+    And the file browser should not show a file "mods/core/one.txt"
+    When I run "echo 'now try mods/core:12 which is a folder'"
+    And I trigger the terminal file-ref link "mods/core:12"
+    # The `:12` must not turn into a folder reveal — `core/` stays collapsed, so
+    # its child remains hidden.
+    Then the file browser should not show a file "mods/core/one.txt"
+
   Scenario: Clicking a bare path (no line number) opens the file with no selection
     When I run "git init /tmp/kolu-file-ref-noline && cd /tmp/kolu-file-ref-noline"
     And I run "git commit --allow-empty -m init"

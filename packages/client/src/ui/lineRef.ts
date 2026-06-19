@@ -51,8 +51,15 @@ export function formatLineRef(
 const PATH_CHARS = "[\\p{L}\\p{M}\\p{N}_.+@-]";
 const LINE_REF_RE = new RegExp(
   // Two path shapes:
-  //   1. slash-containing: optional `./`, `../`, or `/` prefix, then
-  //      one or more `segment/` followed by a final segment;
+  //   1. slash-containing: optional `./`, `../`, or `/` prefix, then one
+  //      or more `segment/` followed by an *optional* final segment. The
+  //      final segment is `*` (not `+`) so a trailing-slash folder ref
+  //      keeps its slash in the match: `packages/client/` links the whole
+  //      token, not just `packages/client`, and a single-segment folder
+  //      `src/` (the `(?:seg/)+` matched once, final segment empty) links
+  //      too — matching the docs/tip examples and `ls -F` directory
+  //      output. The `(?:seg/)+` still requires at least one real
+  //      `segment/`, so a bare `/` can never match on its own.
   //   2. bare filename with a letter-led extension (`Type.hs`,
   //      `package.json`) — letter-led extension rejects IPv4-style
   //      `192.168.1.1:8080` and version strings like `1.2.3:5`. The
@@ -61,7 +68,7 @@ const LINE_REF_RE = new RegExp(
   // Both branches require either a `/` or a `.ext`, which keeps plain
   // words (`react`, `init`) from getting linkified when the `:N`
   // suffix is absent.
-  `((?:\\.\\.?\\/|\\/)?(?:${PATH_CHARS}+\\/)+${PATH_CHARS}+|${PATH_CHARS}+\\.\\p{L}[\\p{L}\\p{M}\\p{N}_]*)` +
+  `((?:\\.\\.?\\/|\\/)?(?:${PATH_CHARS}+\\/)+${PATH_CHARS}*|${PATH_CHARS}+\\.\\p{L}[\\p{L}\\p{M}\\p{N}_]*)` +
     // Optional `:line[:col|-end]`. When absent the bare path links to
     // the file with no line selected.
     `(?::(\\d+)(?::\\d+|-(\\d+))?)?` +
@@ -148,7 +155,10 @@ export type ResolvedRef =
  *    1. an exact path that names a **file** — unambiguous, take it;
  *    2. an exact path that names a **directory** — a slash path like
  *       `src/core` reveals that folder *before* the fuzzy basename guess, so a
- *       real directory is never shadowed by a same-named file elsewhere;
+ *       real directory is never shadowed by a same-named file elsewhere.
+ *       Skipped when `hasLine` is set: a `:N` suffix only makes sense for a
+ *       file, so `app/core:12` must not silently reveal `app/core/` and drop
+ *       the line — it fails closed to the not-found toast instead;
  *    3. a unique-**basename** file fallback — compiler output often prints just
  *       `Foo.hs:42` without the `src/lib/` prefix (#898). Fires only when the
  *       basename is unique; ambiguous matches stay null since opening the wrong
@@ -169,13 +179,19 @@ export type ResolvedRef =
  *    relative link (#1161) carries GitHub-style exact semantics:
  *    `[guide](docs/guide.md)` must open exactly `docs/guide.md` or
  *    fail, never silently open a same-basename `src/guide.md`. Only step 3
- *    is gated; the exact file and directory steps always apply. */
+ *    is gated; the exact file and directory steps always apply.
+ *
+ *  - `hasLine`: the ref carried a `:N` line suffix. A line number only makes
+ *    sense for a file, so when set the directory step (2) is skipped — a folder
+ *    can never satisfy a line-bearing ref. Defaults to false (a bare path may be
+ *    a folder). */
 export function resolveRef(args: {
   rawPath: string;
   repoRoot: string;
   cwd: string | undefined;
   repoPaths: readonly string[];
   allowBasenameFallback?: boolean;
+  hasLine?: boolean;
 }): ResolvedRef | null {
   const { byNorm, byBasename, byDir } = buildNormalizedIndex(args.repoPaths);
   // 1. Exact file.
@@ -187,7 +203,10 @@ export function resolveRef(args: {
   // 2. Exact directory — checked before the basename fallback so `src/core`
   //    reveals the folder rather than guessing at a stray `core` file. An empty
   //    candidate (the repo root itself) names no folder row, so skip it.
+  //    Skipped entirely for a line-bearing ref: `app/core:12` means a file, so
+  //    a directory match would wrongly reveal `app/core/` and lose the `:12`.
   for (const candidate of candidates(args)) {
+    if (args.hasLine) break;
     if (candidate === "") continue;
     const hit = byDir.get(`${candidate}/`.normalize("NFC"));
     if (hit !== undefined && hit !== AMBIGUOUS) {

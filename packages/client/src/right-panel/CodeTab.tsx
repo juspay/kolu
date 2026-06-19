@@ -470,6 +470,10 @@ const CodeTab: Component<{
           cwd: req.cwd,
           repoPaths: paths,
           allowBasenameFallback: req.allowBasenameFallback,
+          // A `:N` line suffix means the user pointed at a *file* line — a
+          // directory match would wrongly reveal the folder and drop the line,
+          // so gate the folder-reveal step off when a line is present.
+          hasLine: req.ref.startLine !== null,
         });
         if (resolved === null) {
           toast.error(`File reference not found: ${req.ref.path}`);
@@ -482,6 +486,14 @@ const CodeTab: Component<{
           // the request leaves no line highlight, mirroring the not-found
           // branch. The reveal isn't a content navigation, so it's not
           // recorded in back/forward history.
+          //
+          // Resolution ran against the full `treePaths()`, but the mounted
+          // tree shows `treeSearch().projectedPaths` — a *filtered* set when a
+          // browse search is active. A folder outside the current filter has no
+          // row to reveal, so the request would be silently consumed with
+          // nothing on screen. Clear the search first: the projection falls
+          // back to the full tree, the target row exists, and the reveal lands.
+          setSearchQuery("");
           setRevealDir({ path: resolved.path });
           setHandled({ request: req, resolvedPath: null });
           return;

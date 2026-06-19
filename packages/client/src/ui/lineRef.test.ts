@@ -126,6 +126,38 @@ describe("parseLineRefs", () => {
     });
   });
 
+  it("matches a single-segment trailing-slash folder ref and keeps the slash", () => {
+    // `ls -F` prints top-level directories as `src/`. The trailing slash must
+    // stay inside the link range so the whole visible token is clickable.
+    const refs = parseLineRefs("see src/ for sources");
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({
+      path: "src/",
+      startLine: null,
+      endLine: null,
+      text: "src/",
+    });
+  });
+
+  it("matches a multi-segment trailing-slash folder ref and keeps the slash", () => {
+    // The docs/tip examples use `packages/client/`; the slash must be part of
+    // the match, not left outside the link (the old `+`-final-segment regex
+    // stopped at `packages/client`).
+    const refs = parseLineRefs("open packages/client/ in the tree");
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({
+      path: "packages/client/",
+      startLine: null,
+      endLine: null,
+      text: "packages/client/",
+    });
+  });
+
+  it("linkifies each directory in `ls -F` style output", () => {
+    const refs = parseLineRefs("src/ dist/ node_modules/");
+    expect(refs.map((r) => r.path)).toEqual(["src/", "dist/", "node_modules/"]);
+  });
+
   it("matches a bare filename with an extension and no line number", () => {
     const refs = parseLineRefs("open Main.hs to start");
     expect(refs).toHaveLength(1);
@@ -535,6 +567,35 @@ describe("resolveRef", () => {
         allowBasenameFallback: false,
       }),
     ).toEqual(dir("src/lib/"));
+  });
+
+  it("does not reveal a directory for a line-bearing ref", () => {
+    // `app/core:12` carries a `:line` suffix, which only makes sense for a
+    // file. A directory match would silently reveal `app/core/` and drop the
+    // `:12`, so a line-bearing folder ref must fail closed to not-found.
+    expect(
+      resolveRef({
+        rawPath: "src/lib",
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths: dirRepoPaths,
+        hasLine: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("still resolves an exact file for a line-bearing ref", () => {
+    // The line gate only suppresses the *directory* step — a real file with a
+    // `:line` still resolves (and the caller paints the highlight).
+    expect(
+      resolveRef({
+        rawPath: "src/app.ts",
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths: dirRepoPaths,
+        hasLine: true,
+      }),
+    ).toEqual(file("src/app.ts"));
   });
 
   it("returns null for a path that is neither a file nor a directory", () => {
