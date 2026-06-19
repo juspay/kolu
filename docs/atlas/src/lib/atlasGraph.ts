@@ -1,11 +1,6 @@
 import type { CollectionEntry } from "astro:content";
 import { resolveParents, titleCmp } from "./indexTree";
-
-/** A reference to another note — the shape a backlink renders from. */
-export interface NoteRef {
-  id: string;
-  title: string;
-}
+import type { NoteRef } from "./indexTree";
 
 // A note→note edge is authored two ways, both already part of the Atlas: a
 // relative `./<slug>.html` link in a note's prose, and a `parents` frontmatter

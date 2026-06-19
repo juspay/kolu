@@ -4,7 +4,7 @@
 // Links stay relative (`./slug.html`) so they resolve both in kolu's Code tab
 // and on the web at kolu.dev/atlas/. Renders nothing when a note has no inbound
 // links, so a leaf note simply omits the section.
-import type { NoteRef } from "../lib/atlasGraph";
+import type { NoteRef } from "../lib/indexTree";
 
 interface Props {
   notes: NoteRef[];

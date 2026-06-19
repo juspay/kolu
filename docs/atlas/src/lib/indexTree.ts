@@ -28,12 +28,20 @@ export const CATEGORY_META: Record<Category, { label: string; blurb: string }> =
     },
   };
 
+/** A clickable reference to another note — rendered as a relative `./<id>.html`
+ *  anchor with the title as link text. Shared by the index's `related` links and
+ *  the backlink graph (lib/atlasGraph), which denote the same concept. */
+export interface NoteRef {
+  id: string;
+  title: string;
+}
+
 export interface CatTreeNode {
   note: CollectionEntry<"atlas">;
   /** Children whose category matches this note's — the within-section hierarchy. */
   children: CatTreeNode[];
   /** Cross-category parents, dropped from the tree and surfaced as related links. */
-  related: { id: string; title: string }[];
+  related: NoteRef[];
 }
 
 export interface CategoryGroup {
