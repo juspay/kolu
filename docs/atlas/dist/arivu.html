@@ -196,7 +196,7 @@
 <span class="line"><span style="color:#6A737D">// ≡ { cwd, git, lastAgentCommand?, lastActivityAt, pr, agent, foreground }</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#D73A49">export</span><span style="color:#D73A49"> const</span><span style="color:#005CC5"> arivuSurface</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> defineSurface</span><span style="color:#24292E">({</span></span>
-<span class="line"><span style="color:#24292E">  cells: { meta: { schema: MetaSchema, default: </span><span style="color:#005CC5">DEFAULT_META</span><span style="color:#24292E"> } }, </span><span style="color:#6A737D">// contract version — the P3 handshake</span></span>
+<span class="line"><span style="color:#24292E">  cells: { version: { schema: VersionSchema, default: </span><span style="color:#005CC5">DEFAULT_VERSION</span><span style="color:#24292E"> } }, </span><span style="color:#6A737D">// the P3 contract-version handshake</span></span>
 <span class="line"><span style="color:#24292E">  collections: {</span></span>
 <span class="line"><span style="color:#24292E">    awareness: { keySchema: TerminalIdSchema, schema: AwarenessValueSchema },</span></span>
 <span class="line"><span style="color:#24292E">  },</span></span>
@@ -221,7 +221,7 @@
 <span class="line"><span style="color:#6F42C1">    updateServerLiveMetadata</span><span style="color:#24292E">: (</span><span style="color:#E36209">r</span><span style="color:#24292E">, </span><span style="color:#E36209">mutate</span><span style="color:#24292E">) </span><span style="color:#D73A49">=&gt;</span><span style="color:#24292E"> { </span><span style="color:#6F42C1">mutate</span><span style="color:#24292E">(r.meta); </span><span style="color:#6F42C1">publish</span><span style="color:#24292E">(r.meta); },</span></span>
 <span class="line"><span style="color:#6F42C1">    readScreenText</span><span style="color:#24292E">: (</span><span style="color:#E36209">n</span><span style="color:#24292E">) </span><span style="color:#D73A49">=&gt;</span><span style="color:#24292E"> kaval.surface.terminal.</span><span style="color:#6F42C1">getScreenText</span><span style="color:#24292E">({ id, tailLines: n }),</span></span>
 <span class="line"><span style="color:#24292E">  };</span></span>
-<span class="line"><span style="color:#D73A49">  return</span><span style="color:#6F42C1"> startProviders</span><span style="color:#24292E">(record, id, channels, hooks);</span></span>
+<span class="line"><span style="color:#D73A49">  return</span><span style="color:#6F42C1"> startProviders</span><span style="color:#24292E">(record, id, channels, hooks, ctx.log); </span><span style="color:#6A737D">// logger injected — the one coupling severed in the lift-out</span></span>
 <span class="line"><span style="color:#24292E">}</span></span></code></pre>
 <p>It then <strong>serves</strong> that surface — <code>serveOverStdio({ router, transport })</code> for the <code>--stdio</code>/ssh case, a local socket otherwise. <strong><code>arivu-tui</code></strong> is a thin surface <em>client</em>: it dials the daemon, reads <code>awareness</code> (snapshot-then-delta, per the framework), and renders rows.</p>
 <p>Two things to notice, because they are exactly what P1 <em>proves</em>:</p>

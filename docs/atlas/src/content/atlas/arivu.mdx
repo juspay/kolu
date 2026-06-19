@@ -131,7 +131,7 @@ export const AwarenessValueSchema = TerminalServerMetadataSchema.omit({ location
 // ≡ { cwd, git, lastAgentCommand?, lastActivityAt, pr, agent, foreground }
 
 export const arivuSurface = defineSurface({
-  cells: { meta: { schema: MetaSchema, default: DEFAULT_META } }, // contract version — the P3 handshake
+  cells: { version: { schema: VersionSchema, default: DEFAULT_VERSION } }, // the P3 contract-version handshake
   collections: {
     awareness: { keySchema: TerminalIdSchema, schema: AwarenessValueSchema },
   },
@@ -160,7 +160,7 @@ function watchTerminal(id: TerminalId, kaval: PtyHostClient, ctx: ArivuCtx): () 
     updateServerLiveMetadata: (r, mutate) => { mutate(r.meta); publish(r.meta); },
     readScreenText: (n) => kaval.surface.terminal.getScreenText({ id, tailLines: n }),
   };
-  return startProviders(record, id, channels, hooks);
+  return startProviders(record, id, channels, hooks, ctx.log); // logger injected — the one coupling severed in the lift-out
 }
 ```
 
