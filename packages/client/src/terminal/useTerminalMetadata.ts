@@ -31,8 +31,12 @@ import {
  *  same order. Serves as the `equals` gate on the `terminalIds` memo below: a
  *  metadata change that leaves the *set* of top-level terminals untouched (the
  *  common case — a git / PR / agent field updating on one terminal) keeps the
- *  prior array reference, so the display derivation never re-runs for an
- *  unchanged working set. This is the reactivity keystone of the performance map
+ *  prior array reference, so `terminalIds()` stops *notifying* downstream when
+ *  the set is unchanged. That spares dependants that key off the reference the
+ *  spurious recompute non-display writes (PR / agent / foreground) used to
+ *  trigger; display-relevant changes (git / cwd / parentId) still re-run
+ *  `displayInfos` via its own field-level subscriptions, as they should. This is
+ *  the reactivity keystone of the performance map
  *  (`docs/atlas/.../performance.mdx`). Order is significant — it drives sidebar
  *  position labels — so a reorder must invalidate. A bounded-algorithm leaf,
  *  deliberately domain-specific to terminal ids rather than a generic
@@ -64,10 +68,10 @@ export function useTerminalMetadata(deps: {
    *
    *  The `equals` gate keeps the prior array reference whenever a metadata
    *  change leaves the top-level id set unchanged (the common case), so
-   *  `displayInfos` and every other dependant skip a no-op recompute — the
-   *  reactivity keystone of the performance map. The accessor re-runs cheaply
-   *  on each metadata change; what it no longer does is *notify* downstream
-   *  when the set is identical. */
+   *  dependants keyed off the reference skip the no-op recompute an unchanged
+   *  set would otherwise trigger — the reactivity keystone of the performance
+   *  map. The accessor re-runs cheaply on each metadata change; what it no
+   *  longer does is *notify* downstream when the set is identical. */
   const terminalIds = createMemo<TerminalId[]>(
     () =>
       meta.keys().filter((id) => {
