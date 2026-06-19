@@ -47,7 +47,11 @@ import type {
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
-import { agentInfoEqual, parseAgentCommand } from "anyagent";
+import {
+  agentInfoEqual,
+  agentNameFromCommand,
+  parseAgentCommand,
+} from "anyagent";
 import type { PrProvider } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
 import { claudeCodeProvider } from "kolu-claude-code";
@@ -371,7 +375,9 @@ function startAgentCommandTracker(
   return channels.commandRun.consume({
     onEvent: (raw) => {
       const normalized = parseAgentCommand(raw);
-      record.currentAgent = normalized?.split(" ")[0] ?? null;
+      record.currentAgent = normalized
+        ? agentNameFromCommand(normalized)
+        : null;
       if (normalized) {
         if (record.meta.lastAgentCommand !== normalized) {
           hooks.updateServerMetadata(record, (m) => {

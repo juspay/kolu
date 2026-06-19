@@ -287,6 +287,17 @@ Feature: Canvas workspace
     Then canvas tile 1 position should have changed
     And there should be no page errors
 
+  Scenario: Minimap keeps its zoom controls visible when the canvas is tall and narrow
+    # A tall, narrow tile bounding box makes the minimap's shrink-to-fit
+    # width collapse (the height constraint wins the scale). The panel must
+    # still floor at the zoom bar's natural width, or overflow-hidden clips
+    # the zoom-in / arrange / window controls off the right edge.
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I stack every canvas tile in a tall, narrow column
+    Then the minimap zoom bar should not clip its controls
+    And there should be no page errors
+
   Scenario: Creating a terminal after arrange leaves the arranged tiles in place
     # Arrange clusters the tiles; creating a terminal afterwards must NOT
     # re-arrange them — the new tile just opens at the cascade and the

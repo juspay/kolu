@@ -6,6 +6,7 @@ const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
 const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
 const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
+const MINIMAP_ZOOMBAR_SELECTOR = '[data-testid="minimap-zoombar"]';
 const TILE_SELECTOR = '[data-testid="canvas-tile"]';
 
 async function waitForCanvas(world: KoluWorld) {
@@ -785,6 +786,62 @@ Then("the minimap map should be visible", async function (this: KoluWorld) {
   );
 });
 
+// Terminal ids of every visible canvas tile, in DOM order.
+async function getVisibleTileIds(world: KoluWorld): Promise<string[]> {
+  return world.page.evaluate(
+    (sel: string) =>
+      Array.from(
+        document.querySelectorAll(`${sel} [data-terminal-id][data-visible]`),
+      )
+        .map((el) => (el as HTMLElement).getAttribute("data-terminal-id"))
+        .filter((id): id is string => id !== null),
+    CANVAS_SELECTOR,
+  );
+}
+
+// Stack every visible canvas tile in a single column with a large vertical
+// gap, so the tile bounding box becomes far taller than it is wide. That is
+// the shape that collapses the minimap's shrink-to-fit width (the height
+// constraint wins the scale), which used to drag the zoom bar below the
+// width its controls need.
+When(
+  "I stack every canvas tile in a tall, narrow column",
+  async function (this: KoluWorld) {
+    const ids = await getVisibleTileIds(this);
+    if (ids.length === 0) throw new Error("No canvas tiles to stack");
+    const STACK_X = 200;
+    // >> tile width (700) so the stacked column's height/width ratio (~7x) far
+    // exceeds the minimap's MAP_W/MAP_H aspect (1.5), forcing the height term
+    // to win the scale and collapse the map to a sliver — the exact tall-narrow
+    // shape from the bug.
+    const TALL_GAP_PX = 6000;
+    for (const [i, id] of ids.entries()) {
+      await setCanvasLayoutById(this, id, STACK_X, i * TALL_GAP_PX);
+    }
+  },
+);
+
+// The zoom bar lives below the map and packs fixed-width controls on one
+// `overflow-hidden` row. If the panel is forced narrower than that content,
+// the controls are clipped (scrollWidth exceeds clientWidth) — the bug. A
+// panel that floors at the bar's natural width never overflows.
+Then(
+  "the minimap zoom bar should not clip its controls",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => {
+        const bar = document.querySelector(sel) as HTMLElement | null;
+        if (!bar) return false;
+        // Sub-pixel rounding can leave a 1px discrepancy even when nothing
+        // is actually clipped.
+        return bar.scrollWidth <= bar.clientWidth + 1;
+      },
+      MINIMAP_ZOOMBAR_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 When("I save the canvas viewport state", async function (this: KoluWorld) {
   const state = await this.page.evaluate((sel: string) => {
     const container = document.querySelector(sel) as HTMLElement | null;
@@ -1167,15 +1224,7 @@ When(
       { x: 3040, y: 2580 },
       { x: 1500, y: 1180 },
     ];
-    const ids: string[] = await this.page.evaluate(
-      (sel: string) =>
-        Array.from(
-          document.querySelectorAll(`${sel} [data-terminal-id][data-visible]`),
-        )
-          .map((el) => (el as HTMLElement).getAttribute("data-terminal-id"))
-          .filter((id): id is string => id !== null),
-      CANVAS_SELECTOR,
-    );
+    const ids = await getVisibleTileIds(this);
     if (ids.length === 0) throw new Error("No canvas tiles to scatter");
     for (const [i, id] of ids.entries()) {
       const pos = SCATTER[i % SCATTER.length];

@@ -1,5 +1,7 @@
 /** Unit tests for agent CLI parsing and normalization. */
 
+import { shellSplit } from "@kolu/shell-quote";
+import { parseArgsStringToArgv } from "string-argv";
 import { describe, expect, it } from "vitest";
 import {
   agentKindFromCommand,
@@ -108,12 +110,15 @@ describe("parseAgentCommand", () => {
   });
 
   it("preserves --config for codex", () => {
+    // The `model_reasoning_effort="xhigh"` value carries embedded double
+    // quotes (TOML string syntax codex wants to receive), so it is single-
+    // quoted in the normalized form to survive shell re-execution verbatim.
     expect(
       parseAgentCommand(
         `codex --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
       ),
     ).toBe(
-      `codex --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
+      `codex --yolo --model gpt-5.5 --config 'model_reasoning_effort="xhigh"'`,
     );
   });
 
@@ -162,6 +167,108 @@ describe("parseAgentCommand", () => {
       expect(parseAgentCommand(agent)).toBe(agent);
     }
   });
+
+  // Regression: a stable flag's VALUE can contain shell-significant
+  // characters (spaces, JSON braces/quotes). `string-argv` strips the outer
+  // quotes during tokenization, so re-joining the kept tokens with a bare
+  // space dropped the quoting: the stored/displayed/re-run command became
+  // `--settings {"ultracode": true}`, and on re-run the shell word-split the
+  // JSON back apart (`Error: Settings file not found: {ultracode:`). The
+  // normalized form must re-quote any token the shell would otherwise split.
+  it("re-quotes a --settings JSON value so it survives re-execution", () => {
+    expect(
+      parseAgentCommand(
+        `claude --dangerously-skip-permissions --settings '{"ultracode": true}'`,
+      ),
+    ).toBe(
+      `claude --dangerously-skip-permissions --settings '{"ultracode": true}'`,
+    );
+  });
+
+  it("re-quotes a flag value containing a space", () => {
+    expect(
+      parseAgentCommand(`claude --append-system-prompt "be terse please"`),
+    ).toBe(`claude --append-system-prompt 'be terse please'`);
+  });
+
+  // Regression (codex review F2): an UNQUOTED leading-`~` path value must stay
+  // BARE in the normalized form. The preexec mark captures the command's shell
+  // SOURCE before tilde expansion, so re-quoting `~/…` would suppress expansion
+  // and replay a literal `~` path (Claude would then fail to find the settings
+  // file). The normalized form keeps it unquoted so the rerun re-expands it.
+  it("keeps an unquoted leading-tilde path value bare so it re-expands on rerun", () => {
+    expect(parseAgentCommand(`claude --settings ~/.claude/settings.json`)).toBe(
+      `claude --settings ~/.claude/settings.json`,
+    );
+    expect(parseAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
+      `claude --add-dir ~/projects/foo`,
+    );
+  });
+
+  // Accepted trade-off (juspay/kolu#1407): `string-argv` strips the source
+  // quotes, so a quoted-literal tilde (`--settings '~/x'`) and a bare one
+  // (`--settings ~/x`) tokenize to the IDENTICAL token `~/x`. We intentionally
+  // do NOT recover the source's quote provenance, so both normalize to a bare
+  // (expanding) `~`. Preserving the rare quoted-literal-tilde case is not worth
+  // the machinery — the overwhelmingly common case is an unquoted path.
+  it("normalizes a quoted leading tilde to a bare (expanding) one", () => {
+    expect(parseAgentCommand(`claude --settings '~/x'`)).toBe(
+      `claude --settings ~/x`,
+    );
+    expect(parseAgentCommand(`claude --settings "~/x"`)).toBe(
+      `claude --settings ~/x`,
+    );
+  });
+
+  // Accepted trade-off (juspay/kolu#1407): a tilde value that ALSO needs quoting
+  // for a space loses expansion on rerun. Without the source-provenance
+  // machinery, `string-argv` retains the mid-token quotes (the token is the
+  // literal `~/'My Projects'`) and we quote the whole thing, so the `~` ends up
+  // literal — a rare degradation we accept. The property that MUST still hold —
+  // the one the original bug broke — is that the value stays ONE argument and
+  // never word-splits on its space.
+  it("keeps a spaced tilde value as a single argument (tilde no longer expands)", () => {
+    const normalized = parseAgentCommand(`claude --add-dir ~/'My Projects'`);
+    expect(shellSplit(normalized as string)).toEqual([
+      "claude",
+      "--add-dir",
+      `~/'My Projects'`,
+    ]);
+  });
+
+  // Regression (codex review F3): a flag value containing an apostrophe is
+  // single-quoted with the canonical `'\''` idiom; the normalized form must
+  // re-tokenize (via shellSplit, the inverse of shellJoin) back to one token.
+  it("round-trips a flag value containing an apostrophe", () => {
+    const normalized = parseAgentCommand(
+      `claude --append-system-prompt "don't be verbose"`,
+    );
+    expect(normalized).toBe(
+      `claude --append-system-prompt 'don'\\''t be verbose'`,
+    );
+    expect(shellSplit(normalized as string)).toEqual([
+      "claude",
+      "--append-system-prompt",
+      "don't be verbose",
+    ]);
+  });
+
+  // The chosen quote style is an implementation detail; the invariant that
+  // actually matters is that the normalized string re-tokenizes to the same
+  // argv it was built from — i.e. no value silently splits into two args.
+  it("normalized output re-tokenizes to the same kept argv (no re-split)", () => {
+    const normalized = parseAgentCommand(
+      `claude --settings '{"ultracode": true}' --append-system-prompt "be terse"`,
+    );
+    expect(normalized).not.toBeNull();
+    expect(parseArgsStringToArgv(normalized as string)).toEqual([
+      "claude",
+      "--settings",
+      `{"ultracode": true}`,
+      "--append-system-prompt",
+      "be terse",
+    ]);
+  });
 });
 
 describe("resumeAgentCommand", () => {
@@ -175,8 +282,10 @@ describe("resumeAgentCommand", () => {
     ["codex", "codex resume --last"],
     ["codex --yolo", "codex resume --last --yolo"],
     [
-      `codex --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
-      `codex resume --last --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
+      // Input is the (now single-quoted) normalized form; the resume splice
+      // must preserve that quoting around the embedded-quote value.
+      `codex --yolo --model gpt-5.5 --config 'model_reasoning_effort="xhigh"'`,
+      `codex resume --last --yolo --model gpt-5.5 --config 'model_reasoning_effort="xhigh"'`,
     ],
     ["opencode", "opencode --continue"],
     [
@@ -198,6 +307,43 @@ describe("resumeAgentCommand", () => {
   it("returns null for empty input", () => {
     expect(resumeAgentCommand("")).toBeNull();
     expect(resumeAgentCommand("   ")).toBeNull();
+  });
+
+  // Regression: same quote-loss as parseAgentCommand, on the resume
+  // path. The input here is already a normalized (quoted) command; splicing
+  // in the resume flag and re-joining must preserve the quoting so the
+  // auto-typed session-restore command does not word-split on re-execution.
+  it("preserves a quoted flag value across the resume splice", () => {
+    expect(resumeAgentCommand(`claude --settings '{"ultracode": true}'`)).toBe(
+      `claude -c --settings '{"ultracode": true}'`,
+    );
+  });
+
+  // Regression (codex review F3): the resume reparse must use shellSplit, not
+  // string-argv — a value carrying the canonical `'\''` apostrophe idiom would
+  // otherwise shatter into several tokens and corrupt the spliced command.
+  it("round-trips an apostrophe value across the resume splice", () => {
+    const resumed = resumeAgentCommand(
+      `claude --append-system-prompt 'don'\\''t be verbose'`,
+    );
+    expect(resumed).toBe(
+      `claude -c --append-system-prompt 'don'\\''t be verbose'`,
+    );
+    expect(shellSplit(resumed as string)).toEqual([
+      "claude",
+      "-c",
+      "--append-system-prompt",
+      "don't be verbose",
+    ]);
+  });
+
+  // The resume splice keeps the tail VERBATIM (head + marker + raw tail), so a
+  // bare tilde stays bare and still expands on rerun — there is no
+  // shellSplit+shellJoin round-trip that could re-quote it.
+  it("preserves a bare tilde across the resume splice", () => {
+    expect(resumeAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
+      `claude -c --add-dir ~/projects/foo`,
+    );
   });
 });
 

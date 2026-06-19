@@ -234,6 +234,7 @@ pnpm monorepo:
 | `packages/log/`                      | Structured-logging contract (`Logger`) — a zero-runtime-dependency, zero-`kolu-*`-dependency leaf, so even packages that refuse a `kolu-shared` dep import one canonical type instead of re-declaring it (`kolu-shared`, `kolu-io`, `kolu-transcript-core` all defer here) |
 | `packages/html-escape/`              | `escapeHtml` — a zero-dependency leaf, so app-agnostic appliances (`transcript-html`, the scrollback PDF export) reach it without dragging the `kolu-common` domain contract into their dependency tree |
 | `packages/nonempty/`                 | `NonEmpty<T>` — a zero-dependency leaf giving a list known at the type level to have at least one element, with a `nonEmpty()` smart constructor that returns `null` on empty so callers narrow at the type system instead of a runtime length check |
+| `packages/shell-quote/`              | `shellQuoteArg` / `shellJoin` / `shellSplit` — a zero-dependency leaf for POSIX single-quoting one argv token (and its exact inverse) so a command line survives shell re-execution intact. Consumed by `anyagent` (re-emitting a normalized recent-agent command) and `kaval-tui` (copy-pasteable `--host`/`--socket` attach hints); neither depends on the other |
 | `packages/tests/`                    | End-to-end test harness — Cucumber feature files + Playwright step definitions exercised by `just test` |
 
 ### Communication

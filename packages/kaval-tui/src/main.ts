@@ -50,11 +50,11 @@ import {
 } from "./create.ts";
 import { isValidEscapeChar } from "./escape.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
+import { shellQuoteArg } from "@kolu/shell-quote";
 import {
   formatList,
   formatListJson,
   resolveTerminalId,
-  shellQuoteArg,
   shortId,
 } from "./render.ts";
 

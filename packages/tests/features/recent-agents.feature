@@ -55,3 +55,16 @@ Feature: Recent agents in command palette
     And I open the command palette
     Then palette item "Recent agents" should not be visible
     And there should be no page errors
+
+  Scenario: A quoted flag value survives intact in the list (#1407)
+    # Regression for the quote-loss bug: kolu captures the command by tokenizing
+    # the typed line, which strips the shell quoting. The normalized form must
+    # RE-QUOTE a value carrying JSON/spaces, or re-running the recent agent
+    # word-splits it (the original symptom was `Error: Settings file not found:
+    # {ultracode:`). The list must show the value still single-quoted.
+    When I run "claude --dangerously-skip-permissions --settings '{\"ultracode\": true}'"
+    And I open the command palette
+    And I select "Recent agents" in the palette
+    Then the palette breadcrumb should show "Recent agents"
+    And palette item "claude --dangerously-skip-permissions --settings '{\"ultracode\": true}'" should be visible
+    And there should be no page errors

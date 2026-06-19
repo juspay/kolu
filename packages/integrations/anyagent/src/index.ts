@@ -7,7 +7,11 @@
  *  live in `kolu-shared` — agent integrations and `kolu-git` import them
  *  from there. This package is for code that has agent-specific concerns. */
 
-export { parseAgentCommand, resumeAgentCommand } from "./agent-cli.ts";
+export {
+  agentNameFromCommand,
+  parseAgentCommand,
+  resumeAgentCommand,
+} from "./agent-cli.ts";
 
 export {
   type AgentInfoShape,

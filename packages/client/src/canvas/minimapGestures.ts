@@ -103,6 +103,11 @@ export function handleMinimapClick(
   bounds: MinimapBounds,
 ) {
   const target = e.currentTarget as HTMLDivElement;
+  // `rect.left`/`rect.top` is the content origin (paired with `toMinimap`
+  // mapping minX→0). This assumes the map box is left-anchored and only ever
+  // grows rightward — see the PANEL SEAM contract on CanvasMinimap's container
+  // (`left-4` + `items-stretch`, map `min-width`, tiles from `left:0`).
+  // Centering or right-anchoring the panel would shift this origin.
   const rect = target.getBoundingClientRect();
   const cx = (e.clientX - rect.left) / minimapScale + bounds.minX;
   const cy = (e.clientY - rect.top) / minimapScale + bounds.minY;

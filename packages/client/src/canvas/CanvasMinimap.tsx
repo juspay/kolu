@@ -171,11 +171,15 @@ const CanvasMinimap: Component<{
     return { x: pos.x, y: pos.y, w: vw * s, h: vh * s };
   });
 
-  // ── Minimap rendered dimensions (shrink-to-fit) ──
+  // ── Minimap box dimensions — asymmetric by design (see PANEL SEAM): `minW`
+  //    is a FLOOR (applied as `min-width`; the box may render wider when the
+  //    zoom bar is the wider half), while `h` is the EXACT height (the height
+  //    constraint wins the scale, so the box is exactly this tall). `minW` is
+  //    NOT the rendered width — don't read it as such. ──
   const mapDims = createMemo(() => {
     const b = bounds();
     const s = minimapScale();
-    return { w: b.w * s, h: b.h * s };
+    return { minW: b.w * s, h: b.h * s };
   });
 
   // ── Viewport rect drag ──
@@ -198,6 +202,7 @@ const CanvasMinimap: Component<{
 
   function handleMapPointerDown(e: PointerEvent) {
     const map = e.currentTarget as HTMLDivElement;
+    // rect.left/top = content origin (left-anchored box — see PANEL SEAM below).
     const rect = map.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
@@ -213,6 +218,7 @@ const CanvasMinimap: Component<{
 
   function handleMapPointerMove(e: PointerEvent) {
     const map = e.currentTarget as HTMLDivElement;
+    // rect.left/top = content origin (left-anchored box — see PANEL SEAM below).
     const rect = map.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
@@ -232,19 +238,48 @@ const CanvasMinimap: Component<{
       suppressNextClick = false;
       return;
     }
+    // PANEL SEAM dead-zone: the map box can render wider than its scaled
+    // content (it stretches to the zoom-bar floor — see container comment).
+    // That extra right-hand width is inert padding with no represented tile
+    // space, so a click there must NOT pan — otherwise localX/minimapScale
+    // maps it far past the bounding box's upper X. Tiles map [0, minW] onto
+    // the full bounds width, so reject any click past minW. (Height always
+    // equals scaled content, so only width grows a dead zone.)
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    if (e.clientX - rect.left > mapDims().minW) return;
     handleMinimapClick(e, viewport, minimapScale(), bounds());
   }
 
   return (
     <div
       data-testid="canvas-minimap"
-      class="absolute bottom-4 left-4 z-20 flex flex-col items-start gap-px"
+      // PANEL SEAM — the map + zoom bar are one pill sharing exactly one width
+      // = max(map content, bar content). Enforced by three facts that must
+      // change together: (1) this container is absolute/no-width so it
+      // shrink-to-fits its widest child and uses `items-stretch` to widen both
+      // halves; (2) the map uses `min-width` (not `width`) so it floors at
+      // scaled content but stretches wider; (3) the zoom bar declares NO width
+      // so its controls set the floor. Change none in isolation — e.g. giving
+      // the bar a width, switching to `items-start`, or putting `width` back on
+      // the map all silently break the shared-width seam.
+      //
+      // Also: the box only ever grows RIGHTWARD from `left-4`, which the gesture
+      // code depends on (see minimapGestures.ts `getBoundingClientRect` —
+      // `rect.left` is the content origin, paired with `toMinimap` mapping
+      // minX→0). Centering or right-anchoring the panel breaks BOTH the seam and
+      // the click/drag origin.
+      class="absolute bottom-4 left-4 z-20 flex flex-col items-stretch gap-px"
     >
       {/* Minimap visualization */}
       <div
         data-testid="minimap-map"
         class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden"
-        style={{ width: `${mapDims().w}px`, height: `${mapDims().h}px` }}
+        // `min-width` (not `width`) is fact (2) of the PANEL SEAM — see the
+        // container comment above.
+        style={{
+          "min-width": `${mapDims().minW}px`,
+          height: `${mapDims().h}px`,
+        }}
         classList={{
           "cursor-default": !hoveringViewport() && !draggingViewport(),
           "cursor-grab": hoveringViewport() && !draggingViewport(),
@@ -431,10 +466,12 @@ const CanvasMinimap: Component<{
         />
       </div>
 
-      {/* Zoom bar — sits flush below the map */}
+      {/* Zoom bar — sits flush below the map. NO explicit width is fact (3) of
+          the PANEL SEAM: its controls' natural width sets the panel floor. See
+          the container comment above. */}
       <div
+        data-testid="minimap-zoombar"
         class="flex items-center gap-px bg-surface-2/80 backdrop-blur-sm border border-t-0 border-edge/40 overflow-hidden rounded-b-lg"
-        style={{ width: `${mapDims().w}px` }}
       >
         <button
           type="button"

@@ -1,5 +1,5 @@
 {
-  "name": "anyagent",
+  "name": "@kolu/shell-quote",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -8,23 +8,13 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./schemas": "./src/schemas.ts",
-    "./cli": "./src/agent-cli.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
-  "dependencies": {
-    "@kolu/shell-quote": "workspace:*",
-    "kolu-shared": "workspace:*",
-    "nonempty": "workspace:*",
-    "string-argv": "^0.3.2",
-    "zod": "^4.3.6"
-  },
   "devDependencies": {
-    "@types/node": "^22.0.0",
     "typescript": "^5.8.0",
     "vitest": "^4.1.0"
   }
