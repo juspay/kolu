@@ -78,9 +78,9 @@ const escapes = [
         production use; don't script against them yet.
       </p>
     </div>
-    <div class="flex items-start justify-between gap-6">
+    <div class="flex items-center justify-between gap-6">
       <div>
-        <p class="eyebrow mb-4">the PTY daemon &amp; its client · alpha</p>
+        <p class="eyebrow text-ink-dim mb-4">the PTY daemon &amp; its client · alpha</p>
         <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
           a watch over<br />your <span class="text-amber">terminals</span>.
         </h1>
@@ -110,7 +110,121 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <p class="eyebrow mb-5">run the pair</p>
+    <h2 class="kv-head">how it fits together</h2>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mb-6">
+      One daemon owns the terminals; everything else is a client.{" "}
+      <code class="mono text-ink">kolu</code> no longer runs PTYs in-process — it
+      spawns its <em>own</em> <code class="mono text-ink">kaval</code> and dials
+      it over a unix socket, exactly as{" "}
+      <code class="mono text-ink">kaval-tui</code> does from the shell. Same
+      daemon, same terminals, two faces.
+    </p>
+    <figure class="rounded-xl border border-rule px-5 py-6 overflow-x-auto">
+      <svg
+        class="kv-diagram"
+        viewBox="0 0 760 260"
+        role="img"
+        aria-labelledby="kv-diagram-title"
+      >
+        <title id="kv-diagram-title"
+          >kolu and kaval-tui are both clients of one kaval daemon, which owns
+          the PTYs and serves them over a unix socket</title
+        >
+        <defs>
+          <marker
+            id="kv-arrow"
+            viewBox="0 0 10 10"
+            refX="8.5"
+            refY="5"
+            markerWidth="6.5"
+            markerHeight="6.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M0,0 L10,5 L0,10 z" class="kv-d-arrow"></path>
+          </marker>
+        </defs>
+
+        {/* column captions */}
+        <text x="99" y="40" text-anchor="middle" class="kv-d-cap">CLIENTS</text>
+        <text x="450" y="40" text-anchor="middle" class="kv-d-cap"
+          >THE DAEMON</text
+        >
+        <text x="658" y="40" text-anchor="middle" class="kv-d-cap"
+          >OWNS THE PTYS</text
+        >
+
+        {/* socket boundary */}
+        <path d="M300,62 V206" class="kv-d-socket"></path>
+
+        {/* connectors: clients → socket → daemon */}
+        <path d="M174,98 H250" class="kv-d-flow"></path>
+        <path d="M174,174 H250" class="kv-d-flow"></path>
+        <path d="M250,98 V174" class="kv-d-flow"></path>
+        <path d="M250,136 H372" class="kv-d-flow" marker-end="url(#kv-arrow)"
+        ></path>
+
+        {/* daemon → PTYs (ownership) */}
+        <path d="M528,136 H554" class="kv-d-flow"></path>
+        <path d="M554,136 V95 H580" class="kv-d-flow" marker-end="url(#kv-arrow)"
+        ></path>
+        <path d="M554,136 H580" class="kv-d-flow" marker-end="url(#kv-arrow)"
+        ></path>
+        <path
+          d="M554,136 V177 H580"
+          class="kv-d-flow"
+          marker-end="url(#kv-arrow)"></path>
+
+        {/* client boxes */}
+        <rect x="24" y="70" width="150" height="56" rx="9" class="kv-d-box"
+        ></rect>
+        <text x="99" y="97" text-anchor="middle" class="kv-d-label">kolu</text>
+        <text x="99" y="114" text-anchor="middle" class="kv-d-sub"
+          >the desktop app</text
+        >
+
+        <rect x="24" y="146" width="150" height="56" rx="9" class="kv-d-box"
+        ></rect>
+        <text x="99" y="173" text-anchor="middle" class="kv-d-label"
+          >kaval-tui</text
+        >
+        <text x="99" y="190" text-anchor="middle" class="kv-d-sub"
+          >the shell client</text
+        >
+
+        {/* daemon box */}
+        <rect x="372" y="104" width="156" height="64" rx="11" class="kv-d-daemon"
+        ></rect>
+        <text x="450" y="133" text-anchor="middle" class="kv-d-daemon-label"
+          >kaval</text
+        >
+        <text x="450" y="151" text-anchor="middle" class="kv-d-sub"
+          >the PTY daemon</text
+        >
+
+        {/* PTY stack */}
+        <rect x="580" y="78" width="156" height="34" rx="7" class="kv-d-pty"
+        ></rect>
+        <text x="598" y="100" class="kv-d-pty-text">▸ zsh</text>
+        <rect x="580" y="119" width="156" height="34" rx="7" class="kv-d-pty"
+        ></rect>
+        <text x="598" y="141" class="kv-d-pty-text">▸ claude</text>
+        <rect x="580" y="160" width="156" height="34" rx="7" class="kv-d-pty"
+        ></rect>
+        <text x="598" y="182" class="kv-d-pty-text">▸ nvim</text>
+
+        {/* socket label */}
+        <text x="300" y="226" text-anchor="middle" class="kv-d-socket-label"
+          >unix socket</text
+        >
+        <text x="300" y="240" text-anchor="middle" class="kv-d-sub2"
+          >local · over ssh</text
+        >
+      </svg>
+    </figure>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <h2 class="kv-head">run the pair</h2>
     <ol class="space-y-6 max-w-xl">
       <li class="grid grid-cols-[1.6rem_1fr] gap-3">
         <span class="mono text-amber text-sm pt-0.5">1</span>
@@ -119,7 +233,7 @@ const escapes = [
             Start the daemon. It claims its socket and stands watch — leave it
             running in a pane, a service, wherever.
           </p>
-          <p class="mono text-ink-faint text-sm leading-relaxed mt-2">
+          <p class="mono text-ink-dim text-sm leading-relaxed mt-2">
             <code class="text-ink">nix run github:juspay/kolu#kaval</code>
           </p>
         </div>
@@ -131,7 +245,7 @@ const escapes = [
             Drive it from any other shell. kaval-tui finds the running daemon on
             its own — no socket path to remember.
           </p>
-          <p class="mono text-ink-faint text-sm leading-relaxed mt-2">
+          <p class="mono text-ink-dim text-sm leading-relaxed mt-2">
             <code class="text-ink"
               >nix run github:juspay/kolu#kaval-tui -- create</code
             >
@@ -150,16 +264,16 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <p class="eyebrow mb-5">drive a running kolu</p>
+    <h2 class="kv-head">drive a running kolu</h2>
     <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
       kolu doesn't run terminals in-process anymore — it spawns a kaval daemon
       of its own and is just another client of it. So the same{" "}
       <code class="mono text-ink">kaval-tui</code> reaches the terminals you have
       open in kolu, from the shell, with <span class="text-ink">no flags</span>:
     </p>
-    <p class="mono text-ink-faint text-sm leading-relaxed mt-4 max-w-xl">
+    <p class="mono text-ink-dim text-sm leading-relaxed mt-4 max-w-xl">
       <code class="text-ink">kaval-tui list</code>
-      <span class="text-ink-faint"> # the terminals open in your kolu</span>
+      <span class="text-ink-muted"> # the terminals open in your kolu</span>
       <br />
       <code class="text-ink">kaval-tui snapshot &lt;id&gt; | grep BUILD-</code>
     </p>
@@ -173,7 +287,7 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <p class="eyebrow mb-5">reach a remote kaval — over ssh</p>
+    <h2 class="kv-head">reach a remote kaval — over ssh</h2>
     <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
       <code class="mono text-ink">--host &lt;ssh&gt;</code> drives a kaval on{" "}
       <span class="text-ink">another machine</span>, with nothing to install
@@ -181,7 +295,7 @@ const escapes = [
       right-arch build over ssh, realises it), runs it, and dials it — every
       subcommand works exactly as it does locally, just pointed at the remote.
     </p>
-    <p class="mono text-ink-faint text-sm leading-relaxed mt-4 max-w-xl">
+    <p class="mono text-ink-dim text-sm leading-relaxed mt-4 max-w-xl">
       <code class="text-ink">kaval-tui create --host nix@prod</code>
       <br />
       <code class="text-ink">kaval-tui list&nbsp;&nbsp;&nbsp;--host nix@prod</code>
@@ -212,7 +326,7 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <p class="eyebrow mb-5">what kaval owns</p>
+    <h2 class="kv-head">what kaval owns</h2>
     <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
       Under the daemon sits a single primitive — a multi-client PTY owner. One
       host owns any number of PTYs; each PTY is a real shell child paired with a
@@ -241,7 +355,7 @@ const escapes = [
       </div>
     </div>
     <div class="mt-6 grid grid-cols-[7rem_1fr] gap-x-6 gap-y-2.5 max-w-xl">
-      <p class="eyebrow !mb-0 col-span-2">taps kaval surfaces per terminal</p>
+      <h3 class="kv-subhead !mb-0 col-span-2">taps kaval surfaces per terminal</h3>
       <code class="mono text-ink text-sm">screen</code>
       <p class="text-ink-dim text-sm leading-relaxed">snapshot + live deltas</p>
       <code class="mono text-ink text-sm">cwd</code>
@@ -256,7 +370,7 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <p class="eyebrow mb-5">the sibling — arivu, awareness over kaval</p>
+    <h2 class="kv-head">the sibling — arivu, awareness over kaval</h2>
     <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
       kaval owns the PTYs and surfaces the raw taps above;{" "}
       <code class="mono text-ink">arivu</code> (Tamil <em>aṟivu</em> — "the
@@ -270,9 +384,9 @@ const escapes = [
       browser; the runtime is just{" "}
       <code class="mono text-ink">node · git · gh</code>.
     </p>
-    <p class="mono text-ink-faint text-sm leading-relaxed mt-4 max-w-xl">
+    <p class="mono text-ink-dim text-sm leading-relaxed mt-4 max-w-xl">
       <code class="text-ink">nix run github:juspay/kolu#arivu</code>
-      <span class="text-ink-faint"> # awareness over the running kaval</span>
+      <span class="text-ink-muted"> # awareness over the running kaval</span>
       <br />
       <code class="text-ink">nix run github:juspay/kolu#arivu-tui -- list</code>
     </p>
@@ -299,14 +413,14 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <p class="eyebrow mb-5">commands · kaval-tui</p>
+    <h2 class="kv-head">commands · kaval-tui</h2>
     {
       commands.map((c) => (
         <div class="border-t border-rule py-5 grid md:grid-cols-[16rem_1fr] gap-2 md:gap-8">
           <div>
             <code class="mono text-ink text-sm">{c.cmd}</code>
             {c.flags && (
-              <div class="mono text-ink-faint text-xs mt-1">{c.flags}</div>
+              <div class="mono text-ink-dim text-xs mt-1">{c.flags}</div>
             )}
           </div>
           <p class="text-ink-dim text-sm leading-relaxed">{c.what}</p>
@@ -316,7 +430,7 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <p class="eyebrow mb-5">detaching — the ssh model</p>
+    <h2 class="kv-head">detaching — the ssh model</h2>
     <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
       While attached, <em>nothing</em> is intercepted except a{" "}
       <code class="mono text-ink">~</code> typed at the start of a line
@@ -334,14 +448,14 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
         ))
       }
     </div>
-    <p class="mono text-ink-faint text-sm leading-relaxed mt-5">
+    <p class="mono text-ink-dim text-sm leading-relaxed mt-5">
       // ~ clashes (nested ssh?) — rebind it:{" "}
       <code class="text-ink">kaval-tui attach &lt;id&gt; --escape %</code>
     </p>
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-24">
-    <p class="eyebrow mb-5">fine print</p>
+    <h2 class="kv-head">fine print</h2>
     <ul class="text-ink-dim text-sm leading-relaxed max-w-xl space-y-3">
       <li>
         A standalone kaval's socket lives at{" "}
@@ -387,3 +501,117 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
     </ul>
   </section>
 </BaseLayout>
+
+<style>
+  /* Section headings — real <h2>s, not faint eyebrow paragraphs. Mono caps in
+     the brand accent with a hairline rule fading out to the right margin, so
+     each section reads as a deliberate divider. Mirrors the changelog h3
+     treatment in global.css (one source of truth for "mono section label"). */
+  .kv-head {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    margin-bottom: 1.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--color-amber);
+  }
+  .kv-head::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      var(--color-rule-strong),
+      transparent
+    );
+  }
+
+  /* Sub-label inside a section (e.g. "taps kaval surfaces"). Readable mono caps,
+     no rule — subordinate to .kv-head but no longer the near-invisible muted. */
+  .kv-subhead {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-ink-dim);
+  }
+
+  /* "How it fits together" architecture diagram. Colours pull from the global
+     tokens so the figure tracks the light/dark theme switch automatically. */
+  .kv-diagram {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .kv-diagram text {
+    font-family: var(--font-mono);
+  }
+  .kv-d-box {
+    fill: var(--color-void-raised);
+    stroke: var(--color-rule-strong);
+    stroke-width: 1.5;
+  }
+  .kv-d-daemon {
+    fill: color-mix(in srgb, var(--color-amber) 12%, var(--color-void-raised));
+    stroke: var(--color-amber);
+    stroke-width: 1.5;
+  }
+  .kv-d-pty {
+    fill: var(--color-void-sunk);
+    stroke: var(--color-rule-strong);
+    stroke-width: 1.25;
+  }
+  .kv-d-flow {
+    fill: none;
+    stroke: var(--color-amber);
+    stroke-width: 1.5;
+  }
+  .kv-d-arrow {
+    fill: var(--color-amber);
+  }
+  .kv-d-socket {
+    fill: none;
+    stroke: var(--color-ink-muted);
+    stroke-width: 1.25;
+    stroke-dasharray: 3 4;
+  }
+  .kv-d-cap {
+    fill: var(--color-amber);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 1.6px;
+  }
+  .kv-d-label {
+    fill: var(--color-ink);
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .kv-d-daemon-label {
+    fill: var(--color-amber-bright);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+  }
+  .kv-d-sub {
+    fill: var(--color-ink-dim);
+    font-size: 11px;
+  }
+  .kv-d-pty-text {
+    fill: var(--color-ink-dim);
+    font-size: 12.5px;
+  }
+  .kv-d-socket-label {
+    fill: var(--color-ink-muted);
+    font-size: 10.5px;
+    letter-spacing: 1px;
+  }
+  .kv-d-sub2 {
+    fill: var(--color-ink-muted);
+    font-size: 10px;
+  }
+</style>
