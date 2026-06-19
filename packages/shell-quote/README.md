@@ -61,6 +61,14 @@ shellSplit(`claude --settings '{"ultracode": true}'`);
 shellSplit(`'don'\''t'`); // → ["don't"]   (a general tokenizer shatters this)
 ```
 
+**Target shell.** The replay guarantee — `shellJoin`'s output re-parsing back to
+the same argv — likewise assumes a **POSIX-compatible** shell on the receiving
+end: `sh`, `bash`, `zsh`, and `dash` share the single-quote and tilde semantics
+it relies on. Shells with different quoting rules (`fish`, `csh`) are out of
+scope, so exact replay isn't guaranteed there. A real-shell round-trip test
+([`index.test.ts`](./src/index.test.ts)) pins this against whatever POSIX shell
+the dev/CI environment provides, and skips cleanly where none is available.
+
 ## Tilde handling
 
 A leading `~` is treated as a safe bare word and left **unquoted**, so a shell
