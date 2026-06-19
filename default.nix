@@ -80,6 +80,9 @@ let
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
+      ./packages/arivu-contract
+      ./packages/arivu
+      ./packages/arivu-tui
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -383,6 +386,49 @@ let
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
   '';
 
+  # arivu (arivu plan P1c): the standalone terminal-awareness daemon. Dials a
+  # running kaval as a plain ptyHostSurface client, runs the awareness sensors
+  # (git · PR · agent · foreground) for every PTY kaval owns, and serves the
+  # result as one `awareness` collection that arivu-tui reads — zero kolu-server
+  # involvement. Ephemeral: owns no PTYs, holds no gate, recomputes from now on
+  # every start. Runs from the SAME built workspace closure as `kolu` (so kaval
+  # + @kolu/surface + @kolu/terminal-awareness resolve identically).
+  #
+  # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
+  # single-process loader form delivers SIGTERM to the daemon so its socket
+  # teardown runs (the same reason kaval's bin uses it). The sensors shell out
+  # to `git` (git context) and the pinned `gh` (KOLU_GH_BIN — PR resolution),
+  # so both are on PATH / in the env, exactly as kolu's own wrapper carries them.
+  arivu = pkgs.runCommand "arivu"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "arivu";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/arivu \
+      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
+      --add-flags "${kolu}/packages/arivu/src/bin.ts" \
+      --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
+  '';
+
+  # arivu-tui (arivu plan P1c): the terminal-side viewer that dials a running
+  # arivu's awareness socket and lists/watches what each terminal IS IN (branch
+  # · PR · agent · foreground). Runs from the SAME built workspace closure as
+  # `kolu` under tsx — a pure surface CLIENT, so it needs no git/gh and no state
+  # dir, just nodejs. (A remote `--host <ssh>` dial, riding @kolu/surface-nix-host
+  # like kaval-tui's, is P2 — this build registers the local viewer.)
+  arivu-tui = pkgs.runCommand "arivu-tui"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "arivu-tui";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/arivu-tui \
+      --add-flags "${kolu}/packages/arivu-tui/src/bin.ts" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+  '';
+
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
   # so the fixed-output fetch is cached once.
@@ -428,5 +474,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui arivu arivu-tui koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample // oduPackages

@@ -11,3 +11,7 @@
 
 export * from "./sensors.ts";
 export * from "./schema.ts";
+// The kaval-dial bridge — taps → `AwarenessSignals`. Only the standalone
+// `arivu` daemon needs it (kolu-server builds its channels in-process); it
+// lives here so there is one copy of the transport adapter, not a fork.
+export * from "./kavalChannels.ts";

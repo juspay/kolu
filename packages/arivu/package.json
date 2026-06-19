@@ -1,0 +1,26 @@
+{
+  "name": "arivu",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/bin.ts",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@kolu/arivu-contract": "workspace:*",
+    "@kolu/surface": "workspace:*",
+    "@kolu/terminal-awareness": "workspace:*",
+    "@orpc/server": "^1.13.13",
+    "kaval": "workspace:*",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.0"
+  }
+}
