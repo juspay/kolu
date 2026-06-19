@@ -175,7 +175,7 @@ the memo now carries a `sameTerminalIdOrder` `equals` gate, so it keeps the prio
 whenever the top-level id set is unchanged — the derivation re-runs only on a
 real add / remove / reorder, not on metadata churn. The accessor still re-runs
 cheaply; what it no longer does is *notify* downstream when the set is identical.
-Proven by a re-run-count regression test (`terminalDisplay.test.ts`), so banking
+Proven by a re-run-count regression test (`useTerminalMetadata.test.ts`), so banking
 it didn't need the live trace the [coverage gaps](#from-static-reads-to-live-traces)
 flag as still-pending. (Verification had corrected the original "O(n³)" claim to
 O(n log n) — the cost was wasted allocations + re-derivation, not algorithmic
