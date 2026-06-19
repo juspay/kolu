@@ -1,6 +1,7 @@
 import {
   buildWatcherServer,
   type PersistedAwareness,
+  persistedSeedOf,
 } from "@kolu/terminal-providers";
 import type { PtyHostListEntry } from "kaval";
 import { type SavedTerminal, SavedTerminalSchema } from "kolu-common/surface";
@@ -137,12 +138,10 @@ describe("adopted awareness survives the runtime watch → seed path (B3.3 regre
   // persisted awareness as the `watch` `seed`, so the watcher reproduces it.
   it("a survivor's restored lastActivityAt + lastAgentCommand reproduce through the watcher", async () => {
     const meta = adoptedMeta(sentinel, liveEntry({ cwd: sentinel.cwd }));
-    // The persisted-awareness seed the endpoint hands `watch` (mirrors local.ts).
-    const seed = {
-      git: meta.git,
-      lastAgentCommand: meta.lastAgentCommand,
-      lastActivityAt: meta.lastActivityAt,
-    };
+    // The persisted-awareness seed the endpoint hands `watch` — the SAME shared
+    // projection `local.ts` uses, so this exercises the real seed-building link
+    // (a field dropped from it breaks both call sites, not silently one).
+    const seed = persistedSeedOf(meta);
     const watcher = buildWatcherServer({ log: pino({ level: "silent" }) });
     const id = "22222222-2222-4222-8222-222222222222";
     try {

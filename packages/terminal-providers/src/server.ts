@@ -134,8 +134,19 @@ const PERSISTED_KEYS = PersistedAwarenessSchema.keyof()
 const LIVE_KEYS = LiveAwarenessSchema.keyof()
   .options as readonly (keyof LiveAwareness & keyof TerminalServerMetadata)[];
 
-const persistedOf = (m: TerminalServerMetadata): PersistedAwareness =>
-  projectOnto(m, PERSISTED_KEYS);
+/** The persisted-awareness projection of a terminal's metadata — `git`,
+ *  `lastAgentCommand`, `lastActivityAt`. This is the SINGLE projection the
+ *  watcher publishes AND the endpoint hands `watch` as its `seed` (`local.ts`),
+ *  so the value the endpoint supplies and the value the watcher reproduces
+ *  cannot drift: a field dropped from the partition is a change to
+ *  `PersistedAwarenessSchema`, not a silent omission at one call site. Exported
+ *  so the endpoint and its adoption regression test share it (rather than each
+ *  hand-copying the field list — where a drop would be neither a compile error
+ *  nor a test failure, since `lastAgentCommand` is `.optional()` and
+ *  `lastActivityAt` `.default(0)`). */
+export const persistedSeedOf = (
+  m: TerminalServerMetadata,
+): PersistedAwareness => projectOnto(m, PERSISTED_KEYS);
 
 const liveOf = (m: TerminalServerMetadata): LiveAwareness =>
   projectOnto(m, LIVE_KEYS);
@@ -244,7 +255,7 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
       log,
       updateServerMetadata: (_record, mutate) => {
         mutate(meta);
-        publishPersisted(id, persistedOf(meta));
+        publishPersisted(id, persistedSeedOf(meta));
       },
       updateServerLiveMetadata: (_record, mutate) => {
         mutate(meta);
@@ -261,7 +272,7 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
     // `lifecycles` only on success — if `startWatcherProviders` throws
     // synchronously, drop the seeded store entries so a half-started terminal
     // isn't stranded (neither `stopWatching` nor `dispose` would reach it).
-    publishPersisted(id, persistedOf(meta));
+    publishPersisted(id, persistedSeedOf(meta));
     publishLive(id, liveOf(meta));
     let stop: () => void;
     try {

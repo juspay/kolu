@@ -24,6 +24,7 @@ export {
 export {
   type BuildWatcherServerOptions,
   buildWatcherServer,
+  persistedSeedOf,
   type WatcherServer,
 } from "./server.ts";
 export {

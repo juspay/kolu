@@ -32,8 +32,10 @@ import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
   buildWatcherServer,
+  type PersistedAwareness,
   type ProviderHooks,
   type ProviderRecord,
+  persistedSeedOf,
   startProcessProvider,
 } from "@kolu/terminal-providers";
 import { LOCAL_LOCATION } from "kolu-common/surface";
@@ -326,6 +328,38 @@ function makeInServerHooks(
       updateServerMetadata(entry, id, mutate),
     updateServerLiveMetadata: (_record, mutate) =>
       updateServerLiveMetadata(entry, id, mutate),
+  };
+}
+
+/** A stateful folder for a terminal's persisted-awareness frames from the
+ *  watcher. The FIRST frame is the snapshot — the watcher seeded it from the
+ *  `seed` this endpoint passed `watch` (its own current persisted awareness), so
+ *  it already matches `entry.meta`: reconcile it with a bare `Object.assign`,
+ *  NOT `updateServerMetadata`, so no `terminals:dirty`/autosave fires mid-
+ *  adoption. `adoptTerminal` deliberately omits that autosave (it "could persist
+ *  a half-adopted set / not-yet-restored active marker"); folding the seed
+ *  through the persisting helper would re-arm exactly the path that durably
+ *  persists the adoption clobber. Every LATER frame is a genuine provider change
+ *  → `updateServerMetadata` (publish + dirty), matching master.
+ *
+ *  Extracted + exported so that no-dirty-on-first-frame rule is unit-tested
+ *  against the real dirty channel — the "obvious" simplification of routing the
+ *  first frame through `updateServerMetadata` is then a failing test, not a
+ *  silent regression. (The one-microtask window between the seed and the `get`
+ *  subscribe is the theoretical lost-update the bare `Object.assign` still lands
+ *  on `entry.meta`; it self-heals on the provider's next publish.) */
+export function makePersistedAwarenessFold(
+  entry: TerminalProcess,
+  id: TerminalId,
+): (a: PersistedAwareness) => void {
+  let firstFrame = true;
+  return (a) => {
+    if (firstFrame) {
+      firstFrame = false;
+      Object.assign(entry.meta, a);
+      return;
+    }
+    updateServerMetadata(entry, id, (m) => Object.assign(m, a));
   };
 }
 
@@ -633,11 +667,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       id,
       pid,
       cwd: record.meta.cwd,
-      seed: {
-        git: entry.meta.git,
-        lastAgentCommand: entry.meta.lastAgentCommand,
-        lastActivityAt: entry.meta.lastActivityAt,
-      },
+      // The SAME projection the watcher publishes (`persistedSeedOf`), so the
+      // seed the endpoint supplies and the snapshot the watcher reproduces can't
+      // drift — a dropped field is a schema change, not a silent omission here.
+      seed: persistedSeedOf(entry.meta),
     });
     watched.catch((err) =>
       log.error({ err, terminal: id }, "watcher: watch failed"),
@@ -727,30 +760,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // `.pick` that declares the partition), so spread it WHOLE rather than
       // copying field-by-field — a new awareness field rides the spread for free
       // and the "fold every published field back" rule stays mechanical (the
-      // same whole-record discipline `adoptedMeta` uses, per #1275).
-      //
-      // The FIRST persisted frame is the snapshot — the `seed` we just passed in
-      // `watch`, i.e. THIS endpoint's own current persisted awareness — so it
-      // already matches `entry.meta`. Reconcile it WITHOUT `updateServerMetadata`:
-      // that would fire `terminals:dirty`, and adoption deliberately omits an
-      // autosave mid-boot (`adoptTerminal` — a dirty here could persist a
-      // half-adopted set / not-yet-restored active marker). Every LATER persisted
-      // frame is a genuine provider change → publish + dirty, matching master.
-      // (The one-microtask window between the seed and this subscribe is the
-      // theoretical lost-update the reconcile's bare `Object.assign` still lands
-      // on `entry.meta`; it self-heals on the provider's next publish.)
-      let firstPersisted = true;
+      // same whole-record discipline `adoptedMeta` uses, per #1275). The persisted
+      // fold's first-frame-silent / later-frame-dirty rule (the major's
+      // durability vector) lives in `makePersistedAwarenessFold`, unit-tested.
       bridgeStream(
         watcherClient.surface.persistedAwareness.get({ key: id }, { signal }),
         signal,
-        (a) => {
-          if (firstPersisted) {
-            firstPersisted = false;
-            Object.assign(entry.meta, a);
-            return;
-          }
-          updateServerMetadata(entry, id, (m) => Object.assign(m, a));
-        },
+        makePersistedAwarenessFold(entry, id),
       );
       bridgeStream(
         watcherClient.surface.liveAwareness.get({ key: id }, { signal }),
