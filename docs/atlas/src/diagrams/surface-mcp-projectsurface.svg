@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 648" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="oduSurface (A, live) feeds the NEW projectSurface primitive, which serves the curated observer-safe oduAgentSurface (B); every face maps B one-to-one.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#64748b"/>
+    </marker>
+    <style>
+      .leaftext  { font-size:12px; }
+      .grouptitle{ font-weight:700; font-size:14px; }
+      .edge      { stroke:#94a3b8; stroke-width:2; fill:none; }
+      .edgelabel { fill:#475569; font-size:11px; font-style:italic; }
+    </style>
+  </defs>
+
+  <!-- A: live coordinator (neutral blue) -->
+  <g>
+    <rect x="120" y="20" width="400" height="106" rx="8" fill="#E3E9FD" stroke="#0D32B2" stroke-width="1.5"/>
+    <text class="grouptitle" x="320" y="46" text-anchor="middle" fill="#0D32B2">oduSurface (A) — live coordinator</text>
+    <rect x="140" y="60" width="360" height="48" rx="5" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1"/>
+    <text class="leaftext" x="320" y="89" text-anchor="middle" fill="#11203a">nodes cell · nodeLog stream · node.rerun</text>
+  </g>
+  <path class="edge" d="M320 126 L320 162" marker-end="url(#arrow)"/>
+  <text class="edgelabel" x="330" y="148" text-anchor="start">client of A</text>
+
+  <!-- projectSurface: the NEW primitive (amber accent — the thing this PR adds) -->
+  <g>
+    <rect x="60" y="164" width="520" height="178" rx="8" fill="#FBF1DC" stroke="#B45309" stroke-width="1.75"/>
+    <text class="grouptitle" x="320" y="190" text-anchor="middle" fill="#92400E">projectSurface(A, …) — NEW in @kolu/surface</text>
+    <rect x="80" y="204" width="480" height="38" rx="5" fill="#FFFBF1" stroke="#E0B463" stroke-width="1"/>
+    <text class="leaftext" x="320" y="228" text-anchor="middle" fill="#5b3608">surfaceClientRef — B reads a live A client</text>
+    <rect x="80" y="250" width="480" height="38" rx="5" fill="#FFFBF1" stroke="#E0B463" stroke-width="1"/>
+    <text class="leaftext" x="320" y="274" text-anchor="middle" fill="#5b3608">derive — settled · red · bounded/guarded log</text>
+    <rect x="80" y="296" width="480" height="38" rx="5" fill="#FFFBF1" stroke="#E0B463" stroke-width="1"/>
+    <text class="leaftext" x="320" y="320" text-anchor="middle" fill="#5b3608">stream teardown — shared with the spine</text>
+  </g>
+  <path class="edge" d="M320 342 L320 378" marker-end="url(#arrow)"/>
+  <text class="edgelabel" x="330" y="364" text-anchor="start">serves B, a sibling of A</text>
+
+  <!-- B: curated, observer-safe projection (green — the safety property) -->
+  <g>
+    <rect x="120" y="380" width="400" height="106" rx="8" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5"/>
+    <text class="grouptitle" x="320" y="406" text-anchor="middle" fill="#15803D">oduAgentSurface (B) — curated, observer-safe</text>
+    <rect x="140" y="420" width="360" height="48" rx="5" fill="#F4FBF6" stroke="#9BD3AC" stroke-width="1"/>
+    <text class="leaftext" x="320" y="449" text-anchor="middle" fill="#14532d">nodes(+red) · log · settled · node.rerun</text>
+  </g>
+  <path class="edge" d="M320 486 L320 522" marker-end="url(#arrow)"/>
+  <text class="edgelabel" x="330" y="508" text-anchor="start">1:1</text>
+
+  <!-- faces: every face maps B 1:1 (neutral blue) -->
+  <g>
+    <rect x="120" y="524" width="400" height="100" rx="8" fill="#E3E9FD" stroke="#0D32B2" stroke-width="1.5"/>
+    <text class="grouptitle" x="320" y="550" text-anchor="middle" fill="#0D32B2">every face maps B 1:1</text>
+    <rect x="140" y="564" width="360" height="44" rx="5" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1"/>
+    <text class="leaftext" x="320" y="591" text-anchor="middle" fill="#11203a">TUI · web · @kolu/surface-mcp (+ bespoke run)</text>
+  </g>
+</svg>

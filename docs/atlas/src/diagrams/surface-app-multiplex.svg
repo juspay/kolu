@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 720" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Independent surfaces multiplexed over one transport; the plural layer keys each by its registration name.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#0D32B2"/>
+    </marker>
+    <style>
+      .container { fill:#EDF0FD; stroke:#0D32B2; stroke-width:1.5; }
+      .node      { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.5; }
+      .ctitle    { fill:#0A0F25; font-size:17px; font-weight:700; }
+      .ntitle    { fill:#0A0F25; font-size:14px; font-weight:600; }
+      .nsub      { fill:#676C7E; font-size:12.5px; }
+      .edge      { stroke:#0D32B2; stroke-width:1.6; fill:none; }
+      .elabel    { fill:#0A0F25; font-size:12px; font-style:italic; }
+      .echip     { fill:#FFFFFF; stroke:#0D32B2; stroke-width:1; }
+    </style>
+  </defs>
+
+  <!-- CONTAINER 1: app — declares standalone surfaces -->
+  <rect class="container" x="60" y="24" width="840" height="150" rx="10"/>
+  <text class="ctitle" x="80" y="50">app — declares standalone surfaces</text>
+  <rect class="node" x="80" y="70" width="390" height="84" rx="8"/>
+  <text class="ntitle" x="100" y="100">surfaceAppSurface</text>
+  <text class="nsub"   x="100" y="122">buildInfo cell</text>
+  <text class="nsub"   x="100" y="140">+ identity probe</text>
+  <rect class="node" x="490" y="70" width="390" height="84" rx="8"/>
+  <text class="ntitle" x="510" y="100">adminSurface</text>
+  <text class="nsub"   x="510" y="122">hosts collection</text>
+  <text class="nsub"   x="510" y="140">+ procedures</text>
+
+  <!-- CONTAINER 2: implementSurfaces / surfaceClients (thin plural layer) -->
+  <rect class="container" x="60" y="288" width="840" height="150" rx="10"/>
+  <text class="ctitle" x="80" y="314">implementSurfaces / surfaceClients (thin plural layer)</text>
+  <rect class="node" x="80" y="334" width="390" height="84" rx="8"/>
+  <text class="ntitle" x="100" y="368">key</text>
+  <text class="nsub"   x="100" y="392">keys each surface by its</text>
+  <text class="nsub"   x="100" y="410">registration name</text>
+  <rect class="node" x="490" y="334" width="390" height="84" rx="8"/>
+  <text class="ntitle" x="510" y="368">chan</text>
+  <text class="nsub"   x="510" y="392">namespaces each surface's</text>
+  <text class="nsub"   x="510" y="410">channel bus by key</text>
+
+  <!-- CONTAINER 3: one transport (WS) — multiplexed -->
+  <rect class="container" x="60" y="552" width="840" height="150" rx="10"/>
+  <text class="ctitle" x="80" y="578">one transport (WS) — multiplexed</text>
+  <rect class="node" x="80" y="598" width="490" height="84" rx="8"/>
+  <text class="ntitle" x="100" y="630">w1</text>
+  <text class="nsub"   x="100" y="654">surface.surfaceApp.buildInfo ·</text>
+  <text class="nsub"   x="100" y="672">surface.surfaceApp.identity.info</text>
+  <rect class="node" x="590" y="598" width="290" height="84" rx="8"/>
+  <text class="ntitle" x="610" y="630">w2</text>
+  <text class="nsub"   x="610" y="654">surface.admin.hosts…</text>
+
+  <!-- EDGES -->
+  <path class="edge" d="M275 154 L275 334" marker-end="url(#arrow)"/>
+  <rect class="echip" x="150" y="234" width="200" height="22" rx="5"/>
+  <text class="elabel" x="160" y="249">registered under 'surfaceApp'</text>
+
+  <path class="edge" d="M685 154 L685 334" marker-end="url(#arrow)"/>
+  <rect class="echip" x="600" y="234" width="172" height="22" rx="5"/>
+  <text class="elabel" x="610" y="249">registered under 'admin'</text>
+
+  <path class="edge" d="M480 418 L480 598" marker-end="url(#arrow)"/>
+  <rect class="echip" x="378" y="498" width="204" height="22" rx="5"/>
+  <text class="elabel" x="388" y="513">one router, one ctx, keyed</text>
+</svg>
