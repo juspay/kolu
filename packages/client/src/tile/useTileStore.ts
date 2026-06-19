@@ -71,7 +71,16 @@ export const useTileStore = createSharedRoot(() => {
    *  on the terminal; PR 2 writes a sleeping tile's layout to its record. */
   const setLayout = (id: TileId, layout: TileLayout): void => {
     const content = contentOf(id);
-    if (content?.kind !== "terminal") return;
+    // A persist for an id that isn't a tile is a caller bug — every write flows
+    // from a rendered tile whose id is in `tileIds()` by construction — so
+    // surface it loudly rather than dropping the layout into the void (fail
+    // fast; don't let a write silently collapse to a no-op). Distinct from the
+    // kind dispatch below, which is a legitimate quiet branch for PR 2.
+    if (!content) {
+      console.error("useTileStore.setLayout: no tile for id", id);
+      return;
+    }
+    if (content.kind !== "terminal") return;
     persistCanvasLayout(content.terminalId, layout);
   };
 
