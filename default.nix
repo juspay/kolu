@@ -86,6 +86,7 @@ let
       ./packages/artifact-sdk
       ./packages/serve-dir
       ./packages/html-escape
+      ./packages/shell-quote
       ./packages/url-shape
       ./packages/log
     ];

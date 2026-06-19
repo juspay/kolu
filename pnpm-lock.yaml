@@ -279,6 +279,9 @@ importers:
 
   packages/integrations/anyagent:
     dependencies:
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../../shell-quote
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -540,6 +543,9 @@ importers:
 
   packages/kaval-tui:
     dependencies:
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -752,6 +758,15 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+
+  packages/shell-quote:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/solid-browser:
     dependencies:

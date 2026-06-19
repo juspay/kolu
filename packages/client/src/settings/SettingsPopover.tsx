@@ -28,7 +28,8 @@ const SCHEME_HINT: Record<ColorScheme, Hint> = {
   system: { text: "Match your OS appearance." },
 };
 
-/** Auto  = system chooses per tile (WebGL on focused, DOM on others).
+/** Auto  = system chooses per tile (WebGL on the recently-active tiles plus
+ *          their active splits, DOM on others — see `canUseWebgl`, #1403).
  *  WebGL = WebGL on every tile (higher throughput; reintroduces #575
  *          context-budget risk with many terminals).
  *  DOM   = force DOM everywhere; no font shift on focus swap. */
@@ -43,7 +44,7 @@ const RENDERER_OPTIONS: readonly SegmentedControlOption<
 /** Reactive hint table — re-read on every renderer change. "warn" tone flags
  *  the WebGL-every-tile context-thrash trade-off surfaced in #636. */
 const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
-  auto: { text: "WebGL on focused tiles, DOM elsewhere." },
+  auto: { text: "WebGL on recently-active tiles, DOM elsewhere." },
   webgl: {
     text: "WebGL on every tile — may thrash past ~16 terminals.",
     tone: "warn",

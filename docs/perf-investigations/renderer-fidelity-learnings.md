@@ -82,8 +82,27 @@ Same `charSizeService.width` (8.6154), different grids:
 (`Math.floor(charW × dpr)` → device cell width **8**),
 `DomRenderer._updateDimensions` doesn't (→ **8.6154**). The unfocused
 tile lays text out +7.7% wider — the long-known "stable font on focus"
-wobble named in `SettingsPopover`. Entirely inside xterm's renderers;
-kolu picks up an upstream fix by bumping the pnpm-overrides pin.
+wobble named in `SettingsPopover`. The divergence is entirely inside
+xterm's renderers, so the original plan was to pick up an upstream fix by
+bumping the pnpm-overrides pin.
+
+**Update (June 2026): upstream won't fix it, so kolu owns it.** On
+[#6015](https://github.com/xtermjs/xterm.js/issues/6015#issuecomment-4694852375)
+jerch ruled out both directions: un-flooring the WebGL cell blurs glyphs
+/ introduces moiré, and correcting the DOM renderer with `letter-spacing`
+re-introduces the per-span pressure a refactor had removed (a perf
+regression) — *"swapping renderers forth and back is a weird use case."*
+The pin bump will not come. kolu's resolution is to stop **exposing** the
+divergence rather than eliminate it: the WebGL renderer is now budgeted to
+the **2 most-recently-active tiles** (each slot covering its main pane +
+active split), so the dominant A↔B focus switch never crosses the
+WebGL↔DOM boundary and the +7.7% reflow disappears for it. Only evicting a
+tile past the 2-slot budget still swaps it. See
+[#1403](https://github.com/juspay/kolu/issues/1403) and
+`useTerminalStore.ts` (`holdsWebgl` + `WEBGL_TILE_BUDGET`). *(Cause #2 of
+#1400 — the selection-offset-under-zoom bug — was fixed separately and
+filed upstream as
+[#6023](https://github.com/xtermjs/xterm.js/issues/6023).)*
 
 ---
 
