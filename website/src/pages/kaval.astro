@@ -256,6 +256,49 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
+    <p class="eyebrow mb-5">the sibling — arivu, awareness over kaval</p>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl">
+      kaval owns the PTYs and surfaces the raw taps above;{" "}
+      <code class="mono text-ink">arivu</code> (Tamil <em>aṟivu</em> — "the
+      faculty of knowing") is the sibling that turns them into{" "}
+      <span class="text-ink">awareness</span>. Point it at a running kaval and it
+      derives, per terminal: the repo branch, the open PR and its checks, which
+      AI agent is running and whether it's <span class="text-ink">working</span>{" "}
+      or <span class="text-ink">waiting on you</span>, and the foreground
+      process — served as one surface that{" "}
+      <code class="mono text-ink">arivu-tui</code> reads. Zero kolu-server, no
+      browser; the runtime is just{" "}
+      <code class="mono text-ink">node · git · gh</code>.
+    </p>
+    <p class="mono text-ink-faint text-sm leading-relaxed mt-4 max-w-xl">
+      <code class="text-ink">nix run github:juspay/kolu#arivu</code>
+      <span class="text-ink-faint"> # awareness over the running kaval</span>
+      <br />
+      <code class="text-ink">nix run github:juspay/kolu#arivu-tui -- list</code>
+    </p>
+    <pre
+      class="mt-4 overflow-x-auto rounded-lg border border-rule px-4 py-3 mono text-xs text-ink-dim leading-relaxed"
+    ><code>ID        BRANCH         PR        AGENT             FOREGROUND
+a3f10000  feat/dial-ssh  #1412 ✓   claude · working  node
+b7c20000  master         —         codex · waiting   codex
+c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
+    <p class="text-ink-dim text-sm leading-relaxed max-w-xl mt-4">
+      Where <code class="mono text-ink">kaval-tui</code> shows what's{" "}
+      <em>running</em> in each PTY, <code class="mono text-ink">arivu-tui</code>{" "}
+      shows what each terminal <em>is in</em> — a "what is every agent doing,
+      across every repo" dashboard you can <code class="mono text-ink">ssh</code>{" "}
+      into. <code class="mono text-ink">watch &lt;id&gt;</code> follows one
+      terminal live. It runs the <em>same</em> awareness sensors kolu uses
+      internally, now as a process of its own — the design lives in the{" "}
+      <a
+        href="https://kolu.dev/atlas/arivu.html"
+        class="text-amber hover:underline"
+        rel="noopener">arivu atlas note</a
+      >.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
     <p class="eyebrow mb-5">commands · kaval-tui</p>
     {
       commands.map((c) => (
