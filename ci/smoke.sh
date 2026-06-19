@@ -129,7 +129,11 @@ echo "shutdown clean"
 # unset — that's what tests build, so they never traverse this wrapper, and #530
 # /#531's test-isolation guarantee is untouched.
 state_tmp=$(mktemp -d)
-custom_state="$state_tmp/relocated"
+# Resolve symlinks up front: the server echoes back the KOLU_STATE_DIR we pass
+# verbatim, so we compare against the canonical form to stay robust on the darwin
+# lane (macOS $TMPDIR / `/tmp` resolve under /private) — and against a future
+# change that logs the resolved path rather than the raw env value.
+custom_state="$(realpath "$state_tmp")/relocated"
 state_log="$state_tmp/kolu.log"
 env -i HOME="$state_tmp/home" KOLU_STATE_DIR="$custom_state" \
     "$KOLU" --host 127.0.0.1 --port 0 >"$state_log" 2>&1 &
@@ -137,6 +141,8 @@ state_pid=$!
 
 wait_for_marker "state directory" "$state_log" "$state_pid"
 logged=$(json_field path "$state_log" "state directory")
+# Best-effort teardown (same rationale as cleanup()): a stale-PID kill can race
+# the process's own exit, and that error must not mask a real failure.
 kill -TERM "$state_pid" 2>/dev/null || true
 wait "$state_pid" 2>/dev/null || true
 state_pid=""  # disarm cleanup trap — we've already waited
