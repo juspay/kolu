@@ -28,6 +28,7 @@
  * a terminal's metadata becomes visible".
  */
 
+import { seedAwarenessValue } from "@kolu/terminal-awareness";
 import { prValue } from "anyforge/schemas";
 import {
   type HostLocation,
@@ -57,15 +58,10 @@ export function createMetadata(
   cwd: string,
   location: HostLocation,
 ): TerminalMetadata {
-  return {
-    cwd,
-    git: null,
-    location,
-    pr: { kind: "pending" },
-    agent: null,
-    foreground: null,
-    lastActivityAt: 0,
-  };
+  // The generic awareness seed is owned by @kolu/terminal-awareness (beside the
+  // schema it produces); kolu layers only its own `location` on top. One seed,
+  // shared with `arivu` — see `seedAwarenessValue`.
+  return { ...seedAwarenessValue(cwd), location };
 }
 
 /** Log + emit the current metadata snapshot to the surface collection.

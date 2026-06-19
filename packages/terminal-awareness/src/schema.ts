@@ -165,6 +165,25 @@ export const AwarenessValueSchema = AwarenessPersistedFieldsSchema.merge(
 );
 export type AwarenessValue = z.infer<typeof AwarenessValueSchema>;
 
+/** The initial awareness value for a freshly-spawned terminal: its spawn-time
+ *  cwd, everything else at its "not yet resolved" seed (git absent, PR pending,
+ *  no agent, no foreground, recency at 0). The sensors fill it in from now.
+ *
+ *  Owned HERE, beside the schema that defines its shape, so every consumer
+ *  shares one seed: `arivu`'s daemon seeds a watched terminal with it, and
+ *  kolu's `createMetadata` spreads it under the kolu-only `location`. A new
+ *  awareness field then has exactly one seed value to set. */
+export function seedAwarenessValue(cwd: string): AwarenessValue {
+  return {
+    cwd,
+    git: null,
+    lastActivityAt: 0,
+    pr: { kind: "pending" },
+    agent: null,
+    foreground: null,
+  };
+}
+
 // ── Schema-derived sub-types ──────────────────────────────────────────
 
 export type AgentKind = z.infer<typeof AgentKindSchema>;

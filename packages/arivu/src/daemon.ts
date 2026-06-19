@@ -38,6 +38,7 @@ import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
   type AwarenessRecord,
   bridgeKavalTaps,
+  seedAwarenessValue,
   startAwareness,
 } from "@kolu/terminal-awareness";
 import { implement } from "@orpc/server";
@@ -80,20 +81,6 @@ export type ArivuReady =
   | { kind: "stdio" };
 
 const DEFAULT_POLL_MS = 1000;
-
-/** The initial awareness value for a freshly-discovered terminal: its
- *  spawn-time cwd, everything else at its "not yet resolved" seed (git absent,
- *  PR pending, no agent, no foreground). The sensors fill it in from now. */
-function seedAwareness(cwd: string): AwarenessValue {
-  return {
-    cwd,
-    git: null,
-    lastActivityAt: 0,
-    pr: { kind: "pending" },
-    agent: null,
-    foreground: null,
-  };
-}
 
 /** Run the arivu daemon to completion. Resolves when the serve link ends
  *  (stdio) or a stop signal fires (socket). */
@@ -162,7 +149,7 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
     const abort = new AbortController();
     const record: AwarenessRecord = {
       pid: entry.pid,
-      meta: seedAwareness(entry.cwd),
+      meta: seedAwarenessValue(entry.cwd),
       currentAgent: null,
     };
     // Shallow-clone on publish: the sensors mutate `record.meta` in place (each
