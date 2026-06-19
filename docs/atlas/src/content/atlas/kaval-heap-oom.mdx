@@ -82,11 +82,11 @@ This was **not** a kernel OOM-kill (signal is 6/ABRT, a userspace self-abort —
 | 1 terminal, unbounded `yes` output, 90 s | oscillates 14–64 MB — **bounded** (scrollback caps it) |
 | attach + abort a subscription, tight loop | flat — **bounded** (abort cleanup works) |
 | spawn + write + kill, 8 000× | flat — **bounded** (`teardown` is complete) |
-| **spawn terminals, never kill** | **linear** — ~10 MB/terminal at 10 K scrollback; **~62 MB/terminal at the production 50 K** |
+| **spawn terminals, never kill** | **linear** — ~18 MB **V8 heap**/terminal at the production 50 K (+ ~44 MB external cell buffers) |
 
-Under a 1 GB heap cap at the production 50 K scrollback, the host dies with the **exact production signature** — `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` — at **~54 fully-scrolled terminals** (heap climbing linearly 358 → 970 MB; ~18 MB V8 heap + ~44 MB ArrayBuffer-backed cells each). A one-terminal heap snapshot is ~10 000 each of `ArrayBuffer` / `Uint32Array` / xterm `BufferLine` — the scrollback grid, nothing else.
+Under a 1 GB **old-space** cap at the production 50 K scrollback, the host dies with the **exact production signature** — `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` — at **~54 fully-scrolled terminals**, heap climbing linearly 358 → 970 MB. The abort is an **old-space heap** event, so the driver is **~18 MB of V8 heap per terminal** (the `BufferLine` / `Object` / typed-array *wrappers*); the cell payloads add ~44 MB of *external* `ArrayBuffer` memory each — real RSS pressure, but **not** counted by the heap limit that aborts. A one-terminal snapshot at 10 K scrollback shows ~10 000 each of `ArrayBuffer` / `Uint32Array` / xterm `BufferLine` — the scrollback grid, nothing else — scaling ~5× at the production 50 K.
 
-So the **operative answer**: heap is proportional to **live terminal count** (× each terminal's scrollback fill). A single busy terminal, or terminal/subscription churn, is bounded — *activity* alone doesn't grow it. The ~4 GB ceiling is reached at a couple hundred fully-scrolled terminals (fewer in practice, summed across partially-filled ones).
+So the **operative answer**: heap is proportional to **live terminal count** (× each terminal's scrollback fill). A single busy terminal, or terminal/subscription churn, is bounded — *activity* alone doesn't grow it. The default ~4 GB old-space ceiling is reached at **a couple hundred** fully-scrolled terminals (≈ 4 GB ÷ ~18 MB ≈ 220; fewer in practice, summed across partially-filled ones).
 
 Why the count grows without bound: `reconcile` **never reaps** — a surviving kaval's live PTYs are all *adopted* across every server restart (the "terminals survive a kolu update" guarantee), and a terminal is freed only when its child process exits or the user explicitly kills it (<Cite file="packages/server/src/reconcile.ts" label="reconcile.ts" />). Long-lived shells and agents — across many worktrees, over days, ratcheted up by each crash-restart — accumulate, each pinning a 50 K-line mirror. **Not a teardown bug** (teardown is clean): an unbounded, never-reaped population × a large per-terminal retainer.
 
@@ -103,7 +103,7 @@ kolu already has heap diagnostics: set `KOLU_DIAG_DIR` and the server writes a b
 **But it only instruments the server (Node 22) — the process that *doesn't* crash.** kaval (Node 24, the one that *does*) is deliberately excluded:
 
 <Callout kind="warn" title="localDriver strips the very flag we need">
-`scrubNodeOptions()` removes `--heapsnapshot*`, `--inspect`, `--heap-prof`, `--cpu-prof` from `NODE_OPTIONS` **before** spawning kaval, *"so a kolu launched with diagnostics doesn't make kaval write heap snapshots too."* <Cite file="packages/server/src/ptyHost/localDriver.ts" label="localDriver.ts:98-130" /> That was the right call when the server was the suspected leaker — but it means the prod kaval has **no heap limit and no pre-OOM snapshot**. Every crash so far has thrown away the one artifact that would name the leak.
+`scrubNodeOptions()` removes `--heapsnapshot*`, `--inspect`, `--heap-prof`, `--cpu-prof` from `NODE_OPTIONS` **before** spawning kaval, *"so a kolu launched with diagnostics doesn't make kaval write heap snapshots too."* <Cite file="packages/server/src/ptyHost/localDriver.ts" label="localDriver.ts:102-115" /> That was the right call when the server was the suspected leaker — but it means the prod kaval has **no heap limit and no pre-OOM snapshot**. Every crash so far has thrown away the one artifact that would name the leak.
 </Callout>
 
 The leak is now named without it (the in-process repro on a clean box did the job), but the gap still matters: with kaval instrumented, prod would have shown the `terms`-count curve climbing for days, and a near-limit snapshot would confirm the same scrollback grid in the *real* workload — so the fixes below still close it.
@@ -116,18 +116,19 @@ A sweep of the field (ghostty, tmux, zellij, kitty, wezterm, GNU screen, mosh, V
 | --- | --- | --- | --- |
 | **kaval (today)** | **50 000 lines / PTY** | none — no cap, no reap | full mirror, **eagerly serialized** |
 | GNU screen | 100 lines | line cap | viewport (RAM) |
-| xterm.js / headless | 1 000 rows | ring buffer | ANSI snapshot (`SerializeAddon`) |
+| xterm.js / headless | 1 000 rows (library default — kolu overrides to 50 K) | ring buffer | ANSI snapshot (`SerializeAddon`) |
 | tmux | **2 000 lines / pane** | line cap + batch trim | **viewport**; scrollback lazily in copy-mode |
 | kitty | 2 000 in-RAM | overflow spills to a temp file → pager | n/a (emulator) |
-| wezterm-mux | 3 500 lines | line cap + **~40× cell compression** | **viewport**; lazily by range (`GetLines` RPC) |
+| wezterm-mux | 3 500 lines | line cap (uncompressed) | **viewport**; lazily by range (`GetLines` RPC) |
 | zellij | 10 000 lines | ring + **serialize panes to disk** | cold: from **disk**, not RAM |
-| ghostty / zmosh | **10 MB (bytes)** | byte cap + page-trim, 8 B cells | serialize VT (zmosh) |
+| ghostty | **10 MB (bytes)** | byte cap + page-trim, ~12.5 B/cell | n/a (emulator) |
+| zmosh | ghostty-vt byte cap | ring evict | serialize VT (scrollback + viewport) |
 | mosh | **0 — viewport only** | keeps no history at all | the live screen, ever |
-| VTE (GNOME) | "infinite" | **LZ4 + AES disk ring**, ~0 RAM | n/a (emulator) |
+| VTE (GNOME) | "infinite" | **LZ4 + AES disk ring**, near-0 resident (hot pages only) | n/a (emulator) |
 
 Three lessons that reshape the fix:
 
-1. **Nobody holds deep history as live cell-objects** — it's a small ring (tmux 2 K), compressed (wezterm ~40×), or on disk (zellij / kitty / VTE). kaval's 50 K of live `BufferLine` objects is the anomaly. *(In V8 the killer is object-header + GC pressure, not raw bytes — so deep history wants to be a compressed `Buffer` or a file, never live xterm lines.)*
+1. **Nobody holds deep history as live cell-objects** — it's a small ring (tmux 2 K) or pushed off the hot path to disk (zellij / kitty / VTE, the last LZ4-compressing its disk ring). kaval's 50 K of live `BufferLine` objects is the anomaly. *(In V8 the killer is object-header + GC pressure, not raw bytes — so deep history wants to be a compressed `Buffer` or a file, never live xterm lines.)*
 2. **No multiplexer eagerly serializes the whole mirror on reattach** — tmux / wezterm repaint the *viewport* and stream older lines **lazily, by range, on scroll**. kaval's `attach()` → full-buffer `serialize()` is exactly the avoidable cost.
 3. **Cap by *bytes*, not lines** — a wide blank line still costs, and agent streaming is the real-world OOM driver elsewhere too (tmux #4859 ≈ 48 GB, ghostty 37 GB), not deep interactive history.
 
@@ -169,8 +170,8 @@ The plan of record — which is also just what the field does (small hot buffer 
   <path d="M165 212 L255 296" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
   <text x="150" y="262" text-anchor="end" font-size="10.5" fill="var(--ink-muted,#8a8f98)">attach: viewport + deltas</text>
   <path d="M435 212 L345 296" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
-  <text x="452" y="250" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">lazy backfill</text>
-  <text x="452" y="264" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">(deep scroll · PDF · search)</text>
+  <text x="440" y="250" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">lazy backfill</text>
+  <text x="440" y="264" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">(scroll · PDF · search)</text>
 </svg>
 <figcaption style="margin-top:.5rem;font-size:.8rem;color:var(--faint,#7a8089);font-family:ui-sans-serif,system-ui,sans-serif">Target shape. Every PTY byte feeds a <em>small</em> live mirror (viewport + just enough for metadata, scrape, cold repaint — capped by bytes) and appends to an on-disk transcript log (#417). Clients attach against the small mirror; deep scroll-back, PDF export, and search lazily backfill from the log — no live 50 K cell-grid retained per terminal, anywhere.</figcaption>
 </figure>
