@@ -1,0 +1,286 @@
+---
+title: LLM Workflow Autonomy — A Self-Improvement Loop
+description: A recurring audit of how autonomous our PR workflow is. Round 1 covers today's workflow, /be — 88 runs reveal where it still needs a human, the levers to close the gap, and the repeatable method to re-run the check as the workflow evolves.
+kind: analysis
+status: proposed
+maturity: budding
+updated: 2026-06-19
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import D2 from "../../components/D2.astro";
+import Roadmap from "../../components/Roadmap.astro";
+import Milestone from "../../components/Milestone.astro";
+import Cite from "../../components/Cite.astro";
+
+Our PR workflow should run autonomously: one decision from the human up front,
+then a shipped, reviewed PR with **zero** further turns. **Today that workflow is
+`/be`** — but the workflow will change, so this note is framed as a recurring
+**LLM-autonomy self-improvement loop**, not a one-off `/be` post-mortem. This
+round measures how autonomous `/be` actually is, mined from the real session
+logs, and proposes how to close the gap. The last section is the **runbook** so
+we can re-run the check against whatever drives our PRs next and watch the number
+move.
+
+Method: crawled every Claude Code JSONL session in a kolu worktree from the last
+~4 weeks, kept the 88 that genuinely invoked `/be`, extracted only the
+**human-typed turns** (the follow-up prompts — the manual interventions), and
+fanned out a [Workflow](dynamic-workflow-viewer.html) that classified all 493
+interventions, clustered them, and ranked the fixes. Date: 2026-06-19 · window
+2026-05-30 → 2026-06-19.
+
+<Callout kind="danger" title="Headline">
+**`/be`'s autonomy is enforced only by prose.** The one deterministic backstop in
+the repo — the `Stop` hook <code>do-stop-guard.sh</code> — is hardwired to `/do`:
+it reads <code>.do-results.json</code>, which **only `/do` ever writes**. `/be`
+writes no run-state, so it has *zero* machine enforcement of "don't stop until
+shipped." Roughly **200 of 493** interventions trace to that single dead-wire.
+Every other guardrail (no-fallbacks, don't-kill-prod, no-mid-run-questions,
+RED-repro-first, real-evidence) is also advisory English — and the model abandons
+each under long-context pressure, so the human becomes the gate.
+</Callout>
+
+## The autonomy gap
+
+Across 88 runs the mean autonomy score was **53/100** and the median **54** — a
+coin-flip. Only **16 runs (18%)** ran fully clean (the initial `/be` plus nothing
+else); the largest band, 25 runs, sat at **0–19** (a wall of interruptions). The
+worst — `reload-error` (32 interventions), `pty-daemon-phase-b` (20),
+`video` (18), `ccloading`/`cc-scrape` (17) — were multi-hour slogs the human
+hand-drove stage by stage.
+
+| Metric | Value |
+| --- | --- |
+| `/be` runs analyzed | **88** (2026-05-30 → 2026-06-19) |
+| Total manual interventions | **493** |
+| Mean interventions per run | **5.6** |
+| Mean / median autonomy | **53 / 54** out of 100 |
+| Fully autonomous runs (0 interventions) | **16 of 88 (18%)** |
+| Severity mix | 112 blockers · 211 corrections · 165 nudges · 5 preferences |
+
+| Autonomy band | Runs | |
+| --- | --- | --- |
+| 100 — clean | 16 | <Pill variant="ok">good</Pill> |
+| 80–99 | 15 | |
+| 60–79 | 11 | |
+| 40–59 | 12 | |
+| 20–39 | 9 | |
+| 0–19 — hand-driven | 25 | <Pill variant="hi">bad</Pill> |
+
+**What the clean runs have in common is the lesson.** The 16 fully-autonomous
+runs (`click-file-ref`, `dot-in-link`, `cc-fork`, `sick-coat`, `old-defect`, …)
+were overwhelmingly **well-specified bug issues with a pre-existing `@skip` e2e
+scenario** — `/be` had an unambiguous target and a ready-made RED test, so it ran
+end-to-end unattended. Autonomy is not a model-capability problem; it is an
+**enforcement + specification** problem. The fix is to make the contract
+deterministic (exit codes, not prose) and to give every run the ground truth the
+clean runs happened to have.
+
+<D2
+  caption="The proposed enforcement backbone. Today the green spine and the guard boxes do not exist for /be — its stages are connected by prose only, so the run yields the turn and the human (dashed) re-drives it. The fix: /be writes a run-state spine at every stage boundary, and the existing Stop hook (extended) plus new PreToolUse hooks read it to block turn-end and dangerous actions — converting 'continue', 'run ci', 'don't kill prod', 'post evidence' from human nudges into automatic resume/refusal."
+  code={`direction: down
+prompt: "User: /be <task>"
+interview: "§0 Interview — the ONE sanctioned question"
+state: "run-state spine (.do-results.json)\\nstage · pr · ci · evidence · verified\\n— /be does NOT write this today" { style.bold: true; style.fill: "#e6f4ea" }
+stages: "§1–§5 stages\\nsetup · implement · PR · gauntlet · ci+evidence"
+guards: "Guards — exit codes, not prose" {
+  stop: "Stop hook (extend)\\nblock turn-end while active=working\\n+ Done post-conditions: ci-green · evidence · gauntlet-comments · repro-green"
+  pre: "PreToolUse hooks (new)\\nblock prod-kolu kill / prod-port bind\\nblock AskUserQuestion after §0"
+}
+human: "Human (today: the gate)\\n'continue' · 'run ci' · 'DONT KILL PROD' · 'post evidence'" { style.stroke-dash: 4 }
+done: "Done — only when every guard passes"
+prompt -> interview -> stages
+stages -> state: "write at each boundary"
+state -> guards: "read"
+guards -> stages: "block & auto-resume"
+human -> stages: "today: manual re-drive" { style.stroke-dash: 4 }
+stages -> done`}
+/>
+
+The spine is one artifact with four jobs: **(1)** Stop-guard self-resume,
+**(2)** post-compact / post-crash re-entry, **(3)** the "interview done" marker a
+PreToolUse hook reads to block mid-run questions, and **(4)** the Done
+post-condition fields. Build it once; four enforcement mechanisms hang off it.
+
+## Where the interventions happen
+
+Every human follow-up was tagged against a fixed taxonomy. Two failure modes
+dominate: **the model builds the wrong thing** (it never consults the project's
+own sources of truth before coding) and **the model stops too early** (no
+deterministic "keep going").
+
+| Category | n | Severity | The recurring pattern |
+| --- | --- | --- | --- |
+| wrong-approach | 93 | <Pill variant="hi">critical</Pill> | Commits to a default (fallbacks, hand-rolled config, wrong package boundary) without reading conventions / `electricity.mdx`; no design-seam self-check before the human sees it |
+| incomplete-stopped-early | 85 | <Pill variant="hi">critical</Pill> | Silently halts between stages; human types "continue" / "finish the /be workflow" |
+| continue-or-resume-nudge | 59 | <Pill variant="hi">critical</Pill> | Yields after interrupts, compaction, config commands; no auto-resume |
+| evidence-missing-or-wrong | 46 | <Pill variant="hi">critical</Pill> | Declares done with no / tests-only / unplayable / wrong-target artifact; human is the visual linter |
+| requirements-clarification | 40 | <Pill variant="md">high</Pill> | Launches on terse/argless prompts and a linked spec it never fully read; scope surfaces mid-run |
+| tooling-env-failure | 27 | <Pill variant="hi">critical</Pill> | Session limits / crashes with no resumable checkpoint; codex-login & CI policy hit mid-gauntlet; orphaned pu/dev resources |
+| regression-introduced | 24 | <Pill variant="hi">critical</Pill> | Ships unexercised changes; kills production kolu; breaks interactive controls — human is the regression detector |
+| manual-verification-needed | 22 | <Pill variant="md">high</Pill> | "tests pass" stands in for "I watched it work"; human re-runs the repro / clicks the control / deploys |
+| review-gauntlet-gap | 22 | <Pill variant="hi">critical</Pill> | Gauntlet doesn't self-execute or self-verify; missing PR comments/commits; lenses miss recurring smells |
+| repro-or-test-inadequate | 19 | <Pill variant="hi">critical</Pill> | RED-repro never confirmed red for the right reason; asserts a proxy, not the user's literal invariant |
+| ci-failure | 14 | <Pill variant="hi">critical</Pill> | Yields before CI is green; skips master-sync, downstream PRs, per-node triage |
+| overengineering-or-scope | 10 | <Pill variant="md">high</Pill> | Gold-plated guards, single-use wrapper files; gauntlet doesn't re-fire on its own later commits |
+| pr-hygiene | 9 | <Pill variant="md">high</Pill> | Commits sit unpushed; title/body drifts; base goes stale — "always push wtf" |
+| subjective-preference | 9 | <Pill variant="ok">low</Pill> | Mostly irreducible taste that should route to `/talk`; a few undocumented-convention cases |
+| other | 10 | <Pill variant="ok">low</Pill> | Branch rot ("merge latest master"), illegible review output, unverified cited issues |
+| plan-feedback | 4 | <Pill variant="ok">low</Pill> | First plan draft misses the bar (no prototype, wrong altitude) during the sanctioned §1 pause |
+
+The follow-up prompts themselves are the evidence — the same handful of
+frustrations, run after run:
+
+> **Stopped early / nudge** — "You must finish the /be workflow." · "idiot,
+> fucking build it in the PR" · "Continue from where you left off." · "status?"
+> (after an hour of silence)
+
+> **Wrong approach** — "Doesn't parcel already support gitignore" · "Being able
+> to 'override' is never a feature" · "solid-BROWSER's only concern is BROWSING.
+> per electricity.mdx"
+
+> **Regression / destructive** — "DO NOT FUCKING KILL PRODUCTION KOLU" · "you
+> killed production kkolu … You are suppose to run the dev server with random
+> ports." · "wtf, I can no longer click on 'Update' button?"
+
+> **Evidence / verification** — "Your evidence is shit." · "your mp4 doesn't
+> play either" · "did you test your changes? … both back and fwd buttons remain
+> disabled" · "once you finish the PR, you must re-run your repro"
+
+> **Gauntlet / CI / hygiene** — "where are the codex and lowy/hicky commits?" ·
+> "github says red" · "Ignore CI, I merged it." · "always push wtf"
+
+The common thread: **a rule the codebase already documents arrives as an angry
+mid-run interrupt**, because nothing surfaced it at the right moment or stopped
+the model from shipping past it.
+
+## The roadmap
+
+Fourteen deduplicated improvements, ranked by impact ÷ effort. The program is
+**mechanical, not prose**: the top items convert the most-violated rules into
+exit-code gates. Targets are the `.apm/` sources (they regenerate into
+`.claude/`, `.codex/`, `.agents/` via `just ai::apm` — never edit the generated
+copies), `.agency/do.md`, and `settings.json` hooks.
+
+| # | Improvement | Lever | Effort · Impact |
+| --- | --- | --- | --- |
+| 1 | **Wire `/be` into the existing Stop guard** — write the generic `.do-results.json` the guard already understands | `.apm/skills/be/SKILL.md` §1/§Done; reuse `do/scripts/do-results`. No hook change needed | S · **high** |
+| 2 | **First PreToolUse Bash hook: hard-block prod-kolu kills & prod-port binds** | new `.apm` hook → `settings.json` PreToolUse; cite from `dev-server` skill | M · **high** |
+| 3 | **Full `/ci` on every touched PR + master-sync at the head of §5** | `.apm/skills/be/SKILL.md` §5; `.agency/do.md` `## CI` | S · **high** |
+| 4 | **Codify design philosophy as an always-loaded rule** (fail-fast/no-fallbacks · electricity boundaries · reuse-existing-source) and force §2 to read it | `.apm/instructions/conventions.instructions.md` → `conventions.md`; `be` §2 | S · **high** |
+| 5 | **Hard-gate Done on real artifacts** — extend the Stop guard with ci-green + evidence-present + gauntlet-comments-present | `do-stop-guard.sh` (apm source); `/be` writes the fields | M · **high** |
+| 6 | **`## CI failure triage` policy** — named flaky lanes + per-node enumerate/fix-or-waive | `.agency/do.md` | S · **high** |
+| 7 | **Make §4 a self-driving in-process Skill chain**; forbid handing reviewers back to the user | `.apm/skills/be/SKILL.md` §4; `be-review` | M · **high** |
+| 8 | **§3 deliverable-coverage gate + grep-before-assert** — never report a PR whose diff doesn't match the task; never claim "no fallbacks" unchecked | `be` §3; `code-police` / `fact-check` | M · med |
+| 9 | **Machine-checked RED→GREEN repro & observed-green before Done** (tests passing ≠ verified) | `be` §2; Stop guard `verified` field | M · **high** |
+| 10 | **§0 echoes a concrete task contract; PreToolUse blocks AskUserQuestion after §0** | `be` §0; new PreToolUse hook | M · med |
+| 11 | **§2 design-seam self-check** — run lowy + hickey on the *seam* before building, not at §4 | `be` §2 | M · med |
+| 12 | **Heartbeat + wall-clock budget + auto-retry** on long review/ship sub-skills | `be-review`, `codex-debate`, `lens-debate`, `evidence` | M · med |
+| 13 | **Auto-classify evidence necessity** from the diff; self-emit "no visual impact" so backend PRs don't false-block | `be` §5; `evidence` §0 | M · med |
+| 14 | **Lens/police hard probes for recurring smells** + re-fire gauntlet on post-gauntlet commits | `lens-debate`, `code-police`, `be-review` | L · med |
+
+<Callout kind="good" title="Quick wins — do these first (all S-effort, high-impact)">
+**#1** activates a deterministic backstop that *already exists but is dead for
+`/be`* — ~3 lines, zero hook/script edits, kills the single biggest intervention
+class. **#3** is pure SKILL wording and removes the 7+ "merge latest master"
+orders. **#4** is ~15 lines in the always-loaded rule and kills the biggest
+*correction* class. **#6** is one doc subsection. Ship #1 alone first and
+re-measure.
+</Callout>
+
+<Callout kind="accent" title="Systemic changes — the backbone the rest hangs off">
+Re-key the Stop guard from `/do`-specific to **workflow-aware**, then extend it
+with `/be` Done post-conditions (#1 → #5/#9). Introduce **PreToolUse hooks** to
+the repo (`settings.json` has only a `Stop` hook today): a Bash guard for
+prod-kolu (#2) and an AskUserQuestion guard for post-§0 (#10). Make
+`.do-results.json` the universal resume + gate substrate. Shift structural review
+**left** (#4 + #11) so §4 confirms instead of rebuilds. Add a no-dead-code gate
+(knip/ts-prune) to `just check`.
+</Callout>
+
+<Callout kind="warn" title="Anti-patterns — over-corrections that would hurt">
+- **Do NOT reintroduce any post-§0 `AskUserQuestion`.** The corpus shows mid-run
+  questions *are* the failure; the fix is a sensible default + a PreToolUse block,
+  never another prompt.
+- **Do NOT let the Done/evidence gate fire on pure-backend PRs** — pair #5 with
+  the auto-classify in #13 or it manufactures a new false-block class.
+- **Do NOT turn no-fallbacks into a blanket grep that fails on every `catch` /
+  `??`** — #8 is a cite-or-clear check for the agent, not an auto-fail.
+- **Do NOT over-gate the Stop guard** so genuine external halts (session limit,
+  the sanctioned §1 plan pause) wedge into a loop.
+- **Do NOT parallelize the serial review gauntlet** to "save time" — its serial
+  design is deliberate (each reviewer is sole editor). Fix slowness with
+  heartbeats (#12), not parallelism.
+</Callout>
+
+<Roadmap>
+  <Milestone status="next" label="Round 1 — quick wins">#1 Stop-guard wire-in · #3 every-PR CI + master-sync · #4 design-philosophy rule · #6 CI-triage policy. Then re-run this audit and compare mean autonomy.</Milestone>
+  <Milestone status="next" label="Round 2 — the hook backbone">#2 prod-kolu PreToolUse guard · #5 Done post-conditions · #9 RED→GREEN gate · #10 post-§0 question block.</Milestone>
+  <Milestone status="next" label="Round 3 — review & polish">#7 self-driving gauntlet · #11 design-seam-left · #12 heartbeats/budgets · #13 evidence auto-classify · #14 lens probes + re-review.</Milestone>
+</Roadmap>
+
+## Re-running this check
+
+This is meant to be a **recurring** audit — run it after a batch of the fixes
+land and watch mean autonomy climb. The whole thing is one inline `Workflow`
+fanning out over compact per-run extracts; reproduce it like this.
+
+**1 — Find the `/be` sessions (kolu worktrees, last ~4 weeks).** Logs live at
+`~/.claude/projects/-home-srid-code-kolu--worktrees-*/*.jsonl`. A real `/be`
+invocation shows up as a user turn containing
+`<command-name>/be</command-name>` (with the task in `<command-args>`), or a
+`Skill` tool-use with `"skill":"be"`. Exclude nested `…/subagents/…` logs. Catch
+**continuation/resume sessions** too — group candidate worktree *dirs*, then take
+every session in them within the window (a `/be` run often spills across resumes,
+and the resume itself is an intervention signal).
+
+**2 — Extract only the human turns.** This is the crux: a `"type":"user"` entry
+is *not* a human prompt — most are tool results. With `jq`, keep entries where
+`isSidechain==false` **and** `toolUseResult==null` **and** the content is text
+(or an array with text/image blocks; `imgs>0` = a pasted screenshot, a strong
+correction signal). Drop machinery: `<local-command-…>` stdout/caveats,
+`<task-notification>` blocks, and `[Image: source:…]` placeholders. Tag each turn
+`CMD:/name` (slash command — its `<command-args>`) vs `FOLLOWUP` (freeform). The
+**first** turn is the `/be` task; every later `FOLLOWUP` is a candidate
+intervention. Rank by *genuine follow-up count*, not raw user-count, and drop
+trivial sessions (< ~4 human turns). This run kept **88** units from ~96
+candidates.
+
+**3 — Fan out an analysis Workflow** (`ultracode` makes it adversarial and deep):
+
+<Roadmap>
+  <Milestone status="now" label="Analyze (1 agent / run)">Each agent reads one compact extract and classifies every intervention against the fixed taxonomy — `category · stage · severity · preventable · quote · rootCause · howToPrevent` — plus an `autonomyScore` (start 100; −25 blocker / −12 correction / −5 nudge / −3 preference; the sanctioned §1 pause and pure config commands don't subtract). Use a JSON schema so output is validated, not parsed.</Milestone>
+  <Milestone status="now" label="Synthesize (1 agent / category)">Barrier: group all interventions by category in JS, then one agent per bucket distills the theme, root causes, vivid quotes, and 1–4 concrete fixes — each naming an exact lever.</Milestone>
+  <Milestone status="now" label="Meta (1 agent)">Rank the deduped improvements by impact ÷ effort, separate quick wins from systemic changes, and call out anti-patterns. Compute the scorecard in JS (don't model it).</Milestone>
+</Roadmap>
+
+**4 — Feed the agents the levers and verify the claims.** Tell each agent *where
+change is possible* (the `.apm/` skill sources, `settings.json` hooks,
+`.agency/do.md`, the rule files) so `howToPrevent` is actionable, not "be more
+careful." Then — practicing the rigor the note preaches — **confirm every
+load-bearing factual claim** before publishing (this round verified
+`do-stop-guard.sh` is `/do`-only <Cite file=".claude/hooks/agency/scripts/do-stop-guard.sh" lines="1-15" />, that `settings.json` has only a `Stop` hook, and that `conventions.md` has no design-philosophy section).
+
+<Callout kind="note" title="Known limitations — read the score as a trend, not gospel">
+Some "100" runs end mid-extract (the transcript cut off during a skill-body
+load), so a few clean scores may be incomplete rather than truly intervention-free
+(`client-commit` is one). Skill-body markdown auto-loaded by the `Skill` tool can
+look like a user turn — agents are told to ignore it. The autonomy rubric is a
+heuristic. Treat the **trend across audits** as the signal; hold the extraction
+method constant so successive runs are comparable.
+</Callout>
+
+<Callout kind="accent" title="The lever map (where fixes go)">
+- **`.apm/skills/be/SKILL.md`** — the `/be` stages & gates (most fixes).
+- **`.apm/skills/be-review/SKILL.md`** + the gauntlet sub-skills (`codex-debate`,
+  `lens-debate`, `simplify`, `code-police`, `evidence`, `ci`, `forge-pr`).
+- **`.apm/instructions/*.md`** → always-loaded `.claude/rules/*.md`
+  (`conventions.md` is the home for the design-philosophy rule).
+- **`.agency/do.md`** — the project's check/fmt/test/ci commands + `## PR
+  evidence` + `## Documentation` + a new `## CI failure triage`.
+- **`settings.json` hooks** — the only place a rule becomes an *exit code*: the
+  `Stop` guard (extend) and new `PreToolUse` guards.
+- Edit the **`.apm/` sources**, then `just ai::apm` to regenerate; never edit the
+  generated `.claude/` / `.codex/` / `.agents/` copies.
+</Callout>
