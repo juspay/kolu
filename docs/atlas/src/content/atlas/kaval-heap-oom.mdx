@@ -1,0 +1,123 @@
+---
+title: Kaval PTY-host heap OOM
+description: A recurring production crash — the kaval PTY host leaks until it hits V8's ~4 GB heap ceiling, self-aborts (SIGABRT), and takes the kolu server down with it via fail-fast. RCA + the diagnostics gap (localDriver scrubs the snapshot flag) + the proposed fix.
+kind: analysis
+status: proposed
+maturity: budding
+parents: [pty-daemon]
+updated: 2026-06-19
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import Pill from "../../components/Pill.astro";
+import D2 from "../../components/D2.astro";
+import PrLink from "../../components/PrLink.astro";
+
+*Production postmortem — `pureintent`, the always-on `kolu.service`. Latest crash 2026-06-19 14:26; the **fifth** with an identical signature since 2026-05-27. Surfaced by a "why did kolu restart?" investigation.*
+
+<D2
+  caption="Where the leak lives, and why we can't see it yet. The home-manager module's diagnostics option threads KOLU_DIAG_DIR into the server only; localDriver.ts then strips the heap-snapshot flag out of NODE_OPTIONS before kaval is spawned — so the one process that actually OOMs (kaval, Node 24) runs with no heap limit and no instrumentation."
+  code={`
+direction: down
+
+hm: "home-manager: services.kolu\\n(nix/home/module.nix)" {
+  diagopt: "diagnostics.dir -> KOLU_DIAG_DIR\\n(reaches the SERVER only)"
+}
+
+server: "kolu.service: kolu server (Node 22.22.1)" {
+  diag: "diagnostics.ts\\nheap snapshots + stats (SERVER heap)"
+  drv: "localDriver.ts\\nscrubNodeOptions() strips --heapsnapshot"
+}
+
+spine: "@kolu/surface-daemon-supervisor\\nsurvivableSpawnDriver -> systemd-run --user"
+
+kaval: "kaval: PTY host (Node 24.13.0)\\nOOM SITE — no heap limit, no diagnostics"
+
+hm -> server: "ExecStart args + env"
+server.drv -> spine: "binPath, args, env\\n(diag flags already stripped)"
+spine -> kaval: "spawn (transient unit)"
+kaval -> server: "pty-host.sock (kaval-<port>)"
+`}
+/>
+
+## What crashed
+
+Two processes, one cascade. The **kaval PTY host** — the daemon that holds the live PTY file descriptors for every terminal (<Cite file="packages/kaval/src/bin.ts" label="kaval/src/bin.ts" />) — exhausted its V8 JavaScript heap and self-aborted. Losing its only PTY host, the **kolu server** then fail-fast-exited, and systemd restarted it.
+
+| Time (EDT) | Event | Evidence |
+| --- | --- | --- |
+| 14:25:49 | kaval GC pinned at the ceiling: `Mark-Compact (reduce) 4083.2 → 4058.0 MB`, then `FATAL ERROR: Ineffective mark-compacts near heap limit — JavaScript heap out of memory` | kaval unit journal |
+| 14:25:49 | kaval aborts: `node::OOMErrorHandler → abort → raise` | coredump stack, thread 329839 |
+| 14:26:08 | Coredump captured — 732 MB compressed (`Signal 6 / ABRT`); kaval socket closes | `coredumpctl info 329839` |
+| 14:26:09.04 | kolu server sees `[@kolu/surface/links/stdio] outbound write error: read ECONNRESET`, then a storm of `pty-host tap subscription failed` / `terminal.spawn failed` | `kolu.service` journal |
+| 14:26:09.07 | kolu `FATAL … uncaught exception` → `Error: write ECANCELED` | `kolu.service` journal |
+| 14:26:09 | systemd: `Main process exited, status=1/FAILURE` → `Failed with result 'exit-code'` → `Scheduled restart job, restart counter is at 1` | `systemd[1274]` |
+| 14:26:09 | New server (`serverId 1010bc7d`) up with a fresh kaval on the same socket — **healthy** | `systemctl --user show` (`NRestarts=1`) |
+
+<Callout kind="good" title="The kolu-side cascade is working as designed">
+The server's exit is **not** a second bug. When kaval dies the pty-host stdio socket closes; a pending write rejects with `ECANCELED`, escapes as an uncaught exception, and the process exits `status=1` — exactly the repo's *fail-fast, crash-loudly* contract. systemd restarts it cleanly. **The fix belongs in kaval (stop leaking) and in detection — never in swallowing the kolu-side error**, which would mask a dead PTY host. Catching `ECANCELED` to "keep kolu alive" is a fallback, and a fallback here is a defect.
+</Callout>
+
+This was **not** a kernel OOM-kill (signal is 6/ABRT, a userspace self-abort — not 9/SIGKILL; `journalctl -k` had zero OOM lines; the unit's `MemoryMax=infinity`), **not** a deploy (`status=1/FAILURE` + scheduled restart is a crash, not a clean stop/start), and **not** disk-full (`/` at 78 %, 190 GB free). The kolu exit is causally tied to the kaval death — the `ECONNRESET`/`ECANCELED` both originate on the pty-host link and fire in the same ~30 ms the kaval socket closes.
+
+## Root cause: an unbounded heap in kaval
+
+The crash mechanism is certain; the *leak's location* is not yet pinned.
+
+- **Evidence (high confidence).** The signature recurs. The same Node-24.13.0 kaval binary SIGABRT'd on **2026-05-27, 06-13 (825 MB), 06-15 (632 MB), 06-16 (809 MB), 06-19 (732 MB)** — roughly every 2–6 days (`coredumpctl list`). The GC banner shows a *slow* approach to V8's ~4 GB 64-bit default old-space ceiling (reduce-mode mark-compacts reclaiming ~25 MB), not a sudden spike. This is a leak in the long-lived prod kaval, not a one-off. **No `--max-old-space-size` is set** — kaval runs on V8's bare default.
+- **Inference (unproven).** *Which* allocation accumulates is **not identified**. Candidates: per-terminal xterm-headless scrollback (10 K lines/terminal), serialized terminal snapshots, or channel/subscriber state. The investigation only *ruled out* the **bounded** structures (exit-code tombstones ≤ 1024, per-subscriber `Channel` queues ≤ 10 K, exit-waiters reset on exit) — none of those is the leak.
+- **A correction worth recording.** An earlier hypothesis blamed a ~60-RPC `terminal.attach` burst 15 s before the crash. That burst is a single browser WebSocket disconnect (code 1001) aborting in-flight RPCs — a *symptom* timing-adjacent to the crash, not the cause.
+
+### Does this hurt kaval's performance? — yes, before it ever crashes
+
+This is the part that bites day-to-day, not just at the moment of death. kaval is the hot path for **all** terminal I/O — every byte in and out of every PTY crosses its event loop. As the heap creeps toward 4 GB, V8's GC runs **more often and for longer**, ending in the "ineffective mark-compacts" the crash banner names: long, stop-the-world pauses that *are* the leak's tail. While GC holds the loop, kaval can't relay output, echo keystrokes, or deliver exit signals — so terminals feel **progressively laggier the longer the server has been up**, worst in the hours before the OOM, then snap back to crisp after the restart-induced fresh heap. So the leak has two costs: a hard crash every few days, and a soft "kolu gets sluggish over time" that a restart silently papers over. (The leak floor that `diagnostics.ts` is tuned for is ~10 MB/min.)
+
+## Why we can't see it yet — the diagnostics gap
+
+kolu already has heap diagnostics: set `KOLU_DIAG_DIR` and the server writes a baseline snapshot, logs subsystem sizes every 5 min, and arms `--heapsnapshot-near-heap-limit=3` so V8 dumps a snapshot *just before* an OOM (<Cite file="packages/server/src/diagnostics.ts" label="diagnostics.ts" />). The home-manager module already exposes it as `services.kolu.diagnostics.dir` (<Cite file="nix/home/module.nix" label="module.nix" />).
+
+**But it only instruments the server (Node 22) — the process that *doesn't* crash.** kaval (Node 24, the one that *does*) is deliberately excluded:
+
+<Callout kind="warn" title="localDriver strips the very flag we need">
+`scrubNodeOptions()` removes `--heapsnapshot*`, `--inspect`, `--heap-prof`, `--cpu-prof` from `NODE_OPTIONS` **before** spawning kaval, *"so a kolu launched with diagnostics doesn't make kaval write heap snapshots too."* <Cite file="packages/server/src/ptyHost/localDriver.ts" label="localDriver.ts:98-130" /> That was the right call when the server was the suspected leaker — but it means the prod kaval has **no heap limit and no pre-OOM snapshot**. Every crash so far has thrown away the one artifact that would name the leak.
+</Callout>
+
+So the highest-value move isn't a speculative fix — it's making the *next* crash informative by instrumenting kaval itself. (Per the user: **agreed — find the leak first.**)
+
+## The fix
+
+Ordered, and shaped by the design philosophy: a heap **limit** is a *loud, baked-in tripwire*, not graceful degradation; nothing here silences the crash.
+
+### <Pill variant="ok">1</Pill> Instrument kaval, so the next OOM names the leak
+
+Thread a diagnostics path **through to kaval** and let it arm the same V8 hooks the server uses: a kaval-side `KOLU_DIAG_DIR` (its own subdir), `--heapsnapshot-near-heap-limit=3`, and `--heapsnapshot-signal=SIGUSR2` for on-demand mid-run snapshots. Concretely this means **not** scrubbing those flags for kaval when diagnostics is on — or better, passing kaval an explicit diag dir + execArgv via `localKavalDriver` rather than relying on inherited `NODE_OPTIONS` at all. This is instrumentation, not a fallback: it makes the crash *more* observable. The resulting `.heapsnapshot` (loaded in memlab / Chrome DevTools, diffed against the baseline) should reveal the retained graph — most likely per-terminal xterm-headless / serialize state.
+
+### <Pill variant="ok">2</Pill> A deliberate kaval heap limit — a tripwire, not a cap
+
+Give kaval an explicit `--max-old-space-size` (e.g. ~2 GB) chosen to crash **earlier and predictably** — *after* the near-limit snapshot from (1) fires. This converts the opaque ~4 GB wall into an instrumented, bounded one, and shrinks the blast-radius window. **Bake it into kaval's Nix wrapper**, not an env override knob ("being able to override is never a feature"). This does not *fix* the leak — it makes the leak's crash cheap and legible until (1) finds it.
+
+### <Pill variant="ok">3</Pill> The home-manager surface — yes, we need wiring there too
+
+Per the user: deployment is via the `services.kolu` home-manager module, so the toggle has to live there. The honest split:
+
+- **The heap *limit* (2) is not a user option.** It's a baked-in tripwire in kaval's derivation — no `mkOption`, consistent with how the module bakes required values rather than exposing knobs.
+- **The diag *dir* (1) reuses the existing option.** `services.kolu.diagnostics.dir` already exists; the work is making that value *reach kaval* (a kaval subdir under it), not adding a new option. Today the module sets `KOLU_DIAG_DIR` on the server and `localDriver` strips the snapshot flag back out before kaval — so the fix is end-to-end: module → server env → `localKavalDriver` forwards a kaval diag dir + execArgv → kaval arms the V8 hooks. The visible module change is small (the plumbing is in `localDriver.ts`); a new `mkOption` is only warranted if we want kaval diagnostics togglable *independently* of the server's — likely unnecessary.
+
+<Callout kind="note" title="Why this isn't just 'flip the existing option'">
+`services.kolu.diagnostics.dir` looks like it should already cover kaval — it doesn't, because of the deliberate `scrubNodeOptions` severing. The option exists; the data path to kaval is cut. That cut is the actual work item, and it's invisible from the module alone — which is exactly why this note exists.
+</Callout>
+
+### <Pill variant="ok">4</Pill> Regression guard, once the leak is fixed
+
+Per the user: **agreed.** Add a long-running kaval soak test that asserts **bounded heap growth** over N cycles of terminal open/close + heavy output, so the leak can't silently return. This is the durable backstop after (1) identifies and the real fix removes the retained allocation.
+
+## Current state & open questions
+
+**Prod is healthy** — `kolu.service` active since 14:26:09, `NRestarts=1`, a fresh kaval on `/run/user/1000/kaval-7692/pty-host.sock`, no crashes since. But recurrence risk is **HIGH**: with no heap bound and the leak unfixed, expect another crash within days. Open:
+
+- **The retained allocation itself** — unknown until (1) captures a near-limit snapshot.
+- **Node 24 vs 22** — kaval is on 24.13.0, the server on 22.22.1. Almost certainly *workload* (kaval owns the heavy terminal state), not a V8-version regression — but not yet disambiguated.
+- **The exact JS path of the kolu-side `write ECANCELED`** — inferred (a floating promise on the pty-host stdio link), not pinned to a verified line. Low priority: the kolu exit is correct behavior regardless.
+
+*Proposed fix tracked in <PrLink pr={0} />. Advance `status` as (1)–(4) land; the leak's identity will turn the inference above into evidence.*
