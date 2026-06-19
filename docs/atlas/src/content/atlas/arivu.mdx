@@ -252,6 +252,35 @@ common -> awareness: "re-homes schemas + adds location"
 
 **Deps & shape:** the lifted package imports nothing from kolu-server *or* kolu-common (its lone runtime coupling — the logger — becomes a param), depending only on generic tools (`anyagent` · `anyforge` · `kolu-git`/`github` · `kaval` · `@kolu/surface`); the daemon adds only the surface runtime + a `PtyHostClient`; agent-session reads use Node's built-in `node:sqlite` (no native addon). So `arivu` provisions and travels over ssh by the same staleKey recipe kaval uses — which is the whole reason to prove it here, before P3 introduces the wire.
 
+### How it runs — the process graph
+
+The package graph above is build-time; this is *runtime*. P1 is **three processes**, and not one of them is kolu-server. Every connection is the same surface protocol — a unix socket locally, ssh/`--stdio` remotely:
+
+<D2
+  caption="P1 runtime topology (arrows point from a process to what it connects to / acts upon; data flows back the other way). arivu-tui dials arivu and reads the awareness collection (snapshot+delta). arivu is a client BELOW — it dials kaval as a PtyHostClient, subscribing to the four taps + getScreenText — and reads the host fs (git/gh/~/.claude) to derive awareness; and a server ABOVE — it serves that awareness to whoever dials it. kaval spawns and durably owns the PTYs. Every hop is the same protocol over a unix socket locally, or ssh/--stdio remotely; no kolu-server is in the loop in P1."
+  code={`direction: down
+classes: {
+  tool: { style.fill: "#fbf1dc"; style.stroke: "#ecd9ab"; style.font-color: "#b45309" }
+  tui: { style.fill: "#efebff"; style.stroke: "#d4cbff"; style.font-color: "#5a3ff0" }
+  pty: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#15803d" }
+  host: { style.fill: "#f1f5f9"; style.stroke: "#e2e8f0"; style.font-color: "#475569" }
+}
+tui: "arivu-tui\\n(viewer process)" { class: tui }
+arivu: "arivu\\n(awareness daemon)\\nderives in the middle" { class: tool }
+kaval: "kaval\\n(durable PTY daemon)" { class: pty }
+ptys: "PTYs · shells\\nowned by kaval" { class: pty }
+fs: "host fs\\ngit · gh · ~/.claude" { class: host }
+tui -> arivu: "dials · reads awareness\\n(snapshot+delta)\\nunix socket | ssh --stdio"
+arivu -> kaval: "dials (PtyHostClient)\\nsubscribes: taps + screen\\nunix socket | ssh"
+arivu -> fs: "reads\\ngit · gh · ~/.claude"
+kaval -> ptys: "spawns · owns\\n(durable)"
+`}
+/>
+
+- **`arivu` is a client below, a server above.** It *dials* kaval (subscribing to the four taps + `getScreenText`) and *reads* the host fs, then *serves* the derived awareness to whoever dials it. That derive-in-the-middle role is the whole design.
+- **One protocol, two transports.** Local is a unix socket; remote is the *identical* surface served over ssh via `--stdio`. Nothing changes but the pipe — which is exactly why this standalone tool is also the remote substrate P3 reuses (kolu-server dials `arivu` the same way `arivu-tui` does).
+- **No kolu in the loop.** kolu-server enters only in P2 (compose) and P3 (dial over ssh); in P1 the graph is closed over kaval + `arivu` + `arivu-tui` + the host.
+
 ## Load-bearing complexity & open decisions
 
 The cleanest design still carries four irreducible costs — **all remote-only**, none dissolvable, and that confinement is the point:
