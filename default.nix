@@ -76,6 +76,7 @@ let
       ./packages/shared
       ./packages/terminal-themes
       ./packages/memorable-names
+      ./packages/terminal-awareness
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui

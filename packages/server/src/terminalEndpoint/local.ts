@@ -76,7 +76,7 @@ import {
   type ProviderHooks,
   type ProviderRecord,
   startProviders,
-} from "./providers.ts";
+} from "@kolu/terminal-awareness";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
@@ -612,7 +612,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           foregroundPid: msg.foregroundPid,
         }),
     );
-    const stopProviders = startProviders(record, id, channels, hooks);
+    const stopProviders = startProviders(record, id, channels, hooks, log);
 
     // Natural exit: the `exit` tap yields the code once. An intentional kill
     // aborts this signal first (see `teardownProviders`), so `handleExit` only

@@ -32,9 +32,12 @@ import {
   surfaceAppSurfaceWith,
 } from "@kolu/surface-app/surface";
 import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
+import {
+  AwarenessLiveFieldsSchema,
+  AwarenessPersistedFieldsSchema,
+  TerminalIdSchema,
+} from "@kolu/terminal-awareness/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
-import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
-import { CodexInfoSchema } from "kolu-codex/schemas";
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
@@ -42,86 +45,40 @@ import {
   FsReadFileOutputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
-  GitInfoSchema,
   GitStatusInputSchema,
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
-import { PrInfoSchema } from "anyforge/schemas";
-import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
-import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
-import { match } from "ts-pattern";
 import { z } from "zod";
 
-// ── Sub-schemas — terminal identity, agent, foreground, layout ────────
-
-export const TerminalIdSchema = z.string().uuid();
-
-export const AgentKindSchema = z.enum(["claude-code", "codex", "opencode"]);
-
-export const AgentInfoSchema = z.discriminatedUnion("kind", [
-  ClaudeCodeInfoSchema,
-  CodexInfoSchema,
-  OpenCodeInfoSchema,
-]);
-
-// ── PR resolution — closed forge union + wire result ──────────────────
+// ── Re-exports — the awareness domain moved to @kolu/terminal-awareness (P1a) ──
 //
-// anyforge owns the forge-neutral, generic shapes (`PrUnavailableSourceBase`,
-// `PrResult<S>`); each forge adapter owns its own arm (`GhUnavailableSchema`
-// in kolu-github). The CLOSED, exhaustively-matchable union over those arms —
-// and the zod wire schema pinned to it — composes here in the app, exactly as
-// `AgentInfoSchema` composes the per-agent `*InfoSchema`s above. A new forge's
-// arm joins this union; the anyforge leaf never changes.
-
-/** The closed `PrUnavailableSource` union — one arm per forge adapter.
- *  Discriminated on `provider` so render sites can `match(...).exhaustive()`
- *  and a new forge is a compile error at every dispatch. */
-export const PrUnavailableSourceSchema = z.discriminatedUnion("provider", [
-  GhUnavailableSchema,
-]);
-export type PrUnavailableSource = z.infer<typeof PrUnavailableSourceSchema>;
-
-/** The wire `PrResult` — anyforge's generic `PrResult<S>` pinned to the closed
- *  `PrUnavailableSource` union. Lives here (not in the leaf) for the same
- *  reason `AgentInfoSchema` does: the leaf names no forge. */
-export const PrResultSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("pending") }),
-  z.object({ kind: z.literal("ok"), value: PrInfoSchema }),
-  z.object({ kind: z.literal("absent") }),
-  z.object({
-    kind: z.literal("unavailable"),
-    source: PrUnavailableSourceSchema,
-  }),
-]);
-export type PrResult = z.infer<typeof PrResultSchema>;
-
-/** Display reason for a closed-union failure source — exhaustive over every
- *  forge arm. Moved from anyforge (which now names no forge); dispatches the
- *  gh arm to kolu-github's `reasonForGhCode`. A new forge arm is a compile
- *  error here until it adds its `.with({ provider: "…" }, …)` branch. */
-export function reasonForSource(source: PrUnavailableSource): string {
-  return match(source)
-    .with({ provider: "gh" }, ({ code }) => reasonForGhCode(code))
-    .exhaustive();
-}
-
-/** The display reason when a PR is `unavailable`, else null. */
-export function prUnavailableReason(pr: PrResult): string | null {
-  return pr.kind === "unavailable" ? reasonForSource(pr.source) : null;
-}
-
-/** The tagged failure source when a PR is `unavailable`, else null. */
-export function prUnavailableSource(pr: PrResult): PrUnavailableSource | null {
-  return pr.kind === "unavailable" ? pr.source : null;
-}
-
-/** Foreground process info from PTY. */
-export const ForegroundSchema = z.object({
-  /** Binary name (e.g. "vim", "claude", "opencode"). */
-  name: z.string(),
-  /** Raw terminal title from OSC 0/2 (e.g. "user@host: ~/code", "vim file.ts"). */
-  title: z.string().nullable(),
-});
+// The generic awareness value (terminal identity, agent status, PR resolution,
+// foreground) is OWNED by `@kolu/terminal-awareness/schema` now. kolu-common
+// EXTENDS that base — adding `location` and the client/UI fields below — and
+// re-exports the moved symbols so existing `kolu-common/surface` import sites
+// are unchanged: the schema home inverted, the consumers didn't move.
+export {
+  AgentInfoSchema,
+  AgentKindSchema,
+  ForegroundSchema,
+  PrResultSchema,
+  PrUnavailableSourceSchema,
+  prUnavailableReason,
+  prUnavailableSource,
+  reasonForSource,
+} from "@kolu/terminal-awareness/schema";
+export type {
+  AgentInfo,
+  AgentKind,
+  ClaudeCodeInfo,
+  CodexInfo,
+  Foreground,
+  OpenCodeInfo,
+  PrResult,
+  PrUnavailableSource,
+  TerminalId,
+} from "@kolu/terminal-awareness/schema";
+export { TerminalIdSchema };
 
 export const CanvasLayoutSchema = z.object({
   x: z.number(),
@@ -227,36 +184,37 @@ export const LOCAL_LOCATION: HostLocation = Object.freeze({
  * (via `updateServerMetadata`) and round-tripped through disk. The
  * "server-writes + persisted" intersection, declared structurally.
  *
+ * This is kolu's EXTENSION of the generic `AwarenessPersistedFieldsSchema`
+ * (cwd · git · lastAgentCommand · lastActivityAt, owned by
+ * `@kolu/terminal-awareness`): the awareness base plus the one kolu-specific
+ * field, `location`. The schema home inverted in P1a — kolu's record is built
+ * ON TOP of the awareness value, not the other way around.
+ *
  * Disjoint from `ClientPersistedTerminalFieldsSchema` and
  * `LiveTerminalFieldsSchema`. See the partition comment above.
  */
-export const ServerPersistedTerminalFieldsSchema = z.object({
-  cwd: z.string(),
-  git: GitInfoSchema.nullable(),
-  /** Where this terminal's endpoint lives — `{ kind: "local" }` for an
-   *  in-process PTY, `{ kind: "remote", hostId }` for a dialed host (kaval-
-   *  sessions). See `HostLocationSchema`. Non-optional and explicit by
-   *  construction: a terminal's host is the value of this field, never the
-   *  *absence* of a host id. So any code that **constructs** a terminal's
-   *  metadata — spawn and host adoption — must name its host: a dropped
-   *  location is a compile error there, not a silent local respawn against the
-   *  wrong machine. (The client "Restore session" path re-creates terminals
-   *  through the create seam, which deliberately omits `location` because the
-   *  *endpoint* owns it; P3 replaces that path with dial-the-host +
-   *  adopt-its-list, so remote terminals must not ship before then.) Set once
-   *  at spawn and never mutated thereafter — a terminal does not migrate hosts
-   *  — so although it rides this server-writable base, no provider writes it. */
-  location: HostLocationSchema,
-  /** Normalized agent CLI invocation last observed in this terminal (e.g.
-   *  `"claude --model sonnet"`). Preserved across intervening non-agent
-   *  input; drives the "resume agent on restore" offer in EmptyState.
-   *  Absent for terminals that never ran a known agent. */
-  lastAgentCommand: z.string().optional(),
-  /** Workspace-switcher recency key: epoch-millis of the last agent
-   *  semantic-key transition (`kind`/`sessionId`/`state`). Idle terminals
-   *  stay at `0` and fall back to canvas position. */
-  lastActivityAt: z.number().default(0),
-});
+export const ServerPersistedTerminalFieldsSchema =
+  AwarenessPersistedFieldsSchema.merge(
+    z.object({
+      /** Where this terminal's endpoint lives — `{ kind: "local" }` for an
+       *  in-process PTY, `{ kind: "remote", hostId }` for a dialed host (kaval-
+       *  sessions). See `HostLocationSchema`. Non-optional and explicit by
+       *  construction: a terminal's host is the value of this field, never the
+       *  *absence* of a host id. So any code that **constructs** a terminal's
+       *  metadata — spawn and host adoption — must name its host: a dropped
+       *  location is a compile error there, not a silent local respawn against
+       *  the wrong machine. (The client "Restore session" path re-creates
+       *  terminals through the create seam, which deliberately omits `location`
+       *  because the *endpoint* owns it; P3 replaces that path with
+       *  dial-the-host + adopt-its-list, so remote terminals must not ship
+       *  before then.) Set once at spawn and never mutated thereafter — a
+       *  terminal does not migrate hosts — so although it rides this
+       *  server-writable base, no provider writes it. This is the one kolu
+       *  concept absent from the generic awareness value (a remote tool can't
+       *  know its own kolu-side `hostId`). */
+      location: HostLocationSchema,
+    }),
+  );
 
 /**
  * Client-persisted fields — written by client RPCs (via
@@ -295,22 +253,18 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
  * restore must re-derive it; if a field is on one of the persisted
  * schemas, it round-trips through disk as-is.
  *
+ * Identical to the generic `AwarenessLiveFieldsSchema` (pr · agent ·
+ * foreground, owned by `@kolu/terminal-awareness`): no kolu-specific field
+ * rides the live half (`location` is persisted, not live), so kolu aliases the
+ * awareness live schema directly rather than re-declaring it.
+ *
  * Disjoint from `ServerPersistedTerminalFieldsSchema` and
  * `ClientPersistedTerminalFieldsSchema`. See the partition comment
  * above. Writes go through `updateServerLiveMetadata`, which does NOT
  * fire `terminals:dirty` — that's how the agent-stream firehose is
  * kept off the autosave channel.
  */
-export const LiveTerminalFieldsSchema = z.object({
-  /** Forge PR resolution — discriminated union (see PrResultSchema).
-   *  Forge-neutral PR resolution (anyforge); the gh adapter resolves it
-   *  today. */
-  pr: PrResultSchema,
-  /** AI coding agent status (Claude Code, OpenCode, etc.). */
-  agent: AgentInfoSchema.nullable(),
-  /** Foreground process name — detected via OSC 2 title change events. */
-  foreground: ForegroundSchema.nullable(),
-});
+export const LiveTerminalFieldsSchema = AwarenessLiveFieldsSchema;
 
 /**
  * Every field that rides to disk. Disjoint union of the two
@@ -490,12 +444,6 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 //     These aren't surface entries themselves — they're building blocks
 //     of one. `z.infer<typeof Schema>` here keeps the wiring local.
 
-export type AgentKind = z.infer<typeof AgentKindSchema>;
-export type AgentInfo = z.infer<typeof AgentInfoSchema>;
-export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
-export type CodexInfo = z.infer<typeof CodexInfoSchema>;
-export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
-export type Foreground = z.infer<typeof ForegroundSchema>;
 export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
 export type TerminalServerMetadata = z.infer<
   typeof TerminalServerMetadataSchema
@@ -858,5 +806,4 @@ export type ActivityFeed = Surface["cells"]["activityFeed"]["Value"];
 export type TerminalMetadata =
   Surface["collections"]["terminalMetadata"]["Value"];
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
-export type TerminalId = TerminalInfo["id"];
 export type SavedSession = z.infer<typeof SavedSessionSchema>;

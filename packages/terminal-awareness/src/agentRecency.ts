@@ -16,7 +16,7 @@
  *  recency rule can stay readable without reaching through the whole
  *  endpoint module. */
 
-import type { AgentInfo } from "kolu-common/surface";
+import type { AgentInfo } from "./schema.ts";
 
 export function shouldBumpRecencyForAgentChange(
   prev: AgentInfo | null,
