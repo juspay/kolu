@@ -49,6 +49,21 @@ export type FileTreeProps = {
    *  the rebuild; expansion never falls out of sync with a path swap,
    *  and the wrapper holds no separate per-path expansion state. */
   expandPaths?: readonly string[];
+  /** A one-shot request to **reveal** a directory: open it and its ancestors
+   *  so the row exists and its children show, then scroll it into view. Unlike
+   *  `selectedPath` this changes no selection — it's the terminal folder-link
+   *  front door bringing a folder on-screen. The `path` is a trailing-slash
+   *  folder key (`packages/client/`). Applied at mount *and* whenever the
+   *  request object changes (a fresh object re-reveals the same folder on a
+   *  repeat click). Mount application is load-bearing: a folder clicked from a
+   *  diff view switches to browse and mounts this tree with the request already
+   *  set, which a deferred effect would skip. The host should clear it via
+   *  `onRevealHandled` so a later remount can't re-scroll to a stale folder and
+   *  fight the selected file's own scroll. Null when no reveal is pending. */
+  revealRequest?: { path: string } | null;
+  /** Called once a `revealRequest` has been applied, so the host can clear it
+   *  (consume-once). */
+  onRevealHandled?: () => void;
   /** Initial folder expansion — captured at construction and **not
    *  reactive**. Pierre takes this once in its constructor; later prop
    *  changes are silently ignored. Re-mount the component (e.g. by
@@ -119,6 +134,24 @@ function injectShadowCss(container: HTMLElement, css: string): void {
   shadowRoot.adoptedStyleSheets = [...shadowRoot.adoptedStyleSheets, sheet];
 }
 
+/** Reveal a directory row in a mounted tree: open its ancestors and itself so
+ *  the row exists and its children show, then scroll it to centre. `"expand" in
+ *  item` is the file-vs-directory narrowing (Pierre's `isDirectory()` isn't a
+ *  `this is` predicate), matching the ancestor-expand passes elsewhere in this
+ *  file. A flattened single-child chain may have no discrete node for `dirKey`
+ *  (`getItem` returns null); we then open whatever ancestors do resolve and
+ *  skip the scroll, degrading gracefully rather than scrolling to a phantom. */
+function revealDirectory(tree: FileTreeClass, dirKey: string): void {
+  for (const ancestor of ancestorDirectoryPaths(dirKey)) {
+    const item = tree.getItem(ancestor);
+    if (item && "expand" in item) item.expand();
+  }
+  const item = tree.getItem(dirKey);
+  if (!item || !("expand" in item)) return;
+  item.expand();
+  tree.scrollToPath(dirKey, { offset: "center" });
+}
+
 export const FileTree: Component<FileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTreeClass | undefined;
@@ -136,6 +169,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   const fileSet = createMemo(() => new Set(props.paths));
 
   onMount(() => {
+    // A directory reveal can be pending *before* this tree mounts — a folder
+    // clicked from a diff view switches to browse and mounts us with the
+    // request already set. Apply it through the constructor (expand it + its
+    // ancestors via `initialExpandedPaths`, the reliable path that mirrors
+    // selectedPath's ancestors) rather than a post-render `expand()`, which
+    // races Pierre's first paint and dropped the reveal intermittently. The
+    // deferred effect below handles later (same-view) reveals once mounted.
+    const reveal = props.revealRequest;
     safeApply(() => {
       // Snapshot read of `props.selectedPath` for `initialExpandedPaths`.
       // The deferred resetPaths effect below reads it reactively for
@@ -145,12 +186,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       const selectedAncestors = props.selectedPath
         ? ancestorDirectoryPaths(props.selectedPath)
         : [];
+      const revealExpanded = reveal
+        ? [...ancestorDirectoryPaths(reveal.path), reveal.path]
+        : [];
       tree = new FileTreeClass({
         paths: props.paths,
         initialExpansion: props.initialExpansion ?? "closed",
         initialExpandedPaths: [
           ...(props.expandPaths ?? []),
           ...selectedAncestors,
+          ...revealExpanded,
         ],
         flattenEmptyDirectories: props.flattenEmptyDirectories ?? true,
         density: props.density,
@@ -177,9 +222,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // path. Idempotent — Pierre's view processes the explicit scroll
       // request in the same render tick as its own first-mount scroll.
       if (props.selectedPath) tree.scrollToPath(props.selectedPath);
+      // Scroll the revealed folder into view after the selected file (a folder
+      // reveal usually carries no selection, so this is normally the only
+      // scroll). The folder is already expanded via `initialExpandedPaths`.
+      if (reveal) tree.scrollToPath(reveal.path, { offset: "center" });
       appliedPaths = props.paths;
       if (props.shadowCss) injectShadowCss(container, props.shadowCss);
     }, props.onError);
+    // Consume the at-mount reveal so a remount can't replay it, matching the
+    // deferred effect's consume-once on post-mount reveals.
+    if (reveal) props.onRevealHandled?.();
   });
 
   // Push path-inventory changes into Pierre as in-place mutations, not a
@@ -306,6 +358,28 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             tree?.scrollToPath(path);
           }
         }, props.onError);
+      },
+      { defer: true },
+    ),
+  );
+
+  // Apply a directory reveal that arrives *after* mount (terminal folder-link
+  // front door clicked while already in this view). Deferred — the at-mount
+  // case is handled by the constructor in `onMount` above (the reliable path);
+  // here the tree is live, so `getItem().expand()` + `scrollToPath` is safe,
+  // the same mechanism the post-mount selection effect uses. `onRevealHandled`
+  // clears the request once applied (consume-once), so a remount can't re-reveal
+  // a stale folder and fight the selected file's mount-time scroll.
+  createEffect(
+    on(
+      () => props.revealRequest,
+      (req) => {
+        if (!req) return;
+        safeApply(() => {
+          if (!tree) return;
+          revealDirectory(tree, req.path);
+        }, props.onError);
+        props.onRevealHandled?.();
       },
       { defer: true },
     ),

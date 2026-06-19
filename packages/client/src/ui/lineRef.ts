@@ -120,9 +120,18 @@ function hasRefBoundary(text: string, index: number): boolean {
   return true;
 }
 
-/** Resolve a terminal-supplied path to a repo-relative path that
- *  exists in `repoPaths`. Returns null when no candidate matches —
- *  the click should surface a toast rather than open a blank file.
+/** A terminal path-ref resolved against the worktree: either a concrete
+ *  `file` (open it) or a `directory` (reveal it in the tree). `path` is the
+ *  verbatim repo entry — a file path for `file`; a trailing-slash folder key
+ *  (`packages/client/`, the form Pierre uses for directory rows) for
+ *  `directory`. */
+export type ResolvedRef =
+  | { kind: "file"; path: string }
+  | { kind: "directory"; path: string };
+
+/** Resolve a terminal-supplied path to a repo file or directory. Returns null
+ *  when nothing matches — the click should surface a toast rather than open a
+ *  blank file.
  *
  *  - `rawPath`: as it appeared in the terminal (absolute or relative).
  *  - `repoRoot`: the terminal's git worktree root.
@@ -130,59 +139,85 @@ function hasRefBoundary(text: string, index: number): boolean {
  *    `bar.ts:42` while standing in a subdirectory" case. Undefined
  *    falls back to repo-relative interpretation only.
  *  - `repoPaths`: live `fsListAll` paths — repo-relative, no leading
- *    `/`. The resolver only returns a path that's actually in this
- *    set.
+ *    `/`. Lists files only; directories are derived from the path prefixes.
+ *    The resolver only returns a path backed by this set.
  *
- *  When path-based candidates miss, falls back to a basename match —
- *  compiler output often prints just `Foo.hs:42` without the
- *  `src/lib/` prefix (#898). The fallback only fires when the
- *  basename is unique in the repo; ambiguous matches stay null since
- *  opening the wrong file is worse than the toast.
+ *  Precedence, so a more certain match always wins:
+ *    1. an exact path that names a **file** — unambiguous, take it;
+ *    2. an exact path that names a **directory** — a slash path like
+ *       `src/core` reveals that folder *before* the fuzzy basename guess, so a
+ *       real directory is never shadowed by a same-named file elsewhere;
+ *    3. a unique-**basename** file fallback — compiler output often prints just
+ *       `Foo.hs:42` without the `src/lib/` prefix (#898). Fires only when the
+ *       basename is unique; ambiguous matches stay null since opening the wrong
+ *       file is worse than the toast.
+ *
+ *  All comparison is under NFC so a terminal ref and a repo path that differ
+ *  only in unicode normalization still resolve: a git/macOS path can be NFD
+ *  (`Ame` + combining acute) while the terminal text is NFC (`Amélie`), and an
+ *  exact `Set.has` would miss every accented name. The index keys are
+ *  normalized but the *value* is the verbatim `repoPaths` entry — that's what
+ *  navigation must open (git addresses files by their actual bytes, not the
+ *  NFC form). Distinct repo entries that collide under NFC are dropped to
+ *  AMBIGUOUS so they resolve to null rather than the wrong target.
  *
  *  - `allowBasenameFallback`: default true (terminal output, where the
  *    fuzzy basename match is the whole point of #898). Pass false for
  *    callers whose path is already exact and unambiguous — a Markdown
  *    relative link (#1161) carries GitHub-style exact semantics:
  *    `[guide](docs/guide.md)` must open exactly `docs/guide.md` or
- *    fail, never silently open a same-basename `src/guide.md`. */
-export function resolveLineRefPath(args: {
+ *    fail, never silently open a same-basename `src/guide.md`. Only step 3
+ *    is gated; the exact file and directory steps always apply. */
+export function resolveRef(args: {
   rawPath: string;
   repoRoot: string;
   cwd: string | undefined;
   repoPaths: readonly string[];
   allowBasenameFallback?: boolean;
-}): string | null {
-  // Compare under NFC so a terminal ref and a repo path that differ only in
-  // unicode normalization still resolve: a git/macOS path can be NFD (`Ame` +
-  // combining acute) while the terminal text is NFC (`Amélie`), and an exact
-  // `Set.has` would miss every accented name. The map keys are normalized but
-  // the *value* is the verbatim `repoPaths` entry — that's what navigation
-  // must open (git addresses files by their actual bytes, not the NFC form).
-  // Distinct repo paths that collide under NFC are dropped from the map so an
-  // ambiguous candidate resolves to null rather than the wrong file.
-  const { byNorm, byBasename } = buildNormalizedIndex(args.repoPaths);
+}): ResolvedRef | null {
+  const { byNorm, byBasename, byDir } = buildNormalizedIndex(args.repoPaths);
+  // 1. Exact file.
   for (const candidate of candidates(args)) {
     const hit = byNorm.get(candidate.normalize("NFC"));
-    if (hit !== undefined && hit !== AMBIGUOUS) return hit;
+    if (hit !== undefined && hit !== AMBIGUOUS)
+      return { kind: "file", path: hit };
   }
+  // 2. Exact directory — checked before the basename fallback so `src/core`
+  //    reveals the folder rather than guessing at a stray `core` file. An empty
+  //    candidate (the repo root itself) names no folder row, so skip it.
+  for (const candidate of candidates(args)) {
+    if (candidate === "") continue;
+    const hit = byDir.get(`${candidate}/`.normalize("NFC"));
+    if (hit !== undefined && hit !== AMBIGUOUS) {
+      return { kind: "directory", path: hit };
+    }
+  }
+  // 3. Unique-basename file fallback.
   if (args.allowBasenameFallback === false) return null;
-  return resolveByBasename(args.rawPath, byBasename);
+  const hit = resolveByBasename(args.rawPath, byBasename);
+  return hit === null ? null : { kind: "file", path: hit };
 }
 
 /** Sentinel marking an NFC key that maps to two or more distinct repo paths
  *  — treated as unresolvable rather than guessing. */
 const AMBIGUOUS = Symbol("ambiguous");
 
-/** Both indexes are built in one pass so the NFC normalization of each repo
- *  path (full path and basename) happens exactly once. `byNorm` keys the full
- *  path, `byBasename` keys the basename; both drop NFC collisions to AMBIGUOUS
- *  and keep the verbatim `repoPaths` entry as the value. */
+/** All three indexes are built in one pass so the NFC normalization of each
+ *  repo path (full path, basename, and every ancestor directory key) happens
+ *  exactly once. `byNorm` keys the full file path, `byBasename` the basename,
+ *  and `byDir` each trailing-slash directory key the files imply; each drops
+ *  NFC collisions to AMBIGUOUS and keeps the verbatim entry as the value. A
+ *  directory key repeats across every file it contains, but that repeat carries
+ *  the identical verbatim value, so it never trips the collision check — only a
+ *  genuinely distinct NFD/NFC encoding of the same folder does. */
 function buildNormalizedIndex(repoPaths: readonly string[]): {
   byNorm: Map<string, string | typeof AMBIGUOUS>;
   byBasename: Map<string, string | typeof AMBIGUOUS>;
+  byDir: Map<string, string | typeof AMBIGUOUS>;
 } {
   const byNorm = new Map<string, string | typeof AMBIGUOUS>();
   const byBasename = new Map<string, string | typeof AMBIGUOUS>();
+  const byDir = new Map<string, string | typeof AMBIGUOUS>();
   const add = (
     index: Map<string, string | typeof AMBIGUOUS>,
     key: string,
@@ -198,8 +233,22 @@ function buildNormalizedIndex(repoPaths: readonly string[]): {
   for (const p of repoPaths) {
     add(byNorm, p.normalize("NFC"), p);
     add(byBasename, basename(p).normalize("NFC"), p);
+    for (const dir of ancestorDirKeys(p)) add(byDir, dir.normalize("NFC"), dir);
   }
-  return { byNorm, byBasename };
+  return { byNorm, byBasename, byDir };
+}
+
+/** Trailing-slash directory keys that contain `path` (a repo file): for
+ *  `a/b/c.ts` yields `a/`, `a/b/`. The final segment is the file itself, not a
+ *  directory, so it is excluded; a top-level file (no slash) yields nothing.
+ *  The trailing slash matches Pierre's folder-row keys, so a resolved value can
+ *  be handed straight to `getItem`/`scrollToPath`. */
+function* ancestorDirKeys(path: string): Generator<string> {
+  let slash = path.indexOf("/");
+  while (slash !== -1) {
+    yield path.slice(0, slash + 1);
+    slash = path.indexOf("/", slash + 1);
+  }
 }
 
 function resolveByBasename(

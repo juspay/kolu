@@ -483,6 +483,20 @@ Then(
 );
 
 Then(
+  "the directory {string} should be expanded in the file browser",
+  async function (this: KoluWorld, path: string) {
+    // A revealed folder is open (`aria-expanded="true"`, folders only) AND
+    // visible — its ancestors are expanded and the row scrolled into view, so
+    // `state: "visible"` also verifies the reveal walked the ancestry. First
+    // appearance gets the hydration budget, like the other tree-row waits.
+    await waitTreeReady(
+      this,
+      `${TREE} [data-item-path="${path}/"][data-item-type="folder"][aria-expanded="true"]:not([data-file-tree-sticky-row])`,
+    );
+  },
+);
+
+Then(
   "the file browser should show a file {string}",
   async function (this: KoluWorld, path: string) {
     await waitTreeReady(this, fileRow(path));

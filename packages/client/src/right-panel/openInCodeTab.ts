@@ -31,7 +31,8 @@ import { useRightPanel } from "./useRightPanel";
 export interface OpenInCodeTabRequest {
   /** Parsed `path:line[-end]` to navigate to. The path is interpreted
    *  relative to `repoRoot` (or, when present, cwd-relative under
-   *  `repoRoot`) by `CodeTab` via `resolveLineRefPath`. */
+   *  `repoRoot`) by `CodeTab` via `resolveRef` — which also recognises a
+   *  folder path and reveals it in the tree instead of opening a file. */
   ref: LineRef;
   /** Per-terminal git repo root that `ref.path` is relative to (when
    *  relative). Absolute paths beneath this root are also accepted —

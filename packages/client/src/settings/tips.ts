@@ -102,6 +102,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "Click a `packages/foo/bar.ts:42` path in any terminal to open it in the right panel at that line",
   },
   {
+    id: "amb-folder-ref-link",
+    text: "Click a folder path like `packages/client/` in a terminal to reveal it in the Code tab's file tree",
+  },
+  {
     id: "amb-minimap-window",
     text: "Click the `All` chip in the minimap's zoom bar to pick an activity window (4h/12h/24h/48h) — older tiles collapse to small ghost markers so attention stays on what's still in play",
   },

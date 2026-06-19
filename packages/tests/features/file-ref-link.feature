@@ -66,6 +66,45 @@ Feature: File-ref autolinking in terminal
     And the selected file should show content "beta"
     And line 2 should be selected in the file content
 
+  Scenario: Clicking a folder ref reveals and expands the directory in the tree
+    # A folder path in terminal output (no filename, no `:line`) used to toast
+    # "File reference not found". It now reveals the directory in the Code tab's
+    # All-files tree: switch to browse, expand the folder + its ancestors, and
+    # scroll it into view — no file is selected.
+    When I run "git init /tmp/kolu-file-ref-folder && cd /tmp/kolu-file-ref-folder"
+    And I run "git commit --allow-empty -m init"
+    # Build the nested dir inside a subshell so `app/core` only ever appears
+    # contiguously in the prose below — a setup line printing `app/core/one.txt`
+    # would mask the folder ref (the hit-test would land on that file's link).
+    # `app` also holds a sibling file so `app/` and `app/core/` stay distinct
+    # rows (not flattened into one), exercising the ancestor-expand path.
+    And I run "mkdir -p app && (cd app && mkdir -p core && printf 'alpha\n' > core/one.txt && printf 'beta\n' > core/two.txt && printf 'x\n' > main.txt)"
+    And I run "git add . && git commit -m files"
+    And I run "echo 'inspect the app/core module'"
+    And I trigger the terminal file-ref link "app/core"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the Code tab mode should be "browse"
+    And the directory "app/core" should be expanded in the file browser
+    And the file browser should show a file "app/core/one.txt"
+
+  Scenario: Clicking a folder ref while already browsing expands it in the live tree
+    # The scenario above opens the panel fresh, so the folder is revealed via the
+    # tree's constructor. Here a file-ref click opens browse and mounts the tree
+    # first, so the folder click that follows exercises the post-mount reveal
+    # path instead (expand + scroll on the already-live tree).
+    When I run "git init /tmp/kolu-file-ref-folder2 && cd /tmp/kolu-file-ref-folder2"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p lib && (cd lib && mkdir -p ui && printf 'a\n' > ui/button.ts && printf 'b\n' > ui/input.ts && printf 'x\n' > index.ts)"
+    And I run "git add . && git commit -m files"
+    And I run "echo 'open lib/index.ts first'"
+    And I trigger the terminal file-ref link "lib/index.ts"
+    Then the selected file should show content "x"
+    When I run "echo 'now the lib/ui widgets'"
+    And I trigger the terminal file-ref link "lib/ui"
+    Then the directory "lib/ui" should be expanded in the file browser
+    And the file browser should show a file "lib/ui/button.ts"
+
   Scenario: Clicking a bare path (no line number) opens the file with no selection
     When I run "git init /tmp/kolu-file-ref-noline && cd /tmp/kolu-file-ref-noline"
     And I run "git commit --allow-empty -m init"
