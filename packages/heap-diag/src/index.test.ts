@@ -66,6 +66,15 @@ describe("startHeapDiagnostics", () => {
     expect(writeHeapSnapshot).not.toHaveBeenCalled();
   });
 
+  it("throws on a relative diagDir rather than writing to cwd silently", () => {
+    const { log } = recordingLogger();
+    // A relative dir would make path.join land the snapshot in the process cwd
+    // — the wrong place, no error. Fail fast on the misconfiguration instead.
+    expect(() =>
+      startHeapDiagnostics({ ...opts(), log, diagDir: "relative/diag" }),
+    ).toThrow(/absolute path/);
+  });
+
   it("falls back to KOLU_DIAG_DIR when diagDir is omitted", () => {
     const { log, events } = recordingLogger();
     process.env.KOLU_DIAG_DIR = "/tmp/from-env";

@@ -101,6 +101,15 @@ export interface HeapDiagnosticsOptions {
 export function startHeapDiagnostics(opts: HeapDiagnosticsOptions): void {
   const diagDir = opts.diagDir ?? process.env.KOLU_DIAG_DIR;
   if (!diagDir) return;
+  // Fail fast on a misconfigured dir: a RELATIVE path would silently land the
+  // baseline snapshot in the process cwd (path.join keeps it relative) — the
+  // wrong place, with no error. The contract (and the home-manager option) is
+  // an absolute path; enforce it rather than degrade silently.
+  if (!path.isAbsolute(diagDir)) {
+    throw new Error(
+      `heap-diag: KOLU_DIAG_DIR must be an absolute path, got ${JSON.stringify(diagDir)}`,
+    );
+  }
   const { log, snapshotPrefix, logPrefix, extraColumns } = opts;
 
   const sample = (): Record<string, number> => {
