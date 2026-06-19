@@ -761,6 +761,9 @@ importers:
 
   packages/shell-quote:
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
