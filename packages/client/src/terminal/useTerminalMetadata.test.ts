@@ -1,4 +1,8 @@
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type {
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
@@ -106,7 +110,7 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
       bag.metaOf = (id) => store()[id];
 
       const { terminalIds } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as never),
+        list: () => keys().map((id) => ({ id }) as TerminalInfo),
         activeId: () => null,
       });
 
@@ -141,7 +145,7 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
       bag.metaOf = (id) => store()[id];
 
       const { terminalIds } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as never),
+        list: () => keys().map((id) => ({ id }) as TerminalInfo),
         activeId: () => null,
       });
 
@@ -183,7 +187,7 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
       bag.metaOf = (id) => store()[id];
 
       const { terminalIds } = useTerminalMetadata({
-        list: () => keys().map((id) => ({ id }) as never),
+        list: () => keys().map((id) => ({ id }) as TerminalInfo),
         activeId: () => null,
       });
 
