@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 814 432" font-family="ui-sans-serif,system-ui,sans-serif" role="img" aria-label="One colour palette feeds two axes: repoColor reaches only the tiny section name, branchColor paints every full-size row label.">
+  <defs>
+    <marker id="arrCool" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#0D32B2"/>
+    </marker>
+    <marker id="arrHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#b3471f"/>
+    </marker>
+  </defs>
+
+  <!-- edges: src -> repo (cool, starved) · src -> branch (hot, the rainbow) -->
+  <g fill="none" stroke-width="2">
+    <path d="M340 66 C 250 110 191 120 191 160" stroke="#0D32B2" marker-end="url(#arrCool)"/>
+    <path d="M451 66 C 560 110 601 120 601 160" stroke="#b3471f" marker-end="url(#arrHot)"/>
+    <path d="M191 232 L191 326" stroke="#0D32B2" marker-end="url(#arrCool)"/>
+    <path d="M601 232 L601 326" stroke="#b3471f" marker-end="url(#arrHot)"/>
+  </g>
+
+  <!-- src: the one shared colour source -->
+  <g>
+    <rect x="122" y="0" width="547" height="66" rx="8" fill="#F7F8FE" stroke="#0D32B2" stroke-width="2"/>
+    <text x="395.5" y="33" text-anchor="middle" font-size="14" font-weight="700" fill="#0A0F25">terminalDisplay.ts — assignColors()</text>
+    <text x="395.5" y="51" text-anchor="middle" font-size="12.5" fill="#4A5072">oklch(0.75 0.14, golden-angle hue)</text>
+  </g>
+
+  <!-- repo axis (cool / starved) -->
+  <g>
+    <rect x="72" y="166" width="238" height="66" rx="8" fill="#EDF0FD" stroke="#0D32B2" stroke-width="2"/>
+    <text x="191" y="195" text-anchor="middle" font-size="14" font-weight="700" fill="#0A0F25">repoColor</text>
+    <text x="191" y="213" text-anchor="middle" font-size="12.5" fill="#4A5072">per repo</text>
+  </g>
+
+  <!-- branch axis (hot / the rainbow) -->
+  <g>
+    <rect x="431" y="166" width="340" height="66" rx="8" fill="#fbeee7" stroke="#b3471f" stroke-width="2"/>
+    <text x="601" y="195" text-anchor="middle" font-size="14" font-weight="700" fill="#3a1a0c">branchColor = annotationColor</text>
+    <text x="601" y="213" text-anchor="middle" font-size="12.5" fill="#7a4a30">per branch</text>
+  </g>
+
+  <!-- name sink: the only repo sink — tiny -->
+  <g>
+    <rect x="20" y="332" width="342" height="66" rx="8" fill="#EDF0FD" stroke="#0D32B2" stroke-width="2"/>
+    <text x="191" y="362" text-anchor="middle" font-size="13.5" font-weight="600" fill="#0A0F25">section name · 9.6px mono</text>
+    <text x="191" y="382" text-anchor="middle" font-size="11.5" fill="#4A5072">◂ the only repo sink</text>
+  </g>
+
+  <!-- row sink: the rainbow -->
+  <g>
+    <rect x="441" y="332" width="320" height="66" rx="8" fill="#fbeee7" stroke="#b3471f" stroke-width="2"/>
+    <text x="601" y="362" text-anchor="middle" font-size="13.5" font-weight="600" fill="#3a1a0c">every row label · 13.6px</text>
+    <text x="601" y="382" text-anchor="middle" font-size="11.5" font-weight="700" fill="#b3471f">◂ the rainbow</text>
+  </g>
+</svg>
