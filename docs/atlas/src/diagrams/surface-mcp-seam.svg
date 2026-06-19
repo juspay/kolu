@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 740" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="A @kolu/surface feeds the @kolu/surface-mcp adapter (generic spine + consumer gate), which serves an MCP host.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#0D32B2"/>
+    </marker>
+    <style>
+      .container { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.5; }
+      .mid       { fill:#EDF0FD; stroke:#0D32B2; stroke-width:1.5; }
+      .leaf      { fill:#F7F8FE; stroke:#0D32B2; stroke-width:1; }
+      .host      { fill:#F7F8FE; stroke:#0D32B2; stroke-width:1.5; }
+      .title     { fill:#0D32B2; font-weight:700; font-size:14px; }
+      .grouptitle{ fill:#0D32B2; font-weight:600; font-size:13px; }
+      .leaftext  { fill:#11203a; font-size:12px; }
+      .edge      { stroke:#0D32B2; stroke-width:2; fill:none; }
+      .edgelabel { fill:#0D32B2; font-size:11px; font-style:italic; }
+    </style>
+  </defs>
+
+  <!-- TIER 1: source surface — two shapes -->
+  <g>
+    <rect class="container" x="160" y="20" width="320" height="120" rx="8"/>
+    <text class="title" x="320" y="42" text-anchor="middle">a @kolu/surface — two shapes</text>
+    <rect class="leaf" x="180" y="56" width="280" height="34" rx="5"/>
+    <text class="leaftext" x="320" y="78" text-anchor="middle">fresh spec + handlers</text>
+    <rect class="leaf" x="180" y="98" width="280" height="34" rx="5"/>
+    <text class="leaftext" x="320" y="120" text-anchor="middle">live surface — odu's .ci/odu.sock</text>
+  </g>
+
+  <!-- edge: source -> adapter -->
+  <path class="edge" d="M320 140 L320 178" marker-end="url(#arrow)"/>
+  <text class="edgelabel" x="330" y="163" text-anchor="start">serve fresh  OR  bridge live</text>
+
+  <!-- TIER 2: adapter = generic spine (framework) + consumer gate -->
+  <g>
+    <rect class="container" x="40" y="180" width="560" height="420" rx="8"/>
+    <text class="title" x="320" y="204" text-anchor="middle">@kolu/surface-mcp — shipped (#1270)</text>
+
+    <!-- spine: framework-owned, 4 leaves folded 2x2 (was a tall D2 column) -->
+    <rect class="mid" x="60" y="220" width="520" height="190" rx="6"/>
+    <text class="grouptitle" x="320" y="241" text-anchor="middle">generic spine — framework-owned</text>
+    <rect class="leaf" x="78"  y="254" width="244" height="62" rx="5"/>
+    <text class="leaftext" x="200" y="290" text-anchor="middle">primitive → resource / tool</text>
+    <rect class="leaf" x="328" y="254" width="244" height="62" rx="5"/>
+    <text class="leaftext" x="450" y="290" text-anchor="middle">subscribe/teardown lifecycle</text>
+    <rect class="leaf" x="78"  y="328" width="244" height="62" rx="5"/>
+    <text class="leaftext" x="200" y="364" text-anchor="middle">zod → JSON-Schema</text>
+    <rect class="leaf" x="328" y="328" width="244" height="62" rx="5"/>
+    <text class="leaftext" x="450" y="356" text-anchor="middle">stdout-is-the-protocol</text>
+    <text class="leaftext" x="450" y="372" text-anchor="middle">discipline</text>
+
+    <!-- gate: consumer curation, default-deny -->
+    <rect class="mid" x="60" y="424" width="520" height="158" rx="6"/>
+    <text class="grouptitle" x="320" y="445" text-anchor="middle">consumer curation — default-deny</text>
+    <rect class="leaf" x="78"  y="460" width="244" height="104" rx="5"/>
+    <text class="leaftext" x="200" y="506" text-anchor="middle">expose · project</text>
+    <text class="leaftext" x="200" y="522" text-anchor="middle">bespoke tools</text>
+    <rect class="leaf" x="328" y="460" width="244" height="104" rx="5"/>
+    <text class="leaftext" x="450" y="506" text-anchor="middle">guards ·</text>
+    <text class="leaftext" x="450" y="522" text-anchor="middle">observer/mutator authz</text>
+  </g>
+
+  <!-- edge: adapter -> host -->
+  <path class="edge" d="M320 600 L320 658" marker-end="url(#arrow)"/>
+  <text class="edgelabel" x="330" y="635" text-anchor="start">tools · resources · notifications/*</text>
+
+  <!-- TIER 3: MCP host -->
+  <g>
+    <rect class="host" x="120" y="660" width="400" height="56" rx="8"/>
+    <text class="title" x="320" y="694" text-anchor="middle">MCP host — Claude · Codex · opencode · Gemini</text>
+  </g>
+</svg>

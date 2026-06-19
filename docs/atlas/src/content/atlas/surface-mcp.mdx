@@ -12,7 +12,9 @@ import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
 import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
-import D2 from "../../components/D2.astro";
+import Svg from "../../components/Svg.astro";
+import seamSvg from "../../diagrams/surface-mcp-seam.svg?raw";
+import projectSurfaceSvg from "../../diagrams/surface-mcp-projectsurface.svg?raw";
 import Terminal from "../../components/Terminal.astro";
 
 *Plan of record for <Issue n={982} label="@kolu/surface: expose any stdio-served surface as an MCP server" />. The issue's framing — "the framework is one adapter away from *every Kolu surface is also an MCP server*" — is true and worth building. This note **right-scopes** it: *smaller* where the issue over-reached (buy zod 4's native converter, lean on the already-shipped `serveOverStdio`) and *bigger* where it under-reached (a new core `projectSurface` primitive so curation graduates too — all in one PR) — grounded in odu's hand-built face, which already taught us where every seam is.* <Pill variant="new">grounded in odu's shipped mcp face</Pill>
@@ -25,38 +27,9 @@ The 1:1 map — every cell a resource, every procedure a tool — is a **morning
 
 The strongest evidence isn't speculative — **it already exists, built by hand.** odu's `odu mcp` face (<PrLink pr={3} repo="juspay/odu" />, consumed in kolu <PrLink pr={1258} />) is exactly this adapter: it re-exposes the `oduSurface` to Claude Code / Codex / opencode / Gemini CLI as MCP tools and resources. So the core correspondence is **validated, not hoped for** — and shipping it taught us which 20% is the framework and which 80% is the consumer's. This note is that lesson, turned into a scope.
 
-<D2
+<Svg
+  svg={seamSvg}
   caption="Where the seam falls, read top to bottom. A surface (in either of two shapes) feeds the generic spine — mapping + subscribe/teardown lifecycle + zod→JSON-Schema + stdout discipline — the framework primitive worth extracting. Downstream of it, fronting the host, sits the selection/authz gate: NOT free, per-surface curation the consumer must write, and exactly what keeps the dangerous procedure off the wire."
-  code={`
-direction: down
-
-src: "a @kolu/surface — two shapes" {
-  grid-columns: 1
-  fresh: "fresh spec + handlers"
-  live: "live surface — odu's .ci/odu.sock"
-}
-
-adapter: "@kolu/surface-mcp — shipped (#1270)" {
-  grid-columns: 1
-  spine: "generic spine — framework-owned" {
-    grid-columns: 1
-    map: "primitive → resource / tool"
-    life: "subscribe/teardown lifecycle"
-    zod: "zod → JSON-Schema"
-    out: "stdout-is-the-protocol discipline"
-  }
-  gate: "consumer curation — default-deny" {
-    grid-columns: 1
-    sel: "expose · project · bespoke tools"
-    guard: "guards · observer/mutator authz"
-  }
-}
-
-host: "MCP host — Claude · Codex · opencode · Gemini"
-
-src -> adapter: "serve fresh  OR  bridge live"
-adapter -> host: "tools · resources · notifications/*"
-`}
 />
 
 <Callout kind="note" title="Package: a sibling, not a subpath">
@@ -205,37 +178,9 @@ odu's compositions are surface-shaped, so they become primitives of a projected 
 
 `oduAgentSurface` is a surface that is itself a **client of `oduSurface`** — and odu's coordinator already *is* a server-that's-a-client, so this is in-grain — served as a **sibling** of `oduSurface` over the same transport.
 
-<D2
-  caption="projectSurface, in one PR. oduAgentSurface (B) is a curated projection of the live oduSurface (A), served as a sibling. Every face — TUI, web, and @kolu/surface-mcp — maps B 1:1; a projected stream's teardown is the same lifecycle the adapter spine builds, so it's solved once. Genuinely call-shaped bits (run) ride the adapter as bespoke tools, not forced through surface."
-  code={`
-direction: down
-
-a: "oduSurface (A) — live coordinator" {
-  grid-columns: 1
-  an: "nodes cell · nodeLog stream · node.rerun"
-}
-
-proj: "projectSurface(A, …) — NEW in @kolu/surface" {
-  grid-columns: 1
-  ref: "surfaceClientRef — B reads a live A client"
-  der: "derive — settled · red · bounded/guarded log"
-  life: "stream teardown — shared with the spine"
-}
-
-b: "oduAgentSurface (B) — curated, observer-safe" {
-  grid-columns: 1
-  bn: "nodes(+red) · log · settled · node.rerun"
-}
-
-faces: "every face maps B 1:1" {
-  grid-columns: 1
-  f: "TUI · web · @kolu/surface-mcp (+ bespoke run)"
-}
-
-a -> proj: "client of A"
-proj -> b: "serves B, sibling of A"
-b -> faces: "1:1"
-`}
+<Svg
+  svg={projectSurfaceSvg}
+  caption="projectSurface, in one PR. oduAgentSurface (B, green = observer-safe) is a curated projection of the live oduSurface (A), served as a sibling of the NEW projectSurface primitive (amber). Every face — TUI, web, and @kolu/surface-mcp — maps B 1:1; a projected stream's teardown is the same lifecycle the adapter spine builds, so it's solved once. Genuinely call-shaped bits (run) ride the adapter as bespoke tools, not forced through surface."
 />
 
 **What `projectSurface` actually requires** — grounded in the framework, this is bounded, not a rewrite. Already present and reused as-is: sibling composition (`implementSurfaces` / `composeSurfaceContracts` / `surfaceClients`) and the handler `source: (input, signal) => AsyncIterable` shape. Genuinely net-new, all in this PR:
