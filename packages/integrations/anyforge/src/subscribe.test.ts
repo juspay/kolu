@@ -20,7 +20,7 @@ function spyLogger(): Logger {
 
 /** Stub adapter resolving to a fixed result — the fixture that replaces the
  *  real gh spawn now that the loop is decoupled from any one forge. */
-function stubProvider(result: PrResult): ForgeAdapter {
+function stubAdapter(result: PrResult): ForgeAdapter {
   return { kind: "github", resolve: async () => result };
 }
 
@@ -62,7 +62,7 @@ describe("subscribePr", () => {
     const log = spyLogger();
     let calls = 0;
     const watcher = subscribePr(
-      stubProvider({ kind: "absent" }),
+      stubAdapter({ kind: "absent" }),
       () => {
         calls += 1;
         throw new Error("metadata write blew up");
@@ -101,7 +101,7 @@ describe("subscribePr", () => {
     // throwing yet.
     let shouldThrow = false;
     const watcher = subscribePr(
-      stubProvider({ kind: "absent" }),
+      stubAdapter({ kind: "absent" }),
       () => {
         if (shouldThrow) throw new Error("metadata write blew up");
       },
