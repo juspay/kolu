@@ -19,6 +19,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PtyHostSystemInfo } from "kaval";
+import { DEFAULT_SCROLLBACK, MIRROR_SCROLLBACK } from "kolu-common/config";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { composeSpawnInput } from "./index.ts";
 
@@ -94,6 +95,19 @@ describe("composeSpawnInput env layering", () => {
       info({ shell: "/bin/bash" }),
     );
     expect(input.argv[0]?.startsWith("/")).toBe(true);
+  });
+});
+
+describe("composeSpawnInput mirror scrollback (the OOM-fix decouple)", () => {
+  it("sends the small server-mirror scrollback, decoupled from the client's", () => {
+    // The server tells kaval how deep a per-terminal headless mirror to keep.
+    // It must send the small `MIRROR_SCROLLBACK`, NOT the client's visible
+    // `DEFAULT_SCROLLBACK` — the conflated 50K mirror × unbounded live terminals
+    // was the production V8-heap OOM (see kaval-heap-oom.mdx). Red before the
+    // decouple (the input carried DEFAULT_SCROLLBACK).
+    const input = composeSpawnInput({ id: "T-mirror" }, info());
+    expect(input.scrollback).toBe(MIRROR_SCROLLBACK);
+    expect(input.scrollback).toBeLessThan(DEFAULT_SCROLLBACK);
   });
 });
 

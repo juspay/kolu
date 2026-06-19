@@ -352,12 +352,36 @@ let
       meta.mainProgram = "kaval";
     } ''
     mkdir -p $out/bin
+    # `--max-old-space-size=3072`: a deliberate, BAKED-IN heap tripwire (not an
+    # override knob). kaval keeps a per-live-terminal headless mirror and live
+    # terminals accumulate, so its heap grows ~linearly with terminal count;
+    # left to V8's RAM-derived default (multi-GB, and host-dependent on the
+    # 58–128 GB boxes kolu runs on) it OOMs opaquely mid-GC-thrash. Pinning 3 GB
+    # makes the ceiling deterministic across hosts and — paired with the
+    # `--heapsnapshot-near-heap-limit` hook below — fails LOUD with a snapshot
+    # before the thrash zone. With the small server mirror this is ~750-terminal
+    # headroom (3× the pre-fix crash point). See kaval-heap-oom.mdx.
+    #
+    # The diag --run hook mirrors koluBin's: when KOLU_DIAG_DIR is forwarded
+    # (localDriver's daemonEnv), kaval cds into its OWN per-invocation subdir and
+    # arms the V8 heap-snapshot flags, so the next near-OOM dumps a snapshot that
+    # names the leak in the real workload. Unset = passthrough, zero overhead.
     makeWrapper ${pkgs.nodejs}/bin/node $out/bin/kaval \
+      --add-flags "--max-old-space-size=3072" \
       --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
       --set KAVAL_BUILD_ID "${kavalBuildId}" \
       --set KAVAL_COMMIT_HASH "${commitHash}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]} \
+      --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
+               KOLU_DIAG_DIR="$KOLU_DIAG_DIR/kaval-$(date +%Y%m%dT%H%M%S)-$$"
+               if ! mkdir -p "$KOLU_DIAG_DIR" || ! cd "$KOLU_DIAG_DIR"; then
+                 echo "kaval: failed to set up diag dir $KOLU_DIAG_DIR (check permissions)" >&2
+                 exit 1
+               fi
+               export KOLU_DIAG_DIR
+               export NODE_OPTIONS="--heapsnapshot-near-heap-limit=3 --heapsnapshot-signal=SIGUSR2 ''${NODE_OPTIONS:-}"
+             fi'
   '';
 
   # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's

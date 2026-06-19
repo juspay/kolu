@@ -96,9 +96,12 @@ in
           Enable memory/heap diagnostics. Value is the base directory under
           which kolu writes per-invocation subdirs containing heap snapshots
           (via --heapsnapshot-near-heap-limit + --heapsnapshot-signal=SIGUSR2)
-          and periodic stats logs. `null` disables diagnostics entirely with
-          zero overhead. Must be an absolute path — systemd `%h` specifiers
-          are not expanded here and would not work on launchd anyway.
+          and periodic stats logs — for BOTH the kolu server and the spawned
+          `kaval` PTY daemon (kaval lands in its own `kaval-*` subdir; it is the
+          process that historically OOM'd, see the kaval-heap-oom Atlas note).
+          `null` disables diagnostics entirely with zero overhead. Must be an
+          absolute path — systemd `%h` specifiers are not expanded here and
+          would not work on launchd anyway.
         '';
       };
     };

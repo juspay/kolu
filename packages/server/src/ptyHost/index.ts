@@ -29,7 +29,7 @@ import type {
   PtyHostSpawnInput,
   PtyHostSystemInfo,
 } from "kaval";
-import { DEFAULT_SCROLLBACK } from "kolu-common/config";
+import { MIRROR_SCROLLBACK } from "kolu-common/config";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
 import { log } from "../log.ts";
@@ -231,7 +231,11 @@ export function composeSpawnInput(
     cwd,
     env,
     initFiles: plan.initFiles,
-    scrollback: DEFAULT_SCROLLBACK,
+    // The SERVER-side headless mirror's depth — deliberately smaller than the
+    // client's visible scrollback (`DEFAULT_SCROLLBACK`). Per-live-terminal
+    // mirrors accumulate in kaval's heap; the conflated 50K was the OOM. See
+    // `MIRROR_SCROLLBACK` / `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`.
+    scrollback: MIRROR_SCROLLBACK,
   };
 }
 

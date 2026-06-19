@@ -97,7 +97,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
     }
   };
 
-  return implementSurface(ptyHostSurface, {
+  const surface = implementSurface(ptyHostSurface, {
     channel: inMemoryChannelByName(),
     streams: {
       // Per-terminal output — snapshot then live deltas (streaming.md §2).
@@ -302,6 +302,12 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       },
     },
   });
+
+  // Expose the live-PTY count (sync, off the host) alongside the router, so the
+  // daemon's diagnostics can log the terms/heap curve without a round-trip
+  // through the wire client. The mirror count is the leak's independent variable
+  // (kaval-heap-oom.mdx), so it's the column to watch.
+  return { ...surface, terminalCount: () => host.list().length };
 }
 
 /** The raw `implementSurface` fragment router — the `.router` field of
@@ -325,8 +331,11 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param — the contract-wrapped served router's context type doesn't line up, though the runtime shape is exactly what serving wants.
   servedRouter: Router<any, any>;
   client: PtyHostClient;
+  /** Live-PTY count (sync) — the daemon's diagnostics samples it. */
+  terminalCount: () => number;
 } {
-  const router = servePtyHost(deps).router;
+  const served = servePtyHost(deps);
+  const router = served.router;
   // Wrap the implementSurface fragment in a top-level contract router so the
   // StandardRPCHandler can route it over the wire; narrow the result back to
   // the `Router<any, any>` serving wants (the fragment's procedure-context type
@@ -342,5 +351,6 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
     router,
     servedRouter,
     client: directLink<typeof ptyHostSurface.contract>(router),
+    terminalCount: served.terminalCount,
   };
 }
