@@ -27,6 +27,27 @@ import {
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 
+/** Whether two top-level terminal-id lists are identical — the same ids in the
+ *  same order. Serves as the `equals` gate on the `terminalIds` memo below: a
+ *  metadata change that leaves the *set* of top-level terminals untouched (the
+ *  common case — a git / PR / agent field updating on one terminal) keeps the
+ *  prior array reference, so `terminalIds()` stops *notifying* downstream when
+ *  the set is unchanged. That spares dependants that key off the reference the
+ *  spurious recompute non-display writes (PR / agent / foreground) used to
+ *  trigger; display-relevant changes (git / cwd / parentId) still re-run
+ *  `displayInfos` via its own field-level subscriptions, as they should. This is
+ *  the reactivity keystone of the performance map
+ *  (`docs/atlas/.../performance.mdx`). Order is significant — it drives sidebar
+ *  position labels — so a reorder must invalidate. A bounded-algorithm leaf,
+ *  deliberately domain-specific to terminal ids rather than a generic
+ *  array-equality receptacle. */
+export function sameTerminalIdOrder(
+  a: readonly TerminalId[],
+  b: readonly TerminalId[],
+): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 export function useTerminalMetadata(deps: {
   list: Accessor<TerminalInfo[] | undefined>;
   activeId: Accessor<TerminalId | null>;
@@ -43,12 +64,22 @@ export function useTerminalMetadata(deps: {
   // --- Order: server Map insertion order, filtered by parent relationship ---
 
   /** Top-level terminal IDs in server-provided order.
-   *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
-  const terminalIds = createMemo(() =>
-    meta.keys().filter((id) => {
-      const m = getMetadata(id);
-      return m && !m.parentId;
-    }),
+   *  Terminals whose metadata hasn't arrived yet are excluded (still loading).
+   *
+   *  The `equals` gate keeps the prior array reference whenever a metadata
+   *  change leaves the top-level id set unchanged (the common case), so
+   *  dependants keyed off the reference skip the no-op recompute an unchanged
+   *  set would otherwise trigger — the reactivity keystone of the performance
+   *  map. The accessor re-runs cheaply on each metadata change; what it no
+   *  longer does is *notify* downstream when the set is identical. */
+  const terminalIds = createMemo<TerminalId[]>(
+    () =>
+      meta.keys().filter((id) => {
+        const m = getMetadata(id);
+        return m && !m.parentId;
+      }),
+    [],
+    { equals: sameTerminalIdOrder },
   );
 
   /** Sub-terminal IDs for a parent, in server-provided order. */
