@@ -1,5 +1,5 @@
 import type { CollectionEntry } from "astro:content";
-import { resolveParents } from "./indexTree";
+import { resolveParents, titleCmp } from "./indexTree";
 
 /** A reference to another note — the shape a backlink renders from. */
 export interface NoteRef {
@@ -61,9 +61,7 @@ export function buildAtlasGraph(notes: CollectionEntry<"atlas">[]): AtlasGraph {
     for (const pid of resolveParents(byId, n)) link(pid, n.id);
   }
 
-  // Pin the collation locale so the order is host-independent (check-sync).
-  const byTitle = (a: NoteRef, b: NoteRef) =>
-    a.title.localeCompare(b.title, "en-US");
+  const byTitle = (a: NoteRef, b: NoteRef) => titleCmp(a.title, b.title);
   const backlinks = new Map<string, NoteRef[]>();
   for (const [target, sources] of inbound) {
     backlinks.set(

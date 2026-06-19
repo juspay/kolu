@@ -65,7 +65,7 @@ export const resolveParents = (
 // Pin the collation locale so the build is idempotent across machines — a bare
 // localeCompare() follows the host's LANG/LC_COLLATE, which would reorder the
 // index (and churn the committed dist) on a differently-configured box.
-const titleCmp = (a: string, b: string) => a.localeCompare(b, "en-US");
+export const titleCmp = (a: string, b: string) => a.localeCompare(b, "en-US");
 
 /** Group notes into category sections, nesting `parents` edges *within* a
  *  category (same `kind`). A parent in a different category isn't a tree edge —
