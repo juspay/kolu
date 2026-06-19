@@ -92,7 +92,7 @@ Each slice ships and is provable on its own; the long pole is **P1a → P1b → 
 
 | Phase | Kind | Ships | Retires the risk of… |
 | --- | --- | --- | --- |
-| **P1a** | <Pill>refactor</Pill> | extract **`@kolu/terminal-awareness`** — the provider set + the generic awareness schemas, decoupled from `kolu-common`; `kolu-server` and `kolu-common` re-point at it | the kolu coupling — a clean generic package, *behavior-preserving* (green CI **is** the proof; kolu keeps writing `terminalMetadata` in-process, byte-identical to today) |
+| **P1a** <PrLink pr={1413} /> | <Pill>refactor</Pill> | extract **`@kolu/terminal-awareness`** — the provider set + the generic awareness schemas, decoupled from `kolu-common`; `kolu-server` and `kolu-common` re-point at it | the kolu coupling — a clean generic package, *behavior-preserving* (green CI **is** the proof; kolu keeps writing `terminalMetadata` in-process, byte-identical to today) |
 | **P1b** | <Pill variant="ok">feature</Pill> | **`arivu`** + **`arivu-tui`** standalone — the daemon dials kaval and serves the awareness surface; the TUI viewer reads it — **zero kolu-server involvement** | do the providers run as a separate, kaval-dialing process and produce correct awareness with no in-process handle? + ships the independently-useful tool, before kolu depends on a line of it |
 | **P2** | <Pill variant="ok">feature</Pill> | **go remote** — Nix-provision `arivu` over ssh; kolu-server's remote endpoint mirrors its surface and **folds** into `terminalMetadata`; the host hooks-impl reifies closures → tagged frames; a `version` handshake gates incompatible hosts into re-provision | the genuinely-new artifacts, confined to the wire — reification, the persisted/live fence across the link, version-skew, the cross-arch Nix |
 | **P3** | <Pill>refactor</Pill> | *(optional)* graduate `mirrorRemoteSurface` as the spec-driven dual of `implementSurface`; the awareness mirror and `remote-process-monitor` both consume it | per-surface hand-mirroring for every future served surface — pure decomplecting, strictly additive, off the critical path |
@@ -190,9 +190,9 @@ packages/
   terminal-awareness/    NEW [P1a]  the provider set + the generic awareness schemas — decoupled from kolu-common
     src/providers.ts         ←move from packages/server/src/terminalEndpoint/ (verbatim)
     src/agentRecency.ts      ←move
-    src/schema.ts                  AwarenessValueSchema + AgentInfo/PrResult/Foreground — moved OUT of kolu-common
-    src/kavalChannels.ts           a PtyHostClient's taps -> ProviderChannels (the shared tap bridge)
-    src/*.test.ts            ←move the existing provider tests ride along
+    src/schema.ts                  AwarenessValue (persisted/live halves) + AgentInfo/PrResult/Foreground/TerminalId — moved OUT of kolu-common
+    src/kavalChannels.ts     [P1b]  a PtyHostClient's taps -> ProviderChannels (the kaval-dial bridge; only the daemon needs it — kolu-server builds its own channels in local.ts)
+    src/*.test.ts            ←move agentRecency.test.ts rides along
     src/index.ts · package.json · tsconfig.json
   arivu/                 NEW [P1b]  the daemon  (bin: arivu)
     src/daemon.ts                  per terminal: dial kaval · run startProviders · publish the slice
@@ -307,3 +307,5 @@ The cleanest design still carries four irreducible costs — **all remote-only**
 ## Status
 
 **Proposed — a clean-slate replacement for the awareness layer**, child of [kaval-sessions](kaval-sessions.html). It supersedes the earlier from-scratch plan (<PrLink pr={1398} />, closed) and the in-process provider extraction (<PrLink pr={1409} />, closed): both kept awareness *inside* kolu and split hairs over an in-process compose-vs-serve boundary that this design dissolves by moving the producer into a daemon. Built from an adversarial, cost-blind design panel (verdict: *sound, with the asymmetry-is-encapsulated and mirror-is-a-fold corrections folded in above*), grounded by reading the shipped code: the in-server provider set (`terminalEndpoint/providers.ts`), `mirrorRemoteCollection`, the `remote-process-monitor` "define once, implement twice" demo, and kaval's provisioning recipe. The substrate it stands on — kaval (untouched), `location` as a first-class discriminated union — is already merged. The long pole is **P1a → P1b → P2**, and **P1a (the behavior-preserving extraction) is the recommended first move**, then **P1b** (the standalone `arivu` + `arivu-tui`): independently useful, and it retires the biggest risk before kolu depends on a line of it. There is no local-compose phase — locally kolu runs the provider library in-process (settled at P1a); the surface and the fold are remote-only (P2).
+
+**P1a shipped** as <PrLink pr={1413} /> — `@kolu/terminal-awareness` is extracted, the schema home inverted, and kolu-server re-pointed at it, behaviour-identical. (The `kavalChannels.ts` kaval-dial bridge listed above moved to **P1b**: it is the daemon's connective tissue — kolu-server builds its provider channels from its own pty-host taps in `local.ts`, so P1a never needed it.) Next: **P1b**, the standalone `arivu` + `arivu-tui`.
