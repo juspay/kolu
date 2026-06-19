@@ -285,7 +285,7 @@ const CanvasTile: Component<{
       // Geometry, layer, and visibility all live in `presentation().style` (one
       // complete box per mode); the classList carries only non-geometric,
       // mode-specific decoration (rounded corners vs. transparent border).
-      classList={{ ...presentation().classes }}
+      classList={presentation().classes}
       style={presentation().style}
       onMouseDown={() => props.onSelect()}
     >
