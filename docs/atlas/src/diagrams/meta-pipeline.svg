@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 620" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The Atlas pipeline: MDX notes build via Astro into committed self-contained HTML, rendered both in Kolu's Code tab and the public mirror; a proposed atlasGraph + tags + Pagefind layer (green) and a later cross-repo federation tier; Claude Artifacts shown detached as a different job with no shared pipeline.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#0D32B2"/>
+    </marker>
+    <style>
+      .container { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.5; }
+      .leaf      { fill:#F7F8FE; stroke:#0D32B2; stroke-width:1; }
+      .host      { fill:#F7F8FE; stroke:#0D32B2; stroke-width:1.5; }
+      .new       { fill:#EAF6EC; stroke:#2f8132; stroke-width:1.3; }
+      .alt       { fill:#F4F4F5; stroke:#71717a; stroke-width:1.5; stroke-dasharray:5 3; }
+      .future    { fill:#FBFBFE; stroke:#0D32B2; stroke-width:1.3; stroke-dasharray:6 4; }
+      .title     { fill:#0D32B2; font-weight:700; font-size:14px; }
+      .leaftext  { fill:#11203a; font-size:12px; }
+      .newtext   { fill:#1d4023; font-size:12px; }
+      .alttitle  { fill:#3f3f46; font-weight:700; font-size:13px; }
+      .alttext   { fill:#3f3f46; font-size:11.5px; }
+      .edge      { stroke:#0D32B2; stroke-width:2; fill:none; }
+      .fedge     { stroke:#0D32B2; stroke-width:1.6; fill:none; stroke-dasharray:6 4; }
+      .edgelabel { fill:#0D32B2; font-size:11px; font-style:italic; }
+      .legend    { fill:#11203a; font-size:11px; }
+      .muted     { fill:#71717a; font-size:11px; font-style:italic; }
+    </style>
+  </defs>
+
+  <!-- legend -->
+  <rect class="container" x="30" y="12" width="14" height="12" rx="2"/>
+  <text class="legend" x="50" y="22">today</text>
+  <rect class="new" x="104" y="12" width="14" height="12" rx="2"/>
+  <text class="legend" x="124" y="22">proposed</text>
+
+  <!-- TIER A: authoring -->
+  <g>
+    <rect class="container" x="30" y="40" width="440" height="130" rx="8"/>
+    <text class="title" x="250" y="62" text-anchor="middle">Author — docs/atlas/src/content/atlas/*.mdx</text>
+    <rect class="leaf" x="48" y="76" width="404" height="26" rx="5"/>
+    <text class="leaftext" x="250" y="93" text-anchor="middle">markdown / MDX + typed component kit</text>
+    <rect class="leaf" x="48" y="106" width="404" height="26" rx="5"/>
+    <text class="leaftext" x="250" y="123" text-anchor="middle">frontmatter: kind · maturity · status · parents</text>
+    <rect class="new" x="48" y="136" width="404" height="26" rx="5"/>
+    <text class="newtext" x="250" y="153" text-anchor="middle">proposed: + tags · supersedes (typed, auto-inverse relations)</text>
+  </g>
+
+  <!-- edge A -> B -->
+  <path class="edge" d="M250 170 L250 197" marker-end="url(#arrow)"/>
+  <text class="edgelabel" x="260" y="187" text-anchor="start">just atlas::build</text>
+
+  <!-- TIER B: build -->
+  <g>
+    <rect class="container" x="30" y="198" width="440" height="156" rx="8"/>
+    <text class="title" x="250" y="220" text-anchor="middle">Build — Astro (self-contained project)</text>
+    <rect class="new" x="48" y="232" width="404" height="42" rx="5"/>
+    <text class="newtext" x="250" y="250" text-anchor="middle">proposed: atlasGraph — byTag · edges · backlinks</text>
+    <text class="newtext" x="250" y="266" text-anchor="middle" font-size="11">fail-fast on any dead internal link</text>
+    <rect class="leaf" x="48" y="280" width="404" height="26" rx="5"/>
+    <text class="leaftext" x="250" y="297" text-anchor="middle" font-size="11">render &#8594; committed dist/&lt;slug&gt;.html (inlined, relative links)</text>
+    <rect class="new" x="48" y="310" width="404" height="26" rx="5"/>
+    <text class="newtext" x="250" y="327" text-anchor="middle">proposed: + Pagefind static search index</text>
+    <text class="muted" x="250" y="348" text-anchor="middle">ci::atlas-sync — rebuild must match committed bytes</text>
+  </g>
+
+  <!-- edge B -> two surfaces -->
+  <path class="edge" d="M250 354 L250 372"/>
+  <path class="edge" d="M135 372 L365 372"/>
+  <path class="edge" d="M135 372 L135 388" marker-end="url(#arrow)"/>
+  <path class="edge" d="M365 372 L365 388" marker-end="url(#arrow)"/>
+  <text class="edgelabel" x="258" y="367" text-anchor="start">two surfaces · one build</text>
+
+  <!-- TIER C: surfaces -->
+  <g>
+    <rect class="host" x="30" y="388" width="210" height="62" rx="8"/>
+    <text class="title" x="135" y="412" text-anchor="middle" font-size="13">Kolu Code tab</text>
+    <text class="leaftext" x="135" y="432" text-anchor="middle" font-size="11">local · offline · no server</text>
+    <rect class="host" x="260" y="388" width="210" height="62" rx="8"/>
+    <text class="title" x="365" y="410" text-anchor="middle" font-size="13">kolu.dev/atlas/</text>
+    <text class="leaftext" x="365" y="427" text-anchor="middle" font-size="11">public mirror</text>
+    <text class="newtext" x="365" y="442" text-anchor="middle" font-size="10.5">+ public:true gate (proposed)</text>
+  </g>
+
+  <!-- edge C -> D (future) -->
+  <path class="fedge" d="M250 450 L250 478" marker-end="url(#arrow)"/>
+  <text class="muted" x="258" y="468" text-anchor="start">later — only when a 2nd repo exists</text>
+
+  <!-- TIER D: federation (future) -->
+  <g>
+    <rect class="future" x="30" y="478" width="440" height="122" rx="8"/>
+    <text class="title" x="250" y="500" text-anchor="middle">Later — scale to many projects</text>
+    <rect class="leaf" x="48" y="510" width="404" height="30" rx="5"/>
+    <text class="leaftext" x="250" y="529" text-anchor="middle" font-size="11">Option A: + project field + slug prefix — one repo, no new machinery</text>
+    <rect class="leaf" x="48" y="546" width="404" height="44" rx="5"/>
+    <text class="leaftext" x="250" y="564" text-anchor="middle" font-size="11">Option C: aggregator folds per-repo dist (Astro Content Layer)</text>
+    <text class="leaftext" x="250" y="580" text-anchor="middle" font-size="10.5">&#8594; kolu.dev/atlas/&lt;project&gt;/&lt;slug&gt; · Pagefind catalog · Git-perm ACL</text>
+  </g>
+
+  <!-- detached: Artifacts = different job, NO arrow into the pipeline -->
+  <g>
+    <rect class="alt" x="520" y="40" width="220" height="150" rx="8"/>
+    <text class="alttitle" x="630" y="66" text-anchor="middle">Claude Artifacts</text>
+    <text class="alttext" x="630" y="92" text-anchor="middle">cloud single page (claude.ai)</text>
+    <text class="alttext" x="630" y="114" text-anchor="middle">governed · org-auth · versioned</text>
+    <text class="alttext" x="630" y="136" text-anchor="middle">capture-of-work — not a corpus</text>
+    <text class="muted" x="630" y="164" text-anchor="middle">&#8800; Atlas — different job,</text>
+    <text class="muted" x="630" y="179" text-anchor="middle">no shared pipeline</text>
+  </g>
+</svg>
