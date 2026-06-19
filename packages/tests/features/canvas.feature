@@ -457,6 +457,7 @@ Feature: Canvas workspace
     When I double-click the title bar of canvas tile 1
     Then canvas tile 1 should be maximized
     Then every non-maximized canvas tile should be hidden
+    And every covered canvas tile should occupy the maximized tile's box
     And there should be no page errors
 
   @mobile
