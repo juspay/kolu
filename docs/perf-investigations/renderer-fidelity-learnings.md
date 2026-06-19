@@ -93,13 +93,16 @@ jerch ruled out both directions: un-flooring the WebGL cell blurs glyphs
 re-introduces the per-span pressure a refactor had removed (a perf
 regression) — *"swapping renderers forth and back is a weird use case."*
 The pin bump will not come. kolu's resolution is to stop **exposing** the
-divergence rather than eliminate it: the WebGL renderer is now budgeted to
-the **2 most-recently-active tiles** (each slot covering its main pane +
-active split), so the dominant A↔B focus switch never crosses the
-WebGL↔DOM boundary and the +7.7% reflow disappears for it. Only evicting a
-tile past the 2-slot budget still swaps it. See
-[#1403](https://github.com/juspay/kolu/issues/1403) and
-`useTerminalStore.ts` (`holdsWebgl` + `WEBGL_TILE_BUDGET`). *(Cause #2 of
+divergence rather than eliminate it: the WebGL renderer is budgeted to as
+many recently-active tiles as fit under a WebGL **context cap** (each tile
+costing its main pane + active split), so focus switches *within* the working
+set never cross the WebGL↔DOM boundary and the +7.7% reflow disappears for
+them. Only evicting a tile past the cap still swaps it. The cap started at 2
+tiles (#1403/#1404, for the A↔B reflow) and was raised to a context cap of
+12 in [#1399](https://github.com/juspay/kolu/issues/1399) — a budget smaller
+than the working set churned WebGL contexts on every switch and leaked GPU
+VRAM to a crash on AMD. See `useTerminalStore.ts` (`holdsWebgl`) and
+`webglBudget.ts` (`WEBGL_CONTEXT_CAP` + `admitWebglTiles`). *(Cause #2 of
 #1400 — the selection-offset-under-zoom bug — was fixed separately and
 filed upstream as
 [#6023](https://github.com/xtermjs/xterm.js/issues/6023).)*

@@ -16,20 +16,7 @@ import { useViewState } from "../useViewState";
 import { terminalListSub } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalMetadata } from "./useTerminalMetadata";
-
-/** How many tiles may hold a WebGL renderer at once. The WebGL and DOM
- *  renderers measure cell width differently (WebglRenderer floors
- *  `charW × dpr`, DomRenderer doesn't), so a tile that swaps between them
- *  reflows its text ~7.7% — jarring on every focus change (#1306; #1400's
- *  cause #1). Upstream won't make the metrics match (xtermjs/xterm.js#6015),
- *  so instead of eliminating the difference we avoid the *swap* that exposes
- *  it: keep WebGL on the 2 most-recently-active tiles rather than only the
- *  focused one. N=2 is the sweet spot — the reflow is most jarring when you
- *  ping-pong between two terminals, and with N=2 that A↔B toggle never crosses
- *  the WebGL↔DOM boundary. It also stays far under Chrome's ~16-contexts/tab
- *  cap (#575): ≤ 2 tiles × (main pane + active split) = 4 live contexts. See
- *  juspay/kolu#1403. */
-const WEBGL_TILE_BUDGET = 2;
+import { admitWebglTiles, WEBGL_CONTEXT_CAP } from "./webglBudget";
 
 export const useTerminalStore = createSharedRoot(() => {
   const view = useViewState();
@@ -56,18 +43,28 @@ export const useTerminalStore = createSharedRoot(() => {
       : parentId;
   }
 
-  /** The tiles entitled to a WebGL context: the N most-recently-active *live*
-   *  tiles. Derived from the existing tile MRU (`mruOrder`) intersected with
-   *  the live top-level tiles, so a closed tile is dropped from the list rather
-   *  than pinning a budget slot — no explicit remove-on-close needed. Reactive,
-   *  so switching tiles loads/unloads WebGL on exactly the tiles that crossed
-   *  the budget boundary. */
+  /** The tiles entitled to a WebGL context: the most-recently-active *live*
+   *  tiles that fit under `WEBGL_CONTEXT_CAP`. Derived from the tile MRU
+   *  (`mruOrder`) intersected with the live top-level tiles, so a closed tile is
+   *  dropped rather than pinning a slot — no explicit remove-on-close needed.
+   *  Reactive, so switching tiles loads/unloads WebGL only on the tiles that
+   *  cross the cap boundary; when the whole working set fits, focus switches
+   *  churn nothing (the #1399 fix). */
   const webglTileBudget = createMemo(() => {
     const live = new Set(metadata.terminalIds());
-    return view
-      .mruOrder()
-      .filter((id) => live.has(id))
-      .slice(0, WEBGL_TILE_BUDGET);
+    const ordered = view.mruOrder().filter((id) => live.has(id));
+    // A tile costs one context for its main pane, plus one for an expanded,
+    // active split (mirrors holdsWebgl's split rule below), so the running count
+    // is the true number of live WebGL contexts — admitting the full working set
+    // churn-free (#1399) while staying under Chrome's per-tab limit (#575).
+    return admitWebglTiles(
+      ordered,
+      (id) => {
+        const panel = subPanel.getSubPanel(id);
+        return 1 + (!panel.collapsed && panel.activeSubTab ? 1 : 0);
+      },
+      WEBGL_CONTEXT_CAP,
+    );
   });
 
   /** Whether `id` should hold a WebGL renderer under the budget. A budgeted
