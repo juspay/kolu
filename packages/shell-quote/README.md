@@ -45,6 +45,17 @@ shellJoin(["claude", "--settings", `{"ultracode": true}`]);
 // → claude --settings '{"ultracode": true}'
 ```
 
+**Command-head precondition.** The replay equivalence is for the _argument
+tail_, the values after an ordinary command word. It assumes `argv[0]` is a
+plain command name, which is what every consumer here passes (an agent
+basename: `claude`, `codex`, …). A shell resolves the **command-position** word
+by grammar _before_ quote-removal, so a token that survives in argument
+position can still change meaning as `argv[0]`: `shellQuoteArg` leaves
+`FOO=bar` and `if` bare (both are safe bare words), but the shell reads a
+leading `FOO=bar` as a variable assignment and a leading `if` as a reserved
+word, not as a command to run. Quote the head yourself, or keep it a plain
+command name, if you cannot guarantee it is one.
+
 ### `shellSplit(line: string): string[]`
 
 The **exact inverse of `shellJoin`** — `shellSplit(shellJoin(argv))` deep-equals

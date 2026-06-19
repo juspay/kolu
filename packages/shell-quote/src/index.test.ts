@@ -129,6 +129,15 @@ const POSIX_SHELL = findPosixShell();
 // word-splits back into exactly the argv it was built from. The shellSplit
 // tests above only check the leaf against its own tokenizer; this checks it
 // against the real grammar that backs the no-word-split / no-injection claim.
+//
+// Scope: this pins the ARGUMENT-TAIL guarantee — the values after an ordinary
+// command word. `replay` deliberately runs a known-safe `printf` head so every
+// corpus token lands in ARGUMENT position, which is exactly how the real
+// consumer joins (argv[0] is always an agent basename like `claude`). The
+// command-POSITION carve-out (a leading `FOO=bar` read as an assignment, a
+// leading `if` as a reserved word — both left bare by shellQuoteArg, since the
+// shell resolves the head by grammar before quote-removal) is out of scope by
+// the same construction; see the README "Command-head precondition".
 describe.skipIf(POSIX_SHELL === null)(
   "shellJoin output parsed by a real POSIX shell",
   () => {
@@ -145,7 +154,13 @@ describe.skipIf(POSIX_SHELL === null)(
      *  remaining argv element NUL-separated — the one separator that cannot
      *  collide with any byte inside a token, so the split is unambiguous. If the
      *  quoting let a value word-split or a metacharacter fire, printf would see a
-     *  different field list and the deep-equality below would fail. */
+     *  different field list and the deep-equality below would fail.
+     *
+     *  The `printf` head is also the known-safe COMMAND word that scopes this to
+     *  the argument tail: it forces every `args` token into argument position,
+     *  where shellQuoteArg's quoting fully governs the result — matching how the
+     *  real consumer joins (argv[0] is always an agent basename). See the
+     *  suite-level comment for the command-position carve-out. */
     function replay(
       args: readonly string[],
       env: NodeJS.ProcessEnv = {},
