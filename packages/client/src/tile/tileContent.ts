@@ -40,22 +40,3 @@ export interface Tile {
   readonly id: TileId;
   readonly content: TileContent;
 }
-
-/** Build the content for a live terminal tile. The single home for the
- *  terminal→content mapping, so a new content kind is added at {@link
- *  TileContent} and its own builder, never reconstructed ad hoc at a call
- *  site. */
-export function terminalContent(terminalId: TerminalId): TileContent {
-  return { kind: "terminal", terminalId };
-}
-
-/** Narrow a tile's content to its terminal id, or `null` when the tile is not a
- *  terminal. The one place the `TileId → TerminalId` resolution is named for
- *  content consumers (`focusedId` does the split-level narrowing on top of it).
- *  Today every tile is a terminal, so this is total; PR 2's sleeping tiles make
- *  the `null` arm reachable. */
-export function terminalIdOf(
-  content: TileContent | undefined,
-): TerminalId | null {
-  return content?.kind === "terminal" ? content.terminalId : null;
-}
