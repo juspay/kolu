@@ -1,10 +1,12 @@
 ---
-// "Maps of Content" — the hub notes, derived purely from the existing link graph
-// (a hub = a note many others point to via `parents`/prose links). Each card
-// lists the hub's cluster: the notes that reference it, already title-sorted by
-// lib/atlasGraph. These are plain <a> links, so the MoC reads and navigates with
-// no JS — the force graph above is enhancement, this is the durable artifact.
-// `data-hub` lets a card hover light up its node + neighborhood in the graph.
+// "Maps of Content" — the single entry index. Every hub is a card:
+//   - the four KIND hubs (Bugs/Features/Analysis/Reference), each listing ALL its
+//     notes — so the four cards together name every note, and the page is fully
+//     navigable with no JS;
+//   - TOPICAL hubs (electricity, solid-fileview, …), each listing its cluster —
+//     the cross-cutting entry points the link graph surfaces on its own.
+// Kind cards carry the `#moc-<kind>` anchor a kind chip in the graph links to, and
+// every card's `data-hub` lights up its node + neighborhood in the graph on hover.
 import type { HubCard } from "../lib/graphView";
 
 interface Props {
@@ -14,16 +16,26 @@ const { hubs } = Astro.props as Props;
 ---
 
 <section class="moc-hubs" aria-label="Maps of Content">
-  <div class="moc-hubs-grid">
+  <div class="moc-grid">
     {
       hubs.map((h) => (
-        <article class={`hub-card kind-${h.kind}`} data-hub={h.id}>
+        <article
+          class={`hub-card kind-${h.kind}${h.isKind ? " is-kind" : ""}`}
+          id={h.anchorId}
+          data-hub={h.id}
+        >
           <header class="hub-head">
             <span class="hub-bar" />
-            <a class="hub-title" href={`./${h.id}.html`}>
-              {h.title}
-            </a>
-            <span class="hub-count">{h.inbound} in · {h.degree} links</span>
+            {h.href ? (
+              <a class="hub-title" href={h.href}>
+                {h.label}
+              </a>
+            ) : (
+              <span class="hub-title">{h.label}</span>
+            )}
+            <span class="hub-count">
+              {h.count} {h.countLabel}
+            </span>
           </header>
           <p class="hub-desc">{h.description}</p>
           <ul class="cluster">
@@ -32,7 +44,11 @@ const { hubs } = Astro.props as Props;
                 <a class="cluster-row" href={`./${c.id}.html`}>
                   <span class={`cluster-dot m-${c.maturity}`} />
                   <span class="cluster-t">{c.title}</span>
-                  <span class={`cluster-kind k-${c.kind}`}>{c.kind}</span>
+                  {h.isKind ? (
+                    <span class="cluster-d">{c.description}</span>
+                  ) : (
+                    <span class={`cluster-kind k-${c.kind}`}>{c.kind}</span>
+                  )}
                 </a>
               </li>
             ))}
@@ -45,11 +61,12 @@ const { hubs } = Astro.props as Props;
 
 <style>
   .moc-hubs {
-    margin: 2.5rem 0 0;
+    margin: 2rem 0 0;
   }
-  .moc-hubs-grid {
+  .moc-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    align-items: start;
     gap: 1rem;
   }
   .hub-card {
@@ -58,12 +75,23 @@ const { hubs } = Astro.props as Props;
     border-left: 3px solid var(--cat-color, var(--ink-muted));
     border-radius: 12px;
     padding: 1rem 1.1rem 1.1rem;
-    transition:
-      box-shadow 0.15s ease,
-      transform 0.15s ease;
+    scroll-margin-top: 1.5rem;
+    transition: box-shadow 0.15s ease;
   }
   .hub-card:hover {
-    box-shadow: 0 1px 0 var(--rule), 0 6px 20px -14px rgba(26, 28, 32, 0.4);
+    box-shadow:
+      0 1px 0 var(--rule),
+      0 6px 20px -14px rgba(26, 28, 32, 0.4);
+  }
+  /* kind cards are the index — let them span two columns on wide grids so the
+     complete listings breathe and don't tower in a single narrow column */
+  .hub-card.is-kind {
+    grid-column: span 2;
+  }
+  @media (max-width: 660px) {
+    .hub-card.is-kind {
+      grid-column: span 1;
+    }
   }
   .hub-card.kind-bug {
     --cat-color: var(--alert);
@@ -99,7 +127,7 @@ const { hubs } = Astro.props as Props;
     color: var(--ink);
     text-decoration: none;
   }
-  .hub-title:hover {
+  a.hub-title:hover {
     color: var(--amber);
   }
   .hub-count {
@@ -126,6 +154,11 @@ const { hubs } = Astro.props as Props;
     display: grid;
     gap: 0.05rem;
   }
+  /* kind cards (the full index) flow their long listings into columns */
+  .is-kind .cluster {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 0.05rem 1.4rem;
+  }
   .cluster-row {
     display: flex;
     align-items: center;
@@ -133,6 +166,7 @@ const { hubs } = Astro.props as Props;
     padding: 0.2rem 0.3rem;
     border-radius: 6px;
     text-decoration: none;
+    min-width: 0;
   }
   .cluster-row:hover {
     background: var(--paper);
@@ -156,16 +190,26 @@ const { hubs } = Astro.props as Props;
     background: var(--green);
   }
   .cluster-t {
+    flex: none;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--ink-dim);
+  }
+  .cluster-d {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 0.84rem;
-    font-weight: 500;
-    color: var(--ink-dim);
+    font-size: 0.78rem;
+    color: var(--ink-faint);
   }
   .cluster-kind {
+    margin-left: auto;
     flex: none;
     font-family: var(--mono);
     font-size: 0.56rem;

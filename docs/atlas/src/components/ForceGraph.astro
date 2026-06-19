@@ -1,14 +1,15 @@
 ---
-// The Atlas as an interactive force graph. The layout is computed at BUILD time
-// (lib/graphView → d3-force) and baked into this static inline <svg> as rounded
-// coordinates, so the page is self-contained and the committed dist/ is a pure
-// function of source. The only client JS is a tiny `is:inline` script that adds
-// interaction — zoom/pan + a 1-hop hover highlight + drag-suppressed open — never
-// layout. Nodes are real <a> links, so they navigate (and degrade) without JS.
+// The unified Atlas as an interactive force graph. Layout is computed at BUILD
+// time (lib/graphView → d3-force) and baked into this static inline <svg> as
+// rounded coordinates, so the page is self-contained and the committed dist/ is a
+// pure function of source. The only client JS is a tiny `is:inline` script that
+// adds interaction — zoom/pan + a 1-hop hover highlight + drag-suppressed open —
+// never layout.
 //
-// Encoding: fill = kind (the index's category colors), radius = degree (sqrt, so
-// the Maps-of-Content hubs are the biggest circles), ring stroke = maturity. Hub
-// nodes carry an always-on serif label; the rest reveal theirs on hover.
+// Two node shapes: the four `kind` hubs are labeled CHIPS (every note edges to
+// its kind, so they're the gravitational anchors and link to their `#moc-<kind>`
+// card); notes are circles (fill = kind, radius = degree, ring = maturity). A
+// chip's note-edges are drawn faint so the real note→note links stay legible.
 import type { GraphEdge, GraphNode } from "../lib/graphView";
 
 interface Props {
@@ -17,6 +18,8 @@ interface Props {
   edges: GraphEdge[];
 }
 const { viewBox, nodes, edges } = Astro.props as Props;
+const kindEdges = edges.filter((e) => e.rel === "kind");
+const realEdges = edges.filter((e) => e.rel !== "kind");
 ---
 
 <figure class="atlas-graph">
@@ -26,16 +29,29 @@ const { viewBox, nodes, edges } = Astro.props as Props;
   </div>
   <svg
     viewBox={viewBox}
-    data-vb={viewBox}
     role="img"
-    aria-label="Force-directed graph of the Atlas notes"
+    aria-label="Force-directed graph of the Atlas: every note, wired to its kind hub and its links"
     preserveAspectRatio="xMidYMid meet"
   >
     <g class="edges">
       {
-        edges.map((e) => (
+        kindEdges.map((e) => (
           <line
-            class={`edge ${e.kind}`}
+            class="edge kind"
+            x1={e.x1}
+            y1={e.y1}
+            x2={e.x2}
+            y2={e.y2}
+            data-a={e.a}
+            data-b={e.b}
+            vector-effect="non-scaling-stroke"
+          />
+        ))
+      }
+      {
+        realEdges.map((e) => (
+          <line
+            class={`edge ${e.rel}`}
             x1={e.x1}
             y1={e.y1}
             x2={e.x2}
@@ -49,26 +65,43 @@ const { viewBox, nodes, edges } = Astro.props as Props;
     </g>
     <g class="nodes">
       {
-        nodes.map((n) => (
-          <a
-            class={`node${n.isHub ? " hub" : ""}`}
-            href={`./${n.id}.html`}
-            data-id={n.id}
-            data-nb={n.neighbors}
-          >
-            <g transform={`translate(${n.x} ${n.y})`}>
-              <title>{n.title}</title>
-              <circle
-                class={`dot k-${n.kind} m-${n.maturity}`}
-                r={n.r}
-                vector-effect="non-scaling-stroke"
-              />
-              <text class={`label${n.isHub ? " label-hub" : ""}`} y={n.r + 10}>
-                {n.id}
-              </text>
-            </g>
-          </a>
-        ))
+        nodes.map((n) =>
+          n.isKind ? (
+            <a class="node kind" href={n.href} data-id={n.id} data-nb={n.neighbors}>
+              <g transform={`translate(${n.x} ${n.y})`}>
+                <title>{n.label}</title>
+                <rect
+                  class={`chip kc-${n.kind}`}
+                  x={-(n.chipW ?? 0) / 2}
+                  y={-9}
+                  width={n.chipW}
+                  height={18}
+                  rx={9}
+                />
+                <text class="chip-label">{n.label}</text>
+              </g>
+            </a>
+          ) : (
+            <a
+              class={`node${n.isHub ? " hub" : ""}`}
+              href={n.href}
+              data-id={n.id}
+              data-nb={n.neighbors}
+            >
+              <g transform={`translate(${n.x} ${n.y})`}>
+                <title>{n.label}</title>
+                <circle
+                  class={`dot k-${n.kind} m-${n.maturity}`}
+                  r={n.r}
+                  vector-effect="non-scaling-stroke"
+                />
+                <text class={`label${n.isHub ? " label-hub" : ""}`} y={n.r + 10}>
+                  {n.label}
+                </text>
+              </g>
+            </a>
+          ),
+        )
       }
     </g>
   </svg>
@@ -134,8 +167,8 @@ const { viewBox, nodes, edges } = Astro.props as Props;
     // ── pan + zoom via viewBox; drag suppresses the node's <a> navigation ──
     var vb = svg.viewBox.baseVal;
     var base = { x: vb.x, y: vb.y, w: vb.width, h: vb.height };
-    var MINR = 0.35,
-      MAXR = 4;
+    var MINR = 0.3,
+      MAXR = 5;
     var dragging = false,
       moved = false,
       px = 0,
@@ -253,7 +286,7 @@ const { viewBox, nodes, edges } = Astro.props as Props;
     display: block;
     width: 100%;
     height: auto;
-    max-height: 70vh;
+    max-height: 78vh;
     touch-action: none;
     cursor: grab;
   }
@@ -268,6 +301,11 @@ const { viewBox, nodes, edges } = Astro.props as Props;
   }
   .edge.link {
     stroke-dasharray: 2 3;
+  }
+  /* note→kind spokes: faint structural background, not the story */
+  .edge.kind {
+    stroke: var(--rule);
+    opacity: 0.45;
   }
 
   .node {
@@ -296,7 +334,7 @@ const { viewBox, nodes, edges } = Astro.props as Props;
   .k-reference {
     fill: var(--ink-muted);
   }
-  /* ring stroke = maturity (the index's maturity-dot colours) */
+  /* ring stroke = maturity */
   .m-seedling {
     stroke: var(--gold);
   }
@@ -323,17 +361,44 @@ const { viewBox, nodes, edges } = Astro.props as Props;
   }
   .label-hub {
     fill: var(--ink);
-    font-family: var(--serif);
-    font-size: 10px;
     opacity: 1;
   }
   .node:hover .label {
     opacity: 1;
   }
 
+  /* kind hubs: labeled chips in the category colour */
+  .chip {
+    transition: filter 0.18s ease;
+  }
+  .kc-bug {
+    fill: var(--alert);
+  }
+  .kc-feature {
+    fill: var(--teal);
+  }
+  .kc-analysis {
+    fill: var(--gold);
+  }
+  .kc-reference {
+    fill: #5c6066;
+  }
+  .chip-label {
+    fill: #fff;
+    font-family: var(--serif);
+    font-size: 11px;
+    font-weight: 600;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+  }
+  .node.kind:hover .chip {
+    filter: brightness(1.08);
+  }
+
   /* dimmed state during a hover — only the 1-hop neighborhood stays lit */
   svg.dim .node {
-    opacity: 0.16;
+    opacity: 0.14;
   }
   svg.dim .node.on {
     opacity: 1;
@@ -342,7 +407,7 @@ const { viewBox, nodes, edges } = Astro.props as Props;
     opacity: 1;
   }
   svg.dim .edge {
-    opacity: 0.05;
+    opacity: 0.04;
   }
   svg.dim .edge.on {
     opacity: 0.85;
@@ -353,7 +418,8 @@ const { viewBox, nodes, edges } = Astro.props as Props;
     .edge,
     .node,
     .dot,
-    .label {
+    .label,
+    .chip {
       transition: none;
     }
   }
