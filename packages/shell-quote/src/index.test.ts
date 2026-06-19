@@ -4,6 +4,12 @@ import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { shellJoin, shellQuoteArg, shellSplit } from "./index.ts";
 
+/** The single source of truth for the POSIX shells this package's replay
+ *  guarantee assumes — the same four the README's "Target shell" contract
+ *  enumerates. `findPosixShell` iterates this so the prober and the documented
+ *  set cannot drift. */
+const POSIX_SHELLS = ["sh", "bash", "zsh", "dash"] as const;
+
 /** The shared round-trip truth table: argv shapes a consumer joins and must get
  *  back unchanged. It is exercised two ways from one corpus — against shellSplit
  *  (the leaf's OWN inverse) and against a real POSIX shell (below) — so the same
@@ -103,7 +109,7 @@ describe("shellSplit", () => {
  *  rather than failing it — the suite stays green on any platform. */
 function findPosixShell(): string | null {
   const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-  for (const name of ["sh", "bash", "dash"]) {
+  for (const name of POSIX_SHELLS) {
     for (const dir of dirs) {
       const candidate = join(dir, name);
       try {
