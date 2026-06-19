@@ -54,6 +54,9 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   startHeapDiagnostics({
     log,
     snapshotPrefix: "kaval-baseline",
+    // kaval owns its own log-event namespace ("kaval_diag*"), distinct from the
+    // server's "diag*" so the two timelines don't collide when both are enabled.
+    logPrefix: "kaval_diag",
     extraColumns: () => ({ terminals: terminalCount() }),
   });
 

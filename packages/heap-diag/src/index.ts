@@ -7,11 +7,14 @@
  * and a way to count its subsystem sizes, when `KOLU_DIAG_DIR` is set, emit a
  * T+0 anchor sample, a periodic memory/counts curve, and one safe baseline
  * heapsnapshot at T+5min, with unref hygiene — paired with the V8 near-limit
- * snapshot armed by the Nix wrapper." The two genuinely host-specific axes are
- * (a) which subsystem counters climb with the leak (`extraColumns`) and (b) the
- * snapshot-file basename prefix (`snapshotPrefix`). Everything else — the
- * cadence, the baseline-snapshot safety reasoning, the unref hygiene, the env
- * gate, the `diag_enabled` line — lives here ONCE, so a change to any of it is a
+ * snapshot armed by the Nix wrapper." The three genuinely host-specific axes are
+ * (a) which subsystem counters climb with the leak (`extraColumns`), (b) the
+ * snapshot-file basename prefix (`snapshotPrefix`), and (c) the log event-name
+ * stem (`logPrefix`) — deliberately separate from the file basename so the
+ * server keeps its long-standing `diag*` log contract while writing a
+ * `baseline.heapsnapshot` file. Everything else — the cadence, the
+ * baseline-snapshot safety reasoning, the unref hygiene, the env gate, the
+ * `<logPrefix>_enabled` line — lives here ONCE, so a change to any of it is a
  * one-file edit shared by every consumer (kolu-server, kaval, any future
  * kolu-* daemon that can OOM).
  *
@@ -21,7 +24,7 @@
  *
  * What it does when active:
  *
- *  1. Logs one structured `<msgPrefix>_enabled` line at startup with
+ *  1. Logs one structured `<logPrefix>_enabled` line at startup with
  *     NODE_OPTIONS, diag dir, node version, pid — so a post-mortem log grep can
  *     find the heap snapshot files without guessing.
  *
@@ -31,8 +34,8 @@
  *
  *  3. Starts a 5-min interval logging the memory bands
  *     (rss/heapUsed/heapTotal/external/arrayBuffers) plus the caller's
- *     `extraColumns` subsystem counts. The column that climbs monotonically
- *     alongside rss is the leak site.
+ *     `extraColumns` subsystem counts, under the `<logPrefix>` event. The column
+ *     that climbs monotonically alongside rss is the leak site.
  *
  * Deliberately NOT included: periodic automatic heap snapshots during the run.
  * Each `v8.writeHeapSnapshot()` transiently doubles the live heap; taking one
@@ -45,16 +48,15 @@
 
 import path from "node:path";
 import v8 from "node:v8";
+import type { Logger } from "@kolu/log";
 
-/** The structured-logging contract this module writes to — declared
- *  **structurally**, in-package, so `@kolu/heap-diag` carries no workspace
- *  dependency and can sit as a stable leaf. Mirrors `@kolu/surface-daemon`'s
- *  `Logger`: kolu's pino logger and kaval's structural logger are both
- *  assignable to it, so a host passes its logger through unchanged. */
-export type Logger = {
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  error: (obj: Record<string, unknown>, msg: string) => void;
-};
+// The structured-logging contract this module writes to is the workspace's
+// single authoritative `Logger` (`@kolu/log`) — a types-only, zero-runtime,
+// zero-`kolu-*` leaf, so importing it keeps `@kolu/heap-diag` a stable leaf
+// while reusing the canonical type instead of re-declaring a private copy.
+// kolu's pino logger and kaval's `@kolu/surface-daemon` logger are both
+// assignable to it, so a host passes its logger through unchanged.
+export type { Logger };
 
 /** 5 min — cadence for the heap/counts curve. Chosen so a ~10 MB/min leak rate
  *  (the observed floor before the kaval OOM) produces ~50 MB per tick: enough
@@ -74,10 +76,19 @@ export interface HeapDiagnosticsOptions {
   /** The capture dir. Defaults to `process.env.KOLU_DIAG_DIR`; pass it
    *  explicitly only to test the gate. Unset/empty = this module does nothing. */
   diagDir?: string;
-  /** Basename prefix for the baseline snapshot and the log `msg` field —
-   *  e.g. `"baseline"` (server) or `"kaval-baseline"` (kaval). The startup line
-   *  uses `"<prefix>_enabled"`; the curve rows use `"<prefix>"`. */
+  /** Basename for the baseline snapshot **file** — written as
+   *  `<snapshotPrefix>.heapsnapshot` (e.g. `"baseline"` → `baseline.heapsnapshot`
+   *  for the server, `"kaval-baseline"` for kaval). Deliberately distinct from
+   *  `logPrefix`: the file naming and the log event naming are two different
+   *  concerns and must not move together. */
   snapshotPrefix: string;
+  /** Stem for the structured-log `msg` fields, kept separate from the snapshot
+   *  file basename so each host owns its own grep/alerting contract. Events:
+   *  the startup line is `"<logPrefix>_enabled"`, the curve rows are
+   *  `"<logPrefix>"`, and the baseline snapshot result is
+   *  `"<logPrefix>_baseline_snapshot_written"` / `"_failed"`. The server passes
+   *  `"diag"` to preserve its long-standing event names; kaval passes its own. */
+  logPrefix: string;
   /** The host-specific subsystem counters that climb with the leak — merged
    *  into every sample alongside the memory bands. Called on each tick, so it
    *  reads live state. */
@@ -90,7 +101,7 @@ export interface HeapDiagnosticsOptions {
 export function startHeapDiagnostics(opts: HeapDiagnosticsOptions): void {
   const diagDir = opts.diagDir ?? process.env.KOLU_DIAG_DIR;
   if (!diagDir) return;
-  const { log, snapshotPrefix, extraColumns } = opts;
+  const { log, snapshotPrefix, logPrefix, extraColumns } = opts;
 
   const sample = (): Record<string, number> => {
     const m = process.memoryUsage();
@@ -111,7 +122,7 @@ export function startHeapDiagnostics(opts: HeapDiagnosticsOptions): void {
       nodeVersion: process.version,
       pid: process.pid,
     },
-    `${snapshotPrefix}_enabled`,
+    `${logPrefix}_enabled`,
   );
 
   // Baseline snapshot at T+5min — `writeHeapSnapshot` transiently doubles the
@@ -123,11 +134,14 @@ export function startHeapDiagnostics(opts: HeapDiagnosticsOptions): void {
     const snapshotPath = path.join(diagDir, `${snapshotPrefix}.heapsnapshot`);
     try {
       v8.writeHeapSnapshot(snapshotPath);
-      log.info({ path: snapshotPath }, `${snapshotPrefix}_snapshot_written`);
+      log.info(
+        { path: snapshotPath },
+        `${logPrefix}_baseline_snapshot_written`,
+      );
     } catch (err) {
       log.error(
         { err, path: snapshotPath },
-        `${snapshotPrefix}_snapshot_failed`,
+        `${logPrefix}_baseline_snapshot_failed`,
       );
     }
   }, BASELINE_DELAY_MS).unref();
@@ -135,12 +149,9 @@ export function startHeapDiagnostics(opts: HeapDiagnosticsOptions): void {
   // Periodic heap/counts curve. `unref` so the interval doesn't hold the process
   // open by itself — if it exits, the interval dies with it. Daemons serve
   // forever (systemd restart on failure), but unref is correct hygiene.
-  setInterval(
-    () => log.info(sample(), snapshotPrefix),
-    DIAG_INTERVAL_MS,
-  ).unref();
+  setInterval(() => log.info(sample(), logPrefix), DIAG_INTERVAL_MS).unref();
 
   // One immediate T+0 sample so the log timeline has an anchor row; the interval
   // ticks again at T+5min.
-  log.info(sample(), snapshotPrefix);
+  log.info(sample(), logPrefix);
 }

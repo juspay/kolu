@@ -370,6 +370,10 @@ const server = serve(
     startHeapDiagnostics({
       log,
       snapshotPrefix: "baseline",
+      // "diag" preserves the server's long-standing log events
+      // (diag_enabled / diag / diag_baseline_snapshot_*) that grep/alerting
+      // depend on — kept decoupled from the snapshot file basename above.
+      logPrefix: "diag",
       extraColumns: () => ({
         terminals: terminalCount(),
         publisherSize: publisherSize(),

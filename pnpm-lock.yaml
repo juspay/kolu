@@ -275,6 +275,10 @@ importers:
         version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/heap-diag:
+    dependencies:
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../log
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
