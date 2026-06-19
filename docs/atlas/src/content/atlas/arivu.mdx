@@ -204,6 +204,43 @@ default.nix                  ←edit register arivu + arivu-tui as build outputs
 pnpm-workspace.yaml · pnpm-lock.yaml  ←edit the new packages
 ```
 
+And how they depend on each other — what `arivu` pulls in, and the single new edge into existing code:
+
+<D2
+  caption="P1 package dependencies (arrows point to the dependency). The four new packages (amber) stand on the shared foundation — kolu-common (schemas) + @kolu/surface (framework) — plus kaval, which arivu dials as a client. arivu's own deps are arivu-contract (the surface it serves) and terminal-providers (the moved provider set, which in turn pulls the agent/git/forge adapters). The ONLY new edge into existing code is kolu-server re-pointing its import at terminal-providers — the behavior-preserving move, not a copy. arivu-tui is a thin client of the contract + the framework."
+  code={`direction: down
+classes: {
+  new: { style.fill: "#fbf1dc"; style.stroke: "#ecd9ab"; style.font-color: "#b45309" }
+  app: { style.fill: "#e7eefb"; style.stroke: "#c3d4f3"; style.font-color: "#2563eb" }
+  pty: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#15803d" }
+  base: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#475569" }
+  impl: { style.fill: "#f1f5f9"; style.stroke: "#e2e8f0"; style.font-color: "#64748b" }
+}
+arivu: "arivu\\n(daemon · bin)" { class: new }
+arivutui: "arivu-tui\\n(viewer · bin)" { class: new }
+server: "kolu-server\\n(re-points its import)" { class: app }
+contract: "arivu-contract\\nthe .pick surface" { class: new }
+providers: "terminal-providers\\nprovider set (moved)" { class: new }
+kaval: "kaval\\nPTY daemon (untouched)" { class: pty }
+common: "kolu-common\\nschemas" { class: base }
+surface: "@kolu/surface\\nframework" { class: base }
+impls: "provider impls\\nanyagent · anyforge\\nkolu-git · kolu-github\\nkolu-claude / codex / opencode" { class: impl }
+arivu -> contract
+arivu -> providers
+arivu -> surface
+arivu -> kaval: dials
+arivutui -> contract
+arivutui -> surface
+server -> providers: "P1 re-point"
+contract -> common
+contract -> surface
+providers -> common
+providers -> surface
+providers -> kaval: types
+providers -> impls
+`}
+/>
+
 **Deps & shape:** the lifted provider set imports nothing from kolu-server (its lone coupling — the logger — becomes a param); the daemon adds only the surface runtime + a `PtyHostClient`; agent-session reads use Node's built-in `node:sqlite` (no native addon). So `arivu` provisions and travels over ssh by the same staleKey recipe kaval uses — which is the whole reason to prove it here, before P3 introduces the wire.
 
 ## Load-bearing complexity & open decisions
