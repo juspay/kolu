@@ -14,7 +14,7 @@
  *    commandRun:<id>   ─►  agent-command tracker (lives on m.lastAgentCommand)
  *
  *  Metadata writes funnel through `sink.update*Metadata` so the
- *  providers don't need to know how their host persists state;
+ *  sensors don't need to know how their host persists state;
  *  activity-feed notifications (`trackRecentRepo` / `trackRecentAgent`)
  *  are optional so non-parent hosts can opt out.
  *
@@ -76,8 +76,9 @@ import type {
  *  `currentAgent` from here. `meta` is `AwarenessValue` — the canonical
  *  `AwarenessPersistedFields ∪ AwarenessLiveFields` union (the same write-fence
  *  partition the sink enforces). kolu's `TerminalServerMetadata` (which adds
- *  `location` + client fields) satisfies it directly by width subtyping, so
- *  the local endpoint can pass its own `entry.meta` here unchanged. */
+ *  `location`; the full `TerminalMetadata` adds the client UI fields on top)
+ *  satisfies it directly by width subtyping, so the local endpoint can pass its
+ *  own `entry.meta` here unchanged. */
 export interface AwarenessRecord {
   /** OS pid of the PTY's shell — constant for the terminal's life, known at
    *  spawn. The agent detectors compare it to the foreground pid to decide
@@ -118,6 +119,23 @@ export interface AwarenessSignals {
  *  sensor. kolu-server's local endpoint (`makeAwarenessSink`) wires these
  *  straight to its metadata + activity surfaces; the same fence
  *  applies there.
+ *
+ *  ## Apply-and-publish contract (load-bearing)
+ *
+ *  `updateServerMetadata` / `updateServerLiveMetadata` MUST apply `mutate`
+ *  to `record.meta` **synchronously** before they return — not only publish
+ *  the result elsewhere. The sensors read `record.meta` back as their own
+ *  prior state: the agent-command tracker dedups on `record.meta.lastAgentCommand`,
+ *  `publishAgentField` skips a redundant write via `agentInfoEqual(record.meta.agent, …)`
+ *  and decides recency off `record.meta.lastActivityAt`, and the foreground
+ *  sensor's own `published` mirror assumes the write landed. A sink that
+ *  type-checks but publishes to a collection WITHOUT mutating `record.meta`
+ *  (a plausible mistake for an extracted-package consumer like `arivu`) would
+ *  silently defeat every one of those dedup/transition gates — repeated
+ *  commands re-published, agent state re-emitted each tick, recency
+ *  double-bumped. kolu-server's `makeAwarenessSink` satisfies this because its
+ *  `updateServer*Metadata` mutate `entry.meta`, which IS `record.meta` (same
+ *  object). Honor it: mutate the record, THEN persist/publish the result.
  *
  *  `record` is passed to every method so a host whose update function isn't
  *  already keyed by terminal id (e.g. one with a global publish surface)

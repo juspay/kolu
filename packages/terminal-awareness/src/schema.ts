@@ -11,11 +11,14 @@
  * `location` endpoint discriminator, no client/UI fields.
  *
  * kolu's own `TerminalServerMetadata` is built ON TOP of this: it merges in
- * `location` (the local/remote endpoint discriminator the app owns) and the
- * client-persisted UI fields. So the awareness value is not carved out of
- * kolu's record — kolu's record extends this generic base. That inversion is
- * what lets `arivu` (the standalone daemon) and `arivu-tui` (the viewer) reuse
- * the sensors with zero dependency on any kolu-app package.
+ * `location` (the local/remote endpoint discriminator the app owns), the one
+ * kolu-specific server field. (The full `TerminalMetadata` then layers the
+ * client-persisted UI fields — themeName / parentId / canvasLayout / … — on
+ * top of that; those are NOT on `TerminalServerMetadata`, the server write
+ * fence.) So the awareness value is not carved out of kolu's record — kolu's
+ * record extends this generic base. That inversion is what lets `arivu` (the
+ * standalone daemon) and `arivu-tui` (the viewer) reuse the sensors with zero
+ * dependency on any kolu-app package.
  *
  * The persisted-vs-live partition is the same write fence the sensors honor
  * through `AwarenessSink` (and that kolu's `metadata.ts` enforces): persisted

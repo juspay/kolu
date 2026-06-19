@@ -5,11 +5,14 @@
  * out of those schemas via `SurfaceTypes`.
  *
  * One module owns the surface domain end-to-end: schemas → spec →
- * inferred types. Sub-schemas (Persisted/Live/Server/Client terminal
- * fields, agent + git + PR sub-types, UI enums) live here too because
- * they're the building blocks `PreferencesSchema` /
- * `TerminalMetadataSchema` / `ActivityFeedSchema` are composed from —
- * splitting them across files would just re-fragment the same domain.
+ * inferred types. The kolu-specific sub-schemas (Persisted/Live/Server/Client
+ * terminal fields, UI enums) live here because they're the building blocks
+ * `PreferencesSchema` / `TerminalMetadataSchema` / `ActivityFeedSchema` are
+ * composed from — splitting them across files would just re-fragment the same
+ * domain. The generic awareness sub-schemas (agent + PR sub-types, foreground,
+ * terminal identity) are OWNED by `@kolu/terminal-awareness/schema` (P1a) and
+ * re-exported below; kolu's terminal-field schemas EXTEND that base rather than
+ * declare it.
  *
  * Raw oRPC procedure I/O schemas (`TerminalCreateInputSchema`,
  * `ServerInfoSchema`, …) live in `./contract` next to the contract literal
