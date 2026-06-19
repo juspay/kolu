@@ -569,7 +569,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): void {
     const abort = new AbortController();
     const { signal } = abort;
-    const channels: AwarenessSignals = {
+    const signals: AwarenessSignals = {
       cwd: inMemoryChannel<string>(),
       title: inMemoryChannel<string>(),
       commandRun: inMemoryChannel<string>(),
@@ -580,11 +580,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       meta: entry.meta,
       currentAgent: null,
     };
-    const hooks = makeAwarenessSink(entry, id);
+    const sink = makeAwarenessSink(entry, id);
 
     // Bridge the raw VT taps onto the awareness signals. cwd also lands on
     // persisted metadata (the bridge owns `m.cwd`; the git sensor reads
-    // `channels.cwd` to re-resolve git).
+    // `signals.cwd` to re-resolve git).
     bridgeStream(
       ptyHostClient.surface.cwd.get({ id }, { signal }),
       signal,
@@ -592,29 +592,29 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         updateServerMetadata(entry, id, (m) => {
           m.cwd = msg.cwd;
         });
-        channels.cwd.publish(msg.cwd);
+        signals.cwd.publish(msg.cwd);
       },
     );
     bridgeStream(
       ptyHostClient.surface.title.get({ id }, { signal }),
       signal,
-      (msg) => channels.title.publish(msg.title),
+      (msg) => signals.title.publish(msg.title),
     );
     bridgeStream(
       ptyHostClient.surface.commandRun.get({ id }, { signal }),
       signal,
-      (msg) => channels.commandRun.publish(msg.command),
+      (msg) => signals.commandRun.publish(msg.command),
     );
     bridgeStream(
       ptyHostClient.surface.foreground.get({ id }, { signal }),
       signal,
       (msg) =>
-        channels.foreground.publish({
+        signals.foreground.publish({
           process: msg.process,
           foregroundPid: msg.foregroundPid,
         }),
     );
-    const stopAwareness = startAwareness(record, id, channels, hooks, log);
+    const stopAwareness = startAwareness(record, id, signals, sink, log);
 
     // Natural exit: the `exit` tap yields the code once. An intentional kill
     // aborts this signal first (see `teardownSensors`), so `handleExit` only

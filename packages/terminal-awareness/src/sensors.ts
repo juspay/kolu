@@ -13,7 +13,7 @@
  *    title/cwd/cmd     ─►  agent detector ×3     (lives on m.agent)
  *    commandRun:<id>   ─►  agent-command tracker (lives on m.lastAgentCommand)
  *
- *  Metadata writes funnel through `hooks.update*Metadata` so the
+ *  Metadata writes funnel through `sink.update*Metadata` so the
  *  providers don't need to know how their host persists state;
  *  activity-feed notifications (`trackRecentRepo` / `trackRecentAgent`)
  *  are optional so non-parent hosts can opt out.
@@ -28,10 +28,10 @@
  *
  *  `record.meta.cwd` is read once at sensor start (the spawn-time
  *  cwd) and is not re-read afterwards; subsequent cwd changes flow
- *  ONLY through `channels.cwd`. Hosts must publish every cwd change to
+ *  ONLY through `signals.cwd`. Hosts must publish every cwd change to
  *  that channel — they are NOT required to keep `record.meta.cwd` in
  *  sync, though the agent happens to (its cwd bridge writes through
- *  `hooks.updateServerMetadata` so the persisted+published metadata
+ *  `sink.updateServerMetadata` so the persisted+published metadata
  *  stays current for clients). Any host that satisfies the
  *  `AwarenessSignals`/`AwarenessSink` shape and publishes cwd to the
  *  channel will get correct agent / git resolution.
@@ -75,7 +75,7 @@ import type {
  *  constructs one per terminal; the sensors only touch `pid` + `meta` +
  *  `currentAgent` from here. `meta` is `AwarenessValue` — the canonical
  *  `AwarenessPersistedFields ∪ AwarenessLiveFields` union (the same write-fence
- *  partition the hooks enforce). kolu's `TerminalServerMetadata` (which adds
+ *  partition the sink enforces). kolu's `TerminalServerMetadata` (which adds
  *  `location` + client fields) satisfies it directly by width subtyping, so
  *  the local endpoint can pass its own `entry.meta` here unchanged. */
 export interface AwarenessRecord {
@@ -83,7 +83,7 @@ export interface AwarenessRecord {
    *  spawn. The agent detectors compare it to the foreground pid to decide
    *  "shell idle" (foreground IS the shell). No longer a `PtyHandle`: the
    *  live reads (process name + foreground pid) that used to come off the
-   *  handle synchronously now arrive over `channels.foreground`, so the sensor set
+   *  handle synchronously now arrive over `signals.foreground`, so the sensor set
    *  has zero sync dependency on the PTY host — which is what lets it run on
    *  the far side of a socket from pty-host (R4c) or ssh (R-2). */
   pid: number;
@@ -94,7 +94,7 @@ export interface AwarenessRecord {
   currentAgent: string | null;
 }
 
-/** Per-terminal channels the sensors subscribe to. The host (kolu-server's
+/** Per-terminal signals the sensors subscribe to. The host (kolu-server's
  *  local endpoint, or `arivu`) creates a fresh in-memory channel of each kind
  *  per terminal and feeds them from the pty-host's tap streams; a remote
  *  pty-host serves the same taps. */
@@ -109,7 +109,7 @@ export interface AwarenessSignals {
   foreground: Channel<ForegroundSample>;
 }
 
-/** Host hooks — the sensors call these to update metadata + emit
+/** Host sink — the sensors call its methods to update metadata + emit
  *  side effects. The mutator parameter types are narrowed to the two
  *  halves of the persisted-vs-live partition (the same fence the host
  *  enforces): writing `m.agent` through
@@ -119,11 +119,13 @@ export interface AwarenessSignals {
  *  straight to its metadata + activity surfaces; the same fence
  *  applies there.
  *
- *  `record` is passed to every hook so a host whose update function isn't
+ *  `record` is passed to every method so a host whose update function isn't
  *  already keyed by terminal id (e.g. one with a global publish surface)
- *  can look the record up in its own registry to dispatch the write. The
- *  endpoint already has the entry + id captured in `makeAwarenessSink`'s per-terminal
- *  closure, so it ignores the argument — hence the `_record` prefix. */
+ *  can look the record up in its own registry to dispatch the write. A host
+ *  whose closure already captures the record (like kolu-server's local
+ *  endpoint, which has the entry + id captured in `makeAwarenessSink`'s
+ *  per-terminal closure) ignores the argument and prefixes it `_record` at
+ *  the call site. */
 export interface AwarenessSink {
   updateServerMetadata: (
     record: AwarenessRecord,
@@ -163,16 +165,16 @@ function processBasename(proc: string): string {
 function startForegroundSensor(
   record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: AwarenessSignals,
-  hooks: AwarenessSink,
+  signals: AwarenessSignals,
+  sink: AwarenessSink,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
   // Foreground `{name, title}` — one concept, two coherent fields, so it's one
   // value not four scattered bindings. The name is tracked from
-  // `channels.foreground` (the pty-host tap) rather than read synchronously
+  // `signals.foreground` (the pty-host tap) rather than read synchronously
   // off a handle — so this works when pty-host lives across a socket; the
-  // title is tracked from `channels.title`. `current` is what we've observed;
+  // title is tracked from `signals.title`. `current` is what we've observed;
   // `published` is what we last wrote, so `recompute` republishes only on a
   // real change.
   type FgState = { name: string | null; title: string | null };
@@ -188,7 +190,7 @@ function startForegroundSensor(
       "foreground changed",
     );
     published = { ...current };
-    hooks.updateServerLiveMetadata(record, (m) => {
+    sink.updateServerLiveMetadata(record, (m) => {
       m.foreground =
         current.name === null
           ? null
@@ -196,14 +198,14 @@ function startForegroundSensor(
     });
   }
 
-  const cleanupForeground = channels.foreground.consume({
+  const cleanupForeground = signals.foreground.consume({
     onEvent: (fg) => {
       current.name = processBasename(fg.process);
       recompute();
     },
     onError: (err) => plog.error({ err }, "foreground subscription failed"),
   });
-  const cleanupTitle = channels.title.consume({
+  const cleanupTitle = signals.title.consume({
     onEvent: (title) => {
       current.title = title;
       recompute();
@@ -222,9 +224,9 @@ function startForegroundSensor(
 function startGitSensor(
   record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: AwarenessSignals,
+  signals: AwarenessSignals,
   gitChannel: Channel<GitInfo | null>,
-  hooks: AwarenessSink,
+  sink: AwarenessSink,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "git", terminal: terminalId });
@@ -232,8 +234,8 @@ function startGitSensor(
   const watcher = subscribeGitInfo(
     record.meta.cwd,
     (git) => {
-      if (git) hooks.trackRecentRepo?.(git.mainRepoRoot, git.repoName);
-      hooks.updateServerMetadata(record, (m) => {
+      if (git) sink.trackRecentRepo?.(git.mainRepoRoot, git.repoName);
+      sink.updateServerMetadata(record, (m) => {
         m.git = git;
       });
       gitChannel.publish(git);
@@ -244,7 +246,7 @@ function startGitSensor(
     },
     plog,
   );
-  const cleanup = channels.cwd.consume({
+  const cleanup = signals.cwd.consume({
     onEvent: (cwd) => watcher.setCwd(cwd),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
@@ -304,7 +306,7 @@ function startPrSensor(
   record: AwarenessRecord,
   terminalId: TerminalId,
   gitChannel: Channel<GitInfo | null>,
-  hooks: AwarenessSink,
+  sink: AwarenessSink,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "pr", terminal: terminalId });
@@ -314,7 +316,7 @@ function startPrSensor(
   const watcher = subscribePr(
     dispatchingForgeAdapter,
     (pr) => {
-      hooks.updateServerLiveMetadata(record, (m) => {
+      sink.updateServerLiveMetadata(record, (m) => {
         m.pr = pr;
       });
       plog.debug(
@@ -356,11 +358,11 @@ function startPrSensor(
 function startAgentCommandSensor(
   record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: AwarenessSignals,
-  hooks: AwarenessSink,
+  signals: AwarenessSignals,
+  sink: AwarenessSink,
   log: Logger,
 ): () => void {
-  return channels.commandRun.consume({
+  return signals.commandRun.consume({
     onEvent: (raw) => {
       const normalized = parseAgentCommand(raw);
       record.currentAgent = normalized
@@ -368,11 +370,11 @@ function startAgentCommandSensor(
         : null;
       if (normalized) {
         if (record.meta.lastAgentCommand !== normalized) {
-          hooks.updateServerMetadata(record, (m) => {
+          sink.updateServerMetadata(record, (m) => {
             m.lastAgentCommand = normalized;
           });
         }
-        hooks.trackRecentAgent?.(normalized);
+        sink.trackRecentAgent?.(normalized);
       }
     },
     onError: (err) =>
@@ -463,7 +465,7 @@ function isNotFoundError(err: unknown): boolean {
 
 function publishAgentField(
   record: AwarenessRecord,
-  hooks: AwarenessSink,
+  sink: AwarenessSink,
   nextAgent: AgentInfo | null,
 ): void {
   // Publish-if-changed: the canonical AgentInfo comparator is the one gate for
@@ -475,11 +477,11 @@ function publishAgentField(
     nextAgent,
     record.meta.lastActivityAt,
   );
-  hooks.updateServerLiveMetadata(record, (m) => {
+  sink.updateServerLiveMetadata(record, (m) => {
     m.agent = nextAgent;
   });
   if (bump) {
-    hooks.updateServerMetadata(record, (m) => {
+    sink.updateServerMetadata(record, (m) => {
       m.lastActivityAt = Date.now();
     });
   }
@@ -489,8 +491,8 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
   provider: AgentProvider<Session, Info>,
   record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: AwarenessSignals,
-  hooks: AwarenessSink,
+  signals: AwarenessSignals,
+  sink: AwarenessSink,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
@@ -523,12 +525,12 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
   // `record.meta.cwd` inside `reconcile()` would make agent detection
   // depend on the host mutating `record.meta` synchronously before each
   // channel publish — a hidden contract the agent happens to honor (its
-  // cwd bridge writes `record.meta.cwd` then publishes `channels.cwd`) but
+  // cwd bridge writes `record.meta.cwd` then publishes `signals.cwd`) but
   // a future host on the same `AwarenessSignals`/`AwarenessSink` shape
   // could not be expected to know about.
   let currentCwd = record.meta.cwd;
   // Foreground source-of-truth for this provider, tracked from
-  // `channels.foreground` (seeded empty → "shell idle" until the first
+  // `signals.foreground` (seeded empty → "shell idle" until the first
   // sample arrives). Same rationale as `currentCwd`: read it from the
   // channel, not a synchronous handle, so the sensor set is transport-agnostic.
   let currentForeground: ForegroundSample = {
@@ -583,7 +585,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     if (!next || !nextKey) {
       if (hadCurrent) plog.debug("agent session ended");
       if (record.meta.agent?.kind === provider.kind) {
-        publishAgentField(record, hooks, null);
+        publishAgentField(record, sink, null);
       }
       return;
     }
@@ -622,13 +624,13 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
           // state transition publishes immediately.
           if (
             scrape &&
-            hooks.readScreenText &&
+            sink.readScreenText &&
             scrape.isPollable(info) &&
             published?.state === "awaiting_user"
           ) {
             return;
           }
-          publishAgentField(record, hooks, info as unknown as AgentInfo);
+          publishAgentField(record, sink, info as unknown as AgentInfo);
         },
         plog,
       ),
@@ -660,7 +662,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
    *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
   function startScreenScrapePoll(): () => void {
     const scrape = provider.screenScrape;
-    const readScreen = hooks.readScreenText;
+    const readScreen = sink.readScreenText;
     if (!scrape || !readScreen) return () => {};
     let pollStopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -686,7 +688,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
         const desired = scrape.promote(info, text);
         const published = publishedAgent();
         if (published && !isDeepStrictEqual(published, desired)) {
-          publishAgentField(record, hooks, desired as unknown as AgentInfo);
+          publishAgentField(record, sink, desired as unknown as AgentInfo);
         }
       } catch (err) {
         // A NOT_FOUND is the benign teardown race — the PTY vanished between
@@ -745,25 +747,25 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     reconcileFromCommandRun(0);
   }
 
-  const cleanupTitle = channels.title.consume({
+  const cleanupTitle = signals.title.consume({
     onEvent: () => reconcile(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
-  const cleanupForeground = channels.foreground.consume({
+  const cleanupForeground = signals.foreground.consume({
     onEvent: (fg) => {
       currentForeground = fg;
       reconcile();
     },
     onError: (err) => plog.error({ err }, "foreground subscription failed"),
   });
-  const cleanupCwd = channels.cwd.consume({
+  const cleanupCwd = signals.cwd.consume({
     onEvent: (cwd) => {
       currentCwd = cwd;
       reconcile();
     },
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
-  const cleanupCommandRun = channels.commandRun.consume({
+  const cleanupCommandRun = signals.commandRun.consume({
     onEvent: () => scheduleCommandRunReconciles(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
@@ -785,22 +787,22 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
 }
 
 /** Start every per-terminal sensor for one terminal. A host calls this with
- *  its channels + hooks + a logger (the lone coupling injected, not imported,
+ *  its signals + sink + a logger (the lone coupling injected, not imported,
  *  so this package names no host). Sensor order matters only for the
  *  agent-command tracker — it must come first so its stash is populated before
  *  agent detectors reconcile. */
 export function startAwareness(
   record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: AwarenessSignals,
-  hooks: AwarenessSink,
+  signals: AwarenessSignals,
+  sink: AwarenessSink,
   log: Logger,
 ): () => void {
   const stopAgentCommand = startAgentCommandSensor(
     record,
     terminalId,
-    channels,
-    hooks,
+    signals,
+    sink,
     log,
   );
   // The git→PR pipe is an internal sensor-to-sensor wire, not a host input: the
@@ -811,41 +813,41 @@ export function startAwareness(
   const stopGit = startGitSensor(
     record,
     terminalId,
-    channels,
+    signals,
     gitChannel,
-    hooks,
+    sink,
     log,
   );
-  const stopPr = startPrSensor(record, terminalId, gitChannel, hooks, log);
+  const stopPr = startPrSensor(record, terminalId, gitChannel, sink, log);
   const stopClaude = startAgentSensor(
     claudeCodeProvider,
     record,
     terminalId,
-    channels,
-    hooks,
+    signals,
+    sink,
     log,
   );
   const stopCodex = startAgentSensor(
     codexProvider,
     record,
     terminalId,
-    channels,
-    hooks,
+    signals,
+    sink,
     log,
   );
   const stopOpenCode = startAgentSensor(
     opencodeProvider,
     record,
     terminalId,
-    channels,
-    hooks,
+    signals,
+    sink,
     log,
   );
   const stopProcess = startForegroundSensor(
     record,
     terminalId,
-    channels,
-    hooks,
+    signals,
+    sink,
     log,
   );
   return () => {
