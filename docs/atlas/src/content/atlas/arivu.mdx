@@ -48,7 +48,7 @@ tui -> awd: dials
 
 One thesis: **awareness is a derived surface, and the thing that produces it is a standalone daemon on top of kaval.** Three claims follow, each verified against the shipped code.
 
-- **The unit is the provider-authored *slice*, not the whole record.** `arivu` exposes `Collection<TerminalId, AwarenessValue>` where `AwarenessValue` is exactly the fields the providers compute — `cwd · git · lastAgentCommand · lastActivityAt` (server-persisted) plus `pr · agent · foreground` (live). That is a strict `.pick` of *existing*, partition-tested schemas: **zero new schema work**. It deliberately excludes `location` (no provider authors it; a remote tool can't know its own kolu-side `hostId`) and every client/UI field (`themeName`, `intent`, `canvasLayout`, …) — those are kolu-owned and unproducible host-side.
+- **The unit is a generic awareness value, not kolu's record.** `arivu` exposes `Collection<TerminalId, AwarenessValue>`, where `AwarenessValue` is exactly the fields the providers compute — `cwd · git · lastAgentCommand · lastActivityAt` plus `pr · agent · foreground`. This schema is *generic*: it lives in `@kolu/terminal-awareness`, composed from the vendor-neutral `anyagent` / `anyforge` / `kolu-git` shapes, with **no kolu-specific content at all**. The one kolu concept — `location` (the endpoint discriminator) — is simply *absent* (no provider authors it; a remote tool can't know its own kolu-side `hostId`). Kolu's own `TerminalServerMetadata` is then just `AwarenessValue` **plus** `location` and the client/UI fields (`themeName`, `intent`, …): the awareness value isn't *carved out of* kolu's record — kolu's record is *built on top of* it.
 - **kaval stays byte-for-byte minimal.** `arivu` *dials* kaval as a `ptyHostSurface` client for the four taps + `getScreenText`; it adds **zero** awareness/git/gh logic to kaval. The decoupling is additive — a layer above, never a fork.
 - **Ephemerality is the simplifier.** Unlike a PTY, awareness never has to survive a restart — it's re-derivable from live taps + current host fs. So `arivu` sheds *all* of kaval's durability machinery: no single-instance lock, no spawn/cleanup (it owns no PTYs), no persisted list (it borrows kaval's `terminal.list`), no adoption or reconnect-survival. Every (re)start just re-runs the providers and recomputes from now.
 
@@ -82,7 +82,7 @@ Like kaval, the daemon is **a deliverable in its own right**, shipped and proven
   "# derived intelligence over the raw PTY — and a future TUI-kolu consumes the same daemon",
 ]} />
 
-It ships self-contained: the awareness providers (today `terminalEndpoint/providers.ts`, lifted into a package by P1) import nothing from kolu-server but a logger, and the host runtime deps are just `node · git · gh` (SQLite via Node's built-in `node:sqlite` — no native addon), so the bin travels cleanly over ssh. **Defining the awareness contract once yields all three consumers off one schema:** the daemon, the TUI, and kolu-server's two wirings.
+It ships self-contained: the awareness providers (today `terminalEndpoint/providers.ts`, lifted into `@kolu/terminal-awareness` by P1) import nothing from kolu-server or kolu-common but a logger, and the host runtime deps are just `node · git · gh` (SQLite via Node's built-in `node:sqlite` — no native addon), so the bin travels cleanly over ssh. **Defining the awareness contract once yields all three consumers off one schema:** the daemon, the TUI, and kolu-server's two wirings.
 
 ## Four shippable slices
 
@@ -90,7 +90,7 @@ Each slice ships and is provable on its own; the long pole is **P1 → P2 → P3
 
 | Phase | Kind | Ships | Retires the risk of… |
 | --- | --- | --- | --- |
-| **P1** | <Pill variant="ok">feature</Pill> | the awareness contract (the `.pick`, defined once) + `arivu` (dials kaval, runs the providers, serves the slice) + `arivu-tui` — **zero kolu-server involvement** | do the providers run as a separate, kaval-dialing process and produce correct awareness with no in-process handle? Proven standalone, ssh-shippable, *before* kolu depends on it — a failure here is cheap and isolated |
+| **P1** | <Pill variant="ok">feature</Pill> | the awareness contract (the generic value + its surface, defined once) + `arivu` (dials kaval, runs the providers, serves the slice) + `arivu-tui` — **zero kolu-server involvement** | do the providers run as a separate, kaval-dialing process and produce correct awareness with no in-process handle? Proven standalone, ssh-shippable, *before* kolu depends on it — a failure here is cheap and isolated |
 | **P2** | <Pill>refactor</Pill> | kolu-server **composes** the surface in-process for **local** terminals (`directLink` over the existing providers), folding through the existing mutators | proves the **fold** mechanics (merge into the co-owned entry, split across the persisted/live fence) on the safe in-process path — debugged before any wire exists |
 | **P3** | <Pill variant="ok">feature</Pill> | Nix-provision `arivu` over ssh; kolu-server **serves + mirrors + folds** for **remote** terminals; the host hooks-impl reifies closures → tagged frames; a `meta.version` handshake gates incompatible hosts into re-provision | the genuinely-new artifacts in isolation — reification, the fence across the wire, version-skew — with local awareness (P2) safe from regression |
 | **P4** | <Pill>refactor</Pill> | *(optional)* graduate `mirrorRemoteSurface` as the spec-driven dual of `implementSurface`; the awareness mirror and `remote-process-monitor` both consume it | per-surface hand-mirroring for every future served surface — pure decomplecting, strictly additive, off the critical path |
@@ -119,22 +119,28 @@ The experience is the `arivu-tui` mockup above: per terminal — repo + branch, 
 
 ### How it's built — architecture + types
 
-**One contract**, defined once in a tiny package both binaries import. The value type is *derived*, never authored:
+**One contract**, defined once and imported by every consumer. The value type is *generic* — owned by the package that produces it, never by kolu:
 
 ```ts
-// @kolu/arivu-contract — the single source of truth for all consumers
-import { TerminalIdSchema, TerminalServerMetadataSchema } from "kolu-common/surface";
+// @kolu/terminal-awareness — the GENERIC awareness value, owned where it's produced.
+// Composed from vendor-neutral shapes (anyagent · anyforge · kolu-git); imports NO kolu-common.
+export const TerminalIdSchema = z.string().uuid();
+export const AwarenessValueSchema = z.object({
+  cwd, git,                          // GitInfo (kolu-git)
+  lastAgentCommand, lastActivityAt,
+  pr,                                // PrResult (anyforge)
+  agent,                             // AgentInfo (anyagent: claude · codex · opencode)
+  foreground,
+}); // zero kolu-specific content — no `location`, no client/UI fields
+
+// kolu-common no longer OWNS these — it EXTENDS the generic base:
+//   TerminalServerMetadataSchema = AwarenessValueSchema.merge({ location: HostLocationSchema })
+
+// @kolu/arivu-contract — wraps the value in the one surface every consumer shares
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-
-// the provider-authored slice = server metadata minus the one field no provider owns
-export const AwarenessValueSchema = TerminalServerMetadataSchema.omit({ location: true });
-// ≡ { cwd, git, lastAgentCommand?, lastActivityAt, pr, agent, foreground }
-
 export const arivuSurface = defineSurface({
-  cells: { version: { schema: VersionSchema, default: DEFAULT_VERSION } }, // the P3 contract-version handshake
-  collections: {
-    awareness: { keySchema: TerminalIdSchema, schema: AwarenessValueSchema },
-  },
+  cells:       { version: { schema: VersionSchema, default: DEFAULT_VERSION } }, // the P3 contract-version handshake
+  collections: { awareness: { keySchema: TerminalIdSchema, schema: AwarenessValueSchema } },
 });
 export type AwarenessValue =
   SurfaceTypes<typeof arivuSurface.spec>["collections"]["awareness"]["Value"];
@@ -146,13 +152,12 @@ export type AwarenessValue =
 import {
   startProviders,
   type ProviderRecord, type ProviderChannels, type ProviderHooks,
-} from "@kolu/terminal-providers"; // the provider set, lifted out of kolu-server verbatim
+} from "@kolu/terminal-awareness"; // the provider set, lifted out of kolu-server verbatim
 
 function watchTerminal(id: TerminalId, kaval: PtyHostClient, ctx: ArivuCtx): () => void {
   const record: ProviderRecord = { pid, meta: seedAwareness(cwd), currentAgent: null };
   const channels: ProviderChannels = bridgeKavalTaps(kaval, id); // cwd·title·commandRun·foreground (git made internally)
-  const publish = (m: TerminalServerMetadata) =>
-    ctx.collections.awareness.upsert(id, AwarenessValueSchema.parse(m)); // drops location by construction
+  const publish = (m: AwarenessValue) => ctx.collections.awareness.upsert(id, m); // generic value — no location to strip
   const hooks: ProviderHooks = {
     // THE one seam that differs from kolu-server: instead of mutating kolu's entry.meta,
     // mutate this record's meta, then publish the (location-less) slice into the served collection.
@@ -168,7 +173,7 @@ It then **serves** that surface — `serveOverStdio({ router, transport })` for 
 
 Two things to notice, because they are exactly what P1 *proves*:
 
-- **The reuse seam is the provider set, not the hooks signature — and it's a _move_, not a copy.** `startProviders` / `ProviderRecord` / `ProviderChannels` / `ProviderHooks` (and the kaval-tap→channel bridge) **relocate** from kolu-server into `@kolu/terminal-providers` — the only coupling to sever is the logger, injected as a param — and kolu-server re-points its own import at the package in the same change (behavior-preserving: it keeps running the providers in-process). So there is **one** copy of the freshness-critical provider computation, imported by both; P1 adds **no duplicate**. The only per-consumer code is the thin sink adapter — a `ProviderHooks` *impl*: publish-into-a-collection in `arivu` vs mutate-kolu's-`entry.meta` in kolu-server. That differing impl is the variation point the interface exists for, not duplication — and it is exactly what P3 reuses on the far side of the ssh link.
+- **The reuse seam is the provider set, not the hooks signature — and it's a _move_, not a copy.** `startProviders` / `ProviderRecord` / `ProviderChannels` / `ProviderHooks` (and the kaval-tap→channel bridge) **relocate** from kolu-server into `@kolu/terminal-awareness` — the only coupling to sever is the logger, injected as a param — and kolu-server re-points its own import at the package in the same change (behavior-preserving: it keeps running the providers in-process). So there is **one** copy of the freshness-critical provider computation, imported by both; P1 adds **no duplicate**. The only per-consumer code is the thin sink adapter — a `ProviderHooks` *impl*: publish-into-a-collection in `arivu` vs mutate-kolu's-`entry.meta` in kolu-server. That differing impl is the variation point the interface exists for, not duplication — and it is exactly what P3 reuses on the far side of the ssh link.
 - **No fold here.** In P1 the daemon owns the *whole* `AwarenessValue` — there is no co-owned `terminalMetadata`, no client fields, no `location`. The fold (merge + persisted/live split) is *kolu-side* and first appears in P2. P1 is the clean, fold-free proof that the providers run correctly as a separate, kaval-dialing process — the single biggest unknown, retired in isolation.
 
 ### The shape on disk
@@ -178,11 +183,12 @@ Three new packages, plus a behavior-preserving re-point of kolu-server. *(`←mo
 ```
 packages/
   arivu-contract/            NEW   the awareness surface, defined once (daemon AND kolu-server import it)
-    src/index.ts                   AwarenessValueSchema = TerminalServerMetadataSchema.omit({location}) + arivuSurface
+    src/index.ts                   arivuSurface = defineSurface({ awareness, version }); imports AwarenessValue from terminal-awareness
     package.json · tsconfig.json
-  terminal-providers/        NEW   the provider set, MOVED out of kolu-server (verbatim)
-    src/providers.ts         ←move from packages/server/src/terminalEndpoint/
+  terminal-awareness/        NEW   the provider set + the generic awareness schemas — decoupled from kolu-common
+    src/providers.ts         ←move from packages/server/src/terminalEndpoint/ (verbatim)
     src/agentRecency.ts      ←move
+    src/schema.ts                  AwarenessValueSchema + AgentInfo/PrResult/Foreground — moved OUT of kolu-common
     src/kavalChannels.ts           a PtyHostClient's taps -> ProviderChannels (the shared tap bridge)
     src/*.test.ts            ←move the existing provider tests ride along
     src/index.ts · package.json · tsconfig.json
@@ -196,10 +202,13 @@ packages/
     src/render.ts                  dial arivu, read `awareness` (snapshot+delta), draw rows
     package.json · tsconfig.json
   server/                    MODIFIED (behavior-preserving)
-    src/terminalEndpoint/local.ts        ←edit import startProviders from @kolu/terminal-providers; pass logger
+    src/terminalEndpoint/local.ts        ←edit import startProviders from @kolu/terminal-awareness; pass logger
     src/terminalEndpoint/providers.ts    ←del  (moved out)
     src/terminalEndpoint/agentRecency.ts ←del  (moved out)
-    package.json                         ←edit + dep @kolu/terminal-providers
+    package.json                         ←edit + dep @kolu/terminal-awareness
+  common/                    MODIFIED (the schema home inverts — leaves no kolu coupling in terminal-awareness)
+    src/surface.ts                       ←edit AwarenessValue + AgentInfo/PrResult/Foreground move to @kolu/terminal-awareness;
+                                              re-export them; TerminalServerMetadata = AwarenessValue + location
 default.nix                  ←edit register arivu + arivu-tui as build outputs (full ssh provisioning is P3)
 pnpm-workspace.yaml · pnpm-lock.yaml  ←edit the new packages
 ```
@@ -207,7 +216,7 @@ pnpm-workspace.yaml · pnpm-lock.yaml  ←edit the new packages
 And how they depend on each other — what `arivu` pulls in, and the single new edge into existing code:
 
 <D2
-  caption="P1 package dependencies (arrows point to the dependency). The four new packages (amber) stand on the shared foundation — kolu-common (schemas) + @kolu/surface (framework) — plus kaval, which arivu dials as a client. arivu's own deps are arivu-contract (the surface it serves) and terminal-providers (the moved provider set, which in turn pulls the agent/git/forge adapters). The ONLY new edge into existing code is kolu-server re-pointing its import at terminal-providers — the behavior-preserving move, not a copy. arivu-tui is a thin client of the contract + the framework."
+  caption="P1 package dependencies (arrows point to the dependency). The key fix is visible: @kolu/terminal-awareness depends ONLY on generic tools (anyagent · anyforge · kolu-git/github · kaval · @kolu/surface) — never kolu-common — so arivu inherits no kolu coupling, exactly like kaval. The dependency INVERTS: kolu-common now imports the awareness schemas from terminal-awareness and adds `location`. The two edges into existing code (blue) are kolu-server re-pointing its provider import and kolu-common re-homing those schemas — both behavior-preserving. No arrow ever points from terminal-awareness back into a kolu-app package."
   code={`direction: down
 classes: {
   new: { style.fill: "#fbf1dc"; style.stroke: "#ecd9ab"; style.font-color: "#b45309" }
@@ -218,30 +227,30 @@ classes: {
 }
 arivu: "arivu\\n(daemon · bin)" { class: new }
 arivutui: "arivu-tui\\n(viewer · bin)" { class: new }
-server: "kolu-server\\n(re-points its import)" { class: app }
-contract: "arivu-contract\\nthe .pick surface" { class: new }
-providers: "terminal-providers\\nprovider set (moved)" { class: new }
+server: "kolu-server\\n(re-points provider import)" { class: app }
+common: "kolu-common\\n(extends the base + location)" { class: app }
+contract: "arivu-contract\\nthe awareness surface" { class: new }
+awareness: "@kolu/terminal-awareness\\nproviders + generic schemas" { class: new }
 kaval: "kaval\\nPTY daemon (untouched)" { class: pty }
-common: "kolu-common\\nschemas" { class: base }
 surface: "@kolu/surface\\nframework" { class: base }
 impls: "provider impls\\nanyagent · anyforge\\nkolu-git · kolu-github\\nkolu-claude / codex / opencode" { class: impl }
 arivu -> contract
-arivu -> providers
+arivu -> awareness
 arivu -> surface
 arivu -> kaval: dials
 arivutui -> contract
 arivutui -> surface
-server -> providers: "P1 re-point"
-contract -> common
+contract -> awareness
 contract -> surface
-providers -> common
-providers -> surface
-providers -> kaval: types
-providers -> impls
+awareness -> surface
+awareness -> kaval: types
+awareness -> impls
+server -> awareness: "P1 re-point"
+common -> awareness: "re-homes schemas + adds location"
 `}
 />
 
-**Deps & shape:** the lifted provider set imports nothing from kolu-server (its lone coupling — the logger — becomes a param); the daemon adds only the surface runtime + a `PtyHostClient`; agent-session reads use Node's built-in `node:sqlite` (no native addon). So `arivu` provisions and travels over ssh by the same staleKey recipe kaval uses — which is the whole reason to prove it here, before P3 introduces the wire.
+**Deps & shape:** the lifted package imports nothing from kolu-server *or* kolu-common (its lone runtime coupling — the logger — becomes a param), depending only on generic tools (`anyagent` · `anyforge` · `kolu-git`/`github` · `kaval` · `@kolu/surface`); the daemon adds only the surface runtime + a `PtyHostClient`; agent-session reads use Node's built-in `node:sqlite` (no native addon). So `arivu` provisions and travels over ssh by the same staleKey recipe kaval uses — which is the whole reason to prove it here, before P3 introduces the wire.
 
 ## Load-bearing complexity & open decisions
 
