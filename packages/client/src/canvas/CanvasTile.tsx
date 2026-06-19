@@ -182,20 +182,34 @@ const CanvasTile: Component<{
     };
   };
 
-  // A `"covered"` tile must hide intrinsically, not by relying on the
-  // maximized tile's `z-40` cover painting over it. During the window where
-  // `activeId` already points at a just-created tile that hasn't entered
-  // `terminalIds` yet, no maximized tile exists — a covered tile carrying only
-  // `inert`/`aria-hidden` would paint at its canvas coords, flashing the whole
-  // freeform canvas for a frame (regressed in #989, which dropped the pre-#988
-  // `visibility: hidden`). Keep the subtree mounted (`visibility`, not
-  // `display`) so xterm keeps writing its buffer and the dock previews stay
-  // populated (#904).
+  // A `"covered"` tile shares the maximized tile's box — full canvas viewport
+  // via `inset-0` (classList below) — and differs only by being
+  // `visibility: hidden` and lacking `z-40` (the maximized sibling paints over
+  // it). Two invariants ride on this:
+  //
+  //  - It hides INTRINSICALLY (`visibility: hidden`), not by relying on the
+  //    maximized tile's `z-40` cover. During the window where `activeId`
+  //    already points at a just-created tile that hasn't entered `terminalIds`
+  //    yet, no maximized tile exists — a covered tile carrying only `inert`
+  //    would paint, flashing the canvas for a frame (regressed in #989, which
+  //    dropped the pre-#988 `visibility: hidden`). Keep the subtree mounted
+  //    (`visibility`, not `display`) so xterm keeps writing its buffer and the
+  //    dock previews stay populated (#904).
+  //  - It is the SAME SIZE as the maximized tile. Switching the active terminal
+  //    in maximized posture is then a pure visibility/z-index swap: no tile
+  //    changes border-box size, so `Terminal`'s ResizeObserver never fires
+  //    `fit()` — no xterm grid reflow, no repaint, and no server PTY resize on
+  //    switch. (Were covered tiles sized to their small canvas-layout rect — as
+  //    they are when `tiled` — every switch would resize BOTH the revealed and
+  //    the hidden xterm and refit them: the per-switch "re-render".) Tradeoff:
+  //    ENTERING maximized posture now sizes every covered tile's PTY to the
+  //    viewport grid once — a one-time SIGWINCH per tile on the posture toggle,
+  //    not a per-switch cost.
   const tileStyle = (): JSX.CSSProperties =>
     isMaximized()
       ? { "background-color": bg() }
       : isCovered()
-        ? { ...tiledStyle(), visibility: "hidden" }
+        ? { "background-color": bg(), visibility: "hidden" }
         : tiledStyle();
 
   return (
@@ -224,18 +238,21 @@ const CanvasTile: Component<{
       inert={isCovered()}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
-        // Maximized uses `absolute inset-0 z-40` to cover the canvas
-        // container. Since #988 dropped the pan/zoom wrapper div, the
-        // nearest positioned ancestor is `canvas-grid-bg` (real viewport
-        // rect, untransformed), so `inset-0` resolves cleanly to the
-        // canvas's screen-space without any inverse-transform tricks.
-        // The dock sits outside this container as a flex sibling in
-        // maximized posture (TerminalCanvas), so the tile naturally
-        // fills the remaining viewport without needing a left-inset (#904).
+        // Maximized AND covered tiles use `absolute inset-0` to fill the canvas
+        // container — one shared box, so an active-id switch never resizes an
+        // xterm (see tileStyle). Since #988 dropped the pan/zoom wrapper div,
+        // the nearest positioned ancestor is `canvas-grid-bg` (real viewport
+        // rect, untransformed), so `inset-0` resolves cleanly to the canvas's
+        // screen-space without any inverse-transform tricks. The dock sits
+        // outside this container as a flex sibling in maximized posture
+        // (TerminalCanvas), so the tile naturally fills the remaining viewport
+        // without needing a left-inset (#904). Only the maximized tile takes
+        // `z-40`, so it paints above its hidden covered siblings.
         absolute: true,
-        "inset-0 z-40": isMaximized(),
-        "rounded-xl": !isMaximized(),
-        "border-transparent": isMaximized(),
+        "inset-0": isMaximized() || isCovered(),
+        "z-40": isMaximized(),
+        "rounded-xl": props.mode === "tiled",
+        "border-transparent": isMaximized() || isCovered(),
       }}
       style={tileStyle()}
       onMouseDown={() => props.onSelect()}
